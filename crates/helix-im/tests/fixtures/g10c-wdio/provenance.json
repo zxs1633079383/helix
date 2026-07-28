@@ -3,9 +3,9 @@
   "evidencePlane": "helix-production-sans-io",
   "fixtures": [
     {
-      "fileName": "full-window.snapshot.frame-v3.json",
-      "fixtureId": "G-10c-full-window.snapshot",
-      "fixtureSha256": "36c9569306798727fb10130fd4ff4bcd9630c0d09772a2f959b52688c2f8df87",
+      "fileName": "attach-empty.snapshot.frame-v3.json",
+      "fixtureId": "G-10c-attach-empty.snapshot",
+      "fixtureSha256": "f592f32eed632d60e940b95d10c593c1da6257ca015fe7566659147e179635d6",
       "parameterizableFields": [
         "/transactionId",
         "/causationId",
@@ -13,12 +13,25 @@
         "/mutations/*/surfaceEpoch"
       ],
       "schemaVersion": 3,
-      "semanticSha256": "cc0f112991757d1a7df90f73c4ff08f0dc567bde53ba2186ac92c983be481070"
+      "semanticSha256": "104973e44b6fe2813217f964a105bbc2854515ebfa77d84b864035689e65ceb3"
+    },
+    {
+      "fileName": "full-window-loaded.delta.frame-v3.json",
+      "fixtureId": "G-10c-full-window-loaded.delta",
+      "fixtureSha256": "6d47cb02e1d16e1f0ba259359902032fe416b6ed28958de1a4a9e570d3884577",
+      "parameterizableFields": [
+        "/transactionId",
+        "/causationId",
+        "/mutations/*/causationId",
+        "/mutations/*/surfaceEpoch"
+      ],
+      "schemaVersion": 3,
+      "semanticSha256": "190e124994ae0e5c4c7730d5a8a54f2a164e0bdaed0fecca686189930d919ff8"
     },
     {
       "fileName": "new-message-appended.delta.frame-v3.json",
       "fixtureId": "G-10c-new-message-appended.delta",
-      "fixtureSha256": "479019be3ac07b5a8ffb81201ed0bb7d4ec224c8af3cc84036d414a5a4e95a09",
+      "fixtureSha256": "f0d542ead3a19abd7568fa9ac180c5bd6436b38041940edb808035f82e8a44cb",
       "parameterizableFields": [
         "/transactionId",
         "/causationId",
@@ -26,7 +39,7 @@
         "/mutations/*/surfaceEpoch"
       ],
       "schemaVersion": 3,
-      "semanticSha256": "133bdc1952952d0e3d023a3e0494780d449dc15c6959c11be48db7cbfc4b7610"
+      "semanticSha256": "f9328deea1f8d73a3ce6851e55fc5a6a5156e316dcf34fdd3c84f2dd1bd7c406"
     }
   ],
   "gateId": "G-10c",

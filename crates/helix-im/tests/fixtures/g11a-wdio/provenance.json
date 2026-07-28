@@ -3,9 +3,9 @@
   "evidencePlane": "helix-production-sans-io",
   "fixtures": [
     {
-      "fileName": "latest.snapshot.frame-v3.json",
-      "fixtureId": "G-11a-latest.snapshot",
-      "fixtureSha256": "b8edc84da5694ae9a3ccae66e6de8e1c898fd34404e886db7f3f8d4f61b7f315",
+      "fileName": "attach-empty.snapshot.frame-v3.json",
+      "fixtureId": "G-11a-attach-empty.snapshot",
+      "fixtureSha256": "4a0ba275a6b3fb777a16165d791bef349c2c7ba8d130db1194ddcf82309889fb",
       "parameterizableFields": [
         "/transactionId",
         "/causationId",
@@ -13,12 +13,25 @@
         "/mutations/*/surfaceEpoch"
       ],
       "schemaVersion": 3,
-      "semanticSha256": "de2389f7591f767c76efd3a45f47fbfcd68ae6318899459842937a9236032f21"
+      "semanticSha256": "81da3f45ba5962502cff4778979b618f25188c318d49f22c1e52b7c9d1611dbd"
+    },
+    {
+      "fileName": "latest-loaded.delta.frame-v3.json",
+      "fixtureId": "G-11a-latest-loaded.delta",
+      "fixtureSha256": "c3b87ac6645382520e5496e58f8e3c967d3221dc9fc90db881257d289342f237",
+      "parameterizableFields": [
+        "/transactionId",
+        "/causationId",
+        "/mutations/*/causationId",
+        "/mutations/*/surfaceEpoch"
+      ],
+      "schemaVersion": 3,
+      "semanticSha256": "21f56addcaf65093a73c30451fba3ea90722968f94f0f52fcdb5bf2fc07a972c"
     },
     {
       "fileName": "uncached-located.delta.frame-v3.json",
       "fixtureId": "G-11a-uncached-located.delta",
-      "fixtureSha256": "be3a791814b8e8791cb303c9dd9062e4e495da6f43fe04492dd933a4f4389219",
+      "fixtureSha256": "65c1eff07f7ad2dc94d07ccaeeabc6628177f516af7b6a6f2ecd544dbcfd2056",
       "parameterizableFields": [
         "/transactionId",
         "/causationId",
@@ -26,12 +39,12 @@
         "/mutations/*/surfaceEpoch"
       ],
       "schemaVersion": 3,
-      "semanticSha256": "7d03d33307ef60d0819a227dd5f4ec994290289eb439ba804175b50cd9137590"
+      "semanticSha256": "7a5d152b55d690243d3329aebfae848e05b8ae398a9acf66fac56e437bc4ecce"
     },
     {
       "fileName": "located-older.delta.frame-v3.json",
       "fixtureId": "G-11a-located-older.delta",
-      "fixtureSha256": "f85309dad86e9cd2abeabe654114953347dac5bff9ccc0119b515f2135c77852",
+      "fixtureSha256": "3ce42808d9d2a58d0810fd715e7146dc284b1c9edf42d070f3a75004b6e99581",
       "parameterizableFields": [
         "/transactionId",
         "/causationId",
@@ -39,12 +52,12 @@
         "/mutations/*/surfaceEpoch"
       ],
       "schemaVersion": 3,
-      "semanticSha256": "dee74ecaba2bc1017aa429ce5874e015b6f8e87902ddf98d1489ecf7cbfe14a8"
+      "semanticSha256": "5719ff955b5cb5a1e12e48cb36fdf02caba8e208e2c7f8ee42c634d64b88bf82"
     },
     {
       "fileName": "located-newer.delta.frame-v3.json",
       "fixtureId": "G-11a-located-newer.delta",
-      "fixtureSha256": "997c4a3149cb7a6ce69c524242995116b7c27331addd91e0a45d6e3a8f3eff5f",
+      "fixtureSha256": "40e753582be37fe0d9075a8d1cb2b5fe44bd30405eb7c5999808e7b532ac3db1",
       "parameterizableFields": [
         "/transactionId",
         "/causationId",
@@ -52,12 +65,12 @@
         "/mutations/*/surfaceEpoch"
       ],
       "schemaVersion": 3,
-      "semanticSha256": "199884ec6f459127b00cb7e14206497e545f09e02d00d2c09acc3324c2f7fb34"
+      "semanticSha256": "a6ca083a86d123c9097111474d088c49edae3d5bf5d2dcd89877583c672e723d"
     },
     {
       "fileName": "stale-navigation.delta.frame-v3.json",
       "fixtureId": "G-11a-stale-navigation.delta",
-      "fixtureSha256": "cd9d70e1c551aca5420be0537c64018c7f0060423d12b3ab987d35cce4ae805b",
+      "fixtureSha256": "a9bccc989a1fdece0e2f89f9ac16f47a3c60c1b60a2ccbf5570e1968a735d291",
       "parameterizableFields": [
         "/transactionId",
         "/causationId",
@@ -65,7 +78,7 @@
         "/mutations/*/surfaceEpoch"
       ],
       "schemaVersion": 3,
-      "semanticSha256": "ccf7ff0b14ab0835e1f033879a3c7b2609f6bd6872969312616c2596f0c6255c"
+      "semanticSha256": "d677615b3f537d29dd50a14711a53a5299e1faaca59362809280752ddf2d82d3"
     }
   ],
   "gateId": "G-11a",

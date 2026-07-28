@@ -15,12 +15,13 @@ fn produce() -> Vec<(
 )> {
     let channel_id = "chfixx0000000000000000100b";
     let mut runner = TimelineProductionRunner::new(channel_id, "latest");
+    let native_attach = runner.attach_latest(Vec::new(), 20);
     let latest = runner.attach_latest(rows(10..30, channel_id), 20);
-    assert_eq!(latest.mutations[0].mutation.revision, 1);
-    assert_eq!(latest.mutations[0].mutation.base_revision, None);
+    assert_eq!(latest.mutations[0].mutation.revision, 2);
+    assert_eq!(latest.mutations[0].mutation.base_revision, Some(1));
     assert!(matches!(
         latest.mutations[0].mutation.mutation,
-        TypedSurfaceMutation::TimelineSnapshot { .. }
+        TypedSurfaceMutation::TimelineDelta { .. }
     ));
     let initial = runner.locate(
         "server-019",
@@ -30,8 +31,8 @@ fn produce() -> Vec<(
         true,
         "g10b-locate-current",
     );
-    assert_eq!(initial.mutations[0].mutation.revision, 2);
-    assert_eq!(initial.mutations[0].mutation.base_revision, Some(1));
+    assert_eq!(initial.mutations[0].mutation.revision, 3);
+    assert_eq!(initial.mutations[0].mutation.base_revision, Some(2));
     assert!(matches!(
         initial.mutations[0].mutation.mutation,
         TypedSurfaceMutation::TimelineDelta { .. }
@@ -55,7 +56,8 @@ fn produce() -> Vec<(
             .any(|operation| matches!(operation, TimelineDeltaOperationVm::ActivateWindow { .. })));
     }
     vec![
-        ("latest.snapshot.frame-v3.json", latest),
+        ("attach-empty.snapshot.frame-v3.json", native_attach),
+        ("latest-loaded.delta.frame-v3.json", latest),
         ("initial-located.delta.frame-v3.json", initial),
         ("newer-loaded.delta.frame-v3.json", loaded),
         ("newer-exhausted.delta.frame-v3.json", exhausted),

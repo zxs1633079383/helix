@@ -7,25 +7,25 @@
         "view": {
           "activeWindow": {
             "anchor": {
-              "messageId": "server-029",
+              "messageId": "srvfix00000000000000000014",
               "mode": "latest"
             },
             "rangeIds": [
-              "g10b-window"
+              "g10-latest-window"
             ],
             "state": "ready",
-            "windowToken": "g10b-window"
+            "windowToken": "g10-latest-window"
           },
           "anchor": {
-            "messageId": "server-029",
+            "messageId": "srvfix00000000000000000014",
             "mode": "latest"
           },
-          "channelId": "chfixx0000000000000000100b",
+          "channelId": "chfixx00000000000000000010",
           "entities": [
             {
               "entityKey": {
-                "createAt": 11,
-                "temporaryId": "temporary-010"
+                "createAt": 1700001000001,
+                "temporaryId": "g10-temporary-1"
               },
               "message": {
                 "actions": [
@@ -68,7 +68,8 @@
                   },
                   {
                     "actionRef": "act.v1.d17707977078336cf3203e9039f4a821",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "revoke",
                     "surfaceEpoch": 1
@@ -99,15 +100,15 @@
                   },
                   {
                     "actionRef": "act.v1.075c8519a9320579088712be8a582fca",
-                    "disabledReason": "notAvailable",
-                    "enabled": false,
+                    "enabled": true,
                     "inputShape": "object",
                     "kind": "markRead",
                     "surfaceEpoch": 1
                   },
                   {
                     "actionRef": "act.v1.3462d848f53abb6daeaf52febe706064",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "viewReceipt",
                     "surfaceEpoch": 1
@@ -129,20 +130,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-observer"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 10"
+                  "text": "g10-latest-marker-1"
                 },
-                "createdAt": 11,
+                "createdAt": 1700001000001,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-010",
+                "eventSeq": 1,
+                "id": "srvfix00000000000000000001",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -156,13 +157,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-010",
+                "serverId": "srvfix00000000000000000001",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-010",
+                "temporaryId": "g10-temporary-1",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -178,8 +179,8 @@
             },
             {
               "entityKey": {
-                "createAt": 12,
-                "temporaryId": "temporary-011"
+                "createAt": 1700001000002,
+                "temporaryId": "g10-temporary-2"
               },
               "message": {
                 "actions": [
@@ -283,20 +284,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-actor"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 11"
+                  "text": "g10-latest-marker-2"
                 },
-                "createdAt": 12,
+                "createdAt": 1700001000002,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-011",
+                "eventSeq": 2,
+                "id": "srvfix00000000000000000002",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -310,13 +311,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-011",
+                "serverId": "srvfix00000000000000000002",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-011",
+                "temporaryId": "g10-temporary-2",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -332,8 +333,8 @@
             },
             {
               "entityKey": {
-                "createAt": 13,
-                "temporaryId": "temporary-012"
+                "createAt": 1700001000003,
+                "temporaryId": "g10-temporary-3"
               },
               "message": {
                 "actions": [
@@ -376,7 +377,8 @@
                   },
                   {
                     "actionRef": "act.v1.adfb1ebb497fad45eaeb7f27b54e2401",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "revoke",
                     "surfaceEpoch": 1
@@ -407,15 +409,15 @@
                   },
                   {
                     "actionRef": "act.v1.ff96b931ed5510e2905c768ad49f146c",
-                    "disabledReason": "notAvailable",
-                    "enabled": false,
+                    "enabled": true,
                     "inputShape": "object",
                     "kind": "markRead",
                     "surfaceEpoch": 1
                   },
                   {
                     "actionRef": "act.v1.499ef488ef760e18974e35325981068a",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "viewReceipt",
                     "surfaceEpoch": 1
@@ -437,20 +439,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-observer"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 12"
+                  "text": "g10-latest-marker-3"
                 },
-                "createdAt": 13,
+                "createdAt": 1700001000003,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-012",
+                "eventSeq": 3,
+                "id": "srvfix00000000000000000003",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -464,13 +466,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-012",
+                "serverId": "srvfix00000000000000000003",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-012",
+                "temporaryId": "g10-temporary-3",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -486,8 +488,8 @@
             },
             {
               "entityKey": {
-                "createAt": 14,
-                "temporaryId": "temporary-013"
+                "createAt": 1700001000004,
+                "temporaryId": "g10-temporary-4"
               },
               "message": {
                 "actions": [
@@ -591,20 +593,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-actor"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 13"
+                  "text": "g10-latest-marker-4"
                 },
-                "createdAt": 14,
+                "createdAt": 1700001000004,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-013",
+                "eventSeq": 4,
+                "id": "srvfix00000000000000000004",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -618,13 +620,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-013",
+                "serverId": "srvfix00000000000000000004",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-013",
+                "temporaryId": "g10-temporary-4",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -640,8 +642,8 @@
             },
             {
               "entityKey": {
-                "createAt": 15,
-                "temporaryId": "temporary-014"
+                "createAt": 1700001000005,
+                "temporaryId": "g10-temporary-5"
               },
               "message": {
                 "actions": [
@@ -684,7 +686,8 @@
                   },
                   {
                     "actionRef": "act.v1.99e7fe09b67a7978c3b7f4e80f554dda",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "revoke",
                     "surfaceEpoch": 1
@@ -715,15 +718,15 @@
                   },
                   {
                     "actionRef": "act.v1.3cee781815ce206bc80de0f9d4d60e0a",
-                    "disabledReason": "notAvailable",
-                    "enabled": false,
+                    "enabled": true,
                     "inputShape": "object",
                     "kind": "markRead",
                     "surfaceEpoch": 1
                   },
                   {
                     "actionRef": "act.v1.e1baa47d0140801506ca0a95b7e825c7",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "viewReceipt",
                     "surfaceEpoch": 1
@@ -745,20 +748,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-observer"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 14"
+                  "text": "g10-latest-marker-5"
                 },
-                "createdAt": 15,
+                "createdAt": 1700001000005,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-014",
+                "eventSeq": 5,
+                "id": "srvfix00000000000000000005",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -772,13 +775,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-014",
+                "serverId": "srvfix00000000000000000005",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-014",
+                "temporaryId": "g10-temporary-5",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -794,8 +797,8 @@
             },
             {
               "entityKey": {
-                "createAt": 16,
-                "temporaryId": "temporary-015"
+                "createAt": 1700001000006,
+                "temporaryId": "g10-temporary-6"
               },
               "message": {
                 "actions": [
@@ -899,20 +902,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-actor"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 15"
+                  "text": "g10-latest-marker-6"
                 },
-                "createdAt": 16,
+                "createdAt": 1700001000006,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-015",
+                "eventSeq": 6,
+                "id": "srvfix00000000000000000006",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -926,13 +929,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-015",
+                "serverId": "srvfix00000000000000000006",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-015",
+                "temporaryId": "g10-temporary-6",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -948,8 +951,8 @@
             },
             {
               "entityKey": {
-                "createAt": 17,
-                "temporaryId": "temporary-016"
+                "createAt": 1700001000007,
+                "temporaryId": "g10-temporary-7"
               },
               "message": {
                 "actions": [
@@ -992,7 +995,8 @@
                   },
                   {
                     "actionRef": "act.v1.e3841e098fbc6ad9fb452912299a5453",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "revoke",
                     "surfaceEpoch": 1
@@ -1023,15 +1027,15 @@
                   },
                   {
                     "actionRef": "act.v1.2505f58c05e6526f9d189ecfff7b2147",
-                    "disabledReason": "notAvailable",
-                    "enabled": false,
+                    "enabled": true,
                     "inputShape": "object",
                     "kind": "markRead",
                     "surfaceEpoch": 1
                   },
                   {
                     "actionRef": "act.v1.1d3169fbb198c2676e1351b2349f331c",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "viewReceipt",
                     "surfaceEpoch": 1
@@ -1053,20 +1057,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-observer"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 16"
+                  "text": "g10-latest-marker-7"
                 },
-                "createdAt": 17,
+                "createdAt": 1700001000007,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-016",
+                "eventSeq": 7,
+                "id": "srvfix00000000000000000007",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -1080,13 +1084,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-016",
+                "serverId": "srvfix00000000000000000007",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-016",
+                "temporaryId": "g10-temporary-7",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -1102,8 +1106,8 @@
             },
             {
               "entityKey": {
-                "createAt": 18,
-                "temporaryId": "temporary-017"
+                "createAt": 1700001000008,
+                "temporaryId": "g10-temporary-8"
               },
               "message": {
                 "actions": [
@@ -1207,20 +1211,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-actor"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 17"
+                  "text": "g10-latest-marker-8"
                 },
-                "createdAt": 18,
+                "createdAt": 1700001000008,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-017",
+                "eventSeq": 8,
+                "id": "srvfix00000000000000000008",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -1234,13 +1238,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-017",
+                "serverId": "srvfix00000000000000000008",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-017",
+                "temporaryId": "g10-temporary-8",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -1256,8 +1260,8 @@
             },
             {
               "entityKey": {
-                "createAt": 19,
-                "temporaryId": "temporary-018"
+                "createAt": 1700001000009,
+                "temporaryId": "g10-temporary-9"
               },
               "message": {
                 "actions": [
@@ -1300,7 +1304,8 @@
                   },
                   {
                     "actionRef": "act.v1.ca4b25a23588ff9611402f2430284f2c",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "revoke",
                     "surfaceEpoch": 1
@@ -1331,15 +1336,15 @@
                   },
                   {
                     "actionRef": "act.v1.f311e1c1d9823f530de7f33488454a0c",
-                    "disabledReason": "notAvailable",
-                    "enabled": false,
+                    "enabled": true,
                     "inputShape": "object",
                     "kind": "markRead",
                     "surfaceEpoch": 1
                   },
                   {
                     "actionRef": "act.v1.786dd0ab972d849a9192105c8367ccf5",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "viewReceipt",
                     "surfaceEpoch": 1
@@ -1361,20 +1366,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-observer"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 18"
+                  "text": "g10-latest-marker-9"
                 },
-                "createdAt": 19,
+                "createdAt": 1700001000009,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-018",
+                "eventSeq": 9,
+                "id": "srvfix00000000000000000009",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -1388,13 +1393,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-018",
+                "serverId": "srvfix00000000000000000009",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-018",
+                "temporaryId": "g10-temporary-9",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -1410,8 +1415,8 @@
             },
             {
               "entityKey": {
-                "createAt": 20,
-                "temporaryId": "temporary-019"
+                "createAt": 1700001000010,
+                "temporaryId": "g10-temporary-10"
               },
               "message": {
                 "actions": [
@@ -1515,20 +1520,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-actor"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 19"
+                  "text": "g10-latest-marker-10"
                 },
-                "createdAt": 20,
+                "createdAt": 1700001000010,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-019",
+                "eventSeq": 10,
+                "id": "srvfix0000000000000000000a",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -1542,13 +1547,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-019",
+                "serverId": "srvfix0000000000000000000a",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-019",
+                "temporaryId": "g10-temporary-10",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -1564,8 +1569,8 @@
             },
             {
               "entityKey": {
-                "createAt": 21,
-                "temporaryId": "temporary-020"
+                "createAt": 1700001000011,
+                "temporaryId": "g10-temporary-11"
               },
               "message": {
                 "actions": [
@@ -1608,7 +1613,8 @@
                   },
                   {
                     "actionRef": "act.v1.3e784199b71ea7923d3f9d6d24164931",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "revoke",
                     "surfaceEpoch": 1
@@ -1639,15 +1645,15 @@
                   },
                   {
                     "actionRef": "act.v1.a46f85ac5faf045db24ce50ea345fe83",
-                    "disabledReason": "notAvailable",
-                    "enabled": false,
+                    "enabled": true,
                     "inputShape": "object",
                     "kind": "markRead",
                     "surfaceEpoch": 1
                   },
                   {
                     "actionRef": "act.v1.c1726a6640a7c6678e48a85c3260d9d0",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "viewReceipt",
                     "surfaceEpoch": 1
@@ -1669,20 +1675,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-observer"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 20"
+                  "text": "g10-latest-marker-11"
                 },
-                "createdAt": 21,
+                "createdAt": 1700001000011,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-020",
+                "eventSeq": 11,
+                "id": "srvfix0000000000000000000b",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -1696,13 +1702,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-020",
+                "serverId": "srvfix0000000000000000000b",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-020",
+                "temporaryId": "g10-temporary-11",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -1718,8 +1724,8 @@
             },
             {
               "entityKey": {
-                "createAt": 22,
-                "temporaryId": "temporary-021"
+                "createAt": 1700001000012,
+                "temporaryId": "g10-temporary-12"
               },
               "message": {
                 "actions": [
@@ -1823,20 +1829,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-actor"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 21"
+                  "text": "g10-latest-marker-12"
                 },
-                "createdAt": 22,
+                "createdAt": 1700001000012,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-021",
+                "eventSeq": 12,
+                "id": "srvfix0000000000000000000c",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -1850,13 +1856,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-021",
+                "serverId": "srvfix0000000000000000000c",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-021",
+                "temporaryId": "g10-temporary-12",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -1872,8 +1878,8 @@
             },
             {
               "entityKey": {
-                "createAt": 23,
-                "temporaryId": "temporary-022"
+                "createAt": 1700001000013,
+                "temporaryId": "g10-temporary-13"
               },
               "message": {
                 "actions": [
@@ -1916,7 +1922,8 @@
                   },
                   {
                     "actionRef": "act.v1.451dd81eff9a737513fb6953ab52fe41",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "revoke",
                     "surfaceEpoch": 1
@@ -1947,15 +1954,15 @@
                   },
                   {
                     "actionRef": "act.v1.20bf6e6bb267925c3c59c8e067cb9788",
-                    "disabledReason": "notAvailable",
-                    "enabled": false,
+                    "enabled": true,
                     "inputShape": "object",
                     "kind": "markRead",
                     "surfaceEpoch": 1
                   },
                   {
                     "actionRef": "act.v1.cc81c26526b6b495746c9d6c2485f666",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "viewReceipt",
                     "surfaceEpoch": 1
@@ -1977,20 +1984,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-observer"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 22"
+                  "text": "g10-latest-marker-13"
                 },
-                "createdAt": 23,
+                "createdAt": 1700001000013,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-022",
+                "eventSeq": 13,
+                "id": "srvfix0000000000000000000d",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -2004,13 +2011,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-022",
+                "serverId": "srvfix0000000000000000000d",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-022",
+                "temporaryId": "g10-temporary-13",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -2026,8 +2033,8 @@
             },
             {
               "entityKey": {
-                "createAt": 24,
-                "temporaryId": "temporary-023"
+                "createAt": 1700001000014,
+                "temporaryId": "g10-temporary-14"
               },
               "message": {
                 "actions": [
@@ -2131,20 +2138,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-actor"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 23"
+                  "text": "g10-latest-marker-14"
                 },
-                "createdAt": 24,
+                "createdAt": 1700001000014,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-023",
+                "eventSeq": 14,
+                "id": "srvfix0000000000000000000e",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -2158,13 +2165,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-023",
+                "serverId": "srvfix0000000000000000000e",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-023",
+                "temporaryId": "g10-temporary-14",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -2180,8 +2187,8 @@
             },
             {
               "entityKey": {
-                "createAt": 25,
-                "temporaryId": "temporary-024"
+                "createAt": 1700001000015,
+                "temporaryId": "g10-temporary-15"
               },
               "message": {
                 "actions": [
@@ -2224,7 +2231,8 @@
                   },
                   {
                     "actionRef": "act.v1.28f0b19dc0496d5223a09496ea34e97f",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "revoke",
                     "surfaceEpoch": 1
@@ -2255,15 +2263,15 @@
                   },
                   {
                     "actionRef": "act.v1.93b41d13c2a63a42f7bb2b266558a3d8",
-                    "disabledReason": "notAvailable",
-                    "enabled": false,
+                    "enabled": true,
                     "inputShape": "object",
                     "kind": "markRead",
                     "surfaceEpoch": 1
                   },
                   {
                     "actionRef": "act.v1.dd1d02963964404ffd87a3030fcf5e15",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "viewReceipt",
                     "surfaceEpoch": 1
@@ -2285,20 +2293,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-observer"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 24"
+                  "text": "g10-latest-marker-15"
                 },
-                "createdAt": 25,
+                "createdAt": 1700001000015,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-024",
+                "eventSeq": 15,
+                "id": "srvfix0000000000000000000f",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -2312,13 +2320,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-024",
+                "serverId": "srvfix0000000000000000000f",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-024",
+                "temporaryId": "g10-temporary-15",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -2334,8 +2342,8 @@
             },
             {
               "entityKey": {
-                "createAt": 26,
-                "temporaryId": "temporary-025"
+                "createAt": 1700001000016,
+                "temporaryId": "g10-temporary-16"
               },
               "message": {
                 "actions": [
@@ -2439,20 +2447,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-actor"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 25"
+                  "text": "g10-latest-marker-16"
                 },
-                "createdAt": 26,
+                "createdAt": 1700001000016,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-025",
+                "eventSeq": 16,
+                "id": "srvfix00000000000000000010",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -2466,13 +2474,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-025",
+                "serverId": "srvfix00000000000000000010",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-025",
+                "temporaryId": "g10-temporary-16",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -2488,8 +2496,8 @@
             },
             {
               "entityKey": {
-                "createAt": 27,
-                "temporaryId": "temporary-026"
+                "createAt": 1700001000017,
+                "temporaryId": "g10-temporary-17"
               },
               "message": {
                 "actions": [
@@ -2532,7 +2540,8 @@
                   },
                   {
                     "actionRef": "act.v1.7231cbc6d153027a6847cd16adb241e1",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "revoke",
                     "surfaceEpoch": 1
@@ -2563,15 +2572,15 @@
                   },
                   {
                     "actionRef": "act.v1.f62f33205db9207002dc423fe038d768",
-                    "disabledReason": "notAvailable",
-                    "enabled": false,
+                    "enabled": true,
                     "inputShape": "object",
                     "kind": "markRead",
                     "surfaceEpoch": 1
                   },
                   {
                     "actionRef": "act.v1.85cf722e932154783280126b73eee4e6",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "viewReceipt",
                     "surfaceEpoch": 1
@@ -2593,20 +2602,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-observer"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 26"
+                  "text": "g10-latest-marker-17"
                 },
-                "createdAt": 27,
+                "createdAt": 1700001000017,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-026",
+                "eventSeq": 17,
+                "id": "srvfix00000000000000000011",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -2620,13 +2629,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-026",
+                "serverId": "srvfix00000000000000000011",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-026",
+                "temporaryId": "g10-temporary-17",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -2642,8 +2651,8 @@
             },
             {
               "entityKey": {
-                "createAt": 28,
-                "temporaryId": "temporary-027"
+                "createAt": 1700001000018,
+                "temporaryId": "g10-temporary-18"
               },
               "message": {
                 "actions": [
@@ -2747,20 +2756,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-actor"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 27"
+                  "text": "g10-latest-marker-18"
                 },
-                "createdAt": 28,
+                "createdAt": 1700001000018,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-027",
+                "eventSeq": 18,
+                "id": "srvfix00000000000000000012",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -2774,13 +2783,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-027",
+                "serverId": "srvfix00000000000000000012",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-027",
+                "temporaryId": "g10-temporary-18",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -2796,8 +2805,8 @@
             },
             {
               "entityKey": {
-                "createAt": 29,
-                "temporaryId": "temporary-028"
+                "createAt": 1700001000019,
+                "temporaryId": "g10-temporary-19"
               },
               "message": {
                 "actions": [
@@ -2840,7 +2849,8 @@
                   },
                   {
                     "actionRef": "act.v1.c8ea2568f28654544e04e2c49ec8dad0",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "revoke",
                     "surfaceEpoch": 1
@@ -2871,15 +2881,15 @@
                   },
                   {
                     "actionRef": "act.v1.aaa65c354adf9d1f172b3485e05703ad",
-                    "disabledReason": "notAvailable",
-                    "enabled": false,
+                    "enabled": true,
                     "inputShape": "object",
                     "kind": "markRead",
                     "surfaceEpoch": 1
                   },
                   {
                     "actionRef": "act.v1.5d85cbc25a4525f6b5145f14d921c666",
-                    "enabled": true,
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
                     "inputShape": "object",
                     "kind": "viewReceipt",
                     "surfaceEpoch": 1
@@ -2901,20 +2911,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-observer"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 28"
+                  "text": "g10-latest-marker-19"
                 },
-                "createdAt": 29,
+                "createdAt": 1700001000019,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-028",
+                "eventSeq": 19,
+                "id": "srvfix00000000000000000013",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -2928,13 +2938,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-028",
+                "serverId": "srvfix00000000000000000013",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-028",
+                "temporaryId": "g10-temporary-19",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -2950,8 +2960,8 @@
             },
             {
               "entityKey": {
-                "createAt": 30,
-                "temporaryId": "temporary-029"
+                "createAt": 1700001000020,
+                "temporaryId": "g10-temporary-20"
               },
               "message": {
                 "actions": [
@@ -3055,20 +3065,20 @@
                   }
                 ],
                 "author": {
-                  "userId": "timeline-gate-viewer"
+                  "userId": "g10-wdio-actor"
                 },
                 "bookmarked": false,
-                "channelId": "chfixx0000000000000000100b",
+                "channelId": "chfixx00000000000000000010",
                 "content": {
                   "kind": "text",
-                  "text": "timeline message 29"
+                  "text": "g10-latest-marker-20"
                 },
-                "createdAt": 30,
+                "createdAt": 1700001000020,
                 "delivery": {
                   "kind": "sent"
                 },
-                "eventSeq": 0,
-                "id": "server-029",
+                "eventSeq": 20,
+                "id": "srvfix00000000000000000014",
                 "pinned": false,
                 "quickActions": [
                   "react",
@@ -3082,13 +3092,13 @@
                 "replySummary": {
                   "kind": "none"
                 },
-                "serverId": "server-029",
+                "serverId": "srvfix00000000000000000014",
                 "templateConfirmation": {
                   "confirmedCount": 0,
                   "readerIds": [],
                   "templateReceived": false
                 },
-                "temporaryId": "temporary-029",
+                "temporaryId": "g10-temporary-20",
                 "urgency": {
                   "canConfirmUrgent": false,
                   "urgent": false,
@@ -3145,7 +3155,8 @@
                 },
                 {
                   "actionRef": "act.v1.d17707977078336cf3203e9039f4a821",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "revoke",
                   "surfaceEpoch": 1
@@ -3176,15 +3187,15 @@
                 },
                 {
                   "actionRef": "act.v1.075c8519a9320579088712be8a582fca",
-                  "disabledReason": "notAvailable",
-                  "enabled": false,
+                  "enabled": true,
                   "inputShape": "object",
                   "kind": "markRead",
                   "surfaceEpoch": 1
                 },
                 {
                   "actionRef": "act.v1.3462d848f53abb6daeaf52febe706064",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "viewReceipt",
                   "surfaceEpoch": 1
@@ -3206,20 +3217,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-observer"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 10"
+                "text": "g10-latest-marker-1"
               },
-              "createdAt": 11,
+              "createdAt": 1700001000001,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-010",
+              "eventSeq": 1,
+              "id": "srvfix00000000000000000001",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -3233,13 +3244,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-010",
+              "serverId": "srvfix00000000000000000001",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-010",
+              "temporaryId": "g10-temporary-1",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -3354,20 +3365,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-actor"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 11"
+                "text": "g10-latest-marker-2"
               },
-              "createdAt": 12,
+              "createdAt": 1700001000002,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-011",
+              "eventSeq": 2,
+              "id": "srvfix00000000000000000002",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -3381,13 +3392,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-011",
+              "serverId": "srvfix00000000000000000002",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-011",
+              "temporaryId": "g10-temporary-2",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -3441,7 +3452,8 @@
                 },
                 {
                   "actionRef": "act.v1.adfb1ebb497fad45eaeb7f27b54e2401",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "revoke",
                   "surfaceEpoch": 1
@@ -3472,15 +3484,15 @@
                 },
                 {
                   "actionRef": "act.v1.ff96b931ed5510e2905c768ad49f146c",
-                  "disabledReason": "notAvailable",
-                  "enabled": false,
+                  "enabled": true,
                   "inputShape": "object",
                   "kind": "markRead",
                   "surfaceEpoch": 1
                 },
                 {
                   "actionRef": "act.v1.499ef488ef760e18974e35325981068a",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "viewReceipt",
                   "surfaceEpoch": 1
@@ -3502,20 +3514,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-observer"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 12"
+                "text": "g10-latest-marker-3"
               },
-              "createdAt": 13,
+              "createdAt": 1700001000003,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-012",
+              "eventSeq": 3,
+              "id": "srvfix00000000000000000003",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -3529,13 +3541,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-012",
+              "serverId": "srvfix00000000000000000003",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-012",
+              "temporaryId": "g10-temporary-3",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -3650,20 +3662,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-actor"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 13"
+                "text": "g10-latest-marker-4"
               },
-              "createdAt": 14,
+              "createdAt": 1700001000004,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-013",
+              "eventSeq": 4,
+              "id": "srvfix00000000000000000004",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -3677,13 +3689,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-013",
+              "serverId": "srvfix00000000000000000004",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-013",
+              "temporaryId": "g10-temporary-4",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -3737,7 +3749,8 @@
                 },
                 {
                   "actionRef": "act.v1.99e7fe09b67a7978c3b7f4e80f554dda",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "revoke",
                   "surfaceEpoch": 1
@@ -3768,15 +3781,15 @@
                 },
                 {
                   "actionRef": "act.v1.3cee781815ce206bc80de0f9d4d60e0a",
-                  "disabledReason": "notAvailable",
-                  "enabled": false,
+                  "enabled": true,
                   "inputShape": "object",
                   "kind": "markRead",
                   "surfaceEpoch": 1
                 },
                 {
                   "actionRef": "act.v1.e1baa47d0140801506ca0a95b7e825c7",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "viewReceipt",
                   "surfaceEpoch": 1
@@ -3798,20 +3811,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-observer"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 14"
+                "text": "g10-latest-marker-5"
               },
-              "createdAt": 15,
+              "createdAt": 1700001000005,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-014",
+              "eventSeq": 5,
+              "id": "srvfix00000000000000000005",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -3825,13 +3838,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-014",
+              "serverId": "srvfix00000000000000000005",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-014",
+              "temporaryId": "g10-temporary-5",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -3946,20 +3959,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-actor"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 15"
+                "text": "g10-latest-marker-6"
               },
-              "createdAt": 16,
+              "createdAt": 1700001000006,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-015",
+              "eventSeq": 6,
+              "id": "srvfix00000000000000000006",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -3973,13 +3986,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-015",
+              "serverId": "srvfix00000000000000000006",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-015",
+              "temporaryId": "g10-temporary-6",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -4033,7 +4046,8 @@
                 },
                 {
                   "actionRef": "act.v1.e3841e098fbc6ad9fb452912299a5453",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "revoke",
                   "surfaceEpoch": 1
@@ -4064,15 +4078,15 @@
                 },
                 {
                   "actionRef": "act.v1.2505f58c05e6526f9d189ecfff7b2147",
-                  "disabledReason": "notAvailable",
-                  "enabled": false,
+                  "enabled": true,
                   "inputShape": "object",
                   "kind": "markRead",
                   "surfaceEpoch": 1
                 },
                 {
                   "actionRef": "act.v1.1d3169fbb198c2676e1351b2349f331c",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "viewReceipt",
                   "surfaceEpoch": 1
@@ -4094,20 +4108,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-observer"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 16"
+                "text": "g10-latest-marker-7"
               },
-              "createdAt": 17,
+              "createdAt": 1700001000007,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-016",
+              "eventSeq": 7,
+              "id": "srvfix00000000000000000007",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -4121,13 +4135,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-016",
+              "serverId": "srvfix00000000000000000007",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-016",
+              "temporaryId": "g10-temporary-7",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -4242,20 +4256,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-actor"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 17"
+                "text": "g10-latest-marker-8"
               },
-              "createdAt": 18,
+              "createdAt": 1700001000008,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-017",
+              "eventSeq": 8,
+              "id": "srvfix00000000000000000008",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -4269,13 +4283,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-017",
+              "serverId": "srvfix00000000000000000008",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-017",
+              "temporaryId": "g10-temporary-8",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -4329,7 +4343,8 @@
                 },
                 {
                   "actionRef": "act.v1.ca4b25a23588ff9611402f2430284f2c",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "revoke",
                   "surfaceEpoch": 1
@@ -4360,15 +4375,15 @@
                 },
                 {
                   "actionRef": "act.v1.f311e1c1d9823f530de7f33488454a0c",
-                  "disabledReason": "notAvailable",
-                  "enabled": false,
+                  "enabled": true,
                   "inputShape": "object",
                   "kind": "markRead",
                   "surfaceEpoch": 1
                 },
                 {
                   "actionRef": "act.v1.786dd0ab972d849a9192105c8367ccf5",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "viewReceipt",
                   "surfaceEpoch": 1
@@ -4390,20 +4405,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-observer"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 18"
+                "text": "g10-latest-marker-9"
               },
-              "createdAt": 19,
+              "createdAt": 1700001000009,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-018",
+              "eventSeq": 9,
+              "id": "srvfix00000000000000000009",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -4417,13 +4432,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-018",
+              "serverId": "srvfix00000000000000000009",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-018",
+              "temporaryId": "g10-temporary-9",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -4538,20 +4553,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-actor"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 19"
+                "text": "g10-latest-marker-10"
               },
-              "createdAt": 20,
+              "createdAt": 1700001000010,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-019",
+              "eventSeq": 10,
+              "id": "srvfix0000000000000000000a",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -4565,13 +4580,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-019",
+              "serverId": "srvfix0000000000000000000a",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-019",
+              "temporaryId": "g10-temporary-10",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -4625,7 +4640,8 @@
                 },
                 {
                   "actionRef": "act.v1.3e784199b71ea7923d3f9d6d24164931",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "revoke",
                   "surfaceEpoch": 1
@@ -4656,15 +4672,15 @@
                 },
                 {
                   "actionRef": "act.v1.a46f85ac5faf045db24ce50ea345fe83",
-                  "disabledReason": "notAvailable",
-                  "enabled": false,
+                  "enabled": true,
                   "inputShape": "object",
                   "kind": "markRead",
                   "surfaceEpoch": 1
                 },
                 {
                   "actionRef": "act.v1.c1726a6640a7c6678e48a85c3260d9d0",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "viewReceipt",
                   "surfaceEpoch": 1
@@ -4686,20 +4702,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-observer"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 20"
+                "text": "g10-latest-marker-11"
               },
-              "createdAt": 21,
+              "createdAt": 1700001000011,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-020",
+              "eventSeq": 11,
+              "id": "srvfix0000000000000000000b",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -4713,13 +4729,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-020",
+              "serverId": "srvfix0000000000000000000b",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-020",
+              "temporaryId": "g10-temporary-11",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -4834,20 +4850,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-actor"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 21"
+                "text": "g10-latest-marker-12"
               },
-              "createdAt": 22,
+              "createdAt": 1700001000012,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-021",
+              "eventSeq": 12,
+              "id": "srvfix0000000000000000000c",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -4861,13 +4877,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-021",
+              "serverId": "srvfix0000000000000000000c",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-021",
+              "temporaryId": "g10-temporary-12",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -4921,7 +4937,8 @@
                 },
                 {
                   "actionRef": "act.v1.451dd81eff9a737513fb6953ab52fe41",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "revoke",
                   "surfaceEpoch": 1
@@ -4952,15 +4969,15 @@
                 },
                 {
                   "actionRef": "act.v1.20bf6e6bb267925c3c59c8e067cb9788",
-                  "disabledReason": "notAvailable",
-                  "enabled": false,
+                  "enabled": true,
                   "inputShape": "object",
                   "kind": "markRead",
                   "surfaceEpoch": 1
                 },
                 {
                   "actionRef": "act.v1.cc81c26526b6b495746c9d6c2485f666",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "viewReceipt",
                   "surfaceEpoch": 1
@@ -4982,20 +4999,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-observer"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 22"
+                "text": "g10-latest-marker-13"
               },
-              "createdAt": 23,
+              "createdAt": 1700001000013,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-022",
+              "eventSeq": 13,
+              "id": "srvfix0000000000000000000d",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -5009,13 +5026,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-022",
+              "serverId": "srvfix0000000000000000000d",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-022",
+              "temporaryId": "g10-temporary-13",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -5130,20 +5147,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-actor"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 23"
+                "text": "g10-latest-marker-14"
               },
-              "createdAt": 24,
+              "createdAt": 1700001000014,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-023",
+              "eventSeq": 14,
+              "id": "srvfix0000000000000000000e",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -5157,13 +5174,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-023",
+              "serverId": "srvfix0000000000000000000e",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-023",
+              "temporaryId": "g10-temporary-14",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -5217,7 +5234,8 @@
                 },
                 {
                   "actionRef": "act.v1.28f0b19dc0496d5223a09496ea34e97f",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "revoke",
                   "surfaceEpoch": 1
@@ -5248,15 +5266,15 @@
                 },
                 {
                   "actionRef": "act.v1.93b41d13c2a63a42f7bb2b266558a3d8",
-                  "disabledReason": "notAvailable",
-                  "enabled": false,
+                  "enabled": true,
                   "inputShape": "object",
                   "kind": "markRead",
                   "surfaceEpoch": 1
                 },
                 {
                   "actionRef": "act.v1.dd1d02963964404ffd87a3030fcf5e15",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "viewReceipt",
                   "surfaceEpoch": 1
@@ -5278,20 +5296,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-observer"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 24"
+                "text": "g10-latest-marker-15"
               },
-              "createdAt": 25,
+              "createdAt": 1700001000015,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-024",
+              "eventSeq": 15,
+              "id": "srvfix0000000000000000000f",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -5305,13 +5323,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-024",
+              "serverId": "srvfix0000000000000000000f",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-024",
+              "temporaryId": "g10-temporary-15",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -5426,20 +5444,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-actor"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 25"
+                "text": "g10-latest-marker-16"
               },
-              "createdAt": 26,
+              "createdAt": 1700001000016,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-025",
+              "eventSeq": 16,
+              "id": "srvfix00000000000000000010",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -5453,13 +5471,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-025",
+              "serverId": "srvfix00000000000000000010",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-025",
+              "temporaryId": "g10-temporary-16",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -5513,7 +5531,8 @@
                 },
                 {
                   "actionRef": "act.v1.7231cbc6d153027a6847cd16adb241e1",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "revoke",
                   "surfaceEpoch": 1
@@ -5544,15 +5563,15 @@
                 },
                 {
                   "actionRef": "act.v1.f62f33205db9207002dc423fe038d768",
-                  "disabledReason": "notAvailable",
-                  "enabled": false,
+                  "enabled": true,
                   "inputShape": "object",
                   "kind": "markRead",
                   "surfaceEpoch": 1
                 },
                 {
                   "actionRef": "act.v1.85cf722e932154783280126b73eee4e6",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "viewReceipt",
                   "surfaceEpoch": 1
@@ -5574,20 +5593,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-observer"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 26"
+                "text": "g10-latest-marker-17"
               },
-              "createdAt": 27,
+              "createdAt": 1700001000017,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-026",
+              "eventSeq": 17,
+              "id": "srvfix00000000000000000011",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -5601,13 +5620,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-026",
+              "serverId": "srvfix00000000000000000011",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-026",
+              "temporaryId": "g10-temporary-17",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -5722,20 +5741,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-actor"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 27"
+                "text": "g10-latest-marker-18"
               },
-              "createdAt": 28,
+              "createdAt": 1700001000018,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-027",
+              "eventSeq": 18,
+              "id": "srvfix00000000000000000012",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -5749,13 +5768,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-027",
+              "serverId": "srvfix00000000000000000012",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-027",
+              "temporaryId": "g10-temporary-18",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -5809,7 +5828,8 @@
                 },
                 {
                   "actionRef": "act.v1.c8ea2568f28654544e04e2c49ec8dad0",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "revoke",
                   "surfaceEpoch": 1
@@ -5840,15 +5860,15 @@
                 },
                 {
                   "actionRef": "act.v1.aaa65c354adf9d1f172b3485e05703ad",
-                  "disabledReason": "notAvailable",
-                  "enabled": false,
+                  "enabled": true,
                   "inputShape": "object",
                   "kind": "markRead",
                   "surfaceEpoch": 1
                 },
                 {
                   "actionRef": "act.v1.5d85cbc25a4525f6b5145f14d921c666",
-                  "enabled": true,
+                  "disabledReason": "notAvailable",
+                  "enabled": false,
                   "inputShape": "object",
                   "kind": "viewReceipt",
                   "surfaceEpoch": 1
@@ -5870,20 +5890,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-observer"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 28"
+                "text": "g10-latest-marker-19"
               },
-              "createdAt": 29,
+              "createdAt": 1700001000019,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-028",
+              "eventSeq": 19,
+              "id": "srvfix00000000000000000013",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -5897,13 +5917,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-028",
+              "serverId": "srvfix00000000000000000013",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-028",
+              "temporaryId": "g10-temporary-19",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -6018,20 +6038,20 @@
                 }
               ],
               "author": {
-                "userId": "timeline-gate-viewer"
+                "userId": "g10-wdio-actor"
               },
               "bookmarked": false,
-              "channelId": "chfixx0000000000000000100b",
+              "channelId": "chfixx00000000000000000010",
               "content": {
                 "kind": "text",
-                "text": "timeline message 29"
+                "text": "g10-latest-marker-20"
               },
-              "createdAt": 30,
+              "createdAt": 1700001000020,
               "delivery": {
                 "kind": "sent"
               },
-              "eventSeq": 0,
-              "id": "server-029",
+              "eventSeq": 20,
+              "id": "srvfix00000000000000000014",
               "pinned": false,
               "quickActions": [
                 "react",
@@ -6045,13 +6065,13 @@
               "replySummary": {
                 "kind": "none"
               },
-              "serverId": "server-029",
+              "serverId": "srvfix00000000000000000014",
               "templateConfirmation": {
                 "confirmedCount": 0,
                 "readerIds": [],
                 "templateReceived": false
               },
-              "temporaryId": "temporary-029",
+              "temporaryId": "g10-temporary-20",
               "urgency": {
                 "canConfirmUrgent": false,
                 "urgent": false,
@@ -6069,111 +6089,111 @@
             "hasMore": true,
             "hasNewer": false,
             "hasOlder": true,
-            "windowToken": "g10b-window"
+            "windowToken": "g10-latest-window"
           },
           "persistedWatermark": {
-            "createAt": 30,
-            "temporaryId": "temporary-029"
+            "createAt": 1700001000020,
+            "temporaryId": "g10-temporary-20"
           },
           "ranges": [
             {
               "hasNewer": false,
               "hasOlder": true,
               "latestWatermark": {
-                "createAt": 30,
-                "temporaryId": "temporary-029"
+                "createAt": 1700001000020,
+                "temporaryId": "g10-temporary-20"
               },
               "newerCursor": {
-                "createAt": 30,
-                "temporaryId": "temporary-029"
+                "createAt": 1700001000020,
+                "temporaryId": "g10-temporary-20"
               },
               "olderCursor": {
-                "createAt": 11,
-                "temporaryId": "temporary-010"
+                "createAt": 1700001000001,
+                "temporaryId": "g10-temporary-1"
               },
               "orderedKeys": [
                 {
-                  "createAt": 11,
-                  "temporaryId": "temporary-010"
+                  "createAt": 1700001000001,
+                  "temporaryId": "g10-temporary-1"
                 },
                 {
-                  "createAt": 12,
-                  "temporaryId": "temporary-011"
+                  "createAt": 1700001000002,
+                  "temporaryId": "g10-temporary-2"
                 },
                 {
-                  "createAt": 13,
-                  "temporaryId": "temporary-012"
+                  "createAt": 1700001000003,
+                  "temporaryId": "g10-temporary-3"
                 },
                 {
-                  "createAt": 14,
-                  "temporaryId": "temporary-013"
+                  "createAt": 1700001000004,
+                  "temporaryId": "g10-temporary-4"
                 },
                 {
-                  "createAt": 15,
-                  "temporaryId": "temporary-014"
+                  "createAt": 1700001000005,
+                  "temporaryId": "g10-temporary-5"
                 },
                 {
-                  "createAt": 16,
-                  "temporaryId": "temporary-015"
+                  "createAt": 1700001000006,
+                  "temporaryId": "g10-temporary-6"
                 },
                 {
-                  "createAt": 17,
-                  "temporaryId": "temporary-016"
+                  "createAt": 1700001000007,
+                  "temporaryId": "g10-temporary-7"
                 },
                 {
-                  "createAt": 18,
-                  "temporaryId": "temporary-017"
+                  "createAt": 1700001000008,
+                  "temporaryId": "g10-temporary-8"
                 },
                 {
-                  "createAt": 19,
-                  "temporaryId": "temporary-018"
+                  "createAt": 1700001000009,
+                  "temporaryId": "g10-temporary-9"
                 },
                 {
-                  "createAt": 20,
-                  "temporaryId": "temporary-019"
+                  "createAt": 1700001000010,
+                  "temporaryId": "g10-temporary-10"
                 },
                 {
-                  "createAt": 21,
-                  "temporaryId": "temporary-020"
+                  "createAt": 1700001000011,
+                  "temporaryId": "g10-temporary-11"
                 },
                 {
-                  "createAt": 22,
-                  "temporaryId": "temporary-021"
+                  "createAt": 1700001000012,
+                  "temporaryId": "g10-temporary-12"
                 },
                 {
-                  "createAt": 23,
-                  "temporaryId": "temporary-022"
+                  "createAt": 1700001000013,
+                  "temporaryId": "g10-temporary-13"
                 },
                 {
-                  "createAt": 24,
-                  "temporaryId": "temporary-023"
+                  "createAt": 1700001000014,
+                  "temporaryId": "g10-temporary-14"
                 },
                 {
-                  "createAt": 25,
-                  "temporaryId": "temporary-024"
+                  "createAt": 1700001000015,
+                  "temporaryId": "g10-temporary-15"
                 },
                 {
-                  "createAt": 26,
-                  "temporaryId": "temporary-025"
+                  "createAt": 1700001000016,
+                  "temporaryId": "g10-temporary-16"
                 },
                 {
-                  "createAt": 27,
-                  "temporaryId": "temporary-026"
+                  "createAt": 1700001000017,
+                  "temporaryId": "g10-temporary-17"
                 },
                 {
-                  "createAt": 28,
-                  "temporaryId": "temporary-027"
+                  "createAt": 1700001000018,
+                  "temporaryId": "g10-temporary-18"
                 },
                 {
-                  "createAt": 29,
-                  "temporaryId": "temporary-028"
+                  "createAt": 1700001000019,
+                  "temporaryId": "g10-temporary-19"
                 },
                 {
-                  "createAt": 30,
-                  "temporaryId": "temporary-029"
+                  "createAt": 1700001000020,
+                  "temporaryId": "g10-temporary-20"
                 }
               ],
-              "rangeId": "g10b-window"
+              "rangeId": "g10-latest-window"
             }
           ],
           "state": "ready"
@@ -6181,9 +6201,9 @@
       },
       "revision": 1,
       "scope": {
-        "channelId": "chfixx0000000000000000100b",
+        "channelId": "chfixx00000000000000000010",
         "kind": "timeline",
-        "windowToken": "g10b-window"
+        "windowToken": "g10-latest-window"
       },
       "surface": "message.timeline",
       "surfaceEpoch": 1,
@@ -6202,9 +6222,9 @@
       },
       "revision": 2,
       "scope": {
-        "channelId": "chfixx0000000000000000100b",
+        "channelId": "chfixx00000000000000000010",
         "kind": "timeline",
-        "windowToken": "g10b-window"
+        "windowToken": "g10-latest-window"
       },
       "surface": "message.timeline",
       "surfaceEpoch": 1,

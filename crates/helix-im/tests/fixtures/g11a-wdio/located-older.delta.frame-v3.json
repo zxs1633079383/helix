@@ -3,7 +3,7 @@
   "directives": [],
   "mutations": [
     {
-      "baseRevision": 3,
+      "baseRevision": 4,
       "causationId": "older-server-030",
       "mutation": {
         "kind": "timelineDelta",
@@ -4827,7 +4827,7 @@
           }
         ]
       },
-      "revision": 4,
+      "revision": 5,
       "scope": {
         "channelId": "chfixx0000000000000000110a",
         "kind": "timeline",
@@ -4844,5 +4844,5 @@
     "recovery": "idle"
   },
   "schemaVersion": 3,
-  "transactionId": "timeline-timeline|26:chfixx0000000000000000110a|6:latest-4"
+  "transactionId": "timeline-timeline|26:chfixx0000000000000000110a|6:latest-5"
 }

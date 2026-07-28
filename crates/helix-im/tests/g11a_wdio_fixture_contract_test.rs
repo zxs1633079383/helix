@@ -3,9 +3,7 @@
 #[path = "support/timeline_formal_gate.rs"]
 mod support;
 
-use helix_im::interaction_frame::{
-    TimelineDeltaOperationVm, TimelineInsertPositionVm, TypedSurfaceMutation,
-};
+use helix_im::interaction_frame::{TimelineDeltaOperationVm, TimelineInsertPositionVm};
 use support::{assert_canonical_gate, delta_operations, rows, TimelineProductionRunner};
 
 /// 发起两个 locate intent 并乱序回放，证明旧 response 只能合并数据、不能激活。
@@ -15,12 +13,9 @@ fn produce() -> Vec<(
 )> {
     let channel_id = "chfixx0000000000000000110a";
     let mut runner = TimelineProductionRunner::new(channel_id, "latest");
+    let native_attach = runner.attach_latest(Vec::new(), 20);
     let latest = runner.attach_latest(rows(80..100, channel_id), 20);
-    let TypedSurfaceMutation::TimelineSnapshot { view } = &latest.mutations[0].mutation.mutation
-    else {
-        panic!("latest must be a Snapshot");
-    };
-    let latest_range_id = view.ranges[0].range_id.clone();
+    let latest_range_id = "latest".to_string();
     let stale_pending = runner.start_locate("server-015", 20, true, true, "navigation-stale");
     let current_pending = runner.start_locate("server-040", 20, true, true, "navigation-current");
     let located = runner.complete_locate(current_pending, rows(30..50, channel_id));
@@ -87,7 +82,8 @@ fn produce() -> Vec<(
             .any(|operation| matches!(operation, TimelineDeltaOperationVm::ActivateWindow { .. })));
     }
     vec![
-        ("latest.snapshot.frame-v3.json", latest),
+        ("attach-empty.snapshot.frame-v3.json", native_attach),
+        ("latest-loaded.delta.frame-v3.json", latest),
         ("uncached-located.delta.frame-v3.json", located),
         ("located-older.delta.frame-v3.json", older),
         ("located-newer.delta.frame-v3.json", newer),

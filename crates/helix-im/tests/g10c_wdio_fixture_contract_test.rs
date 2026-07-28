@@ -11,6 +11,7 @@ use support::{assert_canonical_gate, delta_operations, rows, TimelineProductionR
 fn g10c_full_window_append_matches_canonical_fixtures() {
     let channel_id = "chfixx0000000000000000100c";
     let mut runner = TimelineProductionRunner::new(channel_id, "latest");
+    let native_attach = runner.attach_latest(Vec::new(), 60);
     let initial_rows = rows(0..60, channel_id);
     let snapshot = runner.attach_latest(initial_rows.clone(), 60);
     let appended = runner.send_and_readback_append(initial_rows);
@@ -34,7 +35,8 @@ fn g10c_full_window_append_matches_canonical_fixtures() {
         "g10c-wdio",
         "UPDATE_G10C_TIMELINE_FIXTURES",
         &[
-            ("full-window.snapshot.frame-v3.json", snapshot),
+            ("attach-empty.snapshot.frame-v3.json", native_attach),
+            ("full-window-loaded.delta.frame-v3.json", snapshot),
             ("new-message-appended.delta.frame-v3.json", appended),
         ],
     );

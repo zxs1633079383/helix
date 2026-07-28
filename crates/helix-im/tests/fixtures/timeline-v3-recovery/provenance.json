@@ -3,17 +3,17 @@
     {
       "expected": "atomic-reject-and-request-recovery-snapshot",
       "fileName": "entity-key-mismatch.frame-v3.json",
-      "fixtureSha256": "68896c3c4487272df4b036809ce696e45021fd3070aa42f6657dc35d10948e89"
+      "fixtureSha256": "c28950a4b9aa79dc9b0d5bc93d3f0e1278c99bf3bb2fd42634fca164b334f55c"
     },
     {
       "expected": "atomic-reject-and-request-recovery-snapshot",
       "fileName": "duplicate-range-key.frame-v3.json",
-      "fixtureSha256": "c14d0e8fc6f6a9c6a32844a87efcf4a3d89bab4c0a9916069454773bcf5ab84c"
+      "fixtureSha256": "35808614299dd4966c8c7f81966be7892816573354b2b96b9bb313c021c2bd2a"
     },
     {
       "expected": "atomic-reject-and-request-recovery-snapshot",
       "fileName": "mixed-invalid-transaction.frame-v3.json",
-      "fixtureSha256": "d1650db9daf2df6e64e5655bd2e6246ab617b6a606b4126ef410afe6087f762f"
+      "fixtureSha256": "5088b7ecc37eb0d429f6ca23d54244f0ffb5b1b39a132e69d78dd1e4ad13ed7a"
     }
   ],
   "gateId": "Timeline-V3-Recovery",

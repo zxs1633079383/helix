@@ -29,7 +29,7 @@ fn canonical_bytes(value: &Value) -> Vec<u8> {
 /// 从合法 Snapshot 派生三个独立可证伪的无效事务。
 fn invalid_cases() -> Vec<(&'static str, Value)> {
     let original: Value = serde_json::from_slice(include_bytes!(
-        "fixtures/g10b-wdio/latest.snapshot.frame-v3.json"
+        "fixtures/g10-wdio/timeline-ready.frame-v3.json"
     ))
     .expect("canonical snapshot parses");
 

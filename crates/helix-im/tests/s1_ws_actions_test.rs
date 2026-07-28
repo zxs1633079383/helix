@@ -57,12 +57,7 @@ fn emit_data(sink: &helix_core::EffectSink, event_name: &str) -> Vec<serde_json:
 fn frame_surfaces(sink: &helix_core::EffectSink) -> Vec<String> {
     emit_data(sink, "im:interaction:frame")
         .into_iter()
-        .flat_map(|frame| {
-            frame["mutations"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default()
-        })
+        .flat_map(|frame| frame["mutations"].as_array().cloned().unwrap_or_default())
         .filter_map(|mutation| mutation["surface"].as_str().map(str::to_string))
         .collect()
 }
@@ -765,7 +760,9 @@ fn channel_created_ws_inserts_attached_observer_dialog_s1() {
 
     let surfaces = frame_surfaces(&h.sink);
     assert!(
-        surfaces.iter().any(|surface| surface == "message.left-dialog-list"),
+        surfaces
+            .iter()
+            .any(|surface| surface == "message.left-dialog-list"),
         "Observer 的 WS channel_created 必须插入左侧会话，got: {surfaces:?}"
     );
 }

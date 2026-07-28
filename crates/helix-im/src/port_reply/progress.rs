@@ -417,7 +417,6 @@ mod tests {
             sha256: "a".repeat(64),
         };
         let prepared = crate::send::upload_props::PreparedMedia {
-            upload_id: "upload-1".to_string(),
             file_id: "file-1".to_string(),
             bucket: "attachment".to_string(),
             method: "PUT".to_string(),
@@ -496,7 +495,6 @@ mod tests {
                 sha256: "a".repeat(64),
             },
             prepared: crate::send::upload_props::PreparedMedia {
-                upload_id: "b".repeat(64),
                 file_id: "mf_0123456789abcdefghijklm".to_string(),
                 bucket: "attachment".to_string(),
                 method: "PUT".to_string(),

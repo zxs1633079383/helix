@@ -107,14 +107,14 @@
 - **实施范围**：本轮实现与迁移仓库固定为 `helix`、`cses-client`、`mobile-qucik-c++`；`cses-im-server` 只在 InteractionProtocol 揭示真实 wire、持久化或权威状态缺口时条件介入。`loopforge-tauri-im` 与 `pd/message` 明确不在实施、联调、发布证据和任务量估算范围内；Dioxus/Crux 仅作机制参照。
 - **状态**：已定（2026-07-15，用户明确拍板“Spec 是新版本 Helix 多端统一 UI 交互；命中 Goal 时调整 Goal”）。覆盖 GOAL §6 旧“方向 A 只允许数据形态 ViewModel”的高度边界；不改变 ADR-014 的 Web W0 交付事实，也不宣称 InteractionProtocol 已实现或 Gate 已 Green。
 
-## ADR-016 — 媒体控制面由 Rust 直连 Java，前端显式注入 Go/Java 双地址
+## ADR-016 — 媒体票据由 Rust 直连 Java，PUT 2xx 后本地完成
 
-- **决策**：rich/file 的 `Prepare → OSS PUT → Verify` 由 Helix Rust 编排；prepare 固定直连 Java `/oss/getPresignedUrl`，Complete 请求固定直连 Java `/oss/completeMediaUpload`，全部附件完成后 `posts/create` 仍走 Go。前端分别注入 `api_base_url=Go IM` 与 `default_api_base_url=Java env.restHost`，二者允许不同 origin，任何端不得从 Go 地址裁剪、拼接或猜测 Java 地址。
+- **决策**：rich/file 的 `Prepare → OSS PUT → Local Complete` 由 Helix Rust 编排；prepare 固定直连 Java `/oss/getPresignedUrl`，Java 只签发 `picture/attachment` 的 PUT 票据，不再调用 `/oss/completeMediaUpload` 或其它 verify 接口。OSS PUT 2xx 后，Helix 本地原子写入稳定 `bucket + uri`、删除对应 journal，全部附件完成后 `posts/create` 仍走 Go。前端分别注入 `api_base_url=Go IM` 与 `default_api_base_url=Java env.restHost`，二者允许不同 origin，任何端不得从 Go 地址裁剪、拼接或猜测 Java 地址。
 - **平台合同**：Web 配置继续显式接收两个 base；FFI 新增 `helix_create_with_endpoints(go_api_base,java_api_base,ws_url,...)`，旧 ABI 入口只保留既有调用兼容且不再推导 Java base；host-cli 未配置 Java base 时同样不猜。Java base 缺失时媒体命令 fail-closed，不允许相对 `/oss/*` 被 shared HTTP client 拼到 Go。本轮真实媒体上传只验收 native/FFI 的 shared host 文件上传 driver；Web 目前只有双地址配置槽，`Effect::UploadFile` 仍明确返回 unsupported，尚无浏览器 `File/Blob` 上传与 CORS 证据，不得宣称 Web rich/file 可用。
-- **服务端所有权**：UI 只提交 `localPath/fileName/contentType/size/sha256`。Java media 模式强制用户会话，固定 bucket/TTL/required headers，以服务端密钥 HMAC(`userId + clientUploadId`) 派生不可预测的 owner-bound `fileId/objectKey`，并签发绑定 size/type/SHA 的 `uploadToken`；verify 常量时间验票、从 OSS 对拍对象后才写 completed marker。最终 props 只保存 Java 稳定 capability URL `/oss/media/object/{fileId}`，该路由仅对 completed 对象 302 到短时 GET 签名。PUT/GET 预签名 URL 与签名 headers 不落库、不进消息、不进默认 wire 日志，uploadToken 只进入脱敏的内部恢复日志。
-- **持久化与进度**：媒体首次 message 与 prepare journal 必须同一 `PersistAtomic` 提交，失败补偿也原子写回 `unsend` message 与原始 journal，保证重启 retry 不绕过 Java verify。rich 最多九图，prepare Effect 同批吐给 host 并发执行，图片只显示整条 Sending、不发逐图百分比；FILE 保留 5% 进度，PUT 终态等待在途进度 Persist 回执后再推进，防止旧百分比覆盖 100%。当前 Helix v1 的 64 MiB 上限使用流式单 PUT；现网更大文件的 multipart/checkpoint 不在本轮等价范围，切换前须单独拍板并实现该合同。
+- **服务端所有权**：UI 只提交 `localPath/fileName/contentType/size/sha256`。Java 固定 bucket、TTL 与 required headers，返回 `fileId/objectKey/bucket/uri/method/url/headers`；Helix 严格校验 `bucket` 与媒体目标一致、`objectKey == uri == media/{fileId}`、method 为 PUT，且 `Content-Type` 与本地输入一致、`x-oss-forbid-overwrite=true`。最终 props 只保存稳定 `bucket + uri` 与展示元数据；预签名 PUT URL、签名 headers、本地路径和临时字段不落公开消息、不进默认 wire 日志。
+- **持久化与进度**：媒体首次 message 与 prepare journal 必须同一 `PersistAtomic` 提交，失败补偿也原子写回 `unsend` message 与原始 journal。PUT 失败或进程停在 PUT 阶段时重新 Prepare；PUT 2xx 后先持久化 Local Complete 阶段，重启只重放本地 `bucket + uri` 原子提交，不重复 PUT 或调用 Java Complete。rich 最多九图，prepare Effect 同批吐给 host 并发执行，图片只显示整条 Sending、不发逐图百分比；FILE 保留 5% 进度，PUT 终态等待在途进度 Persist 回执后再推进，防止旧百分比覆盖 100%。当前 Helix v1 的 64 MiB 上限使用流式单 PUT；现网更大文件的 multipart/checkpoint 不在本轮等价范围，切换前须单独拍板并实现该合同。
 - **理由**：用户明确要求 Rust 直接依赖 Java，Java 地址由前端提供；Go 媒体 facade 会增加一跳、重复状态与地址配置归属。显式双地址让服务边界可测试，Java owner-bound media 模式又避免把原有可自选 bucket/key/expiry 的通用预签名能力直接暴露给终端。
-- **状态**：Rust 直连 Java、前端注入双地址与图片/文件进度边界已定并实现中（2026-07-24 用户拍板）。64 MiB 单 PUT 是当前 v1 实现边界，已向用户显式同步但尚未获得其作为现网 multipart 替代能力的确认。Rust/Java focused 与三端验证、Go facade 清理、Java 发布部署和真实 OSS rich/file E2E 共同构成交付证据；未完成发布和真实链前不得宣称生产可用。
+- **状态**：Rust 直连 Java、前端注入双地址与图片/文件进度边界已定；2026-07-28 用户进一步拍板删除 Java `/oss/completeMediaUpload` 校验，以 PUT 2xx 作为对象写入成功事实并由 Helix 本地完成。64 MiB 单 PUT 是当前 v1 实现边界，已向用户显式同步但尚未获得其作为现网 multipart 替代能力的确认。三端验证与真实 OSS rich/file E2E 仍是生产可用证据，不能用本地合同测试替代。
 
 ---
 

@@ -1,4 +1,4 @@
-use super::{TrustedMediaReference, UploadSuccess, UploadTarget};
+use super::{PendingMediaPut, UploadSuccess, UploadTarget};
 use crate::ImError;
 use serde_json::{json, Value};
 
@@ -68,12 +68,9 @@ pub fn mark_upload_failed(
     Ok(())
 }
 
-pub fn mark_media_complete(
-    props: &mut Value,
-    target: &UploadTarget,
-    reference: &TrustedMediaReference,
-) -> Result<(), ImError> {
-    let node = target_node_mut(props, target)?;
+/// 将 PUT 2xx 后的服务端 bucket/uri 与本地媒体元数据写入公开消息引用。
+pub fn mark_media_complete(props: &mut Value, pending: &PendingMediaPut) -> Result<(), ImError> {
+    let node = target_node_mut(props, &pending.target)?;
     let object = node
         .as_object_mut()
         .ok_or_else(|| ImError::Parse("media target must be object".to_string()))?;
@@ -97,13 +94,16 @@ pub fn mark_media_complete(
     ] {
         object.remove(field);
     }
-    object.insert("bucket".to_string(), json!(&reference.bucket));
-    object.insert("id".to_string(), json!(&reference.file_id));
-    object.insert("name".to_string(), json!(&reference.file_name));
-    object.insert("uri".to_string(), json!(&reference.uri));
-    object.insert("contentType".to_string(), json!(&reference.content_type));
-    object.insert("size".to_string(), json!(reference.size));
-    object.insert("sha256".to_string(), json!(&reference.sha256));
+    object.insert("bucket".to_string(), json!(&pending.prepared.bucket));
+    object.insert("id".to_string(), json!(&pending.prepared.file_id));
+    object.insert("name".to_string(), json!(&pending.input.file_name));
+    object.insert("uri".to_string(), json!(&pending.prepared.uri));
+    object.insert(
+        "contentType".to_string(),
+        json!(&pending.input.content_type),
+    );
+    object.insert("size".to_string(), json!(pending.input.size));
+    object.insert("sha256".to_string(), json!(&pending.input.sha256));
     object.insert("upload".to_string(), json!({"status": "completed"}));
     Ok(())
 }

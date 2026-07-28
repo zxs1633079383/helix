@@ -1075,6 +1075,7 @@ fn media_resource_from_props<'a>(kind: &str, props: &'a Value) -> (&'a Value, &'
     }
 }
 
+/// 从兼容 props 提取字段完整的稳定 typed items，临时节点只保留在父级 raw resource。
 fn media_items_from_props(
     kind: &str,
     props: &Value,
@@ -1103,15 +1104,21 @@ fn media_items_from_props(
                                 .map(str::to_string)
                         },
                     )
-                })
-                .unwrap_or_else(|| file_name.clone());
-            let size = integer_at(resource, &["size"], "size")?
-                .unwrap_or_default()
-                .max(0) as u64;
+                });
             let content_type = row_string(
                 resource,
                 &["contentType", "content_type", "mimeType", "mime_type"],
             );
+            let uri = row_string(resource, &["uri", "url", "stablePath"]);
+            let Some(file_id) = file_id else {
+                return Ok(None);
+            };
+            if file_name.is_empty() || content_type.is_empty() || uri.is_empty() {
+                return Ok(None);
+            }
+            let size = integer_at(resource, &["size"], "size")?
+                .unwrap_or_default()
+                .max(0) as u64;
             let bucket = optional_non_empty_string(resource, &["bucket"]).unwrap_or_else(|| {
                 if kind == "IMAGE" {
                     "picture"
@@ -1120,19 +1127,17 @@ fn media_items_from_props(
                 }
                 .to_string()
             });
-            let uri = row_string(resource, &["uri", "url", "stablePath"]);
-            Ok(MediaItemVm {
+            Ok(Some(MediaItemVm {
                 file_id,
                 file_name,
                 size,
                 content_type,
                 bucket,
                 uri,
-                resource: surface_data(resource, 0)?,
                 thumbnail: optional_data(resource.get("thumbnail"))?,
-                availability: SurfaceDataVm::Record(BTreeMap::new()),
-            })
+            }))
         })
+        .filter_map(Result::transpose)
         .collect()
 }
 

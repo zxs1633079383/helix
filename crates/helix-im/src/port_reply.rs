@@ -281,38 +281,26 @@ impl ImModule {
         Ok(())
     }
 
+    /// 串行化同一消息的本地 Complete，避免多个附件并发覆盖整段 props。
     pub(crate) fn finalize_or_queue_media_completion(
         &mut self,
         put: crate::send::upload_props::PendingMediaPut,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if self
-            .state
-            .media_completion_inflight
-            .contains(&put.temporary_id)
-        {
+        let temporary_id = put.temporary_id.clone();
+        if self.state.media_completion_inflight.contains(&temporary_id) {
             self.state
                 .queued_media_completions
-                .entry(put.temporary_id.clone())
+                .entry(temporary_id)
                 .or_default()
                 .push_back(put);
             return Ok(());
         }
-        self.state
-            .media_completion_inflight
-            .insert(put.temporary_id.clone());
-        let reference = crate::send::upload_props::TrustedMediaReference {
-            file_id: put.prepared.file_id.clone(),
-            bucket: put.prepared.bucket.clone(),
-            uri: put.prepared.uri.clone(),
-            file_name: put.input.file_name.clone(),
-            content_type: put.input.content_type.clone(),
-            size: put.input.size,
-            sha256: put.input.sha256.clone(),
-        };
-        self.persist_media_complete(put, reference, out)
+        self.state.media_completion_inflight.insert(temporary_id);
+        self.persist_media_complete(put, out)
     }
 
+    // 统一回收失败的本地 Complete 串行槽，并把排队附件恢复为可重试状态。
     fn fail_media_completion_sequence(
         &mut self,
         failed: crate::send::upload_props::PendingMediaPut,
@@ -338,6 +326,7 @@ impl ImModule {
         )
     }
 
+    // 释放当前串行槽并取出同一消息的下一个待完成附件。
     fn take_next_media_completion(
         &mut self,
         temporary_id: &crate::state::TemporaryId,
@@ -387,16 +376,16 @@ impl ImModule {
         self.mark_upload_failed(pending, error, out)
     }
 
+    // 跳过已完成 file id，否则启动消息引用与 journal 删除的原子提交。
     fn persist_media_complete(
         &mut self,
         pending: crate::send::upload_props::PendingMediaPut,
-        reference: crate::send::upload_props::TrustedMediaReference,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         if self
             .state
             .completed_media
-            .contains_key(&pending.prepared.upload_id)
+            .contains(&pending.prepared.file_id)
         {
             let temporary_id = pending.temporary_id.clone();
             if let Some(next) = self.take_next_media_completion(&temporary_id) {
@@ -404,13 +393,13 @@ impl ImModule {
             }
             return Ok(());
         }
-        self.start_media_completion_persist(pending, reference, out)
+        self.start_media_completion_persist(pending, out)
     }
 
+    // 先原子提交稳定 bucket/uri 与 journal 删除，ACK 前不推进 posts/create。
     fn start_media_completion_persist(
         &mut self,
         pending: crate::send::upload_props::PendingMediaPut,
-        reference: crate::send::upload_props::TrustedMediaReference,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let props_snapshot = self
@@ -435,11 +424,9 @@ impl ImModule {
                 out,
             );
         };
-        if let Err(error) = crate::send::upload_props::mark_media_complete(
-            &mut props_after,
-            &pending.target,
-            &reference,
-        ) {
+        if let Err(error) =
+            crate::send::upload_props::mark_media_complete(&mut props_after, &pending)
+        {
             return self.fail_media_completion_sequence(
                 pending,
                 "complete_state",
@@ -490,33 +477,30 @@ impl ImModule {
             persist_corr,
             crate::send::upload_props::PendingMediaCompletionCommit {
                 pending,
-                reference,
                 props_after,
             },
         );
         Ok(())
     }
 
+    // 在本地 Complete 原子提交成功后推进内存态、下一附件或最终 posts/create。
     fn handle_media_completion_persist_reply(
         &mut self,
         commit: crate::send::upload_props::PendingMediaCompletionCommit,
         outcome: &helix_core::tick::PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        use crate::send::upload_props::CompletedMedia;
         use helix_core::tick::PortOutcome;
 
         match outcome {
             PortOutcome::Ok(_) => {
                 let crate::send::upload_props::PendingMediaCompletionCommit {
                     pending,
-                    reference,
                     props_after,
                 } = commit;
                 let crate::send::upload_props::PendingMediaPut {
                     temporary_id,
                     channel_id,
-                    target,
                     prepared,
                     ..
                 } = pending;
@@ -532,14 +516,7 @@ impl ImModule {
                         ready_body = send.body.clone();
                     }
                 }
-                self.state.completed_media.insert(
-                    prepared.upload_id,
-                    CompletedMedia {
-                        temporary_id: temporary_id.clone(),
-                        target,
-                        reference,
-                    },
-                );
+                self.state.completed_media.insert(prepared.file_id);
 
                 let next_completion = self.take_next_media_completion(&temporary_id);
                 if let Some(pending) = next_completion {

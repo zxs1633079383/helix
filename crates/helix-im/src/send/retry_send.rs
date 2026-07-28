@@ -751,29 +751,39 @@ fn is_media_body(body: &Value) -> bool {
     )
 }
 
+// 判断 durable body 是否已经只含稳定 bucket/uri，可直接重放 posts/create。
 fn media_body_is_fully_completed(body: &Value) -> bool {
     let Some(props) = body.get("props") else {
         return false;
     };
     match body.get("type").and_then(Value::as_str) {
-        Some("file" | "FILE") => props.get("file").is_some_and(completed_media_node),
-        Some("rich" | "IMAGE") => props
-            .get("files")
-            .and_then(Value::as_array)
-            .is_some_and(|files| !files.is_empty() && files.iter().all(completed_media_node)),
+        Some("file" | "FILE") => props
+            .get("file")
+            .is_some_and(|node| completed_media_node(node, "attachment")),
+        Some("rich" | "IMAGE") => {
+            props
+                .get("files")
+                .and_then(Value::as_array)
+                .is_some_and(|files| {
+                    !files.is_empty()
+                        && files
+                            .iter()
+                            .all(|node| completed_media_node(node, "picture"))
+                })
+        }
         _ => true,
     }
 }
 
-fn completed_media_node(node: &Value) -> bool {
+// 校验单个完成媒体节点不再含临时 URL，并与消息类型要求的 bucket 一致。
+fn completed_media_node(node: &Value, expected_bucket: &str) -> bool {
     let non_empty = |key: &str| {
         node.get(key)
             .and_then(Value::as_str)
             .is_some_and(|value| !value.is_empty())
     };
-    let url = node.get("url").and_then(Value::as_str);
     node.pointer("/upload/status").and_then(Value::as_str) == Some("completed")
-        && node.get("bucket").and_then(Value::as_str) == Some("file")
+        && node.get("bucket").and_then(Value::as_str) == Some(expected_bucket)
         && non_empty("id")
         && non_empty("name")
         && non_empty("contentType")
@@ -791,8 +801,8 @@ fn completed_media_node(node: &Value) -> bool {
                         .iter()
                         .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
             })
-        && url.is_some_and(|value| value.starts_with("http://") || value.starts_with("https://"))
-        && node.get("uri").and_then(Value::as_str) == url
+        && non_empty("uri")
+        && node.get("url").is_none()
 }
 
 fn continue_durable_media_retry(

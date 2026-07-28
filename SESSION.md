@@ -14,6 +14,11 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 收口已拍板的 G03 `Prepare → OSS PUT → 本地 Complete → posts/create` 链路并准备提交推送；可证伪断言：① 不恢复或调用 Java `/oss/completeMediaUpload`，ADR、Strict Matrix 与 G03 文档统一改为 PUT 2xx 后本地原子完成，最终 props 只保留 `bucket + uri`；② 不修改 canonical-id 对账链；③ 本次新增媒体完成/投影代码通过增量热路径审计且所有新增/改名函数具备紧邻注释；④ 聚焦测试、helix-im check/test、三端 Rust 验收、Web wasm build、core 零运行时依赖与 diff check 全部通过后才整理提交并 push | 赌注 中 | 可逆 是 | @2026-07-28T14:00:00+0800
+
+✅ DONE G03 已收口为 `Prepare → OSS PUT 2xx → 本地 PersistAtomic Complete → posts/create`，不再调用 Java `/oss/completeMediaUpload`；内存只保留完成 file id，typed media item 仅投影字段完整的稳定引用，Strict Matrix 升至 epoch 12 并重生成命令/文档/四份 Frame fixture。G03 聚焦合同 34 passed，五 crate check、Web wasm build、core 零运行时依赖、格式、生成物与 diff check 通过；`helix-im --lib` 379/380，唯一失败为已明确交由他人修复的 canonical-id 终态 readback，用例与 `send/reconcile.rs` 均未纳入本次修改 | @2026-07-28T15:20:00+0800
+⚡ DRIFT-PRED 全量测试未能全部通过，唯一剩余失败是任务开始前已排除的 canonical-id 并行修复项；本次新增的 4 条媒体 typed-item 回归已全部修复并复验通过 → 候选教训：验收预期应把明确排除的并行修复项写成允许的已知失败，而不是笼统要求全量全绿
+
 🎯 EXPECT 将 G02-G16c 剩余 22 个业务 Gate 按 G01 V1 稳定目录和文档布局同步到 Apifox 项目 8449651；可证伪断言：① 创建或更新恰好 22 个 Gate 文件夹且每个包含总览、Command、PC、Mobile、字段枚举、Frame 状态流、逐 Frame、UI、覆盖、HTTP/WS、Mock、版本 Diff；② 只嵌入 producer 导出的 canonical fixture，缺失 fixture 明确标记 not-proven；③ 所有 payload 先通过 Apifox CLI schema 校验，回读目录归属和数量一致；④ 不修改 Helix/PC/Mobile/Go 业务代码，不把 AcceptedCommand、Mock 或 HTTP 200 冒充真实渲染完成 | 赌注 高 | 可逆 是 | @2026-07-26T20:00:00-0700
 
 🎯 EXPECT 新增消息审批立项前置说明；可证伪断言：① 以阿里 P6 口径明确本期不承诺、现版组织能力不支持、未来规划未确认和核心 Owner 仅组织/消息两方；② 列清需业务产品、三端、测试、安全及运维角色配合，但不把审批 Owner 虚构给第三方；③ 仅在需求、组织能力、责任和排期四项 Gate 通过或管理层明确接受风险后，才进入现有方案决策稿与四份设计文件 | 赌注 低 | 可逆 是 | @2026-07-26T14:35:00-0700

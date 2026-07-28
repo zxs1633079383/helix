@@ -884,6 +884,7 @@ pub enum SurfaceDataVm {
     Record(BTreeMap<String, SurfaceDataVm>),
 }
 
+/// 单个媒体对象的跨端稳定引用；原始兼容资源仅保留在父级 `Media.resource`。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MediaItemVm {
@@ -893,10 +894,8 @@ pub struct MediaItemVm {
     pub content_type: String,
     pub bucket: String,
     pub uri: String,
-    pub resource: SurfaceDataVm,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<SurfaceDataVm>,
-    pub availability: SurfaceDataVm,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1897,11 +1896,9 @@ fn validate_message(
                 require_nonempty(surface, "media item bucket", &item.bucket)?;
                 require_nonempty(surface, "media item uri", &item.uri)?;
                 validate_wire_u64(surface, "media item size", item.size)?;
-                validate_data_for_surface(surface, &item.resource)?;
                 if let Some(thumbnail) = &item.thumbnail {
                     validate_data_for_surface(surface, thumbnail)?;
                 }
-                validate_data_for_surface(surface, &item.availability)?;
             }
             Ok(())
         }

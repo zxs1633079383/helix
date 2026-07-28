@@ -738,6 +738,7 @@ fn multi_attachment_partial_restart_completes_remaining_barrier_and_posts_once()
     assert_eq!(body["props"]["files"][1]["id"], "file-b");
 }
 
+/// 已删除 journal 的 sent 行在第二次重启时不得重复发布 posts/create。
 #[test]
 fn completion_deletes_internal_rows_and_second_restart_does_not_repost() {
     let row = pending_row(
@@ -780,11 +781,10 @@ fn completion_deletes_internal_rows_and_second_restart_does_not_repost() {
             TMP,
             "file",
             json!({"file":{
-                "bucket":"file",
+                "bucket":"attachment",
                 "id":"file-1",
                 "name":"doc.pdf",
-                "url":"http://localhost:3399/oss/media/object/file-1",
-                "uri":"http://localhost:3399/oss/media/object/file-1",
+                "uri":"media/file-1",
                 "contentType":"application/pdf",
                 "size":9,
                 "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -797,14 +797,14 @@ fn completion_deletes_internal_rows_and_second_restart_does_not_repost() {
     assert_eq!(upload_count(&second), 0);
 }
 
+/// 最终 Local Complete 已持久化时，重启只重试 posts/create，不重复 Prepare/PUT。
 #[test]
 fn restart_after_final_completion_commit_retries_only_posts_create() {
     let completed_props = json!({"file":{
-        "bucket":"file",
+        "bucket":"attachment",
         "id":"file-1",
         "name":"doc.pdf",
-        "url":"http://localhost:3399/oss/media/object/file-1",
-        "uri":"http://localhost:3399/oss/media/object/file-1",
+        "uri":"media/file-1",
         "contentType":"application/pdf",
         "size":9,
         "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

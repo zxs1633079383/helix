@@ -5,6 +5,7 @@ use helix_core::effect::{
 };
 use serde_json::{json, Value};
 
+/// 构造 Java PUT 票据请求，并显式携带目标 bucket 与本地完整性元数据。
 pub fn prepare_upload_request(
     java_api_base_url: &str,
     client_upload_id: &str,
@@ -35,6 +36,7 @@ pub fn prepare_upload_request(
     })
 }
 
+/// 严格解析 Java PUT 票据，拒绝与目标 bucket、file id 或签名头冲突的响应。
 pub fn parse_prepare_reply(
     bytes: &[u8],
     input: &MediaInput,
@@ -108,8 +110,6 @@ pub fn parse_prepare_reply(
         return Err("Java media prepare x-oss-forbid-overwrite must be true".to_string());
     }
     Ok(PreparedMedia {
-        // 复用既有 durable `upload_id` 槽保存幂等文件标识，不再等待 Java complete 票据。
-        upload_id: file_id.clone(),
         file_id,
         bucket,
         method,
@@ -120,6 +120,7 @@ pub fn parse_prepare_reply(
     })
 }
 
+/// 将已校验的 PUT 票据转换为 host 流式上传请求，不复制文件字节。
 pub fn media_upload_request(
     input: &MediaInput,
     prepared: &PreparedMedia,

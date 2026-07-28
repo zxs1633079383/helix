@@ -29,6 +29,7 @@ pub enum UploadTarget {
 }
 
 impl UploadTarget {
+    /// 返回 Java 签发票据与最终消息引用共同使用的稳定 bucket。
     pub fn bucket(&self) -> &'static str {
         match self {
             Self::RichImage { .. } => "picture",
@@ -61,7 +62,6 @@ pub struct MediaInput {
 
 #[derive(Debug, Clone)]
 pub struct PreparedMedia {
-    pub upload_id: String,
     pub file_id: String,
     pub bucket: String,
     pub method: String,
@@ -89,27 +89,8 @@ pub struct PendingMediaPut {
 }
 
 #[derive(Debug, Clone)]
-pub struct TrustedMediaReference {
-    pub file_id: String,
-    pub bucket: String,
-    pub uri: String,
-    pub file_name: String,
-    pub content_type: String,
-    pub size: u64,
-    pub sha256: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct CompletedMedia {
-    pub temporary_id: TemporaryId,
-    pub target: UploadTarget,
-    pub reference: TrustedMediaReference,
-}
-
-#[derive(Debug, Clone)]
 pub struct PendingMediaCompletionCommit {
     pub pending: PendingMediaPut,
-    pub reference: TrustedMediaReference,
     pub props_after: Value,
 }
 

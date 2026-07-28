@@ -344,7 +344,9 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
         "sha256",
         "/oss/getPresignedUrl",
         "PUT",
-        "/oss/completeMediaUpload",
+        "bucket",
+        "PersistAtomic",
+        "本地 Complete",
         "api_base_url",
         "default_api_base_url",
         "pending_media",
@@ -356,15 +358,12 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
         );
     }
     for token in [
-        "completed",
+        "picture/attachment",
         "objectKey",
-        "size",
+        "uri",
         "contentType",
-        "sha256",
-        "/oss/media/object/{fileId}",
-        "302",
-        "GET",
-        "Content-Type",
+        "x-oss-forbid-overwrite=true",
+        "同一 causation",
     ] {
         assert!(
             g03.http.response.contains(token),
@@ -374,11 +373,12 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
 
     for assertion in [
         "Mobile 不得提供 Java-owned 字段",
-        "Java verify 前不得调用 Go posts/create",
-        "uploadToken 缺失或篡改必须 fail-closed",
-        "未完成对象不得通过稳定 URL 读取或覆盖已完成对象",
-        "mismatch/corrupt/restart record 必须 fail-closed",
-        "真实链必须以 /oss/media/object/{fileId} 与 GET object 对拍 size/contentType/SHA",
+        "OSS PUT 2xx 前不得调用 Go posts/create",
+        "Local Complete PersistOk 前不得调用 Go posts/create",
+        "预签名 URL/headers/localPath 不得进入公开 props 或 posts/create",
+        "bucket/fileId/objectKey/uri mismatch 必须 fail-closed",
+        "PUT 阶段重启必须重新 Prepare，Local Complete 重启不得重复 PUT",
+        "真实链必须对拍 Java 票据、OSS PUT、本地原子 Complete、Go posts/create 与 Frame",
         "Go 与 Java base 不得互相推导或串用",
     ] {
         assert!(
@@ -392,7 +392,7 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
 #[test]
 fn uc15_uc16_freeze_canonical_go_request_and_authoritative_response() {
     let matrix = matrix();
-    assert_eq!(matrix.contract_epoch, 11);
+    assert_eq!(matrix.contract_epoch, 12);
 
     let create = gate(&matrix, "G-15a");
     assert!(create

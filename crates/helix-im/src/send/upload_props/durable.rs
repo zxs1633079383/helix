@@ -9,6 +9,7 @@ use serde_json::Value;
 
 const TABLE: &str = "pending_media";
 
+/// 将媒体步骤写入兼容旧 schema 的 durable journal，且不持久化预签名 URL。
 pub fn upsert_op(operation: &PendingMediaOp) -> Result<StorageOp, ImError> {
     let (temporary_id, channel_id, target, input, prepared, stage) = match operation {
         PendingMediaOp::Prepare(pending) => (
@@ -70,7 +71,8 @@ pub fn upsert_op(operation: &PendingMediaOp) -> Result<StorageOp, ImError> {
             ("sha256".to_string(), SqlValue::Text(input.sha256.clone())),
             (
                 "upload_id".to_string(),
-                SqlValue::Text(prepared_text(|value| &value.upload_id)),
+                // 兼容旧列；Java complete 删除后，file_id 就是唯一稳定幂等标识。
+                SqlValue::Text(prepared_text(|value| &value.file_id)),
             ),
             (
                 "file_id".to_string(),
@@ -140,6 +142,7 @@ pub fn decode_scan(bytes: &[u8]) -> Result<Vec<FailedMediaOp>, ImError> {
     rows.iter().map(decode_row).collect()
 }
 
+// 从兼容旧 schema 的一行恢复可安全重试的媒体步骤。
 fn decode_row(row: &Value) -> Result<FailedMediaOp, ImError> {
     let required = |key: &str| {
         row.get(key)
@@ -182,7 +185,6 @@ fn decode_row(row: &Value) -> Result<FailedMediaOp, ImError> {
                 target,
                 input,
                 prepared: PreparedMedia {
-                    upload_id: required("upload_id")?,
                     file_id: required("file_id")?,
                     bucket,
                     method: required("method")?,

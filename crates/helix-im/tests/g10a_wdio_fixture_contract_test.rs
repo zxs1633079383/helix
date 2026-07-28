@@ -33,7 +33,7 @@ struct FixtureCase {
     frame: InteractionFrameV2,
 }
 
-/// 从唯一 G10a ScenarioRunner 生成前置、成功、失败、竞态与耗尽六份完整 Frame。
+/// 从唯一 G10a ScenarioRunner 生成前置、首屏、成功、失败、竞态与耗尽七份完整 Frame。
 fn produce_cases() -> Vec<FixtureCase> {
     let success = G10AScenarioRunner::run_success();
     let http_failure = G10AScenarioRunner::run_http_failure();
@@ -61,6 +61,11 @@ fn produce_cases() -> Vec<FixtureCase> {
             fixture_id: "g10a-group-created-v2",
             file_name: "group-created.frame-v2.json",
             frame: success.group_created,
+        },
+        FixtureCase {
+            fixture_id: "g10a-timeline-initial-v3",
+            file_name: "timeline-initial.frame-v3.json",
+            frame: success.initial,
         },
         FixtureCase {
             fixture_id: "g10a-timeline-loaded-v3",
@@ -333,7 +338,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
 #[test]
 fn current_g10a_producer_matches_canonical_fixtures_and_provenance() {
     let cases = produce_cases();
-    assert_eq!(cases.len(), 6, "G10a canonical inventory is explicit");
+    assert_eq!(cases.len(), 7, "G10a canonical inventory is explicit");
     let directory = fixture_dir();
     let update = std::env::var_os("UPDATE_G10A_WDIO_FIXTURES").is_some();
     let mut provenance = Vec::with_capacity(cases.len());

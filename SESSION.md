@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 修复 Timeline V3 真实定位在 Native 单行探测后的 continuation 断点；可证伪断言：① `im_locate_message` 在 attached timeline 上直接进入 Go `postContext` authority，不再依赖非必要的本地 `StorageOp::Get` 回报；② HTTP 成功仍必须经过 message upsert PersistOk 与 target readback 后才产生 Frame；③ formal ScenarioRunner、helix-im 聚焦测试和 G10b/G11a PC real lane 通过；④ 不改 helix-core/driver/协议字段，不恢复 raw event 或 Replace | 赌注 中 | 可逆 是 | @2026-07-28T12:00:00-0700
+
+✅ DONE（HELIX FOCUSED）`im_locate_message` 已移除 Native 非必要的 `StorageOp::Get` continuation，直接进入 Go `postContext` authority；HTTP 后的 message upsert PersistOk 与 target readback 屏障保持不变。`cargo check -p helix-im` PASS，G10b/G10c/G10d/G11a formal producer 4/4 PASS；PC real lane 待新 Helix revision 重建 candidate 后继续验证 | @2026-07-28T12:20:00-0700
+
 🎯 EXPECT 建立 Timeline V3 下 G01 的三端测试与文档基线；可证伪断言：① Helix `g01_wdio_fixture_contract_test.rs` 仍是唯一 producer，并输出 2 份非 Timeline V2 Frame、4 份 Timeline V3 Frame及可校验 provenance；② cses-client WDIO 与 Mobile 仅 byte-exact 同步这些 JSON，不手写或补算业务字段；③ Mobile `G01FrameContractTest`、QuickJS 与 Venus 都消费 V3 timeline delta，断言 sending→sent/failed、WS 对账、原子失败和 typed view；④ 产出一份人读流程与一份 AI 执行合同，全部使用仓根相对路径，并把 AI 合同接入三仓就近 AGENTS/rule；⑤ 聚焦 Rust、WDIO contract、Mobile GTest、Venus 与 `git diff --check` 通过，任何 real/multiremote 未实际执行都保持 PARTIAL，不冒充 Green | 赌注 高 | 可逆 是 | @2026-07-28T02:20:00-0700
 
 ✅ DONE（PARTIAL/CONTRACT_DRIFT）G01 已形成 Helix canonical producer、6 份混合 V2/V3 fixture/provenance、PC byte-exact mirror、Mobile GTest/QuickJS/Venus 消费链，以及人读流程和 AI 执行合同；Rust producer 1/1、PC 聚焦 4 suites/56 tests、Mobile G01 6/6、两端同步校验、Mobile hard-cut 与显式 `HELIX_ROOT` Venus gate 均通过。PC 全量 contract 仍有 13 个非 G01 的既有 Timeline V2 迁移失败，实际 WDIO Mock 被候选二进制 Helix `148a8c4` 早于 fixture `b89c043` 的 provenance gate 阻断，real/multiremote 未运行；Mobile 默认 pin `8e6c2d3` 仍是 V2，故本轮不提交、不把消费兼容性冒充三端 Green | @2026-07-28T02:00:31-0700

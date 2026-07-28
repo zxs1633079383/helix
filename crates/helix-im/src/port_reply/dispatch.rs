@@ -1292,11 +1292,6 @@ impl ImModule {
                 self.handle_load_older_readback_reply(state, outcome, now_ms, out)?;
             }
 
-            // G11a 本地探测只决定是否需要远端 authority，不自行拼接未缓存上下文。
-            CorrelationContext::TimelineLocateProbe { state } => {
-                self.handle_timeline_locate_probe_reply(state, outcome, now_ms, out)?;
-            }
-
             // G10b/G11a HTTP 回包必须先进入 message upsert 屏障。
             CorrelationContext::TimelineNavigationHttp { state } => {
                 self.handle_timeline_navigation_http_reply(state, outcome, now_ms, out)?;

@@ -97,7 +97,7 @@ impl TimelineProductionRunner {
         self.only_frame()
     }
 
-    /// 通过本地 miss、Go context、cache barrier 和 target readback 完成定位。
+    /// 通过 Go context、cache barrier 和 target readback 完成定位。
     pub fn locate(
         &mut self,
         target_message_id: &str,
@@ -136,8 +136,6 @@ impl TimelineProductionRunner {
                 "navigationToken": navigation_token,
             }),
         );
-        let probe = self.only_persist_corr();
-        self.reply(probe, Bytes::from_static(b"[]"));
         PendingLocate {
             http_corr: self.only_http_corr("/posts/postContext"),
             target_message_id: target_message_id.to_string(),

@@ -103,7 +103,7 @@ impl ImModule {
                 );
                 self.start_timeline_navigation_http(state, out);
             }
-            // G11a 定位先探测本地 target；未在 attached slot 时才进入 Go context authority。
+            // G11a 定位直接进入 Go context authority；本地缓存不能替代居中窗口的权威上下文。
             n if n == crate::timeline_navigation::LOCATE_MESSAGE => {
                 let (channel_id, target_message_id, page_size, request_id, navigation_token) =
                     crate::timeline_navigation::parse_locate_request(payload)?;
@@ -130,20 +130,10 @@ impl ImModule {
                     window_token,
                     page_size,
                     request_id,
-                    target_message_id.clone(),
+                    target_message_id,
                     navigation_token,
                 );
-                let corr = self.alloc_corr_internal();
-                out.push(crate::timeline_navigation::locate_probe_effect(
-                    &target_message_id,
-                    corr,
-                ));
-                self.state.corr_map.insert(
-                    corr,
-                    CorrelationContext::TimelineLocateProbe {
-                        state: Box::new(state),
-                    },
-                );
+                self.start_timeline_navigation_http(state, out);
             }
             _ => tracing::debug!("im: query dispatch miss '{}'", name),
         }

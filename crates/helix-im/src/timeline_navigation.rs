@@ -373,7 +373,7 @@ pub fn navigation_http(
     }
 }
 
-/// 构造未缓存定位的本地单行探测。
+/// 构造导航持久化后的单行读回；定位入口本身直接使用远端 context authority。
 pub fn locate_probe_effect(target_message_id: &str, corr: Correlation) -> Effect {
     Effect::Persist {
         corr,

@@ -419,9 +419,10 @@ mod tests {
         let prepared = crate::send::upload_props::PreparedMedia {
             upload_id: "upload-1".to_string(),
             file_id: "file-1".to_string(),
+            bucket: "attachment".to_string(),
             method: "PUT".to_string(),
             url: "https://upload.invalid/signed".to_string(),
-            public_url: "https://cdn.invalid/file-1".to_string(),
+            uri: "media/file-1".to_string(),
             object_key: "file-1".to_string(),
             headers: Vec::new(),
         };
@@ -497,10 +498,10 @@ mod tests {
             prepared: crate::send::upload_props::PreparedMedia {
                 upload_id: "b".repeat(64),
                 file_id: "mf_0123456789abcdefghijklm".to_string(),
+                bucket: "attachment".to_string(),
                 method: "PUT".to_string(),
                 url: "https://oss.invalid/signed".to_string(),
-                public_url: "https://java.invalid/oss/media/object/mf_0123456789abcdefghijklm"
-                    .to_string(),
+                uri: "media/mf_0123456789abcdefghijklm".to_string(),
                 object_key: "media/mf_0123456789abcdefghijklm".to_string(),
                 headers: Vec::new(),
             },

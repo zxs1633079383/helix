@@ -93,14 +93,14 @@ pub fn mark_media_complete(
         "method",
         "state",
         "publicUrl",
+        "url",
     ] {
         object.remove(field);
     }
-    object.insert("bucket".to_string(), json!("file"));
+    object.insert("bucket".to_string(), json!(&reference.bucket));
     object.insert("id".to_string(), json!(&reference.file_id));
     object.insert("name".to_string(), json!(&reference.file_name));
-    object.insert("url".to_string(), json!(&reference.url));
-    object.insert("uri".to_string(), json!(&reference.url));
+    object.insert("uri".to_string(), json!(&reference.uri));
     object.insert("contentType".to_string(), json!(&reference.content_type));
     object.insert("size".to_string(), json!(reference.size));
     object.insert("sha256".to_string(), json!(&reference.sha256));

@@ -885,6 +885,21 @@ pub enum SurfaceDataVm {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MediaItemVm {
+    pub file_id: String,
+    pub file_name: String,
+    pub size: u64,
+    pub content_type: String,
+    pub bucket: String,
+    pub uri: String,
+    pub resource: SurfaceDataVm,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<SurfaceDataVm>,
+    pub availability: SurfaceDataVm,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -908,6 +923,12 @@ pub enum MessageContentVm {
         file_name: String,
         size: u64,
         availability: SurfaceDataVm,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        items: Vec<MediaItemVm>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        caption: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        image_position: Option<String>,
     },
     Forwarded {
         summary: String,
@@ -1854,6 +1875,8 @@ fn validate_message(
             thumbnail,
             size,
             availability,
+            items,
+            image_position,
             ..
         } => {
             validate_wire_u64(surface, "size", *size)?;
@@ -1861,7 +1884,26 @@ fn validate_message(
             if let Some(data) = thumbnail {
                 validate_data_for_surface(surface, data)?;
             }
-            validate_data_for_surface(surface, availability)
+            validate_data_for_surface(surface, availability)?;
+            if let Some(position) = image_position {
+                if !matches!(position.as_str(), "top" | "bottom") {
+                    return invalid_view(surface, "image position must be top or bottom");
+                }
+            }
+            for item in items {
+                require_nonempty(surface, "media item file id", &item.file_id)?;
+                require_nonempty(surface, "media item file name", &item.file_name)?;
+                require_nonempty(surface, "media item content type", &item.content_type)?;
+                require_nonempty(surface, "media item bucket", &item.bucket)?;
+                require_nonempty(surface, "media item uri", &item.uri)?;
+                validate_wire_u64(surface, "media item size", item.size)?;
+                validate_data_for_surface(surface, &item.resource)?;
+                if let Some(thumbnail) = &item.thumbnail {
+                    validate_data_for_surface(surface, thumbnail)?;
+                }
+                validate_data_for_surface(surface, &item.availability)?;
+            }
+            Ok(())
         }
         MessageContentVm::Forwarded { items, .. } => {
             for item in items {

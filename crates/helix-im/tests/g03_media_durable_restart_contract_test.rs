@@ -64,7 +64,7 @@ fn pending_row(
         "file_id": file_id,
         "method": if upload_id.is_empty() { "" } else { "PUT" },
         "upload_url": "",
-        "public_url": if file_id.is_empty() { "".to_string() } else { format!("http://localhost:3399/oss/media/object/{file_id}") },
+        "public_url": if file_id.is_empty() { "".to_string() } else { format!("media/{file_id}") },
         "object_key": if file_id.is_empty() { "".to_string() } else { format!("media/{file_id}") },
         "headers_json": "[]"
     })
@@ -284,36 +284,8 @@ fn upload_count(h: &Harness) -> usize {
         .count()
 }
 
-fn complete_success(_upload_id: &str, file_id: &str, name: &str, size: u64, sha: &str) -> Tick {
-    let response = Bytes::from(
-        serde_json::to_vec(&json!({
-            "isSuccess": true,
-            "state": "completed",
-            "fileId": file_id,
-            "objectKey": format!("media/{file_id}"),
-            "stablePath": format!("/oss/media/object/{file_id}"),
-            "contentLength": size,
-            "contentType": if name.ends_with(".png") { "image/png" } else { "application/pdf" },
-            "sha256": sha,
-            "etag": "etag-internal"
-        }))
-        .unwrap(),
-    );
-    port_reply_with_body(0, enveloped(response))
-}
-
 fn prepare_success(data: Value) -> Bytes {
     enveloped(Bytes::from(serde_json::to_vec(&data).unwrap()))
-}
-
-fn with_corr(corr: u64, tick: Tick) -> Tick {
-    match tick {
-        Tick::PortReply { outcome, .. } => Tick::PortReply {
-            corr: helix_core::Correlation::from_raw(corr),
-            outcome,
-        },
-        _ => unreachable!(),
-    }
 }
 
 #[test]
@@ -496,9 +468,9 @@ fn prepare_and_put_stage_persist_errors_never_advance_external_io() {
     let prepare_reply = port_reply_with_body(
         prepare,
         prepare_success(json!({
-            "isSuccess":true, "uploadToken":"upload-1", "fileId":"file-1", "method":"PUT",
+            "isSuccess":true, "fileId":"file-1", "bucket":"attachment", "method":"PUT",
             "url":"https://oss.test/media/file-1?signature=short-lived",
-            "stablePath":"/oss/media/object/file-1",
+            "uri":"media/file-1",
             "objectKey":"media/file-1",
             "headers":{"Content-Type":"application/pdf","x-oss-forbid-overwrite":"true"}
         })),
@@ -537,9 +509,9 @@ fn prepare_and_put_stage_persist_errors_never_advance_external_io() {
         port_reply_with_body(
             prepare,
             prepare_success(json!({
-                "isSuccess":true, "uploadToken":"upload-1", "fileId":"file-1", "method":"PUT",
+                "isSuccess":true, "fileId":"file-1", "bucket":"attachment", "method":"PUT",
                 "url":"https://oss.test/media/file-1?signature=short-lived",
-                "stablePath":"/oss/media/object/file-1",
+                "uri":"media/file-1",
                 "objectKey":"media/file-1",
                 "headers":{"Content-Type":"application/pdf","x-oss-forbid-overwrite":"true"}
             })),
@@ -625,7 +597,7 @@ fn restart_from_put_retries_prepare_without_reusing_persisted_credentials() {
 }
 
 #[test]
-fn restart_from_complete_retries_complete_without_repeating_prepare_or_put() {
+fn restart_from_complete_finishes_locally_without_repeating_prepare_or_put() {
     let row = pending_row(
         TMP,
         "file",
@@ -651,7 +623,8 @@ fn restart_from_complete_retries_complete_without_repeating_prepare_or_put() {
 
     assert!(http(&h, "/oss/getPresignedUrl").is_empty());
     assert_eq!(upload_count(&h), 0);
-    assert_eq!(http(&h, "/oss/completeMediaUpload").len(), 1);
+    assert!(http(&h, "/oss/completeMediaUpload").is_empty());
+    let _ = completion_commit_corr(&h);
 }
 
 #[test]
@@ -731,7 +704,7 @@ fn multi_attachment_partial_restart_completes_remaining_barrier_and_posts_once()
     let props = json!({
         "imagePosition": "bottom",
         "files": [
-            {"id":"file-a","name":"a.png","url":"http://localhost:3399/oss/media/object/file-a","uri":"http://localhost:3399/oss/media/object/file-a","contentType":"image/png","size":3,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","upload":{"status":"completed"}},
+            {"id":"file-a","bucket":"picture","name":"a.png","uri":"media/file-a","contentType":"image/png","size":3,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","upload":{"status":"completed"}},
             {"height":600,"upload":{"status":"completing"}}
         ]
     });
@@ -741,24 +714,9 @@ fn multi_attachment_partial_restart_completes_remaining_barrier_and_posts_once()
         "tmp-durable-rich",
         message_row("tmp-durable-rich", "rich", props, "sending"),
     );
-    assert_eq!(http(&h, "/oss/completeMediaUpload").len(), 1);
+    assert!(http(&h, "/oss/completeMediaUpload").is_empty());
     assert!(http(&h, "/posts/create").is_empty());
 
-    let corr = http(&h, "/oss/completeMediaUpload")[0].0;
-    h.step(
-        with_corr(
-            corr,
-            complete_success(
-                "upload-b",
-                "file-b",
-                "b.png",
-                4,
-                "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-            ),
-        ),
-        20,
-    );
-    assert!(http(&h, "/posts/create").is_empty());
     let completion = completion_commit_corr(&h);
     h.step(port_reply_ok(completion), 21);
     assert_eq!(http(&h, "/posts/create").len(), 1);
@@ -804,20 +762,7 @@ fn completion_deletes_internal_rows_and_second_restart_does_not_repost() {
             "sending",
         ),
     );
-    let corr = http(&h, "/oss/completeMediaUpload")[0].0;
-    h.step(
-        with_corr(
-            corr,
-            complete_success(
-                "upload-1",
-                "file-1",
-                "doc.pdf",
-                9,
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            ),
-        ),
-        20,
-    );
+    assert!(http(&h, "/oss/completeMediaUpload").is_empty());
     let completion = completion_commit_corr(&h);
     assert!(h.sink.as_slice().iter().any(|effect| match effect {
         Effect::PersistAtomic { ops, .. } => ops.iter().any(|op| {

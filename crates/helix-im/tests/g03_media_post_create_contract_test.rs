@@ -109,32 +109,23 @@ fn media_input(media: MediaFixture) -> Value {
 }
 
 fn prepare_data(media: MediaFixture) -> Value {
+    let bucket = if media.content_type.starts_with("image/") {
+        "picture"
+    } else {
+        "attachment"
+    };
     json!({
         "isSuccess": true,
-        "uploadToken": media.upload_id,
         "fileId": media.file_id,
+        "bucket": bucket,
         "method": "PUT",
         "url": format!("https://oss.test/media/{}?signature={}", media.file_id, media.upload_id),
-        "stablePath": format!("/oss/media/object/{}", media.file_id),
+        "uri": format!("media/{}", media.file_id),
         "objectKey": format!("media/{}", media.file_id),
         "headers": {
             "Content-Type": media.content_type,
             "x-oss-forbid-overwrite": "true"
         }
-    })
-}
-
-fn complete_data(media: MediaFixture) -> Value {
-    json!({
-        "isSuccess": true,
-        "state": "completed",
-        "fileId": media.file_id,
-        "objectKey": format!("media/{}", media.file_id),
-        "stablePath": format!("/oss/media/object/{}", media.file_id),
-        "contentLength": media.size,
-        "contentType": media.content_type,
-        "sha256": media.sha256,
-        "etag": "etag-internal"
     })
 }
 
@@ -230,16 +221,29 @@ fn put_one(h: &mut Harness, corr: u64, now_ms: u64) -> Option<u64> {
     h.step(port_reply_ok(corr), now_ms);
     let persist = pending_stage_corr(h, "complete");
     h.step(port_reply_ok(persist), now_ms + 1);
-    http_effects(h, "/oss/completeMediaUpload")
-        .first()
-        .map(|(corr, _)| *corr)
+    h.sink
+        .as_slice()
+        .iter()
+        .rev()
+        .find_map(|effect| {
+            match effect {
+        Effect::PersistAtomic { corr, ops }
+            if ops.iter().any(|op| {
+                matches!(op, StorageOp::BatchDelete(spec) if spec.table == "pending_media")
+            }) =>
+        {
+            Some(corr.raw())
+        }
+        _ => None,
+    }
+        })
 }
 
 fn completion_commit_corr(h: &Harness) -> u64 {
     h.sink
         .as_slice()
         .iter()
-        .find_map(|effect| {
+        .filter_map(|effect| {
             match effect {
             Effect::PersistAtomic { corr, ops }
                 if ops.iter().any(|op| {
@@ -251,6 +255,7 @@ fn completion_commit_corr(h: &Harness) -> u64 {
             _ => None,
         }
         })
+        .last()
         .expect("trusted media completion atomic commit")
 }
 
@@ -307,11 +312,10 @@ fn single_attachment_complete_posts_once_and_arms_timer() {
     );
     let prepare_corr = prepare_request.0;
     let upload = prepare_one(&mut h, prepare_corr, FILE, 1010);
-    let complete = put_one(&mut h, upload, 1020).expect("file verify request");
-
-    h.step(reply(complete, success(complete_data(FILE))), 1030);
+    let complete = put_one(&mut h, upload, 1020).expect("file completion commit");
 
     assert_eq!(posts_count(&h), 0);
+    assert!(http_effects(&h, "/oss/completeMediaUpload").is_empty());
     assert!(
         completion_writes_send_status(&h, "unsend"),
         "最后一个媒体完成必须原子写 durable retry marker"
@@ -333,8 +337,7 @@ fn single_attachment_complete_posts_once_and_arms_timer() {
                                 && matches!(value, SqlValue::Integer(100)))
             ))
     )));
-    let completion_commit = completion_commit_corr(&h);
-    let effects = h.step(port_reply_ok(completion_commit), 1031);
+    let effects = h.step(port_reply_ok(complete), 1031);
     assert_eq!(posts_count(&h), 1);
     assert_eq!(
         h.module.pending_send_status("tmp-post-file"),
@@ -358,15 +361,14 @@ fn single_attachment_complete_posts_once_and_arms_timer() {
     assert_eq!(body["message"], "quarterly report");
     assert_eq!(body["simpleMessage"], "[文件]doc.pdf");
     assert_eq!(body["props"]["file"]["id"], FILE.file_id);
-    assert_eq!(
-        body["props"]["file"]["url"],
-        "http://localhost:3399/oss/media/object/file-file"
-    );
+    assert_eq!(body["props"]["file"]["uri"], "media/file-file");
+    assert_eq!(body["props"]["file"]["bucket"], "attachment");
+    assert!(body["props"]["file"].get("url").is_none());
     assert_eq!(body["props"]["file"]["upload"]["status"], "completed");
     assert_eq!(body["props"]["frontendCustom"]["keep"], true);
     assert_no_transient_fields(&body["props"]);
 
-    let duplicate = h.step(reply(complete, success(complete_data(FILE))), 1040);
+    let duplicate = h.step(port_reply_ok(upload), 1040);
     assert!(duplicate.is_empty());
     assert_eq!(posts_count(&h), 0);
 }
@@ -380,29 +382,22 @@ fn multi_attachment_out_of_order_waits_for_all_and_posts_exactly_once() {
     assert_eq!(prepares.len(), 2);
     let upload_a = prepare_one(&mut h, prepares[0].0, IMAGE_A, 1010);
     let upload_b = prepare_one(&mut h, prepares[1].0, IMAGE_B, 1020);
-    let complete_b = put_one(&mut h, upload_b, 1030).expect("first verify request");
+    let complete_b = put_one(&mut h, upload_b, 1030).expect("first completion commit");
     assert!(
         put_one(&mut h, upload_a, 1040).is_none(),
-        "同一消息的第二个 verify 必须等待前一个完成原子提交"
+        "同一消息的第二个本地终态必须等待前一个完成原子提交"
     );
 
-    let first = h.step(reply(complete_b, success(complete_data(IMAGE_B))), 1050);
     assert_eq!(posts_count(&h), 0);
     assert!(
         !completion_writes_send_status(&h, "unsend"),
         "非最后附件完成不得提前把消息标为可重试"
     );
-    assert!(first
-        .iter()
-        .all(|effect| !matches!(effect, EffectKind::ScheduleTimer(_))));
-    let first_commit = completion_commit_corr(&h);
-    let duplicate_first = h.step(reply(complete_b, success(complete_data(IMAGE_B))), 1060);
+    let duplicate_first = h.step(port_reply_ok(upload_b), 1060);
     assert!(duplicate_first.is_empty());
 
-    // 重放旧 corr 不得越过原子提交 barrier；真实提交成功后才释放下一个 verify。
-    h.step(port_reply_ok(first_commit), 1061);
-    let complete_a = http_effects(&h, "/oss/completeMediaUpload")[0].0;
-    h.step(reply(complete_a, success(complete_data(IMAGE_A))), 1070);
+    // 重放旧 corr 不得越过原子提交 barrier；真实提交成功后才释放下一个本地终态。
+    h.step(port_reply_ok(complete_b), 1061);
     assert_eq!(posts_count(&h), 0);
     assert!(
         completion_writes_send_status(&h, "unsend"),
@@ -430,7 +425,7 @@ fn multi_attachment_out_of_order_waits_for_all_and_posts_exactly_once() {
     assert_eq!(body["props"]["files"][1]["height"], 600);
     assert_no_transient_fields(&body["props"]);
 
-    let duplicate_final = h.step(reply(complete_a, success(complete_data(IMAGE_A))), 1080);
+    let duplicate_final = h.step(port_reply_ok(upload_a), 1080);
     assert!(duplicate_final.is_empty());
     assert_eq!(posts_count(&h), 0);
 }
@@ -469,26 +464,23 @@ fn nine_images_emit_prepare_requests_in_one_batch_without_progress_events() {
 }
 
 #[test]
-fn one_mismatched_attachment_closes_the_multi_attachment_gate() {
+fn one_put_failure_closes_the_multi_attachment_gate() {
     let mut h = Harness::new(&[1]);
     h.step(rich_cmd(), 1000);
     release_initial(&mut h, 1001);
     let prepares = http_effects(&h, "/oss/getPresignedUrl");
     let upload_a = prepare_one(&mut h, prepares[0].0, IMAGE_A, 1010);
     let upload_b = prepare_one(&mut h, prepares[1].0, IMAGE_B, 1020);
-    let complete_a = put_one(&mut h, upload_a, 1030).expect("first verify request");
-    assert!(put_one(&mut h, upload_b, 1040).is_none());
-
-    h.step(reply(complete_a, success(complete_data(IMAGE_A))), 1050);
+    let complete_a = put_one(&mut h, upload_a, 1030).expect("first completion commit");
+    h.step(common::port_reply_err(upload_b), 1040);
     assert_eq!(posts_count(&h), 0);
-    let first_commit = completion_commit_corr(&h);
-    h.step(port_reply_ok(first_commit), 1051);
-    let complete_b = http_effects(&h, "/oss/completeMediaUpload")[0].0;
-    let mut mismatch = complete_data(IMAGE_B);
-    mismatch["sha256"] = json!("wrong-sha");
-    let failure_effects = h.step(reply(complete_b, success(mismatch)), 1060);
+    let failure_effects = h.step(port_reply_ok(complete_a), 1051);
 
     assert_eq!(posts_count(&h), 0);
+    assert_eq!(
+        h.module.pending_send_status("tmp-post-rich"),
+        Some(helix_im::state::SendStatus::UnSend)
+    );
     assert!(failure_effects
         .iter()
         .all(|effect| !matches!(effect, EffectKind::ScheduleTimer(_))));

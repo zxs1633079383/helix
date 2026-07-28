@@ -14,8 +14,8 @@ pub use durable::{
 pub use persistence::{media_send_state_persist_op, props_persist_op, sanitized_for_persistence};
 pub use plan::build_upload_plan;
 pub use request::{
-    client_upload_id, complete_upload_request, file_upload_request, media_upload_request,
-    parse_complete_reply, parse_prepare_reply, prepare_upload_request, validate_java_api_base_url,
+    client_upload_id, file_upload_request, media_upload_request, parse_prepare_reply,
+    prepare_upload_request, validate_java_api_base_url,
 };
 pub use state::{
     mark_media_complete, mark_media_stage, mark_upload_failed, mark_upload_success,
@@ -26,6 +26,15 @@ pub use state::{
 pub enum UploadTarget {
     RichImage { index: usize },
     File,
+}
+
+impl UploadTarget {
+    pub fn bucket(&self) -> &'static str {
+        match self {
+            Self::RichImage { .. } => "picture",
+            Self::File => "attachment",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -54,9 +63,10 @@ pub struct MediaInput {
 pub struct PreparedMedia {
     pub upload_id: String,
     pub file_id: String,
+    pub bucket: String,
     pub method: String,
     pub url: String,
-    pub public_url: String,
+    pub uri: String,
     pub object_key: String,
     pub headers: Vec<(String, String)>,
 }
@@ -81,7 +91,8 @@ pub struct PendingMediaPut {
 #[derive(Debug, Clone)]
 pub struct TrustedMediaReference {
     pub file_id: String,
-    pub url: String,
+    pub bucket: String,
+    pub uri: String,
     pub file_name: String,
     pub content_type: String,
     pub size: u64,

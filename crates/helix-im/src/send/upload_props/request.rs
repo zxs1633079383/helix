@@ -1,4 +1,4 @@
-use super::{MediaInput, PendingMediaPut, PreparedMedia, TrustedMediaReference, UploadTarget};
+use super::{MediaInput, PreparedMedia, UploadTarget};
 use crate::ImError;
 use helix_core::effect::{
     FileUploadProgressPolicy, FileUploadRequest, FileUploadUrls, HttpRequest,
@@ -9,6 +9,7 @@ pub fn prepare_upload_request(
     java_api_base_url: &str,
     client_upload_id: &str,
     input: &MediaInput,
+    target: &UploadTarget,
     mut headers: Vec<(String, String)>,
 ) -> Result<HttpRequest, ImError> {
     let java_api_base_url = require_java_api_base_url(java_api_base_url)?;
@@ -19,6 +20,7 @@ pub fn prepare_upload_request(
     let body = serde_json::to_vec(&json!({
         "mediaUpload": true,
         "clientUploadId": client_upload_id,
+        "bucket": target.bucket(),
         "fileName": input.file_name,
         "contentType": input.content_type,
         "size": input.size,
@@ -33,41 +35,11 @@ pub fn prepare_upload_request(
     })
 }
 
-pub fn complete_upload_request(
-    java_api_base_url: &str,
-    pending: &PendingMediaPut,
-    mut headers: Vec<(String, String)>,
-) -> Result<HttpRequest, ImError> {
-    let java_api_base_url = require_java_api_base_url(java_api_base_url)?;
-    headers.insert(
-        0,
-        ("Content-Type".to_string(), "application/json".to_string()),
-    );
-    let body = serde_json::to_vec(&json!({
-        "mediaUpload": true,
-        "clientUploadId": client_upload_id(&pending.temporary_id.0, &pending.target),
-        "uploadToken": pending.prepared.upload_id,
-        "fileId": pending.prepared.file_id,
-        "objectKey": pending.prepared.object_key,
-        "contentType": pending.input.content_type,
-        "size": pending.input.size,
-        "sha256": pending.input.sha256,
-    }))
-    .map_err(|error| ImError::Serialize(error.to_string()))?;
-    Ok(HttpRequest {
-        method: "POST".to_string(),
-        url: format!("{java_api_base_url}/oss/completeMediaUpload"),
-        headers,
-        body: Some(bytes::Bytes::from(body)),
-    })
-}
-
 pub fn parse_prepare_reply(
     bytes: &[u8],
     input: &MediaInput,
-    java_api_base_url: &str,
+    target: &UploadTarget,
 ) -> Result<PreparedMedia, String> {
-    let java_api_base_url = checked_java_api_base_url(java_api_base_url)?;
     let raw = crate::http_envelope::unwrap_success_envelope(bytes, "Java media prepare")
         .map_err(|error| error.to_string())?;
     let root: Value = serde_json::from_slice(&raw)
@@ -94,21 +66,19 @@ pub fn parse_prepare_reply(
         return Err("Java media prepare url must use http or https".to_string());
     }
     let file_id = required("fileId")?;
-    let upload_token = required("uploadToken")?;
-    if upload_token.len() > 256 {
-        return Err("Java media prepare uploadToken is too long".to_string());
+    let bucket = required("bucket")?;
+    if bucket != target.bucket() {
+        return Err("Java media prepare bucket conflicts with upload target".to_string());
     }
     let object_key = required("objectKey")?;
     let expected_object_key = format!("media/{file_id}");
     if object_key != expected_object_key {
         return Err("Java media prepare objectKey conflicts with fileId".to_string());
     }
-    let stable_path = required("stablePath")?;
-    let expected_stable_path = format!("/oss/media/object/{file_id}");
-    if stable_path != expected_stable_path {
-        return Err("Java media prepare stablePath conflicts with fileId".to_string());
+    let uri = required("uri")?;
+    if uri != object_key {
+        return Err("Java media prepare uri conflicts with objectKey".to_string());
     }
-    let public_url = format!("{java_api_base_url}{stable_path}");
     let headers = data
         .get("headers")
         .and_then(Value::as_object)
@@ -138,80 +108,15 @@ pub fn parse_prepare_reply(
         return Err("Java media prepare x-oss-forbid-overwrite must be true".to_string());
     }
     Ok(PreparedMedia {
-        // 复用既有 durable `upload_id` 槽保存 Java 签发的完整性票据；它不是 OSS URL，
-        // 但仍只允许进入内部 pending_media，绝不能进入公开 props。
-        upload_id: upload_token,
+        // 复用既有 durable `upload_id` 槽保存幂等文件标识，不再等待 Java complete 票据。
+        upload_id: file_id.clone(),
         file_id,
+        bucket,
         method,
         url,
-        public_url,
+        uri,
         object_key,
         headers,
-    })
-}
-
-pub fn parse_complete_reply(
-    bytes: &[u8],
-    pending: &PendingMediaPut,
-) -> Result<TrustedMediaReference, String> {
-    let raw = crate::http_envelope::unwrap_success_envelope(bytes, "Java media verify")
-        .map_err(|error| error.to_string())?;
-    let root: Value = serde_json::from_slice(&raw)
-        .map_err(|error| format!("Java media verify response: {error}"))?;
-    if root.get("isSuccess").and_then(Value::as_bool) != Some(true) {
-        return Err("Java media verify isSuccess must be true".to_string());
-    }
-    let data = root
-        .as_object()
-        .ok_or_else(|| "Java media verify response must be object".to_string())?;
-    let required = |key: &str| {
-        data.get(key)
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .ok_or_else(|| format!("Java media verify {key} must be non-empty string"))
-    };
-    let state = required("state")?;
-    if state != "completed" {
-        return Err("Java media verify state must be completed".to_string());
-    }
-    let file_id = required("fileId")?;
-    if file_id != pending.prepared.file_id {
-        return Err("Java media verify fileId conflicts with prepare".to_string());
-    }
-    let object_key = required("objectKey")?;
-    if object_key != pending.prepared.object_key {
-        return Err("Java media verify objectKey conflicts with prepare".to_string());
-    }
-    let size = data
-        .get("contentLength")
-        .and_then(Value::as_u64)
-        .filter(|value| *value > 0)
-        .ok_or_else(|| "Java media verify contentLength must be positive u64".to_string())?;
-    if size != pending.input.size {
-        return Err("Java media verify contentLength conflicts with mediaInput".to_string());
-    }
-    let sha256 = required("sha256")?;
-    if sha256 != pending.input.sha256 {
-        return Err("Java media verify sha256 conflicts with mediaInput".to_string());
-    }
-    let content_type = required("contentType")?;
-    if content_type != pending.input.content_type {
-        return Err("Java media verify contentType conflicts with mediaInput".to_string());
-    }
-    let stable_path = required("stablePath")?;
-    let expected_stable_path = format!("/oss/media/object/{file_id}");
-    if stable_path != expected_stable_path {
-        return Err("Java media verify stablePath conflicts with fileId".to_string());
-    }
-
-    Ok(TrustedMediaReference {
-        file_id,
-        url: pending.prepared.public_url.clone(),
-        file_name: pending.input.file_name.clone(),
-        content_type,
-        size,
-        sha256,
     })
 }
 
@@ -224,7 +129,8 @@ pub fn media_upload_request(
         local_path: input.local_path.clone(),
         object_key: prepared.object_key.clone(),
         method: prepared.method.clone(),
-        urls: FileUploadUrls::new(prepared.url.clone(), prepared.public_url.clone())
+        // helix-core 的第二个只读引用槽保持 ABI 不变；媒体链路在这里承载 bucket 内 uri。
+        urls: FileUploadUrls::new(prepared.url.clone(), prepared.uri.clone())
             .map_err(|reason| ImError::Parse(format!("media prepare invalid urls: {reason}")))?
             .with_progress_policy(progress_policy(target)),
         headers: prepared.headers.clone(),

@@ -52,16 +52,6 @@ struct JavaRequestRecord {
     body: Value,
 }
 
-#[derive(Clone, Debug)]
-struct IssuedTicket {
-    client_upload_id: String,
-    file_id: String,
-    object_key: String,
-    content_type: String,
-    size: u64,
-    sha256: String,
-}
-
 #[derive(Debug)]
 struct OssPutRecord {
     target: String,
@@ -390,13 +380,10 @@ async fn write_json_response(stream: &mut TcpStream, value: &Value) {
 async fn run_java_server(
     listener: TcpListener,
     oss_address: std::net::SocketAddr,
-    uploaded: Arc<Mutex<BTreeMap<String, Vec<u8>>>>,
 ) -> Vec<JavaRequestRecord> {
-    let mut records = Vec::with_capacity(20);
-    let mut issued = BTreeMap::<String, IssuedTicket>::new();
+    let mut records = Vec::with_capacity(10);
     let mut prepare_count = 0usize;
-    let mut verify_count = 0usize;
-    for _ in 0..20 {
+    for _ in 0..10 {
         let (mut stream, _) = listener.accept().await.expect("accept Java request");
         let request = read_http_request(&mut stream).await;
         assert_eq!(request.method, "POST");
@@ -429,94 +416,30 @@ async fn run_java_server(
                 prepare_count += 1;
                 let file_id = format!("file-{prepare_count:02}");
                 let object_key = format!("media/{file_id}");
-                let upload_token = format!("upload-token-{prepare_count:02}");
-                let ticket = IssuedTicket {
-                    client_upload_id: body["clientUploadId"]
-                        .as_str()
-                        .expect("prepare clientUploadId")
-                        .to_string(),
-                    file_id: file_id.clone(), // hot-path-audit: ignore -- test ticket snapshot
-                    object_key: object_key.clone(), // hot-path-audit: ignore -- test ticket snapshot
-                    content_type: body["contentType"]
-                        .as_str()
-                        .expect("prepare contentType")
-                        .to_string(),
-                    size: body["size"].as_u64().expect("prepare size"),
-                    sha256: body["sha256"].as_str().expect("prepare sha256").to_string(),
+                let content_type = body["contentType"].as_str().expect("prepare contentType");
+                let expected_bucket = if content_type.starts_with("image/") {
+                    "picture"
+                } else {
+                    "attachment"
                 };
-                assert!(
-                    issued
-                        .insert(upload_token.clone(), ticket.clone()) // hot-path-audit: ignore -- test authority snapshot
-                        .is_none(),
-                    "Java must not issue a duplicate upload token"
-                );
+                assert_eq!(body["bucket"].as_str(), Some(expected_bucket));
+                assert!(body["clientUploadId"].as_str().is_some());
+                assert!(body["size"].as_u64().is_some());
+                assert!(body["sha256"].as_str().is_some());
                 json!({
                     "isSuccess": true,
-                    "uploadToken": upload_token,
                     "fileId": file_id,
+                    "bucket": expected_bucket,
                     "method": "PUT",
                     "url": format!(
                         "http://{oss_address}/put/{object_key}?Signature=write-secret-{prepare_count:02}"
                     ),
-                    "stablePath": format!("/oss/media/object/{file_id}"),
+                    "uri": object_key.clone(),
                     "objectKey": object_key,
                     "headers": {
-                        "Content-Type": ticket.content_type,
+                        "Content-Type": content_type,
                         "x-oss-forbid-overwrite": "true"
                     }
-                })
-            }
-            "/java/oss/completeMediaUpload" => {
-                verify_count += 1;
-                let upload_token = body["uploadToken"].as_str().expect("verify uploadToken");
-                let ticket = issued.remove(upload_token).unwrap_or_else(|| {
-                    panic!("verify used an unknown upload token: {upload_token}")
-                });
-                assert_eq!(
-                    body["clientUploadId"].as_str(),
-                    Some(ticket.client_upload_id.as_str())
-                );
-                assert_eq!(body["fileId"].as_str(), Some(ticket.file_id.as_str()));
-                assert_eq!(body["objectKey"].as_str(), Some(ticket.object_key.as_str()));
-                assert_eq!(
-                    body["contentType"].as_str(),
-                    Some(ticket.content_type.as_str())
-                );
-                assert_eq!(body["size"].as_u64(), Some(ticket.size));
-                assert_eq!(body["sha256"].as_str(), Some(ticket.sha256.as_str()));
-                let uploaded_body = uploaded
-                    .lock()
-                    .expect("uploaded object map lock")
-                    .get(&ticket.object_key)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "Java verify arrived before OSS PUT completed: {}",
-                            ticket.object_key
-                        )
-                    });
-                let expected_sha = if uploaded_body.as_slice() == IMAGE_BODY {
-                    IMAGE_SHA256
-                } else {
-                    assert_eq!(uploaded_body, vec![b'f'; FILE_SIZE]);
-                    FILE_SHA256
-                };
-                assert_eq!(
-                    ticket.size,
-                    uploaded_body.len() as u64,
-                    "Java verify must receive the uploaded byte count"
-                );
-                assert_eq!(ticket.sha256, expected_sha);
-                json!({
-                    "isSuccess": true,
-                    "state": "completed",
-                    "fileId": ticket.file_id,
-                    "objectKey": ticket.object_key,
-                    "stablePath": format!("/oss/media/object/{}", ticket.file_id),
-                    "contentLength": uploaded_body.len(),
-                    "contentType": ticket.content_type,
-                    "sha256": ticket.sha256,
-                    "etag": format!("etag-{verify_count:02}")
                 })
             }
             other => panic!("unexpected Java request path: {other}"),
@@ -525,11 +448,6 @@ async fn run_java_server(
         write_json_response(&mut stream, &response).await;
     }
     assert_eq!(prepare_count, 10);
-    assert_eq!(verify_count, 10);
-    assert!(
-        issued.is_empty(),
-        "every Java upload ticket must be consumed by one matching verify"
-    );
     records
 }
 
@@ -743,7 +661,7 @@ async fn wait_for_sent_messages(storage: &HostStorage) -> Vec<Row> {
     .expect("both media messages should reach sent in real SQLite")
 }
 
-fn assert_stable_go_body(body: &Value, java_base: &str) {
+fn assert_media_go_body(body: &Value) {
     let serialized = serde_json::to_string(body).expect("serialize Go body for leak assertion");
     for forbidden in [
         "Signature=",
@@ -760,23 +678,35 @@ fn assert_stable_go_body(body: &Value, java_base: &str) {
         );
     }
 
-    let urls = match body["type"].as_str() {
+    let references = match body["type"].as_str() {
         Some("IMAGE") => body["props"]["files"]
             .as_array()
             .expect("rich props.files")
             .iter()
-            .map(|file| file["url"].as_str().expect("rich stable URL"))
+            .map(|file| {
+                (
+                    file["bucket"].as_str().expect("rich bucket"),
+                    file["uri"].as_str().expect("rich uri"),
+                )
+            })
             .collect::<Vec<_>>(),
-        Some("FILE") => vec![body["props"]["file"]["url"]
-            .as_str()
-            .expect("file stable URL")],
+        Some("FILE") => vec![(
+            body["props"]["file"]["bucket"]
+                .as_str()
+                .expect("file bucket"),
+            body["props"]["file"]["uri"].as_str().expect("file uri"),
+        )],
         other => panic!("unexpected Go media type: {other:?}"),
     };
-    let stable_prefix = format!("{java_base}/oss/media/object/");
-    assert!(
-        urls.iter().all(|url| url.starts_with(&stable_prefix)),
-        "Go body must contain only stable Java media URLs: {urls:?}"
-    );
+    let expected_bucket = if body["type"] == "IMAGE" {
+        "picture"
+    } else {
+        "attachment"
+    };
+    assert!(references
+        .iter()
+        .all(|(bucket, uri)| *bucket == expected_bucket && uri.starts_with("media/file-")));
+    assert!(!serialized.contains("\"url\""));
 }
 
 fn ignore_http_outcome(_: &str, _: &Result<HttpResponse, PortError>) -> Option<DomainEventBytes> {
@@ -801,11 +731,7 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
     let go_base = format!("http://{go_address}/go");
 
     let uploaded = Arc::new(Mutex::new(BTreeMap::new()));
-    let java_server = tokio::spawn(run_java_server(
-        java_listener,
-        oss_address,
-        Arc::clone(&uploaded),
-    ));
+    let java_server = tokio::spawn(run_java_server(java_listener, oss_address));
     let oss_server = tokio::spawn(run_oss_server(oss_listener, Arc::clone(&uploaded)));
     let (go_post_tx, mut go_post_rx) = mpsc::unbounded_channel();
     let go_server = tokio::spawn(run_go_server(go_listener, go_post_tx));
@@ -974,12 +900,8 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
         .iter()
         .filter(|record| record.path == "/java/oss/getPresignedUrl")
         .collect::<Vec<_>>();
-    let verify_records = java_records
-        .iter()
-        .filter(|record| record.path == "/java/oss/completeMediaUpload")
-        .collect::<Vec<_>>();
     assert_eq!(prepare_records.len(), 10);
-    assert_eq!(verify_records.len(), 10);
+    assert_eq!(java_records.len(), 10);
     assert_eq!(
         prepare_records
             .iter()
@@ -1026,8 +948,8 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
         9
     );
     assert_eq!(go_posts[1]["type"], "FILE");
-    assert_stable_go_body(&go_posts[0], &java_base);
-    assert_stable_go_body(&go_posts[1], &java_base);
+    assert_media_go_body(&go_posts[0]);
+    assert_media_go_body(&go_posts[1]);
 
     let raw_file_progress = uploader.progress_snapshot();
     assert!(

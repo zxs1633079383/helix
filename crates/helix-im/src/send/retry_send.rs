@@ -460,7 +460,7 @@ pub(crate) fn handle_media_retry_reset_reply(
                         out,
                     )?,
                     FailedMediaOp::Complete(pending) => {
-                        module.emit_or_queue_media_verify(pending, out)?;
+                        module.finalize_or_queue_media_completion(pending, out)?;
                     }
                 }
             }

@@ -50,14 +50,14 @@ fn rich_cmd() -> Tick {
     }))
 }
 
-fn prepare_data(content_type: &str) -> Value {
+fn prepare_data(content_type: &str, bucket: &str) -> Value {
     json!({
         "isSuccess": true,
-        "uploadToken": "upload-token-1",
         "fileId": "file-1",
+        "bucket": bucket,
         "method": "PUT",
         "url": "https://oss.test/media/file-1?signature=short-lived",
-        "stablePath": "/oss/media/object/file-1",
+        "uri": "media/file-1",
         "objectKey": "media/file-1",
         "expiresAt": 1_700_000_600_000_u64,
         "headers": {
@@ -67,27 +67,11 @@ fn prepare_data(content_type: &str) -> Value {
     })
 }
 
-fn complete_data(_file_name: &str, content_type: &str, size: u64, sha256: &str) -> Value {
-    json!({
-        "isSuccess": true,
-        "state": "completed",
-        "fileId": "file-1",
-        "objectKey": "media/file-1",
-        "stablePath": "/oss/media/object/file-1",
-        "contentLength": size,
-        "contentType": content_type,
-        "sha256": sha256,
-        "etag": "server-internal-etag"
-    })
-}
-
-fn envelope(status: &str, data: Value) -> Tick {
-    let mut response = data;
-    response["isSuccess"] = json!(status == "SUCCESS");
+fn envelope(data: Value) -> Tick {
     port_reply_with_body(
         0,
         enveloped(Bytes::from(
-            serde_json::to_vec(&response).expect("Java media response json"),
+            serde_json::to_vec(&data).expect("Java media response json"),
         )),
     )
 }
@@ -149,31 +133,21 @@ fn reply_with_corr(corr: u64, tick: Tick) -> Tick {
     }
 }
 
-fn drive_to_put(h: &mut Harness, cmd: Tick, content_type: &str) {
+fn drive_to_completion_commit(h: &mut Harness, cmd: Tick, content_type: &str, bucket: &str) -> u64 {
     h.step(cmd, 1000);
     let initial_corr = pending_stage_corr(h, "prepare");
     h.step(port_reply_ok(initial_corr), 1001);
     let prepare_corr = http_effects(h, "/oss/getPresignedUrl")[0].0;
     h.step(
-        reply_with_corr(
-            prepare_corr,
-            envelope("SUCCESS", prepare_data(content_type)),
-        ),
+        reply_with_corr(prepare_corr, envelope(prepare_data(content_type, bucket))),
         1010,
     );
     let put_corr = pending_stage_corr(h, "put");
     h.step(port_reply_ok(put_corr), 1011);
-}
-
-fn drive_to_complete(h: &mut Harness, cmd: Tick, content_type: &str) -> u64 {
-    drive_to_put(h, cmd, content_type);
     h.step(port_reply_ok(upload_corr(h)), 1020);
     let complete_corr = pending_stage_corr(h, "complete");
     h.step(port_reply_ok(complete_corr), 1021);
-    http_effects(h, "/oss/completeMediaUpload")
-        .last()
-        .expect("complete request")
-        .0
+    completion_commit_corr(h)
 }
 
 fn posts_create_count(h: &Harness) -> usize {
@@ -229,83 +203,35 @@ fn last_props(h: &Harness) -> Value {
 }
 
 #[test]
-fn put_success_emits_only_java_verify_with_expected_identity() {
+fn put_success_finishes_locally_without_java_complete_request() {
     let mut h = Harness::new(&[1]);
-    drive_to_put(&mut h, file_cmd(), "application/pdf");
+    let commit = drive_to_completion_commit(&mut h, file_cmd(), "application/pdf", "attachment");
 
-    h.step(port_reply_ok(upload_corr(&h)), 1020);
-    let complete_corr = pending_stage_corr(&h, "complete");
-    let effects = h.step(port_reply_ok(complete_corr), 1021);
-
-    assert_eq!(
-        effects
-            .iter()
-            .filter(|effect| matches!(effect, common::EffectKind::Http(_)))
-            .count(),
-        1
-    );
-    let completes = http_effects(&h, "/oss/completeMediaUpload");
-    assert_eq!(completes.len(), 1);
-    assert_eq!(completes[0].1.method, "POST");
-    assert_eq!(
-        completes[0].1.url,
-        "http://localhost:3399/oss/completeMediaUpload"
-    );
-    let body: Value =
-        serde_json::from_slice(completes[0].1.body.as_ref().unwrap().as_ref()).unwrap();
-    assert_eq!(body["mediaUpload"], true);
-    assert!(body["clientUploadId"]
-        .as_str()
-        .is_some_and(|value| value.ends_with(":file")));
-    assert_eq!(body["uploadToken"], "upload-token-1");
-    assert_eq!(body["fileId"], "file-1");
-    assert_eq!(body["objectKey"], "media/file-1");
-    assert_eq!(body["contentType"], "application/pdf");
-    assert_eq!(body["size"], 9);
-    assert_eq!(
-        body["sha256"],
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    );
+    assert!(http_effects(&h, "/oss/completeMediaUpload").is_empty());
     assert_eq!(posts_create_count(&h), 0);
+    assert_eq!(last_props(&h)["file"]["upload"]["status"], "completed");
+
+    h.step(port_reply_ok(commit), 1031);
+    assert_eq!(posts_create_count(&h), 1);
 }
 
 #[test]
-fn complete_success_persists_trusted_reference_before_posts_create() {
+fn completed_file_persists_attachment_bucket_and_uri_only() {
     let mut h = Harness::new(&[1]);
-    let corr = drive_to_complete(&mut h, file_cmd(), "application/pdf");
+    let commit = drive_to_completion_commit(&mut h, file_cmd(), "application/pdf", "attachment");
 
-    h.step(
-        reply_with_corr(
-            corr,
-            envelope(
-                "SUCCESS",
-                complete_data(
-                    "doc.pdf",
-                    "application/pdf",
-                    9,
-                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                ),
-            ),
-        ),
-        1030,
-    );
-
-    assert_eq!(message_upserts(&h).len(), 1);
     let props = last_props(&h);
-    assert_eq!(props["file"]["bucket"], "file");
+    assert_eq!(props["file"]["bucket"], "attachment");
     assert_eq!(props["file"]["id"], "file-1");
     assert_eq!(props["file"]["name"], "doc.pdf");
-    assert_eq!(
-        props["file"]["url"],
-        "http://localhost:3399/oss/media/object/file-1"
-    );
+    assert_eq!(props["file"]["uri"], "media/file-1");
+    assert!(props["file"].get("url").is_none());
     assert_eq!(props["file"]["contentType"], "application/pdf");
     assert_eq!(props["file"]["size"], 9);
     assert_eq!(
         props["file"]["sha256"],
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     );
-    assert_eq!(props["file"]["upload"]["status"], "completed");
     assert_eq!(props["frontendCustom"]["keep"], true);
     let persisted = serde_json::to_string(&props).unwrap();
     for forbidden in [
@@ -319,71 +245,36 @@ fn complete_success_persists_trusted_reference_before_posts_create() {
         "teamId",
         "etag",
         "/tmp/doc.pdf",
+        "signature=",
     ] {
         assert!(!persisted.contains(forbidden), "leaked {forbidden}");
     }
-    assert_eq!(
-        props["file"]["uri"],
-        "http://localhost:3399/oss/media/object/file-1"
-    );
-    assert_eq!(posts_create_count(&h), 0);
-    let commit = completion_commit_corr(&h);
+
     h.step(port_reply_ok(commit), 1031);
     assert_eq!(posts_create_count(&h), 1);
 }
 
 #[test]
-fn rich_complete_preserves_render_metadata_in_posts_create() {
+fn completed_image_keeps_render_metadata_and_uses_picture_bucket() {
     let mut h = Harness::new(&[1]);
-    let corr = drive_to_complete(&mut h, rich_cmd(), "image/png");
-    h.step(
-        reply_with_corr(
-            corr,
-            envelope(
-                "SUCCESS",
-                complete_data(
-                    "a.png",
-                    "image/png",
-                    3,
-                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                ),
-            ),
-        ),
-        1030,
-    );
+    let commit = drive_to_completion_commit(&mut h, rich_cmd(), "image/png", "picture");
 
     let props = last_props(&h);
     assert_eq!(props["files"][0]["id"], "file-1");
     assert_eq!(props["files"][0]["width"], 800);
     assert_eq!(props["files"][0]["height"], 600);
-    assert_eq!(props["files"][0]["bucket"], "file");
+    assert_eq!(props["files"][0]["bucket"], "picture");
+    assert_eq!(props["files"][0]["uri"], "media/file-1");
     assert_eq!(props["files"][0]["upload"]["status"], "completed");
-    assert_eq!(posts_create_count(&h), 0);
-    let commit = completion_commit_corr(&h);
+
     h.step(port_reply_ok(commit), 1031);
     assert_eq!(posts_create_count(&h), 1);
 }
 
 #[test]
-fn complete_atomic_commit_failure_never_posts_and_remains_retryable() {
+fn completion_atomic_commit_failure_never_posts_and_remains_retryable() {
     let mut h = Harness::new(&[1]);
-    let corr = drive_to_complete(&mut h, file_cmd(), "application/pdf");
-    h.step(
-        reply_with_corr(
-            corr,
-            envelope(
-                "SUCCESS",
-                complete_data(
-                    "doc.pdf",
-                    "application/pdf",
-                    9,
-                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                ),
-            ),
-        ),
-        1030,
-    );
-    let commit = completion_commit_corr(&h);
+    let commit = drive_to_completion_commit(&mut h, file_cmd(), "application/pdf", "attachment");
     h.step(common::port_reply_err(commit), 1031);
 
     assert_eq!(posts_create_count(&h), 0);
@@ -392,96 +283,4 @@ fn complete_atomic_commit_failure_never_posts_and_remains_retryable() {
         h.module.pending_send_status("tmp-complete-file"),
         Some(helix_im::state::SendStatus::UnSend)
     );
-}
-
-#[test]
-fn complete_field_mismatch_or_missing_fails_closed() {
-    let mut cases = Vec::new();
-    for field in [
-        "fileId",
-        "objectKey",
-        "stablePath",
-        "contentLength",
-        "sha256",
-        "contentType",
-        "state",
-    ] {
-        let mut data = complete_data(
-            "doc.pdf",
-            "application/pdf",
-            9,
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        );
-        data.as_object_mut().unwrap().remove(field);
-        cases.push((format!("missing-{field}"), data));
-    }
-    let mismatches = [
-        ("fileId", json!("other-file")),
-        ("objectKey", json!("media/other-file")),
-        ("stablePath", json!("/oss/media/object/other-file")),
-        ("contentLength", json!(10)),
-        ("sha256", json!("other-sha")),
-        ("contentType", json!("image/png")),
-    ];
-    for (field, value) in mismatches {
-        let mut data = complete_data(
-            "doc.pdf",
-            "application/pdf",
-            9,
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        );
-        data[field] = value;
-        cases.push((format!("mismatch-{field}"), data));
-    }
-
-    for (name, data) in cases {
-        let mut h = Harness::new(&[1]);
-        let corr = drive_to_complete(&mut h, file_cmd(), "application/pdf");
-        h.step(reply_with_corr(corr, envelope("SUCCESS", data)), 1030);
-        assert_eq!(
-            message_upserts(&h).len(),
-            1,
-            "{name} should persist failed status"
-        );
-        assert_eq!(
-            last_props(&h)["file"]["upload"]["status"],
-            "failed",
-            "{name}"
-        );
-        assert_eq!(posts_create_count(&h), 0, "{name}");
-    }
-}
-
-#[test]
-fn complete_failed_state_status_or_malformed_body_fails_closed() {
-    let replies = [
-        envelope("SUCCESS", {
-            let mut data = complete_data(
-                "doc.pdf",
-                "application/pdf",
-                9,
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            );
-            data["state"] = json!("uploaded");
-            data
-        }),
-        envelope(
-            "FAIL",
-            complete_data(
-                "doc.pdf",
-                "application/pdf",
-                9,
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            ),
-        ),
-        port_reply_with_body(0, Bytes::from_static(b"{bad json")),
-    ];
-
-    for reply in replies {
-        let mut h = Harness::new(&[1]);
-        let corr = drive_to_complete(&mut h, file_cmd(), "application/pdf");
-        h.step(reply_with_corr(corr, reply), 1030);
-        assert_eq!(last_props(&h)["file"]["upload"]["status"], "failed");
-        assert_eq!(posts_create_count(&h), 0);
-    }
 }

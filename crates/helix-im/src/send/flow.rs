@@ -175,6 +175,7 @@ impl ImModule {
             &self.config.default_api_base_url,
             &client_upload_id,
             &input,
+            &target,
             crate::acl::sync_http_effects::session_auth_headers(
                 self.state.connection_id.as_deref(),
             ),

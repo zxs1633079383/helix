@@ -87,7 +87,8 @@ pub fn upsert_op(operation: &PendingMediaOp) -> Result<StorageOp, ImError> {
             ),
             (
                 "public_url".to_string(),
-                SqlValue::Text(prepared_text(|value| &value.public_url)),
+                // 兼容既有 SQLite 列名；新媒体合同在此保存 bucket 内 uri。
+                SqlValue::Text(prepared_text(|value| &value.uri)),
             ),
             (
                 "object_key".to_string(),
@@ -174,6 +175,7 @@ fn decode_row(row: &Value) -> Result<FailedMediaOp, ImError> {
         // PUT 未确认完成时，旧预签名可能已经失效；重启只能回到 Prepare。
         "put" => Ok(FailedMediaOp::Prepare(prepare)),
         "complete" => {
+            let bucket = target.bucket().to_string();
             let pending = PendingMediaPut {
                 temporary_id,
                 channel_id,
@@ -182,9 +184,10 @@ fn decode_row(row: &Value) -> Result<FailedMediaOp, ImError> {
                 prepared: PreparedMedia {
                     upload_id: required("upload_id")?,
                     file_id: required("file_id")?,
+                    bucket,
                     method: required("method")?,
                     url: String::new(),
-                    public_url: required("public_url")?,
+                    uri: required("public_url")?,
                     object_key: required("object_key")?,
                     headers: Vec::new(),
                 },

@@ -997,11 +997,11 @@ mod g03_prepare_contract {
     fn valid_prepare_data() -> Value {
         json!({
             "isSuccess": true,
-            "uploadToken": "upload-token-1",
             "fileId": "file-1",
+            "bucket": "attachment",
             "method": "PUT",
             "url": "https://oss.test/media/file-1?signature=short-lived",
-            "stablePath": "/oss/media/object/file-1",
+            "uri": "media/file-1",
             "objectKey": "media/file-1",
             "headers": {
                 "Content-Type": "application/pdf",
@@ -1035,6 +1035,7 @@ mod g03_prepare_contract {
         assert!(prepare_body["clientUploadId"]
             .as_str()
             .is_some_and(|value| value.ends_with(":file")));
+        assert_eq!(prepare_body["bucket"], "attachment");
         assert_eq!(prepare_body["fileName"], "doc.pdf");
         assert_eq!(prepare_body["contentType"], "application/pdf");
         assert_eq!(prepare_body["size"], 9);
@@ -1085,6 +1086,7 @@ mod g03_prepare_contract {
             serde_json::from_slice(prepares[0].1.body.as_ref().unwrap().as_ref()).unwrap();
         assert_eq!(body["fileName"], "a.png");
         assert_eq!(body["contentType"], "image/png");
+        assert_eq!(body["bucket"], "picture");
         assert!(upload_effects(&h).is_empty());
         assert_eq!(posts_create_count(&h), 0);
     }
@@ -1193,10 +1195,7 @@ mod g03_prepare_contract {
             req.urls.upload_url(),
             "https://oss.test/media/file-1?signature=short-lived"
         );
-        assert_eq!(
-            req.urls.public_url(),
-            "http://localhost:3399/oss/media/object/file-1"
-        );
+        assert_eq!(req.urls.public_url(), "media/file-1");
         assert_eq!(req.content_type.as_deref(), Some("application/pdf"));
         assert_eq!(req.size, Some(9));
         assert_eq!(posts_create_count(&h), 0);
@@ -1207,15 +1206,13 @@ mod g03_prepare_contract {
         let invalid_data = [
             json!({}),
             json!({
-                "isSuccess": true, "uploadToken": "upload-token-1",
-                "fileId": "file-1", "method": "POST",
-                "url": "http://test/upload", "stablePath": "/oss/media/object/file-1",
+                "isSuccess": true, "fileId": "file-1", "bucket": "attachment",
+                "method": "POST", "url": "http://test/upload", "uri": "media/file-1",
                 "objectKey": "media/file-1", "headers": {}
             }),
             json!({
-                "isSuccess": true, "uploadToken": "upload-token-1",
-                "fileId": "file-1", "method": "PUT",
-                "url": "http://test/upload", "stablePath": "/oss/media/object/file-1",
+                "isSuccess": true, "fileId": "file-1", "bucket": "attachment",
+                "method": "PUT", "url": "http://test/upload", "uri": "media/file-1",
                 "objectKey": "media/file-1",
                 "headers": {
                     "Content-Type": "image/png",
@@ -1264,7 +1261,7 @@ mod g03_prepare_contract {
     }
 
     #[test]
-    fn put_success_only_starts_complete_without_posts_create() {
+    fn put_success_only_starts_local_completion_without_posts_create() {
         let mut h = Harness::new(&[1]);
         h.step(file_cmd("tmp-put-ok"), 1000);
         release_stage(&mut h, "prepare", 1001);
@@ -1291,9 +1288,12 @@ mod g03_prepare_contract {
                 .iter()
                 .filter(|effect| matches!(effect, EffectKind::Http(_)))
                 .count(),
-            1,
-            "PUT success must start exactly one complete request"
+            0,
+            "PUT success must not call Java complete"
         );
+        assert!(effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::PersistAtomic(_))));
         assert_eq!(posts_create_count(&h), 0);
     }
 }

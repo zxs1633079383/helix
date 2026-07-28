@@ -80,33 +80,23 @@ fn media_input(media: Media) -> Value {
 
 fn prepare_data(media: Media) -> Value {
     let input = media_input(media);
+    let bucket = if media.name.ends_with(".png") {
+        "picture"
+    } else {
+        "attachment"
+    };
     json!({
         "isSuccess": true,
-        "uploadToken": media.upload,
         "fileId": media.file,
+        "bucket": bucket,
         "method": "PUT",
         "url": format!("https://oss.test/media/{}?signature={}", media.file, media.upload),
-        "stablePath": format!("/oss/media/object/{}", media.file),
+        "uri": format!("media/{}", media.file),
         "objectKey": format!("media/{}", media.file),
         "headers": {
             "Content-Type": input["contentType"],
             "x-oss-forbid-overwrite": "true"
         }
-    })
-}
-
-fn complete_data(media: Media) -> Value {
-    let input = media_input(media);
-    json!({
-        "isSuccess": true,
-        "state": "completed",
-        "fileId": media.file,
-        "objectKey": format!("media/{}", media.file),
-        "stablePath": format!("/oss/media/object/{}", media.file),
-        "contentLength": input["size"],
-        "contentType": input["contentType"],
-        "sha256": media.sha,
-        "etag": "etag-internal"
     })
 }
 
@@ -205,7 +195,7 @@ fn completion_commit_corr(h: &Harness) -> u64 {
     h.sink
         .as_slice()
         .iter()
-        .find_map(|effect| {
+        .filter_map(|effect| {
             match effect {
             Effect::PersistAtomic { corr, ops }
                 if ops.iter().any(|op| {
@@ -217,6 +207,7 @@ fn completion_commit_corr(h: &Harness) -> u64 {
             _ => None,
         }
         })
+        .last()
         .expect("trusted media completion atomic commit")
 }
 
@@ -236,7 +227,7 @@ fn put_ok(h: &mut Harness, corr: u64, now: u64) -> u64 {
     h.step(port_reply_ok(corr), now);
     let persist = pending_stage_corr(h, "complete");
     h.step(port_reply_ok(persist), now + 1);
-    http(h, "/oss/completeMediaUpload")[0].0
+    completion_commit_corr(h)
 }
 
 fn posts(h: &Harness) -> usize {
@@ -330,10 +321,8 @@ fn prepare_failure_retries_prepare_without_new_business_id() {
 
     let upload = prepare_ok(&mut h, retries[0].0, FILE, 1040);
     let complete = put_ok(&mut h, upload, 1050);
-    h.step(with_corr(complete, common_res(complete_data(FILE))), 1060);
     assert_eq!(posts(&h), 0);
-    let completion_commit = completion_commit_corr(&h);
-    h.step(port_reply_ok(completion_commit), 1061);
+    h.step(port_reply_ok(complete), 1061);
     assert_eq!(posts(&h), 1);
     let body: Value = serde_json::from_slice(
         http(&h, "/posts/create")[0]
@@ -399,14 +388,12 @@ fn put_failure_retries_from_prepare_and_never_reuses_the_old_signed_url() {
 
     let retried_upload = prepare_ok(&mut h, prepares[0].0, FILE, 1050);
     let complete = put_ok(&mut h, retried_upload, 1050);
-    h.step(with_corr(complete, common_res(complete_data(FILE))), 1060);
-    let completion_commit = completion_commit_corr(&h);
-    h.step(port_reply_ok(completion_commit), 1061);
+    h.step(port_reply_ok(complete), 1061);
     assert_eq!(posts(&h), 1);
 }
 
 #[test]
-fn complete_failure_retries_only_complete_and_preserves_multi_barrier() {
+fn completion_persist_failure_retries_only_local_completion_and_preserves_multi_barrier() {
     let mut h = Harness::new(&[1]);
     h.step(rich_cmd(), 1000);
     release_initial(&mut h, 1001);
@@ -419,21 +406,14 @@ fn complete_failure_retries_only_complete_and_preserves_multi_barrier() {
     h.step(port_reply_ok(complete_b_stage), 1041);
     assert!(
         http(&h, "/oss/completeMediaUpload").is_empty(),
-        "第二个 verify 必须等待第一个完成原子提交"
+        "本地终态链不得调用 Java complete"
     );
-    h.step(with_corr(complete_a, common_res(complete_data(A))), 1050);
-    assert_eq!(posts(&h), 0);
-    let first_commit = completion_commit_corr(&h);
-    h.step(port_reply_ok(first_commit), 1051);
-    let complete_b = http(&h, "/oss/completeMediaUpload")[0].0;
-    let mut mismatch = complete_data(B);
-    mismatch["sha256"] = json!("wrong");
-    h.step(with_corr(complete_b, common_res(mismatch)), 1060);
+
+    h.step(common::port_reply_err(complete_a), 1050);
     assert_eq!(posts(&h), 0);
     assert_retryable_media_failure(&h, "tmp-retry-rich", false);
 
     h.step(retry("tmp-retry-rich"), 1070);
-    assert!(http(&h, "/oss/completeMediaUpload").is_empty());
     let retry_reset = retry_reset_corr(&h);
     h.step(port_reply_ok(retry_reset), 1071);
     assert_eq!(
@@ -446,17 +426,15 @@ fn complete_failure_retries_only_complete_and_preserves_multi_barrier() {
         .iter()
         .all(|effect| !matches!(effect, Effect::UploadFile { .. })));
     assert!(http(&h, "/oss/getPresignedUrl").is_empty());
-    let retried_complete = http(&h, "/oss/completeMediaUpload");
-    assert_eq!(retried_complete.len(), 1);
+    assert!(http(&h, "/oss/completeMediaUpload").is_empty());
+    let first_completion = completion_commit_corr(&h);
     let duplicate = h.step(retry("tmp-retry-rich"), 1080);
     assert!(duplicate.is_empty());
 
-    h.step(
-        with_corr(retried_complete[0].0, common_res(complete_data(B))),
-        1090,
-    );
+    h.step(port_reply_ok(first_completion), 1090);
     assert_eq!(posts(&h), 0);
-    let completion_commit = completion_commit_corr(&h);
-    h.step(port_reply_ok(completion_commit), 1091);
+    let second_completion = completion_commit_corr(&h);
+    assert_ne!(first_completion, second_completion);
+    h.step(port_reply_ok(second_completion), 1091);
     assert_eq!(posts(&h), 1);
 }

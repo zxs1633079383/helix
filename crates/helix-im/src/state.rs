@@ -3,8 +3,8 @@
 use crate::channel::Channel;
 use crate::pending_send::{PendingSend, TimelineReadbackContext};
 use crate::send::upload_props::{
-    CompletedMedia, FailedMediaOp, PendingMediaCompletionCommit, PendingMediaOp,
-    PendingMediaPrepare, PendingMediaPut, PendingMediaRetryReset, PendingUpload, UploadTarget,
+    FailedMediaOp, PendingMediaCompletionCommit, PendingMediaOp, PendingMediaPrepare,
+    PendingMediaPut, PendingMediaRetryReset, PendingUpload, UploadTarget,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
@@ -88,16 +88,16 @@ pub struct ImState {
     /// journal update succeeds.
     pub pending_media_stage_persists: HashMap<helix_core::Correlation, PendingMediaOp>,
 
-    /// 同一消息最多一条 Java verify/完成持久化链在途；prepare/PUT 仍可并发。
-    pub media_verify_inflight: HashSet<TemporaryId>,
+    /// 同一消息最多一条本地完成持久化链在途；prepare/PUT 仍可并发。
+    pub media_completion_inflight: HashSet<TemporaryId>,
 
-    /// 其它已进入 Complete 阶段的附件按到达顺序等待，避免并发 verify 结果争写整段 props。
-    pub queued_media_verifies: HashMap<TemporaryId, VecDeque<PendingMediaPut>>,
+    /// 其它已进入 Complete 阶段的附件按到达顺序等待，避免并发争写整段 props。
+    pub queued_media_completions: HashMap<TemporaryId, VecDeque<PendingMediaPut>>,
 
-    /// 已通过 complete 严格校验的可信媒体引用；B2b 据此做多附件 barrier/readback。
-    pub completed_media: HashMap<String, CompletedMedia>,
+    /// 已由 OSS PUT 2xx 确认并完成本地提交的 file id；据此做多附件 barrier/readback。
+    pub completed_media: HashSet<String>,
 
-    /// verify 成功后的 message props + pending_media delete 原子提交回包路由。
+    /// PUT 成功后的 message props + pending_media delete 原子提交回包路由。
     pub pending_media_completion_persists:
         HashMap<helix_core::Correlation, PendingMediaCompletionCommit>,
 
@@ -297,9 +297,9 @@ impl ImState {
             file_upload_progress_persists: HashMap::new(),
             pending_media_after_optimistic: HashMap::new(),
             pending_media_stage_persists: HashMap::new(),
-            media_verify_inflight: HashSet::new(),
-            queued_media_verifies: HashMap::new(),
-            completed_media: HashMap::new(),
+            media_completion_inflight: HashSet::new(),
+            queued_media_completions: HashMap::new(),
+            completed_media: HashSet::new(),
             pending_media_completion_persists: HashMap::new(),
             pending_media_retry_resets: HashMap::new(),
             failed_media_ops: HashMap::new(),

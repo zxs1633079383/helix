@@ -11,9 +11,12 @@
 mod common;
 use common::*;
 
+use bytes::Bytes;
 use helix_core::effect::StorageOp;
 use helix_core::tick::InboundBytes;
 use helix_core::{Effect, Tick};
+
+const SURFACE_RESYNC: &str = "__helix_request_surface_snapshot";
 
 // ─── 辅助 ─────────────────────────────────────────────────────────────────────
 
@@ -47,6 +50,15 @@ fn emit_data(sink: &helix_core::EffectSink, event_name: &str) -> Vec<serde_json:
             }
             _ => None,
         })
+        .collect()
+}
+
+/// 收集本批 V2 Frame 的 Surface 名，验证已挂载视图是否收到权威更新。
+fn frame_surfaces(sink: &helix_core::EffectSink) -> Vec<String> {
+    emit_data(sink, "im:interaction:frame")
+        .into_iter()
+        .flat_map(|frame| frame["mutations"].as_array().cloned().unwrap_or_default())
+        .filter_map(|mutation| mutation["surface"].as_str().map(str::to_string))
         .collect()
 }
 
@@ -701,6 +713,57 @@ fn channel_created_full_upsert_and_members_s1() {
     assert_eq!(
         surfaces,
         std::collections::BTreeSet::from(["message.channel-summary", "message.member-roster",])
+    );
+}
+
+/// 回归锚: Observer 仅收到 WS authority 时，也必须把新群插入已挂载的左侧会话 Surface。
+#[test]
+fn channel_created_ws_inserts_attached_observer_dialog_s1() {
+    let mut h = Harness::new_with_identity(&[], "u-observer", "team-1", "", "", "");
+    h.step(
+        command_json(
+            SURFACE_RESYNC,
+            serde_json::json!({
+                "surface": "message.left-dialog-list",
+                "scope": {"kind": "user", "userId": "u-observer", "teamId": "team-1"}
+            }),
+        ),
+        1_000,
+    );
+    let scan = persist_corr(&h.sink);
+    h.step(port_reply_with_body(scan, Bytes::from_static(b"[]")), 1_001);
+
+    h.step(
+        inbound(serde_json::json!({
+            "action": "channel_created",
+            "data": {
+                "id": cid(15),
+                "type": "O",
+                "displayName": "Observer 新群",
+                "createAt": 1_700_000_000_000_i64,
+                "lastPostAt": 1_700_000_000_100_i64,
+                "channelIsTop": false,
+                "memberCount": 2,
+                "unreadCount": 0,
+                "mentionCount": 0,
+                "urgentCount": 0,
+                "memberChange": {"join": [
+                    {"id": "u-owner", "teamId": "team-1", "role": "OWNER"},
+                    {"id": "u-observer", "teamId": "team-1", "role": "MEMBER"}
+                ]}
+            }
+        })),
+        1_002,
+    );
+    let persist = persist_atomic_corr(&h.sink);
+    h.step(port_reply_ok(persist), 1_003);
+
+    let surfaces = frame_surfaces(&h.sink);
+    assert!(
+        surfaces
+            .iter()
+            .any(|surface| surface == "message.left-dialog-list"),
+        "Observer 的 WS channel_created 必须插入左侧会话，got: {surfaces:?}"
     );
 }
 

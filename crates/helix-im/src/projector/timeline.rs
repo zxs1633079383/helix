@@ -10,7 +10,7 @@ use thiserror::Error;
 
 use crate::interaction_frame::{
     ActionBinding, DeliveryVm, ForwardModeVm, ForwardSourceVm, ForwardedItemContentVm,
-    ForwardedItemVm, InteractionFrameError, MessageContentVm, MessageQuickActionVm,
+    ForwardedItemVm, InteractionFrameError, MediaItemVm, MessageContentVm, MessageQuickActionVm,
     MessageReactionVm, MessageVm, ReferenceAvailabilityVm, ReplyPreviewVm, ReplySummaryVm,
     ReplyThreadPreviewVm, ReplyThreadSummaryVm, SurfaceDataVm, SurfaceId, SurfaceLoadState,
     SurfaceMutation, SurfaceScope, TimelineActiveWindowVm, TimelineAnchorMode, TimelineAnchorVm,
@@ -1692,6 +1692,7 @@ fn content_from_row(
         "IMAGE" | "VIDEO" | "AUDIO" | "FILE" | "MEDIA"
     ) {
         let (resource, primary_resource) = media_resource_from_props(kind.as_str(), props);
+        let items = media_items_from_props(kind.as_str(), props)?;
         let file_name = {
             let nested = row_string(primary_resource, &["name", "fileName", "title"]);
             if nested.is_empty() {
@@ -1715,6 +1716,11 @@ fn content_from_row(
             file_name,
             size,
             availability: SurfaceDataVm::Record(BTreeMap::new()),
+            items,
+            caption: (!text.is_empty()).then_some(text),
+            image_position: (kind == "IMAGE")
+                .then(|| row_string(props, &["imagePosition", "image_position"]))
+                .filter(|position| !position.is_empty()),
         });
     }
     if matches!(
@@ -1853,6 +1859,72 @@ fn media_resource_from_props<'a>(kind: &str, props: &'a Value) -> (&'a Value, &'
         let resource = props.get("file").unwrap_or(props);
         (resource, resource)
     }
+}
+
+/// 从兼容 props 提取字段完整的稳定 typed items，临时节点只保留在父级 raw resource。
+fn media_items_from_props(
+    kind: &str,
+    props: &Value,
+) -> Result<Vec<MediaItemVm>, TimelineProjectionError> {
+    let resources = if kind == "IMAGE" {
+        props
+            .get("files")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    } else {
+        std::slice::from_ref(props.get("file").unwrap_or(props))
+    };
+
+    resources
+        .iter()
+        .map(|resource| {
+            let file_name = row_string(resource, &["name", "fileName", "title"]);
+            let file_id = optional_non_empty_string(resource, &["id", "fileId", "file_id"])
+                .or_else(|| {
+                    optional_non_empty_string(resource, &["stablePath", "url", "uri"]).and_then(
+                        |value| {
+                            value
+                                .rsplit('/')
+                                .find(|part| !part.is_empty())
+                                .map(str::to_string)
+                        },
+                    )
+                });
+            let content_type = row_string(
+                resource,
+                &["contentType", "content_type", "mimeType", "mime_type"],
+            );
+            let uri = row_string(resource, &["uri", "url", "stablePath"]);
+            let Some(file_id) = file_id else {
+                return Ok(None);
+            };
+            if file_name.is_empty() || content_type.is_empty() || uri.is_empty() {
+                return Ok(None);
+            }
+            let size = integer_at(resource, &["size"], "size")?
+                .unwrap_or_default()
+                .max(0) as u64;
+            let bucket = optional_non_empty_string(resource, &["bucket"]).unwrap_or_else(|| {
+                if kind == "IMAGE" {
+                    "picture"
+                } else {
+                    "attachment"
+                }
+                .to_string()
+            });
+            Ok(Some(MediaItemVm {
+                file_id,
+                file_name,
+                size,
+                content_type,
+                bucket,
+                uri,
+                thumbnail: optional_data(resource.get("thumbnail"))?,
+            }))
+        })
+        .filter_map(Result::transpose)
+        .collect()
 }
 
 /// 将持久行状态投影成 renderer delivery，并复用同一 capability 真源判定 retryable。
@@ -2857,26 +2929,25 @@ mod tests {
     fn final_image_content_projects_the_complete_props_files_gallery() {
         let mut image = row(2);
         image["type"] = serde_json::json!("IMAGE");
+        image["text"] = serde_json::json!("两张现场图片");
         image["fileName"] = serde_json::json!("stale-top-level.png");
         image["size"] = serde_json::json!(1);
         image["props"] = serde_json::json!({
             "imagePosition": "bottom",
             "files": [
                 {
-                    "bucket": "file",
+                    "bucket": "picture",
                     "name": "a.png",
                     "size": 11,
                     "contentType": "image/png",
-                    "url": "https://java.example/oss/media/object/mf_a",
-                    "uri": "https://java.example/oss/media/object/mf_a"
+                    "uri": "media/mf_a"
                 },
                 {
-                    "bucket": "file",
+                    "bucket": "picture",
                     "name": "b.png",
                     "size": 22,
                     "contentType": "image/png",
-                    "url": "https://java.example/oss/media/object/mf_b",
-                    "uri": "https://java.example/oss/media/object/mf_b"
+                    "uri": "media/mf_b"
                 }
             ]
         });
@@ -2892,6 +2963,15 @@ mod tests {
         assert_eq!(content["size"], 11);
         assert_eq!(content["resource"], image["props"]["files"]);
         assert!(content["resource"].is_array());
+        assert_eq!(content["caption"], "两张现场图片");
+        assert_eq!(content["imagePosition"], "bottom");
+        assert_eq!(content["items"].as_array().map(Vec::len), Some(2));
+        assert_eq!(content["items"][0]["fileId"], "mf_a");
+        assert_eq!(content["items"][0]["fileName"], "a.png");
+        assert_eq!(content["items"][0]["contentType"], "image/png");
+        assert_eq!(content["items"][0]["uri"], "media/mf_a");
+        assert_eq!(content["items"][0]["bucket"], "picture");
+        assert_eq!(content["items"][1]["fileId"], "mf_b");
     }
 
     #[test]

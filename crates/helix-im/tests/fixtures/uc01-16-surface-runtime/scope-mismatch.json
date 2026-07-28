@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "transactionId": "timeline-user-scope-mismatch",
   "mutations": [
     {
@@ -14,20 +14,40 @@
         "kind": "timelineSnapshot",
         "view": {
           "channelId": "channel-1",
+          "entities": [],
+          "items": [],
           "anchor": {
             "mode": "latest"
           },
-          "items": [],
           "page": {
             "windowToken": "latest-1",
             "hasOlder": false,
             "hasNewer": false,
             "hasMore": false
           },
-          "state": "ready"
+          "state": "ready",
+          "ranges": [
+            {
+              "rangeId": "latest-1",
+              "orderedKeys": [],
+              "hasOlder": false,
+              "hasNewer": false
+            }
+          ],
+          "activeWindow": {
+            "windowToken": "latest-1",
+            "rangeIds": [
+              "latest-1"
+            ],
+            "anchor": {
+              "mode": "latest"
+            },
+            "state": "ready"
+          }
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 3
     }
   ],
   "runtime": {

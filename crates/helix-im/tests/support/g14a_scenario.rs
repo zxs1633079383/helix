@@ -82,7 +82,7 @@ pub fn assert_received_contract(frame: &InteractionFrameV2) {
 fn assert_template_contract(frame: &InteractionFrameV2, received: bool) {
     let spec = g14a_scenario_spec();
     frame.validate().expect("G14a timeline Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(frame.causation_id, None);
     assert_eq!(frame.mutations.len(), 1);
     assert!(frame.directives.is_empty());

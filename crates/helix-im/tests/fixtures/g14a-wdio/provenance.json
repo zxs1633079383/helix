@@ -81,7 +81,7 @@
   {
     "fileName": "template-receivable.frame-v2.json",
     "fixtureId": "g14a-template-receivable-v2",
-    "fixtureSha256": "f78bfa1f8a535375fbacaccd3df5308b8988dd4a883b253a7b92e88661d29e9a",
+    "fixtureSha256": "92726e941410808f255367e20ff11a6a065064e97712742ee8bb48f7c205fa3b",
     "gateId": "G-14a",
     "generatedAt": "2026-07-26T06:36:22-07:00",
     "helixCommit": "76da0e898db39e2f343d36790ad2ccfbb92bf154",
@@ -150,8 +150,8 @@
       "/mutations/*/mutation/patch/view/sections/*/items/*/actions/*/surfaceEpoch",
       "/mutations/*/mutation/view/sections/*/items/*/actions/*/surfaceEpoch"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "1ad149a8e5bc4a7df237e18ae63ce200514acb2104b5a2d1b3f21e2dc39090d8",
+    "schemaVersion": 3,
+    "semanticSha256": "3d10c95322ca84a6eb01bb3fc13e395c0b1ac2db159f97e0c3ce2962c0e3e253",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"
@@ -160,7 +160,7 @@
   {
     "fileName": "template-received.frame-v2.json",
     "fixtureId": "g14a-template-received-v2",
-    "fixtureSha256": "e0e2eba0544ec76407b876cbeb778715eef926f2aa8352e78d799d08326de87e",
+    "fixtureSha256": "5ac877a64ea28e3568ad548f24edc686be324e9ad17743674af47baa230aa653",
     "gateId": "G-14a",
     "generatedAt": "2026-07-26T06:36:22-07:00",
     "helixCommit": "76da0e898db39e2f343d36790ad2ccfbb92bf154",
@@ -229,8 +229,8 @@
       "/mutations/*/mutation/patch/view/sections/*/items/*/actions/*/surfaceEpoch",
       "/mutations/*/mutation/view/sections/*/items/*/actions/*/surfaceEpoch"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "4cdece1da627ddb0b863f2ecfcbe337166b2307079cbfc1236c861c314f38118",
+    "schemaVersion": 3,
+    "semanticSha256": "1c8224fae9446a48423c00e150d46e74433b02c9f2e028ef63ff8f77dade325e",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"
@@ -239,7 +239,7 @@
   {
     "fileName": "template-received-recovery.frame-v2.json",
     "fixtureId": "g14a-template-received-recovery-v2",
-    "fixtureSha256": "9fb5591efeaae67a90c42717a29f81a2612530bd6425f74e379ad7abbd69570f",
+    "fixtureSha256": "a4d0c2e30151f7d38a7715261a126df7c18ca283fbc4f0fb99765df5bcd308b1",
     "gateId": "G-14a",
     "generatedAt": "2026-07-26T06:36:22-07:00",
     "helixCommit": "76da0e898db39e2f343d36790ad2ccfbb92bf154",
@@ -308,8 +308,8 @@
       "/mutations/*/mutation/patch/view/sections/*/items/*/actions/*/surfaceEpoch",
       "/mutations/*/mutation/view/sections/*/items/*/actions/*/surfaceEpoch"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "dceb7dae2eb67a7ce076624d1554a5dae85fec1378318e104c606b83ed0904bd",
+    "schemaVersion": 3,
+    "semanticSha256": "29af0c1809ac9f36e0938db6ffa2219545664228c268753ab44658e1d6fdb10e",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"

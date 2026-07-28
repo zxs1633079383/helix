@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "transactionId": "timeline-timeline|26:chrevoff000000000000000001|6:latest-1",
   "runtime": {
     "connection": "online",
@@ -19,13 +19,63 @@
         "kind": "timelineSnapshot",
         "view": {
           "channelId": "chrevoff000000000000000001",
-          "anchor": {
-            "messageId": "srvoffrev00000000000000000",
-            "mode": "latest"
-          },
+          "entities": [
+            {
+              "entityKey": {
+                "createAt": 1700000400002,
+                "temporaryId": "srvoffrev00000000000000000"
+              },
+              "message": {
+                "id": "srvoffrev00000000000000000",
+                "temporaryId": "srvoffrev00000000000000000",
+                "serverId": "srvoffrev00000000000000000",
+                "channelId": "chrevoff000000000000000001",
+                "eventSeq": 1,
+                "author": {
+                  "userId": "g04a-wdio-actor"
+                },
+                "createdAt": 1700000400002,
+                "content": {
+                  "kind": "recalled",
+                  "text": "g04a-offline-revoke-fixture-marker"
+                },
+                "delivery": {
+                  "kind": "recalled"
+                },
+                "actions": [],
+                "replySummary": {
+                  "kind": "none"
+                },
+                "readReceipt": {
+                  "readBits": "",
+                  "readerIds": []
+                },
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                },
+                "pinned": false,
+                "bookmarked": false
+              }
+            }
+          ],
           "items": [
             {
               "id": "srvoffrev00000000000000000",
+              "temporaryId": "srvoffrev00000000000000000",
+              "serverId": "srvoffrev00000000000000000",
               "channelId": "chrevoff000000000000000001",
               "eventSeq": 1,
               "author": {
@@ -67,16 +117,61 @@
               "bookmarked": false
             }
           ],
+          "anchor": {
+            "messageId": "srvoffrev00000000000000000",
+            "mode": "latest"
+          },
           "page": {
             "windowToken": "latest",
             "hasOlder": false,
             "hasNewer": false,
             "hasMore": false
           },
-          "state": "ready"
+          "state": "ready",
+          "ranges": [
+            {
+              "rangeId": "latest",
+              "orderedKeys": [
+                {
+                  "createAt": 1700000400002,
+                  "temporaryId": "srvoffrev00000000000000000"
+                }
+              ],
+              "olderCursor": {
+                "createAt": 1700000400002,
+                "temporaryId": "srvoffrev00000000000000000"
+              },
+              "newerCursor": {
+                "createAt": 1700000400002,
+                "temporaryId": "srvoffrev00000000000000000"
+              },
+              "hasOlder": false,
+              "hasNewer": false,
+              "latestWatermark": {
+                "createAt": 1700000400002,
+                "temporaryId": "srvoffrev00000000000000000"
+              }
+            }
+          ],
+          "activeWindow": {
+            "windowToken": "latest",
+            "rangeIds": [
+              "latest"
+            ],
+            "anchor": {
+              "messageId": "srvoffrev00000000000000000",
+              "mode": "latest"
+            },
+            "state": "ready"
+          },
+          "persistedWatermark": {
+            "createAt": 1700000400002,
+            "temporaryId": "srvoffrev00000000000000000"
+          }
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 3
     }
   ],
   "directives": []

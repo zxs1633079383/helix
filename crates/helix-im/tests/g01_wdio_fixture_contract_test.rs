@@ -118,7 +118,7 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
         .iter()
         .map(|mutation| match mutation.mutation.mutation {
             TypedSurfaceMutation::TimelineSnapshot { .. } => "timelineSnapshot",
-            TypedSurfaceMutation::TimelinePatch { .. } => "timelinePatch",
+            TypedSurfaceMutation::TimelineDelta { .. } => "timelineDelta",
             TypedSurfaceMutation::DialogListSnapshot { .. } => "dialogListSnapshot",
             TypedSurfaceMutation::DialogListPatch { .. } => "dialogListPatch",
             TypedSurfaceMutation::UnreadSummarySnapshot { .. } => "unreadSummarySnapshot",
@@ -153,7 +153,7 @@ fn optional_message_id(frame: &InteractionFrameV2) -> Option<&str> {
             matches!(
                 mutation.mutation.mutation,
                 TypedSurfaceMutation::TimelineSnapshot { .. }
-                    | TypedSurfaceMutation::TimelinePatch { .. }
+                    | TypedSurfaceMutation::TimelineDelta { .. }
             )
         })
         .then(|| first_message(frame).id.as_str())
@@ -238,7 +238,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8], temporary_id: &str) -> Val
 
 #[test]
 /// 证明 producer actual、字段语义、Golden bytes 与 provenance 始终为同一份合同。
-fn current_g01_producer_matches_canonical_v2_fixtures_and_provenance() {
+fn current_g01_producer_matches_canonical_fixtures_and_provenance() {
     let cases = produce_cases();
     assert_eq!(cases.len(), 6, "G01 canonical inventory is explicit");
     let temporary_id = first_message(&cases[1].frame).id.clone();
@@ -248,7 +248,17 @@ fn current_g01_producer_matches_canonical_v2_fixtures_and_provenance() {
 
     for case in &cases {
         case.frame.validate().expect("producer Frame remains valid");
-        assert_eq!(case.frame.schema_version, 2);
+        let expected_schema_version = if case
+            .frame
+            .mutations
+            .iter()
+            .any(|mutation| mutation.mutation.surface.as_str() == "message.timeline")
+        {
+            3
+        } else {
+            2
+        };
+        assert_eq!(case.frame.schema_version, expected_schema_version);
         assert!(!surface_names(&case.frame).is_empty());
         let bytes = canonical_bytes(&case.frame);
         provenance.push(provenance_entry(case, &bytes, &temporary_id));

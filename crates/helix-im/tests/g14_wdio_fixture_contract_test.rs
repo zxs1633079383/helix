@@ -16,8 +16,8 @@ mod scenario;
 use scenario::{
     assert_group_created_contract_for, assert_readable_message_contract, assert_receipt_contract,
     assert_receipt_viewable_message_contract, g14_scenario_spec, receipt_view, sha256_hex,
-    surface_names, G14ScenarioRunner, ACTOR_ID, AUTHOR_ID, CHANNEL_ID, CREATED_AT, GROUP_NAME,
-    OBSERVER_ID, POST_ID, TEAM_ID, WINDOW_TOKEN,
+    surface_names, timeline_messages, G14ScenarioRunner, ACTOR_ID, AUTHOR_ID, CHANNEL_ID,
+    CREATED_AT, GROUP_NAME, OBSERVER_ID, POST_ID, TEAM_ID, WINDOW_TOKEN,
 };
 
 const HELIX_COMMIT: &str = "5b8b7db031faf55f1fa52de15bac746a20f82b13";
@@ -97,21 +97,29 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
 
 /// 提取 G14 可读消息的稳定内容与 markRead 能力，不纳入 opaque actionRef。
 fn readable_message_contract(frame: &InteractionFrameV2) -> Value {
-    let Some(view) =
-        frame
-            .mutations
-            .iter()
-            .find_map(|mutation| match &mutation.mutation.mutation {
-                TypedSurfaceMutation::TimelineSnapshot { view } => Some(view),
-                TypedSurfaceMutation::TimelinePatch { patch } => Some(&patch.view),
-                _ => None,
-            })
-    else {
+    let items = timeline_messages(frame);
+    if items.is_empty() {
         return Value::Null;
-    };
+    }
+    let state = frame
+        .mutations
+        .iter()
+        .find_map(|mutation| match &mutation.mutation.mutation {
+            TypedSurfaceMutation::TimelineSnapshot { view } => Some(&view.state),
+            TypedSurfaceMutation::TimelineDelta { operations } => {
+                operations.iter().find_map(|operation| match operation {
+                    helix_im::interaction_frame::TimelineDeltaOperationVm::ActivateWindow {
+                        window,
+                        ..
+                    } => Some(&window.state),
+                    _ => None,
+                })
+            }
+            _ => None,
+        });
     json!({
-        "channelId": view.channel_id,
-        "items": view.items.iter().map(|item| json!({
+        "channelId": CHANNEL_ID,
+        "items": items.iter().map(|item| json!({
             "author": item.author,
             "content": item.content,
             "delivery": item.delivery,
@@ -124,7 +132,7 @@ fn readable_message_contract(frame: &InteractionFrameV2) -> Value {
                 }))
             }).collect::<Vec<_>>())
         })).collect::<Vec<_>>(),
-        "state": view.state,
+        "state": state,
     })
 }
 
@@ -245,7 +253,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
 
 /// 证明 actual producer、字段语义、Golden bytes 与 provenance 始终同源。
 #[test]
-fn current_g14_producer_matches_canonical_v2_fixtures_and_provenance() {
+fn current_g14_producer_matches_canonical_fixtures_and_provenance() {
     let cases = produce_cases();
     assert_eq!(cases.len(), 6, "G14 canonical inventory is explicit");
     assert_eq!(receipt_view(&cases[3].frame).pending.len(), 2);
@@ -255,7 +263,17 @@ fn current_g14_producer_matches_canonical_v2_fixtures_and_provenance() {
     let mut provenance = Vec::with_capacity(cases.len());
     for case in &cases {
         case.frame.validate().expect("producer Frame remains valid");
-        assert_eq!(case.frame.schema_version, 2);
+        let expected_schema_version = if case
+            .frame
+            .mutations
+            .iter()
+            .any(|mutation| mutation.mutation.surface.as_str() == "message.timeline")
+        {
+            3
+        } else {
+            2
+        };
+        assert_eq!(case.frame.schema_version, expected_schema_version);
         let bytes = canonical_bytes(&case.frame);
         provenance.push(provenance_entry(case, &bytes));
         if update {

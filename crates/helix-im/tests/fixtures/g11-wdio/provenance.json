@@ -77,7 +77,7 @@
   {
     "fileName": "timeline-initial.frame-v2.json",
     "fixtureId": "g11-timeline-initial-v2",
-    "fixtureSha256": "f8bdc1876d4cc911048cdd8a27a26a1e274f5c8e5193a21c631b494ceda90214",
+    "fixtureSha256": "e540114c5f0967a0a08dd718fc1605d8a0f842150d07d98871af59190b32abbf",
     "generatedAt": "2026-07-25T23:58:00-07:00",
     "helixCommit": "5e3ffc026fc8b25f76a7cce162e75734bddb45ca",
     "parameterizableFields": [
@@ -142,8 +142,8 @@
       "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
       "/mutations/*/mutation/patch/view/items/*/actions/*/surfaceEpoch"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "b91a6b0d622bfe51c169854aa0d8b986105b2df6920f761c5672b7e8ee1dad27",
+    "schemaVersion": 3,
+    "semanticSha256": "01117f122e3ffeec8df914048c4b4c0e74ada99ae18dae04b3da39857c4edd9a",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"
@@ -152,7 +152,7 @@
   {
     "fileName": "timeline-located.frame-v2.json",
     "fixtureId": "g11-timeline-located-v2",
-    "fixtureSha256": "40822b966860e0ac789bcf636e3706fc5d8ac1f93c3e16ec5019cfd89d96121a",
+    "fixtureSha256": "6d38b792755f5650d21bafeac4b9c8cf52cebf7c0019f05cb7713cb66bbb939f",
     "generatedAt": "2026-07-25T23:58:00-07:00",
     "helixCommit": "5e3ffc026fc8b25f76a7cce162e75734bddb45ca",
     "parameterizableFields": [
@@ -217,8 +217,8 @@
       "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
       "/mutations/*/mutation/patch/view/items/*/actions/*/surfaceEpoch"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "56fe29d097b37e8255aef35392071014a770e6627a2c17809d98ca43185065de",
+    "schemaVersion": 3,
+    "semanticSha256": "6e0efd2f0d0761d8a0e417966004c04ab3b0f1045d0bcb7729c67ee9bc5e163b",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"

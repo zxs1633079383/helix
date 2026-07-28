@@ -23,6 +23,8 @@ use crate::interaction_frame::{
     InteractionFrameError, InteractionFrameV2, InteractionRuntimeVm, RuntimeConnectionState,
     RuntimeRecoveryState, RuntimeSyncState, SurfaceId, SurfaceMutation, SurfaceMutationV2,
     SurfaceScope, TypedSurfaceMutation, UiDirective, INTERACTION_FRAME_EVENT,
+    INTERACTION_FRAME_SCHEMA_VERSION, INTERACTION_FRAME_SCHEMA_VERSION_V2,
+    LEGACY_SURFACE_SCHEMA_VERSION, TIMELINE_SURFACE_SCHEMA_VERSION,
 };
 
 /// 各强类型 ViewModel 到 closed mutation 的唯一映射。
@@ -171,8 +173,28 @@ pub(crate) fn build_interaction_frame(
     mutations: Vec<SurfaceMutationV2>,
     directives: Vec<UiDirective>,
 ) -> Result<InteractionFrameV2, InteractionFrameError> {
+    let schema_version = if mutations
+        .iter()
+        .any(|mutation| mutation.mutation.surface == SurfaceId::MessageTimeline)
+    {
+        INTERACTION_FRAME_SCHEMA_VERSION
+    } else {
+        INTERACTION_FRAME_SCHEMA_VERSION_V2
+    };
+    let mutations = mutations
+        .into_iter()
+        .map(|mut mutation| {
+            mutation.surface_schema_version = (schema_version == INTERACTION_FRAME_SCHEMA_VERSION)
+                .then_some(if mutation.mutation.surface == SurfaceId::MessageTimeline {
+                    TIMELINE_SURFACE_SCHEMA_VERSION
+                } else {
+                    LEGACY_SURFACE_SCHEMA_VERSION
+                });
+            mutation
+        })
+        .collect();
     let frame = InteractionFrameV2 {
-        schema_version: crate::interaction_frame::INTERACTION_FRAME_SCHEMA_VERSION,
+        schema_version,
         transaction_id,
         causation_id,
         runtime,
@@ -206,6 +228,7 @@ pub(crate) fn build_online_interaction_frame(
             .map(|mutation| SurfaceMutationV2 {
                 mutation,
                 surface_epoch,
+                surface_schema_version: None,
             })
             .collect(),
         Vec::new(),
@@ -242,8 +265,8 @@ mod tests {
     use super::*;
     use crate::interaction_frame::{
         DialogListVm, DialogSection, DialogSectionVm, ReplaceView, ReplaceViewKind, SurfaceId,
-        SurfaceLoadState, SurfaceScope, TimelineAnchorMode, TimelineAnchorVm, TimelineWindowVm,
-        TypedSurfaceMutation, UnreadSummaryVm, WindowPageVm,
+        SurfaceLoadState, SurfaceScope, TimelineAnchorMode, TimelineAnchorVm, TypedSurfaceMutation,
+        UnreadSummaryVm, WindowPageVm,
     };
 
     impl SurfaceView for UnreadSummaryVm {
@@ -323,27 +346,23 @@ mod tests {
                 revision: 2,
                 base_revision: Some(1),
                 causation_id: Some("post:message-1".to_string()),
-                mutation: TypedSurfaceMutation::TimelinePatch {
-                    patch: ReplaceView {
-                        kind: ReplaceViewKind::ReplaceView,
-                        view: TimelineWindowVm {
-                            channel_id: "channel-1".to_string(),
-                            anchor: TimelineAnchorVm {
-                                message_id: Some("message-1".to_string()),
-                                mode: TimelineAnchorMode::Latest,
-                            },
-                            items: Vec::new(),
-                            first_unread_message_id: None,
-                            target_message_id: None,
-                            page: WindowPageVm {
+                mutation: TypedSurfaceMutation::TimelineDelta {
+                    operations: vec![
+                        crate::interaction_frame::TimelineDeltaOperationVm::ActivateWindow {
+                            window: crate::interaction_frame::TimelineActiveWindowVm {
                                 window_token: "latest".to_string(),
-                                has_older: false,
-                                has_newer: false,
-                                has_more: false,
+                                range_ids: vec!["latest".to_string()],
+                                anchor: TimelineAnchorVm {
+                                    message_id: Some("message-1".to_string()),
+                                    mode: TimelineAnchorMode::Latest,
+                                },
+                                first_unread_message_id: None,
+                                target_message_id: None,
+                                state: SurfaceLoadState::Ready,
                             },
-                            state: SurfaceLoadState::Ready,
+                            navigation_token: None,
                         },
-                    },
+                    ],
                 },
             },
         ];
@@ -452,11 +471,13 @@ mod tests {
                 }
             }
             TypedSurfaceMutation::TimelineSnapshot { view } => {
-                TypedSurfaceMutation::TimelinePatch {
-                    patch: ReplaceView {
-                        kind: ReplaceViewKind::ReplaceView,
-                        view,
-                    },
+                TypedSurfaceMutation::TimelineDelta {
+                    operations: vec![
+                        crate::interaction_frame::TimelineDeltaOperationVm::ActivateWindow {
+                            window: view.active_window,
+                            navigation_token: None,
+                        },
+                    ],
                 }
             }
             TypedSurfaceMutation::ChannelSummarySnapshot { view } => {

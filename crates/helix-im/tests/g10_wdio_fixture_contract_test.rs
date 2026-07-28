@@ -6,7 +6,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use helix_im::interaction_frame::{InteractionFrameV2, SurfaceLoadState, TypedSurfaceMutation};
+use helix_im::interaction_frame::{
+    InteractionFrameV2, SurfaceLoadState, TimelineDeltaOperationVm, TypedSurfaceMutation,
+};
 use serde_json::{json, Value};
 
 #[path = "support/g10_scenario.rs"]
@@ -14,8 +16,8 @@ mod scenario;
 
 use scenario::{
     assert_group_created_contract_for, assert_timeline_contract, g10_scenario_spec, sha256_hex,
-    surface_names, G10ScenarioRunner, ACTOR_ID, CHANNEL_ID, CREATED_AT, GROUP_NAME, OBSERVER_ID,
-    TEAM_ID, WINDOW_TOKEN,
+    surface_names, timeline_messages, G10ScenarioRunner, ACTOR_ID, CHANNEL_ID, CREATED_AT,
+    GROUP_NAME, OBSERVER_ID, TEAM_ID, WINDOW_TOKEN,
 };
 
 const HELIX_COMMIT: &str = "e10719adbcf5767c2eab2eb288d86f3e2b210477";
@@ -119,33 +121,62 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
 
 /// 提取 timeline 的稳定 state、page、content、delivery 与 action 能力。
 fn timeline_contract(frame: &InteractionFrameV2) -> Option<Value> {
-    let view = frame
+    let mutation = frame
         .mutations
         .iter()
-        .find_map(|mutation| match &mutation.mutation.mutation {
-            TypedSurfaceMutation::TimelineSnapshot { view } => Some(view),
-            TypedSurfaceMutation::TimelinePatch { patch } => Some(&patch.view),
-            _ => None,
-        })?;
-    Some(json!({
-        "channelId": view.channel_id,
-        "anchorMode": view.anchor.mode,
-        "itemCount": view.items.len(),
-        "items": view.items.iter().map(|item| json!({
-            "channelId": item.channel_id,
-            "author": item.author,
-            "content": item.content,
-            "delivery": item.delivery,
-            "actions": item.actions.iter().map(|action| json!({
-                "kind": action.kind,
-                "inputShape": action.input_shape,
-                "enabled": action.enabled,
-                "disabledReason": action.disabled_reason,
-            })).collect::<Vec<_>>(),
-        })).collect::<Vec<_>>(),
-        "page": view.page,
-        "state": view.state,
-    }))
+        .find(|mutation| mutation.mutation.surface.as_str() == "message.timeline")?;
+    let messages = timeline_messages(frame);
+    let items = messages
+        .iter()
+        .map(|item| {
+            json!({
+                "channelId": item.channel_id,
+                "author": item.author,
+                "content": item.content,
+                "delivery": item.delivery,
+                "actions": item.actions.iter().map(|action| json!({
+                    "kind": action.kind,
+                    "inputShape": action.input_shape,
+                    "enabled": action.enabled,
+                    "disabledReason": action.disabled_reason,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect::<Vec<_>>();
+    match &mutation.mutation.mutation {
+        TypedSurfaceMutation::TimelineSnapshot { view } => Some(json!({
+            "kind": "snapshot",
+            "channelId": view.channel_id,
+            "anchorMode": view.anchor.mode,
+            "itemCount": view.items.len(),
+            "items": items,
+            "page": view.page,
+            "state": view.state,
+        })),
+        TypedSurfaceMutation::TimelineDelta { operations } => Some(json!({
+            "kind": "delta",
+            "operationKinds": operations.iter().map(timeline_operation_kind).collect::<Vec<_>>(),
+            "items": items,
+            "activeWindow": operations.iter().find_map(|operation| match operation {
+                TimelineDeltaOperationVm::ActivateWindow { window, navigation_token } =>
+                    Some(json!({"window": window, "navigationToken": navigation_token})),
+                _ => None,
+            }),
+        })),
+        _ => None,
+    }
+}
+
+/// 将 Timeline V3 操作投影为跨端稳定的 closed-union 名称。
+fn timeline_operation_kind(operation: &TimelineDeltaOperationVm) -> &'static str {
+    match operation {
+        TimelineDeltaOperationVm::UpsertMessage { .. } => "upsertMessage",
+        TimelineDeltaOperationVm::InstallSegment { .. } => "installSegment",
+        TimelineDeltaOperationVm::InsertKeys { .. } => "insertKeys",
+        TimelineDeltaOperationVm::MergeRanges { .. } => "mergeRanges",
+        TimelineDeltaOperationVm::SetRangeBounds { .. } => "setRangeBounds",
+        TimelineDeltaOperationVm::ActivateWindow { .. } => "activateWindow",
+    }
 }
 
 /// 返回 Helix canonical G10 Fixture 目录。
@@ -236,7 +267,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
 
 /// 证明 actual producer、字段语义、Golden bytes 与 provenance 始终同源。
 #[test]
-fn current_g10_producer_matches_canonical_v2_fixtures_and_provenance() {
+fn current_g10_producer_matches_canonical_fixtures_and_provenance() {
     let cases = produce_cases();
     assert_eq!(cases.len(), 6, "G10 canonical inventory is explicit");
     let directory = fixture_dir();
@@ -244,7 +275,17 @@ fn current_g10_producer_matches_canonical_v2_fixtures_and_provenance() {
     let mut provenance = Vec::with_capacity(cases.len());
     for case in &cases {
         case.frame.validate().expect("producer Frame remains valid");
-        assert_eq!(case.frame.schema_version, 2);
+        let expected_schema_version = if case
+            .frame
+            .mutations
+            .iter()
+            .any(|mutation| mutation.mutation.surface.as_str() == "message.timeline")
+        {
+            3
+        } else {
+            2
+        };
+        assert_eq!(case.frame.schema_version, expected_schema_version);
         let bytes = canonical_bytes(&case.frame);
         provenance.push(provenance_entry(case, &bytes));
         if update {

@@ -73,7 +73,7 @@
   {
     "fileName": "sending.frame-v2.json",
     "fixtureId": "g02-sending-v2",
-    "fixtureSha256": "29d2ec949d627a02d320fb795de536fcf8f23fed97153b8a8786f49fbba601b7",
+    "fixtureSha256": "2d90f3801ba279a8a2ee0da6a4af2be00abd91918467d6cce5c3a49f477b2fba",
     "generatedAt": "2026-07-25T09:00:00-07:00",
     "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
@@ -134,8 +134,8 @@
       "/mutations/*/revision",
       "/mutations/*/baseRevision"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "5238e36fbaedb9442a8f0d012271587738be704b4165f3a69cf8d99c924b98cd",
+    "schemaVersion": 3,
+    "semanticSha256": "b28bbe7d3ceaa9112ae6745dd325e4e23cefb727b56ab13f971d80d70bdb87af",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"
@@ -144,7 +144,7 @@
   {
     "fileName": "sent.frame-v2.json",
     "fixtureId": "g02-sent-v2",
-    "fixtureSha256": "13a6f1fd8dda9cc9e904940d6aa505e967f248e5e1064fae94daeeaa868f704e",
+    "fixtureSha256": "37a7a9b052f9b722c6d3aca6eeb75179a0bc5167ad675ee1a2454d002d444aa4",
     "generatedAt": "2026-07-25T09:00:00-07:00",
     "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
@@ -205,8 +205,8 @@
       "/mutations/*/revision",
       "/mutations/*/baseRevision"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "ad52b417f9b5bda796a268dc814d54ee1ef57c82d84720fa8610b14057c5709c",
+    "schemaVersion": 3,
+    "semanticSha256": "f5f7d04349e752d12982edcad44e4c3c009ed71739d0700f7c15a97978f73029",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"
@@ -215,7 +215,7 @@
   {
     "fileName": "failed.frame-v2.json",
     "fixtureId": "g02-failed-v2",
-    "fixtureSha256": "d489e95502768612b91bbfa28f1f0222cc0400c9328d2778594035c91e1d661d",
+    "fixtureSha256": "6769065e09afba7cd860bedb28dae0184d8b8eeca7c413635ba4ef7d73a80822",
     "generatedAt": "2026-07-25T09:00:00-07:00",
     "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
@@ -276,8 +276,8 @@
       "/mutations/*/revision",
       "/mutations/*/baseRevision"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "afe533a5abf7ff5da2a69d5ea38f715dfa5c8ea012191f2e56fb7e8ddc5d4cd9",
+    "schemaVersion": 3,
+    "semanticSha256": "a92293a52532669458f4dfe06d5b969297c8c0b7049e66049bcd8177c1ad2e79",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"
@@ -286,7 +286,7 @@
   {
     "fileName": "ws-timeline-sent.frame-v2.json",
     "fixtureId": "g02-ws-timeline-sent-v2",
-    "fixtureSha256": "9ae54e98b3544d60812ffa6e591cbb231566ec4cae2f20ab91bac82706b0f451",
+    "fixtureSha256": "16fd4fe273a7c8b7e61381120853f820cf7d75a3adfb583e1e8af27dbc7da2fb",
     "generatedAt": "2026-07-25T09:00:00-07:00",
     "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
@@ -347,8 +347,8 @@
       "/mutations/*/revision",
       "/mutations/*/baseRevision"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "ad52b417f9b5bda796a268dc814d54ee1ef57c82d84720fa8610b14057c5709c",
+    "schemaVersion": 3,
+    "semanticSha256": "f5f7d04349e752d12982edcad44e4c3c009ed71739d0700f7c15a97978f73029",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"

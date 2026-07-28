@@ -115,12 +115,10 @@ fn emitted_values(effects: &[Effect]) -> Vec<Value> {
         .collect()
 }
 
-/// local-first 的唯一终态出口是完整 `message.timeline` Frame；首 attach 为 snapshot，已 attach
-/// 的权威重查为 replace-view patch。测试不得再从历史 raw `im:messages:query_result` /
-/// `im:post:increment-failed` 读取行或失败信息。
+/// local-first 的完整窗口读取只从 Timeline V3 snapshot 取值，不读取历史 raw 事件。
 fn timeline_view(event: &Value) -> &Value {
     assert_eq!(event["event"], "im:interaction:frame");
-    assert_eq!(event["data"]["schemaVersion"], 2);
+    assert_eq!(event["data"]["schemaVersion"], 3);
     let mutation = event["data"]["mutations"]
         .as_array()
         .expect("InteractionFrame mutations")
@@ -129,17 +127,34 @@ fn timeline_view(event: &Value) -> &Value {
         .expect("local-first terminal must include message.timeline");
     match mutation["mutation"]["kind"].as_str() {
         Some("timelineSnapshot") => &mutation["mutation"]["view"],
-        Some("timelinePatch") => &mutation["mutation"]["patch"]["view"],
-        other => panic!("expected timeline snapshot/patch, got {other:?}"),
+        other => panic!("expected timeline snapshot, got {other:?}"),
     }
 }
 
+/// 返回已 attach 窗口的 Timeline V3 closed delta operations。
+fn timeline_operations(event: &Value) -> &[Value] {
+    assert_eq!(event["event"], "im:interaction:frame");
+    assert_eq!(event["data"]["schemaVersion"], 3);
+    let mutation = event["data"]["mutations"]
+        .as_array()
+        .expect("InteractionFrame mutations")
+        .iter()
+        .find(|mutation| mutation["surface"] == "message.timeline")
+        .expect("local-first terminal must include message.timeline");
+    assert_eq!(mutation["mutation"]["kind"], "timelineDelta");
+    mutation["mutation"]["operations"]
+        .as_array()
+        .expect("Timeline V3 operations")
+}
+
+/// 返回首 attach snapshot 的兼容 items 列表。
 fn timeline_items(event: &Value) -> &[Value] {
     timeline_view(event)["items"]
         .as_array()
         .expect("TimelineWindowVm items")
 }
 
+/// 已证明完整的 durable 缓存二次读取保持零 HTTP，并用 upsert delta 刷新实体。
 #[test]
 fn durable_complete_after_proven_cached_window_uses_local_only() {
     let mut harness = Harness::new_with_store_mode(&[1], LocalStoreMode::Durable);
@@ -201,9 +216,13 @@ fn durable_complete_after_proven_cached_window_uses_local_only() {
         "显式 coverage 对得上时必须零 HTTP"
     );
     let projection = &emitted_values(harness.sink.as_slice())[0];
-    let items = timeline_items(projection);
-    assert_eq!(items[0]["id"], sid(1));
-    assert_eq!(items[1]["id"], sid(2));
+    let upserted_ids = timeline_operations(projection)
+        .iter()
+        .filter(|operation| operation["kind"] == "upsertMessage")
+        .map(|operation| operation["entity"]["message"]["id"].clone())
+        .collect::<Vec<_>>();
+    assert!(upserted_ids.contains(&json!(sid(1))));
+    assert!(upserted_ids.contains(&json!(sid(2))));
 }
 
 #[test]

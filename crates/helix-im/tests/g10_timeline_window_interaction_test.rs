@@ -1,7 +1,8 @@
-//! G10 focused contract: a bounded window is a complete replacement VM.
+//! G10 focused contract: a bounded window advances through Timeline V3 Range operations.
 
 use helix_im::interaction_frame::{
-    SurfaceLoadState, TimelineAnchorMode, TimelineAnchorVm, TypedSurfaceMutation, WindowPageVm,
+    SurfaceLoadState, TimelineAnchorMode, TimelineAnchorVm, TimelineDeltaOperationVm,
+    TimelineInsertPositionVm, TypedSurfaceMutation, WindowPageVm,
 };
 use helix_im::projector::timeline::{TimelineProjector, TimelineWindowRequest};
 use serde_json::json;
@@ -27,9 +28,9 @@ fn row(index: usize) -> serde_json::Value {
     })
 }
 
-/// 证明窗口更新只允许完整 replaceView，并保持调用方的 opaque token。
+/// 证明上拉只追加实体/Range keys 与边界，不再覆盖整个窗口。
 #[test]
-fn older_window_patch_replaces_the_complete_bounded_view_and_keeps_token() {
+fn older_window_patch_inserts_range_keys_and_keeps_token() {
     let mut projector = TimelineProjector::default();
     let mut request = TimelineWindowRequest::latest_with_window_token("channel-10", "window-10");
     projector
@@ -53,12 +54,37 @@ fn older_window_patch_replaces_the_complete_bounded_view_and_keeps_token() {
             None,
         )
         .unwrap();
-    let TypedSurfaceMutation::TimelinePatch { patch } = mutation.mutation else {
-        panic!("window update must be a complete replaceView patch")
+    let TypedSurfaceMutation::TimelineDelta { operations } = mutation.mutation else {
+        panic!("window update must be a Timeline V3 delta")
     };
-    assert_eq!(patch.view.page.window_token, "window-10");
-    assert_eq!(patch.view.items.len(), 5);
-    assert!(patch.view.page.has_older && patch.view.page.has_newer);
+    assert_eq!(
+        operations
+            .iter()
+            .filter(|operation| matches!(operation, TimelineDeltaOperationVm::UpsertMessage { .. }))
+            .count(),
+        3
+    );
+    assert!(operations.iter().any(|operation| matches!(
+        operation,
+        TimelineDeltaOperationVm::InsertKeys {
+            range_id,
+            position: TimelineInsertPositionVm::Start,
+            keys,
+        } if range_id == "window-10" && keys.len() == 3
+    )));
+    assert!(operations.iter().any(|operation| matches!(
+        operation,
+        TimelineDeltaOperationVm::SetRangeBounds {
+            range_id,
+            has_older: true,
+            has_newer: true,
+            ..
+        } if range_id == "window-10"
+    )));
+    assert!(!matches!(
+        operations.as_slice(),
+        [TimelineDeltaOperationVm::InstallSegment { .. }]
+    ));
 }
 
 /// 证明生产 cache persist barrier 后首帧为 snapshot，恢复帧单调变为 patch。

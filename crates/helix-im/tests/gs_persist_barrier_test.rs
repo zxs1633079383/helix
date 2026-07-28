@@ -198,9 +198,9 @@ fn gs1_persist_ok_refreshes_attached_dialog_from_storage() {
         .iter()
         .find_map(|effect| match effect {
             Effect::Persist { corr, ops }
-                if ops.iter().any(
-                    |op| matches!(op, StorageOp::Scan(scan) if scan.table == "channel"),
-                ) =>
+                if ops
+                    .iter()
+                    .any(|op| matches!(op, StorageOp::Scan(scan) if scan.table == "channel")) =>
             {
                 Some(corr.raw())
             }

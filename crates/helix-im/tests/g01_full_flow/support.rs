@@ -215,17 +215,18 @@ pub fn has_table_write(ops: &[StorageOp], table: &str) -> bool {
     })
 }
 
-/// 断言当前 Effect 批次含指定 V2 surface mutation。
+/// 断言当前 Effect 批次含指定 surface，并按 Timeline V3/其余 V2 选择 Frame 版本。
 pub fn assert_frame_surface(replay: &Replay, expected: &str) {
     let frames = replay.frames();
+    let expected_schema = if expected == "message.timeline" { 3 } else { 2 };
     assert!(
         frames.iter().any(|frame| {
-            frame["schemaVersion"] == 2
+            frame["schemaVersion"] == expected_schema
                 && frame["mutations"]
                     .as_array()
                     .is_some_and(|mutations| mutations.iter().any(|m| m["surface"] == expected))
         }),
-        "missing V2 surface {expected}; frames={frames:?}"
+        "missing schema {expected_schema} surface {expected}; frames={frames:?}"
     );
 }
 

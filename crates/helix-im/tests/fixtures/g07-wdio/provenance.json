@@ -198,7 +198,7 @@
   {
     "fileName": "urgentable.frame-v2.json",
     "fixtureId": "g07-urgentable-v2",
-    "fixtureSha256": "8d5296462d2f7199b386d72d7435f04791ce382d262259c260c86651856c97a7",
+    "fixtureSha256": "660f35b4f41256994b1535f05e4225ca69928d4e49f8275c3b5a1a4455f5c3ba",
     "generatedAt": "2026-07-25T22:45:00-07:00",
     "helixCommit": "768dc9b3597523c6c40279e387d85e9f240fde8a",
     "parameterizableFields": [
@@ -286,8 +286,8 @@
       "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
       "/mutations/*/mutation/patch/view/items/*/actions/*/surfaceEpoch"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "a54577806ae879c4c53f2675b12f02f1dabc49ad476495bffc4f36a84e3eb00f",
+    "schemaVersion": 3,
+    "semanticSha256": "d2414c432e2803bb720a47f7252e9d6aef68116228097998137a00519b76afbe",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"
@@ -296,7 +296,7 @@
   {
     "fileName": "urgent-active.frame-v2.json",
     "fixtureId": "g07-urgent-active-v2",
-    "fixtureSha256": "079603ca171ab001b50538854503e242c4407412d5a26d4bc235b9375664a833",
+    "fixtureSha256": "0cf0379963012194d441690ce063b4d7b721c0f3303e7c610dbe77197a7ac44d",
     "generatedAt": "2026-07-25T22:45:00-07:00",
     "helixCommit": "768dc9b3597523c6c40279e387d85e9f240fde8a",
     "parameterizableFields": [
@@ -384,8 +384,8 @@
       "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
       "/mutations/*/mutation/patch/view/items/*/actions/*/surfaceEpoch"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "52c5748923aa80eb05ce48f028c3f31f3dc74f9b205d0f3811fd841ec68ed112",
+    "schemaVersion": 3,
+    "semanticSha256": "387bd1db363ff1116b5f7bb2b54b0383d7ddf3d74d55f67b0d6867c29a53d71e",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"
@@ -492,7 +492,7 @@
   {
     "fileName": "urgent-confirmed.frame-v2.json",
     "fixtureId": "g07-urgent-confirmed-v2",
-    "fixtureSha256": "bd17d62b3278361dc0b8a67079b6fac84380b191143a52a16f032e880b44d9bb",
+    "fixtureSha256": "5da72b10ce4791be22e17951d6c4307454d2388b13aa6567a155b4e0348919f7",
     "generatedAt": "2026-07-25T22:45:00-07:00",
     "helixCommit": "768dc9b3597523c6c40279e387d85e9f240fde8a",
     "parameterizableFields": [
@@ -580,8 +580,8 @@
       "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
       "/mutations/*/mutation/patch/view/items/*/actions/*/surfaceEpoch"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "ace7bb2a4de5217e0bf459e3722e9e2e9f39983faaa92058a01d69227b94a094",
+    "schemaVersion": 3,
+    "semanticSha256": "7386d891809254562549c60e822f845992303b3fb7e0172e1400f4063179a4ab",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"

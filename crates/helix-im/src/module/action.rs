@@ -74,15 +74,26 @@ impl ImModule {
                 ))
             }
         };
-        let items = match &mutation.mutation {
-            TypedSurfaceMutation::TimelineSnapshot { view } => &view.items,
-            TypedSurfaceMutation::TimelinePatch { patch } => &patch.view.items,
+        match &mutation.mutation {
+            TypedSurfaceMutation::TimelineSnapshot { .. }
+            | TypedSurfaceMutation::TimelineDelta { .. } => {}
             _ => {
                 return Err(ImError::Parse(
                     "timeline action binding requires a timeline mutation".to_string(),
                 ))
             }
-        };
+        }
+        let items = self
+            .state
+            .timeline_projector
+            .current_view(&scope)
+            .ok_or_else(|| {
+                ImError::Parse(
+                    "timeline action binding requires an installed timeline window".to_string(),
+                )
+            })?
+            .items
+            .clone();
         let actor_id = self.config.auth_user_id.clone();
         if actor_id.is_empty() {
             // TimelineProjector must have rendered all bindings disabled in this state. There is no trusted actor
@@ -100,7 +111,7 @@ impl ImModule {
         let expires_at_ms = now_ms.checked_add(ACTION_BINDING_TTL_MS).ok_or_else(|| {
             ImError::Parse("timeline action binding TTL overflowed Tick time".to_string())
         })?;
-        for item in items {
+        for item in &items {
             for binding in &item.actions {
                 if !binding.enabled {
                     continue;

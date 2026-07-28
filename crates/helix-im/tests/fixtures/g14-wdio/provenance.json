@@ -77,7 +77,7 @@
   {
     "fileName": "readable-message.frame-v2.json",
     "fixtureId": "g14-readable-message-v2",
-    "fixtureSha256": "b623c4325dafb7af1b292c2b4c9d318cf04bd8f406585bf80765c3ad55ae10db",
+    "fixtureSha256": "b0b8170fbd52f2c9484e1cfb771a37d29fd0e8c07369d5869b6db4c9d3177668",
     "gateId": "G-14",
     "generatedAt": "2026-07-26T04:35:00-07:00",
     "helixCommit": "5b8b7db031faf55f1fa52de15bac746a20f82b13",
@@ -142,8 +142,8 @@
       "/mutations/*/revision",
       "/mutations/*/baseRevision"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "9c4a671ad94719e261cb652960fc9369367168ae37511d8bf222ca300e1e5013",
+    "schemaVersion": 3,
+    "semanticSha256": "1271fb67d070e6cb7734e1bf6a0c35059918a545f81f553217e23b2e4678f08d",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"
@@ -152,7 +152,7 @@
   {
     "fileName": "receipt-viewable-message.frame-v2.json",
     "fixtureId": "g14-receipt-viewable-message-v2",
-    "fixtureSha256": "248e305013ac2af8b6ada80d190b243f8b98d54b8b838dee28a0c5f1d77728a8",
+    "fixtureSha256": "a897c42d3f481f393e2b790201632078cbd27f6b20cdc350b16bf4e7e678b5ff",
     "gateId": "G-14",
     "generatedAt": "2026-07-26T04:35:00-07:00",
     "helixCommit": "5b8b7db031faf55f1fa52de15bac746a20f82b13",
@@ -217,8 +217,8 @@
       "/mutations/*/revision",
       "/mutations/*/baseRevision"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "1149558f32d73b423f26cb95e90b9152e078ad48c26e959e192230849c795a32",
+    "schemaVersion": 3,
+    "semanticSha256": "9ba20d1a5ac64b95dd243efccbfb461f324408df7b7019347e9cf7166cefbd56",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"

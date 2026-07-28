@@ -8,7 +8,7 @@ use helix_core::tick::{InboundBytes, PortError, PortOutcome, ReplyBytes};
 use helix_core::{EffectSink, Module, Tick};
 use helix_im::interaction_frame::{
     DialogRowVm, InteractionFrameV2, MessageContentVm, MessageQuickActionVm, MessageVm, PreviewVm,
-    SurfaceId, SurfaceScope, TypedSurfaceMutation,
+    SurfaceId, SurfaceScope, TimelineDeltaOperationVm, TypedSurfaceMutation,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -555,7 +555,7 @@ impl G05ScenarioRunner {
 /// 逐字段验证 G05 source timeline 与 opaque forward action。
 pub fn assert_source_forwardable_contract(frame: &InteractionFrameV2) {
     frame.validate().expect("source Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(frame.causation_id, None);
     assert_eq!(frame.mutations.len(), 1);
     let mutation = &frame.mutations[0];
@@ -587,7 +587,7 @@ pub fn assert_source_forwardable_contract(frame: &InteractionFrameV2) {
 /// 逐字段验证 target timeline 的权威 post、correlation 与可用 actions。
 pub fn assert_target_forwarded_contract(frame: &InteractionFrameV2) {
     frame.validate().expect("target Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(
         frame.causation_id.as_deref(),
         Some(REQUEST_ID),
@@ -663,7 +663,15 @@ pub fn first_message(frame: &InteractionFrameV2) -> Option<&MessageVm> {
         .iter()
         .find_map(|mutation| match &mutation.mutation.mutation {
             TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
-            TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
+            TypedSurfaceMutation::TimelineDelta { operations } => {
+                operations.iter().find_map(|operation| match operation {
+                    TimelineDeltaOperationVm::UpsertMessage { entity } => Some(&entity.message),
+                    TimelineDeltaOperationVm::InstallSegment { entities, .. } => {
+                        entities.first().map(|entity| &entity.message)
+                    }
+                    _ => None,
+                })
+            }
             _ => None,
         })
 }

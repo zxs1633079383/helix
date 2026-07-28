@@ -91,7 +91,7 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
         .iter()
         .map(|mutation| match mutation.mutation.mutation {
             TypedSurfaceMutation::TimelineSnapshot { .. } => "timelineSnapshot",
-            TypedSurfaceMutation::TimelinePatch { .. } => "timelinePatch",
+            TypedSurfaceMutation::TimelineDelta { .. } => "timelineDelta",
             TypedSurfaceMutation::DialogListSnapshot { .. } => "dialogListSnapshot",
             TypedSurfaceMutation::DialogListPatch { .. } => "dialogListPatch",
             _ => "other",
@@ -110,15 +110,14 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
 
 /// 提取模板内容、终态、确认字段、普通回执边界与 templateConfirm action。
 fn message_contract(frame: &InteractionFrameV2) -> Option<Value> {
-    let message =
-        frame
-            .mutations
-            .iter()
-            .find_map(|mutation| match &mutation.mutation.mutation {
-                TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
-                TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
-                _ => None,
-            })?;
+    let has_timeline = frame.mutations.iter().any(|mutation| {
+        matches!(
+            mutation.mutation.mutation,
+            TypedSurfaceMutation::TimelineSnapshot { .. }
+                | TypedSurfaceMutation::TimelineDelta { .. }
+        )
+    });
+    let message = has_timeline.then(|| first_message(frame))?;
     let confirm = message
         .actions
         .iter()
@@ -179,12 +178,14 @@ fn optional_message_id(frame: &InteractionFrameV2) -> Option<&str> {
     frame
         .mutations
         .iter()
-        .find_map(|mutation| match &mutation.mutation.mutation {
-            TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
-            TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
-            _ => None,
+        .any(|mutation| {
+            matches!(
+                mutation.mutation.mutation,
+                TypedSurfaceMutation::TimelineSnapshot { .. }
+                    | TypedSurfaceMutation::TimelineDelta { .. }
+            )
         })
-        .map(|message| message.id.as_str())
+        .then(|| first_message(frame).id.as_str())
 }
 
 /// 为每份 Fixture 生成 producer、hash、surface 与动态字段白名单。
@@ -270,7 +271,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
 
 /// 证明 actual producer、字段语义、Golden bytes 与 provenance 始终同源。
 #[test]
-fn current_g14a_producer_matches_canonical_v2_fixtures_and_provenance() {
+fn current_g14a_producer_matches_canonical_fixtures_and_provenance() {
     let cases = produce_cases();
     assert_eq!(cases.len(), 4, "G14a canonical inventory is explicit");
     let receivable = serde_json::to_value(
@@ -295,7 +296,17 @@ fn current_g14a_producer_matches_canonical_v2_fixtures_and_provenance() {
 
     for case in &cases {
         case.frame.validate().expect("producer Frame remains valid");
-        assert_eq!(case.frame.schema_version, 2);
+        let expected_schema_version = if case
+            .frame
+            .mutations
+            .iter()
+            .any(|mutation| mutation.mutation.surface.as_str() == "message.timeline")
+        {
+            3
+        } else {
+            2
+        };
+        assert_eq!(case.frame.schema_version, expected_schema_version);
         assert!(!surface_names(&case.frame).is_empty());
         let bytes = canonical_bytes(&case.frame);
         provenance.push(provenance_entry(case, &bytes));

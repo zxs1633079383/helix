@@ -197,7 +197,7 @@ fn timeline_resync_survives_a_newer_ordinary_query_generation() {
 
     timeline.step(port_reply_with_body(ordinary_corr, body()), 4);
     let continuous = mutation(timeline.sink.as_slice(), "message.timeline");
-    assert_eq!(continuous["mutation"]["kind"], "timelinePatch");
+    assert_eq!(continuous["mutation"]["kind"], "timelineDelta");
     assert_eq!(continuous["baseRevision"], 1);
     assert_eq!(continuous["revision"], 2);
 }

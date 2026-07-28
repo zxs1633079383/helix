@@ -72,7 +72,7 @@ impl G04ScenarioRunner {
 pub fn assert_revocable_contract(frame: &InteractionFrameV2) {
     let spec = g04_scenario_spec();
     frame.validate().expect("G04 revocable Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(
         frame.causation_id, None,
         "plain timeline query is not an action causation"
@@ -110,7 +110,7 @@ pub fn assert_revocable_contract(frame: &InteractionFrameV2) {
 pub fn assert_recalled_contract(frame: &InteractionFrameV2, expected_causation: Option<&str>) {
     let spec = g04_scenario_spec();
     frame.validate().expect("G04 recalled Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(frame.causation_id.as_deref(), expected_causation);
     assert_eq!(frame.mutations.len(), 1);
     let mutation = &frame.mutations[0];

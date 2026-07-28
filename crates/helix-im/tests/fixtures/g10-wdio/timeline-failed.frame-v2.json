@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "transactionId": "timeline-timeline|26:chfixx00000000000000000010|17:g10-latest-window-1",
   "runtime": {
     "connection": "online",
@@ -19,20 +19,40 @@
         "kind": "timelineSnapshot",
         "view": {
           "channelId": "chfixx00000000000000000010",
+          "entities": [],
+          "items": [],
           "anchor": {
             "mode": "latest"
           },
-          "items": [],
           "page": {
             "windowToken": "g10-latest-window",
             "hasOlder": false,
             "hasNewer": false,
             "hasMore": false
           },
-          "state": "failed"
+          "state": "failed",
+          "ranges": [
+            {
+              "rangeId": "g10-latest-window",
+              "orderedKeys": [],
+              "hasOlder": false,
+              "hasNewer": false
+            }
+          ],
+          "activeWindow": {
+            "windowToken": "g10-latest-window",
+            "rangeIds": [
+              "g10-latest-window"
+            ],
+            "anchor": {
+              "mode": "latest"
+            },
+            "state": "failed"
+          }
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 3
     }
   ],
   "directives": []

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "transactionId": "uc01-16-canonical-patch-2",
   "mutations": [
     {
@@ -22,7 +22,8 @@
           }
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 2
     },
     {
       "surface": "message.unread-summary",
@@ -46,7 +47,8 @@
           }
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 2
     },
     {
       "surface": "message.timeline",
@@ -59,26 +61,35 @@
       "revision": 2,
       "causationId": "post-2",
       "mutation": {
-        "kind": "timelinePatch",
-        "patch": {
-          "kind": "replaceView",
-          "view": {
-            "channelId": "channel-1",
-            "anchor": {
-              "mode": "latest"
-            },
-            "items": [],
-            "page": {
-              "windowToken": "latest-1",
+        "kind": "timelineDelta",
+        "operations": [
+          {
+            "kind": "installSegment",
+            "range": {
+              "rangeId": "latest-1",
+              "orderedKeys": [],
               "hasOlder": false,
-              "hasNewer": false,
-              "hasMore": false
+              "hasNewer": false
             },
-            "state": "ready"
+            "entities": []
+          },
+          {
+            "kind": "activateWindow",
+            "window": {
+              "windowToken": "latest-1",
+              "rangeIds": [
+                "latest-1"
+              ],
+              "anchor": {
+                "mode": "latest"
+              },
+              "state": "ready"
+            }
           }
-        }
+        ]
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 3
     }
   ],
   "runtime": {

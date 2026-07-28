@@ -177,7 +177,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
 
 /// 证明 actual producer、字段语义、Golden bytes 与 provenance 始终同源。
 #[test]
-fn current_g13_producer_matches_canonical_v2_fixtures_and_provenance() {
+fn current_g13_producer_matches_canonical_fixtures_and_provenance() {
     let cases = produce_cases();
     assert_eq!(cases.len(), 4, "G13 canonical inventory is explicit");
     let directory = fixture_dir();
@@ -185,7 +185,17 @@ fn current_g13_producer_matches_canonical_v2_fixtures_and_provenance() {
     let mut provenance = Vec::with_capacity(cases.len());
     for case in &cases {
         case.frame.validate().expect("producer Frame remains valid");
-        assert_eq!(case.frame.schema_version, 2);
+        let expected_schema_version = if case
+            .frame
+            .mutations
+            .iter()
+            .any(|mutation| mutation.mutation.surface.as_str() == "message.timeline")
+        {
+            3
+        } else {
+            2
+        };
+        assert_eq!(case.frame.schema_version, expected_schema_version);
         let bytes = canonical_bytes(&case.frame);
         provenance.push(provenance_entry(case, &bytes));
         if update {

@@ -79,7 +79,7 @@ pub fn assert_revocable_contract(frame: &InteractionFrameV2) {
     frame
         .validate()
         .expect("G04a revocable Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(frame.causation_id, None);
     assert_eq!(frame.mutations.len(), 1);
     let mutation = &frame.mutations[0];
@@ -114,7 +114,7 @@ pub fn assert_revocable_contract(frame: &InteractionFrameV2) {
 pub fn assert_offline_recalled_contract(frame: &InteractionFrameV2) {
     let spec = g04a_scenario_spec();
     frame.validate().expect("G04a recalled Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(
         frame.causation_id, None,
         "offline authority has no platform action causation"

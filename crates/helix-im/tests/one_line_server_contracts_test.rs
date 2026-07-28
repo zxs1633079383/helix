@@ -224,9 +224,11 @@ fn relay_without_req_id_still_fails_closed_for_invalid_business_inputs() {
 }
 
 #[test]
+/// 验证合并转发在完成全部本地消息查询后只提交一个 MULTIPLY 请求。
 fn relay_merged_mode_assembles_one_chat_record_after_all_local_lookups() {
     let source_a = cid(30);
     let source_b = cid(31);
+    let source_channel = cid(20);
     let target = cid(40);
     let mut h = Harness::new_with_identity(&[], "444", "team-1", "破坏者", "研发", "平台");
     h.step(
@@ -246,7 +248,7 @@ fn relay_merged_mode_assembles_one_chat_record_after_all_local_lookups() {
         port_reply_with_body(
             first,
             serde_json::to_vec(&serde_json::json!([{
-                "id":source_a,"temporary_id":"ta","type":"TEXT","message":"A",
+                "id":source_a,"temporary_id":"ta","channel_id":source_channel,"type":"TEXT","message":"A",
                 "props":"{}","user_snapshot":"{\"userName\":\"A用户\"}","create_at":80
             }]))
             .unwrap()
@@ -259,7 +261,7 @@ fn relay_merged_mode_assembles_one_chat_record_after_all_local_lookups() {
         port_reply_with_body(
             second,
             serde_json::to_vec(&serde_json::json!([{
-                "id":source_b,"temporary_id":"tb","type":"TEXT","message":"B",
+                "id":source_b,"temporary_id":"tb","channel_id":source_channel,"type":"TEXT","message":"B",
                 "props":"{}","user_snapshot":"{\"userName\":\"B用户\"}","create_at":90
             }]))
             .unwrap()
@@ -267,10 +269,25 @@ fn relay_merged_mode_assembles_one_chat_record_after_all_local_lookups() {
         ),
         102,
     );
+    let source_channel_corr = persist_corr(&h);
+    h.step(
+        port_reply_with_body(
+            source_channel_corr,
+            serde_json::to_vec(&serde_json::json!([{
+                "id":source_channel,"display_name":"来源群"
+            }]))
+            .unwrap()
+            .into(),
+        ),
+        103,
+    );
 
-    let body = h
-        .last_http_body()
-        .expect("all local rows must produce createPosts");
+    let body = h.last_http_body().unwrap_or_else(|| {
+        panic!(
+            "all local rows must produce createPosts: {:?}",
+            h.sink.as_slice()
+        )
+    });
     assert_eq!(body["posts"].as_array().unwrap().len(), 1);
     assert_eq!(body["posts"][0]["type"], "MULTIPLY");
     assert_eq!(body["posts"][0]["simpleMessage"], "[聊天记录]");

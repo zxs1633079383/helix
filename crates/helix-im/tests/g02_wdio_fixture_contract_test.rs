@@ -125,7 +125,7 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
         .iter()
         .map(|mutation| match mutation.mutation.mutation {
             TypedSurfaceMutation::TimelineSnapshot { .. } => "timelineSnapshot",
-            TypedSurfaceMutation::TimelinePatch { .. } => "timelinePatch",
+            TypedSurfaceMutation::TimelineDelta { .. } => "timelineDelta",
             TypedSurfaceMutation::DialogListSnapshot { .. } => "dialogListSnapshot",
             TypedSurfaceMutation::DialogListPatch { .. } => "dialogListPatch",
             TypedSurfaceMutation::UnreadSummarySnapshot { .. } => "unreadSummarySnapshot",
@@ -147,15 +147,14 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
 
 /// 提取 G02 固定文档卡片的稳定业务字段，排除可 rebase 的 message identity。
 fn document_contract(frame: &InteractionFrameV2) -> Option<Value> {
-    let message =
-        frame
-            .mutations
-            .iter()
-            .find_map(|mutation| match &mutation.mutation.mutation {
-                TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
-                TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
-                _ => None,
-            })?;
+    let has_timeline = frame.mutations.iter().any(|mutation| {
+        matches!(
+            mutation.mutation.mutation,
+            TypedSurfaceMutation::TimelineSnapshot { .. }
+                | TypedSurfaceMutation::TimelineDelta { .. }
+        )
+    });
+    let message = has_timeline.then(|| first_message(frame))?;
     let MessageContentVm::Document {
         title,
         summary,
@@ -218,7 +217,7 @@ fn optional_message_id(frame: &InteractionFrameV2) -> Option<&str> {
             matches!(
                 mutation.mutation.mutation,
                 TypedSurfaceMutation::TimelineSnapshot { .. }
-                    | TypedSurfaceMutation::TimelinePatch { .. }
+                    | TypedSurfaceMutation::TimelineDelta { .. }
             )
         })
         .then(|| first_message(frame).id.as_str())
@@ -300,7 +299,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8], temporary_id: &str) -> Val
 
 #[test]
 /// 证明 producer actual、字段语义、Golden bytes 与 provenance 始终为同一份合同。
-fn current_g02_producer_matches_canonical_v2_fixtures_and_provenance() {
+fn current_g02_producer_matches_canonical_fixtures_and_provenance() {
     let cases = produce_cases();
     assert_eq!(cases.len(), 6, "G02 canonical inventory is explicit");
     let temporary_id = first_message(&cases[1].frame).id.clone();
@@ -310,7 +309,17 @@ fn current_g02_producer_matches_canonical_v2_fixtures_and_provenance() {
 
     for case in &cases {
         case.frame.validate().expect("producer Frame remains valid");
-        assert_eq!(case.frame.schema_version, 2);
+        let expected_schema_version = if case
+            .frame
+            .mutations
+            .iter()
+            .any(|mutation| mutation.mutation.surface.as_str() == "message.timeline")
+        {
+            3
+        } else {
+            2
+        };
+        assert_eq!(case.frame.schema_version, expected_schema_version);
         assert!(!surface_names(&case.frame).is_empty());
         let bytes = canonical_bytes(&case.frame);
         provenance.push(provenance_entry(case, &bytes, &temporary_id));

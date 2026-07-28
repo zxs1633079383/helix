@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "transactionId": "patch-gap-transaction",
   "mutations": [
     {
@@ -23,7 +23,8 @@
           }
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 2
     },
     {
       "surface": "message.left-dialog-list",
@@ -44,7 +45,8 @@
           }
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 2
     }
   ],
   "runtime": {

@@ -43,7 +43,7 @@ fn prerequisite_creates_fresh_group_before_loading_history() {
     assert_timeline_contract(&trace.initial, SurfaceLoadState::Ready, 20, true);
 }
 
-/// Proves success waits for message persistence and publishes one complete 40-row patch.
+/// Proves success waits for message persistence and publishes a bounded range delta.
 #[test]
 fn happy_path_waits_for_persist_and_projects_complete_window() {
     let trace = G10AScenarioRunner::run_success();
@@ -51,7 +51,7 @@ fn happy_path_waits_for_persist_and_projects_complete_window() {
     assert_timeline_contract(&trace.loaded, SurfaceLoadState::Ready, 40, true);
     assert!(matches!(
         trace.loaded.mutations[0].mutation.mutation,
-        TypedSurfaceMutation::TimelinePatch { .. }
+        TypedSurfaceMutation::TimelineDelta { .. }
     ));
 }
 

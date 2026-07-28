@@ -1,6 +1,6 @@
 {
   "fixtureManifestVersion": 1,
-  "interactionFrameSchemaVersion": 2,
+  "interactionFrameSchemaVersion": 3,
   "sourceRevisions": {
     "interactionFrameFoundation": "756d853",
     "dialogUnreadTimelineLiveProducer": "ea415a800b329947ce0757b8595df19b715f7d55",
@@ -20,7 +20,7 @@
   "producerStatus": {
     "message.left-dialog-list": "v2-live: opaque resync -> dialog storage fact -> snapshot/patch Frame",
     "message.unread-summary": "v2-live: paired with dialog storage fact -> atomic snapshot/absolute badge patch",
-    "message.timeline": "v2-live: local-first query/post/WS facts -> snapshot or patch Frame",
+    "message.timeline": "v3-live: local-first query/post/WS facts -> snapshot or bounded delta Frame",
     "message.thread-detail": "v2-live: opaque resync -> im_get_replies HTTP fact -> snapshot/patch Frame",
     "message.participant-receipts": "v2-live: opaque resync -> im_post_read_list HTTP fact -> snapshot/patch Frame; unsupported receipt kinds are disabled",
     "message.channel-summary": "v2-live: opaque resync -> channel storage fact -> snapshot/patch Frame",

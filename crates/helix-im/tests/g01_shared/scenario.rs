@@ -7,7 +7,8 @@ use helix_core::{EffectSink, Module, Tick};
 use helix_im::interaction_frame::{
     ActionInvocation, ActionInvocationEnvelope, ActionReceipt, ActionReceiptStatus, DeliveryVm,
     DialogRowVm, InteractionFrameV2, MessageContentVm, MessageVm, SurfaceId, SurfaceScope,
-    TypedSurfaceMutation, ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
+    TimelineDeltaOperationVm, TypedSurfaceMutation, ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
+    INTERACTION_FRAME_SCHEMA_VERSION,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -3076,15 +3077,8 @@ pub fn surface_names(frame: &InteractionFrameV2) -> BTreeSet<&'static str> {
 
 /// 返回 timeline Frame 内的全部 delivery 类型。
 pub fn delivery_kinds(frame: &InteractionFrameV2) -> BTreeSet<&str> {
-    frame
-        .mutations
-        .iter()
-        .filter_map(|mutation| match &mutation.mutation.mutation {
-            TypedSurfaceMutation::TimelineSnapshot { view } => Some(&view.items),
-            TypedSurfaceMutation::TimelinePatch { patch } => Some(&patch.view.items),
-            _ => None,
-        })
-        .flatten()
+    timeline_messages(frame)
+        .into_iter()
         .map(|item| match item.delivery {
             DeliveryVm::Sending => "sending",
             DeliveryVm::Sent => "sent",
@@ -3095,16 +3089,35 @@ pub fn delivery_kinds(frame: &InteractionFrameV2) -> BTreeSet<&str> {
         .collect()
 }
 
-/// 返回 timeline Frame 中 G01 对应的第一条消息。
-pub fn first_message(frame: &InteractionFrameV2) -> &MessageVm {
+/// 收集 snapshot 或 closed delta 中携带的 Timeline 消息实体。
+pub fn timeline_messages(frame: &InteractionFrameV2) -> Vec<&MessageVm> {
     frame
         .mutations
         .iter()
-        .find_map(|mutation| match &mutation.mutation.mutation {
-            TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
-            TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
-            _ => None,
+        .flat_map(|mutation| match &mutation.mutation.mutation {
+            TypedSurfaceMutation::TimelineSnapshot { view } => {
+                view.items.iter().collect::<Vec<_>>()
+            }
+            TypedSurfaceMutation::TimelineDelta { operations } => operations
+                .iter()
+                .flat_map(|operation| match operation {
+                    TimelineDeltaOperationVm::UpsertMessage { entity } => vec![&entity.message],
+                    TimelineDeltaOperationVm::InstallSegment { entities, .. } => {
+                        entities.iter().map(|entity| &entity.message).collect()
+                    }
+                    _ => Vec::new(),
+                })
+                .collect(),
+            _ => Vec::new(),
         })
+        .collect()
+}
+
+/// 返回 timeline Frame 中 G01 对应的第一条消息。
+pub fn first_message(frame: &InteractionFrameV2) -> &MessageVm {
+    timeline_messages(frame)
+        .into_iter()
+        .next()
         .expect("G01 timeline Frame contains its message")
 }
 
@@ -3154,7 +3167,7 @@ pub fn assert_timeline_contract_for(
     expected_causation: Option<&str>,
 ) {
     frame.validate().expect("timeline Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, INTERACTION_FRAME_SCHEMA_VERSION);
     assert!(!frame.transaction_id.is_empty());
     assert_eq!(frame.causation_id.as_deref(), expected_causation);
     assert_eq!(format!("{:?}", frame.runtime.connection), "Online");

@@ -19,7 +19,7 @@ pub const SURFACE: &str = "message.left-dialog-list";
 /// `dialog_frame` is an InteractionFrame producer, so its test/documentation
 /// anchor must follow the shared wire version rather than retain the retired
 /// v1 literal after the rich-view v2 migration.
-pub const SCHEMA_VERSION: u32 = interaction_frame::INTERACTION_FRAME_SCHEMA_VERSION;
+pub const SCHEMA_VERSION: u32 = interaction_frame::INTERACTION_FRAME_SCHEMA_VERSION_V2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -283,6 +283,7 @@ impl DialogListFrameState {
                     },
                 },
                 surface_epoch,
+                surface_schema_version: None,
             },
             interaction_frame::SurfaceMutationV2 {
                 mutation: interaction_frame::SurfaceMutation {
@@ -296,6 +297,7 @@ impl DialogListFrameState {
                     },
                 },
                 surface_epoch,
+                surface_schema_version: None,
             },
         ])
     }

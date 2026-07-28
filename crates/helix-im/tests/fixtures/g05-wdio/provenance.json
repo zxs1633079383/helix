@@ -73,7 +73,7 @@
   {
     "fileName": "source-forwardable.frame-v2.json",
     "fixtureId": "g05-source-forwardable-v2",
-    "fixtureSha256": "cc0195a098bd739a3b3ae8cae3d2b147f2f68dce066f451aa5c6b34d5ae3c5c1",
+    "fixtureSha256": "dec08c24366a89622826eb9513b046e731d8401e13fb4088b5e804c90cef17f5",
     "generatedAt": "2026-07-25T13:30:00-07:00",
     "helixCommit": "3798ffdd0bfd89b8922829dd252327bb0a2075ec",
     "parameterizableFields": [
@@ -134,8 +134,8 @@
       "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
       "/mutations/*/mutation/patch/view/items/*/actions/*/surfaceEpoch"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "de35837142e326e26e0f23e4d732cd00811edb283a639ba10d36364b55a14e49",
+    "schemaVersion": 3,
+    "semanticSha256": "6a6e4e6d5cfc764040849dde05554b7d37bc881ec71c0384e4cde181bbb36a94",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"
@@ -144,7 +144,7 @@
   {
     "fileName": "target-forwarded.frame-v2.json",
     "fixtureId": "g05-target-forwarded-v2",
-    "fixtureSha256": "1406445940595964e560f0128c68eadb6c3527bfd4b0b1478028376f6935334b",
+    "fixtureSha256": "e5f5d9409c0fdc05689e8a88b7143b1ded69b7c61fb3da57469abf84282f3b18",
     "generatedAt": "2026-07-25T13:30:00-07:00",
     "helixCommit": "3798ffdd0bfd89b8922829dd252327bb0a2075ec",
     "parameterizableFields": [
@@ -205,8 +205,8 @@
       "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
       "/mutations/*/mutation/patch/view/items/*/actions/*/surfaceEpoch"
     ],
-    "schemaVersion": 2,
-    "semanticSha256": "ce2e706704867cca325ea634cab6e7b484160be8c84ce1d986a50cb66bd3cb99",
+    "schemaVersion": 3,
+    "semanticSha256": "0f11a1cb7a7fc78508bba0e8c5ddee8442eb1248be65fe70cc0d809bb3e6e27f",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.timeline"

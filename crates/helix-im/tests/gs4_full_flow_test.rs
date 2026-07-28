@@ -19,7 +19,10 @@ fn prerequisite_creates_a_fresh_group() {
 /// 证明 canonical command 只提交频道身份，补水从 production HTTP owner 开始。
 fn admission_uses_single_channel_hydration_contract() {
     let trace = Gs4ScenarioRunner::run_success();
-    assert!(trace.request.url.ends_with("/channel/load/incrementByChannelId"));
+    assert!(trace
+        .request
+        .url
+        .ends_with("/channel/load/incrementByChannelId"));
     let body: serde_json::Value = serde_json::from_slice(
         trace
             .request

@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use helix_im::interaction_frame::{
     ActionBinding, ActionInvocation, ActionReceipt, ActionReceiptStatus, InteractionFrameError,
-    InteractionFrameV2, SurfaceDataVm, SurfaceId, TypedSurfaceMutation, MAX_SAFE_JSON_INTEGER,
-    MIN_SAFE_JSON_INTEGER,
+    InteractionFrameV2, SurfaceDataVm, SurfaceId, TypedSurfaceMutation,
+    INTERACTION_FRAME_SCHEMA_VERSION, MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
 };
 
 const CANONICAL_SNAPSHOT: &str = include_str!("fixtures/uc01-16-surface-runtime/snapshots.json");
@@ -93,7 +93,7 @@ fn canonical_snapshot_decodes_all_eight_surface_vms() {
         SurfaceId::MessageParticipantReceipts,
     ]);
 
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, INTERACTION_FRAME_SCHEMA_VERSION);
     assert_eq!(frame.mutations.len(), 8);
     assert_eq!(actual, expected);
 }
@@ -402,6 +402,7 @@ fn unknown_mutation_kind_and_missing_patch_baseline_are_rejected() {
 }
 
 #[test]
+/// 验证 schema 3 的兼容 items 与规范化 entity 会共同拒绝非安全整数。
 fn decoder_rejects_wire_integers_outside_the_js_exact_safe_domain() {
     assert_unsafe_wire_number(
         CANONICAL_SNAPSHOT,
@@ -428,21 +429,22 @@ fn decoder_rejects_wire_integers_outside_the_js_exact_safe_domain() {
     assert_unsafe_wire_number(
         CANONICAL_SNAPSHOT,
         |frame| {
-            frame["mutations"][2]["mutation"]["view"]["items"][0]["createdAt"] =
-                serde_json::json!(MAX_SAFE_JSON_INTEGER as i64 + 1);
+            set_timeline_create_at(frame, MAX_SAFE_JSON_INTEGER as i64 + 1);
         },
-        "createdAt",
+        "entityKey.createAt",
     );
     assert_unsafe_wire_number(
         CANONICAL_SNAPSHOT,
         |frame| {
-            frame["mutations"][2]["mutation"]["view"]["items"][0]["content"] = serde_json::json!({
-                "kind": "media",
-                "mediaType": "image",
-                "resource": {},
-                "fileName": "image.png",
-                "size": MAX_SAFE_JSON_INTEGER + 1,
-                "availability": {}
+            mutate_timeline_messages(frame, |message| {
+                message["content"] = serde_json::json!({
+                    "kind": "media",
+                    "mediaType": "image",
+                    "resource": {},
+                    "fileName": "image.png",
+                    "size": MAX_SAFE_JSON_INTEGER + 1,
+                    "availability": {}
+                });
             });
         },
         "size",
@@ -474,22 +476,23 @@ fn decoder_rejects_wire_integers_outside_the_js_exact_safe_domain() {
 }
 
 #[test]
+/// 验证 schema 3 双表示在安全整数边界与有限小数下仍保持一致。
 fn exact_safe_boundaries_and_finite_surface_data_decimals_remain_valid() {
     let mut snapshot = frame_value(CANONICAL_SNAPSHOT);
     snapshot["mutations"][0]["revision"] = serde_json::json!(MAX_SAFE_JSON_INTEGER);
     snapshot["mutations"][0]["mutation"]["view"]["sections"][0]["items"][0]["lastActivityAt"] =
         serde_json::json!(MIN_SAFE_JSON_INTEGER);
-    snapshot["mutations"][2]["mutation"]["view"]["items"][0]["createdAt"] =
-        serde_json::json!(MAX_SAFE_JSON_INTEGER as i64);
-    snapshot["mutations"][2]["mutation"]["view"]["items"][0]["readReceipt"] =
-        serde_json::json!(0.125);
-    snapshot["mutations"][2]["mutation"]["view"]["items"][0]["content"] = serde_json::json!({
-        "kind": "media",
-        "mediaType": "image",
-        "resource": {},
-        "fileName": "image.png",
-        "size": MAX_SAFE_JSON_INTEGER,
-        "availability": {}
+    set_timeline_create_at(&mut snapshot, MAX_SAFE_JSON_INTEGER as i64);
+    mutate_timeline_messages(&mut snapshot, |message| {
+        message["readReceipt"] = serde_json::json!(0.125);
+        message["content"] = serde_json::json!({
+            "kind": "media",
+            "mediaType": "image",
+            "resource": {},
+            "fileName": "image.png",
+            "size": MAX_SAFE_JSON_INTEGER,
+            "availability": {}
+        });
     });
     snapshot["mutations"][4]["mutation"]["view"]["settingsVersion"] =
         serde_json::json!(MAX_SAFE_JSON_INTEGER);
@@ -506,6 +509,7 @@ fn exact_safe_boundaries_and_finite_surface_data_decimals_remain_valid() {
 }
 
 #[test]
+/// 验证 producer 在序列化前会校验 schema 3 的规范化实体与兼容消息。
 fn producer_validation_rejects_unsafe_numbers_before_serialization() {
     let mut frame = decode(CANONICAL_SNAPSHOT);
     frame.mutations[0].mutation.revision = MAX_SAFE_JSON_INTEGER + 1;
@@ -516,8 +520,16 @@ fn producer_validation_rejects_unsafe_numbers_before_serialization() {
     else {
         panic!("canonical fixture must contain a timeline snapshot");
     };
-    view.items[0].created_at = MIN_SAFE_JSON_INTEGER - 1;
-    assert_unsafe_producer_number(frame, "createdAt");
+    let unsafe_created_at = MIN_SAFE_JSON_INTEGER - 1;
+    view.items[0].created_at = unsafe_created_at;
+    view.entities[0].message.created_at = unsafe_created_at;
+    view.entities[0].entity_key.create_at = unsafe_created_at;
+    view.ranges[0].ordered_keys[0].create_at = unsafe_created_at;
+    view.ranges[0].older_cursor.as_mut().unwrap().create_at = unsafe_created_at;
+    view.ranges[0].newer_cursor.as_mut().unwrap().create_at = unsafe_created_at;
+    view.ranges[0].latest_watermark.as_mut().unwrap().create_at = unsafe_created_at;
+    view.persisted_watermark.as_mut().unwrap().create_at = unsafe_created_at;
+    assert_unsafe_producer_number(frame, "entityKey.createAt");
 
     let mut input = BTreeMap::new();
     input.insert(
@@ -538,6 +550,7 @@ fn producer_validation_rejects_unsafe_numbers_before_serialization() {
 }
 
 #[test]
+/// 验证 schema 3 双表示中的 SurfaceData 同步拒绝危险数值。
 fn surface_data_rejects_unsafe_integer_decimal_and_unrepresentable_numbers() {
     assert_invalid_surface_data(serde_json::json!(MAX_SAFE_JSON_INTEGER + 1), "integer");
     assert_invalid_surface_data(
@@ -552,19 +565,23 @@ fn surface_data_rejects_unsafe_integer_decimal_and_unrepresentable_numbers() {
     ));
 }
 
+/// 解码静态合同 Fixture，供正向断言复用。
 fn decode(json: &str) -> InteractionFrameV2 {
     InteractionFrameV2::decode(json.as_bytes()).expect("fixture must satisfy the wire contract")
 }
 
+/// 将静态合同 Fixture 转为可定点修改的 JSON 树。
 fn frame_value(json: &str) -> serde_json::Value {
     serde_json::from_str(json).expect("fixture must be JSON")
 }
 
+/// 序列化修改后的 JSON 树并走真实严格解码器。
 fn decode_value(value: &serde_json::Value) -> Result<InteractionFrameV2, InteractionFrameError> {
     let bytes = serde_json::to_vec(value).expect("mutated fixture remains JSON");
     InteractionFrameV2::decode(&bytes)
 }
 
+/// 断言 wire mutation 在指定字段命中安全整数校验。
 fn assert_unsafe_wire_number(
     json: &str,
     mutate: impl FnOnce(&mut serde_json::Value),
@@ -573,37 +590,69 @@ fn assert_unsafe_wire_number(
     let mut frame = frame_value(json);
     mutate(&mut frame);
     let error = decode_value(&frame).expect_err("unsafe wire number must be rejected");
-    assert!(matches!(
-        error,
-        InteractionFrameError::UnsafeWireNumber {
-            field: actual_field,
-            ..
-        } if actual_field == field
-    ));
+    assert!(
+        matches!(
+            error,
+            InteractionFrameError::UnsafeWireNumber {
+                field: actual_field,
+                ..
+            } if actual_field == field
+        ),
+        "unexpected wire validation error: {error:?}"
+    );
 }
 
+/// 断言 producer 对象在序列化前命中指定字段校验。
 fn assert_unsafe_producer_number(frame: InteractionFrameV2, field: &'static str) {
     let error = frame
         .validate()
         .expect_err("producer cannot emit unsafe wire numbers");
-    assert!(matches!(
-        error,
-        InteractionFrameError::UnsafeWireNumber {
-            field: actual_field,
-            ..
-        } if actual_field == field
-    ));
+    assert!(
+        matches!(
+            error,
+            InteractionFrameError::UnsafeWireNumber {
+                field: actual_field,
+                ..
+            } if actual_field == field
+        ),
+        "unexpected producer validation error: {error:?}"
+    );
 }
 
+/// 断言 Timeline 规范化实体与兼容 items 同步拒绝非法 SurfaceData。
 fn assert_invalid_surface_data(value: serde_json::Value, expected_reason: &str) {
     let mut frame = frame_value(CANONICAL_SNAPSHOT);
-    frame["mutations"][2]["mutation"]["view"]["items"][0]["readReceipt"] = value;
+    mutate_timeline_messages(&mut frame, |message| {
+        message["readReceipt"] = value.clone();
+    });
     let error = decode_value(&frame).expect_err("unsafe generic surface data must be rejected");
     assert!(matches!(
         error,
         InteractionFrameError::InvalidView { ref reason, .. }
             if reason.contains(expected_reason)
     ));
+}
+
+/// 同步修改 Timeline V3 规范化实体与过渡期兼容 items，保持双表示不变量。
+fn mutate_timeline_messages(
+    frame: &mut serde_json::Value,
+    mutate: impl Fn(&mut serde_json::Value),
+) {
+    mutate(&mut frame["mutations"][2]["mutation"]["view"]["items"][0]);
+    mutate(&mut frame["mutations"][2]["mutation"]["view"]["entities"][0]["message"]);
+}
+
+/// 同步更新 Timeline V3 所有 createAt 引用，避免安全数值测试先触发引用不一致。
+fn set_timeline_create_at(frame: &mut serde_json::Value, create_at: i64) {
+    let view = &mut frame["mutations"][2]["mutation"]["view"];
+    view["items"][0]["createdAt"] = serde_json::json!(create_at);
+    view["entities"][0]["message"]["createdAt"] = serde_json::json!(create_at);
+    view["entities"][0]["entityKey"]["createAt"] = serde_json::json!(create_at);
+    view["ranges"][0]["orderedKeys"][0]["createAt"] = serde_json::json!(create_at);
+    view["ranges"][0]["olderCursor"]["createAt"] = serde_json::json!(create_at);
+    view["ranges"][0]["newerCursor"]["createAt"] = serde_json::json!(create_at);
+    view["ranges"][0]["latestWatermark"]["createAt"] = serde_json::json!(create_at);
+    view["persistedWatermark"]["createAt"] = serde_json::json!(create_at);
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

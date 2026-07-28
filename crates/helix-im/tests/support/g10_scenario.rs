@@ -3,7 +3,8 @@ use helix_core::effect::{Correlation, Effect, StorageOp};
 use helix_core::tick::{AppCommand, PortError, PortOutcome, ReplyBytes};
 use helix_core::{EffectSink, Module, Tick};
 use helix_im::interaction_frame::{
-    InteractionFrameV2, SurfaceId, SurfaceLoadState, SurfaceScope, TypedSurfaceMutation,
+    InteractionFrameV2, SurfaceId, SurfaceLoadState, SurfaceScope, TimelineDeltaOperationVm,
+    TypedSurfaceMutation,
 };
 use helix_im::module::ImConfig;
 use helix_im::query::LocalStoreMode;
@@ -16,7 +17,10 @@ use serde_json::{json, Value};
 mod shared;
 
 #[allow(unused_imports)]
-pub use shared::{assert_group_created_contract_for, sha256_hex, surface_names, SendScenarioSpec};
+pub use shared::{
+    assert_group_created_contract_for, sha256_hex, surface_names, timeline_messages,
+    SendScenarioSpec,
+};
 
 pub const CHANNEL_ID: &str = "chfixx00000000000000000010";
 pub const WINDOW_TOKEN: &str = "g10-latest-window";
@@ -234,7 +238,7 @@ pub fn assert_timeline_contract(
     expected_has_older: bool,
 ) {
     frame.validate().expect("G10 Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(frame.mutations.len(), 1);
     let mutation = &frame.mutations[0];
     assert_eq!(mutation.mutation.surface, SurfaceId::MessageTimeline);
@@ -247,35 +251,61 @@ pub fn assert_timeline_contract(
     );
     assert!(mutation.mutation.revision > 0);
     assert_eq!(mutation.surface_epoch, 1);
-    let view = match &mutation.mutation.mutation {
-        TypedSurfaceMutation::TimelineSnapshot { view } => view,
-        TypedSurfaceMutation::TimelinePatch { patch } => &patch.view,
-        other => panic!("expected timeline mutation, got {other:?}"),
+    assert_eq!(mutation.surface_schema_version, Some(3));
+    let (items, state, bounds) = match &mutation.mutation.mutation {
+        TypedSurfaceMutation::TimelineSnapshot { view } => (
+            view.items.iter().collect::<Vec<_>>(),
+            view.state.clone(),
+            Some((view.page.has_older, view.page.has_newer)),
+        ),
+        TypedSurfaceMutation::TimelineDelta { operations } => {
+            let items = operations
+                .iter()
+                .filter_map(|operation| match operation {
+                    TimelineDeltaOperationVm::UpsertMessage { entity } => Some(&entity.message),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let state = operations.iter().find_map(|operation| match operation {
+                TimelineDeltaOperationVm::ActivateWindow { window, .. } => {
+                    Some(window.state.clone())
+                }
+                _ => None,
+            });
+            let bounds = operations.iter().find_map(|operation| match operation {
+                TimelineDeltaOperationVm::SetRangeBounds {
+                    has_older,
+                    has_newer,
+                    ..
+                } => Some((*has_older, *has_newer)),
+                _ => None,
+            });
+            (items, state.unwrap_or(expected_state.clone()), bounds)
+        }
+        other => panic!("expected timeline snapshot or delta, got {other:?}"),
     };
-    assert_eq!(view.channel_id, CHANNEL_ID);
-    assert_eq!(view.page.window_token, WINDOW_TOKEN);
-    assert_eq!(view.state, expected_state);
+    assert_eq!(state, expected_state);
     match expected_marker {
         Some(marker) => {
-            assert_eq!(view.items.len(), 20);
+            assert_eq!(items.len(), 20);
             assert_eq!(
-                view.items.last().map(|item| item.content.clone()),
+                items.last().map(|item| item.content.clone()),
                 Some(helix_im::interaction_frame::MessageContentVm::Text {
                     text: format!("{marker}-20"),
                 })
             );
-            assert_eq!(view.page.has_older, expected_has_older);
-            assert_eq!(view.page.has_more, expected_has_older);
-            assert!(!view.page.has_newer);
-            assert!(view
-                .items
+            if let Some((has_older, has_newer)) = bounds {
+                assert_eq!(has_older, expected_has_older);
+                assert!(!has_newer);
+            }
+            assert!(items
                 .iter()
                 .flat_map(|item| &item.actions)
                 .any(|action| action.kind == "reply"));
         }
         None => {
-            assert!(view.items.is_empty());
-            assert!(!view.page.has_older && !view.page.has_newer && !view.page.has_more);
+            assert!(items.is_empty());
+            assert!(bounds.is_none_or(|(has_older, has_newer)| !has_older && !has_newer));
         }
     }
 }

@@ -30,6 +30,7 @@
           },
           "root": {
             "id": "srvfix00000000000000000015",
+            "temporaryId": "srvfix00000000000000000015",
             "channelId": "chfixx00000000000000000015",
             "eventSeq": 0,
             "author": {

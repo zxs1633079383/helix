@@ -4,7 +4,7 @@ use helix_core::tick::{AppCommand, PortError, PortOutcome, ReplyBytes};
 use helix_core::{EffectSink, Module, Tick};
 use helix_im::interaction_frame::{
     InteractionFrameV2, MessageContentVm, SurfaceId, SurfaceLoadState, SurfaceScope,
-    TypedSurfaceMutation,
+    TimelineDeltaOperationVm, TypedSurfaceMutation,
 };
 use helix_im::module::ImConfig;
 use helix_im::query::LocalStoreMode;
@@ -17,7 +17,10 @@ use serde_json::{json, Value};
 mod shared;
 
 #[allow(unused_imports)]
-pub use shared::{assert_group_created_contract_for, sha256_hex, surface_names, SendScenarioSpec};
+pub use shared::{
+    assert_group_created_contract_for, sha256_hex, surface_names, timeline_messages,
+    SendScenarioSpec,
+};
 
 pub const CHANNEL_ID: &str = "chfixx0000000000000000001a";
 pub const WINDOW_TOKEN: &str = "g10a-latest-window";
@@ -264,7 +267,7 @@ pub fn assert_timeline_contract(
     expected_has_older: bool,
 ) {
     frame.validate().expect("G10a Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(frame.mutations.len(), 1);
     let mutation = &frame.mutations[0];
     assert_eq!(mutation.mutation.surface, SurfaceId::MessageTimeline);
@@ -275,30 +278,65 @@ pub fn assert_timeline_contract(
             window_token: WINDOW_TOKEN.to_string(),
         }
     );
-    let view = match &mutation.mutation.mutation {
-        TypedSurfaceMutation::TimelineSnapshot { view } => view,
-        TypedSurfaceMutation::TimelinePatch { patch } => &patch.view,
-        other => panic!("expected G10a timeline mutation, got {other:?}"),
-    };
-    assert_eq!(view.state, expected_state);
-    assert_eq!(view.items.len(), expected_items);
-    assert_eq!(view.page.window_token, WINDOW_TOKEN);
-    assert_eq!(view.page.has_older, expected_has_older);
-    assert_eq!(view.page.has_more, expected_has_older);
-    assert!(!view.page.has_newer);
-    if expected_items == 40 {
-        assert_eq!(
-            view.items.first().map(|item| &item.content),
-            Some(&MessageContentVm::Text {
-                text: "g10a-older-1".to_string(),
-            })
-        );
-        assert_eq!(
-            view.items.last().map(|item| &item.content),
-            Some(&MessageContentVm::Text {
-                text: "g10a-recent-40".to_string(),
-            })
-        );
+    match &mutation.mutation.mutation {
+        TypedSurfaceMutation::TimelineSnapshot { view } => {
+            assert_eq!(view.state, expected_state);
+            assert_eq!(view.items.len(), expected_items);
+            assert_eq!(view.page.window_token, WINDOW_TOKEN);
+            assert_eq!(view.page.has_older, expected_has_older);
+            assert_eq!(view.page.has_more, expected_has_older);
+            assert!(!view.page.has_newer);
+        }
+        TypedSurfaceMutation::TimelineDelta { operations } => {
+            let upserts = operations
+                .iter()
+                .filter_map(|operation| match operation {
+                    TimelineDeltaOperationVm::UpsertMessage { entity } => Some(&entity.message),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            if !upserts.is_empty() {
+                assert_eq!(expected_items, 40);
+                assert!(matches!(upserts.len(), 20 | 40));
+                assert_eq!(
+                    upserts.first().map(|item| &item.content),
+                    Some(&MessageContentVm::Text {
+                        text: "g10a-older-1".to_string(),
+                    })
+                );
+                let expected_last = if upserts.len() == 20 {
+                    "g10a-older-20"
+                } else {
+                    "g10a-recent-40"
+                };
+                assert_eq!(
+                    upserts.last().map(|item| &item.content),
+                    Some(&MessageContentVm::Text {
+                        text: expected_last.to_string(),
+                    })
+                );
+            }
+            if let Some(state) = operations.iter().find_map(|operation| match operation {
+                TimelineDeltaOperationVm::ActivateWindow { window, .. } => Some(&window.state),
+                _ => None,
+            }) {
+                assert_eq!(state, &expected_state);
+            }
+            if let Some((has_older, has_newer)) =
+                operations.iter().find_map(|operation| match operation {
+                    TimelineDeltaOperationVm::SetRangeBounds {
+                        has_older,
+                        has_newer,
+                        ..
+                    } => Some((*has_older, *has_newer)),
+                    _ => None,
+                })
+            {
+                assert_eq!(has_older, expected_has_older);
+                assert!(!has_newer);
+            }
+        }
+        other => panic!("expected G10a timeline snapshot or delta, got {other:?}"),
     }
 }
 

@@ -12,6 +12,36 @@ fn request(limit: u32) -> MessageQueryRequest {
     }
 }
 
+/// 返回 Timeline V3 delta 的 closed operation 列表，测试不得回退读取 replaceView。
+fn timeline_delta_operations(
+    mutation: &crate::interaction_frame::SurfaceMutation,
+) -> &[crate::interaction_frame::TimelineDeltaOperationVm] {
+    let crate::interaction_frame::TypedSurfaceMutation::TimelineDelta { operations } =
+        &mutation.mutation
+    else {
+        panic!("attached timeline update must use Timeline V3 delta")
+    };
+    operations
+}
+
+/// 从 delta 中定位指定消息的 UpsertMessage 终态。
+fn upserted_message<'a>(
+    operations: &'a [crate::interaction_frame::TimelineDeltaOperationVm],
+    message_id: &str,
+) -> &'a crate::interaction_frame::MessageVm {
+    operations
+        .iter()
+        .find_map(|operation| match operation {
+            crate::interaction_frame::TimelineDeltaOperationVm::UpsertMessage { entity }
+                if entity.message.id == message_id =>
+            {
+                Some(&entity.message)
+            }
+            _ => None,
+        })
+        .expect("delta must upsert the requested message")
+}
+
 fn row(index: usize) -> Value {
     serde_json::json!({
         "id": format!("message-{index:03}"),
@@ -391,8 +421,9 @@ fn local_first_terminal_emits_typed_timeline_frame_not_legacy_query_result() {
     );
 }
 
+/// 普通权威刷新只递增 revision 并发送 Timeline V3 delta。
 #[test]
-fn ordinary_authoritative_timeline_refresh_remains_a_revision_based_patch() {
+fn ordinary_authoritative_timeline_refresh_remains_a_revision_based_delta() {
     let mut config = crate::module::ImConfig::default();
     config.auth_user_id = "viewer-1".to_string();
     let mut module = ImModule::new(config);
@@ -418,7 +449,8 @@ fn ordinary_authoritative_timeline_refresh_remains_a_revision_based_patch() {
     };
     let envelope: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
     let mutation = &envelope["data"]["mutations"][0];
-    assert_eq!(mutation["mutation"]["kind"], "timelinePatch");
+    assert_eq!(mutation["mutation"]["kind"], "timelineDelta");
+    assert!(mutation["mutation"]["operations"].is_array());
     assert_eq!(mutation["baseRevision"], 1);
     assert_eq!(mutation["revision"], 2);
 }
@@ -651,9 +683,27 @@ fn durable_fact_refresh_reserves_append_slot_and_local_older_affordance() {
         .state
         .recent_message_coverage
         .insert(channel_id(), coverage);
-    module
+    let initial_effect = module
         .emit_timeline_snapshot_with_causation(&request(20), &initial_rows, 1_000, None, None)
         .expect("initial twenty-row timeline attaches");
+    let Effect::Emit {
+        event: initial_event,
+    } = initial_effect
+    else {
+        panic!("initial timeline must emit one frame")
+    };
+    let initial_envelope: serde_json::Value =
+        serde_json::from_slice(initial_event.0.as_ref()).unwrap();
+    let initial_frame = crate::interaction_frame::InteractionFrameV2::decode(
+        &serde_json::to_vec(&initial_envelope["data"]).unwrap(),
+    )
+    .unwrap();
+    let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
+        &initial_frame.mutations[0].mutation.mutation
+    else {
+        panic!("initial timeline must install a snapshot")
+    };
+    assert!(view.ranges[0].has_older);
     module
         .state
         .invalidate_recent_message_coverage(channel_id());
@@ -704,10 +754,16 @@ fn durable_fact_refresh_reserves_append_slot_and_local_older_affordance() {
         .filter_map(emitted_event)
         .find(|event| event["event"] == "im:interaction:frame")
         .expect("durable local readback emits one timeline Frame");
-    let view = &frame["data"]["mutations"][0]["mutation"]["patch"]["view"];
-    assert_eq!(view["items"].as_array().map(Vec::len), Some(21));
-    assert_eq!(view["page"]["hasOlder"], true);
-    assert_eq!(view["page"]["hasMore"], true);
+    let operations = frame["data"]["mutations"][0]["mutation"]["operations"]
+        .as_array()
+        .expect("timeline refresh exposes closed delta operations");
+    assert!(operations.iter().any(|operation| {
+        operation["kind"] == "insertKeys"
+            && operation["position"]["kind"] == "start"
+            && operation["keys"]
+                .as_array()
+                .is_some_and(|keys| keys.iter().any(|key| key["createAt"] == 2))
+    }));
 }
 
 /// 回归切群后的短窗口：新事实必须追加，不能用固定页长挤掉仍在窗口内的旧消息。
@@ -795,18 +851,18 @@ fn durable_fact_refresh_appends_without_replacing_a_short_attached_window() {
         .filter_map(emitted_event)
         .find(|event| event["event"] == "im:interaction:frame")
         .expect("durable readback emits one timeline Frame");
-    let items = frame["data"]["mutations"][0]["mutation"]["patch"]["view"]["items"]
+    let operations = frame["data"]["mutations"][0]["mutation"]["operations"]
         .as_array()
-        .expect("timeline patch exposes items");
-    assert_eq!(items.len(), 11);
-    assert_eq!(
-        items.first().and_then(|item| item["id"].as_str()),
-        Some("message-001")
-    );
-    assert_eq!(
-        items.last().and_then(|item| item["id"].as_str()),
-        Some("message-011")
-    );
+        .expect("timeline refresh exposes closed delta operations");
+    assert!(operations.iter().any(|operation| {
+        operation["kind"] == "upsertMessage"
+            && operation["entity"]["message"]["id"] == "message-011"
+    }));
+    assert!(operations.iter().any(|operation| {
+        operation["kind"] == "insertKeys"
+            && operation["position"]["kind"] == "end"
+            && operation["keys"][0]["temporaryId"] == "temporary-011"
+    }));
 }
 
 #[test]
@@ -950,7 +1006,7 @@ fn optimistic_send_persist_refreshes_an_attached_timeline_as_a_causally_linked_f
     );
     assert!(matches!(
         mutation.mutation.mutation,
-        crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { .. }
+        crate::interaction_frame::TypedSurfaceMutation::TimelineDelta { .. }
     ));
     let frame_index = sink
         .as_slice()
@@ -1262,7 +1318,7 @@ fn http_send_settlement_waits_for_its_durable_receipt_before_refreshing_the_atta
     );
     assert!(matches!(
         mutation.mutation.mutation,
-        crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { .. }
+        crate::interaction_frame::TypedSurfaceMutation::TimelineDelta { .. }
     ));
 }
 
@@ -1353,12 +1409,8 @@ fn non_query_timeline_patch_regrants_same_action_ref_at_new_revision() {
     assert_eq!(mutations.len(), 1);
     let patch_revision = mutations[0].revision;
     let patch_scope = mutations[0].scope.clone();
-    let crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { patch } =
-        &mutations[0].mutation
-    else {
-        panic!("receipt authority must produce a timeline patch")
-    };
-    let patch_binding = patch.view.items[0]
+    let operations = timeline_delta_operations(&mutations[0]);
+    let patch_binding = upserted_message(operations, "message-author-1")
         .actions
         .iter()
         .find(|action| action.kind == "viewReceipt")
@@ -1730,12 +1782,8 @@ fn retry_action_invocation_runs_canonical_media_retry_after_acceptance_and_relea
         causal_frame.mutations[0].mutation.scope, mutation.mutation.scope,
         "retry terminal Frame must return to the scope that granted the actionRef"
     );
-    let crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { patch } =
-        &causal_frame.mutations[0].mutation.mutation
-    else {
-        panic!("retry sending readback must patch the attached timeline")
-    };
-    let retry = patch.view.items[0]
+    let operations = timeline_delta_operations(&causal_frame.mutations[0].mutation);
+    let retry = upserted_message(operations, "tmp-action-retry-file")
         .actions
         .iter()
         .find(|action| action.kind == "retry")
@@ -2177,7 +2225,7 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
         .expect("accepted requestId is replay-protected");
     assert_eq!(replay["data"]["status"], "rejected");
 
-    // 回归锚: T079 —— 新 timeline revision 撤旧 ref 后，旧 corr 尚未终态时 requestId 仍不可复用。
+    // 回归锚: T079 —— 新 revision 保持稳定 entity actionRef，旧 corr 未终态时 requestId 仍不可复用。
     let refreshed_timeline = module
         .emit_timeline_snapshot_with_causation(&query, &rows_desc, 1_005, None, None)
         .expect("new timeline revision revokes the old action capability");
@@ -2190,18 +2238,13 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
     )
     .unwrap();
     let refreshed_mutation = &refreshed_frame.mutations[0].mutation;
-    let crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { patch } =
-        &refreshed_mutation.mutation
-    else {
-        panic!("attached timeline refresh must be a replace-view patch")
-    };
-    let view = &patch.view;
-    let refreshed_binding = view.items[0]
+    let operations = timeline_delta_operations(refreshed_mutation);
+    let refreshed_binding = upserted_message(operations, "message-author-1")
         .actions
         .iter()
         .find(|action| action.kind == "viewReceipt")
-        .expect("refreshed author timeline has a new receipt capability");
-    assert_ne!(binding.action_ref, refreshed_binding.action_ref);
+        .expect("refreshed author timeline retains its receipt capability");
+    assert_eq!(binding.action_ref, refreshed_binding.action_ref);
     let mut reused_request = envelope.clone();
     reused_request.observed_revision = refreshed_mutation.revision;
     reused_request.invocation.action_ref = refreshed_binding.action_ref.clone();

@@ -20,12 +20,10 @@ fn prerequisite_creates_a_fresh_group() {
 fn hello_admission_is_single_and_server_authoritative() {
     let trace = Gs1ScenarioRunner::run_success();
     assert_eq!(trace.increment_request.method, "POST");
-    assert!(
-        trace
-            .increment_request
-            .url
-            .ends_with("/channels/load/increment")
-    );
+    assert!(trace
+        .increment_request
+        .url
+        .ends_with("/channels/load/increment"));
     let body: serde_json::Value = serde_json::from_slice(
         trace
             .increment_request

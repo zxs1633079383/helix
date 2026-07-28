@@ -203,6 +203,8 @@ mod tests {
     fn message(id: &str) -> MessageVm {
         MessageVm {
             id: id.to_string(),
+            temporary_id: String::new(),
+            server_id: None,
             channel_id: "channel-1".to_string(),
             event_seq: 1,
             author: UserRefVm {

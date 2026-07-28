@@ -1,12 +1,20 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "transactionId": "uc01-16-rich-v2",
   "causationId": "rich-v2-causation",
-  "runtime": { "connection": "online", "initialSync": "ready", "recovery": "recovered" },
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "recovered"
+  },
   "mutations": [
     {
       "surface": "message.timeline",
-      "scope": { "kind": "timeline", "channelId": "channel-1", "windowToken": "latest" },
+      "scope": {
+        "kind": "timeline",
+        "channelId": "channel-1",
+        "windowToken": "latest"
+      },
       "surfaceEpoch": 1,
       "revision": 1,
       "causationId": "rich-v2-timeline",
@@ -14,34 +22,172 @@
         "kind": "timelineSnapshot",
         "view": {
           "channelId": "channel-1",
-          "anchor": { "messageId": "message-reply", "mode": "latest" },
+          "entities": [
+            {
+              "entityKey": {
+                "createAt": 1700000000,
+                "temporaryId": "message-reply"
+              },
+              "message": {
+                "id": "message-reply",
+                "channelId": "channel-1",
+                "eventSeq": 7,
+                "author": {
+                  "userId": "user-1"
+                },
+                "createdAt": 1700000000,
+                "content": {
+                  "kind": "text",
+                  "text": "reply"
+                },
+                "delivery": {
+                  "kind": "sent"
+                },
+                "actions": [],
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "replySummary": {
+                  "kind": "available",
+                  "targetMessageId": "message-origin",
+                  "author": {
+                    "userId": "user-2"
+                  },
+                  "preview": {
+                    "kind": "text",
+                    "text": "original"
+                  },
+                  "availability": {
+                    "kind": "available"
+                  }
+                },
+                "replyThread": {
+                  "items": [
+                    {
+                      "id": "reply-1",
+                      "author": {
+                        "userId": "user-2"
+                      },
+                      "text": "第一条回复"
+                    },
+                    {
+                      "id": "reply-2",
+                      "author": {
+                        "userId": "user-3"
+                      },
+                      "text": "第二条回复"
+                    },
+                    {
+                      "id": "reply-3",
+                      "author": {
+                        "userId": "user-4"
+                      },
+                      "text": "第三条回复"
+                    }
+                  ],
+                  "replyCount": 4
+                },
+                "reactions": [
+                  {
+                    "emoji": "😊",
+                    "count": 2
+                  }
+                ],
+                "readReceipt": {},
+                "pinned": false,
+                "bookmarked": false,
+                "topicLink": {
+                  "parentChannelId": "channel-1",
+                  "topicChannelId": "topic-1",
+                  "rootMessageId": "message-reply",
+                  "title": "Roadmap",
+                  "replyCount": 4,
+                  "lastActivityAt": 1700000001,
+                  "latestReply": {
+                    "author": {
+                      "userId": "user-2"
+                    },
+                    "preview": {
+                      "kind": "text",
+                      "text": "reply"
+                    },
+                    "createdAt": 1700000001
+                  }
+                },
+                "temporaryId": "message-reply"
+              }
+            }
+          ],
           "items": [
             {
               "id": "message-reply",
               "channelId": "channel-1",
               "eventSeq": 7,
-              "author": { "userId": "user-1" },
+              "author": {
+                "userId": "user-1"
+              },
               "createdAt": 1700000000,
-              "content": { "kind": "text", "text": "reply" },
-              "delivery": { "kind": "sent" },
+              "content": {
+                "kind": "text",
+                "text": "reply"
+              },
+              "delivery": {
+                "kind": "sent"
+              },
               "actions": [],
-              "quickActions": ["react", "quoteReply", "createTopic"],
+              "quickActions": [
+                "react",
+                "quoteReply",
+                "createTopic"
+              ],
               "replySummary": {
                 "kind": "available",
                 "targetMessageId": "message-origin",
-                "author": { "userId": "user-2" },
-                "preview": { "kind": "text", "text": "original" },
-                "availability": { "kind": "available" }
+                "author": {
+                  "userId": "user-2"
+                },
+                "preview": {
+                  "kind": "text",
+                  "text": "original"
+                },
+                "availability": {
+                  "kind": "available"
+                }
               },
               "replyThread": {
                 "items": [
-                  { "id": "reply-1", "author": { "userId": "user-2" }, "text": "第一条回复" },
-                  { "id": "reply-2", "author": { "userId": "user-3" }, "text": "第二条回复" },
-                  { "id": "reply-3", "author": { "userId": "user-4" }, "text": "第三条回复" }
+                  {
+                    "id": "reply-1",
+                    "author": {
+                      "userId": "user-2"
+                    },
+                    "text": "第一条回复"
+                  },
+                  {
+                    "id": "reply-2",
+                    "author": {
+                      "userId": "user-3"
+                    },
+                    "text": "第二条回复"
+                  },
+                  {
+                    "id": "reply-3",
+                    "author": {
+                      "userId": "user-4"
+                    },
+                    "text": "第三条回复"
+                  }
                 ],
                 "replyCount": 4
               },
-              "reactions": [{ "emoji": "😊", "count": 2 }],
+              "reactions": [
+                {
+                  "emoji": "😊",
+                  "count": 2
+                }
+              ],
               "readReceipt": {},
               "pinned": false,
               "bookmarked": false,
@@ -53,17 +199,73 @@
                 "replyCount": 4,
                 "lastActivityAt": 1700000001,
                 "latestReply": {
-                  "author": { "userId": "user-2" },
-                  "preview": { "kind": "text", "text": "reply" },
+                  "author": {
+                    "userId": "user-2"
+                  },
+                  "preview": {
+                    "kind": "text",
+                    "text": "reply"
+                  },
                   "createdAt": 1700000001
                 }
+              },
+              "temporaryId": "message-reply"
+            }
+          ],
+          "anchor": {
+            "messageId": "message-reply",
+            "mode": "latest"
+          },
+          "page": {
+            "windowToken": "latest",
+            "hasOlder": false,
+            "hasNewer": false,
+            "hasMore": false
+          },
+          "state": "ready",
+          "ranges": [
+            {
+              "rangeId": "latest",
+              "orderedKeys": [
+                {
+                  "createAt": 1700000000,
+                  "temporaryId": "message-reply"
+                }
+              ],
+              "hasOlder": false,
+              "hasNewer": false,
+              "olderCursor": {
+                "createAt": 1700000000,
+                "temporaryId": "message-reply"
+              },
+              "newerCursor": {
+                "createAt": 1700000000,
+                "temporaryId": "message-reply"
+              },
+              "latestWatermark": {
+                "createAt": 1700000000,
+                "temporaryId": "message-reply"
               }
             }
           ],
-          "page": { "windowToken": "latest", "hasOlder": false, "hasNewer": false, "hasMore": false },
-          "state": "ready"
+          "activeWindow": {
+            "windowToken": "latest",
+            "rangeIds": [
+              "latest"
+            ],
+            "anchor": {
+              "messageId": "message-reply",
+              "mode": "latest"
+            },
+            "state": "ready"
+          },
+          "persistedWatermark": {
+            "createAt": 1700000000,
+            "temporaryId": "message-reply"
+          }
         }
-      }
+      },
+      "surfaceSchemaVersion": 3
     }
   ],
   "directives": []

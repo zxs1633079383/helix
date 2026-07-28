@@ -291,7 +291,10 @@ impl Replay {
             })
             .collect::<Vec<_>>();
         assert_eq!(matches.len(), 1, "GS1 global end creates one batch Persist");
-        matches.into_iter().next().expect("one batch Persist exists")
+        matches
+            .into_iter()
+            .next()
+            .expect("one batch Persist exists")
     }
 
     /// 回灌一个相关端口结果。
@@ -325,13 +328,15 @@ impl Replay {
         self.sink
             .as_slice()
             .iter()
-            .filter(|effect| matches!(
-                effect,
-                Effect::Persist { ops, .. }
-                    if ops.iter().any(
-                        |op| matches!(op, StorageOp::Scan(scan) if scan.table == "channel"),
-                    )
-            ))
+            .filter(|effect| {
+                matches!(
+                    effect,
+                    Effect::Persist { ops, .. }
+                        if ops.iter().any(
+                            |op| matches!(op, StorageOp::Scan(scan) if scan.table == "channel"),
+                        )
+                )
+            })
             .count()
     }
 

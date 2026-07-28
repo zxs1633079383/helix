@@ -150,7 +150,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
 
 #[test]
 /// 证明真实 producer、Golden bytes 与 provenance 始终同源。
-fn current_gs2_producer_matches_canonical_v2_fixtures_and_provenance() {
+fn current_gs2_producer_matches_canonical_fixtures_and_provenance() {
     let cases = produce_cases();
     assert_eq!(cases.len(), 3, "GS2 canonical inventory is explicit");
     let directory = fixture_dir();
@@ -173,10 +173,10 @@ fn current_gs2_producer_matches_canonical_v2_fixtures_and_provenance() {
             .expect("provenance export succeeds");
     }
     for case in &cases {
-        let checked_in = fs::read(directory.join(case.file_name))
-            .expect("GS2 checked-in Fixture exists");
+        let checked_in =
+            fs::read(directory.join(case.file_name)).expect("GS2 checked-in Fixture exists");
         assert_eq!(checked_in, canonical_bytes(&case.frame));
-        InteractionFrameV2::decode(&checked_in).expect("checked-in Fixture remains V2");
+        InteractionFrameV2::decode(&checked_in).expect("checked-in Fixture remains valid");
     }
     assert_eq!(
         fs::read(directory.join("provenance.json")).expect("provenance exists"),

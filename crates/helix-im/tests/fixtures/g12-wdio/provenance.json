@@ -104,7 +104,7 @@
   {
     "fileName": "thread-snapshot.frame-v2.json",
     "fixtureId": "g12-thread-snapshot-v2",
-    "fixtureSha256": "434207276732e4076ddacb206731187e8031a79e25240ce3a3d66e300a2e7c37",
+    "fixtureSha256": "ea14d9672ef61c8906d14e1f9af81e6454f5096423fad7a3f89165afa8fee68c",
     "generatedAt": "2026-07-26T07:55:00-07:00",
     "helixCommit": "a2207d73f8e72da7374b916b2167ee3a25b9f6c3",
     "parameterizableFields": [
@@ -206,7 +206,7 @@
   {
     "fileName": "thread-branch.frame-v2.json",
     "fixtureId": "g12-thread-branch-v2",
-    "fixtureSha256": "6a11b920460c031129c28b0bff18303fc4f3e56fa4653da28fe065646755c6e2",
+    "fixtureSha256": "7e28b7c1b380d610dc289f30ac53a12a3e3d4f9e87560dcec4b34fc3e023b22c",
     "generatedAt": "2026-07-26T07:55:00-07:00",
     "helixCommit": "a2207d73f8e72da7374b916b2167ee3a25b9f6c3",
     "parameterizableFields": [

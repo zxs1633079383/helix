@@ -11,11 +11,12 @@ use thiserror::Error;
 use crate::interaction_frame::{
     ActionBinding, DeliveryVm, ForwardModeVm, ForwardSourceVm, ForwardedItemContentVm,
     ForwardedItemVm, InteractionFrameError, MessageContentVm, MessageQuickActionVm,
-    MessageReactionVm, MessageVm, ReferenceAvailabilityVm, ReplaceView, ReplaceViewKind,
-    ReplyPreviewVm, ReplySummaryVm, ReplyThreadPreviewVm, ReplyThreadSummaryVm, SurfaceDataVm,
-    SurfaceId, SurfaceLoadState, SurfaceMutation, SurfaceScope, TimelineAnchorMode,
-    TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation, UserRefVm, WindowPageVm,
-    MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
+    MessageReactionVm, MessageVm, ReferenceAvailabilityVm, ReplyPreviewVm, ReplySummaryVm,
+    ReplyThreadPreviewVm, ReplyThreadSummaryVm, SurfaceDataVm, SurfaceId, SurfaceLoadState,
+    SurfaceMutation, SurfaceScope, TimelineActiveWindowVm, TimelineAnchorMode, TimelineAnchorVm,
+    TimelineDeltaOperationVm, TimelineEntityKeyVm, TimelineEntityVm, TimelineInsertPositionVm,
+    TimelineRangeVm, TimelineSnapshotV3Vm, TimelineWindowVm, TypedSurfaceMutation, UserRefVm,
+    WindowPageVm, MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
 };
 
 /// 单个 attached timeline slot 最多保留的消息数。分页/窗口边界由 Helix 决定。
@@ -149,6 +150,7 @@ impl TimelineProjector {
         else {
             return Ok(None);
         };
+        let previous_view = slot.view.clone();
         let mut view = slot.view;
         view.state = SurfaceLoadState::Failed;
         let revision = next_revision(slot.revision)?;
@@ -162,11 +164,8 @@ impl TimelineProjector {
             revision,
             base_revision: Some(slot.revision),
             causation_id: None,
-            mutation: TypedSurfaceMutation::TimelinePatch {
-                patch: ReplaceView {
-                    kind: ReplaceViewKind::ReplaceView,
-                    view: view.clone(),
-                },
+            mutation: TypedSurfaceMutation::TimelineDelta {
+                operations: delta_between(&previous_view, &view, None)?,
             },
         };
         mutation.validate()?;
@@ -216,7 +215,9 @@ impl TimelineProjector {
             revision,
             base_revision: None,
             causation_id,
-            mutation: TypedSurfaceMutation::TimelineSnapshot { view: view.clone() },
+            mutation: TypedSurfaceMutation::TimelineSnapshot {
+                view: snapshot_v3(&view)?,
+            },
         };
         mutation.validate()?;
         self.attached_slots.insert(slot_key.clone());
@@ -224,7 +225,7 @@ impl TimelineProjector {
         Ok(mutation)
     }
 
-    /// 对已 attach slot 以完整 `replaceView` 形式推进。v1 不下发客户端需解释的 row delta。
+    /// 对已 attach slot 生成有界 V3 Delta；普通消息更新不覆盖整个窗口。
     pub fn patch_from_render_ready(
         &mut self,
         request: TimelineWindowRequest,
@@ -242,6 +243,7 @@ impl TimelineProjector {
         let previous_view = slot.view.clone();
         let mut view = self.build_view(&request, render_ready_rows)?;
         preserve_receipt_snapshot(&previous_view, &mut view);
+        preserve_stable_action_bindings(&previous_view, &mut view);
         let revision = next_revision(base_revision)?;
         let mutation = SurfaceMutation {
             surface: SurfaceId::MessageTimeline,
@@ -249,11 +251,8 @@ impl TimelineProjector {
             revision,
             base_revision: Some(base_revision),
             causation_id,
-            mutation: TypedSurfaceMutation::TimelinePatch {
-                patch: ReplaceView {
-                    kind: ReplaceViewKind::ReplaceView,
-                    view: view.clone(),
-                },
+            mutation: TypedSurfaceMutation::TimelineDelta {
+                operations: delta_between(&previous_view, &view, None)?,
             },
         };
         mutation.validate()?;
@@ -298,6 +297,7 @@ impl TimelineProjector {
         else {
             return Ok(None);
         };
+        let previous_view = slot.view.clone();
         let mut view = slot.view;
         view.anchor = TimelineAnchorVm {
             message_id: Some(target_message_id.to_string()),
@@ -315,11 +315,12 @@ impl TimelineProjector {
             revision,
             base_revision: Some(slot.revision),
             causation_id: None,
-            mutation: TypedSurfaceMutation::TimelinePatch {
-                patch: ReplaceView {
-                    kind: ReplaceViewKind::ReplaceView,
-                    view: view.clone(),
-                },
+            mutation: TypedSurfaceMutation::TimelineDelta {
+                operations: delta_between(
+                    &previous_view,
+                    &view,
+                    Some(format!("locate:{target_message_id}")),
+                )?,
             },
         };
         mutation.validate()?;
@@ -349,6 +350,7 @@ impl TimelineProjector {
             let Some(slot) = self.slots.get(&slot_key).cloned() else {
                 continue;
             };
+            let previous_view = slot.view.clone();
             let mut view = slot.view;
             let mut changed = false;
             for item in &mut view.items {
@@ -372,11 +374,8 @@ impl TimelineProjector {
                 revision,
                 base_revision: Some(slot.revision),
                 causation_id: None,
-                mutation: TypedSurfaceMutation::TimelinePatch {
-                    patch: ReplaceView {
-                        kind: ReplaceViewKind::ReplaceView,
-                        view: view.clone(),
-                    },
+                mutation: TypedSurfaceMutation::TimelineDelta {
+                    operations: delta_between(&previous_view, &view, None)?,
                 },
             };
             mutation.validate()?;
@@ -459,6 +458,164 @@ impl TimelineProjector {
     }
 }
 
+/// 将内部有界窗口转换为标准化 V3 Snapshot。
+fn snapshot_v3(view: &TimelineWindowVm) -> Result<TimelineSnapshotV3Vm, TimelineProjectionError> {
+    let entities = timeline_entities(view)?;
+    let ordered_keys = entities
+        .iter()
+        .map(|entity| entity.entity_key.clone())
+        .collect::<Vec<_>>();
+    let range = timeline_range(view, ordered_keys);
+    let persisted_watermark = range.latest_watermark.clone();
+    Ok(TimelineSnapshotV3Vm {
+        channel_id: view.channel_id.clone(),
+        items: view.items.clone(),
+        anchor: view.anchor.clone(),
+        first_unread_message_id: view.first_unread_message_id.clone(),
+        target_message_id: view.target_message_id.clone(),
+        page: view.page.clone(),
+        state: view.state.clone(),
+        entities,
+        ranges: vec![range],
+        active_window: active_window(view),
+        persisted_watermark,
+    })
+}
+
+/// 比较两个 Helix 权威窗口，生成 closed、有界且有序的 Timeline Delta。
+fn delta_between(
+    previous: &TimelineWindowVm,
+    next: &TimelineWindowVm,
+    navigation_token: Option<String>,
+) -> Result<Vec<TimelineDeltaOperationVm>, TimelineProjectionError> {
+    let previous_entities = timeline_entities(previous)?;
+    let next_entities = timeline_entities(next)?;
+    let previous_by_key = previous_entities
+        .iter()
+        .map(|entity| (entity.entity_key.clone(), entity))
+        .collect::<BTreeMap<_, _>>();
+    let previous_keys = previous_entities
+        .iter()
+        .map(|entity| entity.entity_key.clone())
+        .collect::<Vec<_>>();
+    let next_keys = next_entities
+        .iter()
+        .map(|entity| entity.entity_key.clone())
+        .collect::<Vec<_>>();
+    let mut operations = next_entities
+        .iter()
+        .filter(|entity| previous_by_key.get(&entity.entity_key).copied() != Some(*entity))
+        .cloned()
+        .map(|entity| TimelineDeltaOperationVm::UpsertMessage { entity })
+        .collect::<Vec<_>>();
+    let range_id = next.page.window_token.clone();
+    if previous_keys != next_keys {
+        if next_keys.starts_with(&previous_keys) {
+            let keys = next_keys[previous_keys.len()..].to_vec();
+            if !keys.is_empty() {
+                operations.push(TimelineDeltaOperationVm::InsertKeys {
+                    range_id: range_id.clone(),
+                    position: TimelineInsertPositionVm::End,
+                    keys,
+                });
+            }
+        } else if next_keys.ends_with(&previous_keys) {
+            let prefix_len = next_keys.len().saturating_sub(previous_keys.len());
+            let keys = next_keys[..prefix_len].to_vec();
+            if !keys.is_empty() {
+                operations.push(TimelineDeltaOperationVm::InsertKeys {
+                    range_id: range_id.clone(),
+                    position: TimelineInsertPositionVm::Start,
+                    keys,
+                });
+            }
+        } else {
+            operations.push(TimelineDeltaOperationVm::InstallSegment {
+                range: timeline_range(next, next_keys.clone()),
+                entities: next_entities.clone(),
+            });
+        }
+    }
+    if previous.page != next.page {
+        let range = timeline_range(next, next_keys.clone());
+        operations.push(TimelineDeltaOperationVm::SetRangeBounds {
+            range_id: range.range_id,
+            older_cursor: range.older_cursor,
+            newer_cursor: range.newer_cursor,
+            has_older: range.has_older,
+            has_newer: range.has_newer,
+            latest_watermark: range.latest_watermark,
+        });
+    }
+    if previous.anchor != next.anchor
+        || previous.first_unread_message_id != next.first_unread_message_id
+        || previous.target_message_id != next.target_message_id
+        || previous.state != next.state
+        || navigation_token.is_some()
+    {
+        operations.push(TimelineDeltaOperationVm::ActivateWindow {
+            window: active_window(next),
+            navigation_token,
+        });
+    }
+    if operations.is_empty() {
+        return Err(TimelineProjectionError::EmptyDelta);
+    }
+    Ok(operations)
+}
+
+/// 为窗口消息建立稳定 EntityKey，并保持 Helix 已裁决的顺序。
+fn timeline_entities(
+    view: &TimelineWindowVm,
+) -> Result<Vec<TimelineEntityVm>, TimelineProjectionError> {
+    view.items
+        .iter()
+        .map(|message| {
+            if message.temporary_id.is_empty() {
+                return Err(TimelineProjectionError::MissingRowField {
+                    field: "temporaryId",
+                });
+            }
+            Ok(TimelineEntityVm {
+                entity_key: TimelineEntityKeyVm {
+                    create_at: message.created_at,
+                    temporary_id: message.temporary_id.clone(),
+                },
+                message: message.clone(),
+            })
+        })
+        .collect()
+}
+
+/// 从当前窗口构造单 Range 的双向边界与最新水位。
+fn timeline_range(
+    view: &TimelineWindowVm,
+    ordered_keys: Vec<TimelineEntityKeyVm>,
+) -> TimelineRangeVm {
+    TimelineRangeVm {
+        range_id: view.page.window_token.clone(),
+        older_cursor: ordered_keys.first().cloned(),
+        newer_cursor: ordered_keys.last().cloned(),
+        latest_watermark: ordered_keys.last().cloned(),
+        ordered_keys,
+        has_older: view.page.has_older,
+        has_newer: view.page.has_newer,
+    }
+}
+
+/// 把内部窗口元数据收紧为不复制消息数组的活动窗口引用。
+fn active_window(view: &TimelineWindowVm) -> TimelineActiveWindowVm {
+    TimelineActiveWindowVm {
+        window_token: view.page.window_token.clone(),
+        range_ids: vec![view.page.window_token.clone()],
+        anchor: view.anchor.clone(),
+        first_unread_message_id: view.first_unread_message_id.clone(),
+        target_message_id: view.target_message_id.clone(),
+        state: view.state.clone(),
+    }
+}
+
+/// 合并既有已读快照，避免分页回包清空更晚到达的 receipt fact。
 fn preserve_receipt_snapshot(previous: &TimelineWindowVm, next: &mut TimelineWindowVm) {
     let receipts: BTreeMap<&str, &BTreeMap<String, SurfaceDataVm>> = previous
         .items
@@ -503,6 +660,41 @@ fn preserve_receipt_snapshot(previous: &TimelineWindowVm, next: &mut TimelineWin
         );
         item.read_receipt = SurfaceDataVm::Record(merged);
     }
+}
+
+/// 保留语义未变行的 opaque actionRef，避免分页导致既有实体产生无意义 upsert。
+fn preserve_stable_action_bindings(previous: &TimelineWindowVm, next: &mut TimelineWindowVm) {
+    let previous_actions = previous
+        .items
+        .iter()
+        .map(|message| {
+            (
+                (message.created_at, message.temporary_id.as_str()),
+                &message.actions,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    for message in &mut next.items {
+        let key = (message.created_at, message.temporary_id.as_str());
+        let Some(actions) = previous_actions.get(&key) else {
+            continue;
+        };
+        if action_semantics_match(actions, &message.actions) {
+            message.actions.clone_from(actions);
+        }
+    }
+}
+
+/// 比较 action 能力而忽略可复用的 opaque ref 身份。
+fn action_semantics_match(previous: &[ActionBinding], next: &[ActionBinding]) -> bool {
+    previous.len() == next.len()
+        && previous.iter().zip(next).all(|(left, right)| {
+            left.kind == right.kind
+                && left.input_shape == right.input_shape
+                && left.surface_epoch == right.surface_epoch
+                && left.enabled == right.enabled
+                && left.disabled_reason == right.disabled_reason
+        })
 }
 
 fn enrich_reply_threads(items: &mut [MessageVm]) {
@@ -589,6 +781,8 @@ pub enum TimelineProjectionError {
     ActionRefOverflow,
     #[error("timeline locate target {target} is absent from the bounded window")]
     TargetNotInWindow { target: String },
+    #[error("timeline projector attempted to advance revision without a semantic delta")]
+    EmptyDelta,
     #[error(transparent)]
     InvalidInteractionFrame(#[from] InteractionFrameError),
 }
@@ -657,6 +851,13 @@ pub(crate) fn message_from_render_ready(
     mut issue_action_ref: impl FnMut() -> Result<String, TimelineProjectionError>,
 ) -> Result<MessageVm, TimelineProjectionError> {
     let id = required_string(row, &["msgId", "id"], "id")?;
+    // render_ready 生产路径始终提供 temporaryId；末尾别名仅兼容本模块历史单元样本。
+    let temporary_id = required_string(
+        row,
+        &["temporaryId", "temporary_id", "id", "msgId"],
+        "temporaryId",
+    )?;
+    let server_id = optional_non_empty_string(row, &["serverId", "server_id"]);
     let channel_id = required_string(row, &["channelId", "channel_id"], "channelId")?;
     if channel_id != expected_channel_id {
         return Err(TimelineProjectionError::ChannelMismatch {
@@ -695,6 +896,8 @@ pub(crate) fn message_from_render_ready(
     };
     Ok(MessageVm {
         id,
+        temporary_id,
+        server_id,
         channel_id,
         event_seq: unsigned_integer_at(row, &["eventSeq", "event_seq"], "eventSeq")?
             .unwrap_or_default(),
@@ -1412,10 +1615,11 @@ fn author_id_from_row(row: &Value) -> Result<String, TimelineProjectionError> {
     required_string(row, &["createBy", "create_by"], "author.userId")
 }
 
+/// 返回候选字段中的首个非空字符串，避免空主键遮蔽后续兼容别名。
 fn row_string(row: &Value, keys: &[&str]) -> String {
     keys.iter()
-        .find_map(|key| row.get(*key).and_then(Value::as_str))
-        .filter(|value| !value.is_empty())
+        .filter_map(|key| row.get(*key).and_then(Value::as_str))
+        .find(|value| !value.is_empty())
         .unwrap_or_default()
         .to_string()
 }
@@ -2219,7 +2423,8 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_bounds_latest_window_and_patch_replaces_complete_view() {
+    /// 验证最新窗口边界正确，新增消息只产生 bounded TimelineDelta。
+    fn snapshot_bounds_latest_window_and_delta_advances_changed_view() {
         let mut projector = TimelineProjector::default();
         let rows = (0..80).map(row).collect::<Vec<_>>();
         let snapshot = projector
@@ -2234,10 +2439,11 @@ mod tests {
         assert_eq!(view.items.last().unwrap().id, "message-79");
         assert!(view.page.has_older);
 
+        let advanced_rows = (1..=80).map(row).collect::<Vec<_>>();
         let patch = projector
             .patch_from_render_ready(
                 TimelineWindowRequest::latest("channel-1"),
-                &rows[1..],
+                &advanced_rows,
                 Some("post:80".to_string()),
             )
             .expect("existing slot can advance");
@@ -2246,16 +2452,12 @@ mod tests {
         assert_eq!(patch.causation_id.as_deref(), Some("post:80"));
         assert!(matches!(
             patch.mutation,
-            TypedSurfaceMutation::TimelinePatch {
-                patch: ReplaceView {
-                    kind: ReplaceViewKind::ReplaceView,
-                    ..
-                }
-            }
+            TypedSurfaceMutation::TimelineDelta { .. }
         ));
     }
 
     #[test]
+    /// 验证有实际实体变化时 revision 可到达 JSON 安全整数上限但不会溢出。
     fn revision_overflow_is_rejected_without_wrapping_the_timeline_slot() {
         let mut projector = TimelineProjector::default();
         let rows = vec![row(1)];
@@ -2271,14 +2473,21 @@ mod tests {
             .get_mut(&scope.canonical_key())
             .expect("snapshot slot")
             .revision = MAX_SAFE_JSON_INTEGER - 1;
+        let mut changed_rows = rows.clone();
+        changed_rows[0]["text"] = serde_json::json!("changed-at-boundary");
         let boundary_patch = projector
-            .patch_from_render_ready(TimelineWindowRequest::latest("channel-1"), &rows, None)
+            .patch_from_render_ready(
+                TimelineWindowRequest::latest("channel-1"),
+                &changed_rows,
+                None,
+            )
             .expect("the exact-safe maximum itself remains representable");
         assert_eq!(boundary_patch.revision, MAX_SAFE_JSON_INTEGER);
+        changed_rows[0]["text"] = serde_json::json!("changed-after-boundary");
         assert!(matches!(
             projector.patch_from_render_ready(
                 TimelineWindowRequest::latest("channel-1"),
-                &rows,
+                &changed_rows,
                 None,
             ),
             Err(TimelineProjectionError::RevisionOverflow)

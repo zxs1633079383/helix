@@ -18,6 +18,7 @@ mod shared;
 
 #[allow(unused_imports)]
 pub use shared::{assert_group_created_contract_for, sha256_hex, surface_names, SendScenarioSpec};
+pub use shared::{first_message, timeline_messages};
 
 pub const CHANNEL_ID: &str = "chfixx0000000000000000001e";
 pub const POST_ID: &str = "srvfix0000000000000000001e";
@@ -257,18 +258,15 @@ pub fn assert_readable_message_contract(frame: &InteractionFrameV2) {
     frame
         .validate()
         .expect("G14 readable timeline Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(frame.mutations.len(), 1);
     let mutation = &frame.mutations[0];
     assert_eq!(mutation.mutation.surface, SurfaceId::MessageTimeline);
-    let view = match &mutation.mutation.mutation {
-        TypedSurfaceMutation::TimelineSnapshot { view } => view,
-        TypedSurfaceMutation::TimelinePatch { patch } => &patch.view,
-        other => panic!("expected G14 timeline mutation, got {other:?}"),
-    };
-    assert_eq!(view.channel_id, CHANNEL_ID);
-    assert_eq!(view.items.len(), 1);
-    let message = &view.items[0];
+    assert!(matches!(
+        &mutation.mutation.scope,
+        SurfaceScope::Timeline { channel_id, .. } if channel_id == CHANNEL_ID
+    ));
+    let message = first_message(frame);
     assert_eq!(message.id, POST_ID);
     assert_eq!(message.author.user_id, OBSERVER_ID);
     let mark_read = message
@@ -285,13 +283,7 @@ pub fn assert_receipt_viewable_message_contract(frame: &InteractionFrameV2) {
     frame
         .validate()
         .expect("G14 receipt-viewable timeline Frame remains valid");
-    let mutation = &frame.mutations[0];
-    let view = match &mutation.mutation.mutation {
-        TypedSurfaceMutation::TimelineSnapshot { view } => view,
-        TypedSurfaceMutation::TimelinePatch { patch } => &patch.view,
-        other => panic!("expected G14 timeline mutation, got {other:?}"),
-    };
-    let message = &view.items[0];
+    let message = first_message(frame);
     assert_eq!(message.author.user_id, ACTOR_ID);
     let view_receipt = message
         .actions

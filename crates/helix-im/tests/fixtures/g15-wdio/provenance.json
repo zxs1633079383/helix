@@ -2,7 +2,7 @@
   {
     "fileName": "topic-thread-created.frame-v2.json",
     "fixtureId": "g15-topic-thread-created-v2",
-    "fixtureSha256": "c6f9a96ee2ded44462b11c68760ed75a59fafcfea371b5d70edda2cff7eeb734",
+    "fixtureSha256": "936f6ec64e34f92cf8f882605d21f1eee9d2ec9a39b9e3157e6da0c20867ddbb",
     "gateId": "G-15",
     "generatedAt": "2026-07-26T12:03:17-07:00",
     "helixCommit": "064f814a0f4fc4df8b9299652d0e615f5857b875",
@@ -64,7 +64,7 @@
       "/mutations/*/mutation/view/actions/*/surfaceEpoch"
     ],
     "schemaVersion": 2,
-    "semanticSha256": "4074e60b2d81de7c653b2abaf969c76399391129a3b0e6d255899b4175f9cc79",
+    "semanticSha256": "c9b5aaab314525280166fdbc8b5875e9f4498b35f08640d21d5a4881d16e9f0d",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.thread-detail"

@@ -265,10 +265,7 @@ impl Replay {
                 _ => None,
             })
             .expect("timeline attach scans message");
-        self.reply(
-            port_reply_with_body(corr, Bytes::from_static(b"[]")),
-            4,
-        );
+        self.reply(port_reply_with_body(corr, Bytes::from_static(b"[]")), 4);
         let remote_corr = self
             .harness
             .sink
@@ -365,9 +362,9 @@ impl Replay {
             .iter()
             .find_map(|effect| match effect {
                 Effect::Persist { corr, ops }
-                    if ops.iter().any(
-                        |op| matches!(op, StorageOp::Get(get) if get.table == "channel"),
-                    ) =>
+                    if ops
+                        .iter()
+                        .any(|op| matches!(op, StorageOp::Get(get) if get.table == "channel")) =>
                 {
                     Some(corr.raw())
                 }

@@ -85,7 +85,7 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
         .iter()
         .map(|mutation| match mutation.mutation.mutation {
             TypedSurfaceMutation::TimelineSnapshot { .. } => "timelineSnapshot",
-            TypedSurfaceMutation::TimelinePatch { .. } => "timelinePatch",
+            TypedSurfaceMutation::TimelineDelta { .. } => "timelineDelta",
             TypedSurfaceMutation::DialogListSnapshot { .. } => "dialogListSnapshot",
             TypedSurfaceMutation::DialogListPatch { .. } => "dialogListPatch",
             _ => "other",
@@ -225,7 +225,17 @@ fn g05_canonical_frames_match_checked_in_contract() {
     let mut provenance = Vec::with_capacity(cases.len());
     for case in &cases {
         case.frame.validate().expect("producer Frame remains valid");
-        assert_eq!(case.frame.schema_version, 2);
+        let expected_schema_version = if case
+            .frame
+            .mutations
+            .iter()
+            .any(|mutation| mutation.mutation.surface.as_str() == "message.timeline")
+        {
+            3
+        } else {
+            2
+        };
+        assert_eq!(case.frame.schema_version, expected_schema_version);
         assert!(!surface_names(&case.frame).is_empty());
         let bytes = canonical_bytes(&case.frame);
         provenance.push(provenance_entry(case, &bytes));

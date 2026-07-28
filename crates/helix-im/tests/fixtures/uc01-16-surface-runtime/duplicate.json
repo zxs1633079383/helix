@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "transactionId": "duplicate-dialog-slot",
   "mutations": [
     {
@@ -17,7 +17,8 @@
           "state": "empty"
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 2
     },
     {
       "surface": "message.left-dialog-list",
@@ -34,7 +35,8 @@
           "state": "empty"
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 2
     }
   ],
   "runtime": {

@@ -3,7 +3,8 @@ use helix_core::effect::{Correlation, Effect, HttpRequest, StorageOp};
 use helix_core::tick::{AppCommand, PortError, PortOutcome, ReplyBytes};
 use helix_core::{EffectSink, Module, Tick};
 use helix_im::interaction_frame::{
-    InteractionFrameV2, SurfaceId, SurfaceScope, TimelineAnchorMode, TypedSurfaceMutation,
+    InteractionFrameV2, SurfaceId, SurfaceScope, TimelineAnchorMode, TimelineDeltaOperationVm,
+    TypedSurfaceMutation,
 };
 use helix_im::module::ImConfig;
 use helix_im::query::LocalStoreMode;
@@ -16,7 +17,10 @@ use serde_json::{json, Value};
 mod shared;
 
 #[allow(unused_imports)]
-pub use shared::{assert_group_created_contract_for, sha256_hex, surface_names, SendScenarioSpec};
+pub use shared::{
+    assert_group_created_contract_for, sha256_hex, surface_names, timeline_messages,
+    SendScenarioSpec,
+};
 
 pub const CHANNEL_ID: &str = "chfixx0000000000000000001b";
 pub const WINDOW_TOKEN: &str = "g11-locate-window";
@@ -165,7 +169,7 @@ impl G11ScenarioRunner {
 /// 逐字段验证 locate Frame 的 envelope、scope、target、anchor、items 与 directive。
 pub fn assert_located_contract(frame: &InteractionFrameV2) {
     frame.validate().expect("G11 Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(frame.causation_id.as_deref(), Some(REQUEST_ID));
     assert_eq!(frame.mutations.len(), 1);
     let mutation = &frame.mutations[0];
@@ -180,21 +184,29 @@ pub fn assert_located_contract(frame: &InteractionFrameV2) {
     assert_eq!(mutation.mutation.base_revision, Some(1));
     assert_eq!(mutation.mutation.revision, 2);
     assert_eq!(mutation.surface_epoch, 1);
-    let TypedSurfaceMutation::TimelinePatch { patch } = &mutation.mutation.mutation else {
-        panic!("G11 terminal mutation must be a complete timeline patch");
+    let TypedSurfaceMutation::TimelineDelta { operations } = &mutation.mutation.mutation else {
+        panic!("G11 terminal mutation must be a bounded timeline delta");
     };
-    assert_eq!(patch.view.channel_id, CHANNEL_ID);
-    assert_eq!(patch.view.target_message_id.as_deref(), Some(TARGET_ID));
-    assert_eq!(patch.view.anchor.message_id.as_deref(), Some(TARGET_ID));
-    assert_eq!(patch.view.anchor.mode, TimelineAnchorMode::Locate);
-    assert_eq!(patch.view.items.len(), 20);
-    assert!(patch.view.items.iter().any(|item| {
-        item.id == TARGET_ID
-            && item.content
-                == helix_im::interaction_frame::MessageContentVm::Text {
-                    text: TARGET_MARKER.to_string(),
-                }
-    }));
+    assert_eq!(
+        operations.len(),
+        1,
+        "locating inside an installed range only activates its window"
+    );
+    let window = operations
+        .iter()
+        .find_map(|operation| match operation {
+            TimelineDeltaOperationVm::ActivateWindow {
+                window,
+                navigation_token,
+            } => Some((window, navigation_token)),
+            _ => None,
+        })
+        .expect("G11 locate delta activates the located window");
+    assert_eq!(window.0.target_message_id.as_deref(), Some(TARGET_ID));
+    assert_eq!(window.0.anchor.message_id.as_deref(), Some(TARGET_ID));
+    assert_eq!(window.0.anchor.mode, TimelineAnchorMode::Locate);
+    let navigation_token = format!("locate:{TARGET_ID}");
+    assert_eq!(window.1.as_deref(), Some(navigation_token.as_str()));
     assert_eq!(frame.directives.len(), 1);
     assert_eq!(frame.directives[0].kind, "revealMessage");
     assert_eq!(

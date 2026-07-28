@@ -92,7 +92,7 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
         .iter()
         .map(|mutation| match mutation.mutation.mutation {
             TypedSurfaceMutation::TimelineSnapshot { .. } => "timelineSnapshot",
-            TypedSurfaceMutation::TimelinePatch { .. } => "timelinePatch",
+            TypedSurfaceMutation::TimelineDelta { .. } => "timelineDelta",
             TypedSurfaceMutation::DialogListSnapshot { .. } => "dialogListSnapshot",
             TypedSurfaceMutation::DialogListPatch { .. } => "dialogListPatch",
             _ => "other",
@@ -111,15 +111,14 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
 
 /// 提取 G04 content、delivery 与 revoke action 的稳定业务字段。
 fn message_contract(frame: &InteractionFrameV2) -> Option<Value> {
-    let message =
-        frame
-            .mutations
-            .iter()
-            .find_map(|mutation| match &mutation.mutation.mutation {
-                TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
-                TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
-                _ => None,
-            })?;
+    let has_timeline = frame.mutations.iter().any(|mutation| {
+        matches!(
+            mutation.mutation.mutation,
+            TypedSurfaceMutation::TimelineSnapshot { .. }
+                | TypedSurfaceMutation::TimelineDelta { .. }
+        )
+    });
+    let message = has_timeline.then(|| first_message(frame))?;
     let revoke = message
         .actions
         .iter()
@@ -178,12 +177,14 @@ fn optional_message_id(frame: &InteractionFrameV2) -> Option<&str> {
     frame
         .mutations
         .iter()
-        .find_map(|mutation| match &mutation.mutation.mutation {
-            TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
-            TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
-            _ => None,
+        .any(|mutation| {
+            matches!(
+                mutation.mutation.mutation,
+                TypedSurfaceMutation::TimelineSnapshot { .. }
+                    | TypedSurfaceMutation::TimelineDelta { .. }
+            )
         })
-        .map(|message| message.id.as_str())
+        .then(|| first_message(frame).id.as_str())
 }
 
 /// 为每份 Fixture 生成 producer、hash、surface 与动态字段白名单。
@@ -265,7 +266,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
 
 #[test]
 /// 证明 actual producer、字段语义、Golden bytes 与 provenance 始终同源。
-fn current_g04_producer_matches_canonical_v2_fixtures_and_provenance() {
+fn current_g04_producer_matches_canonical_fixtures_and_provenance() {
     let cases = produce_cases();
     assert_eq!(cases.len(), 4, "G04 canonical inventory is explicit");
     let directory = fixture_dir();
@@ -274,7 +275,17 @@ fn current_g04_producer_matches_canonical_v2_fixtures_and_provenance() {
 
     for case in &cases {
         case.frame.validate().expect("producer Frame remains valid");
-        assert_eq!(case.frame.schema_version, 2);
+        let expected_schema_version = if case
+            .frame
+            .mutations
+            .iter()
+            .any(|mutation| mutation.mutation.surface.as_str() == "message.timeline")
+        {
+            3
+        } else {
+            2
+        };
+        assert_eq!(case.frame.schema_version, expected_schema_version);
         assert!(!surface_names(&case.frame).is_empty());
         let bytes = canonical_bytes(&case.frame);
         provenance.push(provenance_entry(case, &bytes));

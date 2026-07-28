@@ -73,7 +73,7 @@ impl G06ScenarioRunner {
 pub fn assert_reactable_contract(frame: &InteractionFrameV2) {
     let spec = g06_scenario_spec();
     frame.validate().expect("G06 reactable Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(frame.causation_id, None);
     assert_eq!(frame.mutations.len(), 1);
     let mutation = &frame.mutations[0];
@@ -109,7 +109,7 @@ pub fn assert_reactable_contract(frame: &InteractionFrameV2) {
 pub fn assert_reacted_contract(frame: &InteractionFrameV2, expected_causation: Option<&str>) {
     let spec = g06_scenario_spec();
     frame.validate().expect("G06 reacted Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(frame.causation_id.as_deref(), expected_causation);
     assert_eq!(frame.mutations.len(), 1);
     let mutation = &frame.mutations[0];

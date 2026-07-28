@@ -1566,6 +1566,7 @@ mod tests {
             },
             mutations: vec![SurfaceMutationV2 {
                 surface_epoch: 1,
+                surface_schema_version: Some(2),
                 mutation: SurfaceMutation {
                     surface: SurfaceId::MessageUnreadSummary,
                     scope: SurfaceScope::User {

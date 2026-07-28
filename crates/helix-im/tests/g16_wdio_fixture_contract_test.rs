@@ -178,7 +178,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
 
 #[test]
 /// 证明真实 producer、完整字段、Golden bytes 与 provenance 始终同源。
-fn current_g16_producer_matches_canonical_v2_fixtures_and_provenance() {
+fn current_g16_producer_matches_canonical_fixtures_and_provenance() {
     let cases = produce_cases();
     assert_eq!(cases.len(), 5, "G16 canonical inventory is explicit");
     let directory = fixture_dir();

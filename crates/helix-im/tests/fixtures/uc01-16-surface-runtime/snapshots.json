@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "transactionId": "uc01-16-canonical-snapshot-1",
   "mutations": [
     {
@@ -65,7 +65,8 @@
           "state": "ready"
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 2
     },
     {
       "surface": "message.unread-summary",
@@ -84,7 +85,8 @@
           "unreadChannelCount": 1
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 2
     },
     {
       "surface": "message.timeline",
@@ -98,10 +100,38 @@
         "kind": "timelineSnapshot",
         "view": {
           "channelId": "channel-1",
-          "anchor": {
-            "messageId": "message-1",
-            "mode": "latest"
-          },
+          "entities": [
+            {
+              "entityKey": {
+                "createAt": 1700000000,
+                "temporaryId": "message-1"
+              },
+              "message": {
+                "id": "message-1",
+                "channelId": "channel-1",
+                "author": {
+                  "userId": "user-2"
+                },
+                "createdAt": 1700000000,
+                "content": {
+                  "kind": "text",
+                  "text": "hello"
+                },
+                "delivery": {
+                  "kind": "sent"
+                },
+                "actions": [],
+                "replySummary": {
+                  "kind": "none"
+                },
+                "readReceipt": {},
+                "pinned": false,
+                "bookmarked": false,
+                "eventSeq": 0,
+                "temporaryId": "message-1"
+              }
+            }
+          ],
           "items": [
             {
               "id": "message-1",
@@ -124,21 +154,69 @@
               "readReceipt": {},
               "pinned": false,
               "bookmarked": false,
-              "eventSeq": 0
+              "eventSeq": 0,
+              "temporaryId": "message-1"
             }
           ],
-          "firstUnreadMessageId": "message-1",
-          "targetMessageId": "message-1",
+          "anchor": {
+            "messageId": "message-1",
+            "mode": "latest"
+          },
           "page": {
             "windowToken": "latest-1",
             "hasOlder": false,
             "hasNewer": false,
             "hasMore": false
           },
-          "state": "ready"
+          "state": "ready",
+          "ranges": [
+            {
+              "rangeId": "latest-1",
+              "orderedKeys": [
+                {
+                  "createAt": 1700000000,
+                  "temporaryId": "message-1"
+                }
+              ],
+              "hasOlder": false,
+              "hasNewer": false,
+              "olderCursor": {
+                "createAt": 1700000000,
+                "temporaryId": "message-1"
+              },
+              "newerCursor": {
+                "createAt": 1700000000,
+                "temporaryId": "message-1"
+              },
+              "latestWatermark": {
+                "createAt": 1700000000,
+                "temporaryId": "message-1"
+              }
+            }
+          ],
+          "activeWindow": {
+            "windowToken": "latest-1",
+            "rangeIds": [
+              "latest-1"
+            ],
+            "anchor": {
+              "messageId": "message-1",
+              "mode": "latest"
+            },
+            "state": "ready",
+            "firstUnreadMessageId": "message-1",
+            "targetMessageId": "message-1"
+          },
+          "firstUnreadMessageId": "message-1",
+          "targetMessageId": "message-1",
+          "persistedWatermark": {
+            "createAt": 1700000000,
+            "temporaryId": "message-1"
+          }
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 3
     },
     {
       "surface": "message.thread-detail",
@@ -216,7 +294,8 @@
           }
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 2
     },
     {
       "surface": "message.channel-summary",
@@ -250,7 +329,8 @@
           "settingsVersion": 1
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 2
     },
     {
       "surface": "message.member-roster",
@@ -287,7 +367,8 @@
           "state": "ready"
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 2
     },
     {
       "surface": "message.topic-list",
@@ -337,7 +418,8 @@
           "state": "ready"
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 2
     },
     {
       "surface": "message.participant-receipts",
@@ -383,7 +465,8 @@
           "state": "ready"
         }
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 2
     }
   ],
   "runtime": {

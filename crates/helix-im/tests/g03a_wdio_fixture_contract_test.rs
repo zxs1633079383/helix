@@ -6,7 +6,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use helix_im::interaction_frame::{InteractionFrameV2, TypedSurfaceMutation};
+use helix_im::interaction_frame::{
+    InteractionFrameV2, MessageVm, TimelineDeltaOperationVm, TypedSurfaceMutation,
+};
 use serde_json::{json, Value};
 
 #[path = "support/g03a_scenario.rs"]
@@ -154,7 +156,7 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
         .iter()
         .map(|mutation| match mutation.mutation.mutation {
             TypedSurfaceMutation::TimelineSnapshot { .. } => "timelineSnapshot",
-            TypedSurfaceMutation::TimelinePatch { .. } => "timelinePatch",
+            TypedSurfaceMutation::TimelineDelta { .. } => "timelineDelta",
             TypedSurfaceMutation::DialogListSnapshot { .. } => "dialogListSnapshot",
             TypedSurfaceMutation::DialogListPatch { .. } => "dialogListPatch",
             TypedSurfaceMutation::UnreadSummarySnapshot { .. } => "unreadSummarySnapshot",
@@ -176,15 +178,7 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
 
 /// 提取 G03a 文本、delivery 与 retry action 的稳定业务字段。
 fn message_contract(frame: &InteractionFrameV2) -> Option<Value> {
-    let message =
-        frame
-            .mutations
-            .iter()
-            .find_map(|mutation| match &mutation.mutation.mutation {
-                TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
-                TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
-                _ => None,
-            })?;
+    let message = optional_message(frame)?;
     let retry = message
         .actions
         .iter()
@@ -198,6 +192,26 @@ fn message_contract(frame: &InteractionFrameV2) -> Option<Value> {
             "disabledReason": retry.disabled_reason,
         }
     }))
+}
+
+/// 提取 snapshot 或 delta 中第一条 timeline message，供 Fixture 语义与身份投影复用。
+fn optional_message(frame: &InteractionFrameV2) -> Option<&MessageVm> {
+    frame
+        .mutations
+        .iter()
+        .find_map(|mutation| match &mutation.mutation.mutation {
+            TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
+            TypedSurfaceMutation::TimelineDelta { operations } => {
+                operations.iter().find_map(|operation| match operation {
+                    TimelineDeltaOperationVm::UpsertMessage { entity } => Some(&entity.message),
+                    TimelineDeltaOperationVm::InstallSegment { entities, .. } => {
+                        entities.first().map(|entity| &entity.message)
+                    }
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
 }
 
 /// 提取 dialog preview 的稳定业务形状，区分 fresh-group empty 与 WS text patch。
@@ -238,15 +252,7 @@ fn fixture_dir() -> PathBuf {
 
 /// 返回 Frame 的第一条 timeline messageId；dialog-only Frame 没有消息节点。
 fn optional_message_id(frame: &InteractionFrameV2) -> Option<&str> {
-    frame
-        .mutations
-        .iter()
-        .find_map(|mutation| match &mutation.mutation.mutation {
-            TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
-            TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
-            _ => None,
-        })
-        .map(|message| message.id.as_str())
+    optional_message(frame).map(|message| message.id.as_str())
 }
 
 /// 为每份 Fixture 生成可审计的 producer、hash、surface 和参数白名单。
@@ -324,7 +330,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8], temporary_id: &str) -> Val
 
 #[test]
 /// 证明 producer actual、字段语义、Golden bytes 与 provenance 始终为同一份合同。
-fn current_g03a_producer_matches_canonical_v2_fixtures_and_provenance() {
+fn current_g03a_producer_matches_canonical_fixtures_and_provenance() {
     let cases = produce_cases();
     assert_eq!(cases.len(), 8, "G03a canonical inventory is explicit");
     let temporary_id = cases
@@ -338,7 +344,17 @@ fn current_g03a_producer_matches_canonical_v2_fixtures_and_provenance() {
 
     for case in &cases {
         case.frame.validate().expect("producer Frame remains valid");
-        assert_eq!(case.frame.schema_version, 2);
+        let expected_schema_version = if case
+            .frame
+            .mutations
+            .iter()
+            .any(|mutation| mutation.mutation.surface.as_str() == "message.timeline")
+        {
+            3
+        } else {
+            2
+        };
+        assert_eq!(case.frame.schema_version, expected_schema_version);
         assert!(!surface_names(&case.frame).is_empty());
         let bytes = canonical_bytes(&case.frame);
         provenance.push(provenance_entry(case, &bytes, &temporary_id));

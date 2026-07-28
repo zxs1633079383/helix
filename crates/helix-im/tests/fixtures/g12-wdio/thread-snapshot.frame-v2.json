@@ -26,6 +26,8 @@
           },
           "root": {
             "id": "srvfix0000000000000000001c",
+            "temporaryId": "srvfix0000000000000000001c",
+            "serverId": "srvfix0000000000000000001c",
             "channelId": "chfixx0000000000000000001c",
             "eventSeq": 0,
             "author": {
@@ -183,6 +185,8 @@
           "nodes": {
             "srvfix0000000000000000002c": {
               "id": "srvfix0000000000000000002c",
+              "temporaryId": "srvfix0000000000000000002c",
+              "serverId": "srvfix0000000000000000002c",
               "channelId": "chfixx0000000000000000001c",
               "eventSeq": 0,
               "author": {
@@ -343,6 +347,8 @@
             },
             "srvfix0000000000000000003c": {
               "id": "srvfix0000000000000000003c",
+              "temporaryId": "srvfix0000000000000000003c",
+              "serverId": "srvfix0000000000000000003c",
               "channelId": "chfixx0000000000000000001c",
               "eventSeq": 0,
               "author": {

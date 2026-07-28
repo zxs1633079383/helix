@@ -61,6 +61,7 @@ use helix_driver_web::{WebExecutor, WebOwnedEffect};
 use helix_im::interaction_frame::{
     InteractionFrameV2, InteractionRuntimeVm, RuntimeConnectionState, RuntimeRecoveryState,
     RuntimeSyncState, SurfaceMutationV2, INTERACTION_FRAME_EVENT, INTERACTION_FRAME_SCHEMA_VERSION,
+    TIMELINE_SURFACE_SCHEMA_VERSION,
 };
 use helix_im::module::ImConfig;
 use helix_im::projector::timeline::{TimelineProjector, TimelineWindowRequest};
@@ -346,6 +347,7 @@ fn ffi_callback_delivers_file_progress_frame_without_image_percent() {
         mutations: vec![SurfaceMutationV2 {
             mutation,
             surface_epoch: 1,
+            surface_schema_version: Some(TIMELINE_SURFACE_SCHEMA_VERSION),
         }],
         directives: Vec::new(),
     };

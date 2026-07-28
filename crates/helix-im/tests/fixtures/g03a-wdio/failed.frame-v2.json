@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "transactionId": "timeline-timeline|26:chretry0000000000000000001|6:latest-3",
   "causationId": "g03a-wdio-request-1",
   "runtime": {
@@ -19,18 +19,19 @@
       "baseRevision": 2,
       "causationId": "g03a-wdio-request-1",
       "mutation": {
-        "kind": "timelinePatch",
-        "patch": {
-          "kind": "replaceView",
-          "view": {
-            "channelId": "chretry0000000000000000001",
-            "anchor": {
-              "messageId": "helix_tmp_0000018bcfe87544_0000000000000001",
-              "mode": "latest"
-            },
-            "items": [
-              {
+        "kind": "timelineDelta",
+        "operations": [
+          {
+            "kind": "upsertMessage",
+            "entity": {
+              "entityKey": {
+                "createAt": 1700000200002,
+                "temporaryId": "helix_tmp_0000018bcfe87544_0000000000000001"
+              },
+              "message": {
                 "id": "helix_tmp_0000018bcfe87544_0000000000000001",
+                "temporaryId": "helix_tmp_0000018bcfe87544_0000000000000001",
+                "serverId": "helix_tmp_0000018bcfe87544_0000000000000001",
                 "channelId": "chretry0000000000000000001",
                 "eventSeq": 0,
                 "author": {
@@ -178,18 +179,12 @@
                 "pinned": false,
                 "bookmarked": false
               }
-            ],
-            "page": {
-              "windowToken": "latest",
-              "hasOlder": false,
-              "hasNewer": false,
-              "hasMore": false
-            },
-            "state": "ready"
+            }
           }
-        }
+        ]
       },
-      "surfaceEpoch": 1
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 3
     }
   ],
   "directives": []

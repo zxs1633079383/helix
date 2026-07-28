@@ -8,7 +8,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const INTERACTION_FRAME_SCHEMA_VERSION: u32 = 2;
+pub const INTERACTION_FRAME_SCHEMA_VERSION_V2: u32 = 2;
+pub const INTERACTION_FRAME_SCHEMA_VERSION: u32 = 3;
+pub const TIMELINE_SURFACE_SCHEMA_VERSION: u32 = 3;
+pub const LEGACY_SURFACE_SCHEMA_VERSION: u32 = 2;
 pub const INTERACTION_FRAME_EVENT: &str = "im:interaction:frame";
 pub const FRAME_APPLIED_COMMAND: &str = "__helix_frame_applied";
 /// Action invoke 的受理结果。`accepted` 只代表 Helix 已接管该 requestId；业务终态仍必须等同
@@ -549,6 +552,7 @@ pub struct InteractionFrameV2 {
 }
 
 impl InteractionFrameV2 {
+    /// 严格解码 V2/V3 Frame，并在返回前完成跨 Surface 版本校验。
     pub fn decode(bytes: &[u8]) -> Result<Self, InteractionFrameError> {
         let frame: Self = serde_json::from_slice(bytes)
             .map_err(|error| InteractionFrameError::Decode(error.to_string()))?;
@@ -557,7 +561,10 @@ impl InteractionFrameV2 {
     }
 
     pub fn validate(&self) -> Result<(), InteractionFrameError> {
-        if self.schema_version != INTERACTION_FRAME_SCHEMA_VERSION {
+        if !matches!(
+            self.schema_version,
+            INTERACTION_FRAME_SCHEMA_VERSION_V2 | INTERACTION_FRAME_SCHEMA_VERSION
+        ) {
             return Err(InteractionFrameError::SchemaVersion(self.schema_version));
         }
         if self.transaction_id.is_empty() {
@@ -572,7 +579,7 @@ impl InteractionFrameV2 {
         self.runtime.validate()?;
         let mut slots = BTreeSet::new();
         for mutation in &self.mutations {
-            mutation.validate()?;
+            mutation.validate(self.schema_version)?;
             let slot = (
                 mutation.mutation.surface,
                 mutation.mutation.scope.canonical_key(),
@@ -597,16 +604,46 @@ pub struct SurfaceMutationV2 {
     #[serde(flatten)]
     pub mutation: SurfaceMutation,
     pub surface_epoch: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surface_schema_version: Option<u32>,
 }
 
 impl SurfaceMutationV2 {
-    fn validate(&self) -> Result<(), InteractionFrameError> {
+    /// 校验 Frame/Surface 分层版本并硬拒绝 V2 Timeline。
+    fn validate(&self, frame_schema_version: u32) -> Result<(), InteractionFrameError> {
         self.mutation.validate()?;
         validate_wire_u64(self.mutation.surface, "surfaceEpoch", self.surface_epoch)?;
         if self.surface_epoch == 0 {
             return Err(InteractionFrameError::ZeroSurfaceEpoch {
                 surface: self.mutation.surface.as_str(),
             });
+        }
+        match frame_schema_version {
+            INTERACTION_FRAME_SCHEMA_VERSION_V2 => {
+                if self.mutation.surface == SurfaceId::MessageTimeline {
+                    return Err(InteractionFrameError::TimelineRequiresV3);
+                }
+                if self.surface_schema_version.is_some() {
+                    return Err(InteractionFrameError::UnexpectedSurfaceSchemaVersion {
+                        surface: self.mutation.surface.as_str(),
+                    });
+                }
+            }
+            INTERACTION_FRAME_SCHEMA_VERSION => {
+                let expected = if self.mutation.surface == SurfaceId::MessageTimeline {
+                    TIMELINE_SURFACE_SCHEMA_VERSION
+                } else {
+                    LEGACY_SURFACE_SCHEMA_VERSION
+                };
+                if self.surface_schema_version != Some(expected) {
+                    return Err(InteractionFrameError::SurfaceSchemaVersion {
+                        surface: self.mutation.surface.as_str(),
+                        expected,
+                        actual: self.surface_schema_version,
+                    });
+                }
+            }
+            _ => return Err(InteractionFrameError::SchemaVersion(frame_schema_version)),
         }
         Ok(())
     }
@@ -618,6 +655,18 @@ pub enum InteractionFrameError {
     Decode(String),
     #[error("unsupported interaction frame schema version: {0}")]
     SchemaVersion(u32),
+    #[error("message.timeline is forbidden in schema v2 frames")]
+    TimelineRequiresV3,
+    #[error("timelinePatch + replaceView is forbidden by the Timeline V3 contract")]
+    TimelineV2MutationForbidden,
+    #[error("schema v2 surface {surface} must not carry surfaceSchemaVersion")]
+    UnexpectedSurfaceSchemaVersion { surface: &'static str },
+    #[error("surface {surface} requires surfaceSchemaVersion {expected}, received {actual:?}")]
+    SurfaceSchemaVersion {
+        surface: &'static str,
+        expected: u32,
+        actual: Option<u32>,
+    },
     #[error("unsupported action invocation schema version: {0}")]
     ActionInvocationSchemaVersion(u32),
     #[error("interaction frame transactionId must not be empty")]
@@ -1067,6 +1116,10 @@ pub enum DeliveryVm {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MessageVm {
     pub id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub temporary_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_id: Option<String>,
     pub channel_id: String,
     #[serde(default)]
     pub event_seq: u64,
@@ -1141,6 +1194,132 @@ pub struct TimelineWindowVm {
     pub target_message_id: Option<String>,
     pub page: WindowPageVm,
     pub state: SurfaceLoadState,
+}
+
+/// Timeline 的稳定复合身份；排序先比较 createAt，再比较本地 temporaryId。
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TimelineEntityKeyVm {
+    pub create_at: i64,
+    pub temporary_id: String,
+}
+
+/// 标准化 Timeline 实体；message 可更新，entityKey 永不改变。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TimelineEntityVm {
+    pub entity_key: TimelineEntityKeyVm,
+    pub message: MessageVm,
+}
+
+/// 一个有序、可双向分页的 Timeline Range。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TimelineRangeVm {
+    pub range_id: String,
+    pub ordered_keys: Vec<TimelineEntityKeyVm>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub older_cursor: Option<TimelineEntityKeyVm>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub newer_cursor: Option<TimelineEntityKeyVm>,
+    pub has_older: bool,
+    pub has_newer: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_watermark: Option<TimelineEntityKeyVm>,
+}
+
+/// Timeline 活动窗口只引用 Range，不复制第二份消息数组。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TimelineActiveWindowVm {
+    pub window_token: String,
+    pub range_ids: Vec<String>,
+    pub anchor: TimelineAnchorVm,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_unread_message_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_message_id: Option<String>,
+    pub state: SurfaceLoadState,
+}
+
+/// attach、冷重进与恢复使用的完整标准化 Timeline Snapshot。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TimelineSnapshotV3Vm {
+    pub channel_id: String,
+    pub entities: Vec<TimelineEntityVm>,
+    /// 过渡期只读渲染列表；顺序仍由 ranges 决定，Consumer 不得据此重排。
+    pub items: Vec<MessageVm>,
+    /// 过渡期只读窗口元数据；新 Consumer 使用 activeWindow/ranges。
+    pub anchor: TimelineAnchorVm,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_unread_message_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_message_id: Option<String>,
+    pub page: WindowPageVm,
+    pub state: SurfaceLoadState,
+    pub ranges: Vec<TimelineRangeVm>,
+    pub active_window: TimelineActiveWindowVm,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persisted_watermark: Option<TimelineEntityKeyVm>,
+}
+
+/// Range 插入位置由 Helix 显式给出，Consumer 不按消息字段重新排序。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum TimelineInsertPositionVm {
+    Start,
+    End,
+    Before { entity_key: TimelineEntityKeyVm },
+    After { entity_key: TimelineEntityKeyVm },
+}
+
+/// Timeline V3 的 closed delta union。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum TimelineDeltaOperationVm {
+    UpsertMessage {
+        entity: TimelineEntityVm,
+    },
+    InstallSegment {
+        range: TimelineRangeVm,
+        entities: Vec<TimelineEntityVm>,
+    },
+    InsertKeys {
+        range_id: String,
+        position: TimelineInsertPositionVm,
+        keys: Vec<TimelineEntityKeyVm>,
+    },
+    MergeRanges {
+        target_range_id: String,
+        source_range_ids: Vec<String>,
+    },
+    SetRangeBounds {
+        range_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        older_cursor: Option<TimelineEntityKeyVm>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        newer_cursor: Option<TimelineEntityKeyVm>,
+        has_older: bool,
+        has_newer: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        latest_watermark: Option<TimelineEntityKeyVm>,
+    },
+    ActivateWindow {
+        window: TimelineActiveWindowVm,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        navigation_token: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1425,10 +1604,14 @@ pub enum TypedSurfaceMutation {
         patch: ReplaceView<UnreadSummaryVm>,
     },
     TimelineSnapshot {
-        view: TimelineWindowVm,
+        view: TimelineSnapshotV3Vm,
     },
+    TimelineDelta {
+        operations: Vec<TimelineDeltaOperationVm>,
+    },
+    /// 仅保留为反向合同测试的可解码旧形状；运行时校验始终拒绝。
     TimelinePatch {
-        patch: ReplaceView<TimelineWindowVm>,
+        patch: ReplaceView<TimelineSnapshotV3Vm>,
     },
     ThreadDetailSnapshot {
         view: ThreadDetailVm,
@@ -1477,9 +1660,9 @@ impl TypedSurfaceMutation {
             Self::UnreadSummarySnapshot { .. } | Self::UnreadSummaryPatch { .. } => {
                 SurfaceId::MessageUnreadSummary
             }
-            Self::TimelineSnapshot { .. } | Self::TimelinePatch { .. } => {
-                SurfaceId::MessageTimeline
-            }
+            Self::TimelineSnapshot { .. }
+            | Self::TimelineDelta { .. }
+            | Self::TimelinePatch { .. } => SurfaceId::MessageTimeline,
             Self::ThreadDetailSnapshot { .. } | Self::ThreadDetailPatch { .. } => {
                 SurfaceId::MessageThreadDetail
             }
@@ -1505,6 +1688,7 @@ impl TypedSurfaceMutation {
             self,
             Self::DialogListPatch { .. }
                 | Self::UnreadSummaryPatch { .. }
+                | Self::TimelineDelta { .. }
                 | Self::TimelinePatch { .. }
                 | Self::ThreadDetailPatch { .. }
                 | Self::ChannelSummaryPatch { .. }
@@ -1520,8 +1704,9 @@ impl TypedSurfaceMutation {
             Self::DialogListSnapshot { view } => validate_dialog_list(view),
             Self::DialogListPatch { patch } => validate_dialog_list(&patch.view),
             Self::UnreadSummarySnapshot { .. } | Self::UnreadSummaryPatch { .. } => Ok(()),
-            Self::TimelineSnapshot { view } => validate_timeline(view, scope),
-            Self::TimelinePatch { patch } => validate_timeline(&patch.view, scope),
+            Self::TimelineSnapshot { view } => validate_timeline_v3_snapshot(view, scope),
+            Self::TimelineDelta { operations } => validate_timeline_v3_delta(operations),
+            Self::TimelinePatch { .. } => Err(InteractionFrameError::TimelineV2MutationForbidden),
             Self::ThreadDetailSnapshot { view } => validate_thread_detail(view, scope),
             Self::ThreadDetailPatch { patch } => validate_thread_detail(&patch.view, scope),
             Self::ChannelSummarySnapshot { view } => validate_channel_summary(view, scope),
@@ -1561,8 +1746,9 @@ fn validate_dialog_list(view: &DialogListVm) -> Result<(), InteractionFrameError
     Ok(())
 }
 
-fn validate_timeline(
-    view: &TimelineWindowVm,
+/// 校验完整 V3 Snapshot 的实体、Range 与活动窗口引用一致性。
+fn validate_timeline_v3_snapshot(
+    view: &TimelineSnapshotV3Vm,
     scope: &SurfaceScope,
 ) -> Result<(), InteractionFrameError> {
     let surface = SurfaceId::MessageTimeline;
@@ -1573,34 +1759,186 @@ fn validate_timeline(
     else {
         return invalid_view(surface, "timeline requires a timeline scope");
     };
-    if view.channel_id != *channel_id {
-        return invalid_view(surface, "view channelId must match scope channelId");
+    if view.channel_id != *channel_id || view.active_window.window_token != *window_token {
+        return invalid_view(surface, "snapshot channel/window must match scope");
     }
-    validate_page(surface, &view.page)?;
-    if view.page.window_token != *window_token {
-        return invalid_view(surface, "page windowToken must match scope windowToken");
-    }
-    validate_optional_id(
-        surface,
-        "anchor messageId",
-        view.anchor.message_id.as_deref(),
-    )?;
-    validate_optional_id(
-        surface,
-        "firstUnreadMessageId",
-        view.first_unread_message_id.as_deref(),
-    )?;
-    validate_optional_id(
-        surface,
-        "targetMessageId",
-        view.target_message_id.as_deref(),
-    )?;
-    let mut ids = BTreeSet::new();
-    for message in &view.items {
-        validate_message(surface, message, channel_id)?;
-        if !ids.insert(message.id.as_str()) {
-            return invalid_view(surface, "timeline message id must be unique");
+    let mut entity_keys = BTreeSet::new();
+    for entity in &view.entities {
+        validate_timeline_entity_key(&entity.entity_key)?;
+        validate_message(surface, &entity.message, channel_id)?;
+        if !entity_keys.insert(entity.entity_key.clone()) {
+            return invalid_view(surface, "snapshot entityKey must be unique");
         }
+    }
+    if view.items
+        != view
+            .entities
+            .iter()
+            .map(|entity| entity.message.clone())
+            .collect::<Vec<_>>()
+    {
+        return invalid_view(surface, "snapshot compatibility items must match entities");
+    }
+    let mut range_ids = BTreeSet::new();
+    for range in &view.ranges {
+        validate_timeline_range(range, &entity_keys)?;
+        if !range_ids.insert(range.range_id.as_str()) {
+            return invalid_view(surface, "snapshot rangeId must be unique");
+        }
+    }
+    if view.active_window.range_ids.is_empty()
+        || view
+            .active_window
+            .range_ids
+            .iter()
+            .any(|range_id| !range_ids.contains(range_id.as_str()))
+    {
+        return invalid_view(surface, "active window must reference installed ranges");
+    }
+    if let Some(watermark) = &view.persisted_watermark {
+        validate_timeline_entity_key(watermark)?;
+    }
+    Ok(())
+}
+
+/// 校验 closed delta union 的局部结构；跨 operation 引用由 Consumer shadow apply 再校验。
+fn validate_timeline_v3_delta(
+    operations: &[TimelineDeltaOperationVm],
+) -> Result<(), InteractionFrameError> {
+    let surface = SurfaceId::MessageTimeline;
+    if operations.is_empty() {
+        return invalid_view(surface, "timelineDelta operations must not be empty");
+    }
+    for operation in operations {
+        match operation {
+            TimelineDeltaOperationVm::UpsertMessage { entity } => {
+                validate_timeline_entity_key(&entity.entity_key)?;
+                validate_message(surface, &entity.message, &entity.message.channel_id)?;
+            }
+            TimelineDeltaOperationVm::InstallSegment { range, entities } => {
+                let keys = entities
+                    .iter()
+                    .map(|entity| entity.entity_key.clone())
+                    .collect::<BTreeSet<_>>();
+                for entity in entities {
+                    validate_timeline_entity_key(&entity.entity_key)?;
+                    validate_message(surface, &entity.message, &entity.message.channel_id)?;
+                }
+                validate_timeline_range(range, &keys)?;
+            }
+            TimelineDeltaOperationVm::InsertKeys {
+                range_id,
+                position,
+                keys,
+            } => {
+                require_nonempty(surface, "insertKeys rangeId", range_id)?;
+                if keys.is_empty() {
+                    return invalid_view(surface, "insertKeys keys must not be empty");
+                }
+                for key in keys {
+                    validate_timeline_entity_key(key)?;
+                }
+                match position {
+                    TimelineInsertPositionVm::Before { entity_key }
+                    | TimelineInsertPositionVm::After { entity_key } => {
+                        validate_timeline_entity_key(entity_key)?;
+                    }
+                    TimelineInsertPositionVm::Start | TimelineInsertPositionVm::End => {}
+                }
+            }
+            TimelineDeltaOperationVm::MergeRanges {
+                target_range_id,
+                source_range_ids,
+            } => {
+                require_nonempty(surface, "mergeRanges targetRangeId", target_range_id)?;
+                if source_range_ids.is_empty()
+                    || source_range_ids.iter().any(String::is_empty)
+                    || source_range_ids
+                        .iter()
+                        .any(|source| source == target_range_id)
+                {
+                    return invalid_view(surface, "mergeRanges requires distinct source ranges");
+                }
+            }
+            TimelineDeltaOperationVm::SetRangeBounds {
+                range_id,
+                older_cursor,
+                newer_cursor,
+                latest_watermark,
+                ..
+            } => {
+                require_nonempty(surface, "setRangeBounds rangeId", range_id)?;
+                for key in [older_cursor, newer_cursor, latest_watermark]
+                    .into_iter()
+                    .flatten()
+                {
+                    validate_timeline_entity_key(key)?;
+                }
+            }
+            TimelineDeltaOperationVm::ActivateWindow {
+                window,
+                navigation_token,
+            } => {
+                require_nonempty(surface, "activateWindow windowToken", &window.window_token)?;
+                if window.range_ids.is_empty() || window.range_ids.iter().any(String::is_empty) {
+                    return invalid_view(surface, "activateWindow requires rangeIds");
+                }
+                if navigation_token.as_deref().is_some_and(str::is_empty) {
+                    return invalid_view(surface, "navigationToken must not be empty");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 校验复合键可用于稳定身份与 keyset cursor。
+fn validate_timeline_entity_key(key: &TimelineEntityKeyVm) -> Result<(), InteractionFrameError> {
+    let surface = SurfaceId::MessageTimeline;
+    validate_wire_i64(surface, "entityKey.createAt", key.create_at)?;
+    require_nonempty(surface, "entityKey.temporaryId", &key.temporary_id)
+}
+
+/// 校验 Range 的有序去重键和游标引用。
+fn validate_timeline_range(
+    range: &TimelineRangeVm,
+    entities: &BTreeSet<TimelineEntityKeyVm>,
+) -> Result<(), InteractionFrameError> {
+    let surface = SurfaceId::MessageTimeline;
+    require_nonempty(surface, "rangeId", &range.range_id)?;
+    if range.ordered_keys.is_empty() {
+        if !entities.is_empty()
+            || range.older_cursor.is_some()
+            || range.newer_cursor.is_some()
+            || range.latest_watermark.is_some()
+        {
+            return invalid_view(
+                surface,
+                "empty range must not carry entities, cursors, or watermark",
+            );
+        }
+        return Ok(());
+    }
+    let mut previous: Option<&TimelineEntityKeyVm> = None;
+    for key in &range.ordered_keys {
+        validate_timeline_entity_key(key)?;
+        if !entities.contains(key) {
+            return invalid_view(surface, "range key must reference an entity");
+        }
+        if previous.is_some_and(|previous| previous >= key) {
+            return invalid_view(surface, "range keys must be strictly ordered");
+        }
+        previous = Some(key);
+    }
+    for key in [
+        range.older_cursor.as_ref(),
+        range.newer_cursor.as_ref(),
+        range.latest_watermark.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        validate_timeline_entity_key(key)?;
     }
     Ok(())
 }
@@ -2077,17 +2415,6 @@ fn validate_lifecycle(
 
 fn validate_user(surface: SurfaceId, user: &UserRefVm) -> Result<(), InteractionFrameError> {
     require_nonempty(surface, "userId", &user.user_id)
-}
-
-fn validate_optional_id(
-    surface: SurfaceId,
-    label: &str,
-    value: Option<&str>,
-) -> Result<(), InteractionFrameError> {
-    if value.is_some_and(str::is_empty) {
-        return invalid_view(surface, format!("{label} must not be empty when present"));
-    }
-    Ok(())
 }
 
 fn require_nonempty(

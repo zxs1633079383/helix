@@ -88,7 +88,7 @@ fn race_and_idempotency_drop_late_and_duplicate_replies() {
     );
 }
 
-/// 证明 durable coverage 恢复走本地完整 patch 且不再发 HTTP。
+/// 证明 durable coverage 恢复走本地增量并保持 scope，且不再发 HTTP。
 #[test]
 fn recovery_uses_local_coverage_and_preserves_scope() {
     let trace = G10ScenarioRunner::run_success_and_recovery();
@@ -101,7 +101,7 @@ fn recovery_uses_local_coverage_and_preserves_scope() {
     );
     assert!(matches!(
         trace.recovered.mutations[0].mutation.mutation,
-        helix_im::interaction_frame::TypedSurfaceMutation::TimelinePatch { .. }
+        helix_im::interaction_frame::TypedSurfaceMutation::TimelineDelta { .. }
     ));
 }
 

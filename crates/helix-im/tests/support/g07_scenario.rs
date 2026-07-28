@@ -90,7 +90,7 @@ pub fn assert_urgentable_contract(frame: &InteractionFrameV2) {
     frame
         .validate()
         .expect("G07 urgentable Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(frame.causation_id, None);
     assert_eq!(frame.mutations.len(), 1);
     let mutation = &frame.mutations[0];
@@ -122,7 +122,7 @@ pub fn assert_urgent_timeline_contract(
     expected_causation: Option<&str>,
 ) {
     frame.validate().expect("G07 urgent Frame remains valid");
-    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.schema_version, 3);
     assert_eq!(frame.causation_id.as_deref(), expected_causation);
     assert_eq!(frame.mutations.len(), 1);
     let mutation = &frame.mutations[0];

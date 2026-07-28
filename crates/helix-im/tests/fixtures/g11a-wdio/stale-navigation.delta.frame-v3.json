@@ -6329,7 +6329,7 @@
                   "temporaryId": "temporary-019"
                 }
               ],
-              "rangeId": "range.located.0510300e3d724fb798131ebb05147d28"
+              "rangeId": "range.located.48c22b64e81895e521ffa19d357a6f0c"
             }
           }
         ]
@@ -6338,7 +6338,7 @@
       "scope": {
         "channelId": "chfixx0000000000000000110a",
         "kind": "timeline",
-        "windowToken": "g11a-window"
+        "windowToken": "latest"
       },
       "surface": "message.timeline",
       "surfaceEpoch": 1,
@@ -6351,5 +6351,5 @@
     "recovery": "idle"
   },
   "schemaVersion": 3,
-  "transactionId": "timeline-timeline|26:chfixx0000000000000000110a|11:g11a-window-3"
+  "transactionId": "timeline-timeline|26:chfixx0000000000000000110a|6:latest-3"
 }

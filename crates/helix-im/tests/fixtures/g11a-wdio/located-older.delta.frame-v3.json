@@ -4805,7 +4805,7 @@
             "position": {
               "kind": "start"
             },
-            "rangeId": "range.located.801e33cb1af1606bb38b1fbbcc4c5928"
+            "rangeId": "range.located.28a9e75c0ee8599d2f00eb2d8657cb84"
           },
           {
             "hasNewer": true,
@@ -4823,7 +4823,7 @@
               "createAt": 21,
               "temporaryId": "temporary-020"
             },
-            "rangeId": "range.located.801e33cb1af1606bb38b1fbbcc4c5928"
+            "rangeId": "range.located.28a9e75c0ee8599d2f00eb2d8657cb84"
           }
         ]
       },
@@ -4831,7 +4831,7 @@
       "scope": {
         "channelId": "chfixx0000000000000000110a",
         "kind": "timeline",
-        "windowToken": "g11a-window"
+        "windowToken": "latest"
       },
       "surface": "message.timeline",
       "surfaceEpoch": 1,
@@ -4844,5 +4844,5 @@
     "recovery": "idle"
   },
   "schemaVersion": 3,
-  "transactionId": "timeline-timeline|26:chfixx0000000000000000110a|11:g11a-window-4"
+  "transactionId": "timeline-timeline|26:chfixx0000000000000000110a|6:latest-4"
 }

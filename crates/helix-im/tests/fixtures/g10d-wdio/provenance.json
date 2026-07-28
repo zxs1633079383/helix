@@ -5,7 +5,7 @@
     {
       "fileName": "anchored.snapshot.frame-v3.json",
       "fixtureId": "G-10d-anchored.snapshot",
-      "fixtureSha256": "2ef13f30fe262ea442fddafd2b1eeaa9f6628368ffde6eba821f2c7c53449931",
+      "fixtureSha256": "a86d091a163eeefb0b9d23eda465db91c1bc9de078c93db19a5c1f535266d870",
       "parameterizableFields": [
         "/transactionId",
         "/causationId",
@@ -13,12 +13,12 @@
         "/mutations/*/surfaceEpoch"
       ],
       "schemaVersion": 3,
-      "semanticSha256": "4c8f3222a31b82ab707c96a6f3e25fec7911120d70099194152e1fa496f1cde1"
+      "semanticSha256": "ac785a5e3f74b07032c597f7a7e1c026d2534364ebf2609432e1a3a8f10a932f"
     },
     {
       "fileName": "anchored-new-message.delta.frame-v3.json",
       "fixtureId": "G-10d-anchored-new-message.delta",
-      "fixtureSha256": "e693fd50c6ca38798b0fe951f746ea9868974996f8ee5306a50f9c1431d4e8ae",
+      "fixtureSha256": "e0a30b822603c3bd9f0497f6fe15514ded7125f2db6162bbec81df9be2585815",
       "parameterizableFields": [
         "/transactionId",
         "/causationId",
@@ -26,7 +26,7 @@
         "/mutations/*/surfaceEpoch"
       ],
       "schemaVersion": 3,
-      "semanticSha256": "839090626275d56c5fba4bdb417e1690bdb4cabc38388e3890882ce392dc3810"
+      "semanticSha256": "ece4083326ea8d469735c6450e9b1c07c700ffb66f1e8ea57417f13fd36b28b3"
     }
   ],
   "gateId": "G-10d",

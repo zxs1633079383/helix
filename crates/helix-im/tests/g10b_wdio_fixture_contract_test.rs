@@ -14,7 +14,7 @@ fn produce() -> Vec<(
     helix_im::interaction_frame::InteractionFrameV2,
 )> {
     let channel_id = "chfixx0000000000000000100b";
-    let mut runner = TimelineProductionRunner::new(channel_id, "g10b-window");
+    let mut runner = TimelineProductionRunner::new(channel_id, "latest");
     let latest = runner.attach_latest(rows(10..30, channel_id), 20);
     assert_eq!(latest.mutations[0].mutation.revision, 1);
     assert_eq!(latest.mutations[0].mutation.base_revision, None);

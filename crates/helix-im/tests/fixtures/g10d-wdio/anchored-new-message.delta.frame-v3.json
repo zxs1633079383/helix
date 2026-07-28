@@ -3356,7 +3356,7 @@
             "position": {
               "kind": "end"
             },
-            "rangeId": "g10d-window"
+            "rangeId": "latest"
           },
           {
             "hasNewer": false,
@@ -3374,7 +3374,7 @@
               "createAt": 1,
               "temporaryId": "temporary-000"
             },
-            "rangeId": "g10d-window"
+            "rangeId": "latest"
           }
         ]
       },
@@ -3382,7 +3382,7 @@
       "scope": {
         "channelId": "chfixx0000000000000000100d",
         "kind": "timeline",
-        "windowToken": "g10d-window"
+        "windowToken": "latest"
       },
       "surface": "message.timeline",
       "surfaceEpoch": 1,
@@ -3395,5 +3395,5 @@
     "recovery": "idle"
   },
   "schemaVersion": 3,
-  "transactionId": "timeline-timeline|26:chfixx0000000000000000100d|11:g10d-window-2"
+  "transactionId": "timeline-timeline|26:chfixx0000000000000000100d|6:latest-2"
 }

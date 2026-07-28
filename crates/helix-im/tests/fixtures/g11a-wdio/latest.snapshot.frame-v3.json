@@ -11,10 +11,10 @@
               "mode": "latest"
             },
             "rangeIds": [
-              "g11a-window"
+              "latest"
             ],
             "state": "ready",
-            "windowToken": "g11a-window"
+            "windowToken": "latest"
           },
           "anchor": {
             "messageId": "server-099",
@@ -6069,7 +6069,7 @@
             "hasMore": true,
             "hasNewer": false,
             "hasOlder": true,
-            "windowToken": "g11a-window"
+            "windowToken": "latest"
           },
           "persistedWatermark": {
             "createAt": 100,
@@ -6173,7 +6173,7 @@
                   "temporaryId": "temporary-099"
                 }
               ],
-              "rangeId": "g11a-window"
+              "rangeId": "latest"
             }
           ],
           "state": "ready"
@@ -6183,7 +6183,7 @@
       "scope": {
         "channelId": "chfixx0000000000000000110a",
         "kind": "timeline",
-        "windowToken": "g11a-window"
+        "windowToken": "latest"
       },
       "surface": "message.timeline",
       "surfaceEpoch": 1,
@@ -6196,5 +6196,5 @@
     "recovery": "idle"
   },
   "schemaVersion": 3,
-  "transactionId": "timeline-timeline|26:chfixx0000000000000000110a|11:g11a-window-1"
+  "transactionId": "timeline-timeline|26:chfixx0000000000000000110a|6:latest-1"
 }

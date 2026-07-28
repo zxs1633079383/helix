@@ -10,7 +10,7 @@ use support::{assert_canonical_gate, delta_operations, rows, TimelineProductionR
 #[test]
 fn g10d_anchored_append_matches_canonical_fixtures() {
     let channel_id = "chfixx0000000000000000100d";
-    let mut runner = TimelineProductionRunner::new(channel_id, "g10d-window");
+    let mut runner = TimelineProductionRunner::new(channel_id, "latest");
     let initial_rows = rows(0..20, channel_id);
     let snapshot = runner.attach_latest(initial_rows.clone(), 20);
     assert_eq!(snapshot.mutations[0].mutation.revision, 1);

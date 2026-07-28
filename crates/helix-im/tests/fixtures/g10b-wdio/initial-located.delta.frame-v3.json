@@ -6409,7 +6409,7 @@
                   "temporaryId": "temporary-029"
                 }
               ],
-              "rangeId": "range.located.b2b8cc5f1a2c2bce659a54ad42dd85d6"
+              "rangeId": "range.located.796c603667e4430cb731e708c4da6872"
             }
           },
           {
@@ -6421,11 +6421,11 @@
                 "mode": "locate"
               },
               "rangeIds": [
-                "range.located.b2b8cc5f1a2c2bce659a54ad42dd85d6"
+                "range.located.796c603667e4430cb731e708c4da6872"
               ],
               "state": "ready",
               "targetMessageId": "server-019",
-              "windowToken": "g10b-window"
+              "windowToken": "latest"
             }
           }
         ]
@@ -6434,7 +6434,7 @@
       "scope": {
         "channelId": "chfixx0000000000000000100b",
         "kind": "timeline",
-        "windowToken": "g10b-window"
+        "windowToken": "latest"
       },
       "surface": "message.timeline",
       "surfaceEpoch": 1,
@@ -6447,5 +6447,5 @@
     "recovery": "idle"
   },
   "schemaVersion": 3,
-  "transactionId": "timeline-timeline|26:chfixx0000000000000000100b|11:g10b-window-2"
+  "transactionId": "timeline-timeline|26:chfixx0000000000000000100b|6:latest-2"
 }

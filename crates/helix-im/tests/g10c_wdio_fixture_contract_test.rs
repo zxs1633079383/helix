@@ -10,7 +10,7 @@ use support::{assert_canonical_gate, delta_operations, rows, TimelineProductionR
 #[test]
 fn g10c_full_window_append_matches_canonical_fixtures() {
     let channel_id = "chfixx0000000000000000100c";
-    let mut runner = TimelineProductionRunner::new(channel_id, "g10c-window");
+    let mut runner = TimelineProductionRunner::new(channel_id, "latest");
     let initial_rows = rows(0..60, channel_id);
     let snapshot = runner.attach_latest(initial_rows.clone(), 60);
     let appended = runner.send_and_readback_append(initial_rows);

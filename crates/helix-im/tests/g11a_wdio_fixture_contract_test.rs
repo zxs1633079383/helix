@@ -14,7 +14,7 @@ fn produce() -> Vec<(
     helix_im::interaction_frame::InteractionFrameV2,
 )> {
     let channel_id = "chfixx0000000000000000110a";
-    let mut runner = TimelineProductionRunner::new(channel_id, "g11a-window");
+    let mut runner = TimelineProductionRunner::new(channel_id, "latest");
     let latest = runner.attach_latest(rows(80..100, channel_id), 20);
     let TypedSurfaceMutation::TimelineSnapshot { view } = &latest.mutations[0].mutation.mutation
     else {

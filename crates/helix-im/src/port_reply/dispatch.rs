@@ -1019,7 +1019,7 @@ impl ImModule {
                 if let Some(mut mutation) = self
                     .state
                     .timeline_projector
-                    .patch_located_target(&post_id)
+                    .patch_located_target(&post_id, None)
                     .map_err(|error| {
                         ImError::Parse(format!("locate timeline projection: {error}"))
                     })?
@@ -1290,6 +1290,33 @@ impl ImModule {
             // G10a durable readback：完整 storage rows 是唯一 success Frame 输入。
             CorrelationContext::LoadOlderReadback { state } => {
                 self.handle_load_older_readback_reply(state, outcome, now_ms, out)?;
+            }
+
+            // G11a 本地探测只决定是否需要远端 authority，不自行拼接未缓存上下文。
+            CorrelationContext::TimelineLocateProbe { state } => {
+                self.handle_timeline_locate_probe_reply(state, outcome, now_ms, out)?;
+            }
+
+            // G10b/G11a HTTP 回包必须先进入 message upsert 屏障。
+            CorrelationContext::TimelineNavigationHttp { state } => {
+                self.handle_timeline_navigation_http_reply(state, outcome, now_ms, out)?;
+            }
+
+            // matching PersistOk 后才允许启动页内 readback。
+            CorrelationContext::TimelineNavigationCache { state } => match outcome {
+                PortOutcome::Ok(_) => {
+                    self.schedule_timeline_navigation_readback(state, out)?;
+                }
+                PortOutcome::Err(error) => tracing::warn!(
+                    channel_id = state.channel_id().as_str(),
+                    error = ?error,
+                    "timeline navigation persist failed; suppressing Frame"
+                ),
+            },
+
+            // readback 是 success Frame 的最后一道本地事实屏障。
+            CorrelationContext::TimelineNavigationReadback { state } => {
+                self.handle_timeline_navigation_readback_reply(state, outcome, now_ms, out)?;
             }
         }
 

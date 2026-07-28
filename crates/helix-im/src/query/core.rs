@@ -35,6 +35,8 @@ pub const QUERY_COMMAND_NAMES: &[&str] = &[
     "im_delete_all_dialogs",
     "im_query_dialog_list",
     crate::older_context::LOAD_OLDER_CONTEXT,
+    crate::timeline_navigation::LOAD_NEWER_CONTEXT,
+    crate::timeline_navigation::LOCATE_MESSAGE,
 ];
 
 pub fn query_command_names() -> &'static [&'static str] {
@@ -45,9 +47,10 @@ pub fn is_query(name: &str) -> bool {
     QUERY_COMMAND_NAMES.contains(&name)
 }
 
-/// 投影查询单条上限（对齐现网 `clamp(1, 500)`）。
-pub(crate) const QUERY_MESSAGES_DEFAULT: u32 = 50;
-pub(crate) const QUERY_MESSAGES_MAX: u32 = 500;
+/// Timeline V3 缺省页长；所有 latest/older/newer/locate 入口共享同一策略。
+pub(crate) const QUERY_MESSAGES_DEFAULT: u32 =
+    crate::projector::timeline::DEFAULT_TIMELINE_PAGE_SIZE;
+/// Timeline V3 单页硬上限；非法值在产生 Effect 前拒绝而不是 clamp。
 
 /// dialogList 投影单次上限（会话列表全量，宽于消息分页；对齐现网根群可达数千会话上限护栏）。
 pub(crate) const QUERY_DIALOGS_DEFAULT: u32 = 500;
@@ -68,6 +71,7 @@ pub struct DialogListQueryRequest {
     pub limit: u32,
 }
 
+/// 解析 latest Timeline 请求，并在任何 I/O Effect 产生前验证 pageSize。
 pub fn parse_message_query(payload: &[u8]) -> Result<MessageQueryRequest, ImError> {
     let value: serde_json::Value = serde_json::from_slice(payload)
         .map_err(|e| ImError::Parse(format!("im_query_messages_by_channel payload: {e}")))?;
@@ -79,11 +83,11 @@ pub fn parse_message_query(payload: &[u8]) -> Result<MessageQueryRequest, ImErro
         .ok_or_else(|| ImError::Parse("im_query_messages_by_channel 缺 channel_id".into()))?;
     let channel_id = ChannelId::from_str(channel)
         .ok_or_else(|| ImError::Parse(format!("非法 channel_id: {channel}")))?;
-    let limit = value
-        .get("limit")
-        .and_then(serde_json::Value::as_u64)
-        .map(|value| value.clamp(1, u64::from(QUERY_MESSAGES_MAX)) as u32)
-        .unwrap_or(QUERY_MESSAGES_DEFAULT);
+    let limit = crate::projector::timeline::TimelinePageSize::parse(
+        value.get("pageSize").or_else(|| value.get("limit")),
+    )
+    .map_err(|error| ImError::Parse(format!("im_query_messages_by_channel pageSize: {error}")))?
+    .get();
     let window_token = match value
         .get("windowToken")
         .or_else(|| value.get("window_token"))
@@ -139,7 +143,10 @@ pub fn dialog_list_scan_spec(request: DialogListQueryRequest) -> ScanSpec {
     }
 }
 
-const MESSAGE_QUERY_ORDER: &[ScanOrder] = &[ScanOrder::desc("create_at")];
+const MESSAGE_QUERY_ORDER: &[ScanOrder] = &[
+    ScanOrder::desc("create_at"),
+    ScanOrder::desc("temporary_id"),
+];
 pub(crate) const DIALOG_QUERY_ORDER: &[ScanOrder] = &[
     ScanOrder::desc("is_top"),
     ScanOrder::desc("last_post_at"),
@@ -149,8 +156,7 @@ pub(crate) const DIALOG_QUERY_ORDER: &[ScanOrder] = &[
 /// 构造 `im_query_messages_by_channel` 的 `Scan(message WHERE channel_id ORDER BY create_at DESC)`。
 ///
 /// 返回 `(channel_id, Effect::Persist{Scan})`；异步业务入口会注册 local-first correlation，
-/// 根据显式 coverage 决定本地投影或 `getLatestPost` fallback。`limit` 取 payload `limit`
-/// （缺省 50，clamp ≤500）。
+/// 根据显式 coverage 决定本地投影或 `getLatestPost` fallback。页长缺省 20，合法范围 1..=60。
 pub fn build_message_query(
     payload: &[u8],
     corr: Correlation,

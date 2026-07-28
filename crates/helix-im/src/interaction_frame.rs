@@ -1186,6 +1186,9 @@ pub struct MessageReactionVm {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TimelineWindowVm {
     pub channel_id: String,
+    /// Helix 内部活动 Range 身份；Surface scope 仍由 page.windowToken 独立决定。
+    #[serde(skip)]
+    pub range_id: String,
     pub anchor: TimelineAnchorVm,
     pub items: Vec<MessageVm>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1766,6 +1769,7 @@ fn validate_timeline_v3_snapshot(
     for entity in &view.entities {
         validate_timeline_entity_key(&entity.entity_key)?;
         validate_message(surface, &entity.message, channel_id)?;
+        validate_timeline_entity_identity(entity)?;
         if !entity_keys.insert(entity.entity_key.clone()) {
             return invalid_view(surface, "snapshot entityKey must be unique");
         }
@@ -1814,6 +1818,7 @@ fn validate_timeline_v3_delta(
             TimelineDeltaOperationVm::UpsertMessage { entity } => {
                 validate_timeline_entity_key(&entity.entity_key)?;
                 validate_message(surface, &entity.message, &entity.message.channel_id)?;
+                validate_timeline_entity_identity(entity)?;
             }
             TimelineDeltaOperationVm::InstallSegment { range, entities } => {
                 let keys = entities
@@ -1823,6 +1828,10 @@ fn validate_timeline_v3_delta(
                 for entity in entities {
                     validate_timeline_entity_key(&entity.entity_key)?;
                     validate_message(surface, &entity.message, &entity.message.channel_id)?;
+                    validate_timeline_entity_identity(entity)?;
+                }
+                if keys.len() != entities.len() {
+                    return invalid_view(surface, "installSegment entityKey must be unique");
                 }
                 validate_timeline_range(range, &keys)?;
             }
@@ -1837,6 +1846,12 @@ fn validate_timeline_v3_delta(
                 }
                 for key in keys {
                     validate_timeline_entity_key(key)?;
+                }
+                if keys.windows(2).any(|pair| pair[0] >= pair[1]) {
+                    return invalid_view(
+                        surface,
+                        "insertKeys keys must be unique and strictly ordered",
+                    );
                 }
                 match position {
                     TimelineInsertPositionVm::Before { entity_key }
@@ -1865,9 +1880,17 @@ fn validate_timeline_v3_delta(
                 older_cursor,
                 newer_cursor,
                 latest_watermark,
-                ..
+                has_older,
+                has_newer,
             } => {
                 require_nonempty(surface, "setRangeBounds rangeId", range_id)?;
+                if (*has_older && older_cursor.is_none()) || (*has_newer && newer_cursor.is_none())
+                {
+                    return invalid_view(
+                        surface,
+                        "setRangeBounds true direction requires its cursor",
+                    );
+                }
                 for key in [older_cursor, newer_cursor, latest_watermark]
                     .into_iter()
                     .flatten()
@@ -1897,6 +1920,22 @@ fn validate_timeline_entity_key(key: &TimelineEntityKeyVm) -> Result<(), Interac
     let surface = SurfaceId::MessageTimeline;
     validate_wire_i64(surface, "entityKey.createAt", key.create_at)?;
     require_nonempty(surface, "entityKey.temporaryId", &key.temporary_id)
+}
+
+/// 校验实体稳定复合身份与可渲染消息携带的事实完全一致。
+fn validate_timeline_entity_identity(
+    entity: &TimelineEntityVm,
+) -> Result<(), InteractionFrameError> {
+    let surface = SurfaceId::MessageTimeline;
+    if entity.entity_key.create_at != entity.message.created_at
+        || entity.entity_key.temporary_id != entity.message.temporary_id
+    {
+        return invalid_view(
+            surface,
+            "entityKey must equal message createdAt + temporaryId",
+        );
+    }
+    Ok(())
 }
 
 /// 校验 Range 的有序去重键和游标引用。

@@ -191,10 +191,14 @@ read_cmd!(
     |args, cmd| {
         let channel_id = require_str(args, "channel_id", cmd)?;
         let timestamp = args.get("timestamp").and_then(Value::as_i64).unwrap_or(0);
-        Ok((
-            "posts/getLatestPost",
-            json!({ "channelId": channel_id, "timestamp": timestamp }),
-        ))
+        let mut body = json!({ "channelId": channel_id, "timestamp": timestamp });
+        if let Some(cursor_version) = args.get("cursor_version").and_then(Value::as_u64) {
+            body["cursorVersion"] = Value::from(cursor_version);
+        }
+        if let Some(page_size) = args.get("page_size").and_then(Value::as_u64) {
+            body["pageSize"] = Value::from(page_size);
+        }
+        Ok(("posts/getLatestPost", body))
     }
 );
 

@@ -40,7 +40,8 @@ fn build_message_query_scans_message_with_channel_filter_and_desc_order() {
 }
 
 #[test]
-fn build_message_query_defaults_and_clamps_limit() {
+/// 证明 Timeline 查询缺省 20，并对越界页长 fail closed。
+fn build_message_query_defaults_and_rejects_out_of_range_limit() {
     let default_payload =
         serde_json::to_vec(&serde_json::json!({"channel_id":"ch00000000000000000000000a"}))
             .unwrap();
@@ -50,15 +51,11 @@ fn build_message_query_defaults_and_clamps_limit() {
         Some(QUERY_MESSAGES_DEFAULT + 1)
     );
 
-    let clamped_payload = serde_json::to_vec(
+    let invalid_payload = serde_json::to_vec(
         &serde_json::json!({"channel_id":"ch00000000000000000000000a","limit":9999}),
     )
     .unwrap();
-    let (_, clamped_effect) = build_message_query(&clamped_payload, corr()).unwrap();
-    assert_eq!(
-        scan_of(clamped_effect).expect("clamped scan").limit,
-        Some(QUERY_MESSAGES_MAX + 1)
-    );
+    assert!(build_message_query(&invalid_payload, corr()).is_err());
 }
 
 #[test]

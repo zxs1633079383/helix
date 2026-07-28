@@ -445,4 +445,24 @@ pub enum CorrelationContext {
     LoadOlderReadback {
         state: Box<crate::older_context::LoadOlderState>,
     },
+
+    /// G11a 本地 target 探测；attached hit 可直接定位，未命中才进入远端 context。
+    TimelineLocateProbe {
+        state: Box<crate::timeline_navigation::TimelineNavigationState>,
+    },
+
+    /// G10b/G11a V3 HTTP 回报；成功页只允许进入 message upsert barrier。
+    TimelineNavigationHttp {
+        state: Box<crate::timeline_navigation::TimelineNavigationState>,
+    },
+
+    /// 导航页 message upsert 的 matching PersistOk 屏障。
+    TimelineNavigationCache {
+        state: Box<crate::timeline_navigation::TimelineNavigationState>,
+    },
+
+    /// 导航页持久化后的单行 readback；成功才允许发布 Timeline Delta。
+    TimelineNavigationReadback {
+        state: Box<crate::timeline_navigation::TimelineNavigationState>,
+    },
 }

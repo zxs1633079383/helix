@@ -16,7 +16,7 @@ pub fn parse_request(payload: &[u8]) -> Result<LoadOlderState, ImError> {
     if let Some(unknown) = object.keys().find(|key| {
         !matches!(
             key.as_str(),
-            "channel_id" | "anchor_post_id" | "before" | "req_id"
+            "channel_id" | "anchor_post_id" | "before" | "pageSize" | "req_id"
         )
     }) {
         return Err(ImError::Parse(format!(
@@ -37,7 +37,12 @@ pub fn parse_request(payload: &[u8]) -> Result<LoadOlderState, ImError> {
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ImError::Parse(format!("{LOAD_OLDER_CONTEXT} 缺 anchor_post_id")))?
         .to_string();
-    let target = parse_before(object.get("before"))?;
+    if object.contains_key("before") && object.contains_key("pageSize") {
+        return Err(ImError::Parse(format!(
+            "{LOAD_OLDER_CONTEXT} before 与 pageSize 不得同时出现"
+        )));
+    }
+    let target = parse_page_size(object.get("pageSize").or_else(|| object.get("before")))?;
     let request_id = parse_request_id(object.get("req_id"))?;
     let mut state = LoadOlderState::new(channel_id, anchor_post_id, target);
     state.attach_request_id(request_id);
@@ -57,17 +62,17 @@ fn parse_request_id(value: Option<&Value>) -> Result<Option<String>, ImError> {
     Ok(Some(request_id.to_string()))
 }
 
-/// Validates the bounded page size used by each postContext round.
-fn parse_before(value: Option<&Value>) -> Result<u32, ImError> {
+/// 校验每轮 postContext 使用的统一 pageSize，旧 before 仅作为同义 wire alias。
+fn parse_page_size(value: Option<&Value>) -> Result<u32, ImError> {
     let Some(value) = value else {
         return Ok(TARGET_DEFAULT);
     };
     let before = value
         .as_i64()
-        .ok_or_else(|| ImError::Parse(format!("{LOAD_OLDER_CONTEXT} before 必须为整数")))?;
+        .ok_or_else(|| ImError::Parse(format!("{LOAD_OLDER_CONTEXT} pageSize 必须为整数")))?;
     if !(i64::from(TARGET_MIN)..=i64::from(TARGET_MAX)).contains(&before) {
         return Err(ImError::Parse(format!(
-            "{LOAD_OLDER_CONTEXT} before 必须在 1..=100"
+            "{LOAD_OLDER_CONTEXT} pageSize 必须在 1..=60"
         )));
     }
     Ok(before as u32)

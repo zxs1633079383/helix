@@ -23,9 +23,9 @@ const MAX_ROUNDS: u32 = 8;
 
 /// canonical `before` 合法区间。
 const TARGET_MIN: u32 = 1;
-const TARGET_MAX: u32 = 100;
+const TARGET_MAX: u32 = crate::projector::timeline::MAX_TIMELINE_PAGE_SIZE;
 /// `before` 缺省。
-const TARGET_DEFAULT: u32 = 20;
+const TARGET_DEFAULT: u32 = crate::projector::timeline::DEFAULT_TIMELINE_PAGE_SIZE;
 
 /// 一轮 `ingest_round` 后的续/停决策（停因写进 [`LoadOlderState::has_more`]）。
 #[derive(Debug, PartialEq, Eq)]
@@ -74,11 +74,15 @@ pub struct LoadOlderState {
 impl LoadOlderState {
     /// 新建（pivot 初始 = anchor_post_id；时间边界等待首轮 Go 回包）。
     pub fn new(channel_id: ChannelId, anchor_post_id: String, target: u32) -> Self {
+        debug_assert!(
+            (TARGET_MIN..=TARGET_MAX).contains(&target),
+            "LoadOlderState requires a prevalidated page size"
+        );
         Self {
             channel_id,
             anchor_post_id: anchor_post_id.clone(),
             anchor_create_at: None,
-            target: target.clamp(TARGET_MIN, TARGET_MAX),
+            target,
             pivot_id: anchor_post_id,
             prev_oldest: i64::MAX,
             seen: HashSet::new(),

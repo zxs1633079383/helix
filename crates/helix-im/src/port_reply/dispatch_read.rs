@@ -8,6 +8,199 @@ use helix_core::tick::PortOutcome;
 use helix_core::EffectSink;
 
 impl ImModule {
+    /// 发起 Timeline V3 authority HTTP，并注册唯一 correlation continuation。
+    pub(crate) fn start_timeline_navigation_http(
+        &mut self,
+        state: crate::timeline_navigation::TimelineNavigationState,
+        out: &mut EffectSink,
+    ) {
+        let corr = self.alloc_corr_internal();
+        out.push(crate::timeline_navigation::navigation_http(
+            &state,
+            self.config.api_base_url.as_str(),
+            self.state.connection_id.as_deref(),
+            corr,
+        ));
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::TimelineNavigationHttp {
+                state: Box::new(state),
+            },
+        );
+    }
+
+    /// 本地 target 命中 attached slot 时直接激活；未命中或不在窗口时读取远端 context。
+    pub(super) fn handle_timeline_locate_probe_reply(
+        &mut self,
+        state: Box<crate::timeline_navigation::TimelineNavigationState>,
+        outcome: &PortOutcome,
+        now_ms: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let target = match state.kind() {
+            crate::timeline_navigation::TimelineNavigationKind::Locate {
+                target_message_id,
+                ..
+            } => target_message_id.as_str(),
+            crate::timeline_navigation::TimelineNavigationKind::Older { .. }
+            | crate::timeline_navigation::TimelineNavigationKind::Newer { .. } => {
+                return Err(ImError::Parse(
+                    "timeline locate probe received newer state".to_string(),
+                ));
+            }
+        };
+        let local_hit = match outcome {
+            PortOutcome::Ok(reply) => crate::query::local_first::parse_local_rows(reply.0.as_ref())
+                .map(|rows| {
+                    rows.iter().any(|row| {
+                        row.get("id").and_then(serde_json::Value::as_str) == Some(target)
+                    })
+                })
+                .unwrap_or(false),
+            PortOutcome::Err(_) => false,
+        };
+        let navigation_token = match state.kind() {
+            crate::timeline_navigation::TimelineNavigationKind::Locate {
+                navigation_token, ..
+            } => navigation_token.as_str(),
+            crate::timeline_navigation::TimelineNavigationKind::Older { .. }
+            | crate::timeline_navigation::TimelineNavigationKind::Newer { .. } => unreachable!(),
+        };
+        let is_current = self.state.timeline_projector.is_current_locate_navigation(
+            state.channel_id().as_str(),
+            state.window_token(),
+            navigation_token,
+        );
+        if local_hit && !is_current {
+            return Ok(());
+        }
+        if local_hit
+            && self.state.timeline_projector.located_target_channel(target)
+                == Some(state.channel_id().as_str())
+        {
+            if let Some(mut mutation) = self
+                .state
+                .timeline_projector
+                .patch_located_target(target, Some(navigation_token))
+                .map_err(|error| ImError::Parse(format!("timeline local locate: {error}")))?
+            {
+                mutation.causation_id = state.request_id().map(str::to_string);
+                let frame_id = format!(
+                    "timeline-{}-{}",
+                    mutation.scope.canonical_key(),
+                    mutation.revision
+                );
+                out.push(self.build_registered_timeline_frame(frame_id, vec![mutation], now_ms)?);
+                return Ok(());
+            }
+        }
+        self.start_timeline_navigation_http(*state, out);
+        Ok(())
+    }
+
+    /// 校验 V3 HTTP 页并把可见消息送入 matching Persist barrier。
+    pub(super) fn handle_timeline_navigation_http_reply(
+        &mut self,
+        mut state: Box<crate::timeline_navigation::TimelineNavigationState>,
+        outcome: &PortOutcome,
+        now_ms: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let reply = match outcome {
+            PortOutcome::Ok(reply) => reply,
+            PortOutcome::Err(error) => {
+                tracing::warn!(error = ?error, "timeline navigation HTTP failed");
+                return Ok(());
+            }
+        };
+        let raw = match unwrap_sync_envelope(reply.0.as_ref()) {
+            Ok(raw) => raw,
+            Err(error) => {
+                tracing::warn!(error = ?error, "timeline navigation envelope invalid");
+                return Ok(());
+            }
+        };
+        if let Err(error) = state.ingest_http_body(&raw) {
+            tracing::warn!(error = ?error, "timeline navigation body invalid");
+            return Ok(());
+        }
+        let (rows, ops) = crate::query::local_first::visible_remote_rows_and_cache_ops(
+            state.channel_id(),
+            state.rows().to_vec(),
+            &[],
+            self.config.auth_user_id.as_str(),
+        )?;
+        state.replace_rows(rows);
+        if ops.is_empty() {
+            out.push(self.emit_timeline_navigation_page(&state, now_ms)?);
+            return Ok(());
+        }
+        if self.local_store_mode == LocalStoreMode::Disabled {
+            tracing::warn!(
+                channel_id = state.channel_id().as_str(),
+                "timeline navigation requires durable storage before Frame publication"
+            );
+            return Ok(());
+        }
+        let corr = self.alloc_corr_internal();
+        out.push(Effect::Persist { corr, ops });
+        self.state
+            .corr_map
+            .insert(corr, CorrelationContext::TimelineNavigationCache { state });
+        Ok(())
+    }
+
+    /// PersistOk 后只读回页内权威行；该 readback 完成前不得发布 success Frame。
+    pub(super) fn schedule_timeline_navigation_readback(
+        &mut self,
+        state: Box<crate::timeline_navigation::TimelineNavigationState>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let corr = self.alloc_corr_internal();
+        let effect = crate::timeline_navigation::navigation_readback_effect(&state, corr)
+            .ok_or_else(|| {
+                ImError::Parse("timeline navigation cache has no readback identity".to_string())
+            })?;
+        out.push(effect);
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::TimelineNavigationReadback { state },
+        );
+        Ok(())
+    }
+
+    /// 匹配的本地读回存在且身份一致时，释放唯一 production Timeline Delta。
+    pub(super) fn handle_timeline_navigation_readback_reply(
+        &mut self,
+        state: Box<crate::timeline_navigation::TimelineNavigationState>,
+        outcome: &PortOutcome,
+        now_ms: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let expected = state.readback_message_id().ok_or_else(|| {
+            ImError::Parse("timeline navigation readback missing expected id".to_string())
+        })?;
+        let matched = match outcome {
+            PortOutcome::Ok(reply) => crate::query::local_first::parse_local_rows(reply.0.as_ref())
+                .map(|rows| {
+                    rows.iter().any(|row| {
+                        row.get("id").and_then(serde_json::Value::as_str) == Some(expected)
+                    })
+                })
+                .unwrap_or(false),
+            PortOutcome::Err(_) => false,
+        };
+        if matched {
+            out.push(self.emit_timeline_navigation_page(&state, now_ms)?);
+        } else {
+            tracing::warn!(
+                expected,
+                "timeline navigation readback did not confirm the persisted page"
+            );
+        }
+        Ok(())
+    }
+
     pub(super) fn handle_outbound_read_reply(
         &self,
         req_id: &String,

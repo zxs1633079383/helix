@@ -54,6 +54,7 @@ pub mod schema;
 pub mod send;
 pub mod surface_composer;
 pub mod surface_runtime;
+pub mod timeline_navigation;
 pub use send::pending as pending_send;
 pub use send::pong_compensate;
 pub use send::reconcile as send_reconcile;

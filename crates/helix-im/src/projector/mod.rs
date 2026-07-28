@@ -205,7 +205,8 @@ pub(crate) fn build_interaction_frame(
     Ok(frame)
 }
 
-pub(crate) fn build_online_interaction_frame(
+/// 将已验证的业务 mutation 组合为在线 Frame；测试资产与 module 共用同一生产 composer。
+pub fn build_online_interaction_frame(
     transaction_id: String,
     surface_epoch: u64,
     mutations: Vec<SurfaceMutation>,

@@ -121,7 +121,13 @@ impl ImModule {
         causation_id: Option<String>,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        self.refresh_attached_timeline(channel_id, "latest", causation_id, out)
+        self.refresh_attached_latest_timeline_with_deferred_send(
+            channel_id,
+            causation_id,
+            None,
+            out,
+        )
+        .map(|_| ())
     }
 
     /// Action authority is scope-bound: its causal terminal Frame must return to the exact
@@ -154,9 +160,16 @@ impl ImModule {
         deferred_send_http: Option<crate::state::TemporaryId>,
         out: &mut EffectSink,
     ) -> Result<bool, ImError> {
+        let Some((window_token, _)) = self
+            .state
+            .timeline_projector
+            .unique_attached_window_for_channel(channel_id.as_str())
+        else {
+            return Ok(false);
+        };
         self.refresh_attached_timeline_window_with_deferred_send(
             channel_id,
-            "latest",
+            window_token.as_str(),
             causation_id,
             deferred_send_http,
             out,
@@ -588,6 +601,8 @@ impl ImModule {
         let payload = serde_json::to_vec(&serde_json::json!({
             "channel_id": request.channel_id.as_str(),
             "timestamp": 0,
+            "cursor_version": 1,
+            "page_size": request.limit,
         }))
         .map_err(|error| ImError::Serialize(error.to_string()))?;
         let mut effects = crate::commands::handle_outbound(
@@ -720,6 +735,7 @@ impl ImModule {
                 request.channel_id.as_str(),
                 request.window_token.as_str(),
             );
+        timeline_request.page_size = request.limit;
         if let Some(page) = page_override {
             timeline_request.page = page;
         } else if has_local_older
@@ -742,6 +758,13 @@ impl ImModule {
             channel_id: timeline_request.channel_id.clone(),
             window_token: timeline_request.window_token.clone(),
         };
+        let anchored_window = self
+            .state
+            .timeline_projector
+            .current_view(&scope)
+            .is_some_and(|view| {
+                view.anchor.mode == crate::interaction_frame::TimelineAnchorMode::Locate
+            });
         let mutation = if explicit_resync {
             self.state
                 .timeline_projector
@@ -750,6 +773,14 @@ impl ImModule {
                     rows,
                     renderer_causation,
                 )
+        } else if anchored_window && timeline_request.target_message_id.is_none() {
+            // 离底窗口收到 durable 新消息时只向新侧扩展；不得用 latest scan 隐式重定位。
+            self.state.timeline_projector.patch_page_from_render_ready(
+                timeline_request,
+                rows,
+                crate::projector::timeline::TimelinePageMutation::Newer,
+                causation_id,
+            )
         } else if self.state.timeline_projector.current_view(&scope).is_some() {
             self.state.timeline_projector.patch_from_render_ready(
                 timeline_request,
@@ -804,6 +835,75 @@ impl ImModule {
             }
         }
         Ok(effect)
+    }
+
+    /// 把已持久化并读回确认的 V3 导航页投影为同一 attached slot 的原子 Delta。
+    pub(crate) fn emit_timeline_navigation_page(
+        &mut self,
+        state: &crate::timeline_navigation::TimelineNavigationState,
+        now_ms: u64,
+    ) -> Result<Effect, ImError> {
+        let rows = Value::Array(state.rows().to_vec());
+        let mut shaped = crate::render_ready::shape_message_rows_for_viewer(
+            &rows,
+            self.config.auth_user_id.as_str(),
+        );
+        close_topic_links(
+            &mut shaped,
+            state.channel_id().as_str(),
+            &self.state.dialog_list_frame,
+        );
+        let rows = shaped.as_array().ok_or_else(|| {
+            ImError::Parse("timeline navigation rows must shape to array".to_string())
+        })?;
+        let mut request =
+            crate::projector::timeline::TimelineWindowRequest::latest_with_window_token(
+                state.channel_id().as_str(),
+                state.window_token(),
+            );
+        request.page_size = state.page_size();
+        request.page = state.page();
+        request.surface_epoch = self.action_surface_epoch()?;
+        request.action_authority_available = !self.config.auth_user_id.is_empty();
+        let page_mutation = match state.kind() {
+            crate::timeline_navigation::TimelineNavigationKind::Older { .. } => {
+                crate::projector::timeline::TimelinePageMutation::Older
+            }
+            crate::timeline_navigation::TimelineNavigationKind::Newer { .. } => {
+                crate::projector::timeline::TimelinePageMutation::Newer
+            }
+            crate::timeline_navigation::TimelineNavigationKind::Locate {
+                target_message_id,
+                navigation_token,
+            } => {
+                let activate = self.state.timeline_projector.is_current_locate_navigation(
+                    state.channel_id().as_str(),
+                    state.window_token(),
+                    navigation_token,
+                );
+                crate::projector::timeline::TimelinePageMutation::Locate {
+                    target_message_id: target_message_id.clone(),
+                    navigation_token: navigation_token.clone(),
+                    activate,
+                }
+            }
+        };
+        let mutation = self
+            .state
+            .timeline_projector
+            .patch_page_from_render_ready(
+                request,
+                rows,
+                page_mutation,
+                state.request_id().map(str::to_string),
+            )
+            .map_err(|error| ImError::Parse(format!("timeline navigation projection: {error}")))?;
+        let frame_id = format!(
+            "timeline-{}-{}",
+            mutation.scope.canonical_key(),
+            mutation.revision
+        );
+        self.build_registered_timeline_frame(frame_id, vec![mutation], now_ms)
     }
 
     fn emit_timeline_failed(

@@ -21,8 +21,107 @@ use crate::interaction_frame::{
 
 /// 单个 attached timeline slot 最多保留的消息数。分页/窗口边界由 Helix 决定。
 pub const MAX_TIMELINE_WINDOW_ITEMS: usize = 60;
+/// Timeline V3 所有方向的缺省页长。
+pub const DEFAULT_TIMELINE_PAGE_SIZE: u32 = 20;
+/// Timeline V3 所有方向的单页硬上限。
+pub const MAX_TIMELINE_PAGE_SIZE: u32 = MAX_TIMELINE_WINDOW_ITEMS as u32;
 const MAX_SURFACE_DATA_DEPTH: usize = 8;
 const MAX_SURFACE_DATA_ITEMS: usize = 128;
+
+/// 已验证的 Timeline 页长，令非法 0/61 状态无法进入查询编排。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimelinePageSize(u32);
+
+impl TimelinePageSize {
+    /// 建立 1..=60 的页长；越界值 fail closed。
+    pub fn new(value: u32) -> Result<Self, TimelinePagePolicyError> {
+        if (1..=MAX_TIMELINE_PAGE_SIZE).contains(&value) {
+            Ok(Self(value))
+        } else {
+            Err(TimelinePagePolicyError::OutOfRange(value))
+        }
+    }
+
+    /// 从可选 JSON 字段解析页长；缺失时使用 20，非整数与越界值拒绝。
+    pub fn parse(value: Option<&Value>) -> Result<Self, TimelinePagePolicyError> {
+        let Some(value) = value else {
+            return Ok(Self(DEFAULT_TIMELINE_PAGE_SIZE));
+        };
+        let raw = value
+            .as_u64()
+            .ok_or(TimelinePagePolicyError::NotUnsignedInteger)?;
+        let raw = u32::try_from(raw).map_err(|_| TimelinePagePolicyError::TooLarge(raw))?;
+        Self::new(raw)
+    }
+
+    /// 返回已验证的协议页长。
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+/// 定位窗口在目标两侧的确定性配额。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocateWindowAllocation {
+    pub before: usize,
+    pub after: usize,
+}
+
+/// 远端 Timeline V3 分页对既有窗口的唯一合并方向。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TimelinePageMutation {
+    /// 向旧侧扩展，并在超过 60 条时从新侧淘汰。
+    Older,
+    /// 向新侧扩展，并在超过 60 条时从旧侧淘汰。
+    Newer,
+    /// 以远端上下文替换活动 segment，并只对当前导航令牌激活。
+    Locate {
+        target_message_id: String,
+        navigation_token: String,
+        activate: bool,
+    },
+}
+
+impl LocateWindowAllocation {
+    /// 返回包含目标在内的窗口总实体数。
+    pub const fn total(self) -> usize {
+        self.before + 1 + self.after
+    }
+
+    /// 返回目标在升序窗口中的确定性下标。
+    pub const fn target_index(self) -> usize {
+        self.before
+    }
+}
+
+/// 依据可用两侧数量分配 locate 配额，并把短侧余额补给长侧。
+pub fn allocate_locate_window(
+    available_before: usize,
+    available_after: usize,
+    page_size: TimelinePageSize,
+) -> LocateWindowAllocation {
+    let page_size = page_size.get() as usize;
+    let desired_before = page_size / 2;
+    let desired_after = page_size - 1 - desired_before;
+    let mut before = available_before.min(desired_before);
+    let mut after = available_after.min(desired_after);
+    let unused_before = desired_before - before;
+    let unused_after = desired_after - after;
+    after += unused_before.min(available_after.saturating_sub(after));
+    before += unused_after.min(available_before.saturating_sub(before));
+    LocateWindowAllocation { before, after }
+}
+
+/// pageSize 在进入任何 storage/HTTP 编排前的验证错误。
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum TimelinePagePolicyError {
+    #[error("pageSize must be an unsigned integer")]
+    NotUnsignedInteger,
+    #[error("pageSize {0} is outside 1..=60")]
+    OutOfRange(u32),
+    #[error("pageSize {0} cannot be represented")]
+    TooLarge(u64),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TimelineWindowRequest {
@@ -33,6 +132,8 @@ pub struct TimelineWindowRequest {
     pub target_message_id: Option<String>,
     pub page: WindowPageVm,
     pub state: SurfaceLoadState,
+    /// 当前请求可见页长；默认 20，调用方只能注入已验证的 1..=60。
+    pub page_size: u32,
     /// 由 SurfaceRuntime 当前 session epoch 注入；所有 action binding 必须原样暴露该值给 renderer。
     pub surface_epoch: u64,
     /// runtime identity 缺失时不能下发可 invoke 的 binding；renderer 仍能看到显式禁用原因。
@@ -66,6 +167,7 @@ impl TimelineWindowRequest {
                 has_more: false,
             },
             state: SurfaceLoadState::Ready,
+            page_size: DEFAULT_TIMELINE_PAGE_SIZE,
             surface_epoch: 1,
             action_authority_available: true,
         }
@@ -80,6 +182,8 @@ pub struct TimelineProjector {
     // schedule the authoritative readback instead of falling back to a raw
     // post event while the initial storage query is in flight.
     attached_slots: BTreeSet<String>,
+    /// 每个 attached scope 当前可激活的 locate token；旧 response 只能合并数据。
+    current_navigation_tokens: BTreeMap<String, String>,
     /// 仅用于 opaque actionRef 的 Helix 内部发号；绝不包含 channel/message/kind 等业务标识。
     next_action_ref: u64,
 }
@@ -95,12 +199,44 @@ impl Default for TimelineProjector {
         Self {
             slots: BTreeMap::new(),
             attached_slots: BTreeSet::new(),
+            current_navigation_tokens: BTreeMap::new(),
             next_action_ref: 1,
         }
     }
 }
 
 impl TimelineProjector {
+    /// 把一次 locate intent 登记为该窗口唯一可激活导航。
+    pub(crate) fn begin_locate_navigation(
+        &mut self,
+        channel_id: &str,
+        window_token: &str,
+        navigation_token: &str,
+    ) {
+        let scope = SurfaceScope::Timeline {
+            channel_id: channel_id.to_string(),
+            window_token: window_token.to_string(),
+        };
+        self.current_navigation_tokens
+            .insert(scope.canonical_key(), navigation_token.to_string());
+    }
+
+    /// 判断 response token 是否仍是窗口当前导航，供晚到链路降级为数据合并。
+    pub(crate) fn is_current_locate_navigation(
+        &self,
+        channel_id: &str,
+        window_token: &str,
+        navigation_token: &str,
+    ) -> bool {
+        let scope = SurfaceScope::Timeline {
+            channel_id: channel_id.to_string(),
+            window_token: window_token.to_string(),
+        };
+        self.current_navigation_tokens
+            .get(&scope.canonical_key())
+            .is_some_and(|current| current == navigation_token)
+    }
+
     /// Returns the unique attached window that currently contains `anchor_message_id`.
     ///
     /// G10a's wire command intentionally carries no renderer-owned window token. Helix resolves
@@ -118,6 +254,53 @@ impl TimelineProjector {
                     .iter()
                     .any(|item| item.id == anchor_message_id)
         });
+        let first = matches.next()?;
+        if matches.next().is_some() {
+            return None;
+        }
+        Some((first.view.page.window_token.clone(), first.view.items.len()))
+    }
+
+    /// 返回唯一 attached anchor 的窗口、可见数和稳定复合游标。
+    pub(crate) fn paging_context_for_anchor(
+        &self,
+        channel_id: &str,
+        anchor_message_id: &str,
+    ) -> Option<(WindowPageVm, usize, TimelineEntityKeyVm)> {
+        let mut matches = self.slots.values().filter_map(|slot| {
+            if slot.view.channel_id != channel_id {
+                return None;
+            }
+            let message = slot
+                .view
+                .items
+                .iter()
+                .find(|item| item.id == anchor_message_id)?;
+            Some((
+                slot.view.page.clone(),
+                slot.view.items.len(),
+                TimelineEntityKeyVm {
+                    create_at: message.created_at,
+                    temporary_id: message.temporary_id.clone(),
+                },
+            ))
+        });
+        let first = matches.next()?;
+        if matches.next().is_some() || first.2.temporary_id.is_empty() {
+            return None;
+        }
+        Some(first)
+    }
+
+    /// 返回频道唯一 attached slot，定位命令不能由 renderer 任意选择内部 Range。
+    pub(crate) fn unique_attached_window_for_channel(
+        &self,
+        channel_id: &str,
+    ) -> Option<(String, usize)> {
+        let mut matches = self
+            .slots
+            .values()
+            .filter(|slot| slot.view.channel_id == channel_id);
         let first = matches.next()?;
         if matches.next().is_some() {
             return None;
@@ -173,9 +356,11 @@ impl TimelineProjector {
         Ok(Some(mutation))
     }
 
+    /// 清空 identity/session 绑定的窗口、attachment 与当前导航裁决状态。
     pub fn reset(&mut self) {
         self.slots.clear();
         self.attached_slots.clear();
+        self.current_navigation_tokens.clear();
     }
 
     pub fn register_attachment(&mut self, scope: &SurfaceScope) {
@@ -242,6 +427,12 @@ impl TimelineProjector {
         let base_revision = slot.revision;
         let previous_view = slot.view.clone();
         let mut view = self.build_view(&request, render_ready_rows)?;
+        // 普通分页/增量回复只能扩展当前窗口；仅携带 targetMessageId 的 locate 可切 anchor。
+        if request.target_message_id.is_none() {
+            view.anchor = previous_view.anchor.clone();
+            view.first_unread_message_id = previous_view.first_unread_message_id.clone();
+            view.target_message_id = previous_view.target_message_id.clone();
+        }
         preserve_receipt_snapshot(&previous_view, &mut view);
         preserve_stable_action_bindings(&previous_view, &mut view);
         let revision = next_revision(base_revision)?;
@@ -253,6 +444,204 @@ impl TimelineProjector {
             causation_id,
             mutation: TypedSurfaceMutation::TimelineDelta {
                 operations: delta_between(&previous_view, &view, None)?,
+            },
+        };
+        mutation.validate()?;
+        self.attached_slots.insert(slot_key.clone());
+        self.slots.insert(slot_key, TimelineSlot { revision, view });
+        Ok(mutation)
+    }
+
+    /// 把已通过持久屏障的远端页合并进既有 typed slot，不重建全量数组语义。
+    pub(crate) fn patch_page_from_render_ready(
+        &mut self,
+        mut request: TimelineWindowRequest,
+        render_ready_rows: &[Value],
+        page_mutation: TimelinePageMutation,
+        causation_id: Option<String>,
+    ) -> Result<SurfaceMutation, TimelineProjectionError> {
+        let (scope, slot_key) = scope_and_slot_key(&request)?;
+        let slot = self.slots.get(&slot_key).cloned().ok_or_else(|| {
+            TimelineProjectionError::MissingSnapshot {
+                slot: slot_key.clone(),
+            }
+        })?;
+        TimelinePageSize::new(request.page_size)
+            .map_err(TimelineProjectionError::InvalidPageSize)?;
+
+        let previous_view = slot.view.clone();
+        let mut incoming = Vec::with_capacity(render_ready_rows.len());
+        for row in render_ready_rows {
+            incoming.push(self.message_from_render_ready(
+                row,
+                request.channel_id.as_str(),
+                request.surface_epoch,
+                request.action_authority_available,
+            )?);
+        }
+        if let TimelinePageMutation::Locate {
+            target_message_id,
+            navigation_token,
+            activate: false,
+        } = &page_mutation
+        {
+            // 旧 locate 使用独立 Range 安装已持久化事实，但绝不改写当前活动 view。
+            let mut stale_view = previous_view.clone();
+            stale_view.range_id =
+                located_range_id(scope.canonical_key().as_str(), navigation_token);
+            stale_view.items = incoming;
+            stale_view.anchor = TimelineAnchorVm {
+                message_id: Some(target_message_id.clone()),
+                mode: TimelineAnchorMode::Locate,
+            };
+            stale_view.target_message_id = Some(target_message_id.clone());
+            stale_view.page = request.page;
+            if !stale_view
+                .items
+                .iter()
+                .any(|message| message.id == *target_message_id)
+            {
+                return Err(TimelineProjectionError::TargetNotInWindow {
+                    target: target_message_id.clone(),
+                });
+            }
+            let entities = timeline_entities(&stale_view)?;
+            let ordered_keys = entities
+                .iter()
+                .map(|entity| entity.entity_key.clone())
+                .collect::<Vec<_>>();
+            let mut operations = entities
+                .iter()
+                .cloned()
+                .map(|entity| TimelineDeltaOperationVm::UpsertMessage { entity })
+                .collect::<Vec<_>>();
+            operations.push(TimelineDeltaOperationVm::InstallSegment {
+                range: timeline_range(&stale_view, ordered_keys),
+                entities,
+            });
+            let revision = next_revision(slot.revision)?;
+            let mutation = SurfaceMutation {
+                surface: SurfaceId::MessageTimeline,
+                scope,
+                revision,
+                base_revision: Some(slot.revision),
+                causation_id,
+                mutation: TypedSurfaceMutation::TimelineDelta { operations },
+            };
+            mutation.validate()?;
+            self.slots.insert(
+                slot_key,
+                TimelineSlot {
+                    revision,
+                    view: previous_view,
+                },
+            );
+            return Ok(mutation);
+        }
+        let mut by_key = BTreeMap::new();
+        for message in previous_view.items.iter().chain(incoming.iter()) {
+            if message.temporary_id.is_empty() {
+                return Err(TimelineProjectionError::MissingRowField {
+                    field: "temporaryId",
+                });
+            }
+            by_key.insert(
+                TimelineEntityKeyVm {
+                    create_at: message.created_at,
+                    temporary_id: message.temporary_id.clone(),
+                },
+                message.clone(),
+            );
+        }
+
+        let mut view = previous_view.clone();
+        let navigation_token = match &page_mutation {
+            TimelinePageMutation::Locate {
+                target_message_id,
+                navigation_token,
+                activate,
+            } => {
+                if *activate {
+                    view.range_id =
+                        located_range_id(scope.canonical_key().as_str(), navigation_token);
+                    by_key.clear();
+                    for message in incoming {
+                        by_key.insert(
+                            TimelineEntityKeyVm {
+                                create_at: message.created_at,
+                                temporary_id: message.temporary_id.clone(),
+                            },
+                            message,
+                        );
+                    }
+                    request.anchor = TimelineAnchorVm {
+                        message_id: Some(target_message_id.clone()),
+                        mode: TimelineAnchorMode::Locate,
+                    };
+                    request.target_message_id = Some(target_message_id.clone());
+                    view.anchor = request.anchor.clone();
+                    view.target_message_id = request.target_message_id.clone();
+                    Some(navigation_token.clone())
+                } else {
+                    // 旧 response 的消息已通过 cache barrier，可扩充数据但不能回滚活动窗口状态。
+                    request.anchor = previous_view.anchor.clone();
+                    request.target_message_id = previous_view.target_message_id.clone();
+                    request.page = previous_view.page.clone();
+                    None
+                }
+            }
+            TimelinePageMutation::Older => {
+                request.page.has_newer |= previous_view.page.has_newer;
+                request.page.has_more = request.page.has_older || request.page.has_newer;
+                None
+            }
+            TimelinePageMutation::Newer => {
+                request.page.has_older |= previous_view.page.has_older;
+                request.page.has_more = request.page.has_older || request.page.has_newer;
+                None
+            }
+        };
+        let mut items = by_key.into_values().collect::<Vec<_>>();
+        let overflow = items.len().saturating_sub(MAX_TIMELINE_WINDOW_ITEMS);
+        if overflow > 0 {
+            match page_mutation {
+                TimelinePageMutation::Older => {
+                    items.truncate(MAX_TIMELINE_WINDOW_ITEMS);
+                    request.page.has_newer = true;
+                    request.page.has_more = true;
+                }
+                TimelinePageMutation::Newer => {
+                    items.drain(..overflow);
+                    request.page.has_older = true;
+                    request.page.has_more = true;
+                }
+                TimelinePageMutation::Locate { .. } => {
+                    return Err(TimelineProjectionError::SurfaceDataLimit);
+                }
+            }
+        }
+        view.items = items;
+        view.page = request.page;
+        view.state = request.state;
+        if let Some(target) = view.target_message_id.as_deref() {
+            if !view.items.iter().any(|message| message.id == target) {
+                return Err(TimelineProjectionError::TargetNotInWindow {
+                    target: target.to_string(),
+                });
+            }
+        }
+        preserve_receipt_snapshot(&previous_view, &mut view);
+        preserve_stable_action_bindings(&previous_view, &mut view);
+
+        let revision = next_revision(slot.revision)?;
+        let mutation = SurfaceMutation {
+            surface: SurfaceId::MessageTimeline,
+            scope,
+            revision,
+            base_revision: Some(slot.revision),
+            causation_id,
+            mutation: TypedSurfaceMutation::TimelineDelta {
+                operations: delta_between(&previous_view, &view, navigation_token)?,
             },
         };
         mutation.validate()?;
@@ -283,6 +672,7 @@ impl TimelineProjector {
     pub(crate) fn patch_located_target(
         &mut self,
         target_message_id: &str,
+        navigation_token: Option<&str>,
     ) -> Result<Option<SurfaceMutation>, TimelineProjectionError> {
         let Some((slot_key, slot)) = self
             .slots
@@ -319,7 +709,11 @@ impl TimelineProjector {
                 operations: delta_between(
                     &previous_view,
                     &view,
-                    Some(format!("locate:{target_message_id}")),
+                    Some(
+                        navigation_token
+                            .map(str::to_string)
+                            .unwrap_or_else(|| format!("locate:{target_message_id}")),
+                    ),
                 )?,
             },
         };
@@ -391,7 +785,14 @@ impl TimelineProjector {
         request: &TimelineWindowRequest,
         render_ready_rows: &[Value],
     ) -> Result<TimelineWindowVm, TimelineProjectionError> {
-        let (bounded_rows, page) = bounded_rows(render_ready_rows, &request.anchor, &request.page);
+        let page_size = TimelinePageSize::new(request.page_size)
+            .map_err(TimelineProjectionError::InvalidPageSize)?;
+        let (bounded_rows, page) = bounded_rows(
+            render_ready_rows,
+            &request.anchor,
+            &request.page,
+            page_size.get() as usize,
+        );
         let mut items = Vec::with_capacity(bounded_rows.len());
         for row in bounded_rows {
             items.push(self.message_from_render_ready(
@@ -417,6 +818,7 @@ impl TimelineProjector {
         }
         Ok(TimelineWindowVm {
             channel_id: request.channel_id.clone(),
+            range_id: request.page.window_token.clone(),
             anchor,
             items,
             first_unread_message_id: request.first_unread_message_id.clone(),
@@ -508,8 +910,14 @@ fn delta_between(
         .cloned()
         .map(|entity| TimelineDeltaOperationVm::UpsertMessage { entity })
         .collect::<Vec<_>>();
-    let range_id = next.page.window_token.clone();
-    if previous_keys != next_keys {
+    let range_id = next.range_id.clone();
+    let range_changed = previous.range_id != next.range_id;
+    if range_changed {
+        operations.push(TimelineDeltaOperationVm::InstallSegment {
+            range: timeline_range(next, next_keys.clone()),
+            entities: next_entities.clone(),
+        });
+    } else if previous_keys != next_keys {
         if next_keys.starts_with(&previous_keys) {
             let keys = next_keys[previous_keys.len()..].to_vec();
             if !keys.is_empty() {
@@ -529,6 +937,15 @@ fn delta_between(
                     keys,
                 });
             }
+        } else if previous_keys.len() == next_keys.len()
+            && previous_keys.len() > 1
+            && previous_keys[1..] == next_keys[..next_keys.len() - 1]
+        {
+            operations.push(TimelineDeltaOperationVm::InsertKeys {
+                range_id: range_id.clone(),
+                position: TimelineInsertPositionVm::End,
+                keys: vec![next_keys[next_keys.len() - 1].clone()],
+            });
         } else {
             operations.push(TimelineDeltaOperationVm::InstallSegment {
                 range: timeline_range(next, next_keys.clone()),
@@ -536,15 +953,21 @@ fn delta_between(
             });
         }
     }
-    if previous.page != next.page {
-        let range = timeline_range(next, next_keys.clone());
+    let previous_range = timeline_range(previous, previous_keys);
+    let next_range = timeline_range(next, next_keys.clone());
+    if !range_changed
+        && (previous.page != next.page
+            || previous_range.older_cursor != next_range.older_cursor
+            || previous_range.newer_cursor != next_range.newer_cursor
+            || previous_range.latest_watermark != next_range.latest_watermark)
+    {
         operations.push(TimelineDeltaOperationVm::SetRangeBounds {
-            range_id: range.range_id,
-            older_cursor: range.older_cursor,
-            newer_cursor: range.newer_cursor,
-            has_older: range.has_older,
-            has_newer: range.has_newer,
-            latest_watermark: range.latest_watermark,
+            range_id: next_range.range_id,
+            older_cursor: next_range.older_cursor,
+            newer_cursor: next_range.newer_cursor,
+            has_older: next_range.has_older,
+            has_newer: next_range.has_newer,
+            latest_watermark: next_range.latest_watermark,
         });
     }
     if previous.anchor != next.anchor
@@ -587,13 +1010,28 @@ fn timeline_entities(
         .collect()
 }
 
+/// 从 Helix scope 与导航 token 派生不可由 renderer 直接指定的稳定 RangeId。
+fn located_range_id(scope_key: &str, navigation_token: &str) -> String {
+    let mut first = 0xcbf2_9ce4_8422_2325_u64;
+    let mut second = 0x8422_2325_cbf2_9ce4_u64;
+    for byte in scope_key
+        .bytes()
+        .chain(std::iter::once(0xff))
+        .chain(navigation_token.bytes())
+    {
+        first = (first ^ u64::from(byte)).wrapping_mul(0x1000_0000_01b3);
+        second = (second ^ u64::from(byte).rotate_left(1)).wrapping_mul(0x1000_0000_01b3);
+    }
+    format!("range.located.{first:016x}{second:016x}")
+}
+
 /// 从当前窗口构造单 Range 的双向边界与最新水位。
 fn timeline_range(
     view: &TimelineWindowVm,
     ordered_keys: Vec<TimelineEntityKeyVm>,
 ) -> TimelineRangeVm {
     TimelineRangeVm {
-        range_id: view.page.window_token.clone(),
+        range_id: view.range_id.clone(),
         older_cursor: ordered_keys.first().cloned(),
         newer_cursor: ordered_keys.last().cloned(),
         latest_watermark: ordered_keys.last().cloned(),
@@ -607,7 +1045,7 @@ fn timeline_range(
 fn active_window(view: &TimelineWindowVm) -> TimelineActiveWindowVm {
     TimelineActiveWindowVm {
         window_token: view.page.window_token.clone(),
-        range_ids: vec![view.page.window_token.clone()],
+        range_ids: vec![view.range_id.clone()],
         anchor: view.anchor.clone(),
         first_unread_message_id: view.first_unread_message_id.clone(),
         target_message_id: view.target_message_id.clone(),
@@ -781,6 +1219,8 @@ pub enum TimelineProjectionError {
     ActionRefOverflow,
     #[error("timeline locate target {target} is absent from the bounded window")]
     TargetNotInWindow { target: String },
+    #[error(transparent)]
+    InvalidPageSize(#[from] TimelinePagePolicyError),
     #[error("timeline projector attempted to advance revision without a semantic delta")]
     EmptyDelta,
     #[error(transparent)]
@@ -807,25 +1247,26 @@ fn bounded_rows<'a>(
     rows: &'a [Value],
     anchor: &TimelineAnchorVm,
     requested_page: &WindowPageVm,
+    page_size: usize,
 ) -> (&'a [Value], WindowPageVm) {
-    if rows.len() <= MAX_TIMELINE_WINDOW_ITEMS {
+    if rows.len() <= page_size {
         return (rows, requested_page.clone());
     }
 
     let start = match anchor.mode {
-        TimelineAnchorMode::Latest => rows.len() - MAX_TIMELINE_WINDOW_ITEMS,
+        TimelineAnchorMode::Latest => rows.len() - page_size,
         TimelineAnchorMode::Locate | TimelineAnchorMode::Unread => anchor
             .message_id
             .as_deref()
             .and_then(|id| row_id_index(rows, id))
             .map(|index| {
                 index
-                    .saturating_sub(20)
-                    .min(rows.len() - MAX_TIMELINE_WINDOW_ITEMS)
+                    .saturating_sub(page_size / 2)
+                    .min(rows.len() - page_size)
             })
-            .unwrap_or(rows.len() - MAX_TIMELINE_WINDOW_ITEMS),
+            .unwrap_or(rows.len() - page_size),
     };
-    let end = start + MAX_TIMELINE_WINDOW_ITEMS;
+    let end = start + page_size;
     let mut page = requested_page.clone();
     page.has_older |= start > 0;
     page.has_newer |= end < rows.len();
@@ -1842,7 +2283,7 @@ mod tests {
             .unwrap();
 
         let locate = projector
-            .patch_located_target("message-1")
+            .patch_located_target("message-1", None)
             .unwrap()
             .unwrap();
         assert_eq!(locate.revision, 2);

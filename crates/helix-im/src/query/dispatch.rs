@@ -55,35 +55,93 @@ impl ImModule {
                 self.state.reset_recent_query_coverage();
                 out.push(crate::query::emit_dialogs_cleared());
             }
-            // D3 上拉翻页（NEED_HELIX_FIX_PULL_REFRESH）：解析锚点 → 发首轮 postContext Http +
-            // 注册 LoadOlderContext 续接态。多轮编排在 handle_port_reply 的 LoadOlderContext 臂（每轮
-            // 回报推进 anchor，凑够/耗尽 → message persist barrier → timeline Frame V2）。
+            // G11a 上拉页：与 newer 共享复合 cursor、cache barrier 和 readback 状态机。
             n if n == crate::older_context::LOAD_OLDER_CONTEXT => {
-                let mut st = crate::older_context::parse_request(payload)?;
-                let (window_token, visible_items) = self
+                let (channel_id, anchor_post_id, page_size, request_id) =
+                    crate::timeline_navigation::parse_older_request(payload)?;
+                let (page, _, cursor) = self
                     .state
                     .timeline_projector
-                    .window_context_for_anchor(st.channel_id().as_str(), st.anchor_post_id())
+                    .paging_context_for_anchor(channel_id.as_str(), &anchor_post_id)
                     .ok_or_else(|| {
                         ImError::Parse(
                             "im_load_older_context requires one attached timeline containing anchor"
                                 .to_string(),
                         )
                     })?;
-                st.attach_window(window_token, visible_items);
+                let state = crate::timeline_navigation::TimelineNavigationState::older(
+                    channel_id,
+                    page,
+                    page_size,
+                    request_id,
+                    anchor_post_id,
+                    cursor,
+                );
+                self.start_timeline_navigation_http(state, out);
+            }
+            // G10b 下拉页：cursor 只从 attached typed state 解析，端侧不能伪造排序边界。
+            n if n == crate::timeline_navigation::LOAD_NEWER_CONTEXT => {
+                let (channel_id, anchor_post_id, page_size, request_id) =
+                    crate::timeline_navigation::parse_newer_request(payload)?;
+                let (page, _, cursor) = self
+                    .state
+                    .timeline_projector
+                    .paging_context_for_anchor(channel_id.as_str(), &anchor_post_id)
+                    .ok_or_else(|| {
+                        ImError::Parse(
+                            "im_load_newer_context requires one attached timeline containing anchor"
+                                .to_string(),
+                        )
+                    })?;
+                let state = crate::timeline_navigation::TimelineNavigationState::newer(
+                    channel_id,
+                    page,
+                    page_size,
+                    request_id,
+                    anchor_post_id,
+                    cursor,
+                );
+                self.start_timeline_navigation_http(state, out);
+            }
+            // G11a 定位先探测本地 target；未在 attached slot 时才进入 Go context authority。
+            n if n == crate::timeline_navigation::LOCATE_MESSAGE => {
+                let (channel_id, target_message_id, page_size, request_id, navigation_token) =
+                    crate::timeline_navigation::parse_locate_request(payload)?;
+                let (window_token, _) = self
+                    .state
+                    .timeline_projector
+                    .unique_attached_window_for_channel(channel_id.as_str())
+                    .ok_or_else(|| {
+                        ImError::Parse(
+                            "im_locate_message requires one attached timeline for channel"
+                                .to_string(),
+                        )
+                    })?;
+                let navigation_token = navigation_token
+                    .or_else(|| request_id.clone())
+                    .unwrap_or_else(|| format!("locate:{target_message_id}"));
+                self.state.timeline_projector.begin_locate_navigation(
+                    channel_id.as_str(),
+                    window_token.as_str(),
+                    navigation_token.as_str(),
+                );
+                let state = crate::timeline_navigation::TimelineNavigationState::locate(
+                    channel_id,
+                    window_token,
+                    page_size,
+                    request_id,
+                    target_message_id.clone(),
+                    navigation_token,
+                );
                 let corr = self.alloc_corr_internal();
-                let (_, body) = crate::older_context::build_post_context_body(&st);
-                out.push(crate::older_context::post_context_http_tracked(
-                    &self.config.api_base_url,
-                    &body,
+                out.push(crate::timeline_navigation::locate_probe_effect(
+                    &target_message_id,
                     corr,
-                    self.state.connection_id.as_deref(),
-                    st.request_id(),
                 ));
                 self.state.corr_map.insert(
                     corr,
-                    CorrelationContext::LoadOlderContext {
-                        state: Box::new(st),
+                    CorrelationContext::TimelineLocateProbe {
+                        state: Box::new(state),
                     },
                 );
             }

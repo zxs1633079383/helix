@@ -17,11 +17,11 @@ Existing Timeline families migrated by Helix:
 - G-14a: g14a-wdio, timeline files template-receivable/template-received/template-received-recovery
 
 New formal Gate inventories:
-- G-10b LoadNewerGate: latest.snapshot, initial-located.delta, newer-loaded.delta, newer-exhausted.delta, newer-late.delta, provenance
-- G-10c FullWindowAppendEvictionGate: full-window.snapshot, new-message-appended.delta, provenance
-- G-10d AnchoredNewMessageGate: anchored.snapshot, anchored-new-message.delta, provenance
-- G-11a UncachedLocateBidirectionalGate: latest.snapshot, uncached-located.delta, located-older.delta, located-newer.delta, stale-navigation.delta, provenance
+- G-10b LoadNewerGate: attach-empty.snapshot, latest-loaded.delta, initial-located.delta, newer-loaded.delta, newer-exhausted.delta, newer-late.delta, provenance
+- G-10c FullWindowAppendEvictionGate: attach-empty.snapshot, full-window-loaded.delta, new-message-appended.delta, provenance
+- G-10d AnchoredNewMessageGate: attach-empty.snapshot, anchored-loaded.delta, anchored-new-message.delta, provenance
+- G-11a UncachedLocateBidirectionalGate: attach-empty.snapshot, latest-loaded.delta, uncached-located.delta, located-older.delta, located-newer.delta, stale-navigation.delta, provenance
 
 Evidence boundary:
 - Existing and new JSON files are present in the Helix fixture tree.
-- G-10b/G-10c/G-10d/G-11a remain non-canonical until production ScenarioRunner generation and provenance validation replace the current projector-contract assets.
+- G-10b/G-10c/G-10d/G-11a are generated through the production ScenarioRunner and pinned to immutable producer revision 312e331938054467f1de09d4a251fd47b12093b0.

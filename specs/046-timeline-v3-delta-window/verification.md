@@ -105,10 +105,10 @@ static, persistence, WS, native/FFI and rendered evidence remain separate. A mis
 |---|---|---|
 | V-001 admission | PASS through R3 | R4 rerun remains required after evidence registration |
 | V-002 Helix | PASS | Contract 4/4, policy 5/5, update 3/3, latest 2/2, recovery 1/1, four formal Gates 4/4 |
-| V-003 canonical inventory | PASS on current worktree | Four inventories contain 5/2/2/5 Frames and matching provenance |
-| V-004 PC focused | PASS | 14 WDIO contracts plus 33 component assertions; native browser lane is blocked before startup |
-| V-005 Mobile focused | PASS with one source-proof skip | Four formal classes 8/8; focused total 49 pass, 1 skip, 0 fail |
-| V-006 parity | PASS on current worktree | Helix/PC/Mobile raw and semantic parity; immutable producer pin unresolved |
+| V-003 canonical inventory | PASS | Four inventories contain 6/3/3/6 Frames, native attach revision 1, loaded Delta revision 2 and matching provenance |
+| V-004 PC focused | PASS, native blocked | Timeline V3 TypeScript 36/36 and Tauri event sink 6/6; rebuilt WebKit candidate cannot inject the 121 KiB canonical Frame into Angular |
+| V-005 Mobile focused | PASS | Four formal classes 8/8, immutable source proof 1/1 and TimelineCache 5/5 |
+| V-006 parity | PASS | Helix/PC/Mobile raw and semantic parity pinned to producer revision 312e331938054467f1de09d4a251fd47b12093b0 |
 | V-007 Strict Matrix | PASS | Epoch 12 generated files and 9/9 contract tests pass |
 | V-008 hard cut | PASS | Helix rejects positive Timeline V2; PC/Mobile positive Timeline V2 decoders and fixtures are physically removed |
 | V-009 static | PASS | Four repositories pass `git diff --check`; unrelated dirty paths preserved |
@@ -120,6 +120,7 @@ the same ordered keys, but omitted `InstallSegment`. `delta_between` now emits `
 whenever RangeId changes and the producer regression assertion prevents recurrence. Both consumers
 were resynchronized only after the corrected Helix fixtures passed.
 
-All implementation tasks are checked. Remaining release/environment work is immutable producer
-repinning, the PC native browser candidate rebuild and real PostgreSQL DDL/query-plan validation.
-These are recorded as blocked evidence and are not silently upgraded by focused or Mock proof.
+The immutable producer repin and Mobile source proof are complete. T063 remains partial because the
+PC native browser lane cannot carry the canonical Frame through its test-only event injection path.
+Real PostgreSQL DDL/query-plan validation also remains blocked. These boundaries are recorded
+separately and are not silently upgraded by focused, Mock or source-only proof.

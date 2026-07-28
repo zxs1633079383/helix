@@ -3,79 +3,79 @@
   "runs": [
     {
       "id": "V-002",
-      "command": "cargo test -p helix-im Timeline V3 focused",
-      "started_at": "2026-07-28T09:00:00Z",
-      "ended_at": "2026-07-28T10:20:00Z",
+      "command": "cargo test -p helix-im Timeline V3 focused and formal producer Gates",
+      "started_at": "2026-07-28T11:20:00Z",
+      "ended_at": "2026-07-28T11:40:17Z",
       "result": "PASS",
       "files": [
         {
           "path": "specs/046-timeline-v3-delta-window/evidence/helix-production-gates.txt",
-          "sha256": "5ad31d520ecf4808277243fa039ac40a129d8bfb35e784c39ce4f93c00bd6fac"
-        }
-      ]
-    },
-    {
-      "id": "V-006",
-      "command": "Helix PC Mobile byte and semantic parity",
-      "started_at": "2026-07-28T09:00:00Z",
-      "ended_at": "2026-07-28T10:20:00Z",
-      "result": "PASS",
-      "files": [
-        {
-          "path": "specs/046-timeline-v3-delta-window/evidence/cross-client-parity.txt",
-          "sha256": "f3fd814db8eaaa351f1f1b822370d2635d8b1bf2f8e91a36fc1578d960f899f9"
-        }
-      ]
-    },
-    {
-      "id": "V-REAL",
-      "command": "PC native lane Mobile source proof PostgreSQL DDL",
-      "started_at": "2026-07-28T09:00:00Z",
-      "ended_at": "2026-07-28T10:20:00Z",
-      "result": "BLOCKED",
-      "files": [
-        {
-          "path": "specs/046-timeline-v3-delta-window/evidence/real-lanes.txt",
-          "sha256": "49c6d7d86ffce7316e41aa26247cd1d58b95509266c19ed231660ae25d42c1be"
-        }
-      ]
-    },
-    {
-      "id": "V-004",
-      "command": "cses-client fixture sync focused WDIO and Timeline hard cut",
-      "started_at": "2026-07-28T09:00:00Z",
-      "ended_at": "2026-07-28T11:20:00Z",
-      "result": "PASS",
-      "files": [
-        {
-          "path": "specs/046-timeline-v3-delta-window/evidence/pc-wdio.txt",
-          "sha256": "f18a9394071a5aceb06902ba780a002c6d26e3c04b24e90cddf48ff4e2b72cca"
+          "sha256": "387accc3ec54285f87920a5a154e5be195250afcce321c5fe66b5839719df135"
         }
       ]
     },
     {
       "id": "V-005",
-      "command": "Mobile fixture parity formal GTests hard cut and bounded cache",
-      "started_at": "2026-07-28T09:00:00Z",
-      "ended_at": "2026-07-28T11:20:00Z",
+      "command": "Mobile formal GTests immutable source proof and TimelineCache",
+      "started_at": "2026-07-28T11:20:00Z",
+      "ended_at": "2026-07-28T11:40:17Z",
       "result": "PASS",
       "files": [
         {
           "path": "specs/046-timeline-v3-delta-window/evidence/mobile-gtest.txt",
-          "sha256": "ce3f5c9e2eab66cfaf7ac129afeeaab10c4e4391ba19712e90f3a3ba044f1487"
+          "sha256": "7e0b920e9724aba8ee54ecb332f44123d47da86f7a3195cd8440d87aa3a29d3f"
+        }
+      ]
+    },
+    {
+      "id": "V-006",
+      "command": "Helix PC Mobile immutable byte and semantic parity",
+      "started_at": "2026-07-28T11:20:00Z",
+      "ended_at": "2026-07-28T11:40:17Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/046-timeline-v3-delta-window/evidence/cross-client-parity.txt",
+          "sha256": "b13c02ff06c8c9118a121e3a766a5a463e15693cb86110a1268cec49ea1f9fe0"
         }
       ]
     },
     {
       "id": "V-009",
       "command": "four-repository diff check and final hard-cut scan",
-      "started_at": "2026-07-28T09:00:00Z",
-      "ended_at": "2026-07-28T11:20:00Z",
+      "started_at": "2026-07-28T11:20:00Z",
+      "ended_at": "2026-07-28T11:40:17Z",
       "result": "PASS",
       "files": [
         {
           "path": "specs/046-timeline-v3-delta-window/evidence/final-static.txt",
           "sha256": "627d930bf29f2662d3702112e5095baee8177decc54ceee941dba70a75aef860"
+        }
+      ]
+    },
+    {
+      "id": "V-004",
+      "command": "cses-client fixture sync focused Timeline assertions Tauri event sink and native G10b attempt",
+      "started_at": "2026-07-28T11:20:00Z",
+      "ended_at": "2026-07-28T11:42:00Z",
+      "result": "BLOCKED",
+      "files": [
+        {
+          "path": "specs/046-timeline-v3-delta-window/evidence/pc-wdio.txt",
+          "sha256": "6776c3a56e971a29fb242c6bf8dc225d236094bde6ec3692e8cd1658e41b6e30"
+        }
+      ]
+    },
+    {
+      "id": "V-REAL",
+      "command": "PC native lane Mobile source proof PostgreSQL DDL",
+      "started_at": "2026-07-28T11:20:00Z",
+      "ended_at": "2026-07-28T11:42:00Z",
+      "result": "BLOCKED",
+      "files": [
+        {
+          "path": "specs/046-timeline-v3-delta-window/evidence/real-lanes.txt",
+          "sha256": "6db26c698e188c1570d7f61249480f5ee88c6f7ae2a6b24cadae1c7e0c3be4d2"
         }
       ]
     }

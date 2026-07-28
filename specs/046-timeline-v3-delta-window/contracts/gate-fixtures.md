@@ -4,7 +4,8 @@
 
 ### G-10b LoadNewerGate
 
-- `latest.snapshot.frame-v3.json`
+- `attach-empty.snapshot.frame-v3.json`
+- `latest-loaded.delta.frame-v3.json`
 - `initial-located.delta.frame-v3.json`
 - `newer-loaded.delta.frame-v3.json`
 - `newer-exhausted.delta.frame-v3.json`
@@ -13,7 +14,8 @@
 
 ### G-10c FullWindowAppendEvictionGate
 
-- `full-window.snapshot.frame-v3.json`
+- `attach-empty.snapshot.frame-v3.json`
+- `full-window-loaded.delta.frame-v3.json`
 - `new-message-appended.delta.frame-v3.json`
 - `provenance.json`
 
@@ -21,7 +23,8 @@ Head eviction is asserted in PC/Mobile normalized window state and is not a prod
 
 ### G-10d AnchoredNewMessageGate
 
-- `anchored.snapshot.frame-v3.json`
+- `attach-empty.snapshot.frame-v3.json`
+- `anchored-loaded.delta.frame-v3.json`
 - `anchored-new-message.delta.frame-v3.json`
 - `provenance.json`
 
@@ -29,7 +32,8 @@ The producer Delta contains no ActivateWindow. Jump-to-latest is a consumer acti
 
 ### G-11a UncachedLocateBidirectionalGate
 
-- `latest.snapshot.frame-v3.json`
+- `attach-empty.snapshot.frame-v3.json`
+- `latest-loaded.delta.frame-v3.json`
 - `uncached-located.delta.frame-v3.json`
 - `located-older.delta.frame-v3.json`
 - `located-newer.delta.frame-v3.json`
@@ -50,6 +54,10 @@ The producer Delta contains no ActivateWindow. Jump-to-latest is a consumer acti
 Semantic hashing includes operation kind/order, EntityKey, Range insertion/merge position, Bounds,
 watermark, epoch/base/result revision and active window. Final rendered values alone are
 insufficient.
+
+The first Frame in each formal inventory is the native attach Snapshot at revision 1. Loading the
+configured latest window is a Delta at revision 2, so replay matches the production Tauri lifecycle
+instead of manufacturing a second revision-1 Snapshot.
 
 ## Parameter matrix
 

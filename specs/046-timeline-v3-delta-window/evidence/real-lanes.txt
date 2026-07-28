@@ -3,15 +3,21 @@ captured_at=2026-07-28
 
 PC:
 - Command: npm run message:wdio:g10b:mock
-- Result: BLOCKED before browser startup.
-- Exact blocker: WDIO candidate does not match the selected Helix source; rebuild it
-- Boundary: no DOM/browser/native Green is claimed from focused Jest evidence.
+- Result: BLOCKED after candidate rebuild and WebKit startup.
+- Artifact: artifacts/message-wdio/mock-20260728113534284-51800
+- Exact blocker: the 121 KiB canonical Timeline Frame does not reach Angular through the
+  `plugin:event|emit` WDIO injection path; native attach revision 1 is observed, but the canonical
+  attach-empty/latest-loaded replay has no listener acknowledgement and the DOM remains at 0 rows.
+- Boundary: producer/codec are not implicated because direct SurfaceRuntime replay applies both
+  Frames; no DOM/browser/native Green is claimed from focused TypeScript evidence.
 
 Mobile:
 - Formal GTest business behavior: 8/8 PASS.
-- Immutable source proof: SKIP because producerRevision is timeline-v3-production-worktree and
-  HELIX_SURFACE_RUNTIME_SNAPSHOTS was not supplied.
-- Boundary: no immutable source-pin Green is claimed.
+- Immutable source proof: 1/1 PASS against producer revision
+  312e331938054467f1de09d4a251fd47b12093b0.
+- TimelineCache subset: 5/5 PASS.
+- Boundary: native FFI consumer, immutable fixture source and normalized state are proven; this
+  evidence does not substitute for PC WebKit DOM.
 
 Go/PostgreSQL:
 - Source, unit/API, build and vet checks pass.

@@ -540,13 +540,15 @@ surfaceSchemaVersion、Surface inventory、producer revision 与参数化白名�
 
 | Gate | Canonical 文件 |
 |---|---|
-| `G-10b` | `latest.snapshot.frame-v3.json`、`initial-located.delta.frame-v3.json`、`newer-loaded.delta.frame-v3.json`、`newer-exhausted.delta.frame-v3.json`、`newer-late.delta.frame-v3.json` |
-| `G-10c` | `full-window.snapshot.frame-v3.json`、`new-message-appended.delta.frame-v3.json` |
-| `G-10d` | `anchored.snapshot.frame-v3.json`、`anchored-new-message.delta.frame-v3.json` |
-| `G-11a` | `latest.snapshot.frame-v3.json`、`uncached-located.delta.frame-v3.json`、`located-older.delta.frame-v3.json`、`located-newer.delta.frame-v3.json`、`stale-navigation.delta.frame-v3.json` |
+| `G-10b` | `attach-empty.snapshot.frame-v3.json`、`latest-loaded.delta.frame-v3.json`、`initial-located.delta.frame-v3.json`、`newer-loaded.delta.frame-v3.json`、`newer-exhausted.delta.frame-v3.json`、`newer-late.delta.frame-v3.json` |
+| `G-10c` | `attach-empty.snapshot.frame-v3.json`、`full-window-loaded.delta.frame-v3.json`、`new-message-appended.delta.frame-v3.json` |
+| `G-10d` | `attach-empty.snapshot.frame-v3.json`、`anchored-loaded.delta.frame-v3.json`、`anchored-new-message.delta.frame-v3.json` |
+| `G-11a` | `attach-empty.snapshot.frame-v3.json`、`latest-loaded.delta.frame-v3.json`、`uncached-located.delta.frame-v3.json`、`located-older.delta.frame-v3.json`、`located-newer.delta.frame-v3.json`、`stale-navigation.delta.frame-v3.json` |
 
 G-10c 的头部淘汰必须在 Consumer normalized window 断言，不得额外生成 Helix trim/delete Frame；
 G-10d 的点击返回最新必须在 Window Selector/Action 断言，不得把点击预先编码进新消息 Delta。
+四组正式 Gate 都必须先回放 native attach 产生的空 Snapshot revision 1，再以 Delta revision 2
+装载 `latest` 窗口，避免 Tauri 自动 attach 与 canonical 首帧制造两个 revision 1。
 
 强制顺序：
 

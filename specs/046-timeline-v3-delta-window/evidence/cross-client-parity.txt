@@ -2,10 +2,10 @@ Timeline V3 producer/consumer parity
 captured_at=2026-07-28
 
 Declared formal inventories:
-- G-10b: 5 Frame JSON files
-- G-10c: 2 Frame JSON files
-- G-10d: 2 Frame JSON files
-- G-11a: 5 Frame JSON files
+- G-10b: 6 Frame JSON files
+- G-10c: 3 Frame JSON files
+- G-10d: 3 Frame JSON files
+- G-11a: 6 Frame JSON files
 
 Result:
 - Helix producer tests regenerated all files through TimelineProductionRunner.
@@ -15,6 +15,6 @@ Result:
 - Corrected G-10b locate delta now contains InstallSegment before ActivateWindow when the
   RangeId changes but the ordered entity keys remain equal.
 
-Status: PASS for worktree byte and semantic parity.
-Immutable provenance status: BLOCKED until the Helix producer is committed and consumers are
-repinned to its 40-character revision.
+Status: PASS for immutable byte and semantic parity.
+Immutable provenance status: PASS; both consumers are exact-synced to producer revision
+312e331938054467f1de09d4a251fd47b12093b0, and Mobile source proof is not skipped.

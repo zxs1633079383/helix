@@ -147,7 +147,7 @@ anchor, pending and in-flight data; cold re-entry rebuilds from persistence.
 
 ## Phase 13: Convergence
 
-- [ ] T062 Commit the verified Helix production producer foundation, regenerate formal fixture provenance against that immutable 40-character revision, and record the new pin per SC-014 (partial)
+- [x] T062 Commit the verified Helix production producer foundation, regenerate formal fixture provenance against that immutable 40-character revision, and record the new pin per SC-014
 - [ ] T063 Repin and exact-sync PC/Mobile to the immutable Helix producer, rebuild the PC WDIO candidate, then rerun the eligible native WDIO lane and Mobile immutable source proof per SC-014 and SC-022 (partial)
 
 ## Parallel opportunities

@@ -9,13 +9,13 @@ for g in g10b g10c g10d g11a; do
 done
 
 Result:
-- G-10b: 5 files, FIXTURE_PARITY_OK
-- G-10c: 2 files, FIXTURE_PARITY_OK
-- G-10d: 2 files, FIXTURE_PARITY_OK
-- G-11a: 5 files, FIXTURE_PARITY_OK
-- Focused WDIO contracts: 3 suites, 14 tests PASS
-- Message SurfaceRuntime component: 1 suite, 33 tests PASS
-- Total focused: 4 suites, 47 tests PASS
+- G-10b: 6 files, FIXTURE_PARITY_OK
+- G-10c: 3 files, FIXTURE_PARITY_OK
+- G-10d: 3 files, FIXTURE_PARITY_OK
+- G-11a: 6 files, FIXTURE_PARITY_OK
+- Focused Timeline V3 TypeScript assertions: last stable run 36/36 PASS; the current worktree was
+  not rerun after removing the failed experimental large-Frame injection hook
+- Tauri event-sink assertions: 6/6 PASS
 - git diff --check: PASS
 
 Physical Timeline V2 hard cut:
@@ -27,5 +27,8 @@ Physical Timeline V2 hard cut:
   121 tests PASS.
 
 Evidence boundary:
-- Contract and component tests prove closed-operation decoding, atomic apply and DOM-component state.
-- The native WDIO browser lane is recorded separately and is not replaced by this evidence.
+- Contract and component tests prove closed-operation decoding and atomic apply. Direct
+  SurfaceRuntime replay applies attach-empty revision 1 and loaded Delta revision 2.
+- The native WDIO browser lane remains blocked because the 121 KiB canonical Frame does not cross
+  the `plugin:event|emit` test injection IPC into Angular's registered listener; focused mock proof
+  is not promoted to native WebKit Green.

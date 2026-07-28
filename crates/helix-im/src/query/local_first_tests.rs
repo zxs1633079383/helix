@@ -605,15 +605,15 @@ fn durable_fact_refresh_uses_local_rows_without_get_latest_post_fallback() {
     );
 }
 
-/// 锁定已挂载 latest 窗口在写后回读时保持原页长，并从本地 lookahead 保留更早历史入口。
+/// 锁定已挂载 latest 窗口在写后回读时扩展一个槽位，并从 lookahead 保留更早历史入口。
 #[test]
-fn durable_fact_refresh_preserves_window_size_and_local_older_affordance() {
+fn durable_fact_refresh_reserves_append_slot_and_local_older_affordance() {
     use helix_core::Module;
 
     let mut config = crate::module::ImConfig::default();
     config.auth_user_id = "viewer-1".to_string();
     let mut module = ImModule::new(config);
-    let mut rows_desc: Vec<Value> = (1..=21)
+    let mut rows_desc: Vec<Value> = (1..=22)
         .map(|index| {
             serde_json::json!({
                 "id": format!("message-{index:03}"),
@@ -664,8 +664,8 @@ fn durable_fact_refresh_preserves_window_size_and_local_older_affordance() {
         })
         .expect("durable refresh starts with a local message scan");
     assert_eq!(
-        scan_limit, 21,
-        "twenty visible rows require one lookahead row"
+        scan_limit, 22,
+        "twenty visible rows reserve one append slot plus one lookahead row"
     );
 
     sink.clear();
@@ -680,7 +680,7 @@ fn durable_fact_refresh_preserves_window_size_and_local_older_affordance() {
             1_001,
             &mut sink,
         )
-        .expect("local lookahead projects the stable attached window");
+        .expect("local lookahead projects the expanded attached window");
 
     let frame = sink
         .as_slice()
@@ -689,9 +689,108 @@ fn durable_fact_refresh_preserves_window_size_and_local_older_affordance() {
         .find(|event| event["event"] == "im:interaction:frame")
         .expect("durable local readback emits one timeline Frame");
     let view = &frame["data"]["mutations"][0]["mutation"]["patch"]["view"];
-    assert_eq!(view["items"].as_array().map(Vec::len), Some(20));
+    assert_eq!(view["items"].as_array().map(Vec::len), Some(21));
     assert_eq!(view["page"]["hasOlder"], true);
     assert_eq!(view["page"]["hasMore"], true);
+}
+
+/// 回归切群后的短窗口：新事实必须追加，不能用固定页长挤掉仍在窗口内的旧消息。
+#[test]
+fn durable_fact_refresh_appends_without_replacing_a_short_attached_window() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    let mut module = ImModule::new(config);
+    let mut initial_rows_desc: Vec<Value> = (1..=10)
+        .map(|index| {
+            serde_json::json!({
+                "id": format!("message-{index:03}"),
+                "temporaryId": format!("temporary-{index:03}"),
+                "channelId": channel_id().as_str(),
+                "userId": "viewer-1",
+                "createAt": index,
+                "message": format!("message {index}"),
+                "type": "TEXT",
+                "props": {},
+            })
+        })
+        .collect();
+    sort_recent_rows_desc(&mut initial_rows_desc);
+    module
+        .emit_timeline_snapshot_with_causation(&request(50), &initial_rows_desc, 1_000, None, None)
+        .expect("ten-row channel establishes the attached timeline");
+
+    let mut sink = EffectSink::new();
+    module
+        .refresh_attached_latest_timeline(
+            channel_id(),
+            Some("send-after-channel-switch".to_string()),
+            &mut sink,
+        )
+        .expect("new durable fact schedules the attached timeline readback");
+    let (refresh_corr, scan_limit) = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops } => ops.iter().find_map(|op| match op {
+                helix_core::effect::StorageOp::Scan(spec) => Some((*corr, spec.limit?)),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("refresh starts with one bounded local scan");
+    assert_eq!(
+        scan_limit, 12,
+        "ten visible rows reserve one append slot plus one lookahead row"
+    );
+
+    let mut refreshed_rows_desc = initial_rows_desc;
+    refreshed_rows_desc.push(serde_json::json!({
+        "id": "message-011",
+        "temporaryId": "temporary-011",
+        "channelId": channel_id().as_str(),
+        "userId": "viewer-1",
+        "createAt": 11,
+        "message": "message 11",
+        "type": "TEXT",
+        "sendStatus": "sending",
+        "props": {},
+    }));
+    sort_recent_rows_desc(&mut refreshed_rows_desc);
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: refresh_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::from(serde_json::to_vec(&refreshed_rows_desc).unwrap()),
+                )),
+            },
+            1_001,
+            &mut sink,
+        )
+        .expect("local readback projects the expanded timeline");
+
+    let frame = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:frame")
+        .expect("durable readback emits one timeline Frame");
+    let items = frame["data"]["mutations"][0]["mutation"]["patch"]["view"]["items"]
+        .as_array()
+        .expect("timeline patch exposes items");
+    assert_eq!(items.len(), 11);
+    assert_eq!(
+        items.first().and_then(|item| item["id"].as_str()),
+        Some("message-001")
+    );
+    assert_eq!(
+        items.last().and_then(|item| item["id"].as_str()),
+        Some("message-011")
+    );
 }
 
 #[test]

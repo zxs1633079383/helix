@@ -163,7 +163,7 @@ impl ImModule {
         )
     }
 
-    /// 写后回读沿用已挂载窗口的可视页长，避免固定默认值悄然改变 UI 窗口。
+    /// 写后回读为新事实预留一个槽位，避免短窗口用固定页长挤掉仍可见的旧消息。
     fn refresh_attached_timeline_window_with_deferred_send(
         &mut self,
         channel_id: ChannelId,
@@ -186,7 +186,11 @@ impl ImModule {
             .map(|view| view.items.len())
             .filter(|visible| *visible > 0)
             .and_then(|visible| u32::try_from(visible).ok())
-            .map(|visible| visible.min(super::QUERY_MESSAGES_MAX))
+            .map(|visible| {
+                visible
+                    .saturating_add(1)
+                    .min(crate::projector::timeline::MAX_TIMELINE_WINDOW_ITEMS as u32)
+            })
             .unwrap_or(super::QUERY_MESSAGES_DEFAULT);
         let payload = serde_json::json!({
             "channel_id": channel_id.as_str(),

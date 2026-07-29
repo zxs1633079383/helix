@@ -224,6 +224,42 @@ pub fn revoke_op(msg_id: &str) -> StorageOp {
     })
 }
 
+/// 将在线 posts_update 的完整撤回 authority 覆盖到可变业务列并置 revoke。
+pub fn revoke_authority_op(
+    msg_id: &str,
+    fields: crate::sync_session::PostFields,
+    event_seq: u64,
+) -> StorageOp {
+    use helix_core::effect::{BatchUpdateSpec, SqlValue};
+    let crate::sync_session::PostFields {
+        msg_type,
+        message,
+        props,
+        viewers,
+        simple_message,
+        update_at,
+        ..
+    } = fields;
+    StorageOp::BatchUpdate(BatchUpdateSpec {
+        table: "message",
+        key_col: "id",
+        key_vals: vec![SqlValue::Text(msg_id.to_string())],
+        patch: vec![
+            ("type".to_string(), SqlValue::Text(msg_type)),
+            ("message".to_string(), SqlValue::Text(message)),
+            ("props".to_string(), SqlValue::Text(props)),
+            (
+                "viewers".to_string(),
+                SqlValue::Text(serde_json::json!(viewers).to_string()),
+            ),
+            ("simple_message".to_string(), SqlValue::Text(simple_message)),
+            ("event_seq".to_string(), SqlValue::Integer(event_seq as i64)),
+            ("update_at".to_string(), SqlValue::Integer(update_at)),
+            ("revoke".to_string(), SqlValue::Integer(1)),
+        ],
+    })
+}
+
 /// type=6 已读：**单调覆盖** message 行 `read_bits` 列（C2 真源 post.rs:1116-1120 `batch_apply_read`）。
 ///
 /// read_bits 是服务端权威已读位（从 `messages[msg_id].read_bits` 取），直接赋值**非累加**

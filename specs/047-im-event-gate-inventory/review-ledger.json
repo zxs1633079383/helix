@@ -2,8 +2,8 @@
   "schema_version": "1.0",
   "feature_directory": "specs/047-im-event-gate-inventory",
   "phase": "implementing",
-  "event_seq": 82,
-  "next_action": "validate_evidence",
+  "event_seq": 89,
+  "next_action": "implement_tasks",
   "implementation_scope": {
     "denominator": 30,
     "gate_source": "spec.md#\u672c\u8f6e\u622a\u56fe\u5206\u6bcd",
@@ -49,8 +49,8 @@
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "9e77e3370c46f66af6993e0e7d091c02c9e18b317f2a18b4145ebe8359eb163d",
-      "checked_at": "2026-07-29T12:03:09Z",
+      "fingerprint": "c022efe679a6f33666407ec3b7968c5f9973f2767d0e02e86acfc673b764a8c8",
+      "checked_at": "2026-07-29T12:48:46Z",
       "issues": []
     },
     "r4_evidence": {
@@ -558,6 +558,48 @@
       "at": "2026-07-29T12:25:54Z",
       "kind": "phase",
       "detail": "implementing->implementing: recorded evidence p2-g03a-focused"
+    },
+    {
+      "seq": 83,
+      "at": "2026-07-29T12:40:23Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 84,
+      "at": "2026-07-29T12:40:23Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 85,
+      "at": "2026-07-29T12:40:29Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 86,
+      "at": "2026-07-29T12:48:38Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence p2-g04-focused"
+    },
+    {
+      "seq": 87,
+      "at": "2026-07-29T12:48:46Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 88,
+      "at": "2026-07-29T12:48:46Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 89,
+      "at": "2026-07-29T12:49:31Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
     }
   ]
 }

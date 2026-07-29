@@ -1,0 +1,240 @@
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g04/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g04") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.66s
+     Running tests/message_v3/post/g04/main.rs (target/debug/deps/message_v3_g04-45e5593c3c9df40b)
+
+running 2 tests
+test g04_writes_reviewable_dual_persona_artifacts ... FAILED
+test g04_revoke_is_idempotent_and_updates_last_post_for_both_personas ... FAILED
+
+failures:
+
+---- g04_writes_reviewable_dual_persona_artifacts stdout ----
+
+thread 'g04_writes_reviewable_dual_persona_artifacts' (8820053) panicked at crates/helix-im/tests/message_v3/post/g04/main.rs:142:10:
+G-04 authority must persist atomically
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- g04_revoke_is_idempotent_and_updates_last_post_for_both_personas stdout ----
+
+thread 'g04_revoke_is_idempotent_and_updates_last_post_for_both_personas' (8820052) panicked at crates/helix-im/tests/message_v3/post/g04/main.rs:142:10:
+G-04 authority must persist atomically
+
+
+failures:
+    g04_revoke_is_idempotent_and_updates_last_post_for_both_personas
+    g04_writes_reviewable_dual_persona_artifacts
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p helix-im --test message_v3_g04`
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g04/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g04") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.64s
+     Running tests/message_v3/post/g04/main.rs (target/debug/deps/message_v3_g04-45e5593c3c9df40b)
+
+running 2 tests
+test g04_revoke_is_idempotent_and_updates_last_post_for_both_personas ... FAILED
+test g04_writes_reviewable_dual_persona_artifacts ... FAILED
+
+failures:
+
+---- g04_revoke_is_idempotent_and_updates_last_post_for_both_personas stdout ----
+
+thread 'g04_revoke_is_idempotent_and_updates_last_post_for_both_personas' (8825966) panicked at crates/helix-im/tests/message_v3/post/g04/main.rs:158:9:
+missing revoke authority column type
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- g04_writes_reviewable_dual_persona_artifacts stdout ----
+
+thread 'g04_writes_reviewable_dual_persona_artifacts' (8825967) panicked at crates/helix-im/tests/message_v3/post/g04/main.rs:158:9:
+missing revoke authority column type
+
+
+failures:
+    g04_revoke_is_idempotent_and_updates_last_post_for_both_personas
+    g04_writes_reviewable_dual_persona_artifacts
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p helix-im --test message_v3_g04`
+    Checking helix-core v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-core)
+    Checking helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.06s
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g04/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `gate_bundle` is never used
+  --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:19:8
+   |
+19 | pub fn gate_bundle(
+   |        ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `write_bundle` is never used
+   --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:211:8
+    |
+211 | pub fn write_bundle(output: &Path, bundle: &ArtifactBundle) -> Result<Vec<PathBuf>, String> {
+    |        ^^^^^^^^^^^^
+
+warning: `helix-im` (test "message_v3_g04") generated 1 warning
+warning: `helix-im` (test "message_v3_artifact_schema") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.71s
+     Running tests/message_v3/contracts/artifact_schema/main.rs (target/debug/deps/message_v3_artifact_schema-ae3483f0d0844708)
+
+running 5 tests
+test sensitive_fields_are_rejected_before_artifact_write ... ok
+test repeated_generation_is_byte_and_hash_stable ... ok
+test artifact_schema_rejects_retired_wrapper_fields ... ok
+test four_generated_artifacts_match_contract_schemas ... ok
+test generated_tree_matches_schemas_when_requested ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/message_v3/post/g04/main.rs (target/debug/deps/message_v3_g04-45e5593c3c9df40b)
+
+running 2 tests
+test g04_writes_reviewable_dual_persona_artifacts ... ok
+test g04_revoke_is_idempotent_and_updates_last_post_for_both_personas ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.75s
+     Running tests/s1_ws_actions_test.rs (target/debug/deps/s1_ws_actions_test-cca88e9011cb30c8)
+
+running 2 tests
+test posts_update_revoke_ignores_legacy_system_event_metadata ... ok
+test posts_update_revoke_without_actor_metadata_keeps_business_fact_only ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+{"verdict":"PASS","gates":30,"missing":[],"extra":[],"duplicate":[],"generated":{"state":"PARTIAL","missing":["G-04a","G-05","G-06","G-07","G-08","G-09","G-10","G-10a","G-10b","G-10c","G-10d","G-11","G-11a","G-12","G-13","G-14","G-14a","G-15","G-16","G-16b","G-16c","G-S1","G-S2","G-S3","G-S4"],"extra":[]},"active":1,"consumerSync":"NOT_SYNCED_BY_SCOPE","selfTest":"PASS"}

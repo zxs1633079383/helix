@@ -189,6 +189,12 @@ impl ImModule {
             CorrelationContext::MessageV3PostReadback { received_data } => {
                 self.handle_message_v3_post_readback_reply(*received_data, outcome, out)?;
             }
+            CorrelationContext::MessageV3RevokeChannelPersist { channel_id } => {
+                self.handle_message_v3_revoke_channel_persist_reply(channel_id, outcome, out);
+            }
+            CorrelationContext::MessageV3RevokeChannelReadback => {
+                self.handle_message_v3_revoke_channel_readback_reply(outcome, out)?;
+            }
             // 路由（E4）：on_start Scan 回报 → 加载 cursor + 触发 proactive resync
             CorrelationContext::ScanCursors => match outcome {
                 PortOutcome::Ok(reply) => {
@@ -1192,6 +1198,7 @@ impl ImModule {
                 target_seq,
                 pending_domain_events,
                 pending_action,
+                refresh_legacy_timeline,
             } => match outcome {
                 PortOutcome::Ok(_) => {
                     let committed = self
@@ -1224,7 +1231,9 @@ impl ImModule {
                                 .pending_authority_actions
                                 .remove(&(pending.kind, pending.message_id.clone()));
                         }
-                        self.refresh_attached_latest_timeline(channel_id, causation_id, out)?;
+                        if refresh_legacy_timeline {
+                            self.refresh_attached_latest_timeline(channel_id, causation_id, out)?;
+                        }
                     }
                 }
                 PortOutcome::Err(error) => {

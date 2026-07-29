@@ -77,6 +77,12 @@ pub enum CorrelationContext {
         received_data: Box<serde_json::Value>,
     },
 
+    /// G-04 update_channel.lastPost 已进入 channel/current-viewer member 原子写集。
+    MessageV3RevokeChannelPersist { channel_id: ChannelId },
+
+    /// G-04 复合键读回只释放 channel 绝对态，不重复发布 post revoke。
+    MessageV3RevokeChannelReadback,
+
     /// on_start `Scan(_helix_monotonic)` 回报：载入 per-channel cursor + proactive resync（取代旧 `scan_corr`）。
     ScanCursors,
 
@@ -431,6 +437,8 @@ pub enum CorrelationContext {
         target_seq: crate::state::Seq,
         pending_domain_events: Vec<Vec<u8>>,
         pending_action: Option<crate::projector::action::PendingAuthorityAction>,
+        /// 撤回 Gate 已迁移为 raw MessageV3，不再刷新旧 timeline Frame。
+        refresh_legacy_timeline: bool,
     },
 
     /// Single `post_update` fact and its channel cursor share one durable commit. The render-ready update is

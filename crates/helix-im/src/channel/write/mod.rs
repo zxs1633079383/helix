@@ -19,6 +19,7 @@ mod members;
 mod patch;
 mod post;
 mod program;
+mod revoke;
 
 use helix_core::effect::SqlValue;
 
@@ -29,6 +30,7 @@ pub use post::{
     post_updates_from_fields, PostChannelUpdate,
 };
 pub use program::program_full;
+pub use revoke::message_v3_revoke_channel_ops;
 
 /// 一列（列名 `&'static str` 编译期常量，值 owned）。
 pub type ChannelCol = (&'static str, SqlValue);

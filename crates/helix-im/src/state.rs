@@ -460,6 +460,8 @@ impl ImState {
                 context,
                 CorrelationContext::ChannelPersist { .. }
                     | CorrelationContext::ChannelTerminalPersist { .. }
+                    | CorrelationContext::MessageV3RevokeChannelPersist { .. }
+                    | CorrelationContext::MessageV3RevokeChannelReadback
                     | CorrelationContext::SyncPull { .. }
                     | CorrelationContext::IncrementBatchPersist { .. }
                     | CorrelationContext::IncrementHydrationPersist { .. }

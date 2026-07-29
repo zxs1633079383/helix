@@ -86,33 +86,43 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let PortOutcome::Ok(reply) = outcome else {
-            return Ok(());
-        };
-        let rows = helix_core::port_codec::rows_from_reply_bytes(&reply.0)
-            .map_err(|error| ImError::Parse(format!("G-01 member readback: {error}")))?;
-        let Some(row) = rows.first() else {
-            return Ok(());
-        };
-        let channel_id = text_column(row, "channel_id");
-        let unread_count = integer_column(row, "unread_count");
-        let last_post = text_column(row, "last_post")
-            .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok());
-        let (Some(channel_id), Some(unread_count), Some(last_post)) =
-            (channel_id, unread_count, last_post)
-        else {
+        let Some(channel) = channel_update_from_member_readback(outcome)? else {
             return Ok(());
         };
         let received = crate::event::post::received(received_data)?;
-        let channel = crate::event::channel::update(serde_json::json!({
-            "channelId": channel_id,
-            "lastPost": last_post,
-            "unreadCount": unread_count,
-        }))?;
         out.push(received.into_effect());
         out.push(channel.into_effect());
         Ok(())
     }
+}
+
+/// 从当前 viewer 的复合键读回构造唯一 channel 绝对态事件。
+pub(super) fn channel_update_from_member_readback(
+    outcome: &PortOutcome,
+) -> Result<Option<crate::event::MessageV3Event>, ImError> {
+    let PortOutcome::Ok(reply) = outcome else {
+        return Ok(None);
+    };
+    let rows = helix_core::port_codec::rows_from_reply_bytes(&reply.0)
+        .map_err(|error| ImError::Parse(format!("channel member readback: {error}")))?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let channel_id = text_column(row, "channel_id");
+    let unread_count = integer_column(row, "unread_count");
+    let last_post = text_column(row, "last_post")
+        .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok());
+    let (Some(channel_id), Some(unread_count), Some(last_post)) =
+        (channel_id, unread_count, last_post)
+    else {
+        return Ok(None);
+    };
+    crate::event::channel::update(serde_json::json!({
+        "channelId": channel_id,
+        "lastPost": last_post,
+        "unreadCount": unread_count,
+    }))
+    .map(Some)
 }
 
 /// 从 driver row 读取文本列，不接受隐式类型转换。

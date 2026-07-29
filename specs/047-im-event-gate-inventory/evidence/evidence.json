@@ -104,6 +104,19 @@
           "sha256": "a7ee3f35522e12dd5e46c2f45946831c33c3bb4f839c62a7443b2c1f064a9be5"
         }
       ]
+    },
+    {
+      "id": "p2-g04-focused",
+      "command": "cargo check -p helix-im + cargo test G-04 + revoke regressions + Rust artifact generation/byte-exact rerun + partial schema + cutover self-test + hot-path audit",
+      "started_at": "2026-07-29T12:32:23Z",
+      "ended_at": "2026-07-29T12:48:22Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p2-g04-focused.txt",
+          "sha256": "40c4791af9dce8e51fe1f14d6a6b7c132bcea21cd90093cd3020fcbcecee8611"
+        }
+      ]
     }
   ]
 }

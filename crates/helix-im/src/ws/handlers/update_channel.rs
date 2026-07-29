@@ -18,12 +18,39 @@ const UPDATE_CHANNEL_ACTION: &str = "update_channel";
 
 struct UpdateChannelHandler;
 
+/// 解析 Go 的 JSON 字符串/对象 lastPost，仅识别 revoke=true 的 G-04 分支。
+fn revoke_last_post(data: &serde_json::Value) -> Result<Option<serde_json::Value>, ImError> {
+    let channel = data.get("channel").unwrap_or(data);
+    let Some(raw) = data
+        .get("lastPost")
+        .or_else(|| data.get("last_post"))
+        .or_else(|| channel.get("lastPost"))
+        .or_else(|| channel.get("last_post"))
+    else {
+        return Ok(None);
+    };
+    let post = match raw {
+        serde_json::Value::String(encoded) => serde_json::from_str(encoded)
+            .map_err(|error| ImError::Parse(format!("update_channel lastPost: {error}")))?,
+        serde_json::Value::Object(_) => raw.clone(),
+        _ => return Ok(None),
+    };
+    if !post
+        .get("revoke")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Ok(None);
+    }
+    crate::event::post::revoke_last_post_from_authority(&post).map(Some)
+}
+
 impl WsMessageHandler for UpdateChannelHandler {
     fn action(&self) -> &'static str {
         UPDATE_CHANNEL_ACTION
     }
 
-    /// 将 update_channel 权威字段先写入相关事务，PersistOk 后才发布可见 Frame。
+    /// G-04 lastPost 走写后读回 MessageV3；其余 channel patch 暂留旧投影路径。
     fn handle(
         &self,
         ctx: &mut ImWsContext<'_>,
@@ -52,6 +79,20 @@ impl WsMessageHandler for UpdateChannelHandler {
             channel,
             ctx.auth_user_id,
         );
+        if let Some(last_post) = revoke_last_post(data)? {
+            let corr = ctx.alloc_corr();
+            let ops = crate::channel_write::message_v3_revoke_channel_ops(
+                channel_id,
+                ctx.auth_user_id,
+                &last_post,
+            );
+            ctx.state.corr_map.insert(
+                corr,
+                crate::state::CorrelationContext::MessageV3RevokeChannelPersist { channel_id },
+            );
+            out.push(helix_core::Effect::PersistAtomic { corr, ops });
+            return Ok(());
+        }
 
         // 收 Some 字段 → PATCH（空集 = 无可写字段，update_channel_partial 返回 None → 不 push）。
         let mut ops = Vec::with_capacity(2);
@@ -113,9 +154,7 @@ impl WsMessageHandler for UpdateChannelHandler {
         } else if !ops.is_empty() {
             out.push(helix_core::Effect::PersistFire { ops });
         }
-        // 独立 update_channel 推送（per-member 改群属性如对话置顶 channel/change/top、改群名/公告
-        // 等定向本人 PATCH）落库后须 emit `im:channel:update`（thin·{channel_id}）通知对应 channel
-        // surface 刷新。左侧列表不消费这个信号，只消费上面的 render-ready InteractionFrame。
+        // 未迁移的通用 update_channel 推送仍发布旧 thin 信号；G-04 已在上方写后读回并提前返回。
         out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         let setting_version = channel
             .get("settingVersion")

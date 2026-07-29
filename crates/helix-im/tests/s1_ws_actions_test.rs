@@ -567,8 +567,9 @@ fn posts_update_batch_revoke_and_edit_s1() {
     assert!(bus_has_posts, "batch-updated payload 须含 posts 数组");
 }
 
+/// G-04 撤回只发布 authority 业务事实，忽略旧 system_event 展示元数据。
 #[test]
-fn posts_update_revoke_emits_viewer_ready_system_event_from_optional_event_metadata() {
+fn posts_update_revoke_ignores_legacy_system_event_metadata() {
     let mut h = Harness::new_with_identity(&[3], "viewer-444", "", "", "", "");
     let _ = h.step(
         inbound(serde_json::json!({
@@ -604,25 +605,24 @@ fn posts_update_revoke_emits_viewer_ready_system_event_from_optional_event_metad
         1_000,
     );
     let corr = persist_atomic_corr(&h.sink);
-    assert!(emit_data(&h.sink, "im:post:deleted").is_empty());
+    assert!(emit_data(&h.sink, "im:post:revoke").is_empty());
     let _ = h.step(port_reply_ok(corr), 1_001);
-    let deleted = emit_data(&h.sink, "im:post:deleted");
-    assert_eq!(deleted.len(), 1);
-    let data = &deleted[0];
-    assert_eq!(data["systemEvent"], "message-recalled");
-    assert_eq!(data["eventId"], format!("revoke:{}:1", cid(3)));
+    let revoked = emit_data(&h.sink, "im:post:revoke");
+    assert_eq!(revoked.len(), 1);
+    let data = &revoked[0];
+    assert_eq!(data["id"], "00000000000000000000000010");
+    assert_eq!(data["channelId"], cid(3));
     assert_eq!(data["eventSeq"], 1);
-    assert_eq!(data["actorId"], "viewer-444");
-    assert_eq!(data["targetMsgId"], "00000000000000000000000010");
-    assert_eq!(data["displayText"], "你撤回了一条消息");
-    assert_ne!(
-        data["actorId"], data["userId"],
-        "原消息作者不得冒充撤回 actor"
-    );
+    assert_eq!(data["userId"], "original-author");
+    assert_eq!(data["revoke"], true);
+    assert!(data.get("systemEvent").is_none());
+    assert!(data.get("displayText").is_none());
+    assert!(data.get("actorId").is_none());
 }
 
+/// G-04 不依赖 actor 展示元数据，缺失时仍发布同一撤回绝对态。
 #[test]
-fn posts_update_revoke_without_actor_metadata_falls_back_visible_and_not_self() {
+fn posts_update_revoke_without_actor_metadata_keeps_business_fact_only() {
     let mut h = Harness::new_with_identity(&[3], "original-author", "", "", "", "");
     let _ = h.step(
         inbound(serde_json::json!({
@@ -641,14 +641,17 @@ fn posts_update_revoke_without_actor_metadata_falls_back_visible_and_not_self() 
         1_000,
     );
     let corr = persist_atomic_corr(&h.sink);
-    assert!(emit_data(&h.sink, "im:post:deleted").is_empty());
+    assert!(emit_data(&h.sink, "im:post:revoke").is_empty());
     let _ = h.step(port_reply_ok(corr), 1_001);
-    let deleted = emit_data(&h.sink, "im:post:deleted");
-    assert_eq!(deleted.len(), 1);
-    assert_eq!(deleted[0]["actorAvailable"], false);
-    assert_eq!(deleted[0]["actorId"], "");
-    assert_eq!(deleted[0]["displayText"], "某人撤回了一条消息");
-    assert_eq!(deleted[0]["isSelf"], false);
+    let revoked = emit_data(&h.sink, "im:post:revoke");
+    assert_eq!(revoked.len(), 1);
+    assert_eq!(revoked[0]["id"], "00000000000000000000000010");
+    assert_eq!(revoked[0]["channelId"], cid(3));
+    assert_eq!(revoked[0]["userId"], "original-author");
+    assert_eq!(revoked[0]["revoke"], true);
+    assert!(revoked[0].get("actorAvailable").is_none());
+    assert!(revoked[0].get("displayText").is_none());
+    assert!(revoked[0].get("isSelf").is_none());
 }
 
 /// 回归锚: S1 —— posts_update 缺 posts 数组 → 整体 noop（不可识别 payload 静默忽略）。

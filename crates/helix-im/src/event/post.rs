@@ -114,6 +114,60 @@ pub fn revoke(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:post:revoke", data)
 }
 
+/// 从 posts_update authority 构造不含传输元数据的撤回事实。
+pub fn revoke_from_authority(
+    post: &Value,
+    event_seq: u64,
+) -> Result<MessageV3Event, crate::ImError> {
+    revoke(canonical_revoke_data(post, Some(event_seq))?)
+}
+
+/// 从 update_channel.lastPost authority 构造可持久化的业务 lastPost。
+pub fn revoke_last_post_from_authority(post: &Value) -> Result<Value, crate::ImError> {
+    canonical_revoke_data(post, None)
+}
+
+/// 把 snake/camel 入站别名收敛为单份 MessageV3 撤回字段。
+fn canonical_revoke_data(post: &Value, event_seq: Option<u64>) -> Result<Value, crate::ImError> {
+    let id = text_alias(post, &["id", "postId", "post_id"])
+        .ok_or_else(|| crate::ImError::Parse("revoke authority missing id".to_string()))?;
+    let channel_id = text_alias(post, &["channelId", "channel_id"])
+        .ok_or_else(|| crate::ImError::Parse("revoke authority missing channelId".to_string()))?;
+    let mut data = serde_json::json!({
+        "id": id,
+        "channelId": channel_id,
+        "revoke": true,
+    });
+    if let Some(event_seq) = event_seq {
+        data["eventSeq"] = serde_json::json!(event_seq);
+    }
+    for (canonical, aliases) in [
+        ("temporaryId", &["temporaryId", "temporary_id"][..]),
+        ("userId", &["userId", "user_id"][..]),
+        ("type", &["type"][..]),
+        ("message", &["message"][..]),
+        ("createAt", &["createAt", "create_at"][..]),
+        ("updateAt", &["updateAt", "update_at"][..]),
+    ] {
+        if let Some(value) = value_alias(post, aliases) {
+            data[canonical] = value.clone();
+        }
+    }
+    Ok(data)
+}
+
+/// 按顺序读取字符串别名，拒绝空 identity。
+fn text_alias<'a>(value: &'a Value, aliases: &[&str]) -> Option<&'a str> {
+    value_alias(value, aliases)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+}
+
+/// 按协议优先级读取第一个存在的字段。
+fn value_alias<'a>(value: &'a Value, aliases: &[&str]) -> Option<&'a Value> {
+    aliases.iter().find_map(|key| value.get(*key))
+}
+
 /// 构造消息字段更新事实。
 pub fn update(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:post:update", data)

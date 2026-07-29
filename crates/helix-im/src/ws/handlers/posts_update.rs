@@ -1,8 +1,9 @@
 //! `posts_update` action handler（type=2/3 批量编辑/撤回，spec §S1/§S4）。
 //!
 //! 行为真源：现网 `handlers/post.rs:226 handle_batch_update` → `message_service::handle_batch_update`
-//! 保存所有 posts + emit `im:post:batch-updated`；cursor 由顶层 `data.event_seq` 推进
-//! （post.rs:266，posts_update 帧 event_seq 在 TOP-LEVEL，不在 per-post props）。
+//! 保存所有 posts；Helix 对 revoke 发布 `im:post:revoke`，尚未迁移的 edit 暂留
+//! `im:post:batch-updated`。cursor 由顶层 `data.event_seq` 推进（post.rs:266，
+//! posts_update 帧 event_seq 在 TOP-LEVEL，不在 per-post props）。
 //!
 //! wire：`data.posts: [Post]`。per-post `revoke==true` → type=3（revoke_op），否则 type=2
 //! （edit_content_op）。cursor 推进一次（顶层 event_seq，复用 frame.event_seq 三级 fallback）。
@@ -19,64 +20,12 @@ const POSTS_UPDATE_ACTION: &str = "posts_update";
 
 struct PostsUpdateHandler;
 
-#[derive(Default)]
-struct RecallEventMeta {
-    event_id: String,
-    event_seq: u64,
-    actor_id: String,
-    occurred_at: i64,
-}
-
-fn recall_event_meta(
-    data: &serde_json::Value,
-    post: &serde_json::Value,
-    msg_id: &str,
-    fallback_seq: u64,
-) -> RecallEventMeta {
-    let system_event = data
-        .get("system_event")
-        .or_else(|| data.get("systemEvent"))
-        .filter(|event| {
-            event
-                .get("targetMsgId")
-                .and_then(serde_json::Value::as_str)
-                .map(|target| target == msg_id)
-                .unwrap_or(true)
-        })
-        .or_else(|| {
-            post.get("props")
-                .and_then(|props| props.get("system_event"))
-        });
-    RecallEventMeta {
-        event_id: system_event
-            .and_then(|event| event.get("eventId"))
-            .and_then(serde_json::Value::as_str)
-            .or_else(|| data.get("event_id").and_then(serde_json::Value::as_str))
-            .unwrap_or_default()
-            .to_string(),
-        event_seq: system_event
-            .and_then(|event| event.get("eventSeq"))
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(fallback_seq),
-        actor_id: system_event
-            .and_then(|event| event.get("actorId"))
-            .and_then(serde_json::Value::as_str)
-            .or_else(|| data.get("actor_id").and_then(serde_json::Value::as_str))
-            .unwrap_or_default()
-            .to_string(),
-        occurred_at: system_event
-            .and_then(|event| event.get("occurredAt"))
-            .and_then(serde_json::Value::as_i64)
-            .or_else(|| data.get("occurred_at").and_then(serde_json::Value::as_i64))
-            .unwrap_or(0),
-    }
-}
-
 impl WsMessageHandler for PostsUpdateHandler {
     fn action(&self) -> &'static str {
         POSTS_UPDATE_ACTION
     }
 
+    /// 将同一 channel 的编辑/撤回事实与 cursor 原子提交，撤回只释放 MessageV3。
     fn handle(
         &self,
         ctx: &mut ImWsContext<'_>,
@@ -92,8 +41,6 @@ impl WsMessageHandler for PostsUpdateHandler {
             return Ok(());
         };
 
-        // metadata 为 additive：新 Go wire 提供 data.system_event；旧帧无该字段时明确 unavailable。
-        let fallback_seq = frame.event_seq().map(|seq| seq.0).unwrap_or(0);
         let top_channel_id = data
             .get("channelId")
             .or_else(|| data.get("channel_id"))
@@ -139,6 +86,7 @@ impl WsMessageHandler for PostsUpdateHandler {
         let mut pending_domain_events = Vec::new();
         let mut pending_action = None;
         let mut channel_id: Option<ChannelId> = None;
+        let mut saw_edit = false;
         for post in posts {
             let Some(msg_id) = post
                 .get("id")
@@ -159,8 +107,10 @@ impl WsMessageHandler for PostsUpdateHandler {
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
             let op = if is_revoke {
-                crate::channel::revoke_op(msg_id)
+                let fields = extract_post_fields(post);
+                crate::channel::revoke_authority_op(msg_id, fields, target_seq.0)
             } else {
+                saw_edit = true;
                 crate::channel::edit_content_op(msg_id, &extract_post_fields(post))
             };
             ops.push(op);
@@ -175,30 +125,9 @@ impl WsMessageHandler for PostsUpdateHandler {
                         ))
                         .cloned();
                 }
-                let fields = extract_post_fields(post);
-                let meta = recall_event_meta(data, post, msg_id, fallback_seq);
-                let projection_channel = post
-                    .get("channelId")
-                    .or_else(|| post.get("channel_id"))
-                    .and_then(serde_json::Value::as_str)
-                    .and_then(ChannelId::from_str)
-                    .or(top_channel_id);
-                if let Some(cid) = projection_channel {
-                    if let Effect::Emit { event } =
-                        crate::acl::to_effect::emit_post_deleted_for_viewer(
-                            cid,
-                            meta.event_seq,
-                            msg_id,
-                            &fields,
-                            meta.event_id.as_str(),
-                            meta.actor_id.as_str(),
-                            meta.occurred_at,
-                            ctx.auth_user_id,
-                        )
-                    {
-                        pending_domain_events.push(event.0.to_vec());
-                    }
-                }
+                pending_domain_events.push(
+                    crate::event::post::revoke_from_authority(post, target_seq.0)?.into_bytes(),
+                );
             }
         }
 
@@ -210,8 +139,11 @@ impl WsMessageHandler for PostsUpdateHandler {
                 .and_then(ChannelId::from_str)
         });
 
-        // A4 legacy event stays available for compatibility, but only on the committed side of the barrier.
-        if let Some(cid) = channel_id {
+        // 非撤回 batch 暂留旧 edit 事件；撤回 Gate 禁止再发布 deleted/batch alias。
+        if saw_edit {
+            let Some(cid) = channel_id else {
+                return Ok(());
+            };
             if let Effect::Emit { event } = crate::acl::to_effect::emit_post_batch_updated(
                 cid,
                 data.get("posts").unwrap_or(&serde_json::Value::Null),
@@ -231,6 +163,7 @@ impl WsMessageHandler for PostsUpdateHandler {
                 target_seq,
                 pending_domain_events,
                 pending_action,
+                refresh_legacy_timeline: saw_edit,
             },
         );
         out.push(Effect::PersistAtomic { corr, ops });

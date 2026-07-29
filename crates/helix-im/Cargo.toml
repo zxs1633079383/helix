@@ -50,6 +50,10 @@ path = "tests/message_v3/post/g02/main.rs"
 name = "message_v3_g03a"
 path = "tests/message_v3/post/g03a/main.rs"
 
+[[test]]
+name = "message_v3_g04"
+path = "tests/message_v3/post/g04/main.rs"
+
 [[bench]]
 name = "step_inorder"
 harness = false

@@ -67,9 +67,11 @@ E3；E4 runtime、E5 真实 dual-user、跨端 mirror 后的 E6 canonical 均为
 | G-01 regression | TEXT payload 仍不携业务空 props 或技术 `channel_event_seq`，未读规则保持不变 | E1/E2 | `PASS 2/2` | `evidence/p2-g02-focused.txt` | 只证明 G-02 扩展未膨胀 G-01 终态 |
 | G-03a | 初次发送失败、同 temporaryId retry、PersistOk 后 HTTP、成功 authority 及双视角读回 | E1/E2 | `PASS 2/2` | `evidence/p2-g03a-focused.txt`、`.v1/gates/G-03a/generated/` | 初次 optimistic sending 仅为失败前置；Gate sender 产物从 failed 开始，未执行真实 HTTP/Go |
 | G-03a retry terminal | posts/create 成功/失败终态保留 retry window 与 causation；失败只发最小 MessageV3 identity/status | E2 | `PASS 2/2` | `evidence/p2-g03a-focused.txt` | 仅 Rust unit；旧 Frame 断言仍待 P7 物理下线 |
-| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 4 of 30` | `evidence/p2-g03a-focused.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 26 Gate 未生成 |
+| G-04 | sender/receiver 独立回放、posts_update 撤回原子提交、update_channel lastPost 原子写与复合键读回 | E1/E2 | `PASS 2/2` | `evidence/p2-g04-focused.txt`、`.v1/gates/G-04/generated/` | system_event 只保留在入站证据，不进入业务 event；双 persona 仍非真实双账号 |
+| G-04 legacy regression | 在线撤回不再发布 deleted/batch/Frame，旧 metadata 有无均收敛为同一最小 revoke 事实 | E2 | `PASS 2/2` | `evidence/p2-g04-focused.txt` | 混合 edit+revoke 仍为未迁移 edit 保留 batch；离线 G-04a 尚未硬切 |
+| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a/G-04 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 5 of 30` | `evidence/p2-g04-focused.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 25 Gate 未生成 |
 
-G-02 与 G-03a 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
+G-02、G-03a 与 G-04 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
 E4 runtime、E5 真实 dual-user 与消费者同步后的 E6 canonical 均为 `NOT_RUN`；
 消费者同步继续为 `NOT_SYNCED_BY_SCOPE`。
 

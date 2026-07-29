@@ -208,6 +208,19 @@
           "sha256": "fae431b3ebf8b1c4128797134f54253866f39d771f8aa0c551041b8a2b1bafb0"
         }
       ]
+    },
+    {
+      "id": "p2-g14a-focused",
+      "command": "G-14a producer generation + focused test + partial artifact schema + cargo check + hot-path audit + cutover self-test + diff check",
+      "started_at": "2026-07-29T15:45:00Z",
+      "ended_at": "2026-07-29T14:54:12Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p2-g14a-focused.txt",
+          "sha256": "9ac5138f2eaf272516e646b60dcb6b3d18d9accb66ae8a73d1742f0c5cd5d33a"
+        }
+      ]
     }
   ]
 }

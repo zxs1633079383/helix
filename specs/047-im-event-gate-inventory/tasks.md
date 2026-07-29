@@ -111,8 +111,8 @@ Gate 从此只能走 MessageV3。
 - [X] T039 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/post_update.rs` 实现 G-07，生成 JSON，删除旧 urgent Frame/VM 并更新 ledger
 - [X] T040 [US2] 新增 `crates/helix-im/tests/message_v3/read/g14/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g14`，先覆盖单条已读、发送者回执视图、参与人独立状态与恢复并观察失败
 - [X] T041 [US2] 在 `crates/helix-im/src/event/read.rs`、`crates/helix-im/src/ws/handlers/post_read.rs`、`crates/helix-im/src/port_reply/message_v3_read.rs` 实现 G-14，生成 JSON，删除旧 read Frame 并更新 ledger
-- [ ] T042 [US2] 新增 `crates/helix-im/tests/message_v3/post/g14a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g14a`，先覆盖模板确认、权威已收到状态与冷启动恢复并观察失败
-- [ ] T043 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/post_update.rs` 实现 G-14a，生成 JSON，删除旧 template Frame/VM 并更新 ledger
+- [X] T042 [US2] 新增 `crates/helix-im/tests/message_v3/post/g14a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g14a`，覆盖模板确认、双视角绝对态、幂等与冷启动恢复
+- [X] T043 [US2] 在 `crates/helix-im/src/event/post/template.rs`、`crates/helix-im/src/channel/write/template.rs`、`crates/helix-im/src/port_reply/message_v3_template.rs`、`crates/helix-im/src/ws/handlers/post_update.rs` 实现 G-14a，生成 JSON，删除旧 template Frame/VM 并更新 ledger
 
 **Checkpoint**: 九个 Post 行为 Gate 全部以同一 identity 幂等更新，未完成的 receiver 行为保持
 MISSING/INFERRED，不用手写 JSON 填绿。

@@ -79,9 +79,11 @@ E3；E4 runtime、E5 真实 dual-user、跨端 mirror 后的 E6 canonical 均为
 | G-07 加急回归 | `expedite_map + event_seq + update_at` 独立列更新、同 seq 幂等、乱序确认等待 active、冷启动 row 重建；payload 不含 urgent 派生别名或 capabilities | E2 | `PASS 4/4` | `evidence/p2-g07-final.txt` | participant roster 来自独立 channel-member Gate；G-07 只发布 post 的绝对 `expediteMap` |
 | G-14 | `im_post_read` wire、无序 WS `post_read` 权威位图、PersistOk 后 sender/receiver viewer 分流 | E1/E2 | `PASS 4/4` | `evidence/p2-g14-verified.txt`、`.v1/gates/G-14/generated/` | sender/receiver 是独立本地回放，不证明 Go 的真实双账号广播 |
 | G-14 已读回归 | `message.read_bits` O(1) 覆盖且不推进 cursor；重复/旧 revision 幂等，失败不 Emit，冷启动由 durable row 重建 viewer 事件 | E2 | `PASS 4/4` | `evidence/p2-g14-verified.txt` | receiver `readerIds` 仅表示当前可信广播 actor，不推导完整参与人 roster |
-| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a/G-04/G-04a/G-05/G-06/G-07/G-14 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 10 of 30` | `evidence/p2-g14-verified.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 20 Gate 未生成 |
+| G-14a | `im_template_received` HTTP admission、可信 `post_update.props.template.userIds`、message/cursor 原子提交与 durable row 读回 | E1/E2 | `PASS 5/5` | `evidence/p2-g14a-focused.txt`、`.v1/gates/G-14a/generated/` | sender/receiver 是独立本地回放，不证明 Go 的真实双账号广播 |
+| G-14a 模板回归 | 仅发布本地 message 表真实 `props/event_seq/update_at`，不附加 `templateReceived/templateConfirmedCount/readerIds` 或 capabilities；同 seq 幂等、乱序与冷启动收敛 | E2 | `PASS 5/5` | `evidence/p2-g14a-focused.txt` | 确认计数由消费者按真实 `props.template.userIds` 读取，不作为 Helix 派生协议字段 |
+| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a/G-04/G-04a/G-05/G-06/G-07/G-14/G-14a 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 11 of 30` | `evidence/p2-g14a-focused.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 19 Gate 未生成 |
 
-G-02、G-03a、G-04、G-04a、G-05、G-06、G-07 与 G-14 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
+G-02、G-03a、G-04、G-04a、G-05、G-06、G-07、G-14 与 G-14a 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
 E4 runtime、E5 真实 dual-user 与消费者同步后的 E6 canonical 均为 `NOT_RUN`；
 消费者同步继续为 `NOT_SYNCED_BY_SCOPE`。
 

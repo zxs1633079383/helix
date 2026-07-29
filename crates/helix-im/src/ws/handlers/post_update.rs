@@ -5,7 +5,7 @@
 //!
 //! wire：`data` 即 post 对象（顶层 `id` / `channelId` / `message` / `props` / `event_seq`）。
 //! 落库：普通 edit 走 `edit_content_op`；G-06 quickReply 走独立单列写与 cursor 原子提交，
-//! PersistOk 后再读 durable row。两者都保留本地 read_bits/send_status。
+//! PersistOk 后再读 durable row。G-14a template props 走同一 MessageV3 连续性链。
 //!
 //! BLOCKING-2：cursor 推进经 **channel gate**（严格 +1 / drop / buffer+1s-gate），与 post handler
 //! 的 `ch.ingest` 同口径——**不再**用 `try_advance` MAX-jump（会跨过两条 edit 间漏掉的 post 空洞
@@ -79,7 +79,12 @@ pub(super) fn apply_post_update(
     let Some(target_seq) = frame.event_seq() else {
         return;
     };
-    if !fields.quick_reply.is_empty() || !fields.expedite_map.is_empty() {
+    let has_template_confirmation =
+        crate::event::post::has_template_confirmation(fields.props.as_str());
+    if !fields.quick_reply.is_empty()
+        || !fields.expedite_map.is_empty()
+        || has_template_confirmation
+    {
         let event = crate::sync_session::EventEnvelope::new(
             channel_id,
             target_seq,
@@ -98,8 +103,10 @@ pub(super) fn apply_post_update(
             let corr = ctx.alloc_corr();
             if !event.fields.quick_reply.is_empty() {
                 crate::port_reply::message_v3_reaction::queue_commit(ctx.state, corr, event, out);
-            } else {
+            } else if !event.fields.expedite_map.is_empty() {
                 crate::port_reply::message_v3_urgent::queue_commit(ctx.state, corr, event, out);
+            } else {
+                crate::port_reply::message_v3_template::queue_commit(ctx.state, corr, event, out);
             }
         }
         super::gate::trigger_backfill_if_large_gap(ctx, channel_id, target_seq, out);

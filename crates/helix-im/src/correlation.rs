@@ -101,6 +101,14 @@ pub enum CorrelationContext {
     /// G-07 提交成功后的 durable message 单行读回。
     MessageV3UrgentReadback { message_id: String },
 
+    /// G-14a 模板 props 与 cursor 的原子提交屏障。
+    MessageV3TemplatePersist {
+        event: Box<crate::sync_session::EventEnvelope>,
+    },
+
+    /// G-14a 提交成功后的 durable message 单行读回。
+    MessageV3TemplateReadback,
+
     /// on_start `Scan(_helix_monotonic)` 回报：载入 per-channel cursor + proactive resync（取代旧 `scan_corr`）。
     ScanCursors,
 

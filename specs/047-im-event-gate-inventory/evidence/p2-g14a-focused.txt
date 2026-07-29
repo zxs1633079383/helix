@@ -1,0 +1,150 @@
+$ HELIX_GATE_ARTIFACT_DIR=... cargo test -p helix-im --test message_v3_g14a
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `refresh_attached_read_receipts` is never used
+   --> crates/helix-im/src/surface_runtime.rs:245:19
+    |
+ 78 | impl ImModule {
+    | ------------- method in this implementation
+...
+245 |     pub(crate) fn refresh_attached_read_receipts(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 3 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g14a/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g14a") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.93s
+     Running tests/message_v3/post/g14a/main.rs (target/debug/deps/message_v3_g14a-faadcae1dc6decd0)
+
+running 5 tests
+test g14a_cold_start_row_rebuilds_the_same_event ... ok
+test g14a_persist_failure_emits_no_terminal_event ... ok
+test g14a_gap_buffer_resumes_in_authority_order ... ok
+test g14a_emits_actual_template_props_for_both_personas ... ok
+test g14a_writes_reviewable_dual_persona_artifacts ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+$ HELIX_GATE_ARTIFACT_ALLOW_PARTIAL=1 HELIX_GATE_ARTIFACT_ROOT=... cargo test -p helix-im --test message_v3_artifact_schema generated_tree_matches_schemas_when_requested -- --exact --nocapture
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `refresh_attached_read_receipts` is never used
+   --> crates/helix-im/src/surface_runtime.rs:245:19
+    |
+ 78 | impl ImModule {
+    | ------------- method in this implementation
+...
+245 |     pub(crate) fn refresh_attached_read_receipts(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 3 warnings
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: function `gate_bundle` is never used
+  --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:19:8
+   |
+19 | pub fn gate_bundle(
+   |        ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `write_bundle` is never used
+   --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:211:8
+    |
+211 | pub fn write_bundle(output: &Path, bundle: &ArtifactBundle) -> Result<Vec<PathBuf>, String> {
+    |        ^^^^^^^^^^^^
+
+warning: `helix-im` (test "message_v3_artifact_schema") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.30s
+     Running tests/message_v3/contracts/artifact_schema/main.rs (target/debug/deps/message_v3_artifact_schema-ae3483f0d0844708)
+
+running 1 test
+test generated_tree_matches_schemas_when_requested ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.19s
+
+$ cargo check -p helix-im
+    Checking helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `refresh_attached_read_receipts` is never used
+   --> crates/helix-im/src/surface_runtime.rs:245:19
+    |
+ 78 | impl ImModule {
+    | ------------- method in this implementation
+...
+245 |     pub(crate) fn refresh_attached_read_receipts(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 3 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.19s
+$ hot-path audits
+no hot-path violations in crates/helix-im/src/ws/handlers/post_update.rs
+no hot-path violations in crates/helix-im/src/port_reply/message_v3_template.rs
+no hot-path violations in crates/helix-im/src/channel/write/template.rs
+no hot-path violations in crates/helix-im/src/event/post/template.rs
+$ node cutover self-test
+{"verdict":"PASS","gates":30,"missing":[],"extra":[],"duplicate":[],"generated":{"state":"PARTIAL","missing":["G-08","G-09","G-10","G-10a","G-10b","G-10c","G-10d","G-11","G-11a","G-12","G-13","G-15","G-16","G-16b","G-16c","G-S1","G-S2","G-S3","G-S4"],"extra":[]},"active":1,"consumerSync":"NOT_SYNCED_BY_SCOPE","selfTest":"PASS"}
+$ git diff --check
+$ modified Rust unwrap/expect scan

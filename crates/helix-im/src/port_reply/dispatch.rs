@@ -215,6 +215,12 @@ impl ImModule {
             CorrelationContext::MessageV3UrgentReadback { message_id } => {
                 self.handle_message_v3_urgent_readback_reply(message_id, outcome, out)?;
             }
+            CorrelationContext::MessageV3TemplatePersist { event } => {
+                self.handle_message_v3_template_persist_reply(*event, outcome, out)?
+            }
+            CorrelationContext::MessageV3TemplateReadback => {
+                self.handle_message_v3_template_readback_reply(outcome, out)?;
+            }
             // 路由（E4）：on_start Scan 回报 → 加载 cursor + 触发 proactive resync
             CorrelationContext::ScanCursors => match outcome {
                 PortOutcome::Ok(reply) => {

@@ -5,6 +5,7 @@ use serde_json::Value;
 
 mod forward;
 mod reaction;
+mod template;
 mod urgent;
 
 /// 保存一次 authority 投影生成的 post 终态与 channel lastPost。
@@ -51,6 +52,18 @@ pub fn sending_from_local_body(
 /// 构造服务端已接收消息事实。
 pub fn received(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:post:received", data)
+}
+
+/// 从 durable message row 生成 G-14a 模板确认绝对态。
+pub fn template_update_from_row(
+    row: &helix_core::effect::Row,
+) -> Result<Option<MessageV3Event>, crate::ImError> {
+    template::from_row(row)
+}
+
+/// 判断 props 是否携带服务端模板确认集合。
+pub fn has_template_confirmation(props: &str) -> bool {
+    template::has_confirmation(props)
 }
 
 /// 从 authority 一次解析 props，并生成 post 与 channel 共用的真实结构。

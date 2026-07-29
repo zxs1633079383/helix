@@ -93,6 +93,12 @@ impl ImModule {
             super::message_v3_urgent::queue_commit(&mut self.state, corr, event, out);
             return Ok(());
         }
+        if matches!(event.kind, crate::sync_session::EventKind::PostEdit)
+            && crate::event::post::has_template_confirmation(event.fields.props.as_str())
+        {
+            super::message_v3_template::queue_commit(&mut self.state, corr, event, out);
+            return Ok(());
+        }
         queue_commit(
             &mut self.state,
             self.config.auth_user_id.as_str(),

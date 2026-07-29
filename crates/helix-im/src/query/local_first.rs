@@ -903,6 +903,32 @@ impl ImModule {
                 state.request_id().map(str::to_string),
             )
             .map_err(|error| ImError::Parse(format!("timeline navigation projection: {error}")))?;
+        if let crate::timeline_navigation::TimelineNavigationKind::Older {
+            anchor_post_id, ..
+        } = state.kind()
+        {
+            let page = state.page();
+            let messages = state
+                .rows()
+                .iter()
+                .filter(|row| {
+                    row.get("id").and_then(Value::as_str) != Some(anchor_post_id.as_str())
+                })
+                .cloned()
+                .collect();
+            let _legacy_internal_state = mutation;
+            return Ok(crate::event::timeline::page(
+                state.channel_id().as_str(),
+                state.window_token(),
+                "older",
+                "ready",
+                messages,
+                page.has_older,
+                page.has_newer,
+                Some(anchor_post_id),
+            )?
+            .into_effect());
+        }
         let frame_id = format!(
             "timeline-{}-{}",
             mutation.scope.canonical_key(),

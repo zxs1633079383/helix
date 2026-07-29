@@ -25,6 +25,30 @@ pub fn window(
     }))
 }
 
+/// 构造分页后的 persona-local 绝对窗口，不暴露 renderer mutation 或 action。
+#[allow(clippy::too_many_arguments)]
+pub fn page(
+    channel_id: &str,
+    window_token: &str,
+    direction: &str,
+    state: &str,
+    rows: Vec<Value>,
+    has_older: bool,
+    has_newer: bool,
+    anchor_post_id: Option<&str>,
+) -> Result<MessageV3Event, crate::ImError> {
+    update(serde_json::json!({
+        "channelId": channel_id,
+        "windowToken": window_token,
+        "direction": direction,
+        "state": state,
+        "messages": rows,
+        "hasOlder": has_older,
+        "hasNewer": has_newer,
+        "anchorPostId": anchor_post_id,
+    }))
+}
+
 /// 构造有界时间线就绪快照。
 pub fn ready(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:timeline:ready", data)

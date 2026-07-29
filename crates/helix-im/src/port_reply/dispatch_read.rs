@@ -101,6 +101,27 @@ impl ImModule {
         let Some(mutation) = mutation else {
             return Ok(());
         };
+        if let crate::timeline_navigation::TimelineNavigationKind::Older {
+            anchor_post_id, ..
+        } = state.kind()
+        {
+            let page = state.page();
+            let _legacy_internal_state = mutation;
+            out.push(
+                crate::event::timeline::page(
+                    state.channel_id().as_str(),
+                    state.window_token(),
+                    "older",
+                    "failed",
+                    Vec::new(),
+                    page.has_older,
+                    page.has_newer,
+                    Some(anchor_post_id),
+                )?
+                .into_effect(),
+            );
+            return Ok(());
+        }
         let frame_id = format!(
             "timeline-{}-{}",
             mutation.scope.canonical_key(),

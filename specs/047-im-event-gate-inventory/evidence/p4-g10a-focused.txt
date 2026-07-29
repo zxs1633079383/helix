@@ -1,0 +1,11 @@
+Spec 047 P4 G-10a 聚焦证据
+
+- message_v3_g10a: PASS 5/5
+- sender: attached older command 经 HTTP、message PersistOk 与 matching durable row Get 后发布 im:timeline:update
+- receiver: persona-local Gate 无远程事件，generated receiver events 为空
+- success: 只发布去除 anchor 的 20 条原始 post page，不含 Frame/Surface/action/capability
+- failure: HTTP 或 Persist 失败发布 state=failed、messages=[]，保留既有 hasOlder/hasNewer 边界
+- idempotency: matching correlation 消费后的重复 PortReply 为 no-op
+- artifact: .v1/gates/G-10a/generated 四文件由 Rust producer 生成
+- static: partial artifact schema 5/5、G-10 回归 5/5、cargo check、三个修改 owner hot-path audit、cutover self-test、diff check PASS
+- contract/runtime/dual-user/canonical: 仅 E1/E2；真实 SQLite、消费者同步均 NOT_RUN

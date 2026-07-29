@@ -14,6 +14,12 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 纠正 Spec 047 的 Gate 证据边界；可证伪断言：① `.v1` 与本规格不再把 Surface/InteractionFrame/DOM 当业务出站；② 入站统一按 `Tick::{Command,Inbound,PortReply,Timer}`，内部副作用按 `Effect`，对端业务出站只认 `Effect::Emit` 的 `{event,data}`；③ Native 的 `channel=event` 与 FFI batch 仅作为适配器承载，不冒充第二套领域合同；④ 30 Gate 均列出当前源码已存在的 emit channel，缺失的 timeline/定位语义明确标 `INFERRED_REQUIRED`；⑤ 生成器幂等、`.v1` 零 Frame/Surface、JSON 与 `git diff --check` 通过 | 赌注 高 | 可逆 是 | @2026-07-28T19:40:00-0700
+
+✅ DONE 已把 Spec 047 与忽略目录 `.v1` 改为 `Tick -> Effect -> Effect::Emit` 三段证据合同：30 Gate 各有 aggregate/inbound/effects/outbound 四份合同，outbound 只含当前源码可定位的 `{event,data}` channel；Native `channel=event` 与 FFI batch 明确降为适配器承载。G-10 至 G-11a 的窗口、anchor、定位与分页字段保持 PARTIAL/INFERRED_REQUIRED。30 Gate、120 合同、30 状态 JSON、全部 emit 源文字面核验、90 个空 capture 槽位、两次生成全树 hash `6cac41f7...`、忽略规则、旧 UI 术语零匹配和 `git diff --check` 均 PASS；未运行 Cargo/WDIO/真实链，manifest 仍为 INCOMPLETE | @2026-07-28T20:05:00-0700
+
+⚡ DRIFT-PRED 首版把完整 Effect 流和旧 UI 投影错误合并成 outbound/response，甚至把 adapter 后的可见状态当 Helix 业务出站；当前源码证明模块输出边界是 `EffectSink`，跨端业务通知是 `Effect::Emit(DomainEventBytes)`，Native channel/FFI batch 只是交付机制 → 候选教训：Gate 证据先固定 module boundary，再分别登记 Tick、全 Effect 与 Emit，禁止从消费端 UI 合同反推 core 出站 | @2026-07-28T20:05:00-0700
+
 🎯 EXPECT 为 Spec 047 建立被 Git 忽略的本地 `.v1` Gate 证据目录；可证伪断言：① 截图 30 Gate 各有独立目录与 `contract.json`、`capture-status.json`；② 每个 Gate 明确 Helix 视角的 ingress command/WS/HTTP response 与 egress HTTP/Persist/Frame，不把方向混写；③ 当前 Strict Matrix、Helix tests、WDIO mock/single/dual 与历史 evidence 仅作为 source index，未找到同一 run 的原始入站/出站/响应一律标 `NOT_CAPTURED`；④ `.v1` 被仓库 `.gitignore` 命中且不会进入 commit；⑤ 生成器重复执行结果稳定，30/30 目录、JSON 解析、状态汇总与 `git diff --check` 通过 | 赌注 中 | 可逆 是 | @2026-07-28T19:05:00-0700
 
 ✅ DONE 已生成 `specs/047-im-event-gate-inventory/.v1/` 本地证据索引：30/30 Gate 各有 aggregate、inbound、outbound、response 四份声明合同、capture status 与独立 captures 槽位目录；Helix producer/fixture 与 WDIO 三 lane 源码索引均为 30/30，历史 evidence 为 26/30，G-10b/G-10c/G-10d/G-11a 无独立历史 evidence。当前同一 run 原始 capture 为 0/90，manifest 如实保持 INCOMPLETE；生成器连续两次全树 SHA-256 相同，120 个合同 JSON、30 个状态 JSON、Git ignore、Node 语法和 `git diff --check` 均 PASS | @2026-07-28T19:20:00-0700

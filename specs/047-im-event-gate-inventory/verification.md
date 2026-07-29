@@ -24,6 +24,10 @@
   specs/047-im-event-gate-inventory/.v1/manifest.json` 必须命中仓库
   `**/.v1/` 规则；当前 manifest 必须如实报告 90 个原始捕获槽位中
   0 个存在、90 个缺失、总判定 `INCOMPLETE`。
+- **V-009**: `.v1` 的三类捕获必须精确为 `inbound/effects/emit`；`outbound-contract.json`
+  中每个 channel 都必须声明 `core_output=Effect::Emit` 和源码位置。
+- **V-010**: `rg -ni 'surface|interactionframe|\bframe\b|\bdom\b'
+  specs/047-im-event-gate-inventory/.v1`，预期无匹配；UI 层不得进入本地 v1 业务出站合同。
 
 ## Evidence Rules
 

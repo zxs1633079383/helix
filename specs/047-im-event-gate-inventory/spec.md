@@ -41,7 +41,7 @@
 回执和模板确认逐项区分动作发起者与其他参与者看到的终态。
 
 **Why this priority**: 消息类操作最容易只验证 sender 本地状态，却漏掉 receiver 的 WS、
-持久化、Frame 和可见状态。
+持久化、`Effect::Emit` 和可见状态。
 
 **Independent Test**: 任取一个消息 Gate，均能回答“谁发起、谁接收、两边最终看到什么、
 什么不应出现、以什么权威事实完成”。
@@ -51,7 +51,7 @@
 1. **Given** sender 发送文本，**When** HTTP 仅被受理但尚无持久终态，**Then** sender 和
    receiver 均不得被判定为发送完成。
 2. **Given** receiver 收到权威消息或消息变更，**When** 其本地提交成功，**Then** receiver
-   得到自己的 Frame 和可见终态，而不是复用 sender 的 Frame。
+   得到自己授权后的 `{event,data}` Emit，而不是复用 sender 的 viewer-local payload。
 3. **Given** sender 初次发送失败，**When** 尚未成功重试，**Then** receiver 不得看到一条
    失败占位消息。
 
@@ -114,7 +114,7 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 1. **Given** 某 Gate 有 dual-real 源文件，**When** 本轮没有执行它，**Then** 状态只能是
    `双端场景源码存在，未运行`。
 2. **Given** Helix 有 fixture producer，**When** PC 消费该 fixture，**Then** 只能证明
-   producer/consumer 合同，不证明 Go、WS、双账号或真实 DOM。
+   producer/consumer 合同，不证明 Go、WS、双账号或真实应用可见状态。
 3. **Given** 当前场景只覆盖部分角色或字段，**When** 形成规格，**Then** 缺口必须标为
    `MISSING`，推导目标必须标为 `INFERRED`。
 
@@ -128,7 +128,7 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 ### Goal
 
 形成一个可人工审核的 Gate 目录：每个 Gate 有稳定事件域、触发指令、Actor/Observer
-视角、权威完成条件、可见 Surface、当前代码覆盖和明确缺口。
+视角、权威完成条件、Emit channel、当前代码覆盖和明确缺口。
 
 ### Completion
 
@@ -147,7 +147,8 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 - 本轮只写规格、覆盖盘点和 loop discovery，不修改 Helix、PC、Mobile 或 Go 生产代码。
 - 本轮不新增、重写或运行 WDIO/Cargo 测试。
 - 本轮主表只覆盖截图中的 30 个 Gate；G-03 与 G-17 至 G-27 进入差集和后续决策。
-- 不把 raw `im:post:*` / `im:channel:*` 事件恢复为 UI 真源；目标终态仍由 typed Frame 表达。
+- 业务出站只认 `Effect::Emit` 的 `{event,data}`；HTTP、Persist、Timer 是内部 Effect，
+  Native channel 与 FFI batch 是适配器承载。
 - 最多使用当前源码可证明的角色和字段；缺失项只写成推导目标。
 
 ### Human Gate
@@ -162,8 +163,8 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 
 - sender 同时也是 receiver、频道只有一个成员或目标列表为空时，仍需定义是否产生远端可见
   终态，不能借用双人群断言。
-- receiver 在线但未打开相关 Surface 时，事实仍应持久化；重新 attach 后必须能恢复，而不是
-  要求当时一定生成可见 DOM。
+- receiver 在线但没有订阅相关 channel 时，事实仍应持久化；重新查询或恢复后必须能得到
+  等价 authority emit，而不是要求当时一定完成应用渲染。
 - receiver 离线或错过 WS 时，后续 sync 必须恢复相同业务终态，且不能重复消息、反应、
   回执或成员。
 - 同一操作有多个 receiver 时，每个 receiver 的 viewer role、权限、未读和回执可能不同；
@@ -190,7 +191,8 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 - **FR-009**: 对双视角 Gate，规格 MUST 分别定义 Actor 和 Observer 的可见终态。
 - **FR-010**: 对多 receiver 操作，规格 MUST 说明每个 receiver 独立授权和投影，不共享 VM。
 - **FR-011**: 每个 Gate MUST 指明权威完成条件，不得使用 command admission 或 HTTP 受理代替。
-- **FR-012**: 每个 durable 可见终态 MUST 以本地持久提交后的 Frame 为完成边界。
+- **FR-012**: 每个 durable 可见终态 MUST 在本地持久提交后才允许产生 terminal
+  `Effect::Emit`。
 - **FR-013**: receiver 错过在线推送后 MUST 能通过恢复路径得到同一业务终态。
 - **FR-014**: sender 与 receiver 的未读、权限、角色、选中态和本地导航 MUST 独立计算。
 - **FR-015**: 消息发送失败在成功重试前 MUST 只影响 sender，不得制造 receiver 消息。
@@ -211,7 +213,8 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
   等不会冒充运行通过的词汇。
 - **FR-029**: 当前源码没有断言的 receiver 行为 MUST 标为 `MISSING`。
 - **FR-030**: 基于业务不变量补出的目标行为 MUST 标为 `INFERRED`，直至用户确认。
-- **FR-031**: 规格 MUST 保留 raw event、Frame、DOM 和真实链证据层级，禁止互相替代。
+- **FR-031**: 规格 MUST 区分 Tick、完整 Effect、`Effect::Emit`、适配器投递和真实应用证据，
+  禁止互相替代。
 - **FR-032**: 用户确认后的 Gate 目录 MUST 能直接作为后续 clarify/plan 的输入。
 
 ### Evidence Labels
@@ -244,64 +247,64 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 | G-03 不在截图 | 当前 Matrix 为 active，Helix 与 WDIO 均已有媒体相关测试源 | 标记为截图遗漏，等待决定是否加入本批 |
 | G-17 至 G-27 不在截图 | 当前 Matrix 仍定义后续业务 Gate，其中 G-22/G-23/G-24 excluded | 不进入本轮 30 Gate 主表 |
 | Matrix epoch 漂移 | 当前 JSON 为 epoch 12、50 Gate；Roadmap 部分摘要仍写 epoch 11 | 以当前 JSON 为本轮静态真源，文档漂移另记 |
-| Timeline schema 演进 | G-01/G-04/G-10 系列等部分 timeline 已使用 V3 语义 | 本规格讨论业务 Gate，不把 Frame schema 名称当 Gate 分组 |
+| 旧 UI 合同漂移 | 当前 Matrix 仍含 `im:interaction:frame` 投影 | 本规格不继承该投影；以 raw Emit 合同记录为待收敛目标 |
 
 ## Gate Inventory
 
 ### A. Sync / Recovery
 
-| Gate | Trigger | Actor 视角 | Observer / 第二账号视角 | 完成与 Surface | 当前覆盖与缺口 |
+| Gate | Trigger | Actor 视角 | Observer / 第二账号视角 | 完成 Emit | 当前覆盖与缺口 |
 |---|---|---|---|---|---|
-| G-S1 | hello 后全量增量初始化 | 恢复自己有权看到的 dialog，直到持久提交后 loaded | 独立恢复自己的 dialog；不是复用 Actor 快照 | `message.left-dialog-list`；increment end 不是完成 | `H-FULL`、`W-M/S/D`、`NOT_RUN`；双账号各自 query/Frame/DOM 源码存在 |
-| G-S2 | `im_sync_channels` 离线 sync notify | 恢复离线期间消息、dialog 和 cursor | 独立恢复同一频道中自己有权看到的消息与 viewer-local 未读 | 原子提交 message/cursor 后 dialog/timeline Frame | `H-FULL`、`W-M/S/D`、`NOT_RUN`；应补多 receiver 不同未读的字段级断言 `INFERRED` |
-| G-S3 | pong gap 触发补偿 | gap owner 执行补偿，提交后恢复 runtime/dialog/timeline | 无 gap 的账号不应被 Actor 的 recovery 状态污染；若自身也有 gap 则独立补偿 | `interaction.runtime` 加业务 Surface；补偿 HTTP 不是完成 | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端场景覆盖独立 store 恢复 |
-| G-S4 | 陌生 channel 自动补全 | hydrate channel/member/message 后恢复 summary 和 timeline | 每个账号按授权独立 hydrate，不能因 Actor 已加载而跳过 | `message.channel-summary`，必要时关联 dialog/timeline | `H-FULL`、`W-M/S/D`、`NOT_RUN`；多角色 capability 差异为 `MISSING/INFERRED` |
+| G-S1 | hello 后全量增量初始化 | 恢复自己有权看到的 dialog，直到持久提交后 loaded | 独立恢复自己的 dialog；不是复用 Actor 快照 | `im:channel:increment`、`im:channels:loaded`；increment end 不是完成 | `H-FULL`、`W-M/S/D`、`NOT_RUN`；双账号各自 query/emit 源码存在 |
+| G-S2 | `im_sync_channels` 离线 sync notify | 恢复离线期间消息、dialog 和 cursor | 独立恢复同一频道中自己有权看到的消息与 viewer-local 未读 | message/channel mutation emit + `im:sync:state` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；应补多 receiver 不同未读的字段级断言 `INFERRED` |
+| G-S3 | pong gap 触发补偿 | gap owner 执行补偿，提交后恢复 runtime/dialog/timeline | 无 gap 的账号不应被 Actor 的 recovery 状态污染；若自身也有 gap 则独立补偿 | `im:sync:state`、`im:sync:too_long`；补偿 HTTP 不是完成 | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端场景覆盖独立 store 恢复 |
+| G-S4 | 陌生 channel 自动补全 | hydrate channel/member/message 后恢复 summary 和 timeline | 每个账号按授权独立 hydrate，不能因 Actor 已加载而跳过 | `im:channel:increment/update`，必要时 `im:post:received` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；多角色 capability 差异为 `MISSING/INFERRED` |
 
 ### B. Post / Message Mutation
 
-| Gate | Canonical command / observation | Sender / Actor 视角 | Receiver / Observer 视角 | 完成与 Surface | 当前覆盖与缺口 |
+| Gate | Canonical command / observation | Sender / Actor 视角 | Receiver / Observer 视角 | 完成 Emit | 当前覆盖与缺口 |
 |---|---|---|---|---|---|
-| G-01 | `im_send_message` + WS `post` | sending 后只能由持久终态进入 sent/failed；自身 dialog 未读不自增 | 成功前无消息；成功后收到同一 server id 的 sent 行，dialog preview 更新，未打开时未读增加 | `message.timeline`，条件性 dialog/unread Frame | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端场景覆盖 sender/receiver timeline 与 dialog |
-| G-02 | `im_send_message(type=DOCUMENT)` + WS `post` | 文档 sending/sent/failed，文档卡字段完整 | 收到同一 message id、文档标题、URL 和 preview | timeline 加 dialog preview | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端断言文档字段与同一 id |
-| G-03a | `im_retry_send` + WS `post` | 首次失败可重试，重用同一 temporary identity，成功后只保留一行 | 首次失败不可见；重试成功后只收到一条 sent | timeline 与 dialog | `H-FULL`、`W-M/S/D`、`NOT_RUN`；receiver 失败不可见是应保留的负向合同 |
-| G-04 | `im_revoke` + WS `posts_update/post_update` | 有权限者提交撤回；终态 recalled，不删除 identity | 已看到消息的 receiver 收敛 recalled；不得保留可操作正文 | timeline Upsert | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端覆盖在线撤回 |
-| G-04a | sync 中重放撤回 | 在线 Actor 已 recalled | 离线 Observer 在 sync 前仍旧态，sync 持久提交后变 recalled | timeline Upsert，cursor 同批提交 | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端明确覆盖 online/offline 分流 |
-| G-05 | `im_relay_messages` | source 不被改写；每个 target 产生独立目标消息与 dialog preview | 目标频道成员收到目标消息；不同 target 不共享 message identity | target timeline 与 dialog | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端只闭合一个 target，multi-target 原子/部分失败为 `MISSING` |
-| G-06 | `im_quick_reply` + WS `post_update` | reaction 聚合更新，自己的 selected 状态按 viewer 计算 | 其他成员看到相同 reaction 计数，但 selected 状态可不同 | timeline Upsert | `H-FULL`、`W-M/S/D`、`NOT_RUN`；计数双端已覆盖，viewer-selected 差异需要字段级复核 `MISSING` |
-| G-07 | `im_urgent_post` / `im_urgent_confirm` | requester 看到 active、pending recipients；确认后 completed | 被加急者看到 active 并可确认；确认者动作完成后双方收敛 acknowledged | timeline 与 `message.participant-receipts` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端覆盖 Observer 确认和双方收敛 |
-| G-14 | `im_post_read` + WS `post_read` | Reader 对目标消息执行已读，本地不伪造他人的回执 | 消息作者/有权查看者看到 Reader 从 pending 进入 completed | `message.participant-receipts` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端由 Actor read、Observer receipt view 闭合 |
-| G-14a | `im_template_received` + WS `post_update` | 确认者提交“已收到”，确认记录幂等 | 作者及其他观察者看到 confirmed actor 集合和计数 | timeline Upsert | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端双方状态相等 |
+| G-01 | `im_send_message` + WS `post` | sending 后只能由持久终态进入 sent/failed；自身 dialog 未读不自增 | 成功前无消息；成功后收到同一 server id 的 sent 行，dialog preview 更新，未打开时未读增加 | `im:post:sending/received/send-failed` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端场景覆盖 sender/receiver |
+| G-02 | `im_send_message(type=DOCUMENT)` + WS `post` | 文档 sending/sent/failed，文档卡字段完整 | 收到同一 message id、文档标题、URL 和 preview | `im:post:sending/received/send-failed` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端断言文档字段与同一 id |
+| G-03a | `im_retry_send` + WS `post` | 首次失败可重试，重用同一 temporary identity，成功后只保留一行 | 首次失败不可见；重试成功后只收到一条 sent | `im:post:sending/received/send-failed` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；receiver 失败不可见是应保留的负向合同 |
+| G-04 | `im_revoke` + WS `posts_update/post_update` | 有权限者提交撤回；终态 recalled，不删除 identity | 已看到消息的 receiver 收敛 recalled；不得保留可操作正文 | `im:post:updated/deleted`，必要时 `im:channel:update` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端覆盖在线撤回 |
+| G-04a | sync 中重放撤回 | 在线 Actor 已 recalled | 离线 Observer 在 sync 前仍旧态，sync 持久提交后变 recalled | `im:post:deleted/batch-updated` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端明确覆盖 online/offline 分流 |
+| G-05 | `im_relay_messages` | source 不被改写；每个 target 产生独立目标消息与 dialog preview | 目标频道成员收到目标消息；不同 target 不共享 message identity | `im:posts:batch-result` + `im:post:received` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端只闭合一个 target，multi-target 原子/部分失败为 `MISSING` |
+| G-06 | `im_quick_reply` + WS `post_update` | reaction 聚合更新，自己的 selected 状态按 viewer 计算 | 其他成员看到相同 reaction 计数，但 selected 状态可不同 | `im:post:updated` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；计数双端已覆盖，viewer-selected 差异需要字段级复核 `MISSING` |
+| G-07 | `im_urgent_post` / `im_urgent_confirm` | requester 看到 active、pending recipients；确认后 completed | 被加急者看到 active 并可确认；确认者动作完成后双方收敛 acknowledged | `im:post:updated/readers` + `im:channel:update` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端覆盖 Observer 确认和双方收敛 |
+| G-14 | `im_post_read` + WS `post_read` | Reader 对目标消息执行已读，本地不伪造他人的回执 | 消息作者/有权查看者看到 Reader 从 pending 进入 completed | `im:post:read` + `im:post:readers` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端由 Actor read、Observer receipt view 闭合 |
+| G-14a | `im_template_received` + WS `post_update` | 确认者提交“已收到”，确认记录幂等 | 作者及其他观察者看到 confirmed actor 集合和计数 | `im:post:updated` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端双方状态相等 |
 
 ### C. Schedule
 
-| Gate | Canonical command | Creator 视角 | Other member 视角 | 完成与 Surface | 当前覆盖与缺口 |
+| Gate | Canonical command | Creator 视角 | Other member 视角 | 完成 Emit | 当前覆盖与缺口 |
 |---|---|---|---|---|---|
-| G-08 | `im_create_schedule` | 看到 scheduled、取消动作和重启恢复 | 创建阶段必须看不到他人的私有 schedule | `message.channel-summary`，只投给 creator | `H-FULL`、`W-M/S/D`、`NOT_RUN`；隐私负向已覆盖；真正到点投递给 receiver 为 `MISSING` |
-| G-09 | `im_cancel_schedule` | scheduled 变为无定时，取消 overlay 关闭，重启不复活 | 始终看不到该私有 schedule 或取消细节 | creator 的 channel summary | `H-FULL`、`W-M/S/D`、`NOT_RUN`；双端负向已覆盖；取消与到点竞态为 `MISSING/INFERRED` |
+| G-08 | `im_create_schedule` | 看到 scheduled、取消动作和重启恢复 | 创建阶段必须看不到他人的私有 schedule | `im:channel:schedule-created` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；隐私负向已覆盖；真正到点投递给 receiver 为 `MISSING` |
+| G-09 | `im_cancel_schedule` | scheduled 变为无定时，取消状态关闭，重启不复活 | 始终看不到该私有 schedule 或取消细节 | `im:channel:schedule-canceled` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；双端负向已覆盖；取消与到点竞态为 `MISSING/INFERRED` |
 
 ### D. Timeline / Read Navigation
 
-| Gate | Canonical command / observation | Actor 视角 | Observer 视角 | 完成与 Surface | 当前覆盖与缺口 |
+| Gate | Canonical command / observation | Actor 视角 | Observer 视角 | 完成 Emit | 当前覆盖与缺口 |
 |---|---|---|---|---|---|
-| G-10 | `im_query_messages_by_channel` | 得到 bounded latest window，缓存降级和失败可恢复 | 独立查询同一 authority；窗口 token、anchor 不共享 | `message.timeline` snapshot | `H-FULL`、`W-M/S/D`、`NOT_RUN`；双端各自 query/Frame/DOM |
-| G-10a | `im_load_older_context` | 向 older 扩展窗口并保持顺序、去重和边界 | 可独立分页；Actor 分页不推动 Observer | timeline delta | `H-FULL`、`W-M/S/D`、`NOT_RUN`；双端独立分页源码存在 |
-| G-10b | `im_load_newer_context` | 从 located/older window 向 newer 扩展 | 可独立请求 newer，导航状态隔离 | timeline delta，不隐式改变其他 persona | `H-FORMAL`、`W-M/S/D`、`NOT_RUN`；当前 dual real 主要证明独立请求，非空 newer 页双端对账需加强 `MISSING` |
-| G-10c | WS `post` append | bounded window 追加、满窗淘汰头部 | remote sender/receiver 都收敛同一新 message id，各自窗口保持上限 | timeline `Upsert + InsertKeys + Bounds` | `H-FORMAL`、`W-M/S/D`、`NOT_RUN`；当前 dual 使用 Observer 发送并验证双方淘汰 |
-| G-10d | WS `post` while away-bottom | 离底 Actor 保持 anchor，仅增加 newer hint | Observer 发送成功；其自身可保持 latest | timeline delta 加本地 hint/anchor | `H-FORMAL`、`W-M/S/D`、`NOT_RUN`；当前 dual 验证 1px anchor 容差与主动 jump |
-| G-11 | `im_get_posts` 按已知 postId 定位 | Actor 高亮目标并执行自己的滚动 directive | Observer 已有同一消息，但不得被远程高亮或滚动 | timeline locate Frame/directive | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前 dual 明确“不发明 Observer propagation” |
-| G-11a | `im_locate_message` 未缓存定位后 older/newer | Actor 切入 located window，双向分页仍保留 target | Observer latest window 完全不变 | timeline V3 snapshot/delta | `H-FORMAL`、`W-M/S/D`、`NOT_RUN`；20/60 双端隔离源码存在 |
-| G-12 | `im_get_replies` / `im_get_reply_branch` | 打开 thread、发送 reply、加载 branch | 查询同一 thread 后看到同一 reply id 和树关系 | `message.thread-detail` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前 dual 是发送后查询收敛，Observer 已打开 thread 的实时 append 为 `MISSING` |
+| G-10 | `im_query_messages_by_channel` | 得到 bounded latest window，缓存降级和失败可恢复 | 独立查询同一 authority；窗口 token、anchor 不共享 | `im:messages:query_result`，需含 latest/bounds/revision/token | `H-FULL`、`W-M/S/D`、`NOT_RUN`；窗口元数据为 `INFERRED_REQUIRED` |
+| G-10a | `im_load_older_context` | 向 older 扩展窗口并保持顺序、去重和边界 | 可独立分页；Actor 分页不推动 Observer | `im:messages:query_result(mode=older)` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；older 终态字段完整性为 `MISSING` |
+| G-10b | `im_load_newer_context` | 从 located/older window 向 newer 扩展 | 可独立请求 newer，导航状态隔离 | `im:messages:query_result(mode=newer)` | `H-FORMAL`、`W-M/S/D`、`NOT_RUN`；newer 终态字段完整性为 `MISSING` |
+| G-10c | WS `post` append | bounded window 追加、满窗淘汰头部 | remote sender/receiver 都收敛同一新 message id，各自窗口保持上限 | `im:post:received`；淘汰后 bounds/revision emit 缺失 | `H-FORMAL`、`W-M/S/D`、`NOT_RUN`；窗口结果为 `INFERRED_REQUIRED` |
+| G-10d | WS `post` while away-bottom | 离底 Actor 保持 anchor，仅增加 newer hint | Observer 发送成功；其自身可保持 latest | `im:post:received`；anchor/hint emit 缺失 | `H-FORMAL`、`W-M/S/D`、`NOT_RUN`；anchor 结果为 `INFERRED_REQUIRED` |
+| G-11 | `im_get_posts` 按已知 postId 定位 | Actor 高亮目标并执行自己的滚动意图 | Observer 已有同一消息，但不得被远程高亮或滚动 | `im:read:result` / `im:messages:query_result`，定位元数据缺失 | `H-FULL`、`W-M/S/D`、`NOT_RUN`；仅 Actor 生效的定位字段为 `INFERRED_REQUIRED` |
+| G-11a | `im_locate_message` 未缓存定位后 older/newer | Actor 切入 located window，双向分页仍保留 target | Observer latest window 完全不变 | `im:messages:query_result(mode=locate)`，双向 token 必填 | `H-FORMAL`、`W-M/S/D`、`NOT_RUN`；完整定位合同为 `INFERRED_REQUIRED` |
+| G-12 | `im_get_replies` / `im_get_reply_branch` | 打开 thread、发送 reply、加载 branch | 查询同一 thread 后看到同一 reply id 和树关系 | `im:read:result` + `im:channel:replies` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；Observer 已打开 thread 的实时 append 为 `MISSING` |
 
 ### E. Channel / Channel-Member
 
-| Gate | Canonical command / observation | Actor / Authority 视角 | Receiver / Other member 视角 | 完成与 Surface | 当前覆盖与缺口 |
+| Gate | Canonical command / observation | Actor / Authority 视角 | Receiver / Other member 视角 | 完成 Emit | 当前覆盖与缺口 |
 |---|---|---|---|---|---|
-| G-13 | `im_channels_view` + WS `update_channel` | 当前 viewer 的 unread/mention/urgent 清零 | 其他成员的 viewer-local unread 保持不变 | dialog 与 unread summary 同一原子 Frame | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前 dual 明确验证 Observer 不变 |
-| G-15a | `im_create_channel` + WS `channel_created` | creator 为 owner，看到 summary、roster 和 owner actions | invitee 为 member，看到同一 channel/roster 但 member actions | channel summary + member roster | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端覆盖 role 差异 |
-| G-15 | `im_make_topic` + WS `channel_created/post_update` | topic creator 得到 topic dialog 与 thread root | 参与者得到同一 topic dialog；有权进入后应恢复 thread | channel summary + thread detail | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前 dual 只断言 Actor thread Frame，Observer thread/roster 为 `MISSING` |
-| G-16 | `im_channel_leave` / `im_channel_close` | leaver 看到 left；owner close 后看到 closed | leave 时留存成员仍 active；close 时所有成员 closed | channel summary lifecycle | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前 dual 两条分支均覆盖 |
-| G-16b | WS `channel_member_update` | remaining member roster 删除 leaver | leaver 看到 left，不再作为 active roster 成员 | member roster + leaver summary | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双人覆盖；三人以上 fanout 和 role transfer 为 `MISSING` |
-| G-16c | 群名称/简介/公告修改 + WS update | 有权限 Actor 提交，看到权威版本和新字段 | Observer 收到相同权威字段，但 edit capability 按角色不同 | channel summary patch/recovery | `H-FULL`、`W-M/S/D`、`NOT_RUN`；dual real 目前只覆盖 displayName，info/notice 双端为 `MISSING` |
+| G-13 | `im_channels_view` + WS `update_channel` | 当前 viewer 的 unread/mention/urgent 清零 | 其他成员的 viewer-local unread 保持不变 | `im:channel:read_echo` + `im:channel:update` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前 dual 明确验证 Observer 不变 |
+| G-15a | `im_create_channel` + WS `channel_created` | creator 为 owner，看到 summary、roster 和 owner actions | invitee 为 member，看到同一 channel/roster 但 member actions | `im:channel:created` + `im:channel:members` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双端覆盖 role 差异 |
+| G-15 | `im_make_topic` + WS `channel_created/post_update` | topic creator 得到 topic dialog 与 thread root | 参与者得到同一 topic dialog；有权进入后应恢复 thread | `im:channel:created` + `im:post:received/updated` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；Observer thread/roster 为 `MISSING` |
+| G-16 | `im_channel_leave` / `im_channel_close` | leaver 看到 left；owner close 后看到 closed | leave 时留存成员仍 active；close 时所有成员 closed | `im:channel:left` / `im:channel:closed` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前 dual 两条分支均覆盖 |
+| G-16b | WS `channel_member_update` | remaining member roster 删除 leaver | leaver 看到 left，不再作为 active roster 成员 | `im:channel:member-updated` + `im:channel:members` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；当前双人覆盖；三人以上 fanout 和 role transfer 为 `MISSING` |
+| G-16c | 群名称/简介/公告修改 + WS update | 有权限 Actor 提交，看到权威版本和新字段 | Observer 收到相同权威字段，但 edit capability 按角色不同 | `im:channel:settings-updated` + `im:channel:update` | `H-FULL`、`W-M/S/D`、`NOT_RUN`；dual real 目前只覆盖 displayName，info/notice 双端为 `MISSING` |
 
 ## Derived Coverage Gaps
 
@@ -328,7 +331,7 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 
 ### Key Entities
 
-- **GateDefinition**: Gate ID、UC、事件域、触发、角色、完成条件、Surface 和负向约束。
+- **GateDefinition**: Gate ID、UC、事件域、触发、角色、完成条件、Emit channel 和负向约束。
 - **PersonaView**: 一个 actor/viewer 对同一业务事实可见的角色、权限、未读、导航和投影。
 - **AuthoritativeFact**: 服务端或本地持久层确认的消息、频道、成员、回执、schedule 或 cursor。
 - **ProjectionTransaction**: 持久事实提交后交付给单个 persona 的原子可见终态。
@@ -356,5 +359,5 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 - 对查询、分页、定位、已读和 recovery，双视角的核心可能是隔离，而不是状态传播。
 - 对建群、退出和设置变更，角色差异优先于两端 VM 字节完全一致。
 - 当前 Helix 测试和 WDIO 场景源码是现状分析输入；本轮没有运行它们，因此不产生新 Green。
-- typed Frame 是 UI 业务真源；raw `im:post:*`、`im:channel:*` 仅用于识别历史事件域和
-  transport 来源，不能成为新增 renderer reducer。
+- `Effect::Emit` 的 `{event,data}` 是跨端业务出站真源；Native channel 与 FFI batch 仅负责
+  交付，端侧不得补造第二套业务状态机。

@@ -22,7 +22,7 @@
   `crates/helix-im/tests/g11a_wdio_fixture_contract_test.rs:1`
 - **F-004**: 本轮 30 个 Gate 均存在 WDIO mock、single-real、dual-real 场景源；
   dual-real 文件以两个隔离 profile 的 Actor/Observer 作为角色。源码存在不等于
-  Mock、Native、Go、WS、双账号或 DOM 已在本轮通过。 |
+  Mock、Native、Go、WS、双账号或真实应用可见状态已在本轮通过。 |
   **Evidence**:
   `/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g01-dual-real.e2e.ts:49`,
   `/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g16-dual-real.e2e.ts:16`
@@ -31,9 +31,9 @@
   **Evidence**: `crates/helix-im/contracts/strict-matrix.v1.json:620`,
   `crates/helix-im/tests/g03_media_durable_restart_contract_test.rs:1`,
   `/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g03-dual-real.e2e.ts:1`
-- **F-006**: Matrix 为每个 Gate 冻结 canonical command、业务 Surface 和完成条件；
-  例如 G-01 使用 `im_send_message` 与 timeline，G-15 使用 `im_make_topic` 与
-  channel-summary/thread-detail，G-16c 使用频道设置命令与 channel-summary。 |
+- **F-006**: Matrix 可继续提供 Gate ID、canonical command 和完成条件，但其中旧 UI
+  投影不再作为本规格的业务出站；G-01、G-15、G-16c 必须分别回到当前 producer 的
+  `im:post:*`、`im:channel:*` `Effect::Emit` 合同。 |
   **Evidence**: `crates/helix-im/contracts/strict-matrix.v1.json:481`,
   `crates/helix-im/contracts/strict-matrix.v1.json:1931`,
   `crates/helix-im/contracts/strict-matrix.v1.json:2128`
@@ -50,7 +50,7 @@
   **Evidence**:
   `/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g10d-dual-real.e2e.ts:10`
 - **F-009**: G-15 dual-real 当前证明双方 topic dialog identity 收敛，但
-  thread-detail Frame 只在 Actor 侧断言；Observer 的 thread-detail 与成员角色视角
+  thread 数据只在 Actor 侧断言；Observer 的 thread 数据与成员角色视角
   尚未被该场景闭合。 |
   **Evidence**:
   `/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g15-dual-real.e2e.ts:19`,

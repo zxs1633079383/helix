@@ -107,8 +107,8 @@ Gate 从此只能走 MessageV3。
 - [X] T035 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/port_reply/dispatch.rs` 实现 G-05，生成 JSON，删除旧 forward Frame/VM 并更新 ledger
 - [X] T036 [US2] 新增 `crates/helix-im/tests/message_v3/post/g06/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g06`，先覆盖 quick_reply JSONB 幂等、sender/receiver reaction 终态与冷启动读回并观察失败
 - [X] T037 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/post_update.rs` 实现 G-06，生成 JSON，删除旧 reaction 投影并更新 ledger
-- [ ] T038 [US2] 新增 `crates/helix-im/tests/message_v3/post/g07/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g07`，先覆盖加急创建、确认完成、参与人独立 pending/completed 与 roster 并观察失败
-- [ ] T039 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/post_update.rs` 实现 G-07，生成 JSON，删除旧 urgent Frame/VM 并更新 ledger
+- [X] T038 [US2] 新增 `crates/helix-im/tests/message_v3/post/g07/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g07`，先覆盖加急创建、确认完成、参与人独立 pending/completed 与 roster 并观察失败
+- [X] T039 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/post_update.rs` 实现 G-07，生成 JSON，删除旧 urgent Frame/VM 并更新 ledger
 - [ ] T040 [US2] 新增 `crates/helix-im/tests/message_v3/read/g14/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g14`，先覆盖单条已读、发送者回执视图、参与人独立状态与恢复并观察失败
 - [ ] T041 [US2] 在 `crates/helix-im/src/event/read.rs`、`crates/helix-im/src/ws/handlers/post_read.rs`、`crates/helix-im/src/port_reply/dispatch_read.rs` 实现 G-14，生成 JSON，删除旧 read Frame 并更新 ledger
 - [ ] T042 [US2] 新增 `crates/helix-im/tests/message_v3/post/g14a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g14a`，先覆盖模板确认、权威已收到状态与冷启动恢复并观察失败

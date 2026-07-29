@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "feature_directory": "specs/047-im-event-gate-inventory",
   "phase": "implementing",
-  "event_seq": 92,
+  "event_seq": 97,
   "next_action": "validate_evidence",
   "implementation_scope": {
     "denominator": 30,
@@ -49,8 +49,8 @@
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "c022efe679a6f33666407ec3b7968c5f9973f2767d0e02e86acfc673b764a8c8",
-      "checked_at": "2026-07-29T12:48:46Z",
+      "fingerprint": "b4893b6fd799ffe5494da797ab111c42bc504c96503f1c3439e18f966b6e8630",
+      "checked_at": "2026-07-29T14:21:21Z",
       "issues": []
     },
     "r4_evidence": {
@@ -618,6 +618,36 @@
       "at": "2026-07-29T13:59:18Z",
       "kind": "phase",
       "detail": "implementing->implementing: recorded evidence p2-g06-focused"
+    },
+    {
+      "seq": 93,
+      "at": "2026-07-29T14:21:21Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 94,
+      "at": "2026-07-29T14:21:21Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 95,
+      "at": "2026-07-29T14:21:28Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 96,
+      "at": "2026-07-29T14:32:19Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence p2-g07-focused"
+    },
+    {
+      "seq": 97,
+      "at": "2026-07-29T14:33:00Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence p2-g07-artifact-root-correction"
     }
   ]
 }

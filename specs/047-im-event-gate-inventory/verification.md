@@ -75,9 +75,11 @@ E3；E4 runtime、E5 真实 dual-user、跨端 mirror 后的 E6 canonical 均为
 | G-05 forward regression | individual/merged 各自独立 target identity；sender unread=0、receiver 依次为 1/2；raw merge props 收敛为 bounded `forwardDetail` | E2 | `PASS 12/12 + 47/47 + 3/3` | `evidence/p2-g05-focused.txt` | 覆盖两个 target 的成功链；部分失败仍为规格已标 `MISSING` |
 | G-06 | public quick reply command、HTTP admission、可信 post_update、message/cursor 原子提交与 durable row 读回 | E1/E2 | `PASS 4/4` | `evidence/p2-g06-focused.txt`、`.v1/gates/G-06/generated/` | sender/receiver 是独立本地回放，不证明 Go 的真实双账号广播 |
 | G-06 reaction regression | quickReply 独立列、同 seq 幂等、冷启动 row 重建、乱序 reaction 等待前置 post 后进入同一原子链；既有 G01/G05/server/sync/projection/parser 回归 | E2 | `PASS 4/4 + 12/12 + 12/12 + 47/47 + 5/5` | `evidence/p2-g06-focused.txt` | 旧 fat projection 仍由未迁移 Gate 共用；G-06 authority 已不可达该分支 |
-| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a/G-04/G-04a/G-05/G-06 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 8 of 30` | `evidence/p2-g06-focused.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 22 Gate 未生成 |
+| G-07 | urgentPost/urgentConfirm HTTP admission、可信 post_update.expediteMap、message/cursor 原子提交与 durable row 读回 | E1/E2 | `PASS 4/4` | `evidence/p2-g07-final.txt`、`.v1/gates/G-07/generated/` | sender/receiver 是独立本地回放，不证明 Go 的真实双账号广播 |
+| G-07 加急回归 | `expedite_map + event_seq + update_at` 独立列更新、同 seq 幂等、乱序确认等待 active、冷启动 row 重建；payload 不含 urgent 派生别名或 capabilities | E2 | `PASS 4/4` | `evidence/p2-g07-final.txt` | participant roster 来自独立 channel-member Gate；G-07 只发布 post 的绝对 `expediteMap` |
+| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a/G-04/G-04a/G-05/G-06/G-07 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 9 of 30` | `evidence/p2-g07-final.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 21 Gate 未生成 |
 
-G-02、G-03a、G-04、G-04a、G-05 与 G-06 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
+G-02、G-03a、G-04、G-04a、G-05、G-06 与 G-07 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
 E4 runtime、E5 真实 dual-user 与消费者同步后的 E6 canonical 均为 `NOT_RUN`；
 消费者同步继续为 `NOT_SYNCED_BY_SCOPE`。
 

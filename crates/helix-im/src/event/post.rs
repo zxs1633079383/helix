@@ -5,6 +5,7 @@ use serde_json::Value;
 
 mod forward;
 mod reaction;
+mod urgent;
 
 /// 保存一次 authority 投影生成的 post 终态与 channel lastPost。
 pub struct AuthorityProjection {
@@ -306,4 +307,11 @@ pub fn reaction_update_from_row(
     row: &helix_core::effect::Row,
 ) -> Result<Option<MessageV3Event>, crate::ImError> {
     reaction::from_row(row)
+}
+
+/// 从 durable message row 重建 G-07 expediteMap 绝对态。
+pub fn urgent_update_from_row(
+    row: &helix_core::effect::Row,
+) -> Result<Option<MessageV3Event>, crate::ImError> {
+    urgent::from_row(row)
 }

@@ -156,6 +156,32 @@
           "sha256": "4c09d5600283bf29eb2dc8fd178e8cd08255e99be55ba327c9d52e968928c025"
         }
       ]
+    },
+    {
+      "id": "p2-g07-focused",
+      "command": "cargo test G-07/G-06/server/projection/sync + partial artifact schema + cargo check + hot-path audit + cutover self-test + diff check",
+      "started_at": "2026-07-29T14:30:00Z",
+      "ended_at": "2026-07-29T14:40:00Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p2-g07-final.txt",
+          "sha256": "7dc3b59c001eea443108905222c66f8df8124b5b3720818ca01a5d391709317c"
+        }
+      ]
+    },
+    {
+      "id": "p2-g07-artifact-root-correction",
+      "command": "relative artifact root schema validation (diagnostic)",
+      "started_at": "2026-07-29T14:25:00Z",
+      "ended_at": "2026-07-29T14:29:00Z",
+      "result": "FAIL",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p2-g07-focused.txt",
+          "sha256": "9581f7e7d1cebbc4af3de96514662c6a1dce2800e2fe3cc3d659d1d365a6d640"
+        }
+      ]
     }
   ]
 }

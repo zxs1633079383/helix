@@ -46,8 +46,8 @@ impl WsMessageHandler for PostUpdateHandler {
 
 /// 单条 post 编辑——经 channel gate 推进 cursor（type2，BLOCKING-2）。
 ///
-/// `post` = 单个 post JSON 对象。普通 edit 仍由旧 gate 处理；G-06 reaction 复用 MessageV3
-/// 连续性 buffer，严格 +1 后才进入 correlated PersistAtomic 与 durable readback。
+/// `post` = 单个 post JSON 对象。普通 edit 仍由旧 gate 处理；G-06 reaction 与 G-07 urgent
+/// 复用 MessageV3 连续性 buffer，严格 +1 后才进入 correlated PersistAtomic 与 durable readback。
 /// channel_id 缺 / 未注册 → no-op（边界零信任，与 post handler ingest 门控同口径）。
 pub(super) fn apply_post_update(
     ctx: &mut ImWsContext<'_>,
@@ -79,7 +79,7 @@ pub(super) fn apply_post_update(
     let Some(target_seq) = frame.event_seq() else {
         return;
     };
-    if !fields.quick_reply.is_empty() {
+    if !fields.quick_reply.is_empty() || !fields.expedite_map.is_empty() {
         let event = crate::sync_session::EventEnvelope::new(
             channel_id,
             target_seq,
@@ -96,7 +96,11 @@ pub(super) fn apply_post_update(
         };
         if let Some(event) = admitted {
             let corr = ctx.alloc_corr();
-            crate::port_reply::message_v3_reaction::queue_commit(ctx.state, corr, event, out);
+            if !event.fields.quick_reply.is_empty() {
+                crate::port_reply::message_v3_reaction::queue_commit(ctx.state, corr, event, out);
+            } else {
+                crate::port_reply::message_v3_urgent::queue_commit(ctx.state, corr, event, out);
+            }
         }
         super::gate::trigger_backfill_if_large_gap(ctx, channel_id, target_seq, out);
         return;

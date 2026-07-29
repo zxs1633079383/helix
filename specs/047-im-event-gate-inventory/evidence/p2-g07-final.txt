@@ -1,0 +1,221 @@
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g07/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+warning: `helix-im` (test "message_v3_g07") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/c3_sync_mutation_emits_test.rs (target/debug/deps/c3_sync_mutation_emits_test-490bfe779e908787)
+
+running 12 tests
+test sync_type1_body_still_rechecks_viewers_gate_locally ... ok
+test new_phantom_emits_nothing ... ok
+test revoke_event_emits_post_revoke_regardless_of_messages ... ok
+test revoke_replay_drops_transport_actor_and_display_metadata ... ok
+test read_event_emits_channel_read_echo ... ok
+test edit_event_emits_post_updated_when_visible_noop_when_phantom ... ok
+test read_event_emits_even_when_phantom ... ok
+test sync_type1_sender_self_visible_exception_but_unread_zero ... ok
+test online_vs_offline_read_emit_names_differ ... ok
+test new_visible_emits_received_and_channel_update ... ok
+test mixed_batch_emits_match_dispatch_table ... ok
+test handle_sync_reply_releases_mutation_events_after_persist_ack ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/message_v3/post/g06/main.rs (target/debug/deps/message_v3_g06-bc762da0a25c2248)
+
+running 4 tests
+test g06_cold_start_row_rebuilds_the_same_terminal_event ... ok
+test g06_gap_buffer_resumes_without_legacy_projection ... ok
+test g06_persists_and_emits_quick_reply_as_a_first_class_column ... ok
+test g06_writes_reviewable_dual_persona_artifacts ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/message_v3/post/g07/main.rs (target/debug/deps/message_v3_g07-ce53aeb444613e4e)
+
+running 4 tests
+test g07_cold_start_row_rebuilds_the_same_completed_event ... ok
+test g07_gap_buffer_resumes_in_authority_order ... ok
+test g07_writes_reviewable_dual_persona_artifacts ... ok
+test g07_emits_absolute_expedite_map_for_sender_and_receiver ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/one_line_server_contracts_test.rs (target/debug/deps/one_line_server_contracts_test-46591f10ac699084)
+
+running 12 tests
+test candidate_users_default_to_company_directory_and_emit_render_ready_projection ... ok
+test relay_without_req_id_still_fails_closed_for_invalid_business_inputs ... ok
+test create_posts_emits_partial_acceptance_without_claiming_delivery ... ok
+test relay_ids_are_loaded_from_local_store_before_create_posts ... ok
+test relay_public_command_without_req_id_keeps_one_generated_id_through_batch_result ... ok
+test post_read_list_accepts_canonical_snapshot_without_author ... ok
+test post_read_list_fails_closed_when_snapshot_and_bitmap_do_not_match ... ok
+test post_read_list_derives_render_ready_read_and_unread_members_from_snapshot ... ok
+test post_read_list_keeps_server_unavailable_row_when_bitmap_is_null ... ok
+test settings_select_viewer_capabilities_from_server_matrix ... ok
+test post_read_list_rejects_repeated_author_and_illegal_bitmap ... ok
+test relay_merged_mode_assembles_one_chat_record_after_all_local_lookups ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/projection_schema_test.rs (target/debug/deps/projection_schema_test-656eb13332b8beea)
+
+running 47 tests
+test extractor_returns_none_on_non_emit ... ok
+test im_channel_member_nickname_freezes_camelcase_triplet ... ok
+test im_channel_increment_invalid_raw_still_freezes_keys ... ok
+test im_channel_closed_freezes_channelid_deleteat_camelcase ... ok
+test im_channel_increment_freezes_channel_id_and_increment ... ok
+test im_channel_member_updated_freezes_channel_id_and_channel ... ok
+test im_channel_left_is_distinct_from_closed ... ok
+test im_channel_update_freezes_channel_id_only ... ok
+test im_channels_loaded_delete_path_freezes_reason ... ok
+test im_channels_loaded_hello_path_freezes_items ... ok
+test im_channel_created_freezes_render_ready_dialog_and_wire_payload ... ok
+test im_channel_replies_freezes_explicit_merge_and_paging_contract ... ok
+test im_connection_established_freezes_connectionid ... ok
+test im_operation_status_freezes_topic_create_correlation_fields ... ok
+test im_channel_settings_updated_freezes_render_ready_settings_and_version ... ok
+test im_messages_query_result_invalid_reply_still_freezes_keys ... ok
+test im_post_batch_updated_non_array_posts_degrades_to_empty_keeps_keys ... ok
+test im_post_sending_freezes_channel_and_temporary_id ... ok
+test empty_type_defaults_to_text ... ok
+test im_post_send_failed_freezes_temporary_id_failed_patch ... ok
+test fat_emit_carries_in_hand_data ... ok
+test im_sync_too_long_freezes_channelid_resetto_camelcase ... ok
+test im_messages_query_result_freezes_channel_id_and_messages ... ok
+test im_schedule_canceled_freezes_render_ready_schedule_fields_without_preview_leak ... ok
+test im_channel_read_echo_freezes_fat_renderable_row ... ok
+test im_schedule_created_never_uses_preview_as_editable_message_fallback ... ok
+test im_schedule_created_freezes_render_ready_schedule_fields ... ok
+test im_post_deleted_sparse_fields_still_fat_shape ... ok
+test reconnect_requested_is_control_signal ... ok
+test im_post_read_freezes_fat_renderable_row ... ok
+test im_post_batch_updated_freezes_channel_id_and_posts ... ok
+test im_post_deleted_freezes_fat_renderable_row ... ok
+test im_post_updated_freezes_fat_renderable_row ... ok
+test im_post_received_freezes_fat_renderable_row ... ok
+test im_interaction_frame_freezes_left_dialog_list_outer_contract ... ok
+test message_action_capabilities_are_viewer_relative_and_fail_closed ... ok
+test post_dialog_patch_data_is_render_ready_before_frame_reduction ... ok
+test message_interaction_capabilities_use_viewer_facts ... ok
+test post_updated_keeps_viewer_capabilities_and_template_reader_ids ... ok
+test merged_forward_online_emit_contains_render_ready_detail ... ok
+test render_ready_urgent_is_false_for_empty_expedite_map ... ok
+test render_ready_pinned_derives_from_props ... ok
+test recall_projection_is_viewer_ready_without_reusing_message_author_as_actor ... ok
+test recall_projection_without_actor_is_visible_but_never_claims_self ... ok
+test render_ready_fields_derive_from_business_data ... ok
+test revoked_message_does_not_advertise_locate ... ok
+test all_26_projection_factories_covered ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `gate_bundle` is never used
+  --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:19:8
+   |
+19 | pub fn gate_bundle(
+   |        ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `write_bundle` is never used
+   --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:211:8
+    |
+211 | pub fn write_bundle(output: &Path, bundle: &ArtifactBundle) -> Result<Vec<PathBuf>, String> {
+    |        ^^^^^^^^^^^^
+
+warning: `helix-im` (test "message_v3_artifact_schema") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/message_v3/contracts/artifact_schema/main.rs (target/debug/deps/message_v3_artifact_schema-ae3483f0d0844708)
+
+running 1 test
+test generated_tree_matches_schemas_when_requested ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.15s
+
+    Checking helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.16s
+no hot-path violations in crates/helix-im/src/channel/write/urgent.rs
+no hot-path violations in crates/helix-im/src/event/post/urgent.rs
+no hot-path violations in crates/helix-im/src/port_reply/message_v3_urgent.rs
+no hot-path violations in crates/helix-im/src/ws/handlers/post_update.rs
+{"verdict":"PASS","gates":30,"missing":[],"extra":[],"duplicate":[],"generated":{"state":"PARTIAL","missing":["G-08","G-09","G-10","G-10a","G-10b","G-10c","G-10d","G-11","G-11a","G-12","G-13","G-14","G-14a","G-15","G-16","G-16b","G-16c","G-S1","G-S2","G-S3","G-S4"],"extra":[]},"active":1,"consumerSync":"NOT_SYNCED_BY_SCOPE","selfTest":"PASS"}

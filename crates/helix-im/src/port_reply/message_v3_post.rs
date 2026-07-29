@@ -87,6 +87,12 @@ impl ImModule {
             super::message_v3_reaction::queue_commit(&mut self.state, corr, event, out);
             return Ok(());
         }
+        if matches!(event.kind, crate::sync_session::EventKind::PostEdit)
+            && !event.fields.expedite_map.is_empty()
+        {
+            super::message_v3_urgent::queue_commit(&mut self.state, corr, event, out);
+            return Ok(());
+        }
         queue_commit(
             &mut self.state,
             self.config.auth_user_id.as_str(),

@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "feature_directory": "specs/047-im-event-gate-inventory",
   "phase": "implementing",
-  "event_seq": 46,
+  "event_seq": 49,
   "next_action": "implement_tasks",
   "budget": {
     "max_same_failure_attempts": 2
@@ -28,8 +28,8 @@
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "a2d58a0e075ae9f90e9e35c1f0b979db0710c9b7a1efe3260b3c6dd0972ea42d",
-      "checked_at": "2026-07-29T10:37:30Z",
+      "fingerprint": "e4a190607a32fb6342b9a65bad85e941e36cf5a464622c260cb94ebdd40b84e7",
+      "checked_at": "2026-07-29T10:39:36Z",
       "issues": []
     },
     "r4_evidence": {
@@ -319,6 +319,24 @@
     {
       "seq": 46,
       "at": "2026-07-29T10:37:35Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 47,
+      "at": "2026-07-29T10:39:36Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 48,
+      "at": "2026-07-29T10:39:36Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 49,
+      "at": "2026-07-29T10:39:42Z",
       "kind": "phase",
       "detail": "ready->implementing: R1-R3 admitted implementation"
     }

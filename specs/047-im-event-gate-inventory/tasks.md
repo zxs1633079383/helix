@@ -33,7 +33,7 @@ Gate 不允许双写，也不允许借用其他证据面宣称 Green。
 - [X] T003 [US5] 更新 `docs/ROADMAP.md`，把 P0→P7、30 Gate 硬切、Helix-only 产物与跨仓同步延期写入活账
 - [X] T004 [US5] 更新 `AGENTS.md` 的行为真源、多端 checklist 与文档索引，移除 Frame/Surface 作为当前目标的指令
 - [X] T005 [US1] 在任何生产编码前创建 `specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json` manifest，登记精确 30 Gate、阶段、`domain`（FR-005 七域取值）、`test_package`、`test_path`、显式测试目标、生产 owner 与完整 V2/V1/客户端/文档删除清单；现存引用标 `PENDING_REMOVAL`，`channel-member` 映射到 `channel_member`，G-13/G-14 记为 `read`，未知项不得用空数组或 `TODO` 逃逸
-- [ ] T006 [US5] 新增 `specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs`，校验 Gate 集合、domain/package 映射、迁移状态、禁用引用和跨仓零写入，并合并 `review-ledger.json` 的 P0/P7 与 migration manifest 的 Gate 状态，断言 `IN_PROGRESS` 条目 ≤1
+- [X] T006 [US5] 新增 `specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs`，校验 Gate 集合、domain/package 映射、迁移状态、禁用引用和跨仓零写入，并合并 `review-ledger.json` 的 P0/P7 与 migration manifest 的 Gate 状态，断言 `IN_PROGRESS` 条目 ≤1
 - [ ] T007 [US5] 更新 `specs/047-im-event-gate-inventory/verification.md`，拆分 deterministic、contract、integration、runtime、dual-user、canonical 六级证据
 - [ ] T008 [US5] 更新 `specs/047-im-event-gate-inventory/discovery.md` 与 `specs/047-im-event-gate-inventory/review-ledger.json`，记录本轮 30 Gate 分母和 G-03/G-17..G-27 排除边界
 

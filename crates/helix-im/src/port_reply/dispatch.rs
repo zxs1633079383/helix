@@ -340,6 +340,15 @@ impl ImModule {
                 causation_id,
             } => match outcome {
                 PortOutcome::Ok(_) => {
+                    let member_read_event = member_dialog
+                        .as_deref()
+                        .map(|projection| {
+                            crate::event::read::channel_from_member_projection(
+                                channel_id.as_str(),
+                                projection,
+                            )
+                        })
+                        .transpose()?;
                     if let Some(scope) = scope {
                         if self.state.dialog_list_frame.scope() != Some(&scope) {
                             tracing::debug!(
@@ -361,10 +370,11 @@ impl ImModule {
                                     .dialog_list_frame
                                     .patch_from_channel_update(scope, channel.as_ref()),
                             };
-                            if let Some(frame) = frame {
-                                out.push(frame);
-                            }
+                            let _legacy_internal_state = frame;
                         }
+                    }
+                    if let Some(event) = member_read_event {
+                        out.push(event.into_effect());
                     }
                     self.project_channel_settings_value_frame(
                         channel_id,
@@ -665,6 +675,10 @@ impl ImModule {
             // 使 frame 客户端能原子结束 loading，而不是用 raw channel 行补算 UI。
             CorrelationContext::DialogListQuery { causation_id } => match outcome {
                 PortOutcome::Ok(reply) => {
+                    let read_events = crate::event::read::channels_from_storage_rows(
+                        reply.0.as_ref(),
+                        self.config.auth_user_id.as_str(),
+                    )?;
                     let surface_epoch = self.action_surface_epoch()?;
                     self.state
                         .dialog_list_frame
@@ -683,16 +697,17 @@ impl ImModule {
                                 .then(|| channel_id.as_str().to_string())
                         })
                         .collect();
-                    if let Some(frame) =
+                    let legacy_internal_state =
                         crate::query::emit_dialog_list_frame_result_with_terminal_channels(
                             reply.0.as_ref(),
                             scope,
                             &mut self.state.dialog_list_frame,
                             &terminal_channel_ids,
                             causation_id.clone(),
-                        )
-                    {
-                        out.push(frame);
+                        );
+                    let _legacy_internal_state = legacy_internal_state;
+                    for event in read_events {
+                        out.push(event.into_effect());
                     }
                 }
                 PortOutcome::Err(e) => {
@@ -715,17 +730,15 @@ impl ImModule {
                                 .then(|| channel_id.as_str().to_string())
                         })
                         .collect();
-                    if let Some(frame) =
+                    let legacy_internal_state =
                         crate::query::emit_dialog_list_frame_result_with_terminal_channels(
                             b"[]",
                             scope,
                             &mut self.state.dialog_list_frame,
                             &terminal_channel_ids,
                             causation_id,
-                        )
-                    {
-                        out.push(frame);
-                    }
+                        );
+                    let _legacy_internal_state = legacy_internal_state;
                 }
             },
 

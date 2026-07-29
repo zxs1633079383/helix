@@ -1,6 +1,7 @@
 use helix_im::interaction_frame::{
     InteractionFrameV2, InteractionRuntimeVm, RuntimeConnectionState, RuntimeRecoveryState,
-    RuntimeSyncState, SurfaceMutationV2, TypedSurfaceMutation,
+    RuntimeSyncState, SurfaceMutationV2, TypedSurfaceMutation, INTERACTION_FRAME_SCHEMA_VERSION,
+    TIMELINE_SURFACE_SCHEMA_VERSION,
 };
 use helix_im::projector::timeline::{TimelineProjector, TimelineWindowRequest};
 use serde_json::{json, Value};
@@ -32,13 +33,14 @@ impl G03ScenarioRunner {
     }
 }
 
+/// Wraps one projected media mutation in the canonical Timeline V3 surface envelope.
 fn frame(case: &str, row: Value) -> InteractionFrameV2 {
     let mut projector = TimelineProjector::default();
     let mutation = projector
         .snapshot_from_render_ready(TimelineWindowRequest::latest(CHANNEL_ID), &[row])
         .expect("G03 render-ready row projects through the canonical timeline Surface");
     let frame = InteractionFrameV2 {
-        schema_version: 2,
+        schema_version: INTERACTION_FRAME_SCHEMA_VERSION,
         transaction_id: format!("g03-{case}-transaction"),
         causation_id: Some(format!("g03-{case}-request")),
         runtime: InteractionRuntimeVm {
@@ -49,6 +51,7 @@ fn frame(case: &str, row: Value) -> InteractionFrameV2 {
         mutations: vec![SurfaceMutationV2 {
             mutation,
             surface_epoch: 1,
+            surface_schema_version: Some(TIMELINE_SURFACE_SCHEMA_VERSION),
         }],
         directives: vec![],
     };

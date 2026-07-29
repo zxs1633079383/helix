@@ -144,8 +144,8 @@ MISSING/INFERRED，不用手写 JSON 填绿。
 - [X] T057 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/query/render_ready/` 实现 G-10d，生成 JSON，删除旧 anchor Frame 并更新 ledger
 - [X] T058 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g11/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g11`，先覆盖初始 bounded window、定位目标后的 active window 与滚动指令数据并观察失败
 - [X] T059 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/query/render_ready/` 实现 G-11，生成 JSON，删除旧 locate Frame 并更新 ledger
-- [ ] T060 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g11a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g11a`，先覆盖未缓存定位、双向分页乱序、当前 token 激活与旧响应只合并数据并观察失败
-- [ ] T061 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/channel/older_context/` 实现 G-11a，生成 JSON，删除旧 locate Frame 并更新 ledger
+- [X] T060 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g11a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g11a`，先覆盖未缓存定位、双向分页乱序、当前 token 激活与旧响应只合并数据并观察失败
+- [X] T061 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/channel/older_context/` 实现 G-11a，生成 JSON，删除旧 locate Frame 并更新 ledger
 - [ ] T062 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g12/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g12`，先覆盖 thread snapshot、回复列表与话题分支数据并观察失败
 - [ ] T063 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/query/render_ready/` 实现 G-12，生成 JSON，删除旧 thread Frame 并更新 ledger
 - [ ] T064 [US2] 新增 `crates/helix-im/tests/message_v3/read/g13/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g13`，先覆盖 viewer 会话已读、其他成员未读不变与冷启动恢复并观察失败

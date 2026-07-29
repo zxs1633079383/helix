@@ -934,6 +934,16 @@ impl ImModule {
         request.page = state.page();
         request.surface_epoch = self.action_surface_epoch()?;
         request.action_authority_available = !self.config.auth_user_id.is_empty();
+        let locate_is_current = match state.kind() {
+            crate::timeline_navigation::TimelineNavigationKind::Locate {
+                navigation_token, ..
+            } => self.state.timeline_projector.is_current_locate_navigation(
+                state.channel_id().as_str(),
+                state.window_token(),
+                navigation_token,
+            ),
+            _ => true,
+        };
         let page_mutation = match state.kind() {
             crate::timeline_navigation::TimelineNavigationKind::Older { .. } => {
                 crate::projector::timeline::TimelinePageMutation::Older
@@ -944,18 +954,11 @@ impl ImModule {
             crate::timeline_navigation::TimelineNavigationKind::Locate {
                 target_message_id,
                 navigation_token,
-            } => {
-                let activate = self.state.timeline_projector.is_current_locate_navigation(
-                    state.channel_id().as_str(),
-                    state.window_token(),
-                    navigation_token,
-                );
-                crate::projector::timeline::TimelinePageMutation::Locate {
-                    target_message_id: target_message_id.to_string(),
-                    navigation_token: navigation_token.to_string(),
-                    activate,
-                }
-            }
+            } => crate::projector::timeline::TimelinePageMutation::Locate {
+                target_message_id: target_message_id.to_string(),
+                navigation_token: navigation_token.to_string(),
+                activate: locate_is_current,
+            },
         };
         let mutation = self
             .state
@@ -1008,6 +1011,19 @@ impl ImModule {
         };
         let page = state.page();
         let _legacy_internal_state = mutation;
+        if !locate_is_current {
+            return Ok(crate::event::timeline::page(
+                state.channel_id().as_str(),
+                state.window_token(),
+                "merge",
+                "stale",
+                state.rows().to_vec(),
+                page.has_older,
+                page.has_newer,
+                Some(target_message_id),
+            )?
+            .into_effect());
+        }
         Ok(crate::event::timeline::located(serde_json::json!({
             "channelId": state.channel_id().as_str(),
             "windowToken": state.window_token(),

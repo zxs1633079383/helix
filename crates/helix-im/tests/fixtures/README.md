@@ -16,7 +16,7 @@ Frame。PC WDIO 与 Mobile GTest/QuickJS 可以镜像并消费这些文件，但
 
 ## 业务 Gate
 
-> **生产证据边界（2026-07-28）**：仍在本目录的 G-10b/G-11a JSON 已改由
+> **生产证据边界（2026-07-28）**：仍在本目录的 G-10b JSON 已改由
 > `TimelineProductionRunner -> ImModule::handle -> Http/PortReply -> PersistOk -> readback ->
 > Effect::Emit` 生成，并由各目录 `provenance.json` 固定 raw/semantic hash。它们可作为
 > PC/Mobile 正式 Gate 的 Helix producer 输入；但仍只证明确定性 sans-IO 生产链，不替代
@@ -37,7 +37,6 @@ Frame。PC WDIO 与 Mobile GTest/QuickJS 可以镜像并消费这些文件，但
 | `g10-wdio/` | G-10 | 切群并加载最新消息首屏 | timeline ready、缓存降级、请求失败、竞态只接纳当前 generation、恢复 |
 | `g10a-wdio/` | G-10a | 上拉加载更早历史 | older page 合并、历史耗尽、HTTP/持久化失败、竞态只接纳当前 generation |
 | `g10b-wdio/` | G-10b | 下拉加载更新消息 | revision-1 latest Snapshot、定位 Delta、newer 尾插、耗尽边界、耗尽后晚到消息 |
-| `g11a-wdio/` | G-11a | 未缓存消息定位与双向分页 | latest、两个并发 locate 乱序回放、当前 token 激活、旧 response 仅合并数据、定位后 older/newer |
 | `g12-wdio/` | G-12 | 回复列表与话题分支 | thread snapshot、回复分支数据 |
 | `g13-wdio/` | G-13 | 会话已读 | 初始未读 dialog、会话已读终态、冷启动恢复 |
 | `g14-wdio/` | G-14 | 单条消息已读 | 可标记已读消息、发送者回执视图、pending/completed 回执、恢复 |
@@ -78,7 +77,7 @@ consumer mirror、loader、parity 测试与机器分母。
 
 四个 Timeline V3 正式 Gate 的 L0 projector 合同分别由
 `g10b_wdio_fixture_contract_test.rs`、
-`g11a_wdio_fixture_contract_test.rs` 生成。
+旧 G-11a Frame fixture 已由 Spec 047 MessageV3 canonical artifact 取代。
 其 provenance 固定 Gate ID、测试类、producer revision、raw/semantic SHA-256，并把
 operation kind、EntityKey、orderedKeys、range bounds、watermark、revision/baseRevision 与
 windowToken 纳入语义 hash；允许参数化字段不包含这些业务合同字段。它们不得替代尚未落地的

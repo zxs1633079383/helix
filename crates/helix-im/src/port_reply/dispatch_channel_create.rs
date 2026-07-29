@@ -68,13 +68,14 @@ impl ImModule {
         // create 请求只携带被邀请者，HTTP 回包另带 owner。标量必须从
         // 去重后的权威 roster 得出，不能把 user_ids.len() 冒充总成员数。
         let member_count = crate::channel_write::collect_members(&channel).len() as u64;
-        channel
-            .as_object_mut()
-            .expect("channel object was checked above")
-            .insert(
-                "memberCount".to_string(),
-                serde_json::Value::from(member_count),
-            );
+        let Some(channel_object) = channel.as_object_mut() else {
+            tracing::warn!("channel create authority changed shape before member count projection");
+            return;
+        };
+        channel_object.insert(
+            "memberCount".to_string(),
+            serde_json::Value::from(member_count),
+        );
 
         let Some(channel_id) = channel
             .get("id")
@@ -93,43 +94,63 @@ impl ImModule {
         );
     }
 
-    /// 在 G-15a 持久屏障成功后原子发布 dialog 与 summary/roster typed Frame。
+    /// 在 G-15a 持久屏障成功后发布当前 viewer 的 channel 与 roster 绝对态。
     pub(super) fn handle_channel_create_persist_reply(
         &mut self,
         channel_id: ChannelId,
         channel: serde_json::Value,
         member_rows: Vec<serde_json::Value>,
-        causation_id: Option<String>,
+        _causation_id: Option<String>,
         outcome: &PortOutcome,
-        now_ms: u64,
+        _now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         self.state.inflight_channel_creates.remove(&channel_id);
         match outcome {
             PortOutcome::Ok(_) => {
                 self.state.committed_channel_creates.insert(channel_id);
-                if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
-                    if let Some(frame) = self
-                        .state
-                        .dialog_list_frame
-                        .patch_insert_channel(scope, &channel)
-                    {
-                        out.push(frame);
-                    }
-                }
-                self.project_created_channel_frame(
-                    channel_id,
-                    &channel,
-                    &member_rows,
-                    causation_id,
-                    now_ms,
-                    out,
-                )?;
+                let viewer_role = member_rows.iter().find_map(|member| {
+                    let user_id = member.get("user_id").and_then(serde_json::Value::as_str)?;
+                    (user_id == self.config.auth_user_id).then(|| {
+                        member
+                            .get("role")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("MEMBER")
+                            .to_string()
+                    })
+                });
+                let created = serde_json::json!({
+                    "channelId": channel_id.as_str(),
+                    "displayName": channel.get("displayName").and_then(serde_json::Value::as_str).unwrap_or(channel_id.as_str()),
+                    "channelType": channel.get("type").and_then(serde_json::Value::as_str).unwrap_or("O"),
+                    "memberCount": member_rows.len(),
+                    "createdAt": channel.get("createAt").or_else(|| channel.get("createdAt")).and_then(serde_json::Value::as_i64).unwrap_or(0),
+                    "viewerRole": viewer_role.unwrap_or_else(|| "MEMBER".to_string()),
+                });
+                let members = member_rows
+                    .iter()
+                    .map(|member| {
+                        serde_json::json!({
+                            "userId": member.get("user_id").and_then(serde_json::Value::as_str).unwrap_or_default(),
+                            "role": member.get("role").and_then(serde_json::Value::as_str).unwrap_or("MEMBER"),
+                            "nickName": member.get("nick_name").and_then(serde_json::Value::as_str).unwrap_or_default(),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                out.push(crate::event::channel::created(created)?.into_effect());
+                out.push(
+                    crate::event::channel::members(serde_json::json!({
+                        "channelId": channel_id.as_str(),
+                        "members": members,
+                        "leaves": [],
+                    }))?
+                    .into_effect(),
+                );
             }
             PortOutcome::Err(error) => tracing::warn!(
                 channel_id = channel_id.as_str(),
                 error = ?error,
-                "channel create persist failed; suppressing every terminal Frame"
+                "channel create persist failed; suppressing every terminal MessageV3 event"
             ),
         }
         Ok(())

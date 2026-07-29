@@ -1,0 +1,185 @@
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/channel/g15a/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g01/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g15a") generated 1 warning
+warning: `helix-im` (test "message_v3_g01") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.43s
+     Running tests/message_v3/post/g01/main.rs (target/debug/deps/message_v3_g01-ef53d6dbe944695e)
+
+running 2 tests
+test g01_writes_reviewable_dual_persona_artifacts ... ok
+test g01_emits_committed_post_and_persona_channel_absolute_state ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/message_v3/channel/g15a/main.rs (target/debug/deps/message_v3_g15a-2ca09fa41a182034)
+
+running 2 tests
+test g15a_emits_committed_channel_and_roster_for_both_personas ... ok
+test g15a_writes_reviewable_dual_persona_artifacts ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.36s
+     Running tests/storage_conformance.rs (target/debug/deps/storage_conformance-42b5307ff77fa599)
+
+running 1 test
+test scoped_guarded_bump_and_get_isolate_channel_member_row ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.01s
+
+{"verdict":"PASS","gates":30,"missing":[],"extra":[],"duplicate":[],"generated":{"state":"PARTIAL","missing":["G-02","G-03a","G-04","G-04a","G-05","G-06","G-07","G-08","G-09","G-10","G-10a","G-10b","G-10c","G-10d","G-11","G-11a","G-12","G-13","G-14","G-14a","G-15","G-16","G-16b","G-16c","G-S1","G-S2","G-S3","G-S4"],"extra":[]},"active":1,"consumerSync":"NOT_SYNCED_BY_SCOPE","selfTest":"PASS"}
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/helix_core-5a1117a46f4026b0)
+
+running 16 tests
+test auth::tests::auth_kind_unknown_is_none ... ok
+test auth::tests::auth_kind_roundtrip ... ok
+test auth::tests::auth_kind_header_is_intent_only_namespace ... ok
+test auth::tests::auth_intent_is_stripped_and_resolved_credential_overrides_stale_value ... ok
+test engine::tests::empty_shell_step_no_effects ... ok
+test engine::tests::unknown_progress_is_a_noop ... ok
+test engine::tests::atomic_persist_reply_routes_back_to_emitting_module ... ok
+test engine::tests::one_shot_timer_reclaimed_on_fire ... ok
+test engine::tests::repeated_one_shot_timers_do_not_leak ... ok
+test engine::tests::progress_peeks_without_consuming_terminal_correlation ... ok
+test port_codec::tests::error_mapping_is_shared_by_all_drivers ... ok
+test engine::tests::rearm_new_id_heartbeat_stays_bounded ... ok
+test ports::upload::tests::upload_effect_keeps_distinct_validated_urls ... ok
+test ports::upload::tests::upload_urls_require_write_and_public_addresses ... ok
+test port_codec::tests::http_envelope_keeps_binary_body_and_repeated_headers ... ok
+test port_codec::tests::row_codec_round_trips_every_sql_value ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/frame_sender_contract.rs (target/debug/deps/frame_sender_contract-a2aee87657a731dc)
+
+running 1 test
+test frame_sender_requires_only_send_and_is_dyn_safe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/multi_module_corr_routing.rs (target/debug/deps/multi_module_corr_routing-042295f2a4580c71)
+
+running 1 test
+test start_corr_routes_to_originating_module ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/request_reply_replay.rs (target/debug/deps/request_reply_replay-d8c29a25d453623a)
+
+running 4 tests
+test unknown_corr_reply_silently_ignored ... ok
+test direction_one_error_reply_routes_back ... ok
+test direction_one_request_reply_loop ... ok
+test replay_determinism_same_ticks_same_effects ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests helix_core
+
+running 2 tests
+test crates/helix-core/src/engine.rs - engine::ExecutionShell (line 20) ... ignored
+test crates/helix-core/src/error.rs - error::PortError (line 39) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 8.14s
+
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.16s

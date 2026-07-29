@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 完成 Spec 047 P1 的 G-15a/G-01 基线硬切；可证伪断言：① G-15a 只在 channel/member 原子提交后发 `im:channel:created` 与 `im:channel:members`；② G-01 以复合键作用域存储原语在 O(1) SQL 内更新当前 viewer 的 `channel_member`，sender 未读绝对值归零、receiver 在前进守卫下仅加一；③ message、channel 公共 lastPost、viewer member 绝对态和 cursor 同一原子提交，提交后复合键读回再发 `im:post:received` 与 `im:channel:update`；④ 两 Gate 产物均由真实 `ImModule::handle` 测试生成四份 JSON，不含 Frame/Surface/capability/重复别名；⑤ 不修改 PC/Mobile/Go，不触碰既有 `UC04-16-EXECUTION-INDEX.md` 删除 | 赌注 高 | 可逆 是 | @2026-07-29T08:30:00-0700
+
+✅ DONE Spec 047 P1 基线完成：G-15a 的 channel/member 原子提交成功后只发 `im:channel:created` 与 `im:channel:members`，owner/invitee 的 `viewerRole` 分别为 OWNER/MEMBER；G-01 用 `ScopedGuardedBump` 与 `ScopedGet` 在复合主键上兑现 receiver 未读 +1、sender 未读归零，并在 message/channel/current-viewer-member/cursor 原子提交及读回后发 `im:post:received` 与 `im:channel:update`。两 Gate 聚焦测试 4/4、HostStorage 真 SQLite 1/1、core 21 项、三端 Rust check、Web wasm build、core 零运行时依赖与 cutover self-test 均 PASS；四类 `.v1` JSON 已由 Rust producer 生成，manifest 标为 MIGRATED。当前 generated 分母仍为 2/30，PC/Mobile/Go 未修改，runtime、真实 dual-user 与消费者同步保持 NOT_RUN/NOT_SYNCED_BY_SCOPE，既有 `UC04-16-EXECUTION-INDEX.md` 删除未触碰 | @2026-07-29T09:25:00-0700
+
 🎯 EXPECT 按 Spec 047 的 90 项任务实施 MessageV3 Gate Event 硬切；可证伪断言：① 严格从 T001 开始按 P0→P7 串行，任何非并行任务失败立即停止；② 先完成治理、30 Gate 预编码删除清单与公共红测，再接生产代码；③ 每 Gate 必须真实 `ImModule::handle` 红测→PersistOk 后 `{event,data}`→生成四份 JSON→物理删除专属 V2/V1→聚焦 Green，任务证据存在后才标 `[X]`；④ 不修改 PC/Mobile/Go，不触碰既有 `UC04-16-EXECUTION-INDEX.md` 删除；⑤ Rust 编码遵守 Cargo 全程 2-3 次纪律，最终 R4 只接受真实验证证据 | 赌注 高 | 可逆 是 | @2026-07-29T03:21:00-0700
 
 🎯 EXPECT 重新执行 Spec 047 的 Plan/Tasks 并使 R2/R3 对齐最新规格；可证伪断言：① plan、research、data-model、schema、quickstart 与 spec 的 Helix-only MessageV3 范围一致，冻结 sample 不被 generated 覆盖；② 每 Gate 删除清单在任何生产编码前已经完整登记，PersistOk 公共实现前有专门红测试；③ 七个业务域与物理测试包映射无歧义，G-13/G-14 属 read、G-16b 属 channel-member；④ 90 个任务与 90 个 Loop Task Contract 一一对应且 R2/R3 PASS；⑤ 仅修改 Spec 047 规划资产、SESSION 和 loop ledger，不触碰既有 `UC04-16-EXECUTION-INDEX.md` 删除，不运行 Cargo | 赌注 高 | 可逆 是 | @2026-07-29T03:10:00-0700

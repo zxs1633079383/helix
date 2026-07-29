@@ -105,7 +105,7 @@ pub(crate) fn apply_channel_full_and_members(
     }
 }
 
-/// 为 G-15a 合并 HTTP/WS authority，单一 PersistAtomic 成功前不发布任何终态 Frame。
+/// 为 G-15a 合并 HTTP/WS authority，单一 PersistAtomic 成功前不发布终态事件。
 pub(crate) fn queue_channel_create_persist(
     ctx: &mut ImWsContext<'_>,
     channel_id: ChannelId,

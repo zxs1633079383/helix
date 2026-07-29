@@ -180,6 +180,12 @@ impl ImModule {
                     }
                 }
             }
+            CorrelationContext::MessageV3PostPersist { event } => {
+                self.handle_message_v3_post_persist_reply(*event, outcome, out);
+            }
+            CorrelationContext::MessageV3PostReadback { event } => {
+                self.handle_message_v3_post_readback_reply(*event, outcome, out)?;
+            }
             // 路由（E4）：on_start Scan 回报 → 加载 cursor + 触发 proactive resync
             CorrelationContext::ScanCursors => match outcome {
                 PortOutcome::Ok(reply) => {

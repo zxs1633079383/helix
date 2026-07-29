@@ -76,56 +76,6 @@ impl SurfaceResyncRequest {
 }
 
 impl ImModule {
-    /// 将已提交的新频道权威事实组成一个 summary+roster 原子 InteractionFrame。
-    pub(crate) fn project_created_channel_frame(
-        &mut self,
-        channel_id: ChannelId,
-        channel: &Value,
-        member_rows: &[Value],
-        causation_id: Option<String>,
-        now_ms: u64,
-        out: &mut EffectSink,
-    ) -> Result<(), ImError> {
-        let surface_epoch = self.action_surface_epoch()?;
-        let viewer_role = self
-            .state
-            .viewer_channel_roles
-            .get(&channel_id)
-            .map(String::as_str);
-        let summary = channel_summary_view(
-            channel_id.as_str(),
-            Some(channel),
-            viewer_role,
-            self.config.auth_user_id.as_str(),
-            surface_epoch,
-        );
-        let roster = member_roster_view(channel_id.as_str(), "initial", member_rows, surface_epoch);
-        let mut summary_mutation = self
-            .state
-            .channel_summary_projector
-            .snapshot(summary)
-            .map_err(|error| ImError::Parse(format!("created channel summary: {error}")))?;
-        summary_mutation.causation_id = causation_id.clone();
-        let mut roster_mutation = self
-            .state
-            .member_roster_projector
-            .snapshot(roster)
-            .map_err(|error| ImError::Parse(format!("created member roster: {error}")))?;
-        roster_mutation.causation_id = causation_id.clone();
-        self.register_channel_summary_action_bindings(&summary_mutation, now_ms)?;
-        let frame = crate::projector::build_online_interaction_frame(
-            format!("channel-created-{}", channel_id.as_str()),
-            surface_epoch,
-            vec![summary_mutation, roster_mutation],
-        )
-        .map_err(|error| ImError::Serialize(error.to_string()))?;
-        out.push(
-            crate::projector::emit_interaction_frame(frame)
-                .map_err(|error| ImError::Serialize(error.to_string()))?,
-        );
-        Ok(())
-    }
-
     /// 将已持久化的 G16 生命周期事实投影到已 attach 的 channel-summary slot。
     pub(crate) fn project_channel_lifecycle_frame(
         &mut self,

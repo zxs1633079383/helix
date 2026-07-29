@@ -34,6 +34,14 @@ path = "tests/message_v3/contracts/artifact_schema/main.rs"
 name = "message_v3_gate_registry"
 path = "tests/message_v3/contracts/gate_registry/main.rs"
 
+[[test]]
+name = "message_v3_g15a"
+path = "tests/message_v3/channel/g15a/main.rs"
+
+[[test]]
+name = "message_v3_g01"
+path = "tests/message_v3/post/g01/main.rs"
+
 [[bench]]
 name = "step_inorder"
 harness = false

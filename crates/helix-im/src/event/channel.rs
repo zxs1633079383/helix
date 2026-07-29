@@ -8,6 +8,11 @@ pub fn created(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:channel:created", data)
 }
 
+/// 构造频道 roster 权威快照。
+pub fn members(data: Value) -> Result<MessageV3Event, crate::ImError> {
+    super::encode("im:channel:members", data)
+}
+
 /// 构造频道及当前 viewer 绝对态更新。
 pub fn update(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:channel:update", data)

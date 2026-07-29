@@ -2,8 +2,8 @@
   "schema_version": "1.0",
   "feature_directory": "specs/047-im-event-gate-inventory",
   "phase": "implementing",
-  "event_seq": 66,
-  "next_action": "implement_tasks",
+  "event_seq": 67,
+  "next_action": "validate_evidence",
   "implementation_scope": {
     "denominator": 30,
     "gate_source": "spec.md#\u672c\u8f6e\u622a\u56fe\u5206\u6bcd",
@@ -462,6 +462,12 @@
       "at": "2026-07-29T11:01:45Z",
       "kind": "phase",
       "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 67,
+      "at": "2026-07-29T11:45:01Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence p1-baseline-focused"
     }
   ]
 }

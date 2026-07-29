@@ -23,6 +23,20 @@ const REQUIRED_FILES = [
   'provenance.json',
 ];
 
+/** 读取当前 Helix commit，供 Rust producer 写入可追溯 provenance。 */
+function helixHead() {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const head = result.stdout.trim();
+  if (result.status !== 0 || !/^[0-9a-f]{40}$/.test(head)) {
+    throw new Error(`cannot resolve Helix HEAD for provenance`);
+  }
+  return head;
+}
+
 /** 读取并解析 UTF-8 JSON，所有业务内容必须已由 Rust producer 写入。 */
 function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
@@ -42,7 +56,11 @@ function runProducer(entry) {
     ['test', '-p', 'helix-im', '--test', entry.test_target, '--', '--nocapture'],
     {
       cwd: ROOT,
-      env: { ...process.env, HELIX_GATE_ARTIFACT_DIR: output },
+      env: {
+        ...process.env,
+        HELIX_GATE_ARTIFACT_DIR: output,
+        HELIX_HEAD: helixHead(),
+      },
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     },

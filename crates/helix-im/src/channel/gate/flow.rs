@@ -146,6 +146,47 @@ impl Channel {
         }
     }
 
+    /// 为 MessageV3 post 保留连续性门控，但把持久提交与 Emit 交还 module correlation 编排。
+    pub(crate) fn admit_message_v3_post(
+        &mut self,
+        event: EventEnvelope,
+        effects: &mut EffectSink,
+    ) -> Result<Option<EventEnvelope>, ImError> {
+        if self.is_terminal() {
+            return Ok(None);
+        }
+        let expected = Seq(self.cursor.value().0.saturating_add(1));
+        match event.seq.cmp(&expected) {
+            std::cmp::Ordering::Equal => Ok(Some(event)),
+            std::cmp::Ordering::Less => Ok(None),
+            std::cmp::Ordering::Greater => {
+                self.buffer_and_arm_gate(event, effects)?;
+                Ok(None)
+            }
+        }
+    }
+
+    /// matching PersistOk 后推进 cursor，并交出下一条已连续的缓冲事件。
+    pub(crate) fn commit_message_v3_post(&mut self, committed_seq: Seq) -> Option<EventEnvelope> {
+        if committed_seq != Seq(self.cursor.value().0.saturating_add(1))
+            || !self.cursor.try_advance(committed_seq)
+        {
+            return None;
+        }
+        let next_seq = Seq(committed_seq.0.saturating_add(1));
+        self.buffer.remove(&next_seq)
+    }
+
+    /// 持久化失败时把未提交事件放回 gate，等待补偿同步而不推进 cursor。
+    pub(crate) fn restore_message_v3_post(
+        &mut self,
+        event: EventEnvelope,
+        effects: &mut EffectSink,
+    ) {
+        self.buffer.insert(event.seq, event);
+        self.arm_gate_if_needed(effects);
+    }
+
     /// BLOCKING-2：仅推进 cursor 的 gate 入口（posts_update 批量帧用）。
     ///
     /// posts_update 是**单 cursor 事件**（顶层一个 event_seq）但携带 N 条 post 编辑/撤回——

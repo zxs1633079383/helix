@@ -90,128 +90,45 @@ impl WsMessageHandler for PostHandler {
         let ev = ev
             .with_unread_bump(unread_bump)
             .with_viewer_user_id(ctx.auth_user_id)
-            .with_causation_id(forward_causation.clone());
+            .with_causation_id(forward_causation);
 
-        // ingest（落库 + cursor 推进 + ⑤ 未读 bump 由 gate 发出）。**陌生 channel 自动注册**
-        // （Round-3 UC-4.5 偏差修复，对齐真源 `on_ws_event` 的 `gate_states.entry().or_insert_with`
-        // + `handle_new_post` **无条件**落库）：首次见到的新群 / 被拉入群的首条在线 push 在 increment
-        // 种 cursor 之前到达时，**不再整帧静默丢弃**——以 cursor=0 惰性注册（与 `increment_channel`
-        // 真新 channel 同口径：cursor=本地未确认，**不**误种服务端水位），随后由 gate 处理：
-        //   - event_seq==1（==cursor+1）→ 立即 apply：batch_upsert message + emit im:post:received + cursor→1；
-        //   - event_seq>1（缺口）→ buffer + arm 1s gate → sync 回拉补齐前置消息，首条不丢。
-        // on_start Scan 已把所有持久化 cursor 灌入 channels（handle_scan_reply），故「不在 channels」
-        // 严格等价「DB 无 cursor 的真新 channel」，seed=0 正确（HX-C008 单调，gate 缺口回拉兜底）。
+        // MessageV3 G-01：陌生 channel 仍以本地 cursor=0 惰性注册，但连续事件不再走
+        // PersistFire + Frame。gate 只决定 apply/buffer/drop，真正的 message/channel/member/cursor
+        // 写入由 correlated PersistAtomic 完成，matching PersistOk 后再读当前 viewer 复合键绝对态。
         let ch = ctx
             .state
             .channels
             .entry(ev.channel_id)
             .or_insert_with(|| crate::channel::Channel::new(ev.channel_id, 0));
-
-        // —— gap DOM 兜底结算（fix/im-send-echo-reconcile·路 2 DOM 面）————————————
-        // 乐观行 tmp→server 覆写 + status=sent 的 DOM 渲染由 `im:post:received` 投影驱动
-        // （壳 im-store 按 temporaryId upsert）。该投影**仅在 gate apply（seq==cursor+1）时**由
-        // ch.ingest emit；本端 echo 在 cursor 落后（gap，seq≫cursor+1）下被 buffer → 投影不发 →
-        // 乐观行永停 sending（DB 的 id 已由 reconcile_post_echo 落定，但 DOM 是纯渲染壳，必须靠投影）。
-        //
-        // 修复：self-echo 是「发送者自己消息回流」，转发 / 他人消息则是移动端入栈真消息。二者的
-        // render 投影与 channel cursor 推进解耦：当 gate 不会自然 apply-emit（seq≠cursor+1）时，
-        // 用在手 ev.fields 兜底 emit 一次 `im:post:received` 结算渲染面。
-        // 守不变量：**不推 cursor**（HX-C008——cursor 仍由 ch.ingest 的 gate 严格 +1 推进，gap 经
-        // buffer/sync 回补；本兜底只发投影）。buffer 后续 flush 时会再 emit 同投影（壳按 msgId
-        // 幂等 upsert·无害）。字段集走冻结 message_item_data（C004 不改契约）。
         let post_visible = ev
             .unread_bump
             .as_ref()
             .map(|update| update.visible)
             .unwrap_or(true);
-        let post_settle = if post_visible && ev.seq.0 != ch.cursor.value().0 + 1 {
-            let msg_id = ev
-                .msg_id
-                .as_deref()
-                .filter(|s| !s.is_empty())
-                .unwrap_or(ev.fields.id.as_str());
-            Some(crate::acl::to_effect::emit_post_received_for_viewer(
-                ev.channel_id,
-                ev.seq.0,
-                msg_id,
-                &ev.fields,
-                ctx.auth_user_id,
-            ))
-        } else {
-            None
-        };
-
-        // 捕获 backfill 触发所需键（ev 即将 move 进 ch.ingest）。
         let pin_effect = post_pin_effect_from_notice(&ev);
         let (ingest_channel, ingest_seq) = (ev.channel_id, ev.seq);
-        let duplicate_forward_readback = forward_causation.as_ref().and_then(|request_id| {
-            if ev.seq.0 > ch.cursor.value().0 {
-                return None;
+        if post_visible {
+            if let Some(event) = ch.admit_message_v3_post(ev, out)? {
+                let corr = ctx.alloc_corr();
+                crate::port_reply::message_v3_post::queue_commit(
+                    ctx.state,
+                    ctx.auth_user_id,
+                    corr,
+                    event,
+                    out,
+                );
             }
-            let update = ev.unread_bump.as_ref()?.clone();
-            if !update.visible {
-                return None;
-            }
-            let msg_id = ev
-                .msg_id
-                .as_deref()
-                .filter(|id| !id.is_empty())
-                .unwrap_or(ev.fields.id.as_str());
-            Some(
-                crate::dialog_patch::PendingDialogPatch::new(
-                    ev.channel_id,
-                    ev.seq.0,
-                    msg_id,
-                    &ev.fields,
-                    &update,
-                    "post-forward-authority",
-                )
-                .with_causation_id(Some(request_id.clone())),
-            )
-        });
-
-        let recent_start = out.as_slice().len();
-        let mut dialog_patches = Vec::new();
-        ch.ingest_collecting_dialog_patches(ev, out, ctx.now_ms, &mut dialog_patches)?;
-        if let Some(pending) = duplicate_forward_readback {
-            dialog_patches.push(pending);
-        }
-        // Only a contiguous gate apply (possibly flushing a buffered run) has
-        // actually appended an authoritative message write. Buffer/drop paths
-        // must not fabricate a timeline Frame from the raw WS payload. Do not
-        // use the handler's unread visibility hint here: it has narrower
-        // semantics than the gate's actual persisted-message decision.
-        let timeline_readback_required =
-            super::gate::recent_effects_persist_message(&out.as_slice()[recent_start..]);
-        super::gate::schedule_reload_if_recent_too_long(ctx, ingest_channel, recent_start, out)?;
-
-        if timeline_readback_required {
-            ctx.request_attached_timeline_refresh_with_causation(ingest_channel, forward_causation);
-        }
-
-        // gate buffer/drop 下 post 的 DOM 结算（gate apply 路径已自然 emit → post_settle=None）。
-        if let Some(eff) = post_settle {
-            out.push(eff);
-        }
-        for pending in dialog_patches {
-            let corr = ctx.alloc_corr();
-            out.push(helix_core::Effect::Persist {
-                corr,
-                ops: pending.storage_ops(),
-            });
-            ctx.state.corr_map.insert(
-                corr,
-                crate::state::CorrelationContext::DialogPatchByPost { pending },
-            );
+        } else {
+            let mut ignored_dialog_patches = Vec::new();
+            ch.ingest_collecting_dialog_patches(ev, out, ctx.now_ms, &mut ignored_dialog_patches)?;
         }
         if let Some((persist, emit)) = pin_effect {
+            // Pin notice 属独立 post-update Gate；G-01 普通 TEXT 不会进入此分支。
             out.push(persist);
             out.push(emit);
         }
 
-        // 根治 echo gate-gap 整类：post（type1·含转发他频道 / 他人消息）在大缺口下被 gate buffer
-        // 时，立即触发该 channel proactive resync 追平 cursor → buffered post 自然 flush emit。
-        // 创可贴 echo_settle 只救 self-echo；本路覆盖转发他频道 / 他人消息（守 HX-C008·不绕 gate）。
+        // 大缺口仍走既有主动 backfill，buffer 中事件只有在前置 seq 完成原子提交后才会继续。
         super::gate::trigger_backfill_if_large_gap(ctx, ingest_channel, ingest_seq, out);
         Ok(())
     }
@@ -227,6 +144,7 @@ inventory::submit! {
 }
 
 #[cfg(target_arch = "wasm32")]
+/// 在 wasm inventory 不可自动发现时保留静态 handler。
 pub(super) fn inventory_link_anchor() {
     std::hint::black_box(&POST_HANDLER);
 }

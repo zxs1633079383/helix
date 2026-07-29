@@ -199,6 +199,133 @@ pub fn message_class(upd: &PostChannelUpdate) -> &'static str {
     }
 }
 
+/// 构造 G-01 持久化与 channel preview 共用的最小 lastPost JSON。
+pub fn message_v3_last_post(fields: &crate::sync_session::PostFields) -> serde_json::Value {
+    serde_json::json!({
+        "id": fields.id,
+        "userId": fields.user_id,
+        "message": fields.message,
+        "createAt": fields.create_at,
+    })
+}
+
+/// 将 G-01 authority 编译为 message/channel/viewer-member/cursor 原子写集。
+pub fn message_v3_commit_ops(
+    event: &crate::sync_session::EventEnvelope,
+    auth_user_id: &str,
+) -> Vec<helix_core::effect::StorageOp> {
+    use helix_core::effect::{
+        BatchUpdateSpec, ScopedGuardedBumpSpec, SqlValue, StorageOp, UpsertSpec,
+    };
+
+    let fields = &event.fields;
+    let last_post = message_v3_last_post(fields).to_string();
+    let channel_id = event.channel_id.as_str().to_string();
+    let viewer_id = auth_user_id.to_string();
+    let sender_view = fields.user_id == auth_user_id;
+    let mut ops = vec![
+        crate::channel::event_to_upsert_op(event),
+        StorageOp::BatchUpdate(BatchUpdateSpec {
+            table: "channel",
+            key_col: "id",
+            key_vals: vec![SqlValue::Text(channel_id.clone())],
+            patch: vec![
+                ("last_post".to_string(), SqlValue::Text(last_post.clone())),
+                (
+                    "last_post_at".to_string(),
+                    SqlValue::Integer(fields.create_at),
+                ),
+                (
+                    "last_root_post_at".to_string(),
+                    SqlValue::Integer(fields.create_at),
+                ),
+            ],
+        }),
+    ];
+    if sender_view {
+        let member_row = vec![
+            ("channel_id".to_string(), SqlValue::Text(channel_id)),
+            ("user_id".to_string(), SqlValue::Text(viewer_id)),
+            ("unread_count".to_string(), SqlValue::Integer(0)),
+            ("unread_post_id".to_string(), SqlValue::Text(String::new())),
+            ("last_post".to_string(), SqlValue::Text(last_post)),
+            (
+                "last_post_at".to_string(),
+                SqlValue::Integer(fields.create_at),
+            ),
+            (
+                "last_root_post_at".to_string(),
+                SqlValue::Integer(fields.create_at),
+            ),
+        ];
+        ops.push(StorageOp::BatchUpsert(UpsertSpec {
+            table: "channel_member",
+            rows: vec![member_row],
+            conflict_key: Some("channel_id,user_id"),
+            exclude_from_update: Vec::new(),
+        }));
+    } else {
+        let member_row = vec![
+            ("channel_id".to_string(), SqlValue::Text(channel_id.clone())),
+            ("user_id".to_string(), SqlValue::Text(viewer_id.clone())),
+            ("unread_count".to_string(), SqlValue::Integer(0)),
+            ("last_root_post_at".to_string(), SqlValue::Integer(0)),
+        ];
+        ops.push(StorageOp::BatchUpsert(UpsertSpec {
+            table: "channel_member",
+            rows: vec![member_row],
+            conflict_key: Some("channel_id,user_id"),
+            exclude_from_update: vec!["unread_count", "last_root_post_at"],
+        }));
+        ops.push(StorageOp::ScopedGuardedBump(ScopedGuardedBumpSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text(channel_id),
+            key_col: "user_id",
+            key_val: SqlValue::Text(viewer_id),
+            bump_col: "unread_count",
+            bump_delta: 1,
+            set_cols: vec![
+                (
+                    "unread_post_id".to_string(),
+                    SqlValue::Text(fields.id.clone()),
+                ),
+                ("last_post".to_string(), SqlValue::Text(last_post)),
+                (
+                    "last_post_at".to_string(),
+                    SqlValue::Integer(fields.create_at),
+                ),
+                (
+                    "last_root_post_at".to_string(),
+                    SqlValue::Integer(fields.create_at),
+                ),
+            ],
+            guard_col: "last_root_post_at",
+            guard_val: fields.create_at,
+        }));
+    }
+    ops.push(crate::acl::to_effect::advance_cursor_op(
+        event.channel_id,
+        event.seq,
+    ));
+    ops
+}
+
+/// 构造 G-01 当前 viewer 的复合键持久读回。
+pub fn message_v3_member_read_op(
+    channel_id: ChannelId,
+    auth_user_id: &str,
+) -> helix_core::effect::StorageOp {
+    use helix_core::effect::{ScopedGetSpec, SqlValue, StorageOp};
+    StorageOp::ScopedGet(ScopedGetSpec {
+        table: "channel_member",
+        scope_col: "channel_id",
+        scope_val: SqlValue::Text(channel_id.as_str().to_string()),
+        key_col: "user_id",
+        key_val: SqlValue::Text(auth_user_id.to_string()),
+    })
+}
+
 mod fields;
 use fields::{
     sender_user_id_from_value, string_array, sync_last_post_json, urgent_from_fields,

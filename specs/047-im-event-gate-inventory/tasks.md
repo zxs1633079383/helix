@@ -81,13 +81,13 @@ Gate 从此只能走 MessageV3。
 
 ### G-15a 创建群聊
 
-- [ ] T022 [US3] 新增 `crates/helix-im/tests/message_v3/channel/g15a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g15a`，先覆盖 owner/invitee 入站、持久化、summary、roster、role 与双视角 Emit 并观察失败
-- [ ] T023 [US3] 在 `crates/helix-im/src/event/channel.rs`、`crates/helix-im/src/port_reply/dispatch_channel_create.rs`、`crates/helix-im/src/ws/handlers/channel_created.rs` 实现 G-15a，生成四类 JSON，删除该 Gate 的 Frame/Surface/V1 分支并更新迁移 ledger
+- [X] T022 [US3] 新增 `crates/helix-im/tests/message_v3/channel/g15a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g15a`，先覆盖 owner/invitee 入站、持久化、summary、roster、role 与双视角 Emit 并观察失败
+- [X] T023 [US3] 在 `crates/helix-im/src/event/channel.rs`、`crates/helix-im/src/port_reply/dispatch_channel_create.rs`、`crates/helix-im/src/ws/handlers/channel_created.rs` 实现 G-15a，生成四类 JSON，删除该 Gate 的 Frame/Surface/V1 分支并更新迁移 ledger
 
 ### G-01 发送文本消息
 
-- [ ] T024 [US2] 新增 `crates/helix-im/tests/message_v3/post/g01/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g01`，先覆盖 sender/receiver post、channel lastPost、sender unread=0、receiver unread+1、PersistOk 后 Emit 并观察失败
-- [ ] T025 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/port_reply/`、`crates/helix-im/src/ws/handlers/post.rs`、`crates/helix-im/src/channel/write/post.rs` 实现 G-01，生成四类 JSON，删除该 Gate 旧路径并更新迁移 ledger
+- [X] T024 [US2] 新增 `crates/helix-im/tests/message_v3/post/g01/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g01`，先覆盖 sender/receiver post、channel lastPost、sender unread=0、receiver unread+1、PersistOk 后 Emit 并观察失败
+- [X] T025 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/port_reply/`、`crates/helix-im/src/ws/handlers/post.rs`、`crates/helix-im/src/channel/write/post.rs` 实现 G-01，生成四类 JSON，删除该 Gate 旧路径并更新迁移 ledger
 
 **Checkpoint**: G-15a、G-01 已硬切；两者不得再产出 Frame/Surface 或旧 V1 事件。
 

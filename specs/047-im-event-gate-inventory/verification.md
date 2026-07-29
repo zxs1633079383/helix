@@ -45,6 +45,20 @@ P0 当前最高连续等级为 E2。`message_v3_gate_registry` 的缺失 target 
 测试或占位 JSON；因此公共事件与 artifact 基础可进入 Gate 纵切，但 30 Gate 分母仍不能宣称
 Green。E3 integration、E4 runtime、E5 dual-user 与 E6 canonical 均为 `NOT_RUN`。
 
+## P1 基线 Gate 执行记录
+
+| Gate | 证据 | 等级 | 结果 | 原始输出与产物 | 边界 |
+|---|---|---|---|---|---|
+| G-15a | owner/invitee 独立 `ImModule::handle` 回放、channel/member 原子提交、PersistOk 后双事件 | E1/E2 | `PASS 2/2` | `evidence/p1-baseline-focused.txt`、`.v1/gates/G-15a/generated/` | 双 persona 是确定性本地回放，不是双账号真实链 |
+| G-01 | sender/receiver 独立回放、message/channel/member/cursor 原子写、复合键读回后双事件 | E1/E2 | `PASS 2/2` | `evidence/p1-baseline-focused.txt`、`.v1/gates/G-01/generated/` | receiver 基线由测试输入注入，不证明真实 Go 广播 |
+| G-01 storage | `ScopedGuardedBump` 与 `ScopedGet` 真 SQLite 复合主键隔离 | E3 integration | `PASS 1/1` | `evidence/p1-baseline-focused.txt` | 证明 HostStorage SQL 与读回，不证明 Web/FFI 产品运行态 |
+| shared ports | core/native/FFI/Web check、core test、Web wasm build、core 零运行时依赖 | E2/E3 | `PASS` | `evidence/p1-baseline-focused.txt` | 仅 Rust 编译与驱动接缝，不替代 Gate runtime |
+| cutover | 30 Gate 集合、迁移 owner 禁用词与负例自测 | E2 contract | `PASS / generated PARTIAL` | `evidence/p1-baseline-focused.txt` | 当前仅 G-15a/G-01 有 generated，剩余 28 Gate 明确未生成 |
+
+G-15a 与 G-01 已在 migration manifest 标为 `MIGRATED`。两者当前最高连续等级分别为 E2 与
+E3；E4 runtime、E5 真实 dual-user、跨端 mirror 后的 E6 canonical 均为 `NOT_RUN`，
+消费者同步继续为 `NOT_SYNCED_BY_SCOPE`。
+
 ## 当前来源与缺口
 
 | 证据面 | 当前来源 | 当前状态 | 不能证明 |

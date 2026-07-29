@@ -52,7 +52,9 @@ pub(super) fn recent_effects_persist_message(effects: &[Effect]) -> bool {
             StorageOp::BatchUpdate(spec) => spec.table == "message",
             StorageOp::MonotonicUpsert(spec) => spec.table == "message",
             StorageOp::GuardedBump(spec) => spec.table == "message",
+            StorageOp::ScopedGuardedBump(spec) => spec.table == "message",
             StorageOp::Get(spec) => spec.table == "message",
+            StorageOp::ScopedGet(spec) => spec.table == "message",
             StorageOp::Scan(spec) => spec.table == "message",
             StorageOp::BatchDelete(spec) => spec.table == "message",
         })

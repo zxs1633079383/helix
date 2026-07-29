@@ -56,6 +56,16 @@ impl ImModule {
                         event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
                     });
                 }
+                if trigger == SyncTrigger::Routine {
+                    out.push(
+                        crate::event::sync::recovered(serde_json::json!({
+                            "channelId": channel_id.as_str(),
+                            "committedSeq": terminal_seq.0,
+                            "state": "recovered",
+                        }))?
+                        .into_effect(),
+                    );
+                }
 
                 // This is the only renderer-facing type7 projection. `patch_closed` produces an
                 // `im:interaction:frame` and only after the local tombstone/cursor transaction
@@ -273,6 +283,13 @@ impl ImModule {
                 crate::ws::handlers::increment_channel_end::after_increment_batch_persist(
                     projections,
                     out,
+                );
+                out.push(
+                    crate::event::sync::loaded(serde_json::json!({
+                        "state": "loaded",
+                        "source": "hello-increment",
+                    }))?
+                    .into_effect(),
                 );
                 // Increment input only proves the batch was queued for persistence. Re-read the
                 // committed rows before composing the renderer snapshot so PC/Mobile never fill

@@ -139,20 +139,17 @@ impl ImModule {
     ) -> Result<(), ImError> {
         match outcome {
             PortOutcome::Ok(_) => {
-                let surface_epoch = self.action_surface_epoch()?;
-                self.state
-                    .dialog_list_frame
-                    .set_surface_epoch(surface_epoch);
-                out.push(crate::acl::to_effect::emit_channel_increment(
-                    channel_id,
-                    raw_increment.as_ref(),
-                ));
-                if let Some(effect) = crate::query::patch_hydrated_dialog_frame(
-                    &raw_increment,
-                    &mut self.state.dialog_list_frame,
-                ) {
-                    out.push(effect);
-                }
+                let channel = serde_json::from_slice::<serde_json::Value>(&raw_increment)
+                    .map_err(|error| ImError::Parse(format!("increment hydration row: {error}")))?;
+                out.push(
+                    crate::event::sync::channel_hydrated(serde_json::json!({
+                        "channelId": channel_id.as_str(),
+                        "state": "hydrated",
+                        "channel": channel,
+                        "needSync": need_sync,
+                    }))?
+                    .into_effect(),
+                );
                 self.after_increment_persist(channel_id, need_sync, out)?;
             }
             PortOutcome::Err(e) => tracing::warn!(

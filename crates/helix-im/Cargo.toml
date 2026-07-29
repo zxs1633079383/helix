@@ -138,6 +138,22 @@ path = "tests/message_v3/channel/g15/main.rs"
 name = "message_v3_g16c"
 path = "tests/message_v3/channel/g16c/main.rs"
 
+[[test]]
+name = "message_v3_gs1"
+path = "tests/message_v3/sync/gs1/main.rs"
+
+[[test]]
+name = "message_v3_gs2"
+path = "tests/message_v3/sync/gs2/main.rs"
+
+[[test]]
+name = "message_v3_gs3"
+path = "tests/message_v3/sync/gs3/main.rs"
+
+[[test]]
+name = "message_v3_gs4"
+path = "tests/message_v3/sync/gs4/main.rs"
+
 [[bench]]
 name = "step_inorder"
 harness = false

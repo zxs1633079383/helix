@@ -76,6 +76,14 @@ impl ImModule {
             return Ok(false);
         };
         if committed_change {
+            out.push(
+                crate::event::sync::gap_repaired(serde_json::json!({
+                    "state": "repaired",
+                    "source": "pong",
+                    "persistedCorrelation": persisted_corr.map(helix_core::Correlation::raw),
+                }))?
+                .into_effect(),
+            );
             self.refresh_attached_dialog_list(
                 persisted_corr.map(|corr| format!("pong-gap-complete-{}", corr.raw())),
                 out,
@@ -107,7 +115,12 @@ impl ImModule {
 
         let recovered = self.state.recovery_session.phase == RecoveryPhase::Recovered;
         self.state.recovery_session.mark_completion_published();
-        self.emit_recovery_v2_frame(persisted_corr, out);
+        if let Ok(event) = crate::event::sync::recovered(serde_json::json!({
+            "state": if recovered { "recovered" } else { "failed" },
+            "persistedCorrelation": persisted_corr.map(helix_core::Correlation::raw),
+        })) {
+            out.push(event.into_effect());
+        }
         if recovered {
             self.refresh_attached_dialog_list(
                 persisted_corr.map(|corr| format!("recovery-complete-{}", corr.raw())),

@@ -65,6 +65,27 @@
   **Evidence**:
   `/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g16c-dual-real.e2e.ts:12`,
   `/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g16c-dual-real.e2e.ts:44`
+- **F-012**: 远端业务库的只读真源为 PostgreSQL
+  `10.200.9.168/32:5432/mattermost-imv2/public`；G01-G07/G14 的核心持久事实分布于
+  `post/channel_member/channel_event/delivery_outbox`，不能从 WS 样例反推表列。 |
+  **Evidence**: `specs/047-im-event-gate-inventory/contracts/storage-schema-lock.v1.json:5`
+- **F-013**: 本机当前可审阅的 Helix tenant DB 为用户 444 与 999 两库，均位于
+  `~/Library/Application Support/com.jinqidongli.cses.dev/helix_im`，并共享
+  `message/channel/channel_member/channel_schedule/channel_event_*` 等 9 张表。 |
+  **Evidence**: `specs/047-im-event-gate-inventory/contracts/storage-schema-lock.v1.json:15`
+- **F-014**: `channel.last_post` 与 `channel_member.last_post` 不是拆列对象，而是保存
+  camelCase post JSON 的 JSONB/JSON-text；其已观测键形包含 `id/temporaryId/channelId/
+  userId/message/revoke/createAt/updateAt`。 |
+  **Evidence**: `specs/047-im-event-gate-inventory/contracts/storage-schema-lock.v1.json:304`
+- **F-015**: 本地 `message` 表已有独立 `quick_reply/read_bits/event_seq/send_status/revoke`
+  列；这些字段不应再往 `props` 塞第二份别名。 |
+  **Evidence**: `specs/047-im-event-gate-inventory/contracts/storage-schema-lock.v1.json:355`
+- **F-016**: G04 的 `system_event` 是 Go 在撤回事务提交后构造并注入 WS 的传输派生；
+  远端持久锚为 `post.revoke` 与 `channel_event.actor_id/event_seq/event_type`，本地持久锚为
+  `message.revoke`。展示文案不在上述表中。 |
+  **Evidence**:
+  `/System/Volumes/Data/workspace/golang/cses-im-server/internal/app/cses_post_revoke.go:216`,
+  `specs/047-im-event-gate-inventory/contracts/storage-schema-lock.v1.json:63`
 
 ## Unknowns
 
@@ -91,3 +112,5 @@
   推导的目标标记 `INFERRED`，等待用户确认后才能进入计划。
 - **D-005**: 本轮仅产出规格、质量清单、discovery 与 loop ledger，不修改生产代码、
   测试或现有 Gate 注册表。
+- **D-006**: 以 `contracts/storage-schema-lock.v1.json` 冻结本轮只读表结构；每个 Gate
+  的 inbound/outbound 样例必须引用该锁并列出逐列行结构，未映射字段显式进入派生清单。

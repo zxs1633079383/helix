@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "helix-im/gate-migration.schema.json",
+  "title": "MessageV3 Gate Migration Entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "gate_id",
+    "phase",
+    "state",
+    "test_target",
+    "generated_files",
+    "legacy_inventory",
+    "verification"
+  ],
+  "properties": {
+    "gate_id": {
+      "type": "string",
+      "pattern": "^G-(?:S[1-4]|[0-9]{2}[a-z]?)$"
+    },
+    "phase": { "enum": ["P1", "P2", "P3", "P4", "P5", "P6"] },
+    "state": {
+      "enum": [
+        "PLANNED",
+        "TEST_RED",
+        "MESSAGE_V3_GREEN",
+        "LEGACY_REMOVED",
+        "MIGRATED",
+        "BLOCKED"
+      ]
+    },
+    "test_target": { "type": "string", "minLength": 1 },
+    "generated_files": {
+      "type": "array",
+      "minItems": 4,
+      "uniqueItems": true,
+      "items": { "type": "string" }
+    },
+    "legacy_inventory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path", "disposition", "evidence"],
+        "properties": {
+          "kind": { "type": "string" },
+          "path": { "type": "string" },
+          "disposition": { "enum": ["removed", "N/A"] },
+          "evidence": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "verification": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "helix-im/gate-provenance.schema.json",
+  "title": "Helix Gate Artifact Provenance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "gate_id",
+    "producer_test",
+    "producer_entry",
+    "helix_head",
+    "matrix_epoch",
+    "storage_schema_sha256",
+    "artifacts",
+    "consumer_sync"
+  ],
+  "properties": {
+    "schema_version": { "const": "helix-im-gate-provenance/v1" },
+    "gate_id": {
+      "type": "string",
+      "pattern": "^G-(?:S[1-4]|[0-9]{2}[a-z]?)$"
+    },
+    "producer_test": { "type": "string", "minLength": 1 },
+    "producer_entry": { "const": "ImModule::handle" },
+    "helix_head": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "matrix_epoch": { "type": "integer", "minimum": 1 },
+    "storage_schema_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifacts": {
+      "type": "object",
+      "minProperties": 3,
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "consumer_sync": { "const": "NOT_SYNCED_BY_SCOPE" }
+  }
+}

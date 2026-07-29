@@ -20,6 +20,372 @@ const HELIX_TESTS = join(ROOT, 'crates/helix-im/tests');
 const WDIO_SPECS =
   '/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs';
 const OUTPUT_DIR = join(FEATURE_DIR, '.v1');
+const STORAGE_SCHEMA_LOCK_PATH = join(FEATURE_DIR, 'contracts', 'storage-schema-lock.v1.json');
+const STORAGE_SCHEMA_LOCK = JSON.parse(readFileSync(STORAGE_SCHEMA_LOCK_PATH, 'utf8'));
+
+const STORAGE_PROFILES = {
+  sync: {
+    remote: [
+      ['channel', ['id', 'display_name', 'type', 'last_post', 'last_post_at', 'delete_at', 'update_at']],
+      ['channel_member', ['channel_id', 'user_id', 'role', 'unread_count', 'last_post', 'last_post_at', 'last_read_seq']],
+      ['post', ['id', 'temporary_id', 'channel_id', 'user_id', 'type', 'message', 'props', 'revoke', 'create_at', 'update_at']],
+      ['channel_event', ['channel_id', 'event_seq', 'event_type', 'msg_id', 'actor_id', 'payload', 'create_at']],
+      ['channel_event_head', ['channel_id', 'committed_seq']],
+    ],
+    local: [
+      ['channel', ['id', 'display_name', 'type', 'last_post', 'last_post_at', 'delete_at', 'last_event_seq']],
+      ['channel_member', ['channel_id', 'user_id', 'role', 'unread_count', 'last_post', 'last_post_at', 'last_read_seq']],
+      ['message', ['temporary_id', 'id', 'channel_id', 'user_id', 'type', 'message', 'props', 'event_seq', 'revoke', 'create_at', 'update_at']],
+      ['channel_event_cursor', ['channel_id', 'last_event_seq', 'terminal_event_seq', 'updated_at']],
+      ['channel_event_ledger', ['tenant_id', 'channel_id', 'event_seq', 'event_kind', 'message_id', 'coverage_id']],
+      ['channel_sync_coverage', ['coverage_id', 'tenant_id', 'channel_id', 'from_seq', 'to_seq', 'event_count', 'commit_state']],
+    ],
+  },
+  post: {
+    remote: [
+      ['post', ['id', 'temporary_id', 'channel_id', 'user_id', 'type', 'message', 'props', 'viewers', 'revoke', 'quick_reply', 'read_bits', 'expedite_map', 'create_at', 'update_at']],
+      ['channel_member', ['channel_id', 'user_id', 'unread_count', 'last_post', 'last_post_at', 'mention_count', 'urgent_mention_count', 'last_read_seq']],
+      ['channel_event', ['channel_id', 'event_seq', 'event_type', 'msg_id', 'actor_id', 'payload', 'create_at']],
+      ['delivery_outbox', ['channel_id', 'event_seq', 'post_id', 'track_id', 'status', 'attempts']],
+    ],
+    local: [
+      ['message', ['temporary_id', 'id', 'channel_id', 'user_id', 'type', 'message', 'props', 'viewers', 'quick_reply', 'read_bits', 'expedite_map', 'event_seq', 'send_status', 'revoke', 'create_at', 'update_at']],
+      ['channel_member', ['channel_id', 'user_id', 'unread_count', 'last_post', 'last_post_at', 'mention_count', 'urgent_mention_count', 'last_read_seq']],
+      ['channel_event_cursor', ['channel_id', 'last_event_seq', 'terminal_event_seq', 'updated_at']],
+      ['channel_event_ledger', ['tenant_id', 'channel_id', 'event_seq', 'event_kind', 'message_id', 'coverage_id']],
+    ],
+  },
+  schedule: {
+    remote: [
+      ['post_schedule', ['id', 'temporary_id', 'channel_id', 'user_id', 'type', 'message', 'props', 'status', 'scheduled_at', 'update_at']],
+      ['channel_member', ['channel_id', 'user_id', 'has_schedule_post', 'schedule_post_at']],
+    ],
+    local: [
+      ['channel_schedule', ['channel_id', 'schedule_id', 'owner_user_id', 'message', 'message_preview', 'send_at', 'status', 'revision']],
+      ['channel', ['id', 'has_schedule_post', 'schedule_id', 'schedule_owner_user_id', 'schedule_message', 'schedule_send_at', 'schedule_status', 'schedule_revision']],
+    ],
+  },
+  timeline: {
+    remote: [
+      ['post', ['id', 'temporary_id', 'channel_id', 'user_id', 'type', 'message', 'props', 'revoke', 'create_at', 'update_at']],
+    ],
+    local: [
+      ['message', ['temporary_id', 'id', 'channel_id', 'user_id', 'type', 'message', 'props', 'event_seq', 'send_status', 'revoke', 'create_at', 'update_at']],
+      ['channel_member', ['channel_id', 'user_id', 'unread_count', 'last_post', 'last_post_at', 'last_read_seq']],
+      ['channel_event_cursor', ['channel_id', 'last_event_seq', 'terminal_event_seq', 'updated_at']],
+    ],
+  },
+  read: {
+    remote: [
+      ['post', ['id', 'channel_id', 'user_id', 'read_bits', 'snapshot_id', 'update_at']],
+      ['channel_member', ['channel_id', 'user_id', 'unread_count', 'mention_count', 'urgent_mention_count', 'last_read_seq', 'visible_read_count']],
+      ['channel_event', ['channel_id', 'event_seq', 'event_type', 'msg_id', 'actor_id', 'payload', 'create_at']],
+    ],
+    local: [
+      ['message', ['temporary_id', 'id', 'channel_id', 'user_id', 'read_bits', 'event_seq', 'update_at']],
+      ['channel_member', ['channel_id', 'user_id', 'unread_count', 'mention_count', 'urgent_mention_count', 'last_read_seq']],
+      ['channel_event_cursor', ['channel_id', 'last_event_seq', 'terminal_event_seq', 'updated_at']],
+    ],
+  },
+  channel: {
+    remote: [
+      ['channel', ['id', 'display_name', 'type', 'header', 'purpose', 'owner', 'close', 'delete_at', 'create_at', 'update_at']],
+      ['channel_member', ['id', 'channel_id', 'user_id', 'role', 'nick_name', 'delete_at', 'create_at', 'update_at']],
+      ['channel_event', ['channel_id', 'event_seq', 'event_type', 'actor_id', 'payload', 'create_at']],
+    ],
+    local: [
+      ['channel', ['id', 'display_name', 'type', 'header', 'purpose', 'owner', 'role', 'member_count', 'delete_at', 'created_at', 'updated_at']],
+      ['channel_member', ['channel_id', 'user_id', 'role', 'nick_name', 'joined_at', 'updated_at']],
+      ['channel_event_cursor', ['channel_id', 'last_event_seq', 'terminal_event_seq', 'updated_at']],
+    ],
+  },
+  topic: {
+    remote: [
+      ['channel', ['id', 'display_name', 'type', 'root_id', 'parent_post_id', 'owner', 'create_at', 'update_at']],
+      ['channel_topic', ['id', 'channel_id', 'post_id', 'user_id', 'last_post', 'total_msg_count', 'create_at', 'update_at']],
+      ['channel_topic_members', ['id', 'channel_id', 'topic_id', 'user_id', 'last_post', 'total_msg_count', 'last_viewed_at']],
+      ['post', ['id', 'temporary_id', 'channel_id', 'user_id', 'type', 'message', 'topic', 'create_at', 'update_at']],
+    ],
+    local: [
+      ['channel', ['id', 'display_name', 'type', 'root_id', 'root_post_id', 'owner', 'member_count', 'created_at', 'updated_at']],
+      ['channel_member', ['channel_id', 'user_id', 'role', 'joined_at', 'updated_at']],
+      ['message', ['temporary_id', 'id', 'channel_id', 'user_id', 'type', 'message', 'topic', 'event_seq', 'send_status', 'create_at', 'update_at']],
+    ],
+  },
+  settings: {
+    remote: [
+      ['channel', ['id', 'display_name', 'header', 'purpose', 'mention_permission', 'notice_permission', 'top_permission', 'change_meta', 'update_at']],
+      ['channel_notice', ['id', 'channel_id', 'content', 'read_member', 'read_count']],
+    ],
+    local: [
+      ['channel', ['id', 'display_name', 'header', 'purpose', 'mention_permission', 'notice_permission', 'top_permission', 'updated_at']],
+    ],
+  },
+};
+
+const GATE_STORAGE_PROFILE = {
+  'G-S1': 'sync',
+  'G-S2': 'sync',
+  'G-S3': 'sync',
+  'G-S4': 'sync',
+  'G-01': 'post',
+  'G-02': 'post',
+  'G-03a': 'post',
+  'G-04': 'post',
+  'G-04a': 'post',
+  'G-05': 'post',
+  'G-06': 'post',
+  'G-07': 'post',
+  'G-08': 'schedule',
+  'G-09': 'schedule',
+  'G-10': 'timeline',
+  'G-10a': 'timeline',
+  'G-10b': 'timeline',
+  'G-10c': 'timeline',
+  'G-10d': 'timeline',
+  'G-11': 'timeline',
+  'G-11a': 'timeline',
+  'G-12': 'timeline',
+  'G-13': 'read',
+  'G-14': 'read',
+  'G-14a': 'post',
+  'G-15a': 'channel',
+  'G-15': 'topic',
+  'G-16': 'channel',
+  'G-16b': 'channel',
+  'G-16c': 'settings',
+};
+
+const STORAGE_COLUMN_ALIASES = {
+  channelId: 'channel_id',
+  channelType: 'type',
+  createAt: 'create_at',
+  createdAt: 'created_at',
+  deleteAt: 'delete_at',
+  displayName: 'display_name',
+  eventSeq: 'event_seq',
+  lastPost: 'last_post',
+  lastPostAt: 'last_post_at',
+  lastReadSeq: 'last_read_seq',
+  memberCount: 'member_count',
+  mentionCount: 'mention_count',
+  messagePreview: 'message_preview',
+  nickName: 'nick_name',
+  nickname: 'nick_name',
+  quickReply: 'quick_reply',
+  readBits: 'read_bits',
+  revision: 'revision',
+  scheduleId: 'schedule_id',
+  sendAt: 'send_at',
+  sendStatus: 'send_status',
+  temporaryId: 'temporary_id',
+  text: 'message',
+  unreadCount: 'unread_count',
+  updateAt: 'update_at',
+  updatedAt: 'updated_at',
+  urgentCount: 'urgent_mention_count',
+  userId: 'user_id',
+};
+
+/** 校验所有 Gate 引用的表与列都来自本轮只读抓取的 schema lock。 */
+function validateStorageProfiles() {
+  for (const [profileName, profile] of Object.entries(STORAGE_PROFILES)) {
+    for (const side of ['remote', 'local']) {
+      const lockedTables =
+        side === 'remote' ? STORAGE_SCHEMA_LOCK.remote_tables : STORAGE_SCHEMA_LOCK.local_tables;
+      for (const [table, columns] of profile[side]) {
+        if (!lockedTables[table]) {
+          throw new Error(`${profileName}.${side} references unknown table: ${table}`);
+        }
+        for (const column of columns) {
+          if (!lockedTables[table].includes(column)) {
+            throw new Error(
+              `${profileName}.${side}.${table} references unknown column: ${column}`,
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
+/** 给 schema-verified 列生成不含真实业务数据的结构样例值。 */
+function storageColumnSample(table, column, gateId, perspective) {
+  const ids = SAMPLE_IDS;
+  const eventSeq = gateId === 'G-04' || gateId === 'G-04a' ? 102 : 101;
+  const rowUserId =
+    table === 'channel_member' || table === 'channel_topic_members'
+      ? perspective === 'receiver'
+        ? ids.observer
+        : ids.actor
+      : ids.actor;
+  const values = {
+    id: table.includes('channel') ? ids.channel : ids.message,
+    temporary_id: ids.temporary,
+    channel_id: ids.channel,
+    user_id: rowUserId,
+    actor_id: ids.actor,
+    msg_id: ids.message,
+    post_id: ids.message,
+    message_id: ids.message,
+    type: table === 'channel' ? 'O' : 'TEXT',
+    message: 'Gate review message',
+    display_name: 'Gate Review Group',
+    role: perspective === 'receiver' ? 'MEMBER' : 'ADMIN',
+    nick_name: perspective === 'receiver' ? 'Observer' : 'Actor',
+    event_seq: eventSeq,
+    last_event_seq: eventSeq,
+    terminal_event_seq: eventSeq,
+    committed_seq: eventSeq,
+    last_read_seq: perspective === 'receiver' ? 100 : 101,
+    unread_count: perspective === 'receiver' ? 1 : 0,
+    mention_count: 0,
+    urgent_mention_count: 0,
+    member_count: 2,
+    msg_count: 1,
+    total_msg_count: 1,
+    event_count: 1,
+    from_seq: 101,
+    to_seq: 101,
+    create_at: 1_700_000_000_000,
+    created_at: 1_700_000_000_000,
+    update_at: 1_700_000_000_100,
+    updated_at: 1_700_000_000_100,
+    last_post_at: 1_700_000_000_000,
+    last_root_post_at: 1_700_000_000_000,
+    joined_at: 1_700_000_000_000,
+    scheduled_at: 1_700_000_060_000,
+    send_at: 1_700_000_060_000,
+    delete_at: 0,
+    revoke: gateId === 'G-04' || gateId === 'G-04a' ? 1 : 0,
+    close: gateId === 'G-16',
+    status:
+      table === 'delivery_outbox'
+        ? 'delivered'
+        : gateId === 'G-09'
+          ? 'canceled'
+          : 'scheduled',
+    send_status: 'sent',
+    revision: 8,
+    schedule_id: 'schedule-review-001',
+    owner_user_id: ids.actor,
+    event_type: gateId === 'G-04' || gateId === 'G-04a' ? 3 : 1,
+    event_kind: gateId === 'G-04' || gateId === 'G-04a' ? 'delete' : 'post',
+    commit_state: 'committed',
+    coverage_id: 'coverage-review-001',
+    tenant_id: perspective === 'receiver' ? '999' : '444',
+  };
+  if (column === 'last_post') {
+    return {
+      id: ids.message,
+      temporaryId: ids.temporary,
+      channelId: ids.channel,
+      userId: ids.actor,
+      type: 'TEXT',
+      message: 'Gate review message',
+      revoke: gateId === 'G-04' || gateId === 'G-04a',
+      createAt: 1_700_000_000_000,
+      updateAt: 1_700_000_000_100,
+    };
+  }
+  if (['props', 'payload', 'owner', 'change_meta'].includes(column)) {
+    return column === 'payload' ? { state: 'committed' } : {};
+  }
+  if (['viewers'].includes(column)) {
+    return ['all'];
+  }
+  if (['quick_reply', 'read_bits', 'expedite_map'].includes(column)) {
+    return column === 'read_bits' ? '0' : [];
+  }
+  return values[column] ?? `<${table}.${column}>`;
+}
+
+/** 将 Gate 的远端或本地持久层依据展开成可逐列复核的行结构。 */
+function storageBasis(gateId, side, perspective = 'sender') {
+  const profileName = GATE_STORAGE_PROFILE[gateId];
+  const profile = STORAGE_PROFILES[profileName];
+  const tables = profile[side].map(([table, columns]) => ({
+    table,
+    columns,
+    row_sample: Object.fromEntries(
+      columns.map((column) => [
+        column,
+        storageColumnSample(table, column, gateId, perspective),
+      ]),
+    ),
+  }));
+  if (side === 'remote') {
+    return {
+      authority: 'REMOTE_POSTGRESQL_PERSISTED_FACT',
+      profile: profileName,
+      endpoint: `${STORAGE_SCHEMA_LOCK.evidence.remote_postgresql.server_addr}:${STORAGE_SCHEMA_LOCK.evidence.remote_postgresql.server_port}`,
+      database: STORAGE_SCHEMA_LOCK.evidence.remote_postgresql.database,
+      schema: STORAGE_SCHEMA_LOCK.evidence.remote_postgresql.schema,
+      tables,
+    };
+  }
+  const tenant = perspective === 'receiver' ? '999' : '444';
+  return {
+    authority: 'LOCAL_SQLITE_AFTER_PERSIST_OK',
+    profile: profileName,
+    tenant,
+    database: join(
+      STORAGE_SCHEMA_LOCK.evidence.local_sqlite.storage_root,
+      STORAGE_SCHEMA_LOCK.evidence.local_sqlite.tenant_databases[tenant],
+    ),
+    tables,
+  };
+}
+
+/** 把出站 data 顶层字段映射到本地列；未映射项明确留给人工判定而不冒充持久字段。 */
+function outboundFieldLineage(gateId, event, data) {
+  const profile = STORAGE_PROFILES[GATE_STORAGE_PROFILE[gateId]];
+  const available = profile.local.flatMap(([table, columns]) =>
+    columns.map((column) => ({ table, column })),
+  );
+  const direct = {};
+  const nonStorage = [];
+  for (const field of Object.keys(data)) {
+    const column = STORAGE_COLUMN_ALIASES[field] ?? field;
+    const candidateColumns =
+      field === 'channelId'
+        ? [column, 'id']
+        : field === 'closed'
+          ? [column, 'close', 'delete_at']
+          : [column];
+    const matches = available
+      .filter((candidate) => candidateColumns.includes(candidate.column))
+      .map((candidate) => `${candidate.table}.${candidate.column}`);
+    if (matches.length > 0) {
+      direct[field] = matches;
+      continue;
+    }
+    if (field === 'messages' || field === 'posts') {
+      direct[field] = ['message.*'];
+      continue;
+    }
+    if (field === 'items') {
+      direct[field] = ['channel.*'];
+      continue;
+    }
+    if (field === 'members' || field === 'leaves') {
+      direct[field] = ['channel_member.*'];
+      continue;
+    }
+    if (field === 'settings') {
+      direct[field] = ['channel.display_name/header/purpose/mention_permission/notice_permission/top_permission'];
+      continue;
+    }
+    nonStorage.push(field);
+  }
+  return {
+    event,
+    direct_local_sources: direct,
+    non_storage_or_derived_fields: nonStorage,
+    rule:
+      'direct_local_sources 可由本地行读回；non_storage_or_derived_fields 是 command correlation、分页元数据、角色派生或当前待确认字段，不能宣称来自 SQLite。',
+  };
+}
 
 const GATE_GROUPS = {
   'sync/recovery': ['G-S1', 'G-S2', 'G-S3', 'G-S4'],
@@ -82,6 +448,36 @@ const EVENT_SOURCES = {
   'im:channel:schedule-canceled': 'crates/helix-im/src/acl/to_effect_s1/schedule.rs',
 };
 
+const POST_CHANNEL_UPDATE_TARGET = {
+  event: 'im:channel:update',
+  source: 'crates/helix-im/src/dialog_patch.rs',
+  source_status: 'TARGET_REQUIRED',
+};
+
+const POST_REVOKE_TARGET = {
+  event: 'im:post:revoke',
+  source: 'crates/helix-im/src/acl/projection_message_effects.rs',
+  source_status: 'TARGET_REQUIRED',
+};
+
+const POST_QUICK_REPLY_TARGET = {
+  event: 'im:post:updated',
+  source: 'crates/helix-im/src/acl/projection_message_effects.rs',
+  source_status: 'TARGET_REQUIRED',
+};
+
+const WINDOW_RESULT_TARGET = {
+  event: 'im:messages:query_result',
+  source: 'crates/helix-im/src/query/core.rs',
+  source_status: 'TARGET_REQUIRED',
+};
+
+const LEAVER_LEFT_TARGET = {
+  event: 'im:channel:left',
+  source: 'crates/helix-im/src/acl/to_effect_s1.rs',
+  source_status: 'TARGET_REQUIRED',
+};
+
 const GATE_EMITS = {
   'G-S1': {
     current: ['im:channel:increment', 'im:channels:loaded'],
@@ -108,19 +504,50 @@ const GATE_EMITS = {
   },
   'G-01': {
     current: ['im:post:sending', 'im:post:received', 'im:post:send-failed'],
-    required: ['sender optimistic', 'sender terminal', 'receiver authority'],
+    target: [POST_CHANNEL_UPDATE_TARGET],
+    required: [
+      'sender optimistic',
+      'sender terminal',
+      'sender channel lastPost + absolute unreadCount=0',
+      'receiver authority',
+      'receiver channel lastPost + absolute unreadCount increment',
+    ],
+    inferred: [
+      '当前普通 post 写后结果仍进入旧 Dialog Frame 路径；独立 im:channel:update 仅有 channel_id，尚未直接 Emit 当前成员读回的 lastPost 与绝对 unreadCount。',
+    ],
   },
   'G-02': {
     current: ['im:post:sending', 'im:post:received', 'im:post:send-failed'],
-    required: ['文档 optimistic/terminal', 'receiver 文档 authority'],
+    target: [POST_CHANNEL_UPDATE_TARGET],
+    required: ['文档 optimistic/terminal', 'receiver 文档 authority', '双方频道摘要绝对态'],
+    inferred: ['文档消息同样需要写后 im:channel:update；当前 post 路径没有该 raw 绝对态事件。'],
   },
   'G-03a': {
-    current: ['im:post:sending', 'im:post:received', 'im:post:send-failed'],
-    required: ['同 temporaryId 重试状态', '唯一 server id 终态'],
+    current: ['im:post:send-failed', 'im:post:sending', 'im:post:received'],
+    target: [POST_CHANNEL_UPDATE_TARGET],
+    required: [
+      'failed 行触发 im_retry_send',
+      '同 temporaryId 重新进入 im:post:sending',
+      'received 或 send-failed 权威终态',
+      '成功后的双方频道摘要绝对态',
+    ],
+    inferred: ['重试成功复用普通 post 写后链路，但当前没有携 lastPost/unreadCount 的 raw channel 事件。'],
   },
   'G-04': {
-    current: ['im:post:updated', 'im:post:deleted', 'im:channel:update'],
-    required: ['actor 撤回终态', 'observer 同 postId 撤回事实'],
+    current: [],
+    target: [POST_REVOKE_TARGET, POST_CHANNEL_UPDATE_TARGET],
+    required: [
+      '同 postId 的 revoke=true 幂等终态',
+      'sender/receiver 都从本地 message 行读回同一撤回事实',
+      '撤回最后一条后分别读回各自 channel_member.last_post/unread_count',
+      '展示文案只由 system_event.actorId + viewer identity 派生，不进入 raw 持久 Emit',
+    ],
+    inferred: [
+      '当前 Go 无条件广播 posts_update，但仅在撤回结果等于 GetPostLaster() 返回的全表最新 post 时广播 update_channel；该判断不是 channel-scoped，且副链失败会降级为只有 posts_update。',
+      '当前 Go update_channel.data.lastPost 是 JSON 字符串；当前 Helix 撤回主链落 revoke=1 后 emit im:post:deleted + im:post:batch-updated，未 emit im:post:revoke。',
+      '当前 Go 只广播鉴权 actorId，不广播 actorName；消费端若需要具体名称，必须查询成员/用户目录，不能把 actorName 冒充 message 行字段。',
+      '当前 Helix im:channel:update 仅携 channel_id，且 lastPost JSON 字符串没有被解析为可用对象；WDIO G04 也明确把 dialog mutation 标为 N/A。',
+    ],
   },
   'G-04a': {
     current: ['im:post:deleted', 'im:post:batch-updated', 'im:channel:update'],
@@ -128,11 +555,20 @@ const GATE_EMITS = {
   },
   'G-05': {
     current: ['im:posts:batch-result', 'im:post:received'],
-    required: ['每个目标的批结果', '各目标频道 receiver authority'],
+    target: [POST_CHANNEL_UPDATE_TARGET],
+    required: ['每个目标的批结果', '各目标频道 receiver authority', '目标频道摘要绝对态'],
+    inferred: ['目标 post 可更新 channel 行，但当前 raw 出站未携目标频道 lastPost/unreadCount 绝对态。'],
   },
   'G-06': {
-    current: ['im:post:updated'],
-    required: ['reaction 绝对态及 actor/observer 一致 postId'],
+    current: [],
+    target: [POST_QUICK_REPLY_TARGET],
+    required: [
+      '同 postId 的 quickReply 绝对态',
+      'sender/receiver 直接消费同一 [{emoji,userIds}] 结构',
+    ],
+    inferred: [
+      '远端 post.quick_reply 是 {emoji:[userId]} JSONB；Go 在 WS 边界一次性规范化为 quickReply:[{emoji,userIds}]。目标 Helix 将该数组原样写入 message.quick_reply(TEXT JSON)并原样 raw emit，不再塞进 props.quickReply 或派生 reactions/reactionCount。当前 edit_content_op 只写 props，message.quick_reply 没有更新。',
+    ],
   },
   'G-07': {
     current: ['im:post:updated', 'im:post:readers', 'im:channel:update'],
@@ -163,11 +599,13 @@ const GATE_EMITS = {
   },
   'G-10c': {
     current: ['im:post:received'],
+    target: [POST_CHANNEL_UPDATE_TARGET, WINDOW_RESULT_TARGET],
     required: ['append 后窗口淘汰结果、bounds 与 revision'],
     inferred: ['缺少表达头部淘汰后的 raw emit 合同'],
   },
   'G-10d': {
     current: ['im:post:received'],
+    target: [POST_CHANNEL_UPDATE_TARGET, WINDOW_RESULT_TARGET],
     required: ['离底 anchor 保持与 new-message indicator'],
     inferred: ['缺少表达 anchor/提示状态的 raw emit 合同'],
   },
@@ -211,7 +649,9 @@ const GATE_EMITS = {
   },
   'G-16b': {
     current: ['im:channel:member-updated', 'im:channel:members'],
-    required: ['退出成员变化', '各 observer 的新 roster authority'],
+    target: [LEAVER_LEFT_TARGET],
+    required: ['remaining member 的 roster authority', 'leaver 的 viewer-local left 终态'],
+    inferred: ['当前 Gate 清单未证明退出成员会收到独立 im:channel:left；该视角先作为待实现目标。'],
   },
   'G-16c': {
     current: ['im:channel:settings-updated', 'im:channel:update'],
@@ -219,10 +659,109 @@ const GATE_EMITS = {
   },
 };
 
+const GATE_PRELUDE_EVENTS = {
+  'G-01': ['im:post:sending'],
+  'G-02': ['im:post:sending'],
+  'G-03a': ['im:post:sending'],
+};
+
+const GATE_FAILURE_EVENTS = {
+  'G-S3': ['im:sync:too_long'],
+  'G-01': ['im:post:send-failed'],
+  'G-02': ['im:post:send-failed'],
+  'G-03a': ['im:post:send-failed'],
+};
+
+const GATE_ASSOCIATED_EVENTS = {
+  'G-S2': ['im:channel:update'],
+  'G-S4': ['im:channel:update'],
+  'G-01': ['im:channel:update'],
+  'G-02': ['im:channel:update'],
+  'G-03a': ['im:channel:update'],
+  'G-04': ['im:channel:update'],
+  'G-04a': ['im:post:batch-updated', 'im:channel:update'],
+  'G-05': ['im:channel:update'],
+  'G-07': ['im:post:readers', 'im:channel:update'],
+  'G-10c': ['im:channel:update'],
+  'G-10d': ['im:channel:update'],
+  'G-13': ['im:channel:update'],
+  'G-14': ['im:post:readers'],
+  'G-15a': ['im:channel:members'],
+  'G-16b': ['im:channel:members'],
+  'G-16c': ['im:channel:update'],
+};
+
+const MESSAGE_V3_SPLIT_GAPS = {
+  'G-S1': [
+    'increment_channel 的 program_full 仍把 unread/mention/urgent 个人状态写入 channel；成员批量 upsert 只保存 roster，尚未把当前登录用户的个人投影写入 channel_member。',
+  ],
+  'G-S2': [
+    '离线 mutation/sync_dialog_patch 仍通过 bump_channel_unread_op 更新 channel，too-long 恢复也会重置 channel 的个人字段；分表后必须改为当前 auth_user_id 的 channel_member 原子写入与读回。',
+    '离线 post 恢复后的 im:channel:update 仍是瘦信号，尚未携带 channel_member 写后读回的 lastPost/unreadCount 绝对态。',
+  ],
+  'G-S3': [
+    'pong gap 的补偿链最终复用 S2；当前 too-long reset_channel_dialog_op 仍写分表后已从 channel 删除的 unread/mention/urgent 字段。',
+  ],
+  'G-S4': [
+    '陌生频道补全同时复用 increment_channel 与普通 post：前者尚未把当前成员个人投影写入 channel_member，后者仍把未读累计写入 channel。',
+  ],
+  'G-01': [
+    '普通 WS post 当前仍更新并读回 channel；分表后应更新 channel 公共 lastPost，并按 (channel_id,auth_user_id) 更新/读回 channel_member 个人摘要。',
+    '发送者当前只是 unread_delta=0 而不是 channel_member.unread_count=0；接收者也尚未在 channel_member 上幂等 +1。',
+  ],
+  'G-02': [
+    '文档消息复用普通 post 落库链，发送者绝对清零、接收者幂等 +1 与个人 lastPost 尚未迁到 channel_member。',
+  ],
+  'G-03a': [
+    '重试成功复用普通 post 落库链，成功终态后的 channel_member 发送者清零/接收者加一尚未实现。',
+  ],
+  'G-04': [
+    '撤回最后一条消息时，当前实现尚未以 (channel_id,viewer_user_id) 更新并读回双方各自的 channel_member.last_post/unread_count。',
+  ],
+  'G-04a': [
+    '离线撤回恢复复用 sync 投影链；当前仍会重置或累计 channel 个人字段，尚未把恢复后的个人摘要归一到 channel_member。',
+  ],
+  'G-05': [
+    '转发成功后的每个目标 post 仍复用普通 post 的 channel 未读写法；目标频道当前成员的 channel_member 摘要与未读尚未原子更新/读回。',
+  ],
+  'G-07': [
+    'update_channel 已有 channel_member 绝对态 upsert，但同一处理仍通过 collect_present 把 unread/mention/urgent 重复写入 channel；目标 schema 删除这些列后该相关 Persist 会失败。',
+    'channel_member 加急列仍写 urgent_mention_count/urgent_mention_user，尚未改为 MessageV3 的 urgent_count/urgent_current_name；im:channel:update 也仍是瘦信号。',
+  ],
+  'G-10b': [
+    'newer 分页期间收到的新 post 复用普通 post 投影链，关联的 channel_member 未读与个人 lastPost 尚未按分表合同更新。',
+  ],
+  'G-10c': [
+    '满窗口 append 的新 post 仍复用普通 post 投影链，关联的 channel_member 未读与个人 lastPost 尚未按分表合同更新。',
+  ],
+  'G-10d': [
+    '离底 anchor 状态下的新 post 仍复用普通 post 投影链，关联的 channel_member 未读与个人 lastPost 尚未按分表合同更新。',
+  ],
+  'G-11a': [
+    '未缓存定位期间乱序到达的新 post 仍复用普通 post 投影链，关联的 channel_member 未读与个人 lastPost 尚未按分表合同更新。',
+  ],
+  'G-13': [
+    'update_channel 的已读绝对态虽已解析到 channel_member，但 collect_present 仍同步写 channel.unread_count/unread_post_id/mention/urgent；分表后必须只写当前成员行并从该行读回完整 im:channel:update。',
+  ],
+  'G-15a': [
+    '创建群后的 channel_created/channel_member_update 仍调用 program_full 写入 channel 个人字段；roster upsert 尚未为创建者建立完整的 channel_member 个人会话投影。',
+  ],
+  'G-15': [
+    '创建话题复用 channel_created 全量写入，仍会写分表后已删除的 channel 个人字段；topic 创建者的个人会话投影尚未归入 channel_member。',
+  ],
+  'G-16b': [
+    'channel_member_update 仍复用 program_full 写入 channel 个人字段；分表后成员广播只能更新 channel 公共字段与独立 roster/member 行。',
+  ],
+  'G-16c': [
+    '群属性 update_channel 已有 member upsert，但 collect_present 仍可能把个人 unread/mention/urgent 字段写回 channel，且 member 加急列仍是旧命名；目标 schema 下需要拆成公共 PATCH 与成员 PATCH。',
+  ],
+};
+
 const SAMPLE_IDS = {
   channel: 'chreview000000000000000001',
   topic: 'chtopic0000000000000000001',
   message: 'msgreview00000000000000001',
+  message2: 'msgreview00000000000000002',
   temporary: 'tmpreview00000000000000001',
   actor: 'user-actor-444',
   observer: 'user-observer-678',
@@ -237,7 +776,7 @@ const GATE_WS_ACTIONS = {
   'G-01': ['post'],
   'G-02': ['post'],
   'G-03a': ['post'],
-  'G-04': ['posts_update'],
+  'G-04': ['posts_update', 'revoke_update_channel'],
   'G-04a': ['posts_update'],
   'G-05': ['post'],
   'G-06': ['post_update'],
@@ -398,9 +937,159 @@ function commandSamplePayload(name, gateId) {
   return payload;
 }
 
-/** 构造生产 WS parser 当前接受的代表性 wire JSON。 */
-function wsSample(action) {
+/** 构造 G-05 逐条转发与合并转发两套 canonical command。 */
+function g05CommandSamples() {
   const ids = SAMPLE_IDS;
+  return [
+    {
+      sample_id: 'command-individual',
+      payload: {
+        post_ids: [ids.message, ids.message2],
+        target_channel_ids: [ids.topic],
+        mode: 'individual',
+        req_id: 'req-review-individual-001',
+      },
+    },
+    {
+      sample_id: 'command-merged',
+      payload: {
+        post_ids: [ids.message, ids.message2],
+        target_channel_ids: [ids.topic],
+        mode: 'merged',
+        req_id: 'req-review-merged-001',
+      },
+    },
+  ];
+}
+
+/** 构造合并转发 durable props 中的两条来源消息快照。 */
+function g05MergedItems() {
+  const ids = SAMPLE_IDS;
+  return [
+    {
+      id: ids.message,
+      temporaryId: 'source-temporary-001',
+      userId: ids.actor,
+      userSnapshot: { userName: 'Actor' },
+      type: 'TEXT',
+      message: 'Forwarded message A',
+      simpleMessage: 'Forwarded message A',
+      sendStatus: 'sended',
+      viewers: ['all'],
+      props: {},
+      createAt: 1_700_000_000_000,
+    },
+    {
+      id: ids.message2,
+      temporaryId: 'source-temporary-002',
+      userId: ids.observer,
+      userSnapshot: { userName: 'Observer' },
+      type: 'TEXT',
+      message: 'Forwarded message B',
+      simpleMessage: 'Forwarded message B',
+      sendStatus: 'sended',
+      viewers: ['all'],
+      props: {},
+      createAt: 1_700_000_000_100,
+    },
+  ];
+}
+
+/** 构造 G-05 每种模式由服务端广播的目标频道 WS post authority。 */
+function g05AuthoritySamples() {
+  const ids = SAMPLE_IDS;
+  const base = {
+    v: 1,
+    action: 'post',
+    broadcast: {},
+  };
+  const individualPosts = [
+    {
+      id: 'forwarded-individual-001',
+      temporaryId: 'relay-req-review-individual-001-0',
+      seq: 201,
+      createAt: 1_700_000_001_000,
+      message: 'Forwarded message A',
+    },
+    {
+      id: 'forwarded-individual-002',
+      temporaryId: 'relay-req-review-individual-001-1',
+      seq: 202,
+      createAt: 1_700_000_001_001,
+      message: 'Forwarded message B',
+    },
+  ].map((post, index) => ({
+    sample_id: `ws-authority-individual-${index + 1}`,
+    value: {
+      ...base,
+      tracing: { csesTrackId: 'req-review-individual-001' },
+      data: {
+        id: post.id,
+        temporaryId: post.temporaryId,
+        channelId: ids.topic,
+        event_seq: post.seq,
+        createAt: post.createAt,
+        message: post.message,
+        type: 'TEXT',
+        userId: ids.actor,
+        viewers: ['all'],
+        props: { channel_event_seq: post.seq },
+      },
+      seq: post.seq,
+    },
+  }));
+  const mergedItems = g05MergedItems();
+  return [
+    ...individualPosts,
+    {
+      sample_id: 'ws-authority-merged-1',
+      value: {
+        ...base,
+        tracing: { csesTrackId: 'req-review-merged-001' },
+        data: {
+          id: 'forwarded-merged-001',
+          temporaryId: 'relay-req-review-merged-001-0',
+          channelId: ids.topic,
+          event_seq: 203,
+          createAt: 1_700_000_002_000,
+          message: '',
+          simpleMessage: '[聊天记录]',
+          type: 'MULTIPLY',
+          userId: ids.actor,
+          viewers: ['all'],
+          props: {
+            forwardTitle: 'Gate Review Group的聊天记录',
+            sourceChannelId: ids.channel,
+            sourceChannelName: 'Gate Review Group',
+            mergeMessage: JSON.stringify(mergedItems),
+            channel_event_seq: 203,
+          },
+        },
+        seq: 203,
+      },
+    },
+  ];
+}
+
+/** 构造生产 WS parser 当前接受的代表性 wire JSON，并保留 Gate 消息类型差异。 */
+function wsSample(action, gateId = undefined) {
+  const ids = SAMPLE_IDS;
+  const documentMessage =
+    gateId === 'G-02'
+      ? {
+          message: '【文档】 http://doc-pre.cses7.com/doc/review',
+          type: 'DOCUMENT',
+          props: {
+            document: {
+              version: 1,
+              url: 'http://doc-pre.cses7.com/doc/review',
+              title: '打开文档',
+              placeholder: true,
+            },
+            channel_event_seq: 101,
+          },
+        }
+      : {};
   const post = {
     id: ids.message,
     temporaryId: ids.temporary,
@@ -412,6 +1101,7 @@ function wsSample(action) {
     userId: ids.actor,
     viewers: ['all'],
     props: { channel_event_seq: 101 },
+    ...documentMessage,
   };
   const samples = {
     hello: { action: 'hello', data: { connectionId: 'conn-review-001' } },
@@ -433,7 +1123,75 @@ function wsSample(action) {
     },
     posts_update: {
       action: 'posts_update',
-      data: { event_seq: 102, channelId: ids.channel, posts: [{ ...post, revoke: true }] },
+      data: {
+        event_seq: 102,
+        event_id: `revoke:${ids.channel}:102`,
+        actor_id: ids.actor,
+        target_msg_id: ids.message,
+        channelId: ids.channel,
+        system_event: {
+          type: 'system',
+          kind: 'system',
+          system: true,
+          eventId: `revoke:${ids.channel}:102`,
+          eventSeq: 102,
+          channelId: ids.channel,
+          systemEvent: 'message-recalled',
+          actorId: ids.actor,
+          targetMsgId: ids.message,
+          recalledMsgId: ids.message,
+          occurredAt: 1_700_000_000_100,
+        },
+        posts: [
+          {
+            ...post,
+            props: {
+              channel_event_seq: 102,
+              system_event: {
+                type: 'system',
+                kind: 'system',
+                system: true,
+                eventId: `revoke:${ids.channel}:102`,
+                eventSeq: 102,
+                channelId: ids.channel,
+                systemEvent: 'message-recalled',
+                actorId: ids.actor,
+                targetMsgId: ids.message,
+                recalledMsgId: ids.message,
+                occurredAt: 1_700_000_000_100,
+              },
+            },
+            revoke: true,
+          },
+        ],
+      },
+    },
+    revoke_update_channel: {
+      action: 'update_channel',
+      data: {
+        id: ids.channel,
+        lastPost: JSON.stringify({
+          ...post,
+          props: {
+            channel_event_seq: 102,
+            system_event: {
+              type: 'system',
+              kind: 'system',
+              system: true,
+              eventId: `revoke:${ids.channel}:102`,
+              eventSeq: 102,
+              channelId: ids.channel,
+              systemEvent: 'message-recalled',
+              actorId: ids.actor,
+              targetMsgId: ids.message,
+              recalledMsgId: ids.message,
+              occurredAt: 1_700_000_000_100,
+            },
+          },
+          revoke: true,
+          updateAt: 1_700_000_000_100,
+        }),
+      },
     },
     post_read: {
       action: 'post_read',
@@ -616,17 +1374,39 @@ function emitRecords(gateId) {
   if (!definition) {
     throw new Error(`Emit contract missing for Gate: ${gateId}`);
   }
+  const preexistingGaps = definition.inferred ?? [];
+  const messageV3SplitGaps = MESSAGE_V3_SPLIT_GAPS[gateId] ?? [];
+  const inferredGaps = [...preexistingGaps, ...messageV3SplitGaps];
+  const currentChannels = definition.current.map((event) => ({
+    event,
+    core_output: 'Effect::Emit',
+    envelope: '{event,data}',
+    source: EVENT_SOURCES[event] ?? 'MISSING_SOURCE_INDEX',
+    source_status: EVENT_SOURCES[event] ? 'CURRENT_SOURCE' : 'MISSING',
+  }));
+  const targetChannels = (definition.target ?? []).map((target) => ({
+    event: target.event,
+    core_output: 'Effect::Emit',
+    envelope: '{event,data}',
+    source: target.source,
+    source_status: target.source_status,
+  }));
   return {
-    channels: definition.current.map((event) => ({
-      event,
-      core_output: 'Effect::Emit',
-      envelope: '{event,data}',
-      source: EVENT_SOURCES[event] ?? 'MISSING_SOURCE_INDEX',
-      source_status: EVENT_SOURCES[event] ? 'CURRENT_SOURCE' : 'MISSING',
-    })),
+    channels: [...currentChannels, ...targetChannels],
     required_semantics: definition.required,
-    inferred_gaps: definition.inferred ?? [],
-    coverage_status: definition.inferred?.length ? 'PARTIAL' : 'CURRENT_SOURCE',
+    gap_basis: {
+      current_runtime_schema: 'crates/helix-im/src/schema.rs',
+      message_v3_target_schema:
+        'specs/047-im-event-gate-inventory/.v1/本地数据库/完整表结构.sql',
+      meaning:
+        'inferred_gaps 是当前源码与 MessageV3 目标合同之间的差距；目标表文档完成不等于运行时 Gap 已解决。',
+    },
+    gap_categories: {
+      preexisting: preexistingGaps,
+      message_v3_channel_member_split: messageV3SplitGaps,
+    },
+    inferred_gaps: inferredGaps,
+    coverage_status: inferredGaps.length ? 'PARTIAL' : 'CURRENT_SOURCE',
   };
 }
 
@@ -704,8 +1484,7 @@ function eventSampleData(event, gateId) {
     'im:post:received': received,
     'im:post:updated': {
       ...received,
-      reactions: [{ emoji: ':thumbsup:', userIds: [ids.actor] }],
-      reactionCount: 1,
+      quickReply: [{ emoji: ':thumbsup:', userIds: [ids.actor] }],
       updateAt: 1_700_000_000_100,
     },
     'im:post:deleted': {
@@ -907,78 +1686,942 @@ function eventSampleData(event, gateId) {
   return sample;
 }
 
-/** 生成 Gate 的 Command 与 WS authority 两类入站结构样例。 */
-function inboundSampleRecord(uc, sourceLock) {
-  const commands = uc.commands.map((command, index) => ({
-    sample_id: `command-${index + 1}`,
-    tick_variant: 'Tick::Command',
-    rust_shape: 'AppCommand { name: Cow<str>, payload: Bytes(JSON) }',
-    value: {
-      name: command.name,
-      payload: commandSamplePayload(command.name, uc.gate_id),
+/** 将 G01 收敛为最小领域事件字段，去掉能力、别名和可推导状态。 */
+function g01EventSampleData(event) {
+  const ids = SAMPLE_IDS;
+  const samples = {
+    'im:post:sending': {
+      channelId: ids.channel,
+      temporaryId: ids.temporary,
+      sendStatus: 'sending',
+      text: 'Gate review message',
+      type: 'TEXT',
     },
-    source_refs: [
-      'crates/helix-core/src/tick.rs',
-      COMMAND_SAMPLE_SOURCES[command.name] ?? 'crates/helix-im/contracts/strict-matrix.v1.json',
+    'im:post:received': {
+      id: ids.message,
+      channelId: ids.channel,
+      temporaryId: ids.temporary,
+      eventSeq: 101,
+      userId: ids.actor,
+      message: 'Gate review message',
+      type: 'TEXT',
+      createAt: 1_700_000_000_000,
+      sendStatus: 'sent',
+    },
+    'im:post:send-failed': {
+      channelId: ids.channel,
+      temporaryId: ids.temporary,
+      sendStatus: 'failed',
+    },
+  };
+  const sample = samples[event];
+  if (!sample) {
+    throw new Error(`G01 event sample missing: ${event}`);
+  }
+  return sample;
+}
+
+/** 生成消息 Gate 写后读回的 viewer-local channel 绝对态，不把 delta 交给壳计算。 */
+function postChannelUpdateData(gateId, unreadCount) {
+  const post =
+    gateId === 'G-01'
+      ? g01EventSampleData('im:post:received')
+      : eventSampleData('im:post:received', gateId);
+  return {
+    channelId: SAMPLE_IDS.channel,
+    lastPost: {
+      id: post.id,
+      userId: post.userId,
+      message: post.message,
+      createAt: post.createAt,
+    },
+    unreadCount,
+  };
+}
+
+/** 构造 G-05 两种转发模式在目标频道持久化后的最小消息终态。 */
+function g05ForwardedPostData(mode, index = 0) {
+  const ids = SAMPLE_IDS;
+  if (mode === 'merged') {
+    const items = g05MergedItems().map((item) => ({
+      id: item.id,
+      userId: item.userId,
+      author: item.userSnapshot.userName,
+      text: item.message,
+      type: item.type,
+      createAt: item.createAt,
+      userSnapshot: item.userSnapshot,
+    }));
+    return {
+      id: 'forwarded-merged-001',
+      channelId: ids.topic,
+      temporaryId: 'relay-req-review-merged-001-0',
+      eventSeq: 203,
+      userId: ids.actor,
+      message: '',
+      type: 'MULTIPLY',
+      createAt: 1_700_000_002_000,
+      sendStatus: 'sent',
+      forwardDetail: {
+        mode: 'merged',
+        state: 'ready',
+        title: 'Gate Review Group的聊天记录',
+        summary: '共2条消息',
+        itemCount: 2,
+        sourceChannelId: ids.channel,
+        sourceChannelName: 'Gate Review Group',
+        items,
+        failureReason: null,
+      },
+    };
+  }
+  const source = [
+    { id: 'forwarded-individual-001', message: 'Forwarded message A', eventSeq: 201 },
+    { id: 'forwarded-individual-002', message: 'Forwarded message B', eventSeq: 202 },
+  ][index];
+  return {
+    id: source.id,
+    channelId: ids.topic,
+    temporaryId: `relay-req-review-individual-001-${index}`,
+    eventSeq: source.eventSeq,
+    userId: ids.actor,
+    message: source.message,
+    type: 'TEXT',
+    createAt: 1_700_000_001_000 + index,
+    sendStatus: 'sent',
+  };
+}
+
+/** 构造 G-05 发起者可见的 HTTP 接受结果，明确 accepted 仍等待 WS post。 */
+function g05BatchResultData(mode) {
+  const reqId =
+    mode === 'merged' ? 'req-review-merged-001' : 'req-review-individual-001';
+  return {
+    reqId,
+    batchStatus: 'success',
+    acceptedCount: 1,
+    failedCount: 0,
+    deliveryAuthority: 'ws-post',
+    targets: [
+      {
+        channelId: SAMPLE_IDS.topic,
+        acceptanceStatus: 'accepted',
+        deliveryStatus: 'pending',
+        error: null,
+      },
     ],
-  }));
-  const authorities = (GATE_WS_ACTIONS[uc.gate_id] ?? []).map((action, index) => ({
-    sample_id: `ws-authority-${index + 1}`,
+  };
+}
+
+/** 构造 G-05 目标频道写后 lastPost/unreadCount 绝对态。 */
+function g05ChannelUpdateData(post, perspective) {
+  return {
+    channelId: SAMPLE_IDS.topic,
+    lastPost: {
+      id: post.id,
+      userId: post.userId,
+      message: post.type === 'MULTIPLY' ? '[聊天记录]' : post.message,
+      createAt: post.createAt,
+    },
+    unreadCount: perspective === 'receiver' ? 1 : 0,
+  };
+}
+
+/** 按模式构造 G-05 的 sender/receiver 出站序列，避免两种转发混成一条流程。 */
+function g05OutboundByMode() {
+  const individual = [g05ForwardedPostData('individual', 0), g05ForwardedPostData('individual', 1)];
+  const merged = g05ForwardedPostData('merged');
+  return {
+    individual: {
+      sender: [
+        { event: 'im:posts:batch-result', data: g05BatchResultData('individual') },
+        ...individual.map((post) => ({ event: 'im:post:received', data: post })),
+        {
+          event: 'im:channel:update',
+          data: g05ChannelUpdateData(individual[1], 'sender'),
+        },
+      ],
+      receiver: [
+        ...individual.map((post) => ({ event: 'im:post:received', data: post })),
+        {
+          event: 'im:channel:update',
+          data: g05ChannelUpdateData(individual[1], 'receiver'),
+        },
+      ],
+    },
+    merged: {
+      sender: [
+        { event: 'im:posts:batch-result', data: g05BatchResultData('merged') },
+        { event: 'im:post:received', data: merged },
+        {
+          event: 'im:channel:update',
+          data: g05ChannelUpdateData(merged, 'sender'),
+        },
+      ],
+      receiver: [
+        { event: 'im:post:received', data: merged },
+        {
+          event: 'im:channel:update',
+          data: g05ChannelUpdateData(merged, 'receiver'),
+        },
+      ],
+    },
+  };
+}
+
+/** 合并 G-05 两种模式，供 Gate 总览样例继续提供完整 event 并集。 */
+function g05OutboundPerspectives() {
+  const byMode = g05OutboundByMode();
+  return {
+    sender: [...byMode.individual.sender, ...byMode.merged.sender],
+    receiver: [...byMode.individual.receiver, ...byMode.merged.receiver],
+  };
+}
+
+/** 生成单一 G-05 模式的双客户端入栈/出栈流程，供人工逐段审阅。 */
+function g05FlowSample(mode, sourceLock) {
+  const command = g05CommandSamples().find((sample) => sample.payload.mode === mode);
+  const authorities = g05AuthoritySamples().filter((sample) =>
+    sample.sample_id.includes(mode),
+  );
+  const outbound = g05OutboundByMode()[mode];
+  const inboundEntry = (sample) => ({
+    tick_variant: 'Tick::Inbound',
+    value: structuredClone(sample.value),
+  });
+  const causalOrder =
+    mode === 'individual'
+      ? {
+          sender: [
+            '1. inbound[0]: 壳提交 im_relay_messages(mode=individual, 2 post_ids)',
+            '2. outbound[0]: HTTP accepted 后 emit batch-result；deliveryStatus 仍是 pending',
+            '3. inbound[1]: 收到目标消息 A 的 WS post echo',
+            '4. outbound[1]: 持久提交消息 A 后 emit im:post:received',
+            '5. inbound[2]: 收到目标消息 B 的 WS post echo',
+            '6. outbound[2]: 持久提交消息 B 后 emit im:post:received',
+            '7. outbound[3]: 持久读回目标频道后 emit lastPost=B、unreadCount=0',
+          ],
+          receiver: [
+            '1. inbound[0]: 收到目标消息 A 的 WS post',
+            '2. outbound[0]: 持久提交消息 A 后 emit im:post:received',
+            '3. inbound[1]: 收到目标消息 B 的 WS post',
+            '4. outbound[1]: 持久提交消息 B 后 emit im:post:received',
+            '5. outbound[2]: 持久读回目标频道后 emit lastPost=B、unreadCount=1',
+          ],
+        }
+      : {
+          sender: [
+            '1. inbound[0]: 壳提交 im_relay_messages(mode=merged, 2 post_ids)',
+            '2. outbound[0]: HTTP accepted 后 emit batch-result；deliveryStatus 仍是 pending',
+            '3. inbound[1]: 收到唯一 MULTIPLY 消息的 WS post echo',
+            '4. outbound[1]: 持久提交后 emit 一条 im:post:received，forwardDetail.items=2',
+            '5. outbound[2]: 持久读回目标频道后 emit lastPost=[聊天记录]、unreadCount=0',
+          ],
+          receiver: [
+            '1. inbound[0]: 收到唯一 MULTIPLY 消息的 WS post',
+            '2. outbound[0]: 持久提交后 emit 一条 im:post:received，forwardDetail.items=2',
+            '3. outbound[1]: 持久读回目标频道后 emit lastPost=[聊天记录]、unreadCount=1',
+          ],
+        };
+  return {
+    schema_version: 'helix-im-g05-forward-flow-sample/v1',
+    gate_id: 'G-05',
+    mode,
+    runtime_capture: false,
+    source_lock: sourceLock,
+    mode_difference:
+      mode === 'individual'
+        ? '2 条来源消息 -> 2 条独立 TEXT 目标消息'
+        : '2 条来源消息 -> 1 条 MULTIPLY 目标消息；两条来源内容放在 forwardDetail.items',
+    causal_order: causalOrder,
+    sender: {
+      inbound: [
+        {
+          tick_variant: 'Tick::Command',
+          value: {
+            name: 'im_relay_messages',
+            payload: structuredClone(command.payload),
+          },
+        },
+        ...authorities.map(inboundEntry),
+      ],
+      outbound: structuredClone(outbound.sender),
+    },
+    receiver: {
+      inbound: authorities.map(inboundEntry),
+      outbound: structuredClone(outbound.receiver),
+    },
+    completion_rule:
+      'im:posts:batch-result 只表示 HTTP accepted；双方收到同一目标 post 的 WS authority、持久提交并 emit im:post:received 后才算消息可见。',
+  };
+}
+
+/** 只复制白名单字段，避免把工厂样例中的兼容别名和 UI 能力带入审阅合同。 */
+function pickDefined(source, keys) {
+  return Object.fromEntries(
+    keys.filter((key) => source[key] !== undefined).map((key) => [key, structuredClone(source[key])]),
+  );
+}
+
+/** 将 message-row 样例收敛为身份、内容、顺序和终态字段。 */
+function minimalPostData(source, extraKeys = []) {
+  return pickDefined(source, [
+    'id',
+    'channelId',
+    'temporaryId',
+    'eventSeq',
+    'userId',
+    'message',
+    'type',
+    'createAt',
+    'sendStatus',
+    ...extraKeys,
+  ]);
+}
+
+/** 给查询类 Gate 补齐其本地窗口动作的审阅目标状态。 */
+function queryResultSampleData(gateId, perspective) {
+  const post = minimalPostData(eventSampleData('im:post:received', gateId));
+  const modeByGate = {
+    'G-10': 'latest',
+    'G-10a': 'older',
+    'G-10b': 'newer',
+    'G-10c': 'append',
+    'G-10d': perspective === 'receiver' ? 'append-away-bottom' : 'append-latest',
+    'G-11': 'locate',
+    'G-11a': 'locate',
+  };
+  const data = {
+    channelId: SAMPLE_IDS.channel,
+    mode: modeByGate[gateId] ?? 'latest',
+    revision: 7,
+    messages: [post],
+    bounds: { firstEventSeq: 101, lastEventSeq: 101 },
+    olderToken: gateId === 'G-10b' ? null : 'older-review-token',
+    newerToken: ['G-10', 'G-10a', 'G-10c'].includes(gateId) ? null : 'newer-review-token',
+  };
+  if (gateId === 'G-10c') {
+    data.evictedHeadCount = 1;
+  }
+  if (gateId === 'G-10d') {
+    data.anchorPreserved = perspective === 'receiver';
+    data.newMessageCount = perspective === 'receiver' ? 1 : 0;
+  }
+  if (gateId === 'G-11' || gateId === 'G-11a') {
+    data.targetMessageId = SAMPLE_IDS.message;
+  }
+  return data;
+}
+
+/** 按 Gate 语义生成 channel 更新的绝对态；无现成绝对态时只保留路由身份。 */
+function channelUpdateSampleData(gateId, perspective) {
+  const postDriven = new Set(['G-01', 'G-02', 'G-03a', 'G-05', 'G-10c', 'G-10d']);
+  if (postDriven.has(gateId)) {
+    return postChannelUpdateData(gateId, perspective === 'receiver' ? 1 : 0);
+  }
+  if (gateId === 'G-04') {
+    return g04ChannelUpdateData(perspective);
+  }
+  if (gateId === 'G-13') {
+    return {
+      channelId: SAMPLE_IDS.channel,
+      unreadCount: 0,
+      mentionCount: 0,
+      urgentCount: 0,
+    };
+  }
+  if (gateId === 'G-07') {
+    return {
+      channelId: SAMPLE_IDS.channel,
+      urgentCount: 0,
+    };
+  }
+  if (gateId === 'G-16c') {
+    return { channelId: SAMPLE_IDS.channel, settingVersion: 8 };
+  }
+  return { channelId: SAMPLE_IDS.channel };
+}
+
+/** 生成 G04 本地 message 行可直接读回的撤回事实，不混入展示文案。 */
+function g04RevokeData(_perspective) {
+  return {
+    id: SAMPLE_IDS.message,
+    temporaryId: SAMPLE_IDS.temporary,
+    channelId: SAMPLE_IDS.channel,
+    eventSeq: 102,
+    userId: SAMPLE_IDS.actor,
+    type: 'TEXT',
+    message: 'Gate review message',
+    createAt: 1_700_000_000_000,
+    updateAt: 1_700_000_000_100,
+    revoke: true,
+  };
+}
+
+/** 生成 G04 撤回最后一条后的 channel_member 绝对态；撤回本身不新增未读。 */
+function g04ChannelUpdateData(perspective) {
+  const revoke = g04RevokeData(perspective);
+  return {
+    channelId: SAMPLE_IDS.channel,
+    lastPost: {
+      id: revoke.id,
+      temporaryId: revoke.temporaryId,
+      channelId: revoke.channelId,
+      userId: revoke.userId,
+      message: revoke.message,
+      type: revoke.type,
+      createAt: revoke.createAt,
+      updateAt: revoke.updateAt,
+      revoke: revoke.revoke,
+    },
+    unreadCount: perspective === 'receiver' ? 1 : 0,
+  };
+}
+
+/** 将各类业务 Emit 数据收敛成无能力字段、无重复别名的 Gate 审阅样例。 */
+function minimalEventSampleData(event, gateId, perspective) {
+  if (event === 'im:post:revoke') {
+    return g04RevokeData(perspective);
+  }
+  const data = eventSampleData(event, gateId);
+  switch (event) {
+    case 'im:post:sending':
+      return pickDefined(data, ['channelId', 'temporaryId', 'sendStatus', 'text', 'type']);
+    case 'im:post:received':
+      return minimalPostData(data, gateId === 'G-02' ? ['props'] : []);
+    case 'im:post:updated':
+      const updateIdentity = ['id', 'channelId', 'eventSeq', 'updateAt'];
+      if (gateId === 'G-06') {
+        return pickDefined(data, [...updateIdentity, 'quickReply']);
+      }
+      if (gateId === 'G-07') {
+        return pickDefined(data, [
+          ...updateIdentity,
+          'urgent',
+          'urgentRequesterId',
+          'urgentTargetIds',
+          'urgentConfirmedIds',
+          'urgentState',
+        ]);
+      }
+      if (gateId === 'G-14a') {
+        return pickDefined(data, [
+          ...updateIdentity,
+          'templateReceived',
+          'templateConfirmedCount',
+          'readerIds',
+          'props',
+        ]);
+      }
+      return pickDefined(data, updateIdentity);
+    case 'im:post:deleted':
+      return pickDefined(data, [
+        'channelId',
+        'eventSeq',
+        'eventId',
+        'actorId',
+        'targetMsgId',
+        'occurredAt',
+        'displayText',
+      ]);
+    case 'im:post:read':
+      return pickDefined(data, [
+        'id',
+        'channelId',
+        'eventSeq',
+        'readBits',
+        'readerIds',
+        'receiptRevision',
+      ]);
+    case 'im:channel:read_echo':
+      return pickDefined(data, ['id', 'channelId', 'eventSeq', 'readBits', 'readerIds']);
+    case 'im:post:send-failed':
+      return pickDefined(data, ['channelId', 'temporaryId', 'sendStatus']);
+    case 'im:post:batch-updated':
+      return {
+        channelId: SAMPLE_IDS.channel,
+        posts: data.posts.map((post) =>
+          pickDefined(post, ['id', 'channelId', 'eventSeq', 'updateAt']),
+        ),
+      };
+    case 'im:posts:batch-result':
+      return pickDefined(data, [
+        'reqId',
+        'batchStatus',
+        'acceptedCount',
+        'failedCount',
+        'deliveryAuthority',
+        'targets',
+      ]);
+    case 'im:sync:state':
+      return pickDefined(data, ['state', 'recovery', 'trigger']);
+    case 'im:sync:too_long':
+      return pickDefined(data, ['channelId', 'resetTo', 'mode', 'dropLocalMessages']);
+    case 'im:channels:loaded':
+      return pickDefined(data, ['items']);
+    case 'im:channel:increment':
+      return { channelId: SAMPLE_IDS.channel, increment: data.increment };
+    case 'im:channel:update':
+      return channelUpdateSampleData(gateId, perspective);
+    case 'im:operation:status':
+      return {
+        reqId: SAMPLE_IDS.req,
+        kind: gateId === 'G-08' ? 'schedule-create' : 'schedule-cancel',
+        phase: 'completed',
+        failureCode: null,
+        retryable: false,
+      };
+    case 'im:messages:query_result':
+      return queryResultSampleData(gateId, perspective);
+    case 'im:read:result':
+      return {
+        reqId: SAMPLE_IDS.req,
+        status: data.body.status,
+        posts: data.body.data.posts.map((post) => minimalPostData(post)),
+      };
+    case 'im:channel:replies':
+      return {
+        ...pickDefined(data, [
+          'reqId',
+          'channelId',
+          'rootMessageId',
+          'projectionMode',
+          'revision',
+          'replyIds',
+          'replyCount',
+          'cursor',
+          'hasMore',
+        ]),
+        nodes: data.nodes.map((post) => minimalPostData(post)),
+      };
+    case 'im:channel:members':
+      if (gateId === 'G-16b' && perspective === 'sender') {
+        return {
+          channelId: data.channelId,
+          members: data.members.filter((member) => member.memberId !== SAMPLE_IDS.observer),
+          leaves: [SAMPLE_IDS.observer],
+        };
+      }
+      return pickDefined(data, ['channelId', 'members', 'leaves']);
+    case 'im:post:readers':
+      return {
+        reqId: data.reqId,
+        receipts: data.receipts.map((receipt) =>
+          pickDefined(receipt, ['postId', 'state', 'readBits', 'readerIds', 'unreadIds']),
+        ),
+      };
+    case 'im:channel:created':
+      return pickDefined(data, [
+        'channelId',
+        'displayName',
+        'channelType',
+        'memberCount',
+        'createdAt',
+      ]);
+    case 'im:channel:closed':
+      return pickDefined(data, ['channelId', 'closed', 'deleteAt']);
+    case 'im:channel:left':
+      return pickDefined(data, ['channelId', 'left']);
+    case 'im:channel:member-updated':
+      return {
+        channelId: SAMPLE_IDS.channel,
+        memberChange: data.channel.memberChange,
+      };
+    case 'im:channel:settings-updated':
+      return pickDefined(data, ['channelId', 'settings', 'settingVersion']);
+    case 'im:channel:schedule-created':
+    case 'im:channel:schedule-canceled':
+      return {
+        channelId: data.channelId,
+        scheduleId: data.scheduleId,
+        sendAt: data.sendAt,
+        message: data.scheduleMessage,
+        status: data.status,
+        revision: data.revision,
+      };
+    default:
+      throw new Error(`Minimal outbound sample missing: ${gateId} ${event}`);
+  }
+}
+
+/** 按 Gate 定义 sender/receiver 各自真正可见的 action event 集合。 */
+function gatePerspectiveEvents(gateId, events) {
+  const senderOnly = new Set([
+    'G-S3',
+    'G-08',
+    'G-09',
+    'G-10',
+    'G-10a',
+    'G-10b',
+    'G-11',
+    'G-11a',
+    'G-13',
+  ]);
+  if (senderOnly.has(gateId)) {
+    return { sender: events, receiver: [] };
+  }
+  if (['G-01', 'G-02', 'G-03a'].includes(gateId)) {
+    return {
+      sender: events,
+      receiver: events.filter(
+        (event) => event !== 'im:post:sending' && event !== 'im:post:send-failed',
+      ),
+    };
+  }
+  if (gateId === 'G-05') {
+    return {
+      sender: events,
+      receiver: events.filter((event) => event !== 'im:posts:batch-result'),
+    };
+  }
+  if (gateId === 'G-16') {
+    return {
+      sender: events,
+      receiver: events.filter((event) => event === 'im:channel:closed'),
+    };
+  }
+  if (gateId === 'G-14') {
+    return {
+      sender: events.filter((event) => event === 'im:post:read'),
+      receiver: events.filter((event) => event === 'im:post:readers'),
+    };
+  }
+  if (gateId === 'G-16b') {
+    return {
+      sender: events.filter((event) => event !== 'im:channel:left'),
+      receiver: events.filter((event) => event === 'im:channel:left'),
+    };
+  }
+  return { sender: events, receiver: events };
+}
+
+/** 判断该 Gate 是否声明了 HTTP PortReply 延续输入。 */
+function gateHasHttp(uc) {
+  return (uc.http?.response ?? 'N/A') !== 'N/A';
+}
+
+/** 生成当前 Gate 共用的 HTTP 成功、错误与超时延续输入。 */
+function portContinuationInputs(uc) {
+  if (!gateHasHttp(uc)) {
+    return {};
+  }
+  const correlation = `<${uc.commands[0]?.name ?? uc.gate_id} correlation>`;
+  const sharedSources = ['crates/helix-core/src/tick.rs'];
+  return {
+    http_accepted: {
+      sample_id: 'http-accepted',
+      tick_variant: 'Tick::PortReply',
+      rust_shape: 'Tick::PortReply { corr, outcome: PortOutcome::Ok(ReplyBytes) }',
+      value: {
+        corr: correlation,
+        outcome: {
+          variant: 'Ok',
+          reply_bytes_decoded: {
+            status: 200,
+            headers: {},
+            body_base64: 'eyJzdGF0dXMiOiJTVUNDRVNTIiwiZGF0YSI6e319',
+          },
+        },
+      },
+      source_refs: [
+        ...sharedSources,
+        ...(uc.gate_id === 'G-01'
+          ? [
+              'crates/helix-im/tests/f1_send_http_reconcile_test.rs',
+              'crates/helix-im/tests/g01_shared/scenario.rs',
+            ]
+          : ['crates/helix-im/src/port_reply/dispatch_core.rs']),
+      ],
+    },
+    http_error_or_timeout: [
+      {
+        sample_id: 'http-error',
+        tick_variant: 'Tick::PortReply',
+        rust_shape:
+          'Tick::PortReply { corr, outcome: PortOutcome::Err(PortError::Http(500)) }',
+        value: {
+          corr: correlation,
+          outcome: { variant: 'Err', error: 'Http(500)' },
+        },
+        source_refs: [
+          ...sharedSources,
+          ...(uc.gate_id === 'G-01'
+            ? ['crates/helix-im/tests/g01_shared/scenario.rs']
+            : ['crates/helix-im/src/port_reply/dispatch_core.rs']),
+        ],
+      },
+      {
+        sample_id: 'http-timeout',
+        tick_variant: 'Tick::PortReply',
+        rust_shape:
+          'Tick::PortReply { corr, outcome: PortOutcome::Err(PortError::Timeout) }',
+        value: {
+          corr: correlation,
+          outcome: { variant: 'Err', error: 'Timeout' },
+        },
+        source_refs: [
+          ...sharedSources,
+          'crates/helix-im/src/port_reply/dispatch_core.rs',
+        ],
+      },
+    ],
+  };
+}
+
+/** 用稳定键组织同一 Gate 的一个或多个 WS authority 输入。 */
+function websocketContinuationInputs(gateId, authorities) {
+  const declaredActions = GATE_WS_ACTIONS[gateId] ?? [];
+  return Object.fromEntries(
+    authorities.map((authority, index) => {
+      const declared = declaredActions[index] ?? authority.sample_id;
+      const key = `ws_${declared.replaceAll(/[^a-zA-Z0-9]+/g, '_')}`;
+      return [key, authority];
+    }),
+  );
+}
+
+/** 生成与 inbound JSON 中直接 WS 键一致的引用路径。 */
+function websocketContinuationRefs(gateId) {
+  const authorities =
+    gateId === 'G-05'
+      ? g05AuthoritySamples()
+      : (GATE_WS_ACTIONS[gateId] ?? []).map((action, index) => ({
+          sample_id: `ws-authority-${index + 1}`,
+          value: { action },
+        }));
+  return Object.keys(websocketContinuationInputs(gateId, authorities)).map(
+    (key) => `continuation_inputs.${key}`,
+  );
+}
+
+/** 生成 Gate 的唯一业务入口及同一状态机的延续权威输入。 */
+function inboundSampleRecord(uc, sourceLock) {
+  const commands =
+    uc.gate_id === 'G-05'
+      ? g05CommandSamples().map((sample) => ({
+          sample_id: sample.sample_id,
+          tick_variant: 'Tick::Command',
+          rust_shape: 'AppCommand { name: Cow<str>, payload: Bytes(JSON) }',
+          value: { name: 'im_relay_messages', payload: sample.payload },
+          source_refs: [
+            'crates/helix-core/src/tick.rs',
+            'crates/helix-im/src/forward.rs',
+            'crates/helix-im/src/forward_shape.rs',
+            'crates/helix-im/tests/one_line_server_contracts_test.rs',
+          ],
+        }))
+      : uc.commands.map((command, index) => ({
+          sample_id: `command-${index + 1}`,
+          tick_variant: 'Tick::Command',
+          rust_shape: 'AppCommand { name: Cow<str>, payload: Bytes(JSON) }',
+          value: {
+            name: command.name,
+            payload: commandSamplePayload(command.name, uc.gate_id),
+          },
+          source_refs: [
+            'crates/helix-core/src/tick.rs',
+            COMMAND_SAMPLE_SOURCES[command.name] ??
+              'crates/helix-im/contracts/strict-matrix.v1.json',
+          ],
+        }));
+  const authoritySamples =
+    uc.gate_id === 'G-05'
+      ? g05AuthoritySamples()
+      : (GATE_WS_ACTIONS[uc.gate_id] ?? []).map((action, index) => ({
+          sample_id: `ws-authority-${index + 1}`,
+          value: wsSample(action, uc.gate_id),
+        }));
+  const authorities = authoritySamples.map((sample) => ({
+    sample_id: sample.sample_id,
     tick_variant: 'Tick::Inbound',
     rust_shape: 'InboundBytes(Bytes(JSON))',
-    value: wsSample(action),
+    value: sample.value,
     source_refs: [
       'crates/helix-core/src/tick.rs',
       'crates/helix-im/src/ws/frame.rs',
       'crates/helix-im/tests/g01_shared/scenario.rs',
       'crates/helix-im/tests/s1_ws_actions_test.rs',
+      ...(uc.gate_id === 'G-04'
+        ? [
+            '/System/Volumes/Data/workspace/golang/cses-im-server/internal/app/cses_post_revoke.go',
+            '/System/Volumes/Data/workspace/golang/cses-im-server/internal/app/cses_post_revoke_integration_test.go',
+          ]
+        : []),
     ],
   }));
+  const websocketAuthorities = websocketContinuationInputs(uc.gate_id, authorities);
   return {
     schema_version: 'helix-im-gate-inbound-sample/v1',
     gate_id: uc.gate_id,
     evidence_level: 'SOURCE_DERIVED_SAMPLE',
     runtime_capture: false,
-    warning: '字段和值来自当前 parser/生产测试结构；这是审阅样例，不是本轮真实网络捕获。',
+    warning:
+      uc.gate_id === 'G-04'
+        ? 'entry_input 是唯一业务入口；continuation_inputs 是同一状态机的后续权威输入，不是新 Gate。G04 的 post.revoke/channel_event 是远端持久事实；system_event 是 Go 在事务提交后补入 WS 的传输派生。'
+        : 'entry_input 是唯一业务入口；continuation_inputs 是同一状态机的后续权威输入，不是新的 Gate 入口；字段和值来自当前 parser/生产测试结构，不是本轮真实网络捕获。',
     source_lock: sourceLock,
-    samples: [...commands, ...authorities],
+    ...(uc.gate_id === 'G-05'
+      ? {
+          flow_samples: [
+            'individual-forward-flow-sample.json',
+            'merged-forward-flow-sample.json',
+          ],
+        }
+      : {}),
+    entry_input: commands[0],
+    continuation_inputs: {
+      ...(commands.length > 1
+        ? {
+            additional_commands: {
+              meaning:
+                '同一 Gate 的替代入口或后续业务动作；不新增第二个顶层 entry_input。',
+              samples: commands.slice(1),
+            },
+          }
+        : {}),
+      ...portContinuationInputs(uc),
+      ...(authorities.length > 0 ? websocketAuthorities : {}),
+    },
   };
 }
 
-/** 生成 Gate 的 Effect::Emit 及 Native adapter 视图样例。 */
-function outboundSampleRecord(gateId, sourceLock) {
+/** 按 G01 模型把 Emit 分为前奏、互斥结果与关联投影。 */
+function outboundEventPartitions(gateId, events) {
+  const eventSet = new Set(events);
+  const prelude = (GATE_PRELUDE_EVENTS[gateId] ?? []).filter((event) =>
+    eventSet.has(event),
+  );
+  const failure = (GATE_FAILURE_EVENTS[gateId] ?? []).filter((event) =>
+    eventSet.has(event),
+  );
+  const associated = (GATE_ASSOCIATED_EVENTS[gateId] ?? []).filter((event) =>
+    eventSet.has(event),
+  );
+  const excluded = new Set([...prelude, ...failure, ...associated]);
+  return {
+    prelude,
+    success: events.filter((event) => !excluded.has(event)),
+    failure,
+    associated,
+  };
+}
+
+/** 从某一视角样例中选出指定事件集合并保持声明顺序。 */
+function selectPerspectiveSamples(samples, events) {
+  return events.flatMap((event) =>
+    samples.filter((sample) => sample.event === event),
+  );
+}
+
+/** 给主链结果挂接对应的 PortReply 或 WS authority 引用。 */
+function continuationInputRefs(uc, outcome) {
+  if (outcome === 'failure') {
+    return gateHasHttp(uc) ? ['continuation_inputs.http_error_or_timeout'] : [];
+  }
+  const authorities = GATE_WS_ACTIONS[uc.gate_id] ?? [];
+  if (authorities.length > 0 || uc.gate_id === 'G-05') {
+    return websocketContinuationRefs(uc.gate_id);
+  }
+  return gateHasHttp(uc) ? ['continuation_inputs.http_accepted'] : [];
+}
+
+/** 用单数或复数引用字段表达一个或多个 continuation input。 */
+function continuationReferenceFields(refs) {
+  if (refs.length === 1) {
+    return { continuation_input_ref: refs[0] };
+  }
+  return { continuation_input_refs: refs };
+}
+
+/** 生成 Gate 的主链与关联链 sender/receiver Effect::Emit 审阅样例。 */
+function outboundSampleRecord(uc, sourceLock) {
+  const gateId = uc.gate_id;
   const emits = emitRecords(gateId);
+  const events = emits.channels.map((channel) => channel.event);
+  const perspectives = gatePerspectiveEvents(gateId, events);
+  const g05Perspectives = gateId === 'G-05' ? g05OutboundPerspectives() : null;
+  const hasTarget =
+    emits.inferred_gaps.length > 0 ||
+    emits.channels.some((channel) => channel.source_status === 'TARGET_REQUIRED');
+  const eventEnvelope = (event, perspective) => ({
+    event,
+    data:
+      gateId === 'G-01' && event !== 'im:channel:update'
+        ? g01EventSampleData(event)
+        : minimalEventSampleData(event, gateId, perspective),
+  });
+  const senderSamples =
+    g05Perspectives?.sender ??
+    perspectives.sender.map((event) => eventEnvelope(event, 'sender'));
+  const receiverSamples =
+    g05Perspectives?.receiver ??
+    perspectives.receiver.map((event) => eventEnvelope(event, 'receiver'));
+  const partitions = outboundEventPartitions(gateId, events);
   return {
     schema_version: 'helix-im-gate-outbound-sample/v1',
     gate_id: gateId,
-    evidence_level: 'SOURCE_DERIVED_SAMPLE',
+    evidence_level: hasTarget
+      ? 'SOURCE_DERIVED_TARGET_SAMPLE'
+      : 'SOURCE_DERIVED_REVIEW_SAMPLE',
     runtime_capture: false,
-    warning:
-      'data 形状来自当前 emit 工厂/canonical fixture；样例证明结构可审阅，不证明该 Gate 当前运行路径已交付。',
+    sample_shape: 'DOMAIN_EVENT_ENVELOPE_ONLY',
     source_lock: sourceLock,
-    samples: emits.channels.map((channel, index) => {
-      const domainEvent = { event: channel.event, data: eventSampleData(channel.event, gateId) };
-      return {
-        sample_id: `emit-${index + 1}`,
-        effect_variant: 'Effect::Emit',
-        domain_event_bytes_json: domainEvent,
-        native_adapter_view: {
-          bus: 'im:__bus__',
-          channel: channel.event,
-          payload: domainEvent,
+    ...(gateId === 'G-05'
+      ? {
+          flow_samples: [
+            'individual-forward-flow-sample.json',
+            'merged-forward-flow-sample.json',
+          ],
+        }
+      : {}),
+    sample_sources: Object.fromEntries(
+      emits.channels.map((channel) => [
+        channel.event,
+        { source: channel.source, source_status: channel.source_status },
+      ]),
+    ),
+    primary_outbound: {
+      prelude: {
+        sender_samples: selectPerspectiveSamples(senderSamples, partitions.prelude),
+        receiver_samples: selectPerspectiveSamples(receiverSamples, partitions.prelude),
+      },
+      outcomes: {
+        success: {
+          declared: partitions.success.length > 0,
+          ...continuationReferenceFields(continuationInputRefs(uc, 'success')),
+          sender_samples: selectPerspectiveSamples(senderSamples, partitions.success),
+          receiver_samples: selectPerspectiveSamples(receiverSamples, partitions.success),
         },
-        ffi_adapter_view: {
-          callback: 'on_domain_events_batch',
-          batch_item: domainEvent,
+        failure: {
+          declared: partitions.failure.length > 0,
+          ...continuationReferenceFields(
+            partitions.failure.length > 0
+              ? continuationInputRefs(uc, 'failure')
+              : [],
+          ),
+          sender_samples: selectPerspectiveSamples(senderSamples, partitions.failure),
+          receiver_samples: selectPerspectiveSamples(receiverSamples, partitions.failure),
         },
-        source_refs: [
-          'crates/helix-core/src/effect/operation.rs',
-          channel.source,
-          'crates/helix-im/docs/projection-schema.md',
-        ],
-        source_status: channel.source_status,
-      };
-    }),
+      },
+    },
+    associated_outbound:
+      partitions.associated.length === 0
+        ? []
+        : [
+            {
+              attached_to: 'primary_outbound.outcomes.success',
+              sender_samples: selectPerspectiveSamples(
+                senderSamples,
+                partitions.associated,
+              ),
+              receiver_samples: selectPerspectiveSamples(
+                receiverSamples,
+                partitions.associated,
+              ),
+            },
+          ],
+    gap_basis: emits.gap_basis,
+    gap_categories: emits.gap_categories,
     inferred_gaps: emits.inferred_gaps,
   };
 }
@@ -1045,6 +2688,61 @@ function contractRecord(uc, sourceLock) {
   };
 }
 
+/** 阻止生成器退回平铺 samples 或在 Emit envelope 中夹带额外字段。 */
+function validateOrganizedSamples(inbound, outbound) {
+  const forbiddenInbound = [
+    'storage_schema_lock',
+    'remote_persistence_basis',
+    'boundary_rule',
+  ];
+  const forbiddenOutbound = [
+    'storage_schema_lock',
+    'sender_local_persistence_basis',
+    'receiver_local_persistence_basis',
+    'field_lineage',
+    'boundary_rule',
+    'warning',
+  ];
+  if (!inbound.entry_input || 'samples' in inbound) {
+    throw new Error(`${inbound.gate_id}: inbound 必须只有一个 entry_input，禁止平铺 samples`);
+  }
+  if (
+    !inbound.continuation_inputs ||
+    !outbound.primary_outbound ||
+    !Array.isArray(outbound.associated_outbound) ||
+    'sender_samples' in outbound ||
+    'receiver_samples' in outbound
+  ) {
+    throw new Error(`${inbound.gate_id}: outbound 未按 G01 主链/关联链结构生成`);
+  }
+  if (forbiddenInbound.some((field) => field in inbound)) {
+    throw new Error(`${inbound.gate_id}: inbound 出现已剔除的持久层说明字段`);
+  }
+  if (forbiddenOutbound.some((field) => field in outbound)) {
+    throw new Error(`${inbound.gate_id}: outbound 出现已剔除的持久层说明字段`);
+  }
+  const sampleGroups = [
+    outbound.primary_outbound.prelude.sender_samples,
+    outbound.primary_outbound.prelude.receiver_samples,
+    outbound.primary_outbound.outcomes.success.sender_samples,
+    outbound.primary_outbound.outcomes.success.receiver_samples,
+    outbound.primary_outbound.outcomes.failure.sender_samples,
+    outbound.primary_outbound.outcomes.failure.receiver_samples,
+    ...outbound.associated_outbound.flatMap((item) => [
+      item.sender_samples,
+      item.receiver_samples,
+    ]),
+  ];
+  for (const sample of sampleGroups.flat()) {
+    const keys = Object.keys(sample).sort().join(',');
+    if (keys !== 'data,event') {
+      throw new Error(
+        `${inbound.gate_id}: Emit 样例只能包含 {event,data}，实际为 ${keys}`,
+      );
+    }
+  }
+}
+
 /** 建立 Tick、Effect 与 Emit 三个原始捕获槽位。 */
 function captureStatus(gateId, sourceIndexes) {
   const captureDir = join(OUTPUT_DIR, 'gates', gateId, 'captures');
@@ -1104,8 +2802,14 @@ function renderReadme(records, manifest) {
 Native/Tauri 的 \`channel=event\` 是适配器路由；FFI 按 step 批量交付 event bytes。
 \`inbound-sample.json\` 与 \`outbound-sample.json\` 是当前源码派生的审阅样例，
 固定 \`runtime_capture=false\`，不能冒充真实运行证据。
+所有 Gate 的 inbound 统一为唯一 \`entry_input\` + \`continuation_inputs\`；
+outbound 统一为 \`primary_outbound.prelude/outcomes\` +
+\`associated_outbound\`。每个 sender/receiver 项只能是 \`{event,data}\`。
+样例文件不再内嵌 schema lock、远端/本地持久层依据、字段 lineage 或边界说明；
+数据库依据保留在独立合同与数据库文档中，不污染 Gate 的出入站样例。
 真实采集文件只能写入 \`captures/inbound.ndjson\`、\`effects.ndjson\`、
 \`emit.ndjson\`。空文件仍按 \`NOT_CAPTURED\` 处理。
+全部 Gate 的既有差距与 MessageV3 分表差距见 [GAPS.md](GAPS.md)。
 
 ## 汇总
 
@@ -1122,16 +2826,70 @@ ${rows}
 `;
 }
 
+/** 渲染全部 Gate 的既有 Gap 与 MessageV3 分表新增 Gap，供逐项审阅。 */
+function renderGapInventory(records) {
+  const partial = records.filter(
+    ({ contract }) => contract.outbound.coverage_status === 'PARTIAL',
+  ).length;
+  const splitAffected = records.filter(
+    ({ contract }) =>
+      contract.outbound.gap_categories.message_v3_channel_member_split.length > 0,
+  ).length;
+  const sections = records
+    .map(({ contract }) => {
+      const categories = contract.outbound.gap_categories;
+      const renderList = (items) =>
+        items.length > 0 ? items.map((item) => `- ${item}`).join('\n') : '- 无。';
+      return `## ${contract.gate_id}
+
+- 覆盖状态：\`${contract.outbound.coverage_status}\`
+
+### 原有 Gap
+
+${renderList(categories.preexisting)}
+
+### MessageV3 分表 Gap
+
+${renderList(categories.message_v3_channel_member_split)}
+`;
+    })
+    .join('\n');
+  return `# IM Gate Gap 清单
+
+> 本清单比较当前 Helix 源码与 MessageV3 目标合同。
+> \`inferred_gaps\` 表示根据源码能够确认的实现差距，不是运行错误日志；
+> 修改目标表结构文档不会自动关闭运行时 Gap。
+
+## 汇总
+
+- Gate 总数：${records.length}
+- \`PARTIAL\`：${partial}
+- \`CURRENT_SOURCE\`：${records.length - partial}
+- 受 \`channel/channel_member\` 分表影响：${splitAffected}
+- MessageV3 目标结构：
+  [本地数据库/完整表结构.sql](本地数据库/完整表结构.sql)
+
+${sections}`;
+}
+
 /** 生成 30 Gate 合同、源码索引、捕获状态和本地总 manifest。 */
 function main() {
+  validateStorageProfiles();
   const matrix = JSON.parse(readFileSync(MATRIX_PATH, 'utf8'));
+  const gateOptionIndex = process.argv.indexOf('--gate');
+  const requestedGateId =
+    gateOptionIndex >= 0 ? process.argv[gateOptionIndex + 1] : undefined;
+  if (requestedGateId && !GATE_IDS.includes(requestedGateId)) {
+    throw new Error(`Unknown --gate value: ${requestedGateId}`);
+  }
+  const selectedGateIds = requestedGateId ? [requestedGateId] : GATE_IDS;
   const sourceLock = {
     helix_head: currentHead(),
     matrix_epoch: matrix.contract_epoch,
     matrix_path: relative(ROOT, MATRIX_PATH),
   };
   const ucByGate = new Map(matrix.uc_cases.map((uc) => [uc.gate_id, uc]));
-  const records = GATE_IDS.map((gateId) => {
+  const records = selectedGateIds.map((gateId) => {
     const uc = ucByGate.get(gateId);
     if (!uc) {
       throw new Error(`Gate missing from Strict Matrix: ${gateId}`);
@@ -1163,12 +2921,31 @@ function main() {
       direction_basis: contract.direction_basis,
       ...contract.outbound,
     });
-    writeJson(join(gateDir, 'inbound-sample.json'), inboundSampleRecord(uc, sourceLock));
-    writeJson(join(gateDir, 'outbound-sample.json'), outboundSampleRecord(gateId, sourceLock));
+    const inboundSample = inboundSampleRecord(uc, sourceLock);
+    const outboundSample = outboundSampleRecord(uc, sourceLock);
+    validateOrganizedSamples(inboundSample, outboundSample);
+    writeJson(join(gateDir, 'inbound-sample.json'), inboundSample);
+    writeJson(join(gateDir, 'outbound-sample.json'), outboundSample);
+    if (gateId === 'G-05') {
+      writeJson(
+        join(gateDir, 'individual-forward-flow-sample.json'),
+        g05FlowSample('individual', sourceLock),
+      );
+      writeJson(
+        join(gateDir, 'merged-forward-flow-sample.json'),
+        g05FlowSample('merged', sourceLock),
+      );
+    }
     rmSync(join(gateDir, 'response-contract.json'), { force: true });
     writeJson(join(gateDir, 'capture-status.json'), status);
     return { contract, status };
   });
+  if (requestedGateId) {
+    process.stdout.write(
+      `${JSON.stringify({ gate_id: requestedGateId, generated: true })}\n`,
+    );
+    return;
+  }
   const present = records.reduce((sum, record) => sum + record.status.captured_slots, 0);
   const manifest = {
     schema_version: 'helix-im-gate-evidence-manifest/v1',
@@ -1186,6 +2963,7 @@ function main() {
   };
   writeJson(join(OUTPUT_DIR, 'manifest.json'), manifest);
   writeFileSync(join(OUTPUT_DIR, 'README.md'), renderReadme(records, manifest));
+  writeFileSync(join(OUTPUT_DIR, 'GAPS.md'), renderGapInventory(records));
   process.stdout.write(`${JSON.stringify(manifest.summary)}\n`);
 }
 

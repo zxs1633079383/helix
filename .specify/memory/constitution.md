@@ -1,15 +1,15 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 -> 1.1.0
+- Version change: 1.1.0 -> 2.0.0
 - Ratified principles: runtime-agnostic layering, deterministic effect flow,
-  InteractionFrame V2 authority, evidence-first validation, minimal governed change,
+  MessageV3 Gate Event authority, evidence-first validation, per-Gate hard-cut migration,
   and Spec Kit loop-state admission.
-- Templates updated: .specify/templates/spec-template.md,
-  .specify/templates/plan-template.md, and .specify/templates/tasks-template.md.
+- Architecture amendment: InteractionFrame V2, Surface, ActionBinding, UiDirective,
+  FrameApplied, and legacy V1 inbound/outbound are no longer target contracts.
 - Added project extension: helix-loop supplies the persistent ledger, invalidation
   graph, validators, and negative tests that enforce these gates.
-- Follow-up: existing feature bundles remain historical inputs. A bundle adopts this
-  profile when its next Spec Kit command creates the required loop artifacts.
+- Migration owner: specs/047-im-event-gate-inventory; existing feature bundles remain
+  historical evidence and must not reintroduce the retired contracts.
 -->
 
 # Helix Constitution
@@ -32,35 +32,46 @@ through Effects and treats a correlated port reply as a fact. Visibility that cl
 durable business state appears only after the corresponding `PersistOk`; HTTP
 transport acceptance is never canonical business confirmation by itself.
 
-### III. InteractionFrame V2 Is The Only UI Business Truth
+### III. MessageV3 Gate Events Are The Only Cross-Platform Business Truth
 
-`helix-im` owns typed surface semantics, ActionBinding, SurfaceComposer, and
-InteractionFrame V2. A platform shell may retain local input, focus, animation, and
-an expendable frame cache, but it must not recreate message reconciliation, ordering,
-permissions, unread, or raw-event business reducers. Frames are validated as a
-whole and committed atomically before `FrameApplied`; directives run after that
-commit and acknowledge independently. Unknown schema, surface, epoch, revision, or
-content fails closed and never changes a cache slot.
+`helix-im` owns each Gate's deterministic `Effect::Emit {event,data}` contract.
+An emitted `data` value is computed from authenticated inbound authority and local
+facts read after the matching `PersistOk`; it is not a transport acknowledgement,
+database row guessed from wire JSON, or platform projection. Native, FFI, and Web
+drivers deliver the same event bytes in a batch or channel without wrapping them in
+InteractionFrame, Surface, ActionBinding, UiDirective, FrameApplied, or a platform
+business VM. A shell may retain local input, focus, animation, and expendable display
+cache, but it must not recompute reconciliation, ordering, permissions, unread, or
+viewer state from multiple events.
+
+The ignored `.v1` directory under Spec 047 is an evidence/schema version only and
+does not name a runtime V1 protocol. Canonical Gate JSON comes from production
+`ImModule::handle` replay tests; PC WDIO Mock and Mobile GTest consume byte-exact
+mirrors rather than hand-maintained payloads.
 
 ### IV. Evidence Before Completion
 
 Every behavior claim has the evidence plane that can falsify it: deterministic Rust
-tests for tick/effect/persist order, PC or mobile renderer/DOM tests for frame
-consumption, and only when requested a bounded read-only SQLite/PG or real-chain
-run. Correlation keys cross action ingress, tick, effect, persistence, composition,
-frame, cache, and acknowledgement. A missing evidence plane is `blocked` or
+tests for tick/effect/persist order and emitted bytes, PC WDIO or Mobile GTest for
+canonical event consumption, and only when requested a bounded read-only SQLite/PG
+or real-chain run. Correlation keys cross command ingress, tick, effect, persistence,
+post-PersistOk readback, emit, driver delivery, and application observation.
+A missing evidence plane is `blocked` or
 `inconclusive`, never a fabricated pass; reports record actual command start, end,
 duration, retry, skip, and blocker.
 
 ### V. Minimal, Governed Migration
 
-Change only the smallest coherent contract and implementation surface. New content
-kinds extend a tagged, versioned registry rather than widening unrelated root VMs.
-No direct SQL repair, producer dual-write, raw reducer fallback, or speculative
-framework is allowed. A legacy raw producer, fixture, subscription, or documentation
-reference is physically removed exactly once, only after the applicable V2/27-Gate
-review accepts the recorded deletion inventory; final regression evidence follows
-the deletion.
+Change only the smallest coherent Gate contract and implementation surface. Migration
+is a vertical hard cut per Gate: first connect the Helix production replay test,
+real `ImModule::handle` path, and canonical JSON generation; then physically remove
+that Gate's Helix V2 Frame and legacy V1 producer, parser, subscription, fixture,
+capability entry, reducer, fallback, and documentation reference. A migrated Gate
+never dual-writes or dual-consumes old and new contracts. The next Gate starts only
+after the current Gate's deletion inventory and focused Helix evidence pass. A
+feature may explicitly defer PC WDIO/Mobile GTest fixture mirroring to a later
+version, but generated provenance and hashes must make that later sync byte-exact.
+Final whole-repository zero-reference gates follow the last migrated Gate.
 
 ### VI. Spec Kit Loop Admission
 
@@ -86,25 +97,25 @@ The next recurrence enters `NeedsHuman`.
 
 ## Constraints And Safety
 
-Hot paths use bounded work: atomic frame application is `O(k)` in mutations and
-window replacement stays within its declared window bound. Do not add unbounded raw
-JSON copies, full replay, cross-surface business joins, or read-modify-write loops.
+Hot paths use bounded work: one inbound authority produces a bounded Effect batch,
+and window replacement stays within its declared window bound. Do not add unbounded
+JSON copies, full replay, cross-event platform joins, or read-modify-write loops.
 Cross FFI/Web boundaries carry batches, not one callback per effect. External input
 does not use `unwrap` or `expect`; FFI never unwinds across an ABI boundary.
 
-ActionBinding is opaque, actor- and scope-bound, epoch/revision validated, and
-request scoped. A component cannot choose channel, user, or temporary message IDs.
-Read-only database tools are evidence tools only; a state repair must use the normal
-application Effect path. Sensitive fields stay out of logs unless a documented,
-bounded diagnostic requires them.
+Commands are actor-, tenant-, and request-bound; a component cannot override
+authenticated viewer identity or derive channel/user/message authority outside the
+Gate contract. Read-only database tools are evidence tools only; a state repair must
+use the normal application Effect path. Sensitive fields stay out of logs unless a
+documented, bounded diagnostic requires them.
 
 ## Development Workflow And Quality Gates
 
 Before implementation, the feature has a spec, plan, data model, wire contract,
-task list, source discovery, valid R1-R3 ledger gates, and Constitution Check with
-no unresolved template placeholders. Tasks are executed in dependency order, tests
-precede their implementation, and completed tasks are marked in the task list only
-after their stated evidence exists. Work that
+per-Gate deletion inventory, task list, source discovery, valid R1-R3 ledger gates,
+and Constitution Check with no unresolved template placeholders. Tasks are executed
+in dependency order, tests precede their implementation, and completed tasks are
+marked in the task list only after their stated evidence exists. Work that
 exceeds 30 minutes reports completed work, current evidence, blocker, and next step.
 
 Worktrees isolate each repository touched by a feature. Preserve pre-existing dirty
@@ -116,11 +127,11 @@ when their required environment and pins are available.
 ## Governance
 
 This Constitution is the Spec Kit interpretation of Helix `AGENTS.md`,
-`docs/GOAL.md`, `docs/ROADMAP.md`, and the active InteractionFrame contracts. When
+`docs/GOAL.md`, `docs/ROADMAP.md`, and the active MessageV3 Gate Event contracts. When
 those higher-level project rules change, update this document and affected feature
 plans in the same review. A constitutional amendment requires a version change,
 written rationale, migration impact, and explicit human approval before it governs
 new work. Each implementation review verifies these principles, records any justified
 exception, and rejects a plan that silently weakens them.
 
-**Version**: 1.1.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-07-21
+**Version**: 2.0.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-07-29

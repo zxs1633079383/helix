@@ -9,7 +9,7 @@
 //! - type1 new：`msgId ∈ messages`（可见）→ im:post:received；左侧列表累计态由写后 InteractionFrame 承接；
 //!   `∉`（phantom）→ 不 emit（UI 不渲染，真源 1270-1280）。
 //! - type2 edit：`msgId ∈ messages` → im:post:updated；phantom → noop（真源 1346）。
-//! - type3 revoke：有 msgId → im:post:deleted（无须 body，真源 1402）。
+//! - type3 revoke：有 msgId → im:post:revoke（无须 body，MessageV3 硬切）。
 //! - type6 read：有 msgId → im:channel:read_echo（A5 sync 应用路径，无须 body 恒 emit，真源 1428）。
 //!
 //! ## 铁律（HX-C008）
@@ -149,22 +149,24 @@ fn edit_event_emits_post_updated_when_visible_noop_when_phantom() {
     );
 }
 
-// ─── 3. type3 revoke：恒 emit deleted（无须 body）──────────────────────────────
+// ─── 3. type3 revoke：恒 emit revoke（无须 body）───────────────────────────────
 
+/// type3 无须 messages body，提交后恒发布最小 MessageV3 revoke。
 #[test]
-fn revoke_event_emits_post_deleted_regardless_of_messages() {
+fn revoke_event_emits_post_revoke_regardless_of_messages() {
     let reply = sync_reply_events_with_messages(3, &[ev(30, 3, "msg_gone")], &[], 30);
     let (events, messages) = parse_events_and_messages(&reply, 3);
     let emits = sync_mutation_emits(&events, &messages);
     assert_eq!(
         emit_names(&emits),
-        vec!["im:post:deleted"],
-        "revoke 无须 body，恒 emit deleted"
+        vec!["im:post:revoke"],
+        "revoke 无须 body，恒 emit MessageV3 revoke"
     );
 }
 
+/// type3 的 actor/event/payload 只属于入站证据，不进入撤回业务事实。
 #[test]
-fn revoke_replay_preserves_actor_event_and_time_for_viewer_ready_projection() {
+fn revoke_replay_drops_transport_actor_and_display_metadata() {
     let channel = cid(3);
     let reply = bytes::Bytes::from(
         serde_json::to_vec(&serde_json::json!({
@@ -197,13 +199,23 @@ fn revoke_replay_preserves_actor_event_and_time_for_viewer_ready_projection() {
     let Effect::Emit { event } = &emits[0] else {
         panic!("撤回重放必产 Emit")
     };
-    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    assert_eq!(value["data"]["eventId"], format!("revoke:{}:30", cid(3)));
-    assert_eq!(value["data"]["actorId"], "viewer-444");
-    assert_eq!(value["data"]["displayText"], "你撤回了一条消息");
-    assert_eq!(value["data"]["targetMsgId"], "msg_gone");
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(event.0.as_ref()) else {
+        panic!("撤回重放事件必须是 JSON")
+    };
+    assert_eq!(value["event"], "im:post:revoke");
+    assert_eq!(value["data"]["id"], "msg_gone");
+    assert_eq!(value["data"]["channelId"], cid(3));
     assert_eq!(value["data"]["eventSeq"], 30);
-    assert_eq!(value["data"]["occurredAt"], 1_700_000_030_i64);
+    assert_eq!(value["data"]["revoke"], true);
+    for forbidden in [
+        "eventId",
+        "actorId",
+        "displayText",
+        "targetMsgId",
+        "occurredAt",
+    ] {
+        assert!(value["data"].get(forbidden).is_none());
+    }
 }
 
 // ─── 4. type1 new：可见 emit received + channel:update-by-post；phantom 不 emit ──
@@ -307,6 +319,7 @@ fn sync_type1_sender_self_visible_exception_but_unread_zero() {
 
 // ─── 5. 混合批：分桶顺序 + phantom 混入 ───────────────────────────────────────
 
+/// 混合批保持 type1→type3→type6 的事件顺序与各自 MessageV3 名称。
 #[test]
 fn mixed_batch_emits_match_dispatch_table() {
     // parser 分桶后顺序 type1, type1, type3, type6。
@@ -327,15 +340,11 @@ fn mixed_batch_emits_match_dispatch_table() {
     assert_eq!(types, vec![1, 1, 3, 6]);
 
     let emits = sync_mutation_emits(&events, &messages);
-    // type1 可见 → received；DialogPatch 由 Persist 写后读回链路发出；type1 phantom → 无；type3 → deleted；
+    // type1 可见 → received；DialogPatch 由写后读回链路发出；type1 phantom → 无；type3 → revoke；
     // type6 → channel:read_echo（A5 sync 应用路径）。
     assert_eq!(
         emit_names(&emits),
-        vec![
-            "im:post:received",
-            "im:post:deleted",
-            "im:channel:read_echo",
-        ]
+        vec!["im:post:received", "im:post:revoke", "im:channel:read_echo",]
     );
 }
 

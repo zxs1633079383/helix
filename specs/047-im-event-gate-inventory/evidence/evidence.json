@@ -117,6 +117,19 @@
           "sha256": "40c4791af9dce8e51fe1f14d6a6b7c132bcea21cd90093cd3020fcbcecee8611"
         }
       ]
+    },
+    {
+      "id": "p2-g04a-focused",
+      "command": "cargo check -p helix-im + cargo test message_v3_g04a/c3_sync_mutation_emits/acl::sync_effects + Rust artifact generation/byte-exact rerun + partial schema + cutover self-test + hot-path audit",
+      "started_at": "2026-07-29T12:56:10Z",
+      "ended_at": "2026-07-29T13:08:36Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p2-g04a-focused.txt",
+          "sha256": "24bc07b436533e6179247b047c63d57c9461dcc0df0343b8a7a2567f9333402f"
+        }
+      ]
     }
   ]
 }

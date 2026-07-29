@@ -122,6 +122,23 @@ pub fn revoke_from_authority(
     revoke(canonical_revoke_data(post, Some(event_seq))?)
 }
 
+/// 从离线 type3 authority 构造同 identity 的最小撤回事实。
+pub fn revoke_from_sync_authority(
+    event: &crate::sync_session::EventEnvelope,
+) -> Result<MessageV3Event, crate::ImError> {
+    let id = event
+        .msg_id
+        .as_deref()
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| crate::ImError::Parse("sync revoke authority missing msgId".to_string()))?;
+    revoke(serde_json::json!({
+        "id": id,
+        "channelId": event.channel_id.as_str(),
+        "eventSeq": event.seq.0,
+        "revoke": true,
+    }))
+}
+
 /// 从 update_channel.lastPost authority 构造可持久化的业务 lastPost。
 pub fn revoke_last_post_from_authority(post: &Value) -> Result<Value, crate::ImError> {
     canonical_revoke_data(post, None)

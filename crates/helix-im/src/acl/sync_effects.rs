@@ -12,6 +12,7 @@ pub fn sync_mutation_emits(
     sync_mutation_emits_with_auth(events, messages, "")
 }
 
+/// 按 sync authority 顺序构造提交后事件，type3 只发布 MessageV3 revoke。
 pub fn sync_mutation_emits_with_auth(
     events: &[EventEnvelope],
     messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
@@ -55,16 +56,9 @@ pub fn sync_mutation_emits_with_auth(
                 }
             }
             EventKind::PostRevoke => {
-                emits.push(super::to_effect::emit_post_deleted_for_viewer(
-                    ev.channel_id,
-                    ev.seq.0,
-                    msg_id,
-                    &empty_fields,
-                    ev.event_id.as_str(),
-                    ev.actor_id.as_str(),
-                    ev.occurred_at,
-                    auth_user_id,
-                ));
+                if let Ok(event) = crate::event::post::revoke_from_sync_authority(ev) {
+                    emits.push(event.into_effect());
+                }
             }
             EventKind::PostRead => {
                 let fields = messages.get(msg_id).unwrap_or(&empty_fields);

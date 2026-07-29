@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 完成 Spec 047 P2/G-04a 离线撤回重放硬切；可证伪断言：① `im_sync_channels` 只使用 Helix cursor，type3 authority 与 cursor 原子提交前零 Emit；②提交后离线 receiver 收到最小 `im:post:revoke` 与既有 sync state，sender 不重复收到在线已处理事实；③同 seq replay 与恢复 cursor=1 的冷启动 no_change 均不重复发布；④删除 sync revoke 的 `im:post:deleted` 展示型投影，不修改 Go/PC/Mobile | 赌注 高 | 可逆 是 | @2026-07-29T06:55:00-0700
+
+✅ DONE Spec 047 P2/G-04a 完成：explicit sync 的 type3 authority 将 `message.revoke=1` 与 channel cursor 原子提交，PersistOk 前零 Emit；提交后离线 receiver 只收到同 identity 的最小 `im:post:revoke` 与 `im:sync:state`，在线已处理的 sender 不重复接收。相同 eventSeq replay 被 cursor 丢弃，新 Module 恢复 cursor=1 后的 no_change 也不重复发布。sync 撤回旧 `im:post:deleted` 已从现役分支物理下线；G-04a 2/2、C3 mutation 12/12、sync effects 6/6、六 Gate partial schema 与 diff check PASS，四类 `.v1` JSON 由完整首次 sync、duplicate replay、cold-start recovery Tick 生成。热路径新增 revoke factory 无 clone；`sync_effects` 通用 batch helper 的既有 clone 债务未扩大。E3 真实 SQLite driver 读回、真实断网/runtime、dual-user 与 PC/Mobile 同步保持 NOT_RUN/NOT_SYNCED_BY_SCOPE | @2026-07-29T06:05:59-0700
+
 🎯 EXPECT 完成 Spec 047 P2/G-04 在线撤回硬切；可证伪断言：① posts_update.revoke 在 message/cursor 原子提交前零 Emit，提交后双视角只发同 identity 的 im:post:revoke；② update_channel.lastPost JSON 解析、去传输元字段后原子写 channel/channel_member，复合键读回才发 im:channel:update；③ sender/receiver 未读绝对值分别保持 0/1，撤回不递增；④ 删除本 Gate 的 im:post:deleted、batch-updated、thin channel update 与 Frame 刷新，不修改 Go/PC/Mobile | 赌注 高 | 可逆 是 | @2026-07-29T05:30:00-0700
 
 ✅ DONE Spec 047 P2/G-04 完成：在线 `posts_update.revoke` 将 message 可变业务列、revoke 与 cursor 原子提交，PersistOk 后双方只收到同 identity 的 `im:post:revoke`；`update_channel.lastPost` 的 JSON 字符串去除 props/system_event/viewers 等传输与展示字段后原子更新 channel/current member，并经复合键读回发布 `im:channel:update`。sender/receiver 未读绝对值保持 0/1，撤回不递增；旧在线 deleted、纯撤回 batch、thin channel update 与 Frame 刷新均不再可达，混合 edit 的 batch 暂由未迁移 edit Gate 保留，离线撤回留给 G-04a。G-04 2/2、旧 revoke regression 2/2、五 Gate partial schema 与 diff check PASS；四类 `.v1` JSON 由真实回放生成。热路径新增 owner 除必要一次 JSON viewers 编码外无重复 clone；`update_channel` 未迁移通用分支的既有双 clone 仍记为后续 Gate 债务。当前 generated 为 5/30，E3 runtime、真实 dual-user 与 PC/Mobile 同步保持 NOT_RUN/NOT_SYNCED_BY_SCOPE | @2026-07-29T06:20:00-0700

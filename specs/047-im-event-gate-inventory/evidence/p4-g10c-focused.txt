@@ -1,0 +1,10 @@
+Spec 047 P4 G-10c 聚焦证据
+
+- message_v3_g10c: PASS 3/3
+- sender: 满窗口发送经 optimistic message PersistOk 与 attached message Scan 后发布 im:timeline:update
+- receiver: persona-local Gate 无远程事件，generated receiver events 为空
+- bounded: 二十条窗口追加第 21 条后仍为二十条，最早消息被淘汰
+- contract: direction=append，payload 是 durable message 绝对窗口，不含 selector/operation/Frame/Surface/action/capability
+- artifact: .v1/gates/G-10c/generated 四文件由 Rust producer 生成
+- static: partial artifact schema、G-10b 回归 PASS
+- contract/runtime/dual-user/canonical: 仅 E1/E2；真实 SQLite、消费者同步均 NOT_RUN

@@ -718,7 +718,18 @@ impl ImModule {
         } else {
             causation_id.clone()
         };
-        let visible_len = request.limit as usize;
+        let scope = crate::interaction_frame::SurfaceScope::Timeline {
+            channel_id: request.channel_id.as_str().to_string(),
+            window_token: request.window_token.to_string(),
+        };
+        let current_view = self.state.timeline_projector.current_view(&scope);
+        let anchored_window = current_view.is_some_and(|view| {
+            view.anchor.mode == crate::interaction_frame::TimelineAnchorMode::Locate
+        });
+        let had_attached_window = current_view.is_some();
+        let visible_len = current_view
+            .filter(|view| !explicit_resync && view.page.has_older)
+            .map_or(request.limit as usize, |view| view.items.len());
         let has_local_older = rows_desc.len() > visible_len;
         let rows_asc = Value::Array(rows_desc.iter().take(visible_len).rev().cloned().collect());
         let mut shaped = crate::render_ready::shape_message_rows_for_viewer(
@@ -738,7 +749,7 @@ impl ImModule {
                 request.channel_id.as_str(),
                 request.window_token.as_str(),
             );
-        timeline_request.page_size = request.limit;
+        timeline_request.page_size = visible_len as u32;
         if let Some(page) = page_override {
             timeline_request.page = page;
         } else if has_local_older
@@ -759,17 +770,6 @@ impl ImModule {
         timeline_request.action_authority_available = !self.config.auth_user_id.is_empty();
         let has_older = timeline_request.page.has_older;
         let has_newer = timeline_request.page.has_newer;
-        let scope = crate::interaction_frame::SurfaceScope::Timeline {
-            channel_id: request.channel_id.as_str().to_string(),
-            window_token: request.window_token.to_string(),
-        };
-        let anchored_window = self
-            .state
-            .timeline_projector
-            .current_view(&scope)
-            .is_some_and(|view| {
-                view.anchor.mode == crate::interaction_frame::TimelineAnchorMode::Locate
-            });
         let mutation = if explicit_resync {
             self.state
                 .timeline_projector
@@ -799,15 +799,34 @@ impl ImModule {
         }
         .map_err(|error| ImError::Parse(format!("timeline projection: {error}")))?;
         self.register_timeline_action_bindings(&mutation, now_ms)?;
-        let effect = crate::event::timeline::window(
-            request.channel_id.as_str(),
-            request.window_token.as_str(),
-            "ready",
-            rows_asc.as_array().cloned().unwrap_or_default(),
-            has_older,
-            has_newer,
-            None,
-        )?
+        let event_rows = rows_asc.as_array().cloned().unwrap_or_default();
+        let anchor_post_id = self
+            .state
+            .timeline_projector
+            .current_view(&scope)
+            .and_then(|view| view.anchor.message_id.as_deref());
+        let effect = if explicit_resync || !had_attached_window {
+            crate::event::timeline::window(
+                request.channel_id.as_str(),
+                request.window_token.as_str(),
+                "ready",
+                event_rows,
+                has_older,
+                has_newer,
+                None,
+            )?
+        } else {
+            crate::event::timeline::page(
+                request.channel_id.as_str(),
+                request.window_token.as_str(),
+                if anchored_window { "newer" } else { "append" },
+                "ready",
+                event_rows,
+                has_older,
+                has_newer,
+                anchor_post_id,
+            )?
+        }
         .into_effect();
         if let Some(request_id) = terminal_action_request {
             // 转发的 timeline reconciliation 与 left-dialog patch 是两条独立投影。
@@ -917,9 +936,7 @@ impl ImModule {
             let messages = state
                 .rows()
                 .iter()
-                .filter(|row| {
-                    row.get("id").and_then(Value::as_str) != Some(anchor_post_id)
-                })
+                .filter(|row| row.get("id").and_then(Value::as_str) != Some(anchor_post_id))
                 .cloned()
                 .collect();
             let _legacy_internal_state = mutation;

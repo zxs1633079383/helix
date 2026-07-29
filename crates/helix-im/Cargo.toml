@@ -98,6 +98,10 @@ path = "tests/message_v3/timeline/g10a/main.rs"
 name = "message_v3_g10b"
 path = "tests/message_v3/timeline/g10b/main.rs"
 
+[[test]]
+name = "message_v3_g10c"
+path = "tests/message_v3/timeline/g10c/main.rs"
+
 [[bench]]
 name = "step_inorder"
 harness = false

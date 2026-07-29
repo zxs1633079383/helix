@@ -93,9 +93,11 @@ E3；E4 runtime、E5 真实 dual-user、跨端 mirror 后的 E6 canonical 均为
 | G-10b timeline 回归 | ready 只发布去除 anchor 的 newer page 原始 post 行；hasNewer=false 表示尾部耗尽；无 Frame/Surface/action/capability | E2 | `PASS 4/4` | `evidence/p4-g10b-focused.txt` | locate 分支留给 G-11/G-11a |
 | G-10c | 满窗口 optimistic PersistOk→attached message Scan→`im:timeline:update` | E1/E2 | `PASS 3/3` | `evidence/p4-g10c-focused.txt`、`.v1/gates/G-10c/generated/` | sender persona-local；receiver 明确空数组；未证明真实驱动 SQLite |
 | G-10c timeline 回归 | 二十条满窗口追加第 21 条后保持二十条并淘汰最早消息；事件不含 selector/operation/Frame/Surface | E2 | `PASS 3/3` | `evidence/p4-g10c-focused.txt` | consumer 只按绝对窗口本地选取，不重建业务 reducer |
-| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a/G-04/G-04a/G-05/G-06/G-07/G-14/G-14a/G-08/G-09/G-10/G-10a/G-10b/G-10c 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 17 of 30` | `evidence/p4-g10c-focused.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 13 Gate 未生成 |
+| G-10d | locate authority 建立离底窗口后，新事实 readback 发布 `im:timeline:update` | E1/E2 | `PASS 6/6` | `evidence/p4-g10d-focused.txt`、`.v1/gates/G-10d/generated/` | receiver persona-local；sender 明确空数组；setup locate 仍待 G-11 硬切 |
+| G-10d anchor 回归 | anchorPostId 稳定、newerCount=11、hasNewer=true，且无 ActivateWindow/Frame/Surface | E2 | `PASS 6/6` | `evidence/p4-g10d-focused.txt` | UI 是否展示提示属于后续消费者证据 |
+| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a/G-04/G-04a/G-05/G-06/G-07/G-14/G-14a/G-08/G-09/G-10/G-10a/G-10b/G-10c/G-10d 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 18 of 30` | `evidence/p4-g10d-focused.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 12 Gate 未生成 |
 
-G-02、G-03a、G-04、G-04a、G-05、G-06、G-07、G-14、G-14a、G-08、G-09、G-10、G-10a、G-10b 与 G-10c 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
+G-02、G-03a、G-04、G-04a、G-05、G-06、G-07、G-14、G-14a、G-08、G-09、G-10、G-10a、G-10b、G-10c 与 G-10d 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
 E4 runtime、E5 真实 dual-user 与消费者同步后的 E6 canonical 均为 `NOT_RUN`；
 消费者同步继续为 `NOT_SYNCED_BY_SCOPE`。
 

@@ -726,6 +726,16 @@ impl ImModule {
         let anchored_window = current_view.is_some_and(|view| {
             view.anchor.mode == crate::interaction_frame::TimelineAnchorMode::Locate
         });
+        let anchored_create_at = current_view.and_then(|view| {
+            let anchor_id = view.anchor.message_id.as_deref()?;
+            view.items
+                .iter()
+                .find(|item| item.id == anchor_id)
+                .map(|item| item.created_at)
+        });
+        let anchored_page_bounds = current_view
+            .filter(|_| anchored_window)
+            .map(|view| (view.page.has_older, view.page.has_newer, view.page.has_more));
         let had_attached_window = current_view.is_some();
         let visible_len = current_view
             .filter(|view| !explicit_resync && view.page.has_older)
@@ -752,6 +762,10 @@ impl ImModule {
         timeline_request.page_size = visible_len as u32;
         if let Some(page) = page_override {
             timeline_request.page = page;
+        } else if let Some((has_older, has_newer, has_more)) = anchored_page_bounds {
+            timeline_request.page.has_older = has_older;
+            timeline_request.page.has_newer = has_newer;
+            timeline_request.page.has_more = has_more;
         } else if has_local_older
             || self
                 .state
@@ -815,11 +829,42 @@ impl ImModule {
                 has_newer,
                 None,
             )?
+        } else if anchored_window {
+            let anchor_create_at = event_rows
+                .iter()
+                .find(|row| row.get("id").and_then(Value::as_str) == anchor_post_id)
+                .and_then(|row| row.get("create_at").or_else(|| row.get("createAt")))
+                .and_then(Value::as_i64)
+                .or(anchored_create_at);
+            let newer_count = event_rows
+                .iter()
+                .filter(|row| {
+                    let create_at = row
+                        .get("create_at")
+                        .or_else(|| row.get("createAt"))
+                        .and_then(Value::as_i64);
+                    create_at.zip(anchor_create_at).is_some_and(
+                        |(message_create_at, anchor_create_at)| {
+                            message_create_at > anchor_create_at
+                        },
+                    )
+                })
+                .count();
+            crate::event::timeline::anchored_update(
+                request.channel_id.as_str(),
+                request.window_token.as_str(),
+                "ready",
+                event_rows,
+                has_older,
+                has_newer,
+                anchor_post_id,
+                newer_count,
+            )?
         } else {
             crate::event::timeline::page(
                 request.channel_id.as_str(),
                 request.window_token.as_str(),
-                if anchored_window { "newer" } else { "append" },
+                "append",
                 "ready",
                 event_rows,
                 has_older,

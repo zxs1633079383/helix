@@ -27,7 +27,7 @@ struct PersonaTrace {
 }
 
 /// 通过公开 Module trait 驱动首屏、发送持久化和 attached refresh。
-struct Replay {
+pub(crate) struct Replay {
     module: ImModule,
     sink: EffectSink,
     now_ms: u64,
@@ -35,7 +35,7 @@ struct Replay {
 
 impl Replay {
     /// 创建带 Session store 和确定性 viewer 的回放器。
-    fn new() -> TestResult<Self> {
+    pub(crate) fn new() -> TestResult<Self> {
         let mut module = ImModule::new_with_local_store(
             ImConfig {
                 api_base_url: "http://g10c.invalid".to_string(),
@@ -57,7 +57,7 @@ impl Replay {
     }
 
     /// 建立恰好二十条消息的 attached latest window。
-    fn attach_full_window(&mut self) -> TestResult<()> {
+    pub(crate) fn attach_full_window(&mut self) -> TestResult<()> {
         self.command(
             "im_query_messages_by_channel",
             json!({
@@ -88,7 +88,7 @@ impl Replay {
     }
 
     /// 发起普通文本发送并返回 optimistic message 持久化 correlation。
-    fn start_send(&mut self) -> TestResult<Correlation> {
+    pub(crate) fn start_send(&mut self) -> TestResult<Correlation> {
         self.command(
             "im_send_message",
             json!({
@@ -101,13 +101,18 @@ impl Replay {
     }
 
     /// 提交 JSON command 并执行真实 handle。
-    fn command(&mut self, name: &'static str, payload: Value) -> TestResult<()> {
+    pub(crate) fn command(&mut self, name: &'static str, payload: Value) -> TestResult<()> {
         let bytes = serde_json::to_vec(&payload).map_err(|error| error.to_string())?;
         self.step(Tick::Command(AppCommand::new(name, bytes)))
     }
 
     /// 回灌端口结果并推进确定性时钟。
-    fn reply(&mut self, corr: Correlation, outcome: PortOutcome, offset_ms: u64) -> TestResult<()> {
+    pub(crate) fn reply(
+        &mut self,
+        corr: Correlation,
+        outcome: PortOutcome,
+        offset_ms: u64,
+    ) -> TestResult<()> {
         self.now_ms = CREATED_AT as u64 + offset_ms;
         self.step(Tick::PortReply { corr, outcome })
     }
@@ -121,7 +126,7 @@ impl Replay {
     }
 
     /// 按 Effect 类型提取唯一 correlation。
-    fn only_corr(&self, kind: &str, suffix: Option<&str>) -> TestResult<Correlation> {
+    pub(crate) fn only_corr(&self, kind: &str, suffix: Option<&str>) -> TestResult<Correlation> {
         let mut correlations = self.sink.as_slice().iter().filter_map(|effect| {
             let matched = match (kind, effect) {
                 ("http", Effect::Http { req, .. }) => {
@@ -133,6 +138,9 @@ impl Replay {
                 ("write", Effect::Persist { ops, .. }) => ops.iter().any(
                     |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"),
                 ),
+                ("readback", Effect::Persist { ops, .. }) => ops
+                    .iter()
+                    .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "message")),
                 ("persist", Effect::Persist { .. }) => true,
                 _ => false,
             };
@@ -151,7 +159,7 @@ impl Replay {
     }
 
     /// 从当前 batch 解出全部业务事件。
-    fn events(&self) -> TestResult<Vec<Value>> {
+    pub(crate) fn events(&self) -> TestResult<Vec<Value>> {
         self.sink
             .as_slice()
             .iter()
@@ -215,7 +223,7 @@ fn remote_page_body() -> TestResult<Bytes> {
 }
 
 /// 构造追加后倒序本地 rows，由 Helix 负责有界选择和头部淘汰。
-fn local_rows_after_append() -> TestResult<Bytes> {
+pub(crate) fn local_rows_after_append() -> TestResult<Bytes> {
     let rows = (1..=21).rev().map(local_post).collect::<Vec<_>>();
     serde_json::to_vec(&rows)
         .map(Bytes::from)
@@ -240,7 +248,7 @@ fn remote_post(index: u32) -> Value {
 }
 
 /// 构造一条本地 message 表读回行。
-fn local_post(index: u32) -> Value {
+pub(crate) fn local_post(index: u32) -> Value {
     json!({
         "id": server_id(index),
         "temporary_id": temporary_id(index),
@@ -256,7 +264,7 @@ fn local_post(index: u32) -> Value {
 }
 
 /// 生成稳定 server id。
-fn server_id(index: u32) -> String {
+pub(crate) fn server_id(index: u32) -> String {
     format!("srvfix{index:020x}")
 }
 
@@ -266,7 +274,7 @@ fn temporary_id(index: u32) -> String {
 }
 
 /// 将裸 Go body 包成 host 回灌的 ADR-007 HTTP envelope。
-fn http_envelope(body: Bytes) -> TestResult<Bytes> {
+pub(crate) fn http_envelope(body: Bytes) -> TestResult<Bytes> {
     serde_json::to_vec(&json!({
         "status": 200,
         "headers": {},

@@ -1,0 +1,10 @@
+Spec 047 P4 G-10d 聚焦证据
+
+- message_v3_g10d: PASS 6/6（含复用的 G-10c 回归 3 项）
+- receiver: locate authority 建立离底 anchor 后，新事实经 PersistOk 与 attached Scan 发布 im:timeline:update
+- sender: persona-local Gate generated sender events 为空
+- anchor: anchorPostId 保持 target identity，newerCount=11，hasNewer=true
+- boundary: 无 ActivateWindow、Frame、Surface、mutation、directive 或 capability
+- artifact: .v1/gates/G-10d/generated 四文件由 Rust producer 生成
+- static: partial artifact schema、G-10c 回归 PASS
+- contract/runtime/dual-user/canonical: 仅 E1/E2；真实 SQLite、消费者提示与主动跳最新均 NOT_RUN

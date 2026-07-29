@@ -140,8 +140,8 @@ MISSING/INFERRED，不用手写 JSON 填绿。
 - [X] T053 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/timeline_navigation.rs`、`crates/helix-im/src/query/local_first.rs` 与 `crates/helix-im/src/port_reply/dispatch_read.rs` 实现当前生产 G-10b，生成 JSON，删除旧 newer Frame 并更新 ledger
 - [X] T054 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g10c/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g10c`，先覆盖满窗口 append、头部淘汰和 consumer 本地选择器职责并观察失败
 - [X] T055 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/channel/write/post.rs` 实现 G-10c，生成 JSON，删除旧 append Frame 并更新 ledger
-- [ ] T056 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g10d/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g10d`，先覆盖离底 anchor 固定、新消息提示、ActivateWindow 副作用边界并观察失败
-- [ ] T057 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/query/render_ready/` 实现 G-10d，生成 JSON，删除旧 anchor Frame 并更新 ledger
+- [X] T056 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g10d/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g10d`，先覆盖离底 anchor 固定、新消息提示、ActivateWindow 副作用边界并观察失败
+- [X] T057 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/query/render_ready/` 实现 G-10d，生成 JSON，删除旧 anchor Frame 并更新 ledger
 - [ ] T058 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g11/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g11`，先覆盖初始 bounded window、定位目标后的 active window 与滚动指令数据并观察失败
 - [ ] T059 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/query/render_ready/` 实现 G-11，生成 JSON，删除旧 locate Frame 并更新 ledger
 - [ ] T060 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g11a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g11a`，先覆盖未缓存定位、双向分页乱序、当前 token 激活与旧响应只合并数据并观察失败

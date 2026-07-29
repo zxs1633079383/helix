@@ -272,7 +272,7 @@ impl ImModule {
         )
     }
 
-    /// 将已校验的 G12 authority 投影为 snapshot 或 attached-thread patch。
+    /// 将已校验的 G12 authority 投影为无 renderer 套壳的回复分支绝对态。
     pub(crate) fn project_reply_thread_frame(
         &mut self,
         request_id: &str,
@@ -280,6 +280,16 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let surface_epoch = self.action_surface_epoch()?;
+        let event_mode = match projection.projection_mode {
+            crate::render_ready_replies::ReplyProjectionMode::Snapshot => "snapshot",
+            crate::render_ready_replies::ReplyProjectionMode::Append => "append",
+        };
+        let event_channel_id = projection.channel_id.clone();
+        let event_root_message_id = projection.root_message_id.clone();
+        let event_nodes = crate::event::timeline::thread_messages(&projection.nodes);
+        let event_reply_ids = projection.reply_ids.clone();
+        let event_reply_count = projection.reply_count;
+        let event_has_more = projection.has_more;
         let mutation = match projection.projection_mode {
             crate::render_ready_replies::ReplyProjectionMode::Snapshot => {
                 let view = thread_detail_view(
@@ -348,14 +358,21 @@ impl ImModule {
                     .map_err(|error| ImError::Parse(format!("thread branch append: {error}")))?
             }
         };
-        out.push(frame_for_mutation(
-            match projection.projection_mode {
-                crate::render_ready_replies::ReplyProjectionMode::Snapshot => "thread-snapshot",
-                crate::render_ready_replies::ReplyProjectionMode::Append => "thread-branch",
-            },
-            self.action_surface_epoch()?,
-            mutation,
-        )?);
+        let _legacy_internal_state = mutation;
+        out.push(
+            crate::event::timeline::thread(serde_json::json!({
+                "channelId": event_channel_id,
+                "rootMessageId": event_root_message_id,
+                "requestId": request_id,
+                "mode": event_mode,
+                "state": "ready",
+                "messages": event_nodes,
+                "replyIds": event_reply_ids,
+                "replyCount": event_reply_count,
+                "hasMore": event_has_more,
+            }))?
+            .into_effect(),
+        );
         Ok(())
     }
 

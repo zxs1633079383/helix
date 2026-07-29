@@ -114,6 +114,10 @@ path = "tests/message_v3/timeline/g11/main.rs"
 name = "message_v3_g11a"
 path = "tests/message_v3/timeline/g11a/main.rs"
 
+[[test]]
+name = "message_v3_g12"
+path = "tests/message_v3/timeline/g12/main.rs"
+
 [[bench]]
 name = "step_inorder"
 harness = false

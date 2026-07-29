@@ -93,3 +93,32 @@ pub fn located(data: Value) -> Result<MessageV3Event, crate::ImError> {
 pub fn thread(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:timeline:thread", data)
 }
+
+/// 从旧 read-normalized 行只保留远端 Post/本地 message 表共同拥有的领域字段。
+pub fn thread_messages(rows: &[Value]) -> Vec<Value> {
+    const KEYS: [&str; 13] = [
+        "id",
+        "temporaryId",
+        "channelId",
+        "userId",
+        "type",
+        "text",
+        "props",
+        "replyId",
+        "replyRootId",
+        "replyFirstLevelId",
+        "replyCount",
+        "createAt",
+        "eventSeq",
+    ];
+    rows.iter()
+        .filter_map(|row| {
+            let object = row.as_object()?;
+            let clean = KEYS
+                .iter()
+                .filter_map(|key| object.get(*key).map(|value| ((*key).to_string(), value.clone())))
+                .collect();
+            Some(Value::Object(clean))
+        })
+        .collect()
+}

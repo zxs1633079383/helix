@@ -1,0 +1,9 @@
+Spec 047 P4 G-10 聚焦证据
+
+- message_v3_g10: PASS 5/5
+- sender/receiver: 各自 local-first 状态机经 cache PersistOk 发布 im:timeline:ready
+- failure: HTTP 失败发布 state=failed，不伪造空 ready
+- recovery: 已建立 durable coverage 后由本地 message Scan 恢复且不再发 HTTP
+- artifact: .v1/gates/G-10/generated 四文件由 Rust producer 生成
+- static: partial artifact schema 5/5、cargo check、两个修改 owner hot-path audit、cutover self-test、diff check PASS
+- contract/runtime/dual-user/canonical: 仅 E1/E2；真实 SQLite、消费者同步均 NOT_RUN

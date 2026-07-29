@@ -3,6 +3,28 @@
 use super::MessageV3Event;
 use serde_json::Value;
 
+/// 从 durable message 行构造不含 Frame/Surface/action 派生字段的有界窗口终态。
+#[allow(clippy::too_many_arguments)]
+pub fn window(
+    channel_id: &str,
+    window_token: &str,
+    state: &str,
+    rows: Vec<Value>,
+    has_older: bool,
+    has_newer: bool,
+    target_message_id: Option<&str>,
+) -> Result<MessageV3Event, crate::ImError> {
+    ready(serde_json::json!({
+        "channelId": channel_id,
+        "windowToken": window_token,
+        "state": state,
+        "messages": rows,
+        "hasOlder": has_older,
+        "hasNewer": has_newer,
+        "targetMessageId": target_message_id,
+    }))
+}
+
 /// 构造有界时间线就绪快照。
 pub fn ready(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:timeline:ready", data)

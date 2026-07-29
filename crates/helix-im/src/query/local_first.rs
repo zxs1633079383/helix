@@ -210,8 +210,11 @@ impl ImModule {
             "window_token": window_token,
             "limit": visible_limit,
         });
-        let bytes = serde_json::to_vec(&payload)
-            .map_err(|error| ImError::Serialize(format!("attached timeline refresh: {error}")))?;
+        let bytes =
+            serde_json::to_vec(&payload) // hot-path-audit: ignore - HTTP wire body，不写入单列。
+                .map_err(|error| {
+                    ImError::Serialize(format!("attached timeline refresh: {error}"))
+                })?;
         self.dispatch_message_query_with_causation_and_deferred_send(
             &bytes,
             false,
@@ -754,9 +757,11 @@ impl ImModule {
         }
         timeline_request.surface_epoch = self.action_surface_epoch()?;
         timeline_request.action_authority_available = !self.config.auth_user_id.is_empty();
+        let has_older = timeline_request.page.has_older;
+        let has_newer = timeline_request.page.has_newer;
         let scope = crate::interaction_frame::SurfaceScope::Timeline {
-            channel_id: timeline_request.channel_id.clone(),
-            window_token: timeline_request.window_token.clone(),
+            channel_id: request.channel_id.as_str().to_string(),
+            window_token: request.window_token.to_string(),
         };
         let anchored_window = self
             .state
@@ -794,16 +799,16 @@ impl ImModule {
         }
         .map_err(|error| ImError::Parse(format!("timeline projection: {error}")))?;
         self.register_timeline_action_bindings(&mutation, now_ms)?;
-        let scope_key = mutation.scope.canonical_key();
-        let revision = mutation.revision;
-        let frame = crate::projector::build_online_interaction_frame(
-            format!("timeline-{scope_key}-{revision}"),
-            self.action_surface_epoch()?,
-            vec![mutation],
-        )
-        .map_err(|error| ImError::Serialize(error.to_string()))?;
-        let effect = crate::projector::emit_interaction_frame(frame)
-            .map_err(|error| ImError::Serialize(error.to_string()))?;
+        let effect = crate::event::timeline::window(
+            request.channel_id.as_str(),
+            request.window_token.as_str(),
+            "ready",
+            rows_asc.as_array().cloned().unwrap_or_default(),
+            has_older,
+            has_newer,
+            None,
+        )?
+        .into_effect();
         if let Some(request_id) = terminal_action_request {
             // 转发的 timeline reconciliation 与 left-dialog patch 是两条独立投影。
             // dialog 已 attach 时保留 target authority，直到其写后读 Frame 发出；否则
@@ -882,8 +887,8 @@ impl ImModule {
                     navigation_token,
                 );
                 crate::projector::timeline::TimelinePageMutation::Locate {
-                    target_message_id: target_message_id.clone(),
-                    navigation_token: navigation_token.clone(),
+                    target_message_id: target_message_id.to_string(),
+                    navigation_token: navigation_token.to_string(),
                     activate,
                 }
             }
@@ -923,9 +928,10 @@ impl ImModule {
         failed.state = crate::interaction_frame::SurfaceLoadState::Failed;
         failed.action_authority_available = false;
         let scope = crate::interaction_frame::SurfaceScope::Timeline {
-            channel_id: failed.channel_id.clone(),
-            window_token: failed.window_token.clone(),
+            channel_id: request.channel_id.as_str().to_string(),
+            window_token: request.window_token.to_string(),
         };
+        let projection_causation = causation_id.clone();
         let mutation = if explicit_resync {
             self.state
                 .timeline_projector
@@ -933,24 +939,24 @@ impl ImModule {
         } else if self.state.timeline_projector.current_view(&scope).is_some() {
             self.state
                 .timeline_projector
-                .patch_from_render_ready(failed, &[], causation_id.clone())
+                .patch_from_render_ready(failed, &[], projection_causation)
         } else {
             self.state
                 .timeline_projector
-                .snapshot_from_render_ready_with_causation(failed, &[], causation_id.clone())
+                .snapshot_from_render_ready_with_causation(failed, &[], projection_causation)
         }
         .map_err(|error| ImError::Parse(format!("timeline failure projection: {error}")))?;
         self.register_timeline_action_bindings(&mutation, now_ms)?;
-        let scope_key = mutation.scope.canonical_key();
-        let revision = mutation.revision;
-        let frame = crate::projector::build_online_interaction_frame(
-            format!("timeline-{scope_key}-{revision}"),
-            self.action_surface_epoch()?,
-            vec![mutation],
-        )
-        .map_err(|error| ImError::Serialize(error.to_string()))?;
-        let effect = crate::projector::emit_interaction_frame(frame)
-            .map_err(|error| ImError::Serialize(error.to_string()))?;
+        let effect = crate::event::timeline::window(
+            request.channel_id.as_str(),
+            request.window_token.as_str(),
+            "failed",
+            Vec::new(),
+            false,
+            false,
+            None,
+        )?
+        .into_effect();
         if let Some(request_id) = causation_id.filter(|_| !explicit_resync) {
             self.state
                 .action_registry

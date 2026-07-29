@@ -85,9 +85,11 @@ E3；E4 runtime、E5 真实 dual-user、跨端 mirror 后的 E6 canonical 均为
 | G-08 schedule 回归 | 只发布 channel_schedule 真实字段和 `hasSchedulePost`，无 reqId/operation/capabilities/重复 schedule 别名；重复 revision、失败与冷启动收敛 | E2 | `PASS 5/5` | `evidence/p3-g08-focused.txt` | 定时消息真正触发后的普通 post 仍由 G-01 负责 |
 | G-09 | cancelSchedule HTTP admission、creator-only `post_schedule_canceled`、channel_schedule/channel 原子提交与 durable row 读回 | E1/E2 | `PASS 5/5` | `evidence/p3-g09-focused.txt`、`.v1/gates/G-09/generated/` | observer 本地零写零 Emit；未证明 Go 广播隔离 |
 | G-09 schedule 回归 | 取消终态清空 schedule 正文并关闭 `hasSchedulePost`，旧 create revision 不得复活；失败不 Emit，冷启动由 durable row 重建 | E2 | `PASS 5/5` | `evidence/p3-g09-focused.txt` | 实际触发投递仍由 G-01 负责 |
-| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a/G-04/G-04a/G-05/G-06/G-07/G-14/G-14a/G-08/G-09 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 13 of 30` | `evidence/p3-g09-focused.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 17 Gate 未生成 |
+| G-10 | local Scan→remote fallback→message cache barrier→timeline ready，或 durable coverage 直接恢复 | E1/E2 | `PASS 5/5` | `evidence/p4-g10-focused.txt`、`.v1/gates/G-10/generated/` | 双 persona 是独立生产回放；未证明真实驱动 SQLite |
+| G-10 timeline 回归 | 事件只含窗口状态与真实 post/message 行，不含 Frame/Surface/mutation/action 派生字段；HTTP 失败显式 `failed` | E2 | `PASS 5/5` | `evidence/p4-g10-focused.txt` | 内部未迁移分页 Gate 暂保留旧窗口算法，P4/P7 收口物理删除 |
+| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a/G-04/G-04a/G-05/G-06/G-07/G-14/G-14a/G-08/G-09/G-10 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 14 of 30` | `evidence/p4-g10-focused.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 16 Gate 未生成 |
 
-G-02、G-03a、G-04、G-04a、G-05、G-06、G-07、G-14、G-14a、G-08 与 G-09 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
+G-02、G-03a、G-04、G-04a、G-05、G-06、G-07、G-14、G-14a、G-08、G-09 与 G-10 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
 E4 runtime、E5 真实 dual-user 与消费者同步后的 E6 canonical 均为 `NOT_RUN`；
 消费者同步继续为 `NOT_SYNCED_BY_SCOPE`。
 

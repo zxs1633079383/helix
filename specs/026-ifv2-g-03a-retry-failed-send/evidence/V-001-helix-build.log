@@ -1,0 +1,5 @@
+helix_commit=af3fee1e2e9735d9cd9574a525e05b9d36333d58
+$ cargo check -p helix-im
+result=PASS exit=0
+$ cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'
+result=PASS matches=0

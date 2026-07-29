@@ -1,0 +1,126 @@
+$ G13 Mobile production-linked contract and focused real chain
+G13_MOBILE_FIXTURE_PARITY_OK count=4 helix=a13e17151efd1e7eefc94677110598b6347b08a9
+G13_MOBILE_CONTRACT_OK fixtures=4 helix=c8768f8b6f169f67509c0ec717ef6902c7779e19
+surface-runtime source pin gate passed: Helix c8768f8b6f169f67509c0ec717ef6902c7779e19, interaction_frame.rs sha256=ca3d331d5a30e9e1feeb4f363c841ee9e4b587f7d94dc9621d10c9e20efbcea0, manifest sha256=30732bb642000e37b97ec24b07ac3334a8e9da358b83e10fc837133e99740bdd, rich-v2 sha256=fd6a38b2c8a5192ed6243c0b2143329f26022961979def2fa54cd9eb482d1ffc, ffi headers pinned, G02 fixtures=6, G03a fixtures=8, G04 fixtures=4, G04a fixtures=4, G05 fixtures=4, G06 fixtures=4, G07 fixtures=7, G08 fixtures=4, G09 fixtures=4, G10 fixtures=6, G10a fixtures=6, G11 fixtures=3, G12 fixtures=3, G13 fixtures=4, explicit parity=not requested
+surface-runtime legacy hard-cut gate passed: production V1 producers=0 consumers=0 G01/G02/G03a/G04/G04a/G05/G06/G07/G08/G09/G10/G10a/G11/G12/G13 typed-only
+Running main() from /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/googletest-src/googletest/src/gtest_main.cc
+Note: Google Test filter = G13FrameContractTest.*
+[==========] Running 6 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 6 tests from G13FrameContractTest
+[ RUN      ] G13FrameContractTest.DecodesCompletePairedReadFrameFields
+[       OK ] G13FrameContractTest.DecodesCompletePairedReadFrameFields (1 ms)
+[ RUN      ] G13FrameContractTest.AppliesFreshGroupPrerequisite
+[       OK ] G13FrameContractTest.AppliesFreshGroupPrerequisite (4 ms)
+[ RUN      ] G13FrameContractTest.AppliesPairedReadStateAtomically
+[       OK ] G13FrameContractTest.AppliesPairedReadStateAtomically (2 ms)
+[ RUN      ] G13FrameContractTest.RejectsInvalidFramesAtomically
+[       OK ] G13FrameContractTest.RejectsInvalidFramesAtomically (3 ms)
+[ RUN      ] G13FrameContractTest.ReplaysProductionBatchIntoQuickJsTypedViews
+[       OK ] G13FrameContractTest.ReplaysProductionBatchIntoQuickJsTypedViews (2 ms)
+[ RUN      ] G13FrameContractTest.AppliesDomainEventsThroughProductionCAbi
+[       OK ] G13FrameContractTest.AppliesDomainEventsThroughProductionCAbi (10 ms)
+[----------] 6 tests from G13FrameContractTest (24 ms total)
+
+[----------] Global test environment tear-down
+[==========] 6 tests from 1 test suite ran. (24 ms total)
+[  PASSED  ] 6 tests.
+UC01-16 contract gate passed: 27 delivery Gates, 19 regression/excluded Gates, Helix c8768f8b6f169f67509c0ec717ef6902c7779e19
+mobile gtest binary compiled: /System/Volumes/Data/workspace/c/mobile-qucik-c++/build/mobile_js_spec_test
+NATIVE_SESSION_START cases=1 filter=Uc13ReadTest.*
+Running main() from /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/googletest-src/googletest/src/gtest_main.cc
+Note: Google Test filter = Uc13ReadTest.*
+[==========] Running 8 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 8 tests from Uc13ReadTest
+[ RUN      ] Uc13ReadTest.ContractAcceptsCanonicalInput
+[       OK ] Uc13ReadTest.ContractAcceptsCanonicalInput (3 ms)
+[ RUN      ] Uc13ReadTest.LegacyCharacterization
+[       OK ] Uc13ReadTest.LegacyCharacterization (1 ms)
+[ RUN      ] Uc13ReadTest.CanonicalFrameReplay
+[       OK ] Uc13ReadTest.CanonicalFrameReplay (1 ms)
+[ RUN      ] Uc13ReadTest.SnapshotEqualsPatch
+[       OK ] Uc13ReadTest.SnapshotEqualsPatch (0 ms)
+[ RUN      ] Uc13ReadTest.RejectsStaleOrCorruptInput
+[       OK ] Uc13ReadTest.RejectsStaleOrCorruptInput (1 ms)
+[ RUN      ] Uc13ReadTest.RealChain
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","command":true,"frameApplied":true,"typedDialog":true,"typedUnread":true,"clientReducer":false,"ucId":"UC13","phase":"G-13-channel-read","actor":"678","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","command":true,"frameApplied":true,"typedDialog":true,"typedUnread":true,"clientReducer":false,"ucId":"UC13","phase":"G-13-channel-read","actor":"678","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.setup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","postId":"6g8fwp9tdpb1uygcsuzhttockw","marker":"mobile UC13 channel-read-unread mrc-mobile-uc-20260726110628-9243","ucId":"UC13","phase":"G-13-setup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","command":true,"frameApplied":true,"typedDialog":true,"typedUnread":true,"clientReducer":false,"ucId":"UC13","phase":"G-13-channel-read","actor":"678","runId":"mrc-mobile-uc-20260726110628-9243"}
+REAL_CHAIN_RESULT {"gate":"G-13.cleanup","channelId":"bn65mbsw6ifu3ff85b8re4ec3a","cleanup":true,"ucId":"UC13","phase":"G-13-cleanup","actor":"444","runId":"mrc-mobile-uc-20260726110628-9243"}
+[       OK ] Uc13ReadTest.RealChain (10862 ms)
+[ RUN      ] Uc13ReadTest.NoClientBusinessRepair
+[       OK ] Uc13ReadTest.NoClientBusinessRepair (1 ms)
+[ RUN      ] Uc13ReadTest.ChannelReadPayloadContainsOnlyCanonicalFields
+[       OK ] Uc13ReadTest.ChannelReadPayloadContainsOnlyCanonicalFields (1 ms)
+[----------] 8 tests from Uc13ReadTest (10873 ms total)
+
+[----------] Global test environment tear-down
+[==========] 8 tests from 1 test suite ran. (10873 ms total)
+[  PASSED  ] 8 tests.
+NATIVE_SESSION_COMPLETED cases=1
+FOCUSED_SEQUENCE_COMPLETED UC13
+PASS: G13 Mobile mirror, production pin, V2 hard-cut, GTest, QuickJS typed view and real chain

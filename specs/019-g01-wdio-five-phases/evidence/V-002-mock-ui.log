@@ -1,0 +1,37 @@
+verification_id=V-002
+command=yarn message:wdio:g01:mock
+started_at=2026-07-24T23:54:58Z
+yarn run v1.22.22
+$ node scripts/message-wdio/run-lane.mjs mock mock
+
+Execution of 1 workers started at 2026-07-24T23:55:06.072Z
+
+2026-07-24T23:55:06.237Z ERROR diagnostics: ❌ Tauri Driver: tauri-driver not found. Install it with: cargo install tauri-driver
+Or enable auto-installation by setting autoInstallTauriDriver: true in service options.
+[0-0] RUNNING in undefined - file:///tests/e2e/wdio/specs/g01-mock-suite.e2e.ts
+[0-0] PASSED in undefined - file:///tests/e2e/wdio/specs/g01-mock-suite.e2e.ts
+
+ "spec" Reporter:
+------------------------------------------------------------------
+[webkit 605.1.15 macos #0-0] Running: webkit (v605.1.15) on macos
+[webkit 605.1.15 macos #0-0] Session ID: f90e9380-3ce6-415c-86c2-92aa0c0f63c5
+[webkit 605.1.15 macos #0-0]
+[webkit 605.1.15 macos #0-0] » tests/e2e/wdio/specs/g01-mock-suite.e2e.ts
+[webkit 605.1.15 macos #0-0] G01 Helix-derived V2 mock failed
+[webkit 605.1.15 macos #0-0]    ✓ derives business failure from a matching failed Frame
+[webkit 605.1.15 macos #0-0]
+[webkit 605.1.15 macos #0-0] G01 Helix-derived V2 mock sent
+[webkit 605.1.15 macos #0-0]    ✓ converges sending to sent through the real im:__bus__ ingress
+[webkit 605.1.15 macos #0-0]
+[webkit 605.1.15 macos #0-0] G01 IPC reject
+[webkit 605.1.15 macos #0-0]    ✓ keeps transport rejection separate from a business failed Frame
+[webkit 605.1.15 macos #0-0]
+[webkit 605.1.15 macos #0-0] 3 passing (3.5s)
+
+
+Spec Files:	 1 passed, 1 total (100% completed) in 00:01:03  
+
+Done in 71.24s.
+ended_at=2026-07-24T23:56:10Z
+result=PASS
+exit_code=0

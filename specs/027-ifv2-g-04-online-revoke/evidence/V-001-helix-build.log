@@ -1,0 +1,5 @@
+helix_commit=96ff88657e10e0247f34dd92317525b11fedfb0d
+$ cargo check -p helix-im
+result=PASS exit=0 duration=0.12s
+$ cargo tree -p helix-core
+result=PASS forbidden_runtime_dependencies=0

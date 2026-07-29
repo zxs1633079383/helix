@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-001",
+      "command": "cargo check -p helix-im && cargo test -p helix-im --lib --test g14a_full_flow_test --test g14_receipt_template_interaction_test -- --nocapture",
+      "started_at": "2026-07-26T06:40:28-07:00",
+      "ended_at": "2026-07-26T06:40:34-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/040-ifv2-g-14a-template-received/evidence/V-001-helix-scenario.log",
+          "sha256": "9bb6cb323c2a0ec159b652f8d8e69a942a9326b6df136aac5d2345154e1f2cad"
+        }
+      ]
+    },
+    {
+      "id": "V-002",
+      "command": "cargo test -p helix-im --lib --test g14a_full_flow_test --test g14_receipt_template_interaction_test -- --nocapture",
+      "started_at": "2026-07-26T06:40:28-07:00",
+      "ended_at": "2026-07-26T06:40:34-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/040-ifv2-g-14a-template-received/evidence/V-001-helix-scenario.log",
+          "sha256": "9bb6cb323c2a0ec159b652f8d8e69a942a9326b6df136aac5d2345154e1f2cad"
+        }
+      ]
+    },
+    {
+      "id": "V-003",
+      "command": "cargo test -p helix-im --test g14a_wdio_fixture_contract_test -- --nocapture",
+      "started_at": "2026-07-26T06:40:34-07:00",
+      "ended_at": "2026-07-26T06:40:36-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/040-ifv2-g-14a-template-received/evidence/V-002-helix-fixture.log",
+          "sha256": "eec191caa5b2db417ffc341658498c7b96cecd54ce8ff9b2b42c527301e5c763"
+        }
+      ]
+    },
+    {
+      "id": "V-007",
+      "command": "three-repo G14a fixture inventory/hash parity plus behavior/code/Frame V2 review",
+      "started_at": "2026-07-26T07:55:19-07:00",
+      "ended_at": "2026-07-26T07:55:19-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/040-ifv2-g-14a-template-received/evidence/V-007-cross-repo-review.log",
+          "sha256": "d40209baa238d5e54da275722d3c4cc33e616c7f3d95a8918e31d4d0ed265a39"
+        }
+      ]
+    },
+    {
+      "id": "V-006",
+      "command": "G14a parity + production-linked GTest + hard-cut + source pin + Strict Matrix + shared Venus smoke",
+      "started_at": "2026-07-26T07:51:00-07:00",
+      "ended_at": "2026-07-26T07:55:00-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/040-ifv2-g-14a-template-received/evidence/V-006-mobile-contract.log",
+          "sha256": "102161854c677beb64d206d2d7ccc2e00d5ddc54e7fcc0cd24d243506bfa00f0"
+        }
+      ]
+    },
+    {
+      "id": "V-004",
+      "command": "yarn message:wdio:g14a:mock && yarn message:wdio:g14a:report && yarn message:wdio:g14a:boundary && yarn jest -c tests/e2e/wdio/jest.config.js --runInBand <focused G14a contracts>",
+      "started_at": "2026-07-26T07:46:55-07:00",
+      "ended_at": "2026-07-26T07:48:30-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/040-ifv2-g-14a-template-received/evidence/V-004-pc-mock.log",
+          "sha256": "862591c2d165c148ab7fa27150729646ff31ad2c4d174670c2b924fbf58df4aa"
+        }
+      ]
+    },
+    {
+      "id": "V-005",
+      "command": "inspect mrc-g14a-repair-1784775900 evidence && yarn message:wdio:g14a:single-real && yarn message:wdio:g14a:dual-real",
+      "started_at": "2026-07-26T07:49:26-07:00",
+      "ended_at": "2026-07-26T07:50:23-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/040-ifv2-g-14a-template-received/evidence/V-005-pc-real.log",
+          "sha256": "bab7b7422873f8a1d6af32951a79e086694bddf7b57484a5696e34ed1331d547"
+        }
+      ]
+    }
+  ]
+}

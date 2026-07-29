@@ -1,0 +1,67 @@
+verification_id=V-008
+command=node scripts/message-wdio/scan-artifacts.mjs each-final-run
+started_at=2026-07-25T00:03:33Z
+{"runId":"mock-20260724235459401-50059","filesScanned":5,"redactionVerdict":"pass"}
+node:internal/fs/promises:1176
+  return await PromisePrototypeThen(
+         ^
+
+Error: ENOENT: no such file or directory, realpath '/System/Volumes/Data/workspace/angular/cses-client/artifacts/message-wdio/integration-20260724235616475-50655'
+    at async realpath (node:internal/fs/promises:1176:10)
+    at async file:///System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/scan-artifacts.mjs:15:23 {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'realpath',
+  path: '/System/Volumes/Data/workspace/angular/cses-client/artifacts/message-wdio/integration-20260724235616475-50655'
+}
+
+Node.js v20.20.2
+node:internal/fs/promises:1176
+  return await PromisePrototypeThen(
+         ^
+
+Error: ENOENT: no such file or directory, realpath '/System/Volumes/Data/workspace/angular/cses-client/artifacts/message-wdio/single-real-20260724235902000-51960'
+    at async realpath (node:internal/fs/promises:1176:10)
+    at async file:///System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/scan-artifacts.mjs:15:23 {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'realpath',
+  path: '/System/Volumes/Data/workspace/angular/cses-client/artifacts/message-wdio/single-real-20260724235902000-51960'
+}
+
+Node.js v20.20.2
+node:internal/fs/promises:1176
+  return await PromisePrototypeThen(
+         ^
+
+Error: ENOENT: no such file or directory, realpath '/System/Volumes/Data/workspace/angular/cses-client/artifacts/message-wdio/dual-real-20260725000022932-52638'
+    at async realpath (node:internal/fs/promises:1176:10)
+    at async file:///System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/scan-artifacts.mjs:15:23 {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'realpath',
+  path: '/System/Volumes/Data/workspace/angular/cses-client/artifacts/message-wdio/dual-real-20260725000022932-52638'
+}
+
+Node.js v20.20.2
+node:internal/fs/promises:1176
+  return await PromisePrototypeThen(
+         ^
+
+Error: ENOENT: no such file or directory, realpath '/System/Volumes/Data/workspace/angular/cses-client/artifacts/message-wdio/report-20260725000222914-54180'
+    at async realpath (node:internal/fs/promises:1176:10)
+    at async file:///System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/scan-artifacts.mjs:15:23 {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'realpath',
+  path: '/System/Volumes/Data/workspace/angular/cses-client/artifacts/message-wdio/report-20260725000222914-54180'
+}
+
+Node.js v20.20.2
+{"runId":"g01-ui-perf-final-20260724164604","filesScanned":5,"redactionVerdict":"pass"}
+{"runId":"g01-mock-perf-final-r4-20260724164707","filesScanned":5,"redactionVerdict":"pass"}
+{"runId":"g01-single-perf-final-20260724164827","filesScanned":8,"redactionVerdict":"pass"}
+{"runId":"g01-dual-perf-final-20260724164938","filesScanned":11,"redactionVerdict":"pass"}
+ended_at=2026-07-25T00:03:34Z
+result=FAIL
+exit_code=1

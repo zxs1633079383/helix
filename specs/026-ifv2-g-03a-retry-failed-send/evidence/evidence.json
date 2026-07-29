@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-001",
+      "command": "cargo check -p helix-im; helix-core runtime dependency scan",
+      "started_at": "2026-07-25T16:13:45Z",
+      "ended_at": "2026-07-25T16:13:52Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-001-helix-build.log",
+          "sha256": "cfb8aea3d7866554667be9c0bc02aaaade0d3e4091ea964a147bc6957132361c"
+        }
+      ]
+    },
+    {
+      "id": "V-002",
+      "command": "g03a full-flow and focused retry-send replay tests",
+      "started_at": "2026-07-25T16:13:52Z",
+      "ended_at": "2026-07-25T16:13:59Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-002-helix-scenario.log",
+          "sha256": "1b5d1a37daed84a7b4dbbf1d904a3c07c444998c9009f680e9267fe6d8d36cfd"
+        }
+      ]
+    },
+    {
+      "id": "V-003",
+      "command": "g03a canonical Fixture Golden comparison",
+      "started_at": "2026-07-25T16:13:59Z",
+      "ended_at": "2026-07-25T16:14:01Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-003-canonical-fixture.log",
+          "sha256": "b01e786607ecce0d68dfaa5802d59f7675fff953e2b40bc03e10d4fc1e097a23"
+        }
+      ]
+    },
+    {
+      "id": "V-004",
+      "command": "G03a PC fixture/Mock/report/boundary lanes",
+      "started_at": "2026-07-25T16:15:07Z",
+      "ended_at": "2026-07-25T16:16:05Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-004-pc-mock-report.log",
+          "sha256": "78a9e0e780b634468611c7eacf444580da1d8bd3996780b6937f21d7a5bb007f"
+        }
+      ]
+    },
+    {
+      "id": "V-005",
+      "command": "G03a PC single-real and dual-real lanes",
+      "started_at": "2026-07-25T16:15:22Z",
+      "ended_at": "2026-07-25T16:15:57Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-005-pc-real.log",
+          "sha256": "1e8ad8547691cd9ab8ee5da04315cceea603aa593542d8a27e786f46f68dd625"
+        }
+      ]
+    },
+    {
+      "id": "V-006-A",
+      "command": "UC04 filter attempted against the wrong GTest binary",
+      "started_at": "2026-07-25T15:45:16Z",
+      "ended_at": "2026-07-25T15:45:43Z",
+      "result": "FAIL",
+      "files": [
+        {
+          "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-006-attempt1-zero-tests.log",
+          "sha256": "9d040f8ac2e5dde323702c220001892e862a5387b2cde43ed39eaf04d7ba4cc8"
+        }
+      ]
+    },
+    {
+      "id": "V-006",
+      "command": "G03a Mobile parity, production-linked GTest, source pin and V1 hard cut",
+      "started_at": "2026-07-25T15:45:43Z",
+      "ended_at": "2026-07-25T16:05:20Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-006-mobile-contract.log",
+          "sha256": "01d3669741504367159c26a9063d5076149bb5b01397c788ee1478d86a2b7722"
+        }
+      ]
+    },
+    {
+      "id": "V-007",
+      "command": "three-repo byte parity and behavior/code/Frame/evidence review",
+      "started_at": "2026-07-25T16:05:20Z",
+      "ended_at": "2026-07-25T16:11:40Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-007-cross-repo-review.log",
+          "sha256": "814e0237e42c2083a249396e4c1916890783979809954d0b6fa20a458a6e65cb"
+        },
+        {
+          "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/gate-report.json",
+          "sha256": "71e17b4c6b519df580a37612ad14e147aa3e66a37f2c98e486b53e6bcdc2090c"
+        }
+      ]
+    },
+    {
+      "id": "V-008",
+      "command": "gate report schema and required lane review",
+      "started_at": "2026-07-25T16:11:40Z",
+      "ended_at": "2026-07-25T16:14:10Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/gate-report.json",
+          "sha256": "71e17b4c6b519df580a37612ad14e147aa3e66a37f2c98e486b53e6bcdc2090c"
+        }
+      ]
+    }
+  ]
+}

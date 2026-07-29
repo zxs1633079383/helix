@@ -1,0 +1,10 @@
+$ cmp Helix/PC/Mobile g03a canonical fixtures and provenance
+result=PASS files=9 frames=8 byteExact=true
+behavior=Green
+codeBoundary=Green
+frameV2=Green
+evidence=Green
+requiredPassRate=1
+requiredFailed=0
+requiredSkipped=0
+observations=16 future-Gate legacy RealChain failures; standalone tauri-driver diagnostic does not replace embedded provider evidence

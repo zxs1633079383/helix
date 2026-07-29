@@ -1,0 +1,15 @@
+started_at=2026-07-25T12:33:21Z
+$ node scripts/check-g02-fixture-parity.mjs
+G02_MOBILE_FIXTURE_PARITY_OK count=6 helix=ac15abd0b29ef62ea5d359fb22030800dd0dee2b
+G02_MOBILE_CONTRACT_OK fixtures=6 helix=1774d5a38e694b4a56e2b85ea9055c3e825f2222
+parity_exit=0
+$ ./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter=G02FrameContractTest.*
+usage: ./scripts/run-gtest-js-spec.sh [unit|real-chain|reconnect-trace|surface-runtime] [--contract-artifact <file>] [--gtest-filter <pattern>] [--compile-only]
+gtest_exit=2
+$ node scripts/check-surface-runtime-source-pin.mjs
+surface-runtime source pin gate passed: Helix 1774d5a38e694b4a56e2b85ea9055c3e825f2222, interaction_frame.rs sha256=2a7472f05d06e8ccb3d338261104ac4aea115236704bb61efb8c88808e121da0, manifest sha256=30732bb642000e37b97ec24b07ac3334a8e9da358b83e10fc837133e99740bdd, rich-v2 sha256=fd6a38b2c8a5192ed6243c0b2143329f26022961979def2fa54cd9eb482d1ffc, ffi headers pinned, G02 fixtures=6, explicit parity=not requested
+source_pin_exit=0
+$ node scripts/check-surface-runtime-legacy-hard-cut.mjs
+surface-runtime legacy hard-cut gate passed: production V1 producers=0 consumers=0 G01/G02 typed-only
+hard_cut_exit=0
+ended_at=2026-07-25T12:33:23Z

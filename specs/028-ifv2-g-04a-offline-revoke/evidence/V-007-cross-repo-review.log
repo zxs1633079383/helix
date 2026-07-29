@@ -1,0 +1,14 @@
+$ compare Helix/PC/Mobile G04a canonical fixtures and provenance
+result=PASS files=5 frames=4 byteExact=true semantic=true
+group-created.frame-v2.json=56b191ad60c644427cdea784de5cc867eeae018efd697bf3fe7deb63d1c05325
+revocable.frame-v2.json=ac33de58a0055b3ca96fd39aabd40b861a4784795ff8639778e6259108a5baed
+offline-recalled.frame-v2.json=bb5a126f0581a1db8b09e943f108c0d6d1c6b3bc149fb4ed9d5e178268874a95
+recovered-recalled.frame-v2.json=ad2d4712c24e07b336d858a0272a09877aa255567a4f59993e46b8c579d3bd11
+provenance.json=ac7ef7c8c301da9e7ee76b1815038e75f4313d549fcc2330836b75074f5b435e
+behavior=Green
+codeBoundary=Green
+frameV2=Green
+evidence=Green
+requiredPassRate=1
+requiredFailed=0
+requiredSkipped=0

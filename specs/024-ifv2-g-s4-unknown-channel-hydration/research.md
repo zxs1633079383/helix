@@ -1,0 +1,52 @@
+# Research: G-S4 陌生 channel 兜底
+
+**Source Lock**: Helix `ef9494262fc4fdc42d355442d3866236c6a4e4de`；cses-client `ed538609be097e583af4b05228303b5c522ec546`；Mobile `084fc8392004398eb162fef528f8b59ffdc5813f`；Go `e4815b7e57e0ed0f54a1b0ebad1b4bfbf2e2880d`
+
+## Decision 1 - 唯一业务真源
+
+**Decision**: `G-S4` 的 command（im_channel_load_increment_by_channel_id）、effect（http_read、storage_upsert、projection）、持久事实（channel、channel_member、message）与 Surface（message.channel-summary）只由 Helix 生产路径决定。
+
+**Rationale**: PC 与 Mobile 自行补字段、排序、权限或 reducer 会形成第二套业务逻辑。
+
+**Alternatives considered**: WDIO 手写 ViewModel、GTest 内补 row、Angular/Mobile 从 raw event 重建；全部拒绝。
+
+## Decision 2 - Canonical Fixture
+
+**Decision**: Fixture 只允许由 `ImModule::handle -> Effect::Emit -> InteractionFrameV2 decode` 生成，普通测试比较 Golden，只有显式 `UPDATE_GS4_WDIO_FIXTURES=1` 才更新。
+
+**Rationale**: Fixture 是 Helix producer 与两个平台 consumer 的跨仓合同，不是 command 同步返回值。
+
+**Alternatives considered**: 从 DOM 反推 JSON、复制其他 Gate Fixture、前端补动态业务字段；全部拒绝。
+
+## Decision 3 - PC 验收分层
+
+**Decision**: PC 分开执行 Fixture parity、Mock replay、single-real、按用户可见影响决定的 dual-real、DOM/FrameApplied 断言和结构化报告。
+
+**Rationale**: Mock 不经过 Rust/Tauri/SQLite/HTTP/WS，不能替代真实链。
+
+**Alternatives considered**: 只跑 Mock、只证明 invoke accepted、固定 sleep 等第三帧；全部拒绝。
+
+## Decision 4 - Mobile 生产接线
+
+**Decision**: Mobile GTest 链接生产 `MobileImSdk/MobileFfiBridge/SurfaceRuntime/QuickJS binding`，完整 Frame 经 DomainEvent batch 原子 apply，JS 只通过 `im.surface.view` 获取 typed view。
+
+**Rationale**: Mobile 不允许 `im.store`、raw reducer 或测试注入 API进入默认生产构建。
+
+**Alternatives considered**: JS 直接消费 raw event、GTest 注入私有 reducer、每 mutation 一次 FFI callback；全部拒绝。
+
+## Decision 5 - Gate-specific authority
+
+**Decision**: HTTP 为 ``POST /api/cses/channel/load/incrementByChannelId` body `{channelId}``；WS 为 `无直接 WS；后续可能收到 `increment_channel``；远端表为 `channel、channel_member、post`。Transport success 不自动等于 durable terminal。
+
+**Rationale**: terminal authority、persist barrier 与竞态必须从当前生产 handler 和 PortReply/Inbound 证明。
+
+**Alternatives considered**: HTTP 200 即 Green、远端行存在即本地已 apply、固定 HTTP/WS 顺序；全部拒绝。
+
+## Resolved Scope
+
+- 当前 Helix owner：`crates/helix-im/src/increment_hydration.rs`；现有聚焦测试：`crates/helix-im/tests/gs01_04_v2_sync_recovery_test.rs`。
+- 当前 Mobile UC 测试：`/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/GsSyncPrerequisiteTest.cpp`。
+- Mobile 的 source lock 与运行时 FFI 必须同时更新；`run-uc01-16-gtest.sh` 只编译 C++ 测试，不负责按新 pin 重建 `third_party/helix/lib/libhelix_driver_ffi.dylib`。
+
+- G03 文件上传和 G17-G27 不进入本 Feature。
+- 当前计划无未解决 `NEEDS CLARIFICATION`；代码漂移在 T001 source revalidation 中 fail-closed 处理。

@@ -1,0 +1,87 @@
+{
+  "gateId": "G-16",
+  "sourcePins": {
+    "helixAcceptance": "0e15c912fb062570445ba634ab7c83ff5b26d501",
+    "fixtureProducer": "63b7eee5d356e1af08e32cc1fb92c2a466bc7841",
+    "pc": "aac3c1583519b9308acb7c8dd0e415fa1dfc3813",
+    "pcHelixPin": "63b7eee5d356e1af08e32cc1fb92c2a466bc7841",
+    "mobile": "46455d4d4e88870b75e72fdf1caa9f518eb87835",
+    "mobileHelixPin": "0e15c912fb062570445ba634ab7c83ff5b26d501",
+    "strictMatrixSha256": "0e45a64ee1629498f44788613fb142489bfffbf7d02d950e8a51ae06afb419cd"
+  },
+  "lanes": {
+    "helix": {
+      "status": "pass",
+      "evidence": "v001-v003-helix.log",
+      "build": "pass",
+      "scenarioTests": 7,
+      "governanceTests": 2,
+      "fixtureTests": 1,
+      "coreRuntimeDependencies": 0
+    },
+    "fixture": {
+      "status": "pass",
+      "inventory": 5,
+      "surfaces": [
+        "message.channel-summary"
+      ],
+      "threeRepoByteParity": true,
+      "provenanceSha256": "c83b8041f35414b9b47719a78e68284576254a608a43ea551393e0d43ae9f4d2"
+    },
+    "pcMock": {
+      "status": "pass",
+      "evidence": "v004-pc-contracts.log,v004-pc-mock.log",
+      "contractTests": 31,
+      "mockTests": 2,
+      "reportTests": 1,
+      "runIds": [
+        "mock-20260726230832037-22211",
+        "report-20260726230856917-22605"
+      ]
+    },
+    "pcReal": {
+      "status": "pass",
+      "evidence": "v005-pc-single-real.log,v005-pc-dual-real.log",
+      "singleRealTests": 1,
+      "dualRealTests": 2,
+      "runIds": [
+        "single-real-20260726230912246-22862",
+        "dual-real-20260726231338207-28751"
+      ],
+      "retries": 1,
+      "resolvedFailure": "Observer SurfaceRuntime readiness was not latched before fresh-group creation"
+    },
+    "mobileContract": {
+      "status": "pass",
+      "evidence": "v006-mobile-contract.log,v006-mobile-uc16-real.log",
+      "frameTests": 6,
+      "focusedContractTests": 8,
+      "focusedRealTests": 9,
+      "venusSmoke": "pass"
+    },
+    "productionBoundary": {
+      "status": "pass",
+      "pcFixtureInBundle": false,
+      "mobileV1Producer": 0,
+      "mobileV1Consumer": 0,
+      "mobileRawReducer": 0
+    }
+  },
+  "review": {
+    "behavior": "pass",
+    "codeBoundary": "pass",
+    "frameV2": "pass",
+    "evidence": "pass"
+  },
+  "requiredLanes": {
+    "pass": 6,
+    "fail": 0,
+    "skip": 0
+  },
+  "observations": [
+    "The first PC dual-real attempt failed before the Observer surface was ready; the readiness latch repair passed 2/2 on the next isolated run.",
+    "A separate overlapping dual-real run used the same shared test identities while Mobile UC16 real-chain was active and is not the selected isolated candidate.",
+    "The initial Mobile unit command included RealChain without runtime context; the required contract lane then passed 8/8 with RealChain excluded, and the dedicated runner passed UC16 9/9 with a fresh runtime context."
+  ],
+  "finalVerdict": "Green"
+}

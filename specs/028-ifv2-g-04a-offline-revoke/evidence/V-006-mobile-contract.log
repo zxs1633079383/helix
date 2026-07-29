@@ -1,0 +1,23 @@
+mobile_commit=883fca7f744feb6d38c48ff6b607fe7818c42bf3
+mobile_helix_pin=bde8d79fba6335f9d6d8ed3feafab05a80fcd151
+mobile_helix_bundle_sha256=ab47694baf9b50160c87644beb47f14b2379a2d0d938a674f39b93a60a0480d8
+$ node scripts/sync-g04a-helix-fixtures.mjs --check
+result=PASS fixtures=4
+$ node scripts/check-g04a-fixture-parity.mjs
+result=PASS fixtures=4 byteExact=true semantic=true
+$ ./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter=G04AFrameContractTest.*
+result=PASS 5/5
+$ ./scripts/run-gtest-js-spec.sh unit --gtest-filter=Uc05RevokeTest.*-Uc05RevokeTest.RealChain
+result=PASS 8/8
+$ ./scripts/run-uc01-16-gtest.sh --only UC05
+result=PASS 9/9
+realChain=frameApplied:true,typedView:true,replay:true
+$ node scripts/check-surface-runtime-source-pin.mjs
+result=PASS G02=6 G03a=8 G04=4 G04a=4
+$ node scripts/check-surface-runtime-legacy-hard-cut.mjs
+result=PASS productionV1Producers=0 productionV1Consumers=0 G01/G02/G03a/G04/G04a=typed-only
+$ ./scripts/run-uc01-16-gtest.sh
+result=OBSERVATION exit=1 durationMs=780410 passed=136 failed=14 total=150
+g04a=PASS Uc05RevokeTest.RealChain durationMs=7893
+failed=GS02,GS03,GS04,UC01,UC02,UC06,UC07,UC08,UC10,UC11,UC12,UC13,UC14,UC15
+decision=G04a required Mobile Contract remains PASS; failures stay assigned to their sequential future Gates

@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-001",
+      "command": "cargo check -p helix-im; cargo tree -p helix-core | grep forbidden runtime deps",
+      "started_at": "2026-07-26T13:10:39Z",
+      "ended_at": "2026-07-26T13:10:54Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/039-ifv2-g-14-post-read/evidence/V-001-helix-build.log",
+          "sha256": "f745960d300f714d55090c1309d970a38f3ff562e37791df2b7ec9d602dc5bfc"
+        }
+      ]
+    },
+    {
+      "id": "V-002",
+      "command": "cargo test -p helix-im --test g14_full_flow_test --test g14_receipt_template_interaction_test --test g14_wdio_fixture_contract_test -- --nocapture",
+      "started_at": "2026-07-26T13:11:02Z",
+      "ended_at": "2026-07-26T13:11:16Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/039-ifv2-g-14-post-read/evidence/V-002-V-003-helix-tests.log",
+          "sha256": "bac28a66c3fff485bf74063788cae7728a6c7e96167579be690f3c853ff923a7"
+        }
+      ]
+    },
+    {
+      "id": "V-003",
+      "command": "cargo test -p helix-im --test g14_wdio_fixture_contract_test -- --nocapture",
+      "started_at": "2026-07-26T13:11:02Z",
+      "ended_at": "2026-07-26T13:11:16Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/039-ifv2-g-14-post-read/evidence/V-002-V-003-helix-tests.log",
+          "sha256": "bac28a66c3fff485bf74063788cae7728a6c7e96167579be690f3c853ff923a7"
+        }
+      ]
+    },
+    {
+      "id": "V-004",
+      "command": "yarn jest --config tests/e2e/wdio/jest.config.js G14 focused contracts; inspect G14 mock report",
+      "started_at": "2026-07-26T13:11:59Z",
+      "ended_at": "2026-07-26T13:12:02Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/039-ifv2-g-14-post-read/evidence/V-004-pc-mock.log",
+          "sha256": "3fdf2787e2e656e2549456e7f6f400e2ebddc75c27dad2217a0ba77997018b1c"
+        }
+      ]
+    },
+    {
+      "id": "V-005",
+      "command": "yarn message:wdio:g14:boundary; inspect G14 single-real dual-real report artifacts",
+      "started_at": "2026-07-26T13:12:13Z",
+      "ended_at": "2026-07-26T13:12:15Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/039-ifv2-g-14-post-read/evidence/V-005-pc-real.log",
+          "sha256": "b278cb56f4a1405b972481106f00b4560aa5d2513fc979e84f56e7966bb6cc84"
+        }
+      ]
+    },
+    {
+      "id": "V-006",
+      "command": "G14 Mobile parity, production-linked GTest, source pin, V1 hard-cut, Strict Matrix, shared Venus and no-JS facade gates",
+      "started_at": "2026-07-26T13:13:00Z",
+      "ended_at": "2026-07-26T13:16:25Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/039-ifv2-g-14-post-read/evidence/V-006-mobile-contract.log",
+          "sha256": "d2d9db0daf4f8ff395383ecad210d81402fe0776a7f2cd4a36473f492c14e888"
+        }
+      ]
+    },
+    {
+      "id": "V-007",
+      "command": "G14 three-repo byte parity and behavior/code/Frame V2 review",
+      "started_at": "2026-07-26T13:16:44Z",
+      "ended_at": "2026-07-26T13:16:45Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/039-ifv2-g-14-post-read/evidence/V-007-cross-repo-review.log",
+          "sha256": "bf9c7d90d7c0bbb64081395cc5322f707447a3ef54dcf86ddf00a94363787412"
+        }
+      ]
+    }
+  ]
+}

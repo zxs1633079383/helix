@@ -1,0 +1,109 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-001",
+      "command": "yarn message:wdio:boundary",
+      "started_at": "2026-07-24T23:54:50Z",
+      "ended_at": "2026-07-24T23:54:51Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/019-g01-wdio-five-phases/evidence/V-001-production-boundary.log",
+          "sha256": "fee6b3838ce1b1e2e2a3f8ff8702d3a73180158a341bd3b956859cad82a55adb"
+        }
+      ]
+    },
+    {
+      "id": "V-002",
+      "command": "yarn message:wdio:g01:mock",
+      "started_at": "2026-07-24T23:54:58Z",
+      "ended_at": "2026-07-24T23:56:10Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/019-g01-wdio-five-phases/evidence/V-002-mock-ui.log",
+          "sha256": "821e7a2456ed4966988c58e43785651f16a252c6a4067acaf147651e83b6786f"
+        }
+      ]
+    },
+    {
+      "id": "V-003",
+      "command": "yarn message:wdio:g01:integration",
+      "started_at": "2026-07-24T23:56:16Z",
+      "ended_at": "2026-07-24T23:57:25Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/019-g01-wdio-five-phases/evidence/V-003-integration.log",
+          "sha256": "5984e57a7a1277cca90375ec4193533f21161c196855fe43a37d570455cecb72"
+        }
+      ]
+    },
+    {
+      "id": "V-004",
+      "command": "yarn message:wdio:g01:single-real",
+      "started_at": "2026-07-24T23:59:01Z",
+      "ended_at": "2026-07-25T00:00:11Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/019-g01-wdio-five-phases/evidence/V-004-single-real-retry-1.log",
+          "sha256": "a9f15ef2b2e50ca4ffd9359aa9978dec6d2f8343c56e144de3f83be2db40f4ed"
+        }
+      ]
+    },
+    {
+      "id": "V-005",
+      "command": "yarn message:wdio:g01:dual-real",
+      "started_at": "2026-07-25T00:00:22Z",
+      "ended_at": "2026-07-25T00:01:54Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/019-g01-wdio-five-phases/evidence/V-005-dual-real.log",
+          "sha256": "cf0c0aa8cfe6ba139f47f78b00f899f501cd45c505665527dad19a10897da29c"
+        }
+      ]
+    },
+    {
+      "id": "V-006",
+      "command": "yarn message:wdio:g01:report-contract",
+      "started_at": "2026-07-25T00:02:22Z",
+      "ended_at": "2026-07-25T00:02:31Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/019-g01-wdio-five-phases/evidence/V-006-report-v1.log",
+          "sha256": "9de468a8f0452bae6b6803c7e6c9b602aa4cb99968a379c624adfb007473f7c6"
+        }
+      ]
+    },
+    {
+      "id": "V-007",
+      "command": "node scripts/message-wdio/reduce-performance.mjs four-fresh-reports",
+      "started_at": "2026-07-25T00:03:12Z",
+      "ended_at": "2026-07-25T00:03:13Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/019-g01-wdio-five-phases/evidence/V-007-performance-retry-1.log",
+          "sha256": "4ef65d63c730a14b79099cf1f340b58d5bb89d10758273958ad391f22824cb8e"
+        }
+      ]
+    },
+    {
+      "id": "V-008",
+      "command": "node scripts/message-wdio/scan-artifacts.mjs canonical-and-failure-proof-runs",
+      "started_at": "2026-07-25T00:06:23Z",
+      "ended_at": "2026-07-25T00:06:25Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/019-g01-wdio-five-phases/evidence/V-008-redaction-retry-2.log",
+          "sha256": "b228c9fe034cce534da1f9f14dbe24fc3bb26e08801db40bffae2fff9d892651"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "gateId": "G-10a",
+  "sourcePins": {
+    "helixAcceptance": "7e93be302d251fd4e63ca47c637dc0b3f289e1a1",
+    "fixtureProducer": "d2b1bf6c1304155d6897a7238cfaefd2bae3d176",
+    "csesClient": "f1c4ddc0f",
+    "pcHelixPin": "d2b1bf6c1304155d6897a7238cfaefd2bae3d176",
+    "mobileQuickJs": "26c7616",
+    "mobileHelixPin": "7e93be302d251fd4e63ca47c637dc0b3f289e1a1",
+    "mobileHelixBundleSha256": "a8753e67e4e1a6b04cd8b70670ace8e463fec91f475f480c41149951d3ef8533",
+    "strictMatrixSha256": "b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac"
+  },
+  "lanes": {
+    "helix": {
+      "status": "Pass",
+      "required": true,
+      "fullFlow": "9/9",
+      "interaction": "5/5",
+      "fixtureContract": "1/1",
+      "failed": 0,
+      "skipped": 0
+    },
+    "fixture": {
+      "status": "Pass",
+      "required": true,
+      "count": 6,
+      "schemaVersion": 2,
+      "provenanceSha256": "f450643d7345f98bf1cbd0f6320998c1cfe2351e3cf9c46ad2607bb9b1dddeba",
+      "failed": 0,
+      "skipped": 0
+    },
+    "pcMock": {
+      "status": "Pass",
+      "required": true,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "claim": "mock"
+    },
+    "pcReal": {
+      "status": "Pass",
+      "required": true,
+      "singleReal": "1/1",
+      "dualReal": "1/1",
+      "report": "1/1",
+      "failed": 0,
+      "skipped": 0
+    },
+    "mobileContract": {
+      "status": "Pass",
+      "required": true,
+      "frameContract": "6/6",
+      "focusedContract": "8/8",
+      "uc10Real": "9/9",
+      "realRunId": "mrc-mobile-uc-20260726062234-24003",
+      "sharedVenus": "Pass",
+      "failed": 0,
+      "skipped": 0
+    },
+    "productionBoundary": {
+      "status": "Pass",
+      "required": true,
+      "pcProductionFilesScanned": 2735,
+      "pcMockProductionReachable": false,
+      "mobileV1Producers": 0,
+      "mobileV1Consumers": 0,
+      "mobileRawReducers": 0,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "review": {
+    "behavior": {
+      "status": "Green",
+      "finding": "fresh group, exclusive anchor, bounded older page, durable merge, failure preservation, stale reply and exhaustion use one Helix-owned older-context model"
+    },
+    "codeBoundary": {
+      "status": "Green",
+      "finding": "Helix owns HTTP authority, persistence and timeline projection; PC and Mobile only invoke production ports and mechanically apply typed Frame V2"
+    },
+    "frameV2": {
+      "status": "Green",
+      "finding": "six byte-identical fixtures preserve schema, timeline scope, epoch, revisions, replaceView patch, actions, directives and correlation without platform row merging"
+    },
+    "evidence": {
+      "status": "Green",
+      "requiredPassRate": 1,
+      "requiredFailed": 0,
+      "requiredSkipped": 0,
+      "loopVerdict": "R4 evidence ready",
+      "observation": "The full Mobile characterization binary has twelve known macro-mode typed-view assertion failures, while the required production surface-runtime, focused UC10 real chain and shared Venus lanes all passed. The PC embedded runner printed a non-fatal tauri-driver diagnostic but completed real WebKit/Tauri sessions."
+    }
+  },
+  "finalVerdict": "Green"
+}

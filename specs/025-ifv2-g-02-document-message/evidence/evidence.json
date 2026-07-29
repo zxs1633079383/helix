@@ -1,0 +1,109 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-001",
+      "command": "cargo check -p helix-im; helix-core runtime dependency scan",
+      "started_at": "2026-07-25T12:31:33Z",
+      "ended_at": "2026-07-25T12:31:33Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/025-ifv2-g-02-document-message/evidence/V-001-helix-build.log",
+          "sha256": "9dd21d3921ab4cc34552063661740da182ea891ad13be3729815092e3de4addd"
+        }
+      ]
+    },
+    {
+      "id": "V-002",
+      "command": "cargo test -p helix-im --test g02_full_flow_test -- --nocapture",
+      "started_at": "2026-07-25T12:31:41Z",
+      "ended_at": "2026-07-25T12:31:45Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/025-ifv2-g-02-document-message/evidence/V-002-helix-scenario.log",
+          "sha256": "d53087717559182936b787074bca999550e3794802fbadb4fd85d793402fc502"
+        }
+      ]
+    },
+    {
+      "id": "V-003",
+      "command": "cargo test -p helix-im --test g02_wdio_fixture_contract_test -- --nocapture",
+      "started_at": "2026-07-25T12:31:52Z",
+      "ended_at": "2026-07-25T12:31:54Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/025-ifv2-g-02-document-message/evidence/V-003-canonical-fixture.log",
+          "sha256": "46ab2563b990e03057edf418da499f3ce54b3775aa9eaa6e13686ea9a4ca523b"
+        }
+      ]
+    },
+    {
+      "id": "V-006-A",
+      "command": "mobile contract first attempt with invalid gtest CLI spelling",
+      "started_at": "2026-07-25T12:33:21Z",
+      "ended_at": "2026-07-25T12:33:23Z",
+      "result": "FAIL",
+      "files": [
+        {
+          "path": "specs/025-ifv2-g-02-document-message/evidence/V-006-attempt1-invalid-cli.log",
+          "sha256": "793fd70594f0b3546aead116f081a39e48860447ce31af38fdf60161953a46b4"
+        }
+      ]
+    },
+    {
+      "id": "V-006",
+      "command": "G02 fixture parity; production-linked GTest; source pin; V1 hard cut",
+      "started_at": "2026-07-25T12:33:43Z",
+      "ended_at": "2026-07-25T12:34:04Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/025-ifv2-g-02-document-message/evidence/V-006-mobile-contract.log",
+          "sha256": "794002f8d91a74853d22223fc2a0bf11fd90a6c951cfb208a71f27e1f706cc8e"
+        }
+      ]
+    },
+    {
+      "id": "V-007",
+      "command": "three-repo parity; production boundary; gate report schema; diff checks",
+      "started_at": "2026-07-25T12:35:06Z",
+      "ended_at": "2026-07-25T12:38:52Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/025-ifv2-g-02-document-message/evidence/V-007-cross-repo-review.log",
+          "sha256": "632f0109f1a0d422c16000e61262c27005582ff556f5336bb1091b78dfca57a6"
+        }
+      ]
+    },
+    {
+      "id": "V-004",
+      "command": "yarn message:wdio:g02:mock; yarn message:wdio:g02:report",
+      "started_at": "2026-07-25T12:32:05Z",
+      "ended_at": "2026-07-25T12:32:30Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/025-ifv2-g-02-document-message/evidence/V-004-pc-mock-report.log",
+          "sha256": "4d2e27dac4d193a876310c751ad334ec2f1d5d363792958f37dbde284c66a5e2"
+        }
+      ]
+    },
+    {
+      "id": "V-005",
+      "command": "yarn message:wdio:g02:single-real; yarn message:wdio:g02:dual-real",
+      "started_at": "2026-07-25T12:32:39Z",
+      "ended_at": "2026-07-25T12:33:08Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/025-ifv2-g-02-document-message/evidence/V-005-pc-real.log",
+          "sha256": "947f6eeb79e657187f360dd2a8ddd7465c24ab7ad19e88e0a0b706e8f60c714c"
+        }
+      ]
+    }
+  ]
+}

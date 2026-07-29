@@ -1,0 +1,39 @@
+verification_id=V-003
+command=yarn message:wdio:g01:integration
+started_at=2026-07-24T23:56:16Z
+yarn run v1.22.22
+$ node scripts/message-wdio/run-lane.mjs integration integration
+
+Execution of 1 workers started at 2026-07-24T23:56:21.188Z
+
+2026-07-24T23:56:21.350Z ERROR diagnostics: ❌ Tauri Driver: tauri-driver not found. Install it with: cargo install tauri-driver
+Or enable auto-installation by setting autoInstallTauriDriver: true in service options.
+[0-0] RUNNING in undefined - file:///tests/e2e/wdio/specs/g01-integration-suite.e2e.ts
+[0-0] PASSED in undefined - file:///tests/e2e/wdio/specs/g01-integration-suite.e2e.ts
+
+ "spec" Reporter:
+------------------------------------------------------------------
+[webkit 605.1.15 macos #0-0] Running: webkit (v605.1.15) on macos
+[webkit 605.1.15 macos #0-0] Session ID: 554d04ec-9103-46a9-bcfd-f10f193c2eda
+[webkit 605.1.15 macos #0-0]
+[webkit 605.1.15 macos #0-0] » tests/e2e/wdio/specs/g01-integration-suite.e2e.ts
+[webkit 605.1.15 macos #0-0] G01 real Tauri/Helix integration
+[webkit 605.1.15 macos #0-0]    ✓ clears mocks and receives a matching terminal Frame from real Rust
+[webkit 605.1.15 macos #0-0]
+[webkit 605.1.15 macos #0-0] G01 canonical harness coexistence
+[webkit 605.1.15 macos #0-0]    ✓ keeps stop/restart/profile ownership in the canonical topology
+[webkit 605.1.15 macos #0-0]
+[webkit 605.1.15 macos #0-0] G01 warm performance budget
+[webkit 605.1.15 macos #0-0]    ? keeps ordinary cases restart-free and inside the lane budget
+[webkit 605.1.15 macos #0-0]    - keeps ordinary cases restart-free and inside the lane budget
+[webkit 605.1.15 macos #0-0]
+[webkit 605.1.15 macos #0-0] 2 passing (2.1s)
+[webkit 605.1.15 macos #0-0] 1 skipped
+
+
+Spec Files:	 1 passed, 1 total (100% completed) in 00:01:04  
+
+Done in 68.80s.
+ended_at=2026-07-24T23:57:25Z
+result=PASS
+exit_code=0

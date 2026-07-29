@@ -1,0 +1,85 @@
+G15_MOBILE_FIXTURE_PARITY_OK count=4 helix=064f814a0f4fc4df8b9299652d0e615f5857b875
+G15_MOBILE_CONTRACT_OK fixtures=4 helix=02dd062b85fceb6489e8d7f9659af60e55ed86ec
+surface-runtime source pin gate passed: Helix 02dd062b85fceb6489e8d7f9659af60e55ed86ec, interaction_frame.rs sha256=ca3d331d5a30e9e1feeb4f363c841ee9e4b587f7d94dc9621d10c9e20efbcea0, manifest sha256=30732bb642000e37b97ec24b07ac3334a8e9da358b83e10fc837133e99740bdd, rich-v2 sha256=fd6a38b2c8a5192ed6243c0b2143329f26022961979def2fa54cd9eb482d1ffc, ffi headers pinned, G02 fixtures=6, G03a fixtures=8, G04 fixtures=4, G04a fixtures=4, G05 fixtures=4, G06 fixtures=4, G07 fixtures=7, G08 fixtures=4, G09 fixtures=4, G10 fixtures=6, G10a fixtures=6, G11 fixtures=3, G12 fixtures=3, G13 fixtures=4, G14 fixtures=6, G14a fixtures=4, G15a fixtures=3, G15 fixtures=4, explicit parity=not requested
+surface-runtime legacy hard-cut gate passed: production V1 producers=0 consumers=0 G01/G02/G03a/G04/G04a/G05/G06/G07/G08/G09/G10/G10a/G11/G12/G13/G14/G14a/G15a/G15 typed-only
+Running main() from /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/googletest-src/googletest/src/gtest_main.cc
+Note: Google Test filter = G15FrameContractTest.*
+[==========] Running 6 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 6 tests from G15FrameContractTest
+[ RUN      ] G15FrameContractTest.DecodesCompleteTopicFrameFields
+[       OK ] G15FrameContractTest.DecodesCompleteTopicFrameFields (2 ms)
+[ RUN      ] G15FrameContractTest.AppliesIndependentCorrelationsInEitherOrder
+[       OK ] G15FrameContractTest.AppliesIndependentCorrelationsInEitherOrder (7 ms)
+[ RUN      ] G15FrameContractTest.AppliesChannelSummaryRecoverySnapshot
+[       OK ] G15FrameContractTest.AppliesChannelSummaryRecoverySnapshot (1 ms)
+[ RUN      ] G15FrameContractTest.RejectsInvalidFramesWithoutPartialState
+[       OK ] G15FrameContractTest.RejectsInvalidFramesWithoutPartialState (1 ms)
+[ RUN      ] G15FrameContractTest.ReplaysProductionBatchIntoQuickJsTypedViews
+[       OK ] G15FrameContractTest.ReplaysProductionBatchIntoQuickJsTypedViews (4 ms)
+[ RUN      ] G15FrameContractTest.AppliesDomainEventsThroughProductionCAbi
+[       OK ] G15FrameContractTest.AppliesDomainEventsThroughProductionCAbi (12 ms)
+[----------] 6 tests from G15FrameContractTest (29 ms total)
+
+[----------] Global test environment tear-down
+[==========] 6 tests from 1 test suite ran. (29 ms total)
+[  PASSED  ] 6 tests.
+Running main() from /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/googletest-src/googletest/src/gtest_main.cc
+Note: Google Test filter = Uc15ChannelCreateTest.*:MobileImSdkTest.MakeTopicUsesOnlyCanonicalFields:MobileJsFixture.NativeImN1AliasesShapePayloads:Gs01ToGs04AndUc01ToUc16/MobileUcJsDriverTest.JsDrivesCanonicalHelixCommandsWithVisiblePhases/UC15-Uc15ChannelCreateTest.RealChain
+[==========] Running 12 tests from 4 test suites.
+[----------] Global test environment set-up.
+[----------] 1 test from MobileJsFixture
+[ RUN      ] MobileJsFixture.NativeImN1AliasesShapePayloads
+[       OK ] MobileJsFixture.NativeImN1AliasesShapePayloads (368 ms)
+[----------] 1 test from MobileJsFixture (368 ms total)
+
+[----------] 1 test from MobileImSdkTest
+[ RUN      ] MobileImSdkTest.MakeTopicUsesOnlyCanonicalFields
+[       OK ] MobileImSdkTest.MakeTopicUsesOnlyCanonicalFields (0 ms)
+[----------] 1 test from MobileImSdkTest (0 ms total)
+
+[----------] 9 tests from Uc15ChannelCreateTest
+[ RUN      ] Uc15ChannelCreateTest.ContractAcceptsCanonicalInput
+[       OK ] Uc15ChannelCreateTest.ContractAcceptsCanonicalInput (1 ms)
+[ RUN      ] Uc15ChannelCreateTest.LegacyCharacterization
+[       OK ] Uc15ChannelCreateTest.LegacyCharacterization (0 ms)
+[ RUN      ] Uc15ChannelCreateTest.CanonicalFrameReplay
+[       OK ] Uc15ChannelCreateTest.CanonicalFrameReplay (0 ms)
+[ RUN      ] Uc15ChannelCreateTest.SnapshotEqualsPatch
+[       OK ] Uc15ChannelCreateTest.SnapshotEqualsPatch (0 ms)
+[ RUN      ] Uc15ChannelCreateTest.RejectsStaleOrCorruptInput
+[       OK ] Uc15ChannelCreateTest.RejectsStaleOrCorruptInput (1 ms)
+[ RUN      ] Uc15ChannelCreateTest.NoClientBusinessRepair
+[       OK ] Uc15ChannelCreateTest.NoClientBusinessRepair (0 ms)
+[ RUN      ] Uc15ChannelCreateTest.CanonicalCreateFrameBatchReachesTypedViews
+[       OK ] Uc15ChannelCreateTest.CanonicalCreateFrameBatchReachesTypedViews (3 ms)
+[ RUN      ] Uc15ChannelCreateTest.CanonicalTopicFrameBatchReachesTypedViews
+[       OK ] Uc15ChannelCreateTest.CanonicalTopicFrameBatchReachesTypedViews (3 ms)
+[ RUN      ] Uc15ChannelCreateTest.PayloadsContainOnlyCanonicalFields
+[       OK ] Uc15ChannelCreateTest.PayloadsContainOnlyCanonicalFields (1 ms)
+[----------] 9 tests from Uc15ChannelCreateTest (13 ms total)
+
+[----------] 1 test from Gs01ToGs04AndUc01ToUc16/MobileUcJsDriverTest
+[ RUN      ] Gs01ToGs04AndUc01ToUc16/MobileUcJsDriverTest.JsDrivesCanonicalHelixCommandsWithVisiblePhases/UC15
+[js][JS UC driver UC15 G-15a,G-15] [UC15][START] gates=G-15a,G-15
+[js][JS UC driver UC15 G-15a,G-15] [UC15][INPUT] fixture=synthetic stepCount=2
+[js][JS UC driver UC15 G-15a,G-15] [UC15][DISPATCH][1/2] im.channels.create
+[js][JS UC driver UC15 G-15a,G-15] [UC15][RESULT][1/2] accepted
+[js][JS UC driver UC15 G-15a,G-15] [UC15][DISPATCH][2/2] im.channels.makeTopic
+[js][JS UC driver UC15 G-15a,G-15] [UC15][RESULT][2/2] accepted
+[js][JS UC driver UC15 G-15a,G-15] [UC15][ASSERT] native command sequence pending
+[js][JS UC driver UC15 G-15a,G-15] [UC15][PASS] commands=2
+[       OK ] Gs01ToGs04AndUc01ToUc16/MobileUcJsDriverTest.JsDrivesCanonicalHelixCommandsWithVisiblePhases/UC15 (1 ms)
+[----------] 1 test from Gs01ToGs04AndUc01ToUc16/MobileUcJsDriverTest (1 ms total)
+
+[----------] Global test environment tear-down
+[==========] 12 tests from 4 test suites ran. (383 ms total)
+[  PASSED  ] 12 tests.
+-- Configuring done (0.7s)
+-- Generating done (0.0s)
+-- Build files have been written to: /System/Volumes/Data/workspace/c/mobile-qucik-c++/build/venus-cmake
+[ 17%] Built target mobile_surface_runtime
+[ 91%] Built target venus_driver_quickjs
+[100%] Built target venus_driver_quickjs_smoke
+[js] VENUS_G01_FRAME_V2_OK
+venus driver QuickJS smoke passed

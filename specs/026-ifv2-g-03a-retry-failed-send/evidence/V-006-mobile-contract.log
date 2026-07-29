@@ -1,0 +1,19 @@
+mobile_commit=7bc78ef0b2510232a182b9999413bfe1a1bebe35
+$ node scripts/check-g03a-fixture-parity.mjs
+G03A_MOBILE_FIXTURE_PARITY_OK count=8 helix=441c01209fa0995bdbc10081601acf6972827fbf
+G03A_MOBILE_CONTRACT_OK fixtures=8 helix=af3fee1e2e9735d9cd9574a525e05b9d36333d58
+$ ./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter 'G03AFrameContractTest.*:SurfaceRuntimeTest.FreshSnapshotRebasesRevisionLoadedFromPriorProcessCache:SurfaceRuntimeTest.AcceptsProducerSystemEventMemberIdentity'
+result=PASS 7/7
+$ ./scripts/run-gtest-js-spec.sh unit --gtest-filter 'Uc04RetrySendTest.*-Uc04RetrySendTest.RealChain'
+result=PASS 7/7
+$ ./scripts/run-gtest-js-spec.sh surface-runtime
+result=PASS 59; SKIP 1 explicit source parity environment test
+$ node scripts/check-surface-runtime-source-pin.mjs
+result=PASS helix=af3fee1e2e9735d9cd9574a525e05b9d36333d58 fixtures=8
+$ node scripts/check-surface-runtime-legacy-hard-cut.mjs
+result=PASS productionV1Producers=0 productionV1Consumers=0 rawReducers=0
+$ ./scripts/run-uc01-16-gtest.sh --only GS01
+result=PASS 7/7 typed restart DialogList+Timeline
+$ ./scripts/run-uc01-16-gtest.sh
+result=OBSERVATION 133/149 PASS; 16 future-Gate legacy RealChain failures
+decision=non-required legacy characterization; do not restore im.store/raw reducer/V1 consumer

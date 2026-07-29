@@ -1,0 +1,59 @@
+{
+  "gateId": "G-14a",
+  "sourcePins": {
+    "helix": "f7e7ecf041427559e23ca96a1e982eb8a607e94b",
+    "fixtureProducer": "76da0e898db39e2f343d36790ad2ccfbb92bf154",
+    "pc": "5b4c5fab0d176024658379cf2f1d91830819903c",
+    "mobile": "bd534176ec8a7be9247a0ef986499eaf4ad2ae5f",
+    "strictMatrixSha256": "8b551c0d7aead1e44bbba355f65d65f17c883d84fbb2090854f0942bb4904fb7"
+  },
+  "lanes": {
+    "helix": {
+      "status": "pass",
+      "scenarioTests": "371/371",
+      "producer": "ImModule::handle -> Effect::Persist/HttpWrite -> PortReply/Inbound -> Effect::Emit"
+    },
+    "fixture": {
+      "status": "pass",
+      "count": 4,
+      "mirrors": 3,
+      "byteExact": true
+    },
+    "pcMock": {
+      "status": "pass",
+      "tests": "2/2 WDIO and 44/44 focused Jest",
+      "claim": "mock",
+      "productionReachable": false
+    },
+    "pcReal": {
+      "status": "pass",
+      "singleReal": "1/1",
+      "dualReal": "1/1",
+      "evidenceRunId": "mrc-g14a-repair-1784775900",
+      "observableAssertions": "26/26",
+      "missingFacets": 0
+    },
+    "mobileContract": {
+      "status": "pass",
+      "frameTests": "6/6 standalone and 14/14 production-linked",
+      "quickJsTypedView": true,
+      "clientReducer": false,
+      "sharedVenusSmoke": "pass",
+      "legacyRealChain": "non-required blocked at go-post-readback"
+    },
+    "productionBoundary": {
+      "status": "pass",
+      "pcTestApiInBundle": false,
+      "mobileTestApiInProduction": false,
+      "v1Producer": 0,
+      "v1Consumer": 0
+    }
+  },
+  "review": {
+    "behavior": "pass",
+    "codeBoundary": "pass",
+    "frameV2": "pass",
+    "evidence": "pass"
+  },
+  "finalVerdict": "Green"
+}

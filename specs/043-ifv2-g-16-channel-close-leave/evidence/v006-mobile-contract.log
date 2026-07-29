@@ -1,0 +1,713 @@
+$ node scripts/check-g16-fixture-parity.mjs
+G16_MOBILE_FIXTURE_PARITY_OK count=5 helix=63b7eee5d356e1af08e32cc1fb92c2a466bc7841
+G16_MOBILE_CONTRACT_OK fixtures=5 helix=0e15c912fb062570445ba634ab7c83ff5b26d501
+$ make surface-runtime-source-pin-gate
+./scripts/build-helix-ffi.sh
+using pinned helix rev 0e15c912fb062570445ba634ab7c83ff5b26d501 from /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/helix-src
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/helix-src/crates/helix-im)
+   Compiling helix-driver-ffi v0.1.0 (/System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/helix-src/crates/helix-driver-ffi)
+    Finished `release` profile [optimized] target(s) in 43.58s
+helix artifacts copied to /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/helix
+node ./scripts/check-surface-runtime-source-pin.mjs
+surface-runtime source pin gate passed: Helix 0e15c912fb062570445ba634ab7c83ff5b26d501, interaction_frame.rs sha256=ca3d331d5a30e9e1feeb4f363c841ee9e4b587f7d94dc9621d10c9e20efbcea0, manifest sha256=30732bb642000e37b97ec24b07ac3334a8e9da358b83e10fc837133e99740bdd, rich-v2 sha256=fd6a38b2c8a5192ed6243c0b2143329f26022961979def2fa54cd9eb482d1ffc, ffi headers pinned, G02 fixtures=6, G03a fixtures=8, G04 fixtures=4, G04a fixtures=4, G05 fixtures=4, G06 fixtures=4, G07 fixtures=7, G08 fixtures=4, G09 fixtures=4, G10 fixtures=6, G10a fixtures=6, G11 fixtures=3, G12 fixtures=3, G13 fixtures=4, G14 fixtures=6, G14a fixtures=4, G15a fixtures=3, G15 fixtures=4, G16 fixtures=5, explicit parity=/System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/helix-src/crates/helix-im/tests/fixtures/uc01-16-surface-runtime/rich-v2.json
+$ make surface-runtime-hard-cut-gate
+node ./scripts/check-surface-runtime-legacy-hard-cut.mjs
+surface-runtime legacy hard-cut gate passed: production V1 producers=0 consumers=0 G01/G02/G03a/G04/G04a/G05/G06/G07/G08/G09/G10/G10a/G11/G12/G13/G14/G14a/G15a/G15/G16 typed-only
+$ ./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter=G16FrameContractTest.*
+usage: ./scripts/run-gtest-js-spec.sh [unit|real-chain|reconnect-trace|surface-runtime] [--contract-artifact <file>] [--gtest-filter <pattern>] [--compile-only]
+$ ./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter G16FrameContractTest.*
+Running main() from /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/googletest-src/googletest/src/gtest_main.cc
+Note: Google Test filter = G16FrameContractTest.*
+[==========] Running 6 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 6 tests from G16FrameContractTest
+[ RUN      ] G16FrameContractTest.DecodesCompleteLifecycleFrameFields
+[       OK ] G16FrameContractTest.DecodesCompleteLifecycleFrameFields (1 ms)
+[ RUN      ] G16FrameContractTest.AppliesClosedAndLeftLifecyclePatchesAtomically
+[       OK ] G16FrameContractTest.AppliesClosedAndLeftLifecyclePatchesAtomically (5 ms)
+[ RUN      ] G16FrameContractTest.AppliesClosedAndLeftRecoverySnapshots
+[       OK ] G16FrameContractTest.AppliesClosedAndLeftRecoverySnapshots (2 ms)
+[ RUN      ] G16FrameContractTest.RejectsInvalidFramesWithoutPartialState
+[       OK ] G16FrameContractTest.RejectsInvalidFramesWithoutPartialState (1 ms)
+[ RUN      ] G16FrameContractTest.ReplaysProductionBatchIntoQuickJsTypedViews
+[       OK ] G16FrameContractTest.ReplaysProductionBatchIntoQuickJsTypedViews (2 ms)
+[ RUN      ] G16FrameContractTest.AppliesDomainEventsThroughProductionCAbi
+[       OK ] G16FrameContractTest.AppliesDomainEventsThroughProductionCAbi (11 ms)
+[----------] 6 tests from G16FrameContractTest (25 ms total)
+
+[----------] Global test environment tear-down
+[==========] 6 tests from 1 test suite ran. (25 ms total)
+[  PASSED  ] 6 tests.
+$ ./scripts/run-gtest-js-spec.sh unit --gtest-filter Uc16ChannelLifecycleTest.*
+Running main() from /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/googletest-src/googletest/src/gtest_main.cc
+Note: Google Test filter = Uc16ChannelLifecycleTest.*
+[==========] Running 9 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 9 tests from Uc16ChannelLifecycleTest
+[ RUN      ] Uc16ChannelLifecycleTest.ContractAcceptsCanonicalInput
+[       OK ] Uc16ChannelLifecycleTest.ContractAcceptsCanonicalInput (2 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.LegacyCharacterization
+[       OK ] Uc16ChannelLifecycleTest.LegacyCharacterization (1 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.CanonicalFrameReplay
+[       OK ] Uc16ChannelLifecycleTest.CanonicalFrameReplay (1 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.SnapshotEqualsPatch
+[       OK ] Uc16ChannelLifecycleTest.SnapshotEqualsPatch (1 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.RejectsStaleOrCorruptInput
+[       OK ] Uc16ChannelLifecycleTest.RejectsStaleOrCorruptInput (1 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.RealChain
+unknown file: Failure
+C++ exception with description "BLOCKED UC16 owner=harness: MOBILE_UC_RUNTIME_CONTEXT_FILE is required" thrown in the test body.
+
+[  FAILED  ] Uc16ChannelLifecycleTest.RealChain (1 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.NoClientBusinessRepair
+[       OK ] Uc16ChannelLifecycleTest.NoClientBusinessRepair (1 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.CanonicalLifecycleFrameBatchReachesTypedView
+[       OK ] Uc16ChannelLifecycleTest.CanonicalLifecycleFrameBatchReachesTypedView (3 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.SettingsProjectionPersistsCapabilitiesAndRejectsNegativeVersion
+[       OK ] Uc16ChannelLifecycleTest.SettingsProjectionPersistsCapabilitiesAndRejectsNegativeVersion (1 ms)
+[----------] 9 tests from Uc16ChannelLifecycleTest (16 ms total)
+
+[----------] Global test environment tear-down
+[==========] 9 tests from 1 test suite ran. (16 ms total)
+[  PASSED  ] 8 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] Uc16ChannelLifecycleTest.RealChain
+
+ 1 FAILED TEST
+$ ./scripts/run-gtest-js-spec.sh unit --gtest-filter Uc16ChannelLifecycleTest.*-Uc16ChannelLifecycleTest.RealChain
+Running main() from /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/googletest-src/googletest/src/gtest_main.cc
+Note: Google Test filter = Uc16ChannelLifecycleTest.*-Uc16ChannelLifecycleTest.RealChain
+[==========] Running 8 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 8 tests from Uc16ChannelLifecycleTest
+[ RUN      ] Uc16ChannelLifecycleTest.ContractAcceptsCanonicalInput
+[       OK ] Uc16ChannelLifecycleTest.ContractAcceptsCanonicalInput (1 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.LegacyCharacterization
+[       OK ] Uc16ChannelLifecycleTest.LegacyCharacterization (0 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.CanonicalFrameReplay
+[       OK ] Uc16ChannelLifecycleTest.CanonicalFrameReplay (0 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.SnapshotEqualsPatch
+[       OK ] Uc16ChannelLifecycleTest.SnapshotEqualsPatch (0 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.RejectsStaleOrCorruptInput
+[       OK ] Uc16ChannelLifecycleTest.RejectsStaleOrCorruptInput (1 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.NoClientBusinessRepair
+[       OK ] Uc16ChannelLifecycleTest.NoClientBusinessRepair (0 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.CanonicalLifecycleFrameBatchReachesTypedView
+[       OK ] Uc16ChannelLifecycleTest.CanonicalLifecycleFrameBatchReachesTypedView (2 ms)
+[ RUN      ] Uc16ChannelLifecycleTest.SettingsProjectionPersistsCapabilitiesAndRejectsNegativeVersion
+[       OK ] Uc16ChannelLifecycleTest.SettingsProjectionPersistsCapabilitiesAndRejectsNegativeVersion (1 ms)
+[----------] 8 tests from Uc16ChannelLifecycleTest (10 ms total)
+
+[----------] Global test environment tear-down
+[==========] 8 tests from 1 test suite ran. (10 ms total)
+[  PASSED  ] 8 tests.
+$ ./scripts/run-venus-helix-im-smoke.sh
+-- Configuring done (0.7s)
+-- Generating done (0.0s)
+-- Build files have been written to: /System/Volumes/Data/workspace/c/mobile-qucik-c++/build/venus-cmake
+[ 17%] Built target mobile_surface_runtime
+[ 21%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/HelixImDriverRuntime.cpp.o
+[ 26%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/HelixImQuickJsBinding.cpp.o
+[ 30%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImRootApi.cpp.o
+[ 34%] Linking CXX static library libvenus_driver_quickjs.a
+[ 91%] Built target venus_driver_quickjs
+[ 95%] Building CXX object CMakeFiles/venus_driver_quickjs_smoke.dir/main.cpp.o
+[100%] Linking CXX executable venus_driver_quickjs_smoke
+[100%] Built target venus_driver_quickjs_smoke
+[js] 【结果】 im.configure {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.send {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "temporaryId": "tmp-venus",
+  "text": "hello",
+  "type": "TEXT"
+}
+[js] 【结果】 im.send {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.health {
+  "reqId": "health-1"
+}
+[js] 【结果】 im.health {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.ready {
+  "reqId": "ready-1"
+}
+[js] 【结果】 im.ready {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.retrySend {
+  "messageId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.retrySend {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.relayMessages {
+  "postIds": [
+    "post-venus-driver-quickjs"
+  ],
+  "targetChannelIds": [
+    "m9ij9h6un7naic556dc99na3cc"
+  ]
+}
+[js] 【结果】 im.posts.relayMessages {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.quickReply {
+  "postId": "post-venus-driver-quickjs",
+  "emoji": ":wave:",
+  "userId": "user-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.quickReply {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.revoke {
+  "postId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.revoke {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.urgentPost {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs",
+  "targetIds": [
+    "user-venus-driver-quickjs"
+  ]
+}
+[js] 【结果】 im.posts.urgentPost {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.urgentConfirm {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.urgentConfirm {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.createSchedule {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "text": "later",
+  "schedulePostAt": 1893456000000
+}
+[js] 【结果】 im.posts.createSchedule {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.cancelSchedule {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.posts.cancelSchedule {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.templateReceived {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.templateReceived {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.pin {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs",
+  "pinned": true
+}
+[js] 【结果】 im.posts.pin {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.unpin {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.unpin {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.markRead {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postIds": [
+    "post-venus-driver-quickjs"
+  ]
+}
+[js] 【结果】 im.posts.markRead {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.readChannel {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.posts.readChannel {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.queryMessagesByChannel {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "limit": 20
+}
+[js] 【结果】 im.posts.queryMessagesByChannel {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.loadOlderContext {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs",
+  "limit": 20
+}
+[js] 【结果】 im.posts.loadOlderContext {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.locate {
+  "postIds": [
+    "post-venus-driver-quickjs"
+  ]
+}
+[js] 【结果】 im.posts.locate {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.getReplies {
+  "postId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.getReplies {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.getReplyBranch {
+  "postId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.getReplyBranch {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.announcements.save {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "title": "title",
+  "content": "body"
+}
+[js] 【结果】 im.announcements.save {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.announcements.read {
+  "announcementId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.announcements.read {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.announcements.delete {
+  "announcementId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.announcements.delete {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.announcements.list {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.announcements.list {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.announcements.detail {
+  "announcementId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.announcements.detail {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.announcements.acceptList {
+  "announcementId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.announcements.acceptList {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.bookmarks.create {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs",
+  "userId": "user-venus-driver-quickjs"
+}
+[js] 【结果】 im.bookmarks.create {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.bookmarks.delete {
+  "bookmarkId": "bookmark-1"
+}
+[js] 【结果】 im.bookmarks.delete {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.bookmarks.load {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.bookmarks.load {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.create {
+  "displayName": "venus",
+  "selfId": "user-venus-driver-quickjs",
+  "teamId": "team-venus-driver-quickjs",
+  "memberIds": [
+    "user-venus-driver-quickjs"
+  ]
+}
+[js] 【结果】 im.channels.create {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.makeTopic {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs",
+  "teamId": "team-venus-driver-quickjs"
+}
+[js] 【结果】 im.channels.makeTopic {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.changeDisplayName {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "displayName": "renamed"
+}
+[js] 【结果】 im.channels.changeDisplayName {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.changeNotice {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "notice": "notice"
+}
+[js] 【结果】 im.channels.changeNotice {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.changeInfo {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "purpose": "purpose"
+}
+[js] 【结果】 im.channels.changeInfo {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.changeTop {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "top": true
+}
+[js] 【结果】 im.channels.changeTop {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.close {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.channels.close {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.leave {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.channels.leave {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.query {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.channels.query {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.onlineStatus {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.channels.onlineStatus {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.ensureLoaded {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.channels.ensureLoaded {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.members.change {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "joinUserIds": [
+    "user-venus-driver-quickjs"
+  ]
+}
+[js] 【结果】 im.members.change {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.members.setRole {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "userIds": [
+    "user-venus-driver-quickjs"
+  ],
+  "role": "manager"
+}
+[js] 【结果】 im.members.setRole {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.members.updateNickname {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "userId": "user-venus-driver-quickjs",
+  "nickname": "venus"
+}
+[js] 【结果】 im.members.updateNickname {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.members.byIds {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "memberIds": [
+    "user-venus-driver-quickjs"
+  ]
+}
+[js] 【结果】 im.members.byIds {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.members.snapshot {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.members.snapshot {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.sync.dialogList {}
+[js] 【结果】 im.sync.dialogList {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.sync.channels {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "cursor": "0"
+}
+[js] 【结果】 im.sync.channels {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.teams.upsert {
+  "teamId": "team-venus-driver-quickjs",
+  "teamName": "Venus"
+}
+[js] 【结果】 im.teams.upsert {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.teams.quit {
+  "teamId": "team-venus-driver-quickjs"
+}
+[js] 【结果】 im.teams.quit {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.modules.getAll {}
+[js] 【结果】 im.modules.getAll {
+  "ok": true,
+  "code": 0
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/revoke"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/urgentPost"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/urgentConfirm"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/cancelSchedule"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/post/templateReceived"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/add/postPinned"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/remove/postPinned"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/post/read"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/get"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/getReplies"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/getReplyBranch"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/post/announcement/save"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/post/announcement/list"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:posts:batch-result {
+  "data": {
+    "acceptedCount": 0,
+    "batchStatus": "failed",
+    "deliveryAuthority": "ws-post",
+    "error": "source post not found: post-venus-driver-quickjs",
+    "failedCount": 1,
+    "reqId": "relay-1785107819731-5",
+    "targets": [
+      {
+        "acceptanceStatus": "failed",
+        "channelId": "m9ij9h6un7naic556dc99na3cc",
+        "deliveryStatus": "not-applicable",
+        "error": "source post not found: post-venus-driver-quickjs"
+      }
+    ]
+  },
+  "event": "im:posts:batch-result"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/change/displayName"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/change/notice"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/change/info"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/change/top"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/close"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/member/leave"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/query"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/load/incrementByChannelId"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/create"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/member/change"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/member/change/nickname"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/sync/notify"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/modules/getAll"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/getLatestPost"
+  },
+  "event": "im:net:offline"
+}
+venus driver QuickJS smoke passed

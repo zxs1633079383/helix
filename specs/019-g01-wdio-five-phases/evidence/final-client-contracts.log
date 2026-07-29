@@ -1,0 +1,33 @@
+commands=tsc;message:wdio:contracts;build-candidate-check
+started_at=2026-07-25T00:06:43Z
+PASS tests/e2e/wdio/reporters/__tests__/junit-sanitizer.test.ts
+PASS tests/e2e/wdio/harness/__tests__/tauri-mock-bridge.test.ts
+PASS tests/e2e/wdio/harness/__tests__/failure-escalation.test.ts
+PASS tests/e2e/wdio/contracts/__tests__/g01-no-raw-calls.test.ts
+PASS tests/e2e/wdio/contracts/__tests__/json-schema.test.ts
+PASS tests/e2e/wdio/harness/__tests__/storage-evidence.test.ts
+PASS tests/e2e/wdio/reporters/__tests__/wdio-g01-reporter.test.ts
+PASS tests/e2e/wdio/fixtures/g01/__tests__/fixture-parity.test.ts
+PASS tests/e2e/wdio/reporters/__tests__/g01-report-v1.test.ts
+PASS tests/e2e/wdio/harness/__tests__/artifact-writer.test.ts
+PASS tests/e2e/wdio/harness/__tests__/topology-adapter.test.ts
+PASS tests/e2e/wdio/harness/__tests__/correlation-index.test.ts
+PASS tests/e2e/wdio/harness/__tests__/log-redactor.test.ts
+PASS tests/e2e/wdio/harness/__tests__/run-context.test.ts
+PASS tests/e2e/wdio/harness/__tests__/timing.test.ts
+PASS tests/e2e/wdio/contracts/__tests__/production-boundary.test.ts
+PASS tests/e2e/wdio/harness/__tests__/fixture-loader.test.ts
+PASS tests/e2e/wdio/harness/__tests__/dual-topology.test.ts
+PASS tests/e2e/wdio/harness/__tests__/evidence-adapter.test.ts
+PASS tests/e2e/wdio/harness/__tests__/driver-port.test.ts
+PASS tests/e2e/wdio/contracts/__tests__/g01-raw-equivalence.test.ts
+
+Test Suites: 21 passed, 21 total
+Tests:       61 passed, 61 total
+Snapshots:   0 total
+Time:        2.736 s, estimated 4 s
+Ran all test suites.
+{"ok":true,"mode":"boundary-check","candidate":"/System/Volumes/Data/workspace/angular/cses-client/src-tauri/target/debug/cses-client","frontendConfiguration":"wdio-e2e","rustFeature":"wdio-e2e"}
+ended_at=2026-07-25T00:06:49Z
+result=PASS
+exit_code=0

@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-001",
+      "command": "cargo check -p helix-im; cargo tree -p helix-core runtime dependency scan",
+      "started_at": "2026-07-26T16:16:25-07:00",
+      "ended_at": "2026-07-26T16:16:40-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/v001-v003-helix.log",
+          "sha256": "8306935bd31404bcc0ee22faab39304a59f36bfbf02f180e8c7d81d1ca1bb3bb"
+        }
+      ]
+    },
+    {
+      "id": "V-002",
+      "command": "cargo test -p helix-im --test g16_full_flow_test --test g16_governance_interaction_test -- --nocapture",
+      "started_at": "2026-07-26T16:16:25-07:00",
+      "ended_at": "2026-07-26T16:16:40-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/v001-v003-helix.log",
+          "sha256": "8306935bd31404bcc0ee22faab39304a59f36bfbf02f180e8c7d81d1ca1bb3bb"
+        }
+      ]
+    },
+    {
+      "id": "V-003",
+      "command": "cargo test -p helix-im --test g16_wdio_fixture_contract_test -- --nocapture",
+      "started_at": "2026-07-26T16:16:25-07:00",
+      "ended_at": "2026-07-26T16:16:40-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/v001-v003-helix.log",
+          "sha256": "8306935bd31404bcc0ee22faab39304a59f36bfbf02f180e8c7d81d1ca1bb3bb"
+        }
+      ]
+    },
+    {
+      "id": "V-004",
+      "command": "G16 PC fixture/Jest/boundary; yarn message:wdio:g16:mock; yarn message:wdio:g16:report",
+      "started_at": "2026-07-26T16:03:34-07:00",
+      "ended_at": "2026-07-26T16:09:04-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/v004-pc-mock.log",
+          "sha256": "f0c7f13cc2250377b7e31fab31735eb3651a29c28c3bdd47b628e53fd80a0f0b"
+        }
+      ]
+    },
+    {
+      "id": "V-005",
+      "command": "yarn message:wdio:g16:single-real; yarn message:wdio:g16:dual-real",
+      "started_at": "2026-07-26T16:09:11-07:00",
+      "ended_at": "2026-07-26T16:14:16-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/v005-pc-dual-real.log",
+          "sha256": "69e37a425aa2b8e1c17c78cbfc598a8d4a95161b881e8365f700e93c79852dbf"
+        }
+      ]
+    },
+    {
+      "id": "V-006",
+      "command": "G16 Mobile parity/source-pin/hard-cut/Frame contract/UC16 focused real/Venus smoke",
+      "started_at": "2026-07-26T16:03:47-07:00",
+      "ended_at": "2026-07-26T16:17:01-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/v006-mobile-contract.log",
+          "sha256": "bbe1b350ef8f8504fedd7ea8468fbaf47c63693bdc8e6e1fdf47ed32c3e85e17"
+        }
+      ]
+    },
+    {
+      "id": "V-007",
+      "command": "cross-repo G16 behavior/code/Frame V2/evidence review and report schema validation",
+      "started_at": "2026-07-26T16:18:00-07:00",
+      "ended_at": "2026-07-26T16:21:00-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/gate-report.json",
+          "sha256": "85c6fb3eb5789b00512cdfa9f6febf67b815c0843a148ae82743a6acb6df50f1"
+        }
+      ]
+    }
+  ]
+}

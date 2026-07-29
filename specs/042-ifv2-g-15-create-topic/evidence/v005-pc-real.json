@@ -1,0 +1,105 @@
+{
+  "source": "cses-client WDIO G15",
+  "reports": [
+    {
+      "schemaVersion": 1,
+      "runId": "single-real-20260726200838621-56221",
+      "gate": "G15",
+      "candidateId": "84db66c3c55c7dca018fc8bbd9e24460e33c61ffaf5326f127eb0a7a5aabbac6",
+      "startedAt": "2026-07-26T20:08:44.665Z",
+      "endedAt": "2026-07-26T20:09:05.524Z",
+      "exitCode": 0,
+      "cases": [
+        {
+          "caseId": "G15 single real-chain.creates one topic from a sent root through the Actor production chain",
+          "lane": "single-real",
+          "evidenceLevel": "single-real-chain",
+          "status": "passed",
+          "claimBoundary": [
+            "single-real-chain"
+          ],
+          "timing": {
+            "setupMs": 0,
+            "actionMs": 8056,
+            "commandAckMs": 0,
+            "frameMs": 0,
+            "domMs": 0,
+            "evidenceMs": 0,
+            "screenshotMs": 0,
+            "reportMs": 0,
+            "totalMs": 8056
+          },
+          "retryCount": 0,
+          "artifacts": [
+            {
+              "kind": "run-artifact",
+              "path": "shared/run-metadata.json",
+              "sha256": "29fef6200be4e196ba0d25366e7cc174ca00e0b4e0eff45d5a562b5d125231b6",
+              "size": 462
+            }
+          ]
+        }
+      ],
+      "stages": [],
+      "artifacts": [
+        {
+          "kind": "run-artifact",
+          "path": "shared/run-metadata.json",
+          "sha256": "29fef6200be4e196ba0d25366e7cc174ca00e0b4e0eff45d5a562b5d125231b6",
+          "size": 462
+        }
+      ],
+      "redactionVerdict": "pass"
+    },
+    {
+      "schemaVersion": 1,
+      "runId": "dual-real-20260726201156870-59140",
+      "gate": "G15",
+      "candidateId": "84db66c3c55c7dca018fc8bbd9e24460e33c61ffaf5326f127eb0a7a5aabbac6",
+      "startedAt": "2026-07-26T20:12:03.047Z",
+      "endedAt": "2026-07-26T20:12:25.328Z",
+      "exitCode": 0,
+      "cases": [
+        {
+          "caseId": "G15 dual-account real-chain.converges both production consumers on the created topic",
+          "lane": "dual-real",
+          "evidenceLevel": "dual-real-chain",
+          "status": "passed",
+          "claimBoundary": [
+            "dual-real-chain"
+          ],
+          "timing": {
+            "setupMs": 0,
+            "actionMs": 12908,
+            "commandAckMs": 0,
+            "frameMs": 0,
+            "domMs": 0,
+            "evidenceMs": 0,
+            "screenshotMs": 0,
+            "reportMs": 0,
+            "totalMs": 12908
+          },
+          "retryCount": 0,
+          "artifacts": [
+            {
+              "kind": "run-artifact",
+              "path": "shared/run-metadata.json",
+              "sha256": "2ae48a3087faad4b678dcfd78e2108e9ac76dd90740cfc9ee1caae7ac99607e2",
+              "size": 566
+            }
+          ]
+        }
+      ],
+      "stages": [],
+      "artifacts": [
+        {
+          "kind": "run-artifact",
+          "path": "shared/run-metadata.json",
+          "sha256": "2ae48a3087faad4b678dcfd78e2108e9ac76dd90740cfc9ee1caae7ac99607e2",
+          "size": 566
+        }
+      ],
+      "redactionVerdict": "pass"
+    }
+  ]
+}

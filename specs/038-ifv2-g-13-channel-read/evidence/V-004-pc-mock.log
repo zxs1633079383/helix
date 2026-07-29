@@ -1,0 +1,29 @@
+$ node fixture and report evidence checks for G13 Mock
+G01_FIXTURE_PARITY_OK count=6 helix=ac15abd0b29ef62ea5d359fb22030800dd0dee2b
+G02_FIXTURE_PARITY_OK count=6 helix=ac15abd0b29ef62ea5d359fb22030800dd0dee2b
+G03A_FIXTURE_PARITY_OK count=8 helix=441c01209fa0995bdbc10081601acf6972827fbf
+G04_FIXTURE_PARITY_OK count=4 helix=f323cd7a997fba0cb330299d98eb0b8bd73d4813
+G04A_FIXTURE_PARITY_OK count=4 helix=c9c37ea8fcb398715cff872d4adbdc8a0e412c46
+G05_FIXTURE_PARITY_OK count=4 helix=3798ffdd0bfd89b8922829dd252327bb0a2075ec
+G06_FIXTURE_PARITY_OK count=4 helix=4084a6f3b0f9f8928f9559b0cda0e5dd700a8fcd
+G07_FIXTURE_PARITY_OK count=7 helix=768dc9b3597523c6c40279e387d85e9f240fde8a
+G08_FIXTURE_PARITY_OK count=4 helix=8358082b3fd01b96b332c79deca8d2017315dd19
+G09_FIXTURE_PARITY_OK count=4 helix=4818572a8bdff3478a36e3fb4f7c6d3c7807b33c
+G10_FIXTURE_PARITY_OK count=6 helix=e10719adbcf5767c2eab2eb288d86f3e2b210477
+G10A_FIXTURE_PARITY_OK count=6 helix=d2b1bf6c1304155d6897a7238cfaefd2bae3d176
+G11_FIXTURE_PARITY_OK count=3 helix=5e3ffc026fc8b25f76a7cce162e75734bddb45ca
+G12_FIXTURE_PARITY_OK count=3 helix=a2207d73f8e72da7374b916b2167ee3a25b9f6c3
+G13_FIXTURE_PARITY_OK count=4 helix=a13e17151efd1e7eefc94677110598b6347b08a9
+yarn run v1.22.22
+$ /System/Volumes/Data/workspace/angular/cses-client/node_modules/.bin/jest -c tests/e2e/wdio/jest.config.js tests/e2e/wdio/fixtures/g13/__tests__/fixture-parity.test.ts tests/e2e/wdio/harness/__tests__/tauri-mock-bridge.test.ts tests/e2e/wdio/reporters/__tests__/g13-summary.test.ts --runInBand
+PASS tests/e2e/wdio/reporters/__tests__/g13-summary.test.ts
+PASS tests/e2e/wdio/fixtures/g13/__tests__/fixture-parity.test.ts
+PASS tests/e2e/wdio/harness/__tests__/tauri-mock-bridge.test.ts
+
+Test Suites: 3 passed, 3 total
+Tests:       26 passed, 26 total
+Snapshots:   0 total
+Time:        1.811 s, estimated 2 s
+Ran all test suites matching /tests\/e2e\/wdio\/fixtures\/g13\/__tests__\/fixture-parity.test.ts|tests\/e2e\/wdio\/harness\/__tests__\/tauri-mock-bridge.test.ts|tests\/e2e\/wdio\/reporters\/__tests__\/g13-summary.test.ts/i.
+Done in 2.49s.
+PASS: G13 Mock 3/3, retry=0, fixture parity and reporter contracts pass

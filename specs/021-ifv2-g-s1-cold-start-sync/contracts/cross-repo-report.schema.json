@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "G-S1 three-repo report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "gateId",
+    "sourcePins",
+    "lanes",
+    "review",
+    "finalVerdict"
+  ],
+  "properties": {
+    "gateId": {
+      "const": "G-S1"
+    },
+    "sourcePins": {
+      "type": "object"
+    },
+    "lanes": {
+      "type": "object",
+      "required": [
+        "helix",
+        "fixture",
+        "pcMock",
+        "pcReal",
+        "mobileContract",
+        "productionBoundary"
+      ]
+    },
+    "review": {
+      "type": "object",
+      "required": [
+        "behavior",
+        "codeBoundary",
+        "frameV2",
+        "evidence"
+      ]
+    },
+    "finalVerdict": {
+      "enum": [
+        "Green",
+        "Red",
+        "Blocked",
+        "Partial"
+      ]
+    }
+  }
+}

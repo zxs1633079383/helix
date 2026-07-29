@@ -1,0 +1,113 @@
+{
+  "source": "cses-client WDIO G15",
+  "reports": [
+    {
+      "schemaVersion": 1,
+      "runId": "mock-20260726195759933-47689",
+      "gate": "G15",
+      "candidateId": "84db66c3c55c7dca018fc8bbd9e24460e33c61ffaf5326f127eb0a7a5aabbac6",
+      "startedAt": "2026-07-26T19:58:05.095Z",
+      "endedAt": "2026-07-26T19:58:26.980Z",
+      "exitCode": 0,
+      "cases": [
+        {
+          "caseId": "G15 Helix-derived V2 mock.recovers an early HTTP thread after the WS topic dialog attaches its scope",
+          "lane": "mock",
+          "evidenceLevel": "mock",
+          "status": "passed",
+          "claimBoundary": [
+            "mock"
+          ],
+          "timing": {
+            "setupMs": 0,
+            "actionMs": 3417,
+            "commandAckMs": 0,
+            "frameMs": 0,
+            "domMs": 0,
+            "evidenceMs": 0,
+            "screenshotMs": 0,
+            "reportMs": 0,
+            "totalMs": 3417
+          },
+          "retryCount": 0,
+          "artifacts": [
+            {
+              "kind": "run-artifact",
+              "path": "shared/run-metadata.json",
+              "sha256": "d79bb70189453ca8948234638e2be088d5e484ceb2c3b6f8f4b66d2014e3e16c",
+              "size": 448
+            }
+          ]
+        },
+        {
+          "caseId": "G15 Helix-derived V2 mock.accepts WS dialog before the terminal thread Frame",
+          "lane": "mock",
+          "evidenceLevel": "mock",
+          "status": "passed",
+          "claimBoundary": [
+            "mock"
+          ],
+          "timing": {
+            "setupMs": 0,
+            "actionMs": 2350,
+            "commandAckMs": 0,
+            "frameMs": 0,
+            "domMs": 0,
+            "evidenceMs": 0,
+            "screenshotMs": 0,
+            "reportMs": 0,
+            "totalMs": 2350
+          },
+          "retryCount": 0,
+          "artifacts": [
+            {
+              "kind": "run-artifact",
+              "path": "shared/run-metadata.json",
+              "sha256": "d79bb70189453ca8948234638e2be088d5e484ceb2c3b6f8f4b66d2014e3e16c",
+              "size": 448
+            }
+          ]
+        },
+        {
+          "caseId": "G15 Helix-derived V2 mock.keeps the topic form retryable when admission rejects",
+          "lane": "mock",
+          "evidenceLevel": "mock",
+          "status": "passed",
+          "claimBoundary": [
+            "mock"
+          ],
+          "timing": {
+            "setupMs": 0,
+            "actionMs": 1416,
+            "commandAckMs": 0,
+            "frameMs": 0,
+            "domMs": 0,
+            "evidenceMs": 0,
+            "screenshotMs": 0,
+            "reportMs": 0,
+            "totalMs": 1416
+          },
+          "retryCount": 0,
+          "artifacts": [
+            {
+              "kind": "run-artifact",
+              "path": "shared/run-metadata.json",
+              "sha256": "d79bb70189453ca8948234638e2be088d5e484ceb2c3b6f8f4b66d2014e3e16c",
+              "size": 448
+            }
+          ]
+        }
+      ],
+      "stages": [],
+      "artifacts": [
+        {
+          "kind": "run-artifact",
+          "path": "shared/run-metadata.json",
+          "sha256": "d79bb70189453ca8948234638e2be088d5e484ceb2c3b6f8f4b66d2014e3e16c",
+          "size": 448
+        }
+      ],
+      "redactionVerdict": "pass"
+    }
+  ]
+}

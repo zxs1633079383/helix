@@ -1,0 +1,56 @@
+{
+  "gateId": "G-13",
+  "sourcePins": {
+    "helix": "c8768f8b6f169f67509c0ec717ef6902c7779e19",
+    "fixtureProducer": "a13e17151efd1e7eefc94677110598b6347b08a9",
+    "pc": "e67384f9a1c78bb2da3aafe4ef4206563d231aa4",
+    "mobile": "fe0fa86a3bc27bf3ba416c3c7f07c89b6c80ecbb",
+    "strictMatrixSha256": "8b551c0d7aead1e44bbba355f65d65f17c883d84fbb2090854f0942bb4904fb7"
+  },
+  "lanes": {
+    "helix": {
+      "status": "pass",
+      "tests": "13/13",
+      "producer": "ImModule::handle -> Effect::Emit"
+    },
+    "fixture": {
+      "status": "pass",
+      "count": 4,
+      "mirrors": 3,
+      "byteExact": true
+    },
+    "pcMock": {
+      "status": "pass",
+      "runId": "mock-20260726101922965-81298",
+      "tests": "3/3",
+      "claim": "mock"
+    },
+    "pcReal": {
+      "status": "pass",
+      "singleRunId": "single-real-20260726102414009-84034",
+      "dualRunId": "dual-real-20260726102844648-86724",
+      "tests": "2/2"
+    },
+    "mobileContract": {
+      "status": "pass",
+      "frameTests": "6/6",
+      "ucTests": "8/8",
+      "quickJsTypedView": true,
+      "clientReducer": false
+    },
+    "productionBoundary": {
+      "status": "pass",
+      "pcTestApiInBundle": false,
+      "mobileLegacyMacroInProduction": false,
+      "v1Producer": 0,
+      "v1Consumer": 0
+    }
+  },
+  "review": {
+    "behavior": "pass",
+    "codeBoundary": "pass",
+    "frameV2": "pass",
+    "evidence": "pass"
+  },
+  "finalVerdict": "Green"
+}

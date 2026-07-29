@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "mrc-g04-g16-final-a2f835f-1784780000",
+      "command": "npm run message:desktop:scenario -- G-04 G-04a G-05 G-06 G-07 G-08 G-09 G-10 G-10a G-11 G-12 G-13 G-14 G-14a G-15 G-15a G-16 G-16b G-16c --continue-on-failure",
+      "started_at": "2026-07-23T04:13:37.521Z",
+      "ended_at": "2026-07-23T04:16:30.019Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/011-g11-locate-message/evidence/final-native.md",
+          "sha256": "f96e88816599d01796425f0928fd4d23b34d8319a9fbc8fb93442a27ab91d05a"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,278 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-25",
+  "generator": "scripts/generate_ifv2_three_repo_specs.mjs",
+  "strictMatrix": {
+    "path": "crates/helix-im/contracts/strict-matrix.v1.json",
+    "rawSha256": "ef7a752be7ca77d27723a256051cc5c8d8b9cd733ce4d4b9a918e6a2880e109d"
+  },
+  "scope": {
+    "activeCount": 26,
+    "childSpecCount": 25,
+    "baseline": {
+      "gateId": "G-01",
+      "featureDirectory": "specs/019-g01-wdio-five-phases",
+      "status": "baseline-green-reverify-final"
+    },
+    "children": [
+      {
+        "order": 2,
+        "gateId": "G-02",
+        "ucId": "UC-1.2",
+        "title": "发文档",
+        "featureDirectory": "specs/025-ifv2-g-02-document-message",
+        "prerequisiteGate": "G-01",
+        "status": "draft"
+      },
+      {
+        "order": 3,
+        "gateId": "G-03a",
+        "ucId": "UC-1.4",
+        "title": "重发失败",
+        "featureDirectory": "specs/026-ifv2-g-03a-retry-failed-send",
+        "prerequisiteGate": "G-02",
+        "status": "draft"
+      },
+      {
+        "order": 4,
+        "gateId": "G-04",
+        "ucId": "UC-1.5",
+        "title": "撤回",
+        "featureDirectory": "specs/027-ifv2-g-04-online-revoke",
+        "prerequisiteGate": "G-03a",
+        "status": "draft"
+      },
+      {
+        "order": 5,
+        "gateId": "G-04a",
+        "ucId": "UC-1.5-offline",
+        "title": "离线撤回重放",
+        "featureDirectory": "specs/028-ifv2-g-04a-offline-revoke",
+        "prerequisiteGate": "G-04",
+        "status": "draft"
+      },
+      {
+        "order": 6,
+        "gateId": "G-05",
+        "ucId": "UC-1.7",
+        "title": "转发/合并转发",
+        "featureDirectory": "specs/029-ifv2-g-05-forward-message",
+        "prerequisiteGate": "G-04a",
+        "status": "draft"
+      },
+      {
+        "order": 7,
+        "gateId": "G-06",
+        "ucId": "UC-1.8",
+        "title": "快捷回复 emoji",
+        "featureDirectory": "specs/030-ifv2-g-06-quick-reaction",
+        "prerequisiteGate": "G-05",
+        "status": "draft"
+      },
+      {
+        "order": 8,
+        "gateId": "G-07",
+        "ucId": "UC-1.9",
+        "title": "加急 + 确认",
+        "featureDirectory": "specs/031-ifv2-g-07-urgent-message",
+        "prerequisiteGate": "G-06",
+        "status": "draft"
+      },
+      {
+        "order": 9,
+        "gateId": "G-08",
+        "ucId": "UC-1.10",
+        "title": "定时消息",
+        "featureDirectory": "specs/032-ifv2-g-08-schedule-create",
+        "prerequisiteGate": "G-07",
+        "status": "draft"
+      },
+      {
+        "order": 10,
+        "gateId": "G-09",
+        "ucId": "UC-1.10-cancel",
+        "title": "取消定时",
+        "featureDirectory": "specs/033-ifv2-g-09-schedule-cancel",
+        "prerequisiteGate": "G-08",
+        "status": "draft"
+      },
+      {
+        "order": 11,
+        "gateId": "G-10",
+        "ucId": "UC-2.1",
+        "title": "切群首屏",
+        "featureDirectory": "specs/034-ifv2-g-10-timeline-window",
+        "prerequisiteGate": "G-09",
+        "status": "draft"
+      },
+      {
+        "order": 12,
+        "gateId": "G-10a",
+        "ucId": "UC-2.2",
+        "title": "上拉更早历史",
+        "featureDirectory": "specs/035-ifv2-g-10a-load-older",
+        "prerequisiteGate": "G-10",
+        "status": "draft"
+      },
+      {
+        "order": 13,
+        "gateId": "G-11",
+        "ucId": "UC-2.3",
+        "title": "按 postId 定位",
+        "featureDirectory": "specs/036-ifv2-g-11-locate-message",
+        "prerequisiteGate": "G-10a",
+        "status": "draft"
+      },
+      {
+        "order": 14,
+        "gateId": "G-12",
+        "ucId": "UC-2.4",
+        "title": "回复列表/分支",
+        "featureDirectory": "specs/037-ifv2-g-12-reply-thread",
+        "prerequisiteGate": "G-11",
+        "status": "draft"
+      },
+      {
+        "order": 15,
+        "gateId": "G-13",
+        "ucId": "UC-3.1",
+        "title": "会话已读",
+        "featureDirectory": "specs/038-ifv2-g-13-channel-read",
+        "prerequisiteGate": "G-12",
+        "status": "draft"
+      },
+      {
+        "order": 16,
+        "gateId": "G-14",
+        "ucId": "UC-3.2",
+        "title": "单条已读",
+        "featureDirectory": "specs/039-ifv2-g-14-post-read",
+        "prerequisiteGate": "G-13",
+        "status": "draft"
+      },
+      {
+        "order": 17,
+        "gateId": "G-14a",
+        "ucId": "UC-3.3",
+        "title": "模板已收到",
+        "featureDirectory": "specs/040-ifv2-g-14a-template-received",
+        "prerequisiteGate": "G-14",
+        "status": "draft"
+      },
+      {
+        "order": 18,
+        "gateId": "G-15a",
+        "ucId": "UC-5.1",
+        "title": "创建群聊",
+        "featureDirectory": "specs/041-ifv2-g-15a-create-channel",
+        "prerequisiteGate": "G-14a",
+        "status": "draft"
+      },
+      {
+        "order": 19,
+        "gateId": "G-15",
+        "ucId": "UC-5.2",
+        "title": "创建话题",
+        "featureDirectory": "specs/042-ifv2-g-15-create-topic",
+        "prerequisiteGate": "G-15a",
+        "status": "draft"
+      },
+      {
+        "order": 20,
+        "gateId": "G-16",
+        "ucId": "UC-5.3",
+        "title": "关闭/退出群",
+        "featureDirectory": "specs/043-ifv2-g-16-channel-close-leave",
+        "prerequisiteGate": "G-15",
+        "status": "draft"
+      },
+      {
+        "order": 21,
+        "gateId": "G-16b",
+        "ucId": "UC-5.3b",
+        "title": "member leave 广播",
+        "featureDirectory": "specs/044-ifv2-g-16b-member-leave-broadcast",
+        "prerequisiteGate": "G-16",
+        "status": "draft"
+      },
+      {
+        "order": 22,
+        "gateId": "G-16c",
+        "ucId": "UC-5.4",
+        "title": "群属性修改",
+        "featureDirectory": "specs/045-ifv2-g-16c-channel-settings",
+        "prerequisiteGate": "G-16b",
+        "status": "draft"
+      },
+      {
+        "order": 23,
+        "gateId": "G-S1",
+        "ucId": "UC-4.1",
+        "title": "hello 全量增量",
+        "featureDirectory": "specs/021-ifv2-g-s1-cold-start-sync",
+        "prerequisiteGate": "G-16c",
+        "status": "draft"
+      },
+      {
+        "order": 24,
+        "gateId": "G-S2",
+        "ucId": "UC-4.2",
+        "title": "sync notify",
+        "featureDirectory": "specs/022-ifv2-g-s2-offline-sync-notify",
+        "prerequisiteGate": "G-S1",
+        "status": "draft"
+      },
+      {
+        "order": 25,
+        "gateId": "G-S3",
+        "ucId": "UC-4.4",
+        "title": "心跳 gap 补偿",
+        "featureDirectory": "specs/023-ifv2-g-s3-pong-gap-recovery",
+        "prerequisiteGate": "G-S2",
+        "status": "draft"
+      },
+      {
+        "order": 26,
+        "gateId": "G-S4",
+        "ucId": "UC-4.5",
+        "title": "陌生 channel 兜底",
+        "featureDirectory": "specs/024-ifv2-g-s4-unknown-channel-hydration",
+        "prerequisiteGate": "G-S3",
+        "status": "draft"
+      }
+    ],
+    "gap": [
+      "G-03",
+      "G-17",
+      "G-18",
+      "G-18a",
+      "G-18b",
+      "G-19",
+      "G-20",
+      "G-20a",
+      "G-20b",
+      "G-21",
+      "G-22",
+      "G-23",
+      "G-24",
+      "G-25",
+      "G-26",
+      "G-26a",
+      "G-26b",
+      "G-26c",
+      "G-26d",
+      "G-27"
+    ]
+  },
+  "policies": {
+    "execution": "one-uc-three-repo-vertical-before-next",
+    "fixtureAuthority": "helix-im-handle-effect-emit",
+    "reviewRequired": [
+      "behavior",
+      "code-boundary",
+      "interaction-frame-v2",
+      "evidence"
+    ],
+    "deletion": "candidate-only-after-26-green-user-selects"
+  }
+}

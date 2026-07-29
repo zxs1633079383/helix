@@ -1,0 +1,97 @@
+{
+  "gateId": "G-05",
+  "sourcePins": {
+    "helixAcceptance": "0147ee8856aa2b072c7a7537d3c968d5bbbfdd50",
+    "fixtureProducer": "3798ffdd0bfd89b8922829dd252327bb0a2075ec",
+    "csesClient": "424d1c9e5e79351a74149c1f1c0088eb92f85352",
+    "pcHelixPin": "3798ffdd0bfd89b8922829dd252327bb0a2075ec",
+    "mobileQuickJs": "1b6b77856d5d5118fce87336a85e42a959012693",
+    "mobileHelixPin": "0147ee8856aa2b072c7a7537d3c968d5bbbfdd50",
+    "mobileHelixBundleSha256": "f01ead551d1eefd059119beb5c7146322a6973425fae9aec20a6211e475f8bbd",
+    "strictMatrixSha256": "b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac"
+  },
+  "lanes": {
+    "helix": {
+      "status": "Pass",
+      "required": true,
+      "fullFlow": "6/6",
+      "focusedContract": "3/3",
+      "failed": 0,
+      "skipped": 0
+    },
+    "fixture": {
+      "status": "Pass",
+      "required": true,
+      "count": 4,
+      "schemaVersion": 2,
+      "provenanceSha256": "cd92103657bd7cdc3ef848e957ec8f8d3e4581fe8a3a40392d6ce7d6c4b44ec7",
+      "failed": 0,
+      "skipped": 0
+    },
+    "pcMock": {
+      "status": "Pass",
+      "required": true,
+      "runId": "mock-20260725202840193-88968",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "claim": "mock"
+    },
+    "pcReal": {
+      "status": "Pass",
+      "required": true,
+      "singleRealRunId": "single-real-20260725203458024-94018",
+      "singleReal": "1/1",
+      "dualRealRunId": "dual-real-20260725203521691-94328",
+      "dualReal": "1/1",
+      "failed": 0,
+      "skipped": 0
+    },
+    "mobileContract": {
+      "status": "Pass",
+      "required": true,
+      "frameContract": "5/5",
+      "uc06Focused": "8/8",
+      "uc06Real": "9/9",
+      "realRunId": "mrc-mobile-uc-20260725205931-8304",
+      "sharedRegression": "137/150",
+      "sharedRegressionGateResult": "G05 pass; 13 non-G05 real-chain failures retained as debt",
+      "failed": 0,
+      "skipped": 0
+    },
+    "productionBoundary": {
+      "status": "Pass",
+      "required": true,
+      "pcProductionFilesScanned": 2735,
+      "pcMockProductionReachable": false,
+      "mobileV1Producers": 0,
+      "mobileV1Consumers": 0,
+      "mobileRawReducers": 0,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "review": {
+    "behavior": {
+      "status": "Green",
+      "finding": "fresh source/target groups, authority, terminal, failure, race, recovery and Actor/Observer results are correlated without fixed frame order"
+    },
+    "codeBoundary": {
+      "status": "Green",
+      "finding": "Helix owns forwarding semantics; PC and Mobile mechanically consume typed Frame V2 through production-only boundaries"
+    },
+    "frameV2": {
+      "status": "Green",
+      "finding": "schema, scope, epoch, revisions, mutations, actions, empty directives and independent timeline/dialog correlations match across all three repositories"
+    },
+    "evidence": {
+      "status": "Green",
+      "requiredPassRate": 1,
+      "requiredFailed": 0,
+      "requiredSkipped": 0,
+      "loopVerdict": "R4 evidence ready",
+      "observation": "Mobile shared 150-test regression retained 13 failures outside G05; G05 focused and real-chain lanes pass"
+    }
+  },
+  "finalVerdict": "Green"
+}

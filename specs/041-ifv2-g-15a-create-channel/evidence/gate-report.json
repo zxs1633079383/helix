@@ -1,0 +1,62 @@
+{
+  "gateId": "G-15a",
+  "sourcePins": {
+    "helix": "91f6b0283566e25a8e8b77a5894b9bc6e181bdd8",
+    "fixtureProducer": "157daca3760e9c94d7b6bc9f38798e199628b1aa",
+    "pc": "01ee73c430c7ab39ab14411b4d0eae7f8b361950",
+    "mobile": "afa41cd8d2dd6567a42d258c3ba504a0210f1125",
+    "strictMatrixSha256": "8b551c0d7aead1e44bbba355f65d65f17c883d84fbb2090854f0942bb4904fb7"
+  },
+  "lanes": {
+    "helix": {
+      "status": "pass",
+      "scenarioTests": "6/6",
+      "fixtureTests": "1/1",
+      "producer": "ImModule::handle -> Effect::Persist/HttpWrite -> PortReply/Inbound -> Effect::Emit"
+    },
+    "fixture": {
+      "status": "pass",
+      "count": 3,
+      "mirrors": 3,
+      "byteExact": true
+    },
+    "pcMock": {
+      "status": "pass",
+      "tests": "2/2 WDIO mock and 1/1 report",
+      "claim": "mock",
+      "productionReachable": false
+    },
+    "pcReal": {
+      "status": "pass",
+      "singleReal": "1/1",
+      "dualReal": "1/1 final",
+      "retainedTransientFailures": 1,
+      "transientFailure": "first dual-real timed out waiting for UCenter member 678; event-driven rerun passed",
+      "actorId": "444",
+      "observerId": "678"
+    },
+    "mobileContract": {
+      "status": "pass",
+      "frameTests": "15/15 focused",
+      "uc15Tests": "10/10 first real-chain run",
+      "quickJsTypedView": true,
+      "clientReducer": false,
+      "sharedVenusSmoke": "pass",
+      "sharedFullRegression": "non-required blocked: legacy GS01-GS03 create prerequisite still waits for cut raw event; later remote create timed out"
+    },
+    "productionBoundary": {
+      "status": "pass",
+      "pcTestApiInBundle": false,
+      "mobileTestApiInProduction": false,
+      "v1Producer": 0,
+      "v1Consumer": 0
+    }
+  },
+  "review": {
+    "behavior": "pass",
+    "codeBoundary": "pass",
+    "frameV2": "pass",
+    "evidence": "pass"
+  },
+  "finalVerdict": "Green"
+}

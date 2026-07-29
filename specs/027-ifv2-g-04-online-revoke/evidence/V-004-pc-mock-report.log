@@ -1,0 +1,12 @@
+cses_client_commit=c91cafc8359495daff2969ca4ed0db729027829f
+$ node scripts/message-wdio/sync-helix-fixtures.mjs --gate=g04 --check
+result=PASS fixtures=4
+$ yarn jest -c tests/e2e/wdio/jest.config.js <G04 focused suites> --runInBand
+result=PASS suites=3 tests=14
+$ yarn message:wdio:g04:mock
+result=PASS 2/2 evidenceLevel=mock
+$ yarn message:wdio:g04:report
+result=PASS 1/1 redactionVerdict=pass
+$ yarn message:wdio:g04:boundary
+result=PASS productionFilesScanned=2735 mockProductionReachable=false
+candidateSha256=a0bcaf714d263fc09fc853f75c1ddcb15b733d1deabb8029951e8847f0018fe2

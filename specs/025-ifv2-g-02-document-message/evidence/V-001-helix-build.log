@@ -1,0 +1,8 @@
+started_at=2026-07-25T12:31:33Z
+$ cargo check -p helix-im
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.20s
+cargo_check_exit=0
+$ cargo tree -p helix-core | grep -iE tokio|sqlx|reqwest|web-sys|tauri
+runtime_dependency_hits=0
+runtime_dependency_check_exit=0
+ended_at=2026-07-25T12:31:33Z

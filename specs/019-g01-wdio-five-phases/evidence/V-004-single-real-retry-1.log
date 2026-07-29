@@ -1,0 +1,32 @@
+verification_id=V-004
+command=yarn message:wdio:g01:single-real
+retry=1
+started_at=2026-07-24T23:59:01Z
+yarn run v1.22.22
+$ node scripts/message-wdio/run-lane.mjs single-real single-real
+
+Execution of 1 workers started at 2026-07-24T23:59:07.207Z
+
+2026-07-24T23:59:07.398Z ERROR diagnostics: ❌ Tauri Driver: tauri-driver not found. Install it with: cargo install tauri-driver
+Or enable auto-installation by setting autoInstallTauriDriver: true in service options.
+[0-0] RUNNING in undefined - file:///tests/e2e/wdio/specs/g01-single-real.e2e.ts
+[0-0] PASSED in undefined - file:///tests/e2e/wdio/specs/g01-single-real.e2e.ts
+
+ "spec" Reporter:
+------------------------------------------------------------------
+[webkit 605.1.15 macos #0-0] Running: webkit (v605.1.15) on macos
+[webkit 605.1.15 macos #0-0] Session ID: cf96415f-223a-4767-885d-1b43c53bc3e7
+[webkit 605.1.15 macos #0-0]
+[webkit 605.1.15 macos #0-0] » tests/e2e/wdio/specs/g01-single-real.e2e.ts
+[webkit 605.1.15 macos #0-0] G01 single real-chain
+[webkit 605.1.15 macos #0-0]    ✓ correlates Actor UI with authority, storage, Frame and DOM
+[webkit 605.1.15 macos #0-0]
+[webkit 605.1.15 macos #0-0] 1 passing (4s)
+
+
+Spec Files:	 1 passed, 1 total (100% completed) in 00:01:04  
+
+Done in 69.54s.
+ended_at=2026-07-25T00:00:11Z
+result=PASS
+exit_code=0

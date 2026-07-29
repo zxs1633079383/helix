@@ -1,0 +1,63 @@
+# Research: G-09 取消定时
+
+**Source Lock**: implementation admission 时 Helix `1a68e0eac9bef49660117921b277d67617e45217`；cses-client `033131ca006f0103beea778a91121ba7b9b887c3`；Mobile `e67c5c5779e2bf381d64db6e235b3abe884a8cb9`。Strict Matrix SHA-256 为 `b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac`，前序 G08 为 `phase=closed`、R1-R4 PASS。
+
+## Current / Target / Gap
+
+- **CURRENT**: `im_cancel_schedule` 已存在 Go wire builder，但旧
+  `post_schedule_canceled` 在 WS 入站后直接写 flag 并发布 raw domain event；
+  没有独立 cancel request causation、原子 authority fact、revision 幂等或
+  canonical Frame Fixture。Mobile 只覆盖 command alias，PC 没有 G09 专项 mirror/Mock/Real/report。
+- **TARGET**: G08 真实 `scheduled` authority 是 G09 的业务前置；G09 WS cancel
+  以更高 revision 原子更新 `channel_schedule + channel`，仅 PersistOk/readback 后发布
+  `message.channel-summary` canceled Frame。PC/Mobile byte-exact 复用该 Fixture。
+- **GAP**: Helix producer 与 canonical Fixture 已由 `4818572`、`48424aa`、
+  `686a54e` 补齐；PC 与 Mobile 三仓 consumer/real evidence 仍待 T013-T032。
+
+## Decision 1 - 唯一业务真源
+
+**Decision**: `G-09` 的 command（im_cancel_schedule）、effect（http_write、storage_upsert、projection）、持久事实（channel_schedule）与 Surface（message.channel-summary）只由 Helix 生产路径决定。G08/G09 共用单调 schedule revision，但 create/cancel request causation 分槽，避免竞态串联。
+
+**Rationale**: PC 与 Mobile 自行补字段、排序、权限或 reducer 会形成第二套业务逻辑。
+
+**Alternatives considered**: WDIO 手写 ViewModel、GTest 内补 row、Angular/Mobile 从 raw event 重建；全部拒绝。
+
+## Decision 2 - Canonical Fixture
+
+**Decision**: Fixture 只允许由 `ImModule::handle -> Effect::Emit -> InteractionFrameV2 decode` 生成，普通测试比较 Golden，只有显式 `UPDATE_G09_WDIO_FIXTURES=1` 才更新。
+
+**Rationale**: Fixture 是 Helix producer 与两个平台 consumer 的跨仓合同，不是 command 同步返回值。
+
+**Alternatives considered**: 从 DOM 反推 JSON、复制其他 Gate Fixture、前端补动态业务字段；全部拒绝。
+
+## Decision 3 - PC 验收分层
+
+**Decision**: PC 分开执行 Fixture parity、Mock replay、single-real、按用户可见影响决定的 dual-real、DOM/FrameApplied 断言和结构化报告。
+
+**Rationale**: Mock 不经过 Rust/Tauri/SQLite/HTTP/WS，不能替代真实链。
+
+**Alternatives considered**: 只跑 Mock、只证明 invoke accepted、固定 sleep 等第三帧；全部拒绝。
+
+## Decision 4 - Mobile 生产接线
+
+**Decision**: Mobile GTest 链接生产 `MobileImSdk/MobileFfiBridge/SurfaceRuntime/QuickJS binding`，完整 Frame 经 DomainEvent batch 原子 apply，JS 只通过 `im.surface.view` 获取 typed view。
+
+**Rationale**: Mobile 不允许 `im.store`、raw reducer 或测试注入 API进入默认生产构建。
+
+**Alternatives considered**: JS 直接消费 raw event、GTest 注入私有 reducer、每 mutation 一次 FFI callback；全部拒绝。
+
+## Decision 5 - Gate-specific authority
+
+**Decision**: HTTP 为 ``POST /api/cses/posts/cancelSchedule` body `{channelId}``；WS 为 ``post_schedule_canceled``；远端表为 `post_schedule、channel、channel_member`。Transport success 不自动等于 durable terminal。
+
+**Rationale**: terminal authority、persist barrier 与竞态必须从当前生产 handler 和 PortReply/Inbound 证明。
+
+**Alternatives considered**: HTTP 200 即 Green、远端行存在即本地已 apply、固定 HTTP/WS 顺序；全部拒绝。
+
+## Resolved Scope
+
+- 当前 Helix owner：`crates/helix-im/src/outbound/posts/existing.rs`；现有聚焦测试：`crates/helix-im/tests/g09_schedule_cancel_interaction_test.rs`。
+- 当前 Mobile UC 测试：`/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc09ScheduleTest.cpp`。
+
+- G03 文件上传和 G17-G27 不进入本 Feature。
+- 当前计划无未解决 `NEEDS CLARIFICATION`；代码漂移在 T001 source revalidation 中 fail-closed 处理。

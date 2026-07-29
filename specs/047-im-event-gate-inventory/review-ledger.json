@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "feature_directory": "specs/047-im-event-gate-inventory",
+  "phase": "planning",
+  "event_seq": 5,
+  "next_action": "run_speckit_plan",
+  "budget": {
+    "max_same_failure_attempts": 2
+  },
+  "failure_attempts": {
+    "324df701aa92e7b5": 1,
+    "9f93f0d321877443": 1
+  },
+  "gates": {
+    "r1_spec": {
+      "status": "pass",
+      "fingerprint": "05ecfedb6175ce7c06da0b8be605ac88958df789994311f5d6e3aa0c46e07079",
+      "checked_at": "2026-07-29T01:50:49Z",
+      "issues": []
+    },
+    "r2_plan": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r3_tasks": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r4_evidence": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    }
+  },
+  "convergence": {
+    "tasks_fingerprint": null,
+    "reason": null
+  },
+  "events": [
+    {
+      "seq": 1,
+      "at": "2026-07-29T01:42:03Z",
+      "kind": "failure",
+      "detail": "r1_spec:324df701aa92e7b5: attempt 1"
+    },
+    {
+      "seq": 2,
+      "at": "2026-07-29T01:42:03Z",
+      "kind": "phase",
+      "detail": "specifying->specifying: discovery.md still contains a template placeholder"
+    },
+    {
+      "seq": 3,
+      "at": "2026-07-29T01:50:26Z",
+      "kind": "failure",
+      "detail": "r1_spec:9f93f0d321877443: attempt 1"
+    },
+    {
+      "seq": 4,
+      "at": "2026-07-29T01:50:26Z",
+      "kind": "phase",
+      "detail": "specifying->specifying: discovery.md needs at least one F-xxx fact with path:line evidence"
+    },
+    {
+      "seq": 5,
+      "at": "2026-07-29T01:50:49Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    }
+  ]
+}

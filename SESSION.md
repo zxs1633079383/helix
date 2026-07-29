@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 以当前 Helix producer 测试与 cses-client WDIO 场景为证据，梳理全量 Gate 的事件域、指令族与 sender/receiver 双视角合同；可证伪断言：① 覆盖截图中的 30 个 Gate，并按 im:post、im:channel、im:channel-member、sync/recovery 分类；② 每个 Gate 明确 actor、observer、触发、权威终态、Surface/DOM、当前 Helix/WDIO 覆盖与缺口；③ 源码或场景未覆盖的 receiver 视角显式标为 MISSING，并给出推导应有合同而不冒充现状；④ 只新增一个 Spec Kit feature、质量清单、loop discovery 与本条 SESSION，不修改生产代码或测试；⑤ requirements checklist、mandatory after_specify hook 与 git diff check 通过 | 赌注 高 | 可逆 是 | @2026-07-28T16:30:00-0700
+
+✅ DONE 已按截图 30 Gate 完成 IM 指令域与 Actor/Observer 双视角规格：分为 sync/recovery、post、schedule、timeline/read、channel/channel-member 五组，逐 Gate 固定触发指令、角色终态、权威完成边界、Surface、Helix/WDIO 源码覆盖和缺口；当前 Matrix epoch 12 的 50/47/3 分母、截图遗漏 G-03 及 G-17 至 G-27 范围差异已单列。30 个主表行、90 个 WDIO Gate-lane 源入口、requirements checklist、JSON、模板占位与 `git diff --check` 静态校验通过；mandatory helix-loop R1 PASS 并进入 planning，但本轮按用户要求停在人工评审，未运行 Cargo、WDIO、Native、Go、WS 或双账号真实链 | @2026-07-28T18:53:00-0700
+
 🎯 EXPECT 修复 Timeline V3 真实定位在 Native 单行探测后的 continuation 断点；可证伪断言：① `im_locate_message` 在 attached timeline 上直接进入 Go `postContext` authority，不再依赖非必要的本地 `StorageOp::Get` 回报；② HTTP 成功仍必须经过 message upsert PersistOk 与 target readback 后才产生 Frame；③ formal ScenarioRunner、helix-im 聚焦测试和 G10b/G11a PC real lane 通过；④ 不改 helix-core/driver/协议字段，不恢复 raw event 或 Replace | 赌注 中 | 可逆 是 | @2026-07-28T12:00:00-0700
 
 ✅ DONE（HELIX FOCUSED）`im_locate_message` 已移除 Native 非必要的 `StorageOp::Get` continuation，直接进入 Go `postContext` authority；HTTP 后的 message upsert PersistOk 与 target readback 屏障保持不变。`cargo check -p helix-im` PASS，G10b/G10c/G10d/G11a formal producer 4/4 PASS；PC real lane 待新 Helix revision 重建 candidate 后继续验证 | @2026-07-28T12:20:00-0700

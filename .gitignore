@@ -14,6 +14,9 @@ crates/helix-driver-ffi/smoke/build/
 .agents/tmp/
 .gstack/
 
+# 本地 Gate 入站/出站原始证据可能含运行态数据，不进入 Git。
+**/.v1/
+
 # Python extension runtime caches
 __pycache__/
 *.py[cod]

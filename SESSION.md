@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 为 Spec 047 建立被 Git 忽略的本地 `.v1` Gate 证据目录；可证伪断言：① 截图 30 Gate 各有独立目录与 `contract.json`、`capture-status.json`；② 每个 Gate 明确 Helix 视角的 ingress command/WS/HTTP response 与 egress HTTP/Persist/Frame，不把方向混写；③ 当前 Strict Matrix、Helix tests、WDIO mock/single/dual 与历史 evidence 仅作为 source index，未找到同一 run 的原始入站/出站/响应一律标 `NOT_CAPTURED`；④ `.v1` 被仓库 `.gitignore` 命中且不会进入 commit；⑤ 生成器重复执行结果稳定，30/30 目录、JSON 解析、状态汇总与 `git diff --check` 通过 | 赌注 中 | 可逆 是 | @2026-07-28T19:05:00-0700
+
+✅ DONE 已生成 `specs/047-im-event-gate-inventory/.v1/` 本地证据索引：30/30 Gate 各有 aggregate、inbound、outbound、response 四份声明合同、capture status 与独立 captures 槽位目录；Helix producer/fixture 与 WDIO 三 lane 源码索引均为 30/30，历史 evidence 为 26/30，G-10b/G-10c/G-10d/G-11a 无独立历史 evidence。当前同一 run 原始 capture 为 0/90，manifest 如实保持 INCOMPLETE；生成器连续两次全树 SHA-256 相同，120 个合同 JSON、30 个状态 JSON、Git ignore、Node 语法和 `git diff --check` 均 PASS | @2026-07-28T19:20:00-0700
+
 🎯 EXPECT 以当前 Helix producer 测试与 cses-client WDIO 场景为证据，梳理全量 Gate 的事件域、指令族与 sender/receiver 双视角合同；可证伪断言：① 覆盖截图中的 30 个 Gate，并按 im:post、im:channel、im:channel-member、sync/recovery 分类；② 每个 Gate 明确 actor、observer、触发、权威终态、Surface/DOM、当前 Helix/WDIO 覆盖与缺口；③ 源码或场景未覆盖的 receiver 视角显式标为 MISSING，并给出推导应有合同而不冒充现状；④ 只新增一个 Spec Kit feature、质量清单、loop discovery 与本条 SESSION，不修改生产代码或测试；⑤ requirements checklist、mandatory after_specify hook 与 git diff check 通过 | 赌注 高 | 可逆 是 | @2026-07-28T16:30:00-0700
 
 ✅ DONE 已按截图 30 Gate 完成 IM 指令域与 Actor/Observer 双视角规格：分为 sync/recovery、post、schedule、timeline/read、channel/channel-member 五组，逐 Gate 固定触发指令、角色终态、权威完成边界、Surface、Helix/WDIO 源码覆盖和缺口；当前 Matrix epoch 12 的 50/47/3 分母、截图遗漏 G-03 及 G-17 至 G-27 范围差异已单列。30 个主表行、90 个 WDIO Gate-lane 源入口、requirements checklist、JSON、模板占位与 `git diff --check` 静态校验通过；mandatory helix-loop R1 PASS 并进入 planning，但本轮按用户要求停在人工评审，未运行 Cargo、WDIO、Native、Go、WS 或双账号真实链 | @2026-07-28T18:53:00-0700

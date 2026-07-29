@@ -17,6 +17,13 @@
 - **V-005**: `python3 .specify/extensions/helix-loop/scripts/loop_engine.py advance`，
   预期 mandatory `r1_spec` 从 blocked 修复为 passed，并进入等待 plan 的状态。
 - **V-006**: `git diff --check`，预期无空白错误。
+- **V-007**: `node specs/047-im-event-gate-inventory/scripts/generate-v1-evidence.mjs`，
+  预期 `.v1` 生成 30 个 Gate 目录、120 个声明合同文件、30 个捕获状态文件和
+  30 个 `captures/` 槽位目录；连续生成两次的全树 SHA-256 相同。
+- **V-008**: `git check-ignore -v
+  specs/047-im-event-gate-inventory/.v1/manifest.json` 必须命中仓库
+  `**/.v1/` 规则；当前 manifest 必须如实报告 90 个原始捕获槽位中
+  0 个存在、90 个缺失、总判定 `INCOMPLETE`。
 
 ## Evidence Rules
 

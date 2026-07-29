@@ -101,17 +101,23 @@ impl ImModule {
         let Some(mutation) = mutation else {
             return Ok(());
         };
-        if let crate::timeline_navigation::TimelineNavigationKind::Older {
-            anchor_post_id, ..
-        } = state.kind()
-        {
+        let page_direction = match state.kind() {
+            crate::timeline_navigation::TimelineNavigationKind::Older {
+                anchor_post_id, ..
+            } => Some(("older", anchor_post_id.as_str())),
+            crate::timeline_navigation::TimelineNavigationKind::Newer {
+                anchor_post_id, ..
+            } => Some(("newer", anchor_post_id.as_str())),
+            crate::timeline_navigation::TimelineNavigationKind::Locate { .. } => None,
+        };
+        if let Some((direction, anchor_post_id)) = page_direction {
             let page = state.page();
             let _legacy_internal_state = mutation;
             out.push(
                 crate::event::timeline::page(
                     state.channel_id().as_str(),
                     state.window_token(),
-                    "older",
+                    direction,
                     "failed",
                     Vec::new(),
                     page.has_older,

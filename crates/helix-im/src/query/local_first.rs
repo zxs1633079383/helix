@@ -903,16 +903,22 @@ impl ImModule {
                 state.request_id().map(str::to_string),
             )
             .map_err(|error| ImError::Parse(format!("timeline navigation projection: {error}")))?;
-        if let crate::timeline_navigation::TimelineNavigationKind::Older {
-            anchor_post_id, ..
-        } = state.kind()
-        {
+        let page_direction = match state.kind() {
+            crate::timeline_navigation::TimelineNavigationKind::Older {
+                anchor_post_id, ..
+            } => Some(("older", anchor_post_id.as_str())),
+            crate::timeline_navigation::TimelineNavigationKind::Newer {
+                anchor_post_id, ..
+            } => Some(("newer", anchor_post_id.as_str())),
+            crate::timeline_navigation::TimelineNavigationKind::Locate { .. } => None,
+        };
+        if let Some((direction, anchor_post_id)) = page_direction {
             let page = state.page();
             let messages = state
                 .rows()
                 .iter()
                 .filter(|row| {
-                    row.get("id").and_then(Value::as_str) != Some(anchor_post_id.as_str())
+                    row.get("id").and_then(Value::as_str) != Some(anchor_post_id)
                 })
                 .cloned()
                 .collect();
@@ -920,7 +926,7 @@ impl ImModule {
             return Ok(crate::event::timeline::page(
                 state.channel_id().as_str(),
                 state.window_token(),
-                "older",
+                direction,
                 "ready",
                 messages,
                 page.has_older,

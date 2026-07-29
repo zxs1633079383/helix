@@ -136,8 +136,8 @@ MISSING/INFERRED，不用手写 JSON 填绿。
 - [X] T049 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/query/render_ready/` 实现 G-10，生成 JSON，删除旧 ready Frame 并更新 ledger
 - [X] T050 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g10a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g10a`，先覆盖 older page 合并、历史耗尽、HTTP/持久化失败、竞态与 generation 并观察失败
 - [X] T051 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/timeline_navigation.rs`、`crates/helix-im/src/query/local_first.rs` 与 `crates/helix-im/src/port_reply/dispatch_read.rs` 实现当前生产 G-10a，生成 JSON，删除旧 pagination Frame 并更新 ledger
-- [ ] T052 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g10b/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g10b`，先覆盖 revision-1 snapshot、Delta 定位、newer 尾插与耗尽边界并观察失败
-- [ ] T053 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/query/render_ready/` 实现 G-10b，生成 JSON，删除旧 newer Frame 并更新 ledger
+- [X] T052 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g10b/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g10b`，覆盖 newer 尾页、耗尽边界、HTTP/持久化失败与重复回报
+- [X] T053 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/timeline_navigation.rs`、`crates/helix-im/src/query/local_first.rs` 与 `crates/helix-im/src/port_reply/dispatch_read.rs` 实现当前生产 G-10b，生成 JSON，删除旧 newer Frame 并更新 ledger
 - [ ] T054 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g10c/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g10c`，先覆盖满窗口 append、头部淘汰和 consumer 本地选择器职责并观察失败
 - [ ] T055 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/channel/write/post.rs` 实现 G-10c，生成 JSON，删除旧 append Frame 并更新 ledger
 - [ ] T056 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g10d/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g10d`，先覆盖离底 anchor 固定、新消息提示、ActivateWindow 副作用边界并观察失败

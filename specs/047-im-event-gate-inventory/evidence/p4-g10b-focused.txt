@@ -1,0 +1,11 @@
+Spec 047 P4 G-10b 聚焦证据
+
+- message_v3_g10b: PASS 4/4
+- sender: attached newer command 经 HTTP、message PersistOk 与 matching durable row Get 后发布 im:timeline:update
+- receiver: persona-local Gate 无远程事件，generated receiver events 为空
+- success: 去除 anchor 后发布 20 条原始 newer post，hasNewer=false 表示尾部耗尽
+- failure: HTTP 或 Persist 失败发布 state=failed、messages=[]，不泄漏 ready
+- idempotency: matching correlation 消费后的重复 PortReply 为 no-op
+- artifact: .v1/gates/G-10b/generated 四文件由 Rust producer 生成
+- static: partial artifact schema、G-10a 回归、cargo check、hot-path audit、cutover self-test、diff check PASS
+- contract/runtime/dual-user/canonical: 仅 E1/E2；真实 SQLite、消费者同步均 NOT_RUN

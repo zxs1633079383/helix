@@ -89,9 +89,11 @@ E3；E4 runtime、E5 真实 dual-user、跨端 mirror 后的 E6 canonical 均为
 | G-10 timeline 回归 | 事件只含窗口状态与真实 post/message 行，不含 Frame/Surface/mutation/action 派生字段；HTTP 失败显式 `failed` | E2 | `PASS 5/5` | `evidence/p4-g10-focused.txt` | 内部未迁移分页 Gate 暂保留旧窗口算法，P4/P7 收口物理删除 |
 | G-10a | attached older command→HTTP authority→message PersistOk→matching durable row Get→timeline update | E1/E2 | `PASS 5/5` | `evidence/p4-g10a-focused.txt`、`.v1/gates/G-10a/generated/` | persona-local sender 有事件、receiver 为空；未证明真实驱动 SQLite |
 | G-10a timeline 回归 | ready 只发布去除 anchor 的 older page 原始 post 行；failed 保留既有边界且 messages 为空；无 Frame/Surface/action/capability | E2 | `PASS 5/5` | `evidence/p4-g10a-focused.txt` | 当前只迁移 older 分支，newer/locate 留给后续 Gate |
-| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a/G-04/G-04a/G-05/G-06/G-07/G-14/G-14a/G-08/G-09/G-10/G-10a 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 15 of 30` | `evidence/p4-g10a-focused.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 15 Gate 未生成 |
+| G-10b | attached newer command→HTTP authority→message PersistOk→matching durable row Get→timeline update | E1/E2 | `PASS 4/4` | `evidence/p4-g10b-focused.txt`、`.v1/gates/G-10b/generated/` | persona-local sender 有事件、receiver 为空；未证明真实驱动 SQLite |
+| G-10b timeline 回归 | ready 只发布去除 anchor 的 newer page 原始 post 行；hasNewer=false 表示尾部耗尽；无 Frame/Surface/action/capability | E2 | `PASS 4/4` | `evidence/p4-g10b-focused.txt` | locate 分支留给 G-11/G-11a |
+| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a/G-04/G-04a/G-05/G-06/G-07/G-14/G-14a/G-08/G-09/G-10/G-10a/G-10b 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 16 of 30` | `evidence/p4-g10b-focused.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 14 Gate 未生成 |
 
-G-02、G-03a、G-04、G-04a、G-05、G-06、G-07、G-14、G-14a、G-08、G-09、G-10 与 G-10a 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
+G-02、G-03a、G-04、G-04a、G-05、G-06、G-07、G-14、G-14a、G-08、G-09、G-10、G-10a 与 G-10b 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
 E4 runtime、E5 真实 dual-user 与消费者同步后的 E6 canonical 均为 `NOT_RUN`；
 消费者同步继续为 `NOT_SYNCED_BY_SCOPE`。
 

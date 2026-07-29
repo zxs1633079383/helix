@@ -1,5 +1,35 @@
 # Verification Procedure
 
+## 六级证据模型
+
+本规格的证据按下表逐级登记，低等级通过不能借给高等级使用。每条验证记录必须同时写明
+`gate_id`、等级、命令、结果、产物路径、时间窗口和未覆盖边界。
+
+| 等级 | 名称 | 本规格中的含义 | 允许证明 | 不允许冒充 |
+|---|---|---|---|---|
+| E1 | deterministic | 相同 Tick、注入时间、ID 与端口响应经 `ImModule::handle` 重放，完整 Effect 序列和生成文件 byte/hash 相同 | sans-IO 状态机确定性、重复生成稳定性 | 持久化、真实网络、真实客户端 |
+| E2 | contract | Rust 合同测试验证 `event + data`、schema、Gate 集合、字段 lineage 和禁用字段 | MessageV3 结构与单模块业务合同 | 驱动执行、数据库读回、Go/WS |
+| E3 | integration | 测试驱动执行 Persist/PortReply/Emit，且从临时 SQLite 读回后对账 | 写后释放、持久化原子性、模块与 driver 接缝 | 线上 Go、真实认证和真实 WS |
+| E4 | runtime | 单 persona 通过真实宿主、真实 Go、真实 WS 和真实 tenant 完成同一 Gate | 单账号产品链可达与本地恢复 | 第二账号观察结果 |
+| E5 | dual-user | Actor/Observer 使用隔离身份和独立本地库，在同一时间窗口完成双视角断言 | sender/receiver 或 persona-local 传播边界 | canonical 产物可复现与跨端一致 |
+| E6 | canonical | `ScenarioRunner -> ImModule::handle -> Effect::Emit` 生成带 provenance 的唯一 Helix 产物，并由消费者 byte-exact 镜像 | 可审计的跨端唯一合同 | 未实际同步的客户端仓库已通过 |
+
+当前版本只生成 Helix `.v1` 产物，不同步 `cses-client` 或 Mobile，因此即使 E1-E3
+全部通过，消费者同步状态仍必须保持 `NOT_SYNCED_BY_SCOPE`。E4-E6 只有在相应命令和产物
+真实存在时才能升级；源码入口、fixture 或历史 WDIO 文件只能登记为
+`SOURCE_PRESENT / NOT_RUN`。
+
+## 结果状态与失败分类
+
+- `PASS`: 本等级的命令、断言和产物全部完成，且没有借用其他等级证据。
+- `FAIL`: 命令已执行且业务断言失败；保留原始输出，不用摘要覆盖。
+- `BLOCKED`: 所需 Go、认证、WS、设备、账号或消费者同步前置不存在。
+- `NOT_RUN`: 只发现源码、fixture 或测试入口，当前证据窗口未执行。
+- `NOT_APPLICABLE`: 业务合同明确为 persona-local，receiver 为空是断言而不是缺测。
+
+失败至少归入 `DETERMINISM`、`SCHEMA`、`PERSISTENCE`、`PROTOCOL`、`RUNTIME`、
+`DUAL_USER`、`CANONICAL` 或 `ENVIRONMENT`；不得把环境阻塞改写为业务通过。
+
 ## Required Runs
 
 - **V-001**: `jq '[.uc_cases[]] | {total:length, active:(map(select(.lifecycle ==
@@ -71,6 +101,8 @@
 
 ## Evidence Rules
 
-本轮属于 specify 阶段，不运行 Cargo、WDIO 或真实链，也不把静态检查登记成运行态
-Green。进入 plan/implement 后，命令原始输出必须保存到 `evidence/`，并通过
-`loop_engine.py record-evidence` 登记；失败输出不得用总结性文字覆盖。
+实现阶段的命令原始输出必须保存到 `evidence/`，并通过
+`loop_engine.py record-evidence` 登记；失败输出不得用总结性文字覆盖。每个 Gate 的
+最高等级取该 Gate 实际通过的最高连续等级：E2 失败时不能登记 E3，E4 阻塞时不得影响
+已真实通过的 E1-E3，但总交付必须明确为 `PARTIAL` 或 `BLOCKED`。静态源码、Mock、
+HTTP SUCCESS、fixture、build、WS 帧、SQLite 行、DOM 与双用户观察均是不同证据边界。

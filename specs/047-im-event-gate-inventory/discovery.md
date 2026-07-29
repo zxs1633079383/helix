@@ -2,9 +2,12 @@
 
 **Feature**: `specs/047-im-event-gate-inventory`
 **Source Lock**: `240583184791269f39a7d18b5cae0f82d5baf54d`
-**Worktree State**: `M .specify/feature.json
- M SESSION.md
-?? specs/047-im-event-gate-inventory/`
+**Implementation Scope**: 精确 30 Gate；`G-03` 与 `G-17` 至 `G-27` 均为
+`OUT_OF_SCOPE`。本版本只生成 Helix `.v1` 产物，不同步 PC/Mobile 消费者。
+
+**Evidence Baseline**: 当前已有源码、fixture 与 WDIO 入口仅登记为
+`SOURCE_PRESENT / NOT_RUN`。MessageV3 的 deterministic、contract、integration、
+runtime、dual-user、canonical 六级证据必须分别执行和登记。
 
 ## Facts *(mandatory)*
 
@@ -90,9 +93,9 @@
 ## Unknowns
 
 - **U-001**: 截图遗漏的 G-03 是否立即加入这批人工评审和后续补测分母。 |
-  **Resolution**: 用户确认；当前规格先保留差集，不擅自改成 31 Gate。
+  **Resolution**: 已确认不加入；本轮保持 `OUT_OF_SCOPE`，不得创建占位测试或 JSON。
 - **U-002**: G-17 至 G-27 是否应在下一轮按相同双视角模板继续展开。 |
-  **Resolution**: 用户确认本轮 30 Gate 后，再由 `/speckit-clarify` 或新规格定范围。
+  **Resolution**: 已确认不加入；后续必须另行明确范围，不得计入本轮完成率。
 - **U-003**: 定时消息真正到点投递、取消与触发竞态、owner 退出后的角色转移是否作为
   独立 Gate。 |
   **Resolution**: 产品人工 Gate；当前仅标记 `MISSING/INFERRED`，不冒充既有合同。
@@ -110,7 +113,11 @@
   Mock、single-real 和 dual-real 不互相替代。
 - **D-004**: 当前场景没断言的 receiver/角色行为标记 `MISSING`；由相邻业务不变量
   推导的目标标记 `INFERRED`，等待用户确认后才能进入计划。
-- **D-005**: 本轮仅产出规格、质量清单、discovery 与 loop ledger，不修改生产代码、
-  测试或现有 Gate 注册表。
+- **D-005**: 本轮在 Helix 仓内完成 30 Gate 的生产接码、独立 Rust 测试与 `.v1`
+  产物生成；不修改或同步 `cses-client` WDIO 与 Mobile GTest。
 - **D-006**: 以 `contracts/storage-schema-lock.v1.json` 冻结本轮只读表结构；每个 Gate
   的 inbound/outbound 样例必须引用该锁并列出逐列行结构，未映射字段显式进入派生清单。
+- **D-007**: 本轮唯一实现分母为 spec 冻结的 30 Gate。G-03 和 G-17 至 G-27 只作为
+  排除边界记录，不创建测试 target、generated 目录或空产物。
+- **D-008**: 当前历史生产测试、canonical fixture 与 WDIO 场景均只证明入口存在；
+  只有本轮按六级模型实际执行并登记的结果才能提升 Gate 证据等级。

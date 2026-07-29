@@ -111,7 +111,7 @@ Frame/Surface 目标描述。历史证据可保留，但必须明确标记为 re
 - **V-005**: manifest 集合检查证明 30 Gate missing/extra/duplicate 均为 0。
 - **V-006**: `cargo check`、`cargo test -p helix-im`、wasm build 证明共享删除未破坏三端 Rust。
 - **V-007**: P0 manifest 校验证明 30 Gate 的生产 owner 与 V2/V1 删除引用在任何生产编码前
-  已登记，未知项不得使用空数组或 `TODO` 逃逸。
+  已登记为 `PENDING_REMOVAL/N/A/DEFERRED_BY_SCOPE`，未知项不得使用空数组或 `TODO` 逃逸。
 - **V-008**: 公共红测试必须先证明 `PersistOk` 前无 terminal Emit、匹配回复后恰好释放一次，
   再允许实现公共释放编排。
 

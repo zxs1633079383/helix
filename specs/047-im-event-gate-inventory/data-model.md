@@ -80,7 +80,7 @@ JSON key，或在 Gate 合同中声明为 correlation/query/role 派生；未知
 | `test_target` | string | `message_v3_<gate>`，一 Gate 一个显式 target |
 | `test_path` | string | `tests/message_v3/<package>/<gate>/main.rs` |
 | `generated_files` | string[] | 固定四文件 |
-| `legacy_inventory` | LegacyRef[] | Helix 项为 `removed/N/A`，客户端项可为 `DEFERRED_BY_SCOPE`，均带证据 |
+| `legacy_inventory` | LegacyRef[] | Helix 项为 `PENDING_REMOVAL/REMOVED/N/A`，客户端项可为 `DEFERRED_BY_SCOPE`，均带证据 |
 | `verification` | string[] | 聚焦命令与结果引用 |
 
 ## Relationships

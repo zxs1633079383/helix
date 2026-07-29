@@ -308,7 +308,8 @@ Out Of Scope）。`.v1` 生成物具备 byte-exact 可镜像性即视为满足�
 - **FR-042**: 每个 Gate 的删除清单 MUST 在任何生产编码前完成，并至少覆盖 V2 Frame
   composer/projector/VM/fixture、旧 V1 inbound parser/command alias、旧 outbound
   emit/subscription/reducer、capability 注册、测试 helper、客户端镜像与文档引用。Helix
-  仓内未命中项必须注明 `N/A` 及代码证据；受 FR-044 约束的客户端镜像只能标
+  仓内已定位但尚待当前 Gate 删除的引用必须标 `PENDING_REMOVAL`，删除并验证后改为
+  `REMOVED`；未命中项注明 `N/A` 及代码证据。受 FR-044 约束的客户端镜像只能标
   `DEFERRED_BY_SCOPE` 并附跨仓零写入证据，不得伪装为已删除。
 - **FR-043**: 本版本 MUST 只在 Helix 仓内生成
   `.v1/gates/<Gate>/generated/inbound.json`、`outbound.sender.json`、

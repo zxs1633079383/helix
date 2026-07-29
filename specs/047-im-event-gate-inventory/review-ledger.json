@@ -2,8 +2,8 @@
   "schema_version": "1.0",
   "feature_directory": "specs/047-im-event-gate-inventory",
   "phase": "implementing",
-  "event_seq": 38,
-  "next_action": "validate_evidence",
+  "event_seq": 46,
+  "next_action": "implement_tasks",
   "budget": {
     "max_same_failure_attempts": 2
   },
@@ -16,20 +16,20 @@
   "gates": {
     "r1_spec": {
       "status": "pass",
-      "fingerprint": "e1347b060deee1d05a2dc12bd9a5790fd2db6ca7d80f60a9fc2e4bcbc428805b",
-      "checked_at": "2026-07-29T10:04:59Z",
+      "fingerprint": "87b01b0f8c07d91c212aacccd426625fa26212700eb4721e7549d9a5b5570b1c",
+      "checked_at": "2026-07-29T10:34:03Z",
       "issues": []
     },
     "r2_plan": {
       "status": "pass",
-      "fingerprint": "4c5b4f7bbc769e65131051ca53d78f677e3993419518758a0d21548db6271e73",
-      "checked_at": "2026-07-29T10:08:37Z",
+      "fingerprint": "587caa0d6587b0f0aa6224dcf6b6352117ad2400002501331926d6f6de11467c",
+      "checked_at": "2026-07-29T10:34:08Z",
       "issues": []
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "104639e59e825c5481877d1e5a4e56cd4be44da815a449c185ca25c057d52310",
-      "checked_at": "2026-07-29T10:08:49Z",
+      "fingerprint": "a2d58a0e075ae9f90e9e35c1f0b979db0710c9b7a1efe3260b3c6dd0972ea42d",
+      "checked_at": "2026-07-29T10:37:30Z",
       "issues": []
     },
     "r4_evidence": {
@@ -273,6 +273,54 @@
       "at": "2026-07-29T10:25:56Z",
       "kind": "phase",
       "detail": "verifying->implementing: recorded evidence pre-implement-hook-blocked"
+    },
+    {
+      "seq": 39,
+      "at": "2026-07-29T10:34:03Z",
+      "kind": "phase",
+      "detail": "implementing->specifying: input fingerprint changed for r1_spec"
+    },
+    {
+      "seq": 40,
+      "at": "2026-07-29T10:34:03Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 41,
+      "at": "2026-07-29T10:34:08Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 42,
+      "at": "2026-07-29T10:34:16Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 43,
+      "at": "2026-07-29T10:34:23Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 44,
+      "at": "2026-07-29T10:37:30Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 45,
+      "at": "2026-07-29T10:37:30Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 46,
+      "at": "2026-07-29T10:37:35Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
     }
   ]
 }

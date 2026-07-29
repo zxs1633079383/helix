@@ -93,7 +93,8 @@ WDIO/GTest。artifact schema 预留 consumer 和镜像 hash 字段，但当前�
 ## R-007：删除清单与生产编码顺序
 
 **Decision**: 在 P0 的任何生产编码前，先为精确 30 Gate 建立完整迁移 manifest，登记生产
-owner、V2/V1 引用、客户端镜像和文档引用。Helix 命中项必须给出待删除路径或 `N/A` 证据；
+owner、V2/V1 引用、客户端镜像和文档引用。Helix 命中项必须给出
+`PENDING_REMOVAL` 路径或 `N/A` 证据；
 客户端项只能按本版本边界记为 `DEFERRED_BY_SCOPE`。
 
 **Rationale**: Constitution 要求 per-Gate deletion inventory 是实现准入条件。实现后补清单

@@ -311,6 +311,9 @@ pub enum CorrelationContext {
         causation_id: Option<String>,
     },
 
+    /// G09 原子提交成功后读取 creator 本地 canceled 绝对态。
+    MessageV3ScheduleCanceledReadback,
+
     /// UC-3 `im_query_dialog_list` Scan 回报 → emit `message.left-dialog-list` 完整 snapshot frame。
     DialogListQuery { causation_id: Option<String> },
 

@@ -82,6 +82,10 @@ path = "tests/message_v3/post/g14a/main.rs"
 name = "message_v3_g08"
 path = "tests/message_v3/schedule/g08/main.rs"
 
+[[test]]
+name = "message_v3_g09"
+path = "tests/message_v3/schedule/g09/main.rs"
+
 [[bench]]
 name = "step_inorder"
 harness = false

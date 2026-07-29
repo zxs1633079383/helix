@@ -760,118 +760,6 @@ fn im_channel_settings_updated_freezes_render_ready_settings_and_version() {
     );
 }
 
-#[test]
-fn im_schedule_created_freezes_render_ready_schedule_fields() {
-    let e = to_effect_s1::emit_schedule_created(
-        ch(),
-        &serde_json::json!({
-            "scheduleId": "schedule-1",
-            "sendAt": 1_700_000_000_000_i64,
-            "status": "scheduled",
-            "revision": 7,
-            "message": "下午三点发送完整正文，不得用摘要代替",
-            "messagePreview": "稍后发送"
-        }),
-        None,
-        true,
-    );
-    assert_frozen(
-        &e,
-        "im:channel:schedule-created",
-        &[
-            "channelId",
-            "hasSchedulePost",
-            "id",
-            "messagePreview",
-            "revision",
-            "scheduleId",
-            "scheduleMessage",
-            "scheduleMessagePreview",
-            "scheduleRevision",
-            "scheduleSendAt",
-            "scheduleStatus",
-            "sendAt",
-            "status",
-        ],
-    );
-    let Effect::Emit { event } = e else {
-        panic!("必须 emit")
-    };
-    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    assert_eq!(
-        payload["data"]["scheduleMessage"],
-        "下午三点发送完整正文，不得用摘要代替"
-    );
-    assert_eq!(payload["data"]["scheduleMessagePreview"], "稍后发送");
-    assert_eq!(payload["data"]["scheduleSendAt"], 1_700_000_000_000_i64);
-    assert_eq!(payload["data"]["scheduleRevision"], 7);
-    assert_eq!(payload["data"]["scheduleStatus"], "scheduled");
-}
-
-#[test]
-fn im_schedule_canceled_freezes_render_ready_schedule_fields_without_preview_leak() {
-    let e = to_effect_s1::emit_schedule_canceled(
-        ch(),
-        &serde_json::json!({
-            "schedule_id": "schedule-1",
-            "send_at": 1_700_000_000_000_i64,
-            "revision": 8,
-            "status": "scheduled",
-            "message": "不得泄露完整正文",
-            "message_preview": "不得泄露"
-        }),
-        None,
-        false,
-    );
-    assert_frozen(
-        &e,
-        "im:channel:schedule-canceled",
-        &[
-            "channelId",
-            "hasSchedulePost",
-            "id",
-            "messagePreview",
-            "revision",
-            "scheduleId",
-            "scheduleMessage",
-            "scheduleMessagePreview",
-            "scheduleRevision",
-            "scheduleSendAt",
-            "scheduleStatus",
-            "sendAt",
-            "status",
-        ],
-    );
-    let Effect::Emit { event } = e else {
-        panic!("必须 emit")
-    };
-    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    assert!(payload["data"]["scheduleMessage"].is_null());
-    assert!(payload["data"]["messagePreview"].is_null());
-    assert!(payload["data"]["scheduleMessagePreview"].is_null());
-    assert_eq!(payload["data"]["scheduleStatus"], "canceled");
-}
-
-#[test]
-fn im_schedule_created_never_uses_preview_as_editable_message_fallback() {
-    let e = to_effect_s1::emit_schedule_created(
-        ch(),
-        &serde_json::json!({
-            "scheduleId": "schedule-preview-only",
-            "sendAt": 1_700_000_000_000_i64,
-            "messagePreview": "只有摘要"
-        }),
-        None,
-        true,
-    );
-    let Effect::Emit { event } = e else {
-        panic!("必须 emit")
-    };
-    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    assert!(payload["data"]["scheduleMessage"].is_null());
-    assert_eq!(payload["data"]["scheduleMessagePreview"], "只有摘要");
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // §3. 透传/投影类（外层包装键集冻结；载荷内部 wire 字段由现网契约保真）
 // ════════════════════════════════════════════════════════════════════════════
@@ -1060,12 +948,12 @@ fn im_channels_loaded_delete_path_freezes_reason() {
 // §5. 镜像完整性：26 工厂全覆盖 + 提取工具负路径
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 冻结全集计数：本测试覆盖的工厂调用数 == projection-schema.md §1 表行数 == 26。
+/// 冻结旧投影全集计数：本测试覆盖的工厂调用数 == projection-schema.md §1 表行数 == 22。
 /// 任何新增 emit 工厂未在本测试加 case → 此断言提示补齐（防漏测漂移）。
-/// 对账迁移中的 26 个可达事件/投影出口，避免删除旧 factory 后漏测。
+/// 对账迁移中的 22 个可达事件/投影出口，避免删除旧 factory 后漏测。
 #[test]
-fn all_26_projection_factories_covered() {
-    // 逐工厂构造一次，收集 (channel, keys)——证明 26 个出口全可达且产合法 Emit。
+fn all_22_legacy_projection_factories_are_covered() {
+    // 逐工厂构造一次，收集 (channel, keys)——证明 22 个旧出口全可达且产合法 Emit。
     let cid = channel_id(7);
     let raw = serde_json::to_vec(&serde_json::json!({})).unwrap();
     let posts = serde_json::json!([]);
@@ -1096,8 +984,6 @@ fn all_26_projection_factories_covered() {
         )
         .unwrap(),
         to_effect_s1::emit_member_nickname(ch(), "u", "n"),
-        to_effect_s1::emit_schedule_created(ch(), &serde_json::json!({}), None, false),
-        to_effect_s1::emit_schedule_canceled(ch(), &serde_json::json!({}), None, false),
         query::emit_message_query_result(&cid, b"[]"),
         query::emit_dialog_list_frame_result(
             b"[]",
@@ -1109,8 +995,8 @@ fn all_26_projection_factories_covered() {
     ];
     assert_eq!(
         effects.len(),
-        24,
-        "projection-schema.md §1 冻结 24 个公开投影工厂——新增/删除工厂须同步本测试 + 文档表"
+        22,
+        "projection-schema.md §1 冻结 22 个旧投影工厂——新增/删除工厂须同步本测试 + 文档表"
     );
     // 全部产合法 Emit（event 非空 + data 是对象）。
     for e in &effects {
@@ -1122,7 +1008,7 @@ fn all_26_projection_factories_covered() {
             "业务 channel 禁撞 im:__ 总线前缀（防自环）：{name}"
         );
     }
-    // distinct channel 名 = 23（im:channels:loaded 双工厂复用 → 24 工厂收敛成 23 distinct channel）。
+    // distinct channel 名 = 21（im:channels:loaded 双工厂复用 → 22 工厂收敛成 21 distinct channel）。
     let mut names: Vec<String> = effects
         .iter()
         .map(|e| emit_event_and_data_keys(e).unwrap().0)
@@ -1131,12 +1017,12 @@ fn all_26_projection_factories_covered() {
     names.dedup();
     assert_eq!(
         names.len(),
-        23,
-        "23 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 24 工厂 → 23 channel）"
+        21,
+        "21 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 22 工厂 → 21 channel）"
     );
 }
 
-/// 连接控制信号 `im:net:reconnect_requested`（F1-gap1）——**不计入** 26 个 RenderNode 投影工厂（无渲染字段，
+/// 连接控制信号 `im:net:reconnect_requested`（F1-gap1）——**不计入** 22 个旧投影工厂（无渲染字段，
 /// 走连接生命周期通道，与 driver 侧 im:net:offline 同族）。冻结：channel 名 + data 严格空对象。
 #[test]
 fn reconnect_requested_is_control_signal() {

@@ -22,7 +22,7 @@ impl WsMessageHandler for ScheduleCanceledHandler {
         SCHEDULE_CANCELED_ACTION
     }
 
-    /// 将 G09 cancel authority 放入原子持久屏障，成功前不发布 terminal Frame。
+    /// 将 G09 cancel authority 放入原子持久屏障，成功前不发布终态事件。
     fn handle(
         &self,
         ctx: &mut ImWsContext<'_>,
@@ -32,12 +32,21 @@ impl WsMessageHandler for ScheduleCanceledHandler {
         let Ok(data) = frame.data_required() else {
             return Ok(());
         };
-        let Some(fact) = crate::acl::to_effect_s1::ScheduleFact::from_canceled_ws(
+        let Some(fact) = crate::channel::write::ScheduleFact::from_canceled_ws(
             data,
             frame.event_seq().map(|seq| seq.0),
         ) else {
             return Ok(());
         };
+        let requested_by_viewer = ctx
+            .state
+            .pending_schedule_cancel_requests
+            .contains_key(&fact.channel_id);
+        if !requested_by_viewer
+            && (fact.owner_user_id.is_empty() || fact.owner_user_id != ctx.auth_user_id)
+        {
+            return Ok(());
+        }
         let committed = ctx
             .state
             .committed_schedule_revisions

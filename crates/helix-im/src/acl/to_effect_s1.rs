@@ -177,13 +177,7 @@ pub fn emit_member_nickname(channel_id: ChannelId, user_id: &str, nick_name: &st
     )
 }
 
-mod schedule;
 mod storage;
-pub(crate) use schedule::ScheduleFact;
-pub use schedule::{
-    emit_schedule_canceled, emit_schedule_created, owner_schedule_hydration,
-    schedule_preview_authorized,
-};
 pub use storage::{
     channel_set_cols, channel_set_cols_op, delete_channel_members, delete_channel_members_op,
     update_member_nickname, upsert_channel_members, upsert_channel_members_op, MemberRow,

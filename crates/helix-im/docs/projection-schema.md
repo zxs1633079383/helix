@@ -42,7 +42,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 
 ---
 
-## 1. 投影出口全集（24 工厂 → 23 distinct channel）
+## 1. 旧投影出口全集（22 工厂 → 21 distinct channel）
 
 > **spec06 FixB 标注**：message-row 信号已从「三键瘦信号」改为「**完整可渲染 MessageItemData**」（fat，
 > 数据在手零回读，见 §2）。左侧会话列表的写后累计值只进入
@@ -91,8 +91,6 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect_s1::emit_channel_closed` | `im:channel:closed` | `id` `channelId` `closed` `deleteAt` | WS `channel_close` |
 | `to_effect_s1::emit_channel_member_updated` | `im:channel:member-updated` | `channel_id` `channel` | WS `channel_member_update` |
 | `to_effect_s1::emit_member_nickname` | `im:channel:memberNickname` | `channelId` `userId` `nickName` | WS `update_channel_member_nickName` |
-| `to_effect_s1::emit_schedule_created` | `im:channel:schedule-created` | `id` `channelId` `hasSchedulePost` `scheduleId` `scheduleMessage` `scheduleMessagePreview` `scheduleSendAt` `scheduleRevision` `scheduleStatus`（同时保留通用 schedule 字段） | WS `post_schedule_created`；全文仅 owner/服务端授权可见，preview 不得替代全文 |
-| `to_effect_s1::emit_schedule_canceled` | `im:channel:schedule-canceled` | 同 created，且 `hasSchedulePost=false` `scheduleStatus=canceled` | WS `post_schedule_canceled`；取消为终态，未授权时正文与摘要均为 `null` |
 | `query::emit_message_query_result` | `im:messages:query_result` | `channel_id` `messages` | invoke `im_query_messages_by_channel` |
 | `query::emit_dialog_list_frame_result` | `im:interaction:frame` | `schemaVersion` `surface` `frameId` `scope` `mode` `baseRevision?` `revision` `causationId?` `snapshot?` `patch?` | invoke `im_query_dialog_list` / 左侧列表写后 patch |
 | `query::emit_dialogs_cleared` | `im:channels:loaded`（第二形态）| `reason` | invoke `im_delete_all_dialogs` |
@@ -112,7 +110,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 ### 1.1 连接控制信号（**不计入** §1 RenderNode 投影集 · F1-gap1）
 
 `im_reconnect` 命令（04 文档表 B `IMWS:reconnect`，连接生命周期归 driver）经 `to_effect::emit_reconnect_requested`
-产一条**连接控制信号**——它**不是投影**（不携业务渲染数据，`data: {}`），故**不纳入 §1 的 26 个投影工厂 / 25 个 distinct channel**，
+产一条**连接控制信号**——它**不是投影**（不携业务渲染数据，`data: {}`），故**不纳入 §1 的 22 个旧投影工厂 / 21 个 distinct channel**，
 与既有 driver 侧横切信号 `im:net:offline`（断网）/ `im:http:unauthorized`（401，`http_cross.rs`）**同族**：
 `im:net:*` 控制事件通道，driver/前端**观察**后做连接生命周期动作（reconnect / 重登）。
 

@@ -1,0 +1,9 @@
+Spec 047 P3 G-09 聚焦证据
+
+- message_v3_g09: PASS 5/5
+- sender: cancelSchedule admission -> post_schedule_canceled -> PersistAtomic -> PersistOk -> durable channel_schedule readback -> im:channel:schedule-canceled
+- receiver: 同一 creator-private authority 零写、零 Emit
+- artifact: .v1/gates/G-09/generated 四文件由 Rust producer 生成
+- regression: G-08 5/5、partial artifact schema 5/5、旧 projection schema 44/44
+- static: cargo check、四个热路径 owner audit、cutover self-test、git diff --check 均 PASS
+- contract/runtime/dual-user/canonical: 仅 E1/E2；Go 真实广播、驱动读回、消费者同步均 NOT_RUN

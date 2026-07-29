@@ -71,9 +71,11 @@ E3；E4 runtime、E5 真实 dual-user、跨端 mirror 后的 E6 canonical 均为
 | G-04 legacy regression | 在线撤回不再发布 deleted/batch/Frame，旧 metadata 有无均收敛为同一最小 revoke 事实 | E2 | `PASS 2/2` | `evidence/p2-g04-focused.txt` | 混合 edit+revoke 仍为未迁移 edit 保留 batch；离线 G-04a 尚未硬切 |
 | G-04a | explicit sync type3 authority、message revoke/cursor 原子提交、PersistOk 后离线 receiver 最小 revoke 与 sync state | E1/E2 | `PASS 2/2` | `evidence/p2-g04a-focused.txt`、`.v1/gates/G-04a/generated/` | sender 为空是在线已处理事实不重复；未执行真实断网/驱动重启 |
 | G-04a replay regression | 同 seq 重放不重复 revoke；恢复 cursor=1 后 no_change 不发布终态 | E2 | `PASS 12/12 + 6/6` | `evidence/p2-g04a-focused.txt` | 冷启动以新 Module 注入已恢复 cursor 证明，不替代真实 SQLite driver 读回 |
-| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a/G-04/G-04a 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 6 of 30` | `evidence/p2-g04a-focused.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 24 Gate 未生成 |
+| G-05 | public relay command 只读 source durable row、各 target 独立 HTTP admission 与可信 WS authority、目标原子写后读回 | E1/E2 | `PASS 2/2` | `evidence/p2-g05-focused.txt`、`.v1/gates/G-05/generated/` | 双 persona 为本地确定性回放；未执行真实 Go fanout |
+| G-05 forward regression | individual/merged 各自独立 target identity；sender unread=0、receiver 依次为 1/2；raw merge props 收敛为 bounded `forwardDetail` | E2 | `PASS 12/12 + 47/47 + 3/3` | `evidence/p2-g05-focused.txt` | 覆盖两个 target 的成功链；部分失败仍为规格已标 `MISSING` |
+| partial artifact schema | 已生成 G-15a/G-01/G-02/G-03a/G-04/G-04a/G-05 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 7 of 30` | `evidence/p2-g05-focused.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 23 Gate 未生成 |
 
-G-02、G-03a、G-04 与 G-04a 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
+G-02、G-03a、G-04、G-04a 与 G-05 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
 E4 runtime、E5 真实 dual-user 与消费者同步后的 E6 canonical 均为 `NOT_RUN`；
 消费者同步继续为 `NOT_SYNCED_BY_SCOPE`。
 

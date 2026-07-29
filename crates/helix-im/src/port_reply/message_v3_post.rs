@@ -63,6 +63,8 @@ impl ImModule {
             readback_corr,
             CorrelationContext::MessageV3PostReadback {
                 received_data: Box::new(received_data),
+                channel_id: event.channel_id,
+                causation_id: event.causation_id.clone(),
             },
         );
 
@@ -83,6 +85,8 @@ impl ImModule {
     pub(super) fn handle_message_v3_post_readback_reply(
         &mut self,
         received_data: serde_json::Value,
+        channel_id: crate::state::ChannelId,
+        causation_id: Option<String>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -92,6 +96,11 @@ impl ImModule {
         let received = crate::event::post::received(received_data)?;
         out.push(received.into_effect());
         out.push(channel.into_effect());
+        if let Some(causation_id) = causation_id {
+            self.state
+                .pending_forward_deliveries
+                .complete_target(&causation_id, channel_id);
+        }
         Ok(())
     }
 }

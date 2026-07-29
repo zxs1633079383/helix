@@ -3,6 +3,8 @@
 use super::MessageV3Event;
 use serde_json::Value;
 
+mod forward;
+
 /// 保存一次 authority 投影生成的 post 终态与 channel lastPost。
 pub struct AuthorityProjection {
     pub received_data: Value,
@@ -82,14 +84,122 @@ pub fn authority_projection(
     if let Some(object) = props.as_object_mut() {
         object.remove("channel_event_seq");
     }
-    if !props.as_object().is_some_and(serde_json::Map::is_empty) && !props.is_null() {
-        received_data["props"] = props.clone();
-        last_post["props"] = props;
+    if event.fields.msg_type.eq_ignore_ascii_case("MULTIPLY") {
+        attach_shared_field(
+            &mut received_data,
+            &mut last_post,
+            "forwardDetail",
+            forward::detail(&props),
+        );
+    } else if !props.as_object().is_some_and(serde_json::Map::is_empty) && !props.is_null() {
+        attach_shared_field(&mut received_data, &mut last_post, "props", props);
     }
     Ok(AuthorityProjection {
         received_data,
         last_post,
     })
+}
+
+/// 把同一业务值写入 post 与 lastPost，边界处只做一次必要复制。
+fn attach_shared_field(received_data: &mut Value, last_post: &mut Value, key: &str, value: Value) {
+    received_data[key] = value.clone();
+    last_post[key] = value;
+}
+
+/// 从 createPosts authority 构造逐 target admission 结果。
+pub fn batch_result_from_authority(
+    req_id: &str,
+    body: &Value,
+) -> Result<MessageV3Event, crate::ImError> {
+    let targets_in = body
+        .get("data")
+        .and_then(|data| data.get("targets"))
+        .and_then(Value::as_array);
+    let targets = targets_in
+        .into_iter()
+        .flatten()
+        .filter_map(|target| {
+            let channel_id = target.get("channelId")?.as_str()?.trim();
+            if channel_id.is_empty() {
+                return None;
+            }
+            let accepted = target.get("status").and_then(Value::as_str) == Some("accepted");
+            Some(serde_json::json!({
+                "channelId": channel_id,
+                "acceptanceStatus": if accepted { "accepted" } else { "failed" },
+                "deliveryStatus": if accepted { "pending" } else { "not-applicable" },
+                "error": target.get("error").and_then(Value::as_str),
+            }))
+        })
+        .collect::<Vec<_>>();
+    let accepted_count = targets
+        .iter()
+        .filter(|target| target["acceptanceStatus"] == "accepted")
+        .count();
+    let failed_count = targets.len().saturating_sub(accepted_count);
+    let batch_status = match (accepted_count, failed_count) {
+        (0, _) => "failed",
+        (_, 0) => "success",
+        _ => "partial",
+    };
+    super::encode(
+        "im:posts:batch-result",
+        serde_json::json!({
+            "reqId": req_id,
+            "batchStatus": batch_status,
+            "acceptedCount": accepted_count,
+            "failedCount": failed_count,
+            "deliveryAuthority": "ws-post",
+            "targets": targets,
+        }),
+    )
+}
+
+/// 构造未获得 target authority 时的批失败事实。
+pub fn batch_error(req_id: &str, error: &str) -> Result<MessageV3Event, crate::ImError> {
+    super::encode(
+        "im:posts:batch-result",
+        serde_json::json!({
+            "reqId": req_id,
+            "batchStatus": "failed",
+            "acceptedCount": 0,
+            "failedCount": 0,
+            "deliveryAuthority": "ws-post",
+            "targets": [],
+            "error": error,
+        }),
+    )
+}
+
+/// 构造 source 本地读取失败时逐 target 的不可投递结果。
+pub fn batch_target_error(
+    req_id: &str,
+    channel_ids: &[String],
+    error: &str,
+) -> Result<MessageV3Event, crate::ImError> {
+    let targets = channel_ids
+        .iter()
+        .map(|channel_id| {
+            serde_json::json!({
+                "channelId": channel_id,
+                "acceptanceStatus": "failed",
+                "deliveryStatus": "not-applicable",
+                "error": error,
+            })
+        })
+        .collect::<Vec<_>>();
+    super::encode(
+        "im:posts:batch-result",
+        serde_json::json!({
+            "reqId": req_id,
+            "batchStatus": "failed",
+            "acceptedCount": 0,
+            "failedCount": targets.len(),
+            "deliveryAuthority": "ws-post",
+            "targets": targets,
+            "error": error,
+        }),
+    )
 }
 
 /// 构造发送失败事实。

@@ -72,9 +72,11 @@ pub enum CorrelationContext {
         received_data: Box<serde_json::Value>,
     },
 
-    /// G-01/G-02 按当前 viewer 读回绝对态后释放双事件。
+    /// G-01/G-02/G-05 按 viewer 读回绝对态，并在成功后消费可信 forward target。
     MessageV3PostReadback {
         received_data: Box<serde_json::Value>,
+        channel_id: ChannelId,
+        causation_id: Option<String>,
     },
 
     /// G-04 update_channel.lastPost 已进入 channel/current-viewer member 原子写集。
@@ -414,7 +416,7 @@ pub enum CorrelationContext {
     },
 
     /// Mutation HTTP replies are transport acknowledgements only. The authoritative WS/sync handler owns
-    /// persistence and the terminal InteractionFrame, so this corr route intentionally performs no UI work.
+    /// persistence and the terminal business events, so this corr route intentionally performs no UI work.
     InteractionMutationAck {
         pending: crate::projector::action::PendingAuthorityAction,
     },

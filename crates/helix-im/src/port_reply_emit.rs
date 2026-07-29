@@ -1,7 +1,7 @@
 //! `handle_port_reply` 双 emit 读族臂的 emit helper（从 port_reply.rs 外提，收口 port_reply.rs 行数基线）。
 //!
 //! S7 byIds 成员快照仍保留双 emit；G12 回复族只把 authority body 规范化为 Helix 内部投影，
-//! 随后由 `message.thread-detail` InteractionFrame V2 作为唯一渲染输出。
+//! 随后由对应 Gate 在持久化读回后发布唯一 MessageV3 业务事件。
 
 use crate::http_envelope::unwrap_sync_envelope;
 use helix_core::tick::PortOutcome;
@@ -112,26 +112,25 @@ pub(crate) fn normalize_replies(
     None
 }
 
-pub(crate) fn emit_create_posts_result(req_id: &str, outcome: &PortOutcome, out: &mut EffectSink) {
-    match outcome {
+/// 将 createPosts admission 回包收敛为 MessageV3 batch result。
+pub(crate) fn emit_create_posts_result(
+    req_id: &str,
+    outcome: &PortOutcome,
+    out: &mut EffectSink,
+) -> Result<(), crate::ImError> {
+    let event = match outcome {
         PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
             Ok(raw_body) => {
                 let body =
                     serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
-                out.push(crate::query::render_ready::batch_result::emit(
-                    req_id, &body,
-                ));
+                crate::event::post::batch_result_from_authority(req_id, &body)?
             }
-            Err(_) => out.push(crate::query::render_ready::batch_result::emit_error(
-                req_id,
-                "response envelope decode failed",
-            )),
+            Err(_) => crate::event::post::batch_error(req_id, "response envelope decode failed")?,
         },
-        PortOutcome::Err(_) => out.push(crate::query::render_ready::batch_result::emit_error(
-            req_id,
-            "http request failed",
-        )),
-    }
+        PortOutcome::Err(_) => crate::event::post::batch_error(req_id, "http request failed")?,
+    };
+    out.push(event.into_effect());
+    Ok(())
 }
 
 pub(crate) fn emit_post_readers(req_id: &str, outcome: &PortOutcome, out: &mut EffectSink) {

@@ -130,6 +130,19 @@
           "sha256": "24bc07b436533e6179247b047c63d57c9461dcc0df0343b8a7a2567f9333402f"
         }
       ]
+    },
+    {
+      "id": "p2-g05-focused",
+      "command": "cargo test -p helix-im --test message_v3_g05 --test one_line_server_contracts_test --test projection_schema_test && cargo test -p helix-im --lib 'forward::tests' && HELIX_GATE_ARTIFACT_ALLOW_PARTIAL=1 cargo test -p helix-im --test message_v3_artifact_schema generated_tree_matches_schemas_when_requested -- --exact && cargo check -p helix-im && node specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs --self-test && git diff --check",
+      "started_at": "2026-07-29T13:16:26Z",
+      "ended_at": "2026-07-29T13:28:10Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p2-g05-focused.txt",
+          "sha256": "d5d819941fd48cdff747e878f56b01d1777427d95e34eb40f555d06b69f2b07b"
+        }
+      ]
     }
   ]
 }

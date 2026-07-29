@@ -60,12 +60,6 @@ impl PendingForwardDeliveryLedger {
         self.targets_by_request.contains_key(request_id)
     }
 
-    pub(crate) fn is_final_target(&self, request_id: &str, channel_id: ChannelId) -> bool {
-        self.targets_by_request
-            .get(request_id)
-            .is_some_and(|targets| targets.len() == 1 && targets.contains(&channel_id))
-    }
-
     pub(crate) fn retain_http_accepted_targets(&mut self, request_id: &str, body: &Value) {
         let Some(targets) = self.targets_by_request.get_mut(request_id) else {
             return;
@@ -128,6 +122,7 @@ impl PendingForwardDeliveryLedger {
 mod tests {
     use super::*;
 
+    /// 多 target ledger 只在最后一个持久化 target 后清空请求。
     #[test]
     fn multi_target_ledger_completes_only_on_the_last_remaining_target() {
         let first = crate::state::test_channel_id(50);
@@ -141,7 +136,6 @@ mod tests {
         assert!(ledger.contains_request("forward-1"));
         assert!(!ledger.complete_target("forward-1", first));
         assert!(ledger.matching_request("forward-1", last).is_some());
-        assert!(ledger.is_final_target("forward-1", last));
         assert!(ledger.complete_target("forward-1", last));
         assert!(!ledger.contains_request("forward-1"));
         assert!(ledger.matching_request("forward-1", last).is_none());
@@ -251,11 +245,14 @@ pub(crate) fn handle_lookup_reply(
             .state
             .pending_forward_deliveries
             .cancel(&assembly.req_id);
-        out.push(crate::query::render_ready::batch_result::emit_target_error(
-            &assembly.req_id,
-            &assembly.target_channel_ids,
-            &format!("source post not found: {source_id}"),
-        ));
+        out.push(
+            crate::event::post::batch_target_error(
+                &assembly.req_id,
+                &assembly.target_channel_ids,
+                &format!("source post not found: {source_id}"),
+            )?
+            .into_effect(),
+        );
         return Ok(());
     };
     assembly.rows.push(row);
@@ -293,7 +290,7 @@ pub(crate) fn handle_source_channel_reply(
         .filter(|title| !title.is_empty())
         .map(str::to_string);
     let Some(title) = title else {
-        cancel_forward_with_error(module, &assembly, "source channel title not found", out);
+        cancel_forward_with_error(module, &assembly, "source channel title not found", out)?;
         return Ok(());
     };
     assembly.source_channel_title = Some(title);
@@ -377,7 +374,7 @@ fn schedule_source_channel_lookup(
             &assembly,
             "merged forward requires one source channel",
             out,
-        );
+        )?;
         return Ok(());
     }
     let source_channel_id = source_channels
@@ -410,16 +407,20 @@ fn cancel_forward_with_error(
     assembly: &ForwardAssembly,
     error: &str,
     out: &mut EffectSink,
-) {
+) -> Result<(), ImError> {
     module
         .state
         .pending_forward_deliveries
         .cancel(&assembly.req_id);
-    out.push(crate::query::render_ready::batch_result::emit_target_error(
-        &assembly.req_id,
-        &assembly.target_channel_ids,
-        error,
-    ));
+    out.push(
+        crate::event::post::batch_target_error(
+            &assembly.req_id,
+            &assembly.target_channel_ids,
+            error,
+        )?
+        .into_effect(),
+    );
+    Ok(())
 }
 
 /// 从 driver Get 回报提取首个对象行，空行与非法 JSON 都视作 authority 缺失。

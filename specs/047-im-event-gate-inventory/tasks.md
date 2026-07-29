@@ -103,8 +103,8 @@ Gate 从此只能走 MessageV3。
 - [X] T031 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/posts_update.rs`、`crates/helix-im/src/ws/handlers/update_channel.rs` 实现 G-04，生成 JSON，删除旧 revoke Frame/alias 并更新 ledger
 - [X] T032 [US2] 新增 `crates/helix-im/tests/message_v3/post/g04a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g04a`，先覆盖离线同步前状态、撤回 replay 幂等与冷启动读回并观察失败
 - [X] T033 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/sync/flow.rs` 实现 G-04a，生成 JSON，删除旧 replay 投影并更新 ledger
-- [ ] T034 [US2] 新增 `crates/helix-im/tests/message_v3/post/g05/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g05`，先覆盖源消息不变、目标频道新 post、目标 receiver 与 dialog preview 并观察失败
-- [ ] T035 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/port_reply/dispatch.rs` 实现 G-05，生成 JSON，删除旧 forward Frame/VM 并更新 ledger
+- [X] T034 [US2] 新增 `crates/helix-im/tests/message_v3/post/g05/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g05`，先覆盖源消息不变、目标频道新 post、目标 receiver 与 dialog preview 并观察失败
+- [X] T035 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/port_reply/dispatch.rs` 实现 G-05，生成 JSON，删除旧 forward Frame/VM 并更新 ledger
 - [ ] T036 [US2] 新增 `crates/helix-im/tests/message_v3/post/g06/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g06`，先覆盖 quick_reply JSONB 幂等、sender/receiver reaction 终态与冷启动读回并观察失败
 - [ ] T037 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/post_update.rs` 实现 G-06，生成 JSON，删除旧 reaction 投影并更新 ledger
 - [ ] T038 [US2] 新增 `crates/helix-im/tests/message_v3/post/g07/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g07`，先覆盖加急创建、确认完成、参与人独立 pending/completed 与 roster 并观察失败

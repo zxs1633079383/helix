@@ -186,9 +186,17 @@ impl ImModule {
             } => {
                 self.handle_message_v3_post_persist_reply(*event, *received_data, outcome, out)?;
             }
-            CorrelationContext::MessageV3PostReadback { received_data } => {
-                self.handle_message_v3_post_readback_reply(*received_data, outcome, out)?;
-            }
+            CorrelationContext::MessageV3PostReadback {
+                received_data,
+                channel_id,
+                causation_id,
+            } => self.handle_message_v3_post_readback_reply(
+                *received_data,
+                channel_id,
+                causation_id,
+                outcome,
+                out,
+            )?,
             CorrelationContext::MessageV3RevokeChannelPersist { channel_id } => {
                 self.handle_message_v3_revoke_channel_persist_reply(channel_id, outcome, out);
             }
@@ -264,18 +272,9 @@ impl ImModule {
                     if let Some(data) =
                         pending.frame_patch_data_from_channel_reply(reply.0.as_ref())
                     {
-                        let request_id = pending.causation_id.clone();
-                        let is_final_target = request_id.as_ref().is_some_and(|request_id| {
-                            self.state
-                                .pending_forward_deliveries
-                                .is_final_target(request_id, pending.channel_id)
-                        });
-                        let terminal_causation =
-                            if is_final_target || pending.source == "sync_events" {
-                                request_id.clone()
-                            } else {
-                                None
-                            };
+                        let terminal_causation = (pending.source == "sync_events")
+                            .then(|| pending.causation_id.clone())
+                            .flatten();
                         let mut frame =
                             crate::dialog_frame::patch_from_dialog_projection_with_causation(
                                 &mut self.state.dialog_list_frame,
@@ -295,17 +294,6 @@ impl ImModule {
                         }
                         if let Some(frame) = frame {
                             out.push(frame);
-                            if let Some(request_id) = request_id.filter(|_| is_final_target) {
-                                let batch_complete = self
-                                    .state
-                                    .pending_forward_deliveries
-                                    .complete_target(&request_id, pending.channel_id);
-                                if batch_complete {
-                                    self.state
-                                        .action_registry
-                                        .complete_after_terminal_frame(&request_id);
-                                }
-                            }
                         }
                         self.schedule_topic_activity_projection(&pending, reply.0.as_ref(), out);
                     } else {
@@ -1079,7 +1067,7 @@ impl ImModule {
                 // createPosts 仅确认各 target admission，不是 delivery authority。只有携同一
                 // csesTrackId 的 WS post 经 dialog 持久化读回后才允许发布 terminal Frame；
                 // 因而这里也不能完成 ActionRegistry，避免 WS-first 后迟到 HTTP 重复确认。
-                crate::port_reply_emit::emit_create_posts_result(&req_id, outcome, out);
+                crate::port_reply_emit::emit_create_posts_result(&req_id, outcome, out)?;
             }
 
             CorrelationContext::TopicActivityRootRead { projection } => {

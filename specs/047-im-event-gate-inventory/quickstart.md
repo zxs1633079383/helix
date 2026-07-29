@@ -12,7 +12,7 @@
 以 G-01 为例：
 
 ```bash
-cargo test -p helix-im --test g01_message_v3_contract_test -- --nocapture
+cargo test -p helix-im --test message_v3_g01 -- --nocapture
 ```
 
 预期先证明真实 `ImModule::handle` 剧本、PersistOk 屏障和 sender/receiver event 顺序。需要生成
@@ -20,7 +20,7 @@ JSON 时：
 
 ```bash
 HELIX_GATE_ARTIFACT_DIR="$PWD/specs/047-im-event-gate-inventory/.v1/gates/G-01/generated" \
-  cargo test -p helix-im --test g01_message_v3_contract_test -- --nocapture
+  cargo test -p helix-im --test message_v3_g01 -- --nocapture
 ```
 
 预期生成：

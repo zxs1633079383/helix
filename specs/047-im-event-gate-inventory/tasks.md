@@ -32,7 +32,7 @@ Gate 不允许双写，也不允许借用其他证据面宣称 Green。
 - [ ] T002 [US5] 在 `docs/harness/decisions.md` 新增取代 ADR-015 的 MessageV3 决策并把 ADR-015 标为 superseded，保留历史而不伪装为现状
 - [ ] T003 [US5] 更新 `docs/ROADMAP.md`，把 P0→P7、30 Gate 硬切、Helix-only 产物与跨仓同步延期写入活账
 - [ ] T004 [US5] 更新 `AGENTS.md` 的行为真源、多端 checklist 与文档索引，移除 Frame/Surface 作为当前目标的指令
-- [ ] T005 [US1] 创建 `specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json`，登记精确 30 Gate、阶段、领域、测试目标、生产 owner 与删除清单
+- [ ] T005 [US1] 创建 `specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json`，登记精确 30 Gate、阶段、`test_package`、`test_path`、显式测试目标、生产 owner 与删除清单
 - [ ] T006 [US5] 新增 `specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs`，校验 Gate 集合、迁移状态、禁用引用和跨仓零写入
 - [ ] T007 [US5] 更新 `specs/047-im-event-gate-inventory/verification.md`，拆分 deterministic、contract、integration、runtime、dual-user、canonical 六级证据
 - [ ] T008 [US5] 更新 `specs/047-im-event-gate-inventory/discovery.md` 与 `specs/047-im-event-gate-inventory/review-ledger.json`，记录本轮 30 Gate 分母和 G-03/G-17..G-27 排除边界
@@ -46,17 +46,17 @@ Gate 不允许双写，也不允许借用其他证据面宣称 Green。
 
 ### Tests First
 
-- [ ] T009 [US5] 新增 `crates/helix-im/tests/message_v3_event_contract_test.rs`，先断言事件只含 `event` 与 `data`、禁止 Frame/Surface 字段并在实现前观察失败
-- [ ] T010 [US5] 新增 `crates/helix-im/tests/message_v3_artifact_schema_test.rs`，先断言四类 generated JSON 满足 `contracts/*.schema.json` 并在生成基础设施完成前观察失败
-- [ ] T011 [US1] 新增 `crates/helix-im/tests/message_v3_gate_registry_test.rs`，先断言注册测试与 manifest 精确覆盖 30 Gate、无重复、无 G-03/G-17..G-27
+- [ ] T009 [US5] 新增 `crates/helix-im/tests/message_v3/contracts/event/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_event_contract`，先断言事件只含 `event` 与 `data`、禁止 Frame/Surface 字段并观察失败
+- [ ] T010 [US5] 新增 `crates/helix-im/tests/message_v3/contracts/artifact_schema/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_artifact_schema`，先断言四类 generated JSON 满足 `contracts/*.schema.json` 并观察失败
+- [ ] T011 [US1] 新增 `crates/helix-im/tests/message_v3/contracts/gate_registry/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_gate_registry`，先断言 manifest 与显式 test target 精确覆盖 30 Gate、无重复、无 G-03/G-17..G-27
 
 ### Implementation
 
 - [ ] T012 [US5] 新增 `crates/helix-im/src/event/mod.rs` 与 `crates/helix-im/src/event/{post,channel,schedule,timeline,read,sync}.rs`，提供按领域构造 `Effect::Emit` 的类型化入口
-- [ ] T013 [US5] 新增 `crates/helix-im/tests/support/message_v3_artifact.rs`，从真实 Tick、完整 Effect、持久化读回和 persona 输出确定性 JSON
+- [ ] T013 [US5] 新增 `crates/helix-im/tests/message_v3/support/{artifact,scenario}.rs`，从真实 Tick、`ImModule::handle`、完整 Effect、持久化读回和 persona 输出确定性 JSON
 - [ ] T014 [US5] 在 `crates/helix-im/src/module/` 与 `crates/helix-im/src/port_reply/` 建立 PersistOk 后才释放 terminal MessageV3 事件的公共编排
 - [ ] T015 [US5] 重写 `specs/047-im-event-gate-inventory/scripts/generate-v1-evidence.mjs`，只编排 Rust 测试、schema 校验、索引和 hash，不再拼装业务 payload
-- [ ] T016 [US5] 在 `crates/helix-im/tests/message_v3_artifact_schema_test.rs` 增加相同输入重复生成 byte/hash 稳定性和敏感字段拒绝测试
+- [ ] T016 [US5] 在 `crates/helix-im/tests/message_v3/contracts/artifact_schema/main.rs` 增加相同输入重复生成 byte/hash 稳定性和敏感字段拒绝测试
 - [ ] T017 [US5] 在 `specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json` 完成 V2 Frame/Surface 与 V1 alias/fallback 的逐 Gate 引用清单
 - [ ] T018 [US5] 运行 P0 聚焦验证并把命令、失败分类和当前证据等级写回 `specs/047-im-event-gate-inventory/verification.md`
 
@@ -69,7 +69,7 @@ Gate 从此只能走 MessageV3。
 
 **Independent Test**: 运行 registry test，缺一个、重复一个或混入 G-03/G-17..G-27 均失败。
 
-- [ ] T019 [US1] 在 `crates/helix-im/tests/message_v3_gate_registry_test.rs` 对账 `spec.md`、`gate-migration.v1.json` 与 Rust 测试目标集合
+- [ ] T019 [US1] 在 `crates/helix-im/tests/message_v3/contracts/gate_registry/main.rs` 对账 `spec.md`、`gate-migration.v1.json`、领域/Gate 目录与 `Cargo.toml` 显式测试目标集合
 - [ ] T020 [US1] 在 `specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs` 校验 `.v1/gates/*/generated` 目录集合只能是精确 30 Gate
 - [ ] T021 [US1] 更新 `specs/047-im-event-gate-inventory/verification.md`，把已有测试源、WDIO 场景源、缺失 receiver 断言和 INFERRED 行为分别列明
 
@@ -81,12 +81,12 @@ Gate 从此只能走 MessageV3。
 
 ### G-15a 创建群聊
 
-- [ ] T022 [US3] 新增 `crates/helix-im/tests/g15a_message_v3_contract_test.rs`，先覆盖 owner/invitee 入站、持久化、summary、roster、role 与双视角 Emit 并观察失败
+- [ ] T022 [US3] 新增 `crates/helix-im/tests/message_v3/channel/g15a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g15a`，先覆盖 owner/invitee 入站、持久化、summary、roster、role 与双视角 Emit 并观察失败
 - [ ] T023 [US3] 在 `crates/helix-im/src/event/channel.rs`、`crates/helix-im/src/port_reply/dispatch_channel_create.rs`、`crates/helix-im/src/ws/handlers/channel_created.rs` 实现 G-15a，生成四类 JSON，删除该 Gate 的 Frame/Surface/V1 分支并更新迁移 ledger
 
 ### G-01 发送文本消息
 
-- [ ] T024 [US2] 新增 `crates/helix-im/tests/g01_message_v3_contract_test.rs`，先覆盖 sender/receiver post、channel lastPost、sender unread=0、receiver unread+1、PersistOk 后 Emit 并观察失败
+- [ ] T024 [US2] 新增 `crates/helix-im/tests/message_v3/post/g01/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g01`，先覆盖 sender/receiver post、channel lastPost、sender unread=0、receiver unread+1、PersistOk 后 Emit 并观察失败
 - [ ] T025 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/port_reply/`、`crates/helix-im/src/ws/handlers/post.rs`、`crates/helix-im/src/channel/write/post.rs` 实现 G-01，生成四类 JSON，删除该 Gate 旧路径并更新迁移 ledger
 
 **Checkpoint**: G-15a、G-01 已硬切；两者不得再产出 Frame/Surface 或旧 V1 事件。
@@ -95,23 +95,23 @@ Gate 从此只能走 MessageV3。
 
 **Goal**: 以同一 post identity 和 persona 独立状态迁移消息行为。
 
-- [ ] T026 [US2] 新增 `crates/helix-im/tests/g02_message_v3_contract_test.rs`，先覆盖文档消息 sender/receiver、附件数据和 channel preview 并观察失败
+- [ ] T026 [US2] 新增 `crates/helix-im/tests/message_v3/post/g02/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g02`，先覆盖文档消息 sender/receiver、附件数据和 channel preview 并观察失败
 - [ ] T027 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/post.rs` 实现 G-02，生成 JSON，删除该 Gate 旧投影并更新 ledger
-- [ ] T028 [US2] 新增 `crates/helix-im/tests/g03a_message_v3_contract_test.rs`，先覆盖初次失败仅 sender、retry 复用 temporary_id、成功后 receiver 才可见并观察失败
+- [ ] T028 [US2] 新增 `crates/helix-im/tests/message_v3/post/g03a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g03a`，先覆盖初次失败仅 sender、retry 复用 temporary_id、成功后 receiver 才可见并观察失败
 - [ ] T029 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/port_reply/dispatch.rs` 实现 G-03a retry，生成 JSON，删除旧 sending/sent/failed fallback 并更新 ledger
-- [ ] T030 [US2] 新增 `crates/helix-im/tests/g04_message_v3_contract_test.rs`，先覆盖 `im:post:revoke`、同 post 幂等更新、双视角系统提示和 lastPost 更新并观察失败
+- [ ] T030 [US2] 新增 `crates/helix-im/tests/message_v3/post/g04/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g04`，先覆盖 `im:post:revoke`、同 post 幂等更新、双视角系统提示和 lastPost 更新并观察失败
 - [ ] T031 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/posts_update.rs`、`crates/helix-im/src/ws/handlers/update_channel.rs` 实现 G-04，生成 JSON，删除旧 revoke Frame/alias 并更新 ledger
-- [ ] T032 [US2] 新增 `crates/helix-im/tests/g04a_message_v3_contract_test.rs`，先覆盖离线同步前状态、撤回 replay 幂等与冷启动读回并观察失败
+- [ ] T032 [US2] 新增 `crates/helix-im/tests/message_v3/post/g04a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g04a`，先覆盖离线同步前状态、撤回 replay 幂等与冷启动读回并观察失败
 - [ ] T033 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/sync/flow.rs` 实现 G-04a，生成 JSON，删除旧 replay 投影并更新 ledger
-- [ ] T034 [US2] 新增 `crates/helix-im/tests/g05_message_v3_contract_test.rs`，先覆盖源消息不变、目标频道新 post、目标 receiver 与 dialog preview 并观察失败
+- [ ] T034 [US2] 新增 `crates/helix-im/tests/message_v3/post/g05/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g05`，先覆盖源消息不变、目标频道新 post、目标 receiver 与 dialog preview 并观察失败
 - [ ] T035 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/port_reply/dispatch.rs` 实现 G-05，生成 JSON，删除旧 forward Frame/VM 并更新 ledger
-- [ ] T036 [US2] 新增 `crates/helix-im/tests/g06_message_v3_contract_test.rs`，先覆盖 quick_reply JSONB 幂等、sender/receiver reaction 终态与冷启动读回并观察失败
+- [ ] T036 [US2] 新增 `crates/helix-im/tests/message_v3/post/g06/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g06`，先覆盖 quick_reply JSONB 幂等、sender/receiver reaction 终态与冷启动读回并观察失败
 - [ ] T037 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/post_update.rs` 实现 G-06，生成 JSON，删除旧 reaction 投影并更新 ledger
-- [ ] T038 [US2] 新增 `crates/helix-im/tests/g07_message_v3_contract_test.rs`，先覆盖加急创建、确认完成、参与人独立 pending/completed 与 roster 并观察失败
+- [ ] T038 [US2] 新增 `crates/helix-im/tests/message_v3/post/g07/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g07`，先覆盖加急创建、确认完成、参与人独立 pending/completed 与 roster 并观察失败
 - [ ] T039 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/post_update.rs` 实现 G-07，生成 JSON，删除旧 urgent Frame/VM 并更新 ledger
-- [ ] T040 [US2] 新增 `crates/helix-im/tests/g14_message_v3_contract_test.rs`，先覆盖单条已读、发送者回执视图、参与人独立状态与恢复并观察失败
+- [ ] T040 [US2] 新增 `crates/helix-im/tests/message_v3/read/g14/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g14`，先覆盖单条已读、发送者回执视图、参与人独立状态与恢复并观察失败
 - [ ] T041 [US2] 在 `crates/helix-im/src/event/read.rs`、`crates/helix-im/src/ws/handlers/post_read.rs`、`crates/helix-im/src/port_reply/dispatch_read.rs` 实现 G-14，生成 JSON，删除旧 read Frame 并更新 ledger
-- [ ] T042 [US2] 新增 `crates/helix-im/tests/g14a_message_v3_contract_test.rs`，先覆盖模板确认、权威已收到状态与冷启动恢复并观察失败
+- [ ] T042 [US2] 新增 `crates/helix-im/tests/message_v3/post/g14a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g14a`，先覆盖模板确认、权威已收到状态与冷启动恢复并观察失败
 - [ ] T043 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/post_update.rs` 实现 G-14a，生成 JSON，删除旧 template Frame/VM 并更新 ledger
 
 **Checkpoint**: 九个 Post 行为 Gate 全部以同一 identity 幂等更新，未完成的 receiver 行为保持
@@ -121,9 +121,9 @@ MISSING/INFERRED，不用手写 JSON 填绿。
 
 **Goal**: 定时消息创建/取消保持 creator 私有，实际触发后的普通消息由 G-01 合同负责。
 
-- [ ] T044 [US2] 新增 `crates/helix-im/tests/g08_message_v3_contract_test.rs`，先覆盖空 channel summary、定时状态、creator-only Emit 与冷启动恢复并观察失败
+- [ ] T044 [US2] 新增 `crates/helix-im/tests/message_v3/schedule/g08/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g08`，先覆盖空 channel summary、定时状态、creator-only Emit 与冷启动恢复并观察失败
 - [ ] T045 [US2] 在 `crates/helix-im/src/event/schedule.rs`、`crates/helix-im/src/ws/handlers/post_schedule_created.rs` 实现 G-08，生成 JSON，删除旧 schedule Frame 并更新 ledger
-- [ ] T046 [US2] 新增 `crates/helix-im/tests/g09_message_v3_contract_test.rs`，先覆盖已定时到取消终态、creator-only Emit 与冷启动恢复并观察失败
+- [ ] T046 [US2] 新增 `crates/helix-im/tests/message_v3/schedule/g09/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g09`，先覆盖已定时到取消终态、creator-only Emit 与冷启动恢复并观察失败
 - [ ] T047 [US2] 在 `crates/helix-im/src/event/schedule.rs`、`crates/helix-im/src/ws/handlers/post_schedule_canceled.rs` 实现 G-09，生成 JSON，删除旧 schedule Frame 并更新 ledger
 
 **Checkpoint**: G-08/G-09 不制造 receiver 消息；触发投递仍复用 G-01。
@@ -132,23 +132,23 @@ MISSING/INFERRED，不用手写 JSON 填绿。
 
 **Goal**: timeline window、anchor、token、append 与已读状态都按 persona 独立持久化和释放。
 
-- [ ] T048 [US4] 新增 `crates/helix-im/tests/g10_message_v3_contract_test.rs`，先覆盖 timeline ready、缓存降级、HTTP 缺失/超时和恢复并观察失败
+- [ ] T048 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g10/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g10`，先覆盖 timeline ready、缓存降级、HTTP 缺失/超时和恢复并观察失败
 - [ ] T049 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/query/render_ready/` 实现 G-10，生成 JSON，删除旧 ready Frame 并更新 ledger
-- [ ] T050 [US4] 新增 `crates/helix-im/tests/g10a_message_v3_contract_test.rs`，先覆盖 older page 合并、历史耗尽、HTTP/持久化失败、竞态与 generation 并观察失败
+- [ ] T050 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g10a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g10a`，先覆盖 older page 合并、历史耗尽、HTTP/持久化失败、竞态与 generation 并观察失败
 - [ ] T051 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/channel/older_context/` 实现 G-10a，生成 JSON，删除旧 pagination Frame 并更新 ledger
-- [ ] T052 [US4] 新增 `crates/helix-im/tests/g10b_message_v3_contract_test.rs`，先覆盖 revision-1 snapshot、Delta 定位、newer 尾插与耗尽边界并观察失败
+- [ ] T052 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g10b/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g10b`，先覆盖 revision-1 snapshot、Delta 定位、newer 尾插与耗尽边界并观察失败
 - [ ] T053 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/query/render_ready/` 实现 G-10b，生成 JSON，删除旧 newer Frame 并更新 ledger
-- [ ] T054 [US4] 新增 `crates/helix-im/tests/g10c_message_v3_contract_test.rs`，先覆盖满窗口 append、头部淘汰和 consumer 本地选择器职责并观察失败
+- [ ] T054 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g10c/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g10c`，先覆盖满窗口 append、头部淘汰和 consumer 本地选择器职责并观察失败
 - [ ] T055 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/channel/write/post.rs` 实现 G-10c，生成 JSON，删除旧 append Frame 并更新 ledger
-- [ ] T056 [US4] 新增 `crates/helix-im/tests/g10d_message_v3_contract_test.rs`，先覆盖离底 anchor 固定、新消息提示、ActivateWindow 副作用边界并观察失败
+- [ ] T056 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g10d/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g10d`，先覆盖离底 anchor 固定、新消息提示、ActivateWindow 副作用边界并观察失败
 - [ ] T057 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/query/render_ready/` 实现 G-10d，生成 JSON，删除旧 anchor Frame 并更新 ledger
-- [ ] T058 [US4] 新增 `crates/helix-im/tests/g11_message_v3_contract_test.rs`，先覆盖初始 bounded window、定位目标后的 active window 与滚动指令数据并观察失败
+- [ ] T058 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g11/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g11`，先覆盖初始 bounded window、定位目标后的 active window 与滚动指令数据并观察失败
 - [ ] T059 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/query/render_ready/` 实现 G-11，生成 JSON，删除旧 locate Frame 并更新 ledger
-- [ ] T060 [US4] 新增 `crates/helix-im/tests/g11a_message_v3_contract_test.rs`，先覆盖未缓存定位、双向分页乱序、当前 token 激活与旧响应只合并数据并观察失败
+- [ ] T060 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g11a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g11a`，先覆盖未缓存定位、双向分页乱序、当前 token 激活与旧响应只合并数据并观察失败
 - [ ] T061 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/channel/older_context/` 实现 G-11a，生成 JSON，删除旧 locate Frame 并更新 ledger
-- [ ] T062 [US4] 新增 `crates/helix-im/tests/g12_message_v3_contract_test.rs`，先覆盖 thread snapshot、回复列表与话题分支数据并观察失败
+- [ ] T062 [US4] 新增 `crates/helix-im/tests/message_v3/timeline/g12/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g12`，先覆盖 thread snapshot、回复列表与话题分支数据并观察失败
 - [ ] T063 [US4] 在 `crates/helix-im/src/event/timeline.rs`、`crates/helix-im/src/query/render_ready/` 实现 G-12，生成 JSON，删除旧 thread Frame 并更新 ledger
-- [ ] T064 [US2] 新增 `crates/helix-im/tests/g13_message_v3_contract_test.rs`，先覆盖 viewer 会话已读、其他成员未读不变与冷启动恢复并观察失败
+- [ ] T064 [US2] 新增 `crates/helix-im/tests/message_v3/read/g13/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g13`，先覆盖 viewer 会话已读、其他成员未读不变与冷启动恢复并观察失败
 - [ ] T065 [US2] 在 `crates/helix-im/src/event/read.rs`、`crates/helix-im/src/port_reply/dispatch_read.rs` 实现 G-13，生成 JSON，删除旧 dialog-read Frame 并更新 ledger
 
 **Checkpoint**: timeline/read 九个 Gate 的窗口和状态是 persona-local，UI 导航指令不再套在
@@ -158,13 +158,13 @@ Frame/Surface 中。
 
 **Goal**: 频道生命周期和成员状态向有权观察者收敛，角色与本地导航仍按 viewer 独立。
 
-- [ ] T066 [US3] 新增 `crates/helix-im/tests/g15_message_v3_contract_test.rs`，先覆盖 topic 创建、WS topic 事件、topic dialog 与 summary 恢复并观察失败
+- [ ] T066 [US3] 新增 `crates/helix-im/tests/message_v3/channel/g15/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g15`，先覆盖 topic 创建、WS topic 事件、topic dialog 与 summary 恢复并观察失败
 - [ ] T067 [US3] 在 `crates/helix-im/src/event/channel.rs`、`crates/helix-im/src/ws/handlers/update_channel.rs` 实现 G-15，生成 JSON，删除旧 topic Frame 并更新 ledger
-- [ ] T068 [US3] 新增 `crates/helix-im/tests/g16_message_v3_contract_test.rs`，先覆盖关闭群或退出群后的 actor/observer lifecycle 与恢复并观察失败
+- [ ] T068 [US3] 新增 `crates/helix-im/tests/message_v3/channel/g16/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g16`，先覆盖关闭群或退出群后的 actor/observer lifecycle 与恢复并观察失败
 - [ ] T069 [US3] 在 `crates/helix-im/src/event/channel.rs`、`crates/helix-im/src/ws/handlers/channel_close.rs`、`crates/helix-im/src/ws/handlers/channel_member_update.rs` 实现 G-16，生成 JSON，删除旧 lifecycle Frame 并更新 ledger
-- [ ] T070 [US3] 新增 `crates/helix-im/tests/g16b_message_v3_contract_test.rs`，先覆盖成员退出广播、leaver 与 remaining-member roster 双视角及恢复并观察失败
+- [ ] T070 [US3] 新增 `crates/helix-im/tests/message_v3/channel/g16b/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g16b`，先覆盖成员退出广播、leaver 与 remaining-member roster 双视角及恢复并观察失败
 - [ ] T071 [US3] 在 `crates/helix-im/src/event/channel.rs`、`crates/helix-im/src/ws/handlers/channel_member_update.rs` 实现 G-16b，生成 JSON，删除旧 roster Frame 并更新 ledger
-- [ ] T072 [US3] 新增 `crates/helix-im/tests/g16c_message_v3_contract_test.rs`，先覆盖群名称、简介、公告更新、observer 权限差异与恢复并观察失败
+- [ ] T072 [US3] 新增 `crates/helix-im/tests/message_v3/channel/g16c/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g16c`，先覆盖群名称、简介、公告更新、observer 权限差异与恢复并观察失败
 - [ ] T073 [US3] 在 `crates/helix-im/src/event/channel.rs`、`crates/helix-im/src/ws/handlers/update_channel.rs`、`crates/helix-im/src/ws/handlers/update_channel_notice.rs` 实现 G-16c，生成 JSON，删除旧 settings Frame 并更新 ledger
 
 **Checkpoint**: channel/member/topic 四个 Gate 不再依赖 Frame/Surface；G-15a 基线仍保持 Green。
@@ -173,13 +173,13 @@ Frame/Surface 中。
 
 **Goal**: 以 MessageV3 事件表达 hello、sync notify、pong gap 与陌生 channel 补全的收敛结果。
 
-- [ ] T074 [US4] 新增 `crates/helix-im/tests/gs1_message_v3_contract_test.rs`，先覆盖 hello 后 dialog empty→loaded→recovery 并观察失败
+- [ ] T074 [US4] 新增 `crates/helix-im/tests/message_v3/sync/gs1/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_gs1`，先覆盖 hello 后 dialog empty→loaded→recovery 并观察失败
 - [ ] T075 [US4] 在 `crates/helix-im/src/event/sync.rs`、`crates/helix-im/src/ws/handlers/hello.rs`、`crates/helix-im/src/sync/session.rs` 实现 G-S1，生成 JSON，删除旧 hello Frame 并更新 ledger
-- [ ] T076 [US4] 新增 `crates/helix-im/tests/gs2_message_v3_contract_test.rs`，先覆盖离线 sync notify 收敛和恢复终态并观察失败
+- [ ] T076 [US4] 新增 `crates/helix-im/tests/message_v3/sync/gs2/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_gs2`，先覆盖离线 sync notify 收敛和恢复终态并观察失败
 - [ ] T077 [US4] 在 `crates/helix-im/src/event/sync.rs`、`crates/helix-im/src/sync/explicit.rs` 实现 G-S2，生成 JSON，删除旧 notify Frame 并更新 ledger
-- [ ] T078 [US4] 新增 `crates/helix-im/tests/gs3_message_v3_contract_test.rs`，先覆盖 pong gap 检测、补偿拉取、收敛与恢复并观察失败
+- [ ] T078 [US4] 新增 `crates/helix-im/tests/message_v3/sync/gs3/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_gs3`，先覆盖 pong gap 检测、补偿拉取、收敛与恢复并观察失败
 - [ ] T079 [US4] 在 `crates/helix-im/src/event/sync.rs`、`crates/helix-im/src/sync/pong_batch.rs`、`crates/helix-im/src/ws/handlers/pong.rs` 实现 G-S3，生成 JSON，删除旧 gap Frame 并更新 ledger
-- [ ] T080 [US4] 新增 `crates/helix-im/tests/gs4_message_v3_contract_test.rs`，先覆盖陌生 channel 自动补全、全局同步与恢复并观察失败
+- [ ] T080 [US4] 新增 `crates/helix-im/tests/message_v3/sync/gs4/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_gs4`，先覆盖陌生 channel 自动补全、全局同步与恢复并观察失败
 - [ ] T081 [US4] 在 `crates/helix-im/src/event/sync.rs`、`crates/helix-im/src/sync/increment.rs`、`crates/helix-im/src/ws/handlers/increment_channel.rs` 实现 G-S4，生成 JSON，删除旧 unknown-channel Frame 并更新 ledger
 
 **Checkpoint**: 四个同步 Gate 只发 MessageV3，恢复终态与在线终态一致。
@@ -192,7 +192,7 @@ Frame/Surface 中。
 - [ ] T083 [US5] 更新 `crates/helix-im/src/lib.rs` 与所有模块引用，移除 Frame/Surface/Projector 导出并保持 `helix-core`、native、FFI、Web 的 `DomainEventBytes` 边界不变
 - [ ] T084 [US5] 删除 `crates/helix-im/src/ws/handlers/legacy_event.rs` 及 V1 parser、subscription、alias、fallback；保留现役 Go WS wire parser，并在 `crates/helix-im/src/ws/handlers/mod.rs` 明确两者边界
 - [ ] T085 [US5] 清理 `crates/helix-im/src/acl/`、`crates/helix-im/src/query/render_ready/` 与 `crates/helix-im/src/client_api/` 中仅服务 Frame/Surface 的 capabilities、wrapper 和 action 组装
-- [ ] T086 [US5] 清理 `crates/helix-im/tests/` 中旧 Frame/Surface/V1 fixture 与断言，并确保每个 Gate 只保留一个专用 MessageV3 合同测试入口
+- [ ] T086 [US5] 清理 `crates/helix-im/tests/` 中旧 Frame/Surface/V1 fixture 与断言，并确保 `crates/helix-im/tests/message_v3/<domain>/<gate>/main.rs` 与 `Cargo.toml` 每个 Gate 恰好一个显式 MessageV3 target
 - [ ] T087 [US5] 运行 `specs/047-im-event-gate-inventory/scripts/generate-v1-evidence.mjs`，生成精确 30 Gate 的 inbound、sender outbound、receiver outbound 与 provenance，并校验 schema/hash/去敏
 - [ ] T088 [US5] 运行 `cargo check -p helix-im`、`cargo test -p helix-im` 及计划中的三端 Rust 验收，把 deterministic/contract 结果写入 `specs/047-im-event-gate-inventory/verification.md`
 - [ ] T089 [US5] 运行 `specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs`，证明生产源码和测试零 V2 Frame/Surface、零旧 V1 兼容引用、30 Gate 全部 MIGRATED

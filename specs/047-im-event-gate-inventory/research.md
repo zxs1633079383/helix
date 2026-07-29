@@ -58,9 +58,11 @@ Frame schema、surface revision、actionRef、VM 包装是被废弃的呈现协�
 
 ## R-005：测试产物生成
 
-**Decision**: 每 Gate 一个 integration test target，共用
-`tests/support/message_v3_artifact.rs`。测试始终在内存中校验；设置
-`HELIX_GATE_ARTIFACT_DIR` 时额外原子写 JSON。Node 脚本只调用测试并校验结果。
+**Decision**: 每 Gate 一个独立目录和 integration test target。测试根固定为
+`tests/message_v3/`，先按 `post/schedule/timeline/read/channel/sync` 领域分包，再使用
+`<gate>/main.rs` 隔离 Gate；`Cargo.toml` 用显式 `[[test]]` 注册
+`message_v3_<gate>`。公共代码只放在 `tests/message_v3/support/`。测试始终在内存中校验；
+设置 `HELIX_GATE_ARTIFACT_DIR` 时额外原子写 JSON。Node 脚本只调用测试并校验结果。
 
 **Rationale**: Rust 测试才能证明 payload 来自真实 `ImModule::handle`。环境变量让普通
 `cargo test` 不污染工作区，同时允许 `.v1` 证据生成。
@@ -69,7 +71,8 @@ Frame schema、surface revision、actionRef、VM 包装是被废弃的呈现协�
 
 - JavaScript 手拼：与生产结构漂移，已被否决。
 - 每次普通测试都写仓库：并行和只读 CI 不稳定。
-- 单个 30 Gate 巨型测试：失败定位差且违背逐 Gate硬切。
+- 单个 30 Gate 巨型测试：失败定位差且违背逐 Gate 硬切。
+- 30 个测试平铺在 `tests/` 根：无法按领域识别 owner，也不满足独立测试目录要求。
 
 ## R-006：本版本跨仓边界
 

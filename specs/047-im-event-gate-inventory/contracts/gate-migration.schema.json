@@ -8,7 +8,9 @@
     "gate_id",
     "phase",
     "state",
+    "test_package",
     "test_target",
+    "test_path",
     "generated_files",
     "legacy_inventory",
     "verification"
@@ -29,7 +31,17 @@
         "BLOCKED"
       ]
     },
-    "test_target": { "type": "string", "minLength": 1 },
+    "test_package": {
+      "enum": ["post", "schedule", "timeline", "read", "channel", "sync"]
+    },
+    "test_target": {
+      "type": "string",
+      "pattern": "^message_v3_(?:g|gs)[0-9]+[a-z]?$"
+    },
+    "test_path": {
+      "type": "string",
+      "pattern": "^crates/helix-im/tests/message_v3/(?:post|schedule|timeline|read|channel|sync)/(?:g|gs)[0-9]+[a-z]?/main\\.rs$"
+    },
     "generated_files": {
       "type": "array",
       "minItems": 4,

@@ -75,7 +75,9 @@ JSON key，或在 Gate 合同中声明为 correlation/query/role 派生；未知
 | `gate_id` | string | 冻结集合内唯一 |
 | `phase` | enum | `P1..P6` |
 | `state` | enum | `PLANNED/TEST_RED/MESSAGE_V3_GREEN/LEGACY_REMOVED/MIGRATED/BLOCKED` |
-| `test_target` | string | 一 Gate 一个 target |
+| `test_package` | enum | `post/schedule/timeline/read/channel/sync` |
+| `test_target` | string | `message_v3_<gate>`，一 Gate 一个显式 target |
+| `test_path` | string | `tests/message_v3/<package>/<gate>/main.rs` |
 | `generated_files` | string[] | 固定四文件 |
 | `legacy_inventory` | LegacyRef[] | 每项 `removed/N/A` + 证据 |
 | `verification` | string[] | 聚焦命令与结果引用 |

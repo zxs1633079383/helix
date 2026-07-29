@@ -30,8 +30,10 @@ Command/Inbound/Effect/PersistOk/Emit 顺序，并在 `HELIX_GATE_ARTIFACT_DIR` 
 **Storage**: 远端 PostgreSQL 17.6 只作 schema/权威事实依据；本地 tenant SQLite 是
 PersistOk 后业务终态来源；测试使用 sans-IO `StorageOp/PortReply`
 
-**Testing**: 30 个独立 Rust integration test target；聚焦 `cargo test -p helix-im
---test <gate> -- --nocapture`；最终 `cargo test -p helix-im` 与三端 Rust check/build
+**Testing**: 30 个 Gate 各自使用独立目录和显式 `[[test]]` target；目录先按
+`message_v3/{post,schedule,timeline,read,channel,sync}` 领域分包，再按 Gate 分目录；
+聚焦 `cargo test -p helix-im --test message_v3_<gate> -- --nocapture`；最终
+`cargo test -p helix-im` 与三端 Rust check/build
 
 **Target Platform**: native、FFI、Web 共用 `DomainEventBytes`；本版本只改 Helix 仓
 
@@ -198,12 +200,52 @@ crates/helix-im/src/
 ├── channel/                     # 持久写程序与 cursor
 └── sync/                        # 恢复状态机
 
-crates/helix-im/tests/
-├── support/message_v3_artifact.rs
-├── g15a_message_v3_contract_test.rs
-├── g01_message_v3_contract_test.rs
-├── ...                          # 冻结 30 Gate 各一个独立 target
-└── gs4_message_v3_contract_test.rs
+crates/helix-im/
+├── Cargo.toml                    # 每个嵌套 Gate 目录显式注册一个 [[test]]
+└── tests/message_v3/
+    ├── support/
+    │   ├── artifact.rs           # JSON/sha/provenance 公共测试工具
+    │   └── scenario.rs           # ImModule::handle 回放公共工具
+    ├── contracts/
+    │   ├── event/main.rs
+    │   ├── artifact_schema/main.rs
+    │   └── gate_registry/main.rs
+    ├── post/
+    │   ├── g01/main.rs
+    │   ├── g02/main.rs
+    │   ├── g03a/main.rs
+    │   ├── g04/main.rs
+    │   ├── g04a/main.rs
+    │   ├── g05/main.rs
+    │   ├── g06/main.rs
+    │   ├── g07/main.rs
+    │   └── g14a/main.rs
+    ├── schedule/
+    │   ├── g08/main.rs
+    │   └── g09/main.rs
+    ├── timeline/
+    │   ├── g10/main.rs
+    │   ├── g10a/main.rs
+    │   ├── g10b/main.rs
+    │   ├── g10c/main.rs
+    │   ├── g10d/main.rs
+    │   ├── g11/main.rs
+    │   ├── g11a/main.rs
+    │   └── g12/main.rs
+    ├── read/
+    │   ├── g13/main.rs
+    │   └── g14/main.rs
+    ├── channel/
+    │   ├── g15a/main.rs
+    │   ├── g15/main.rs
+    │   ├── g16/main.rs
+    │   ├── g16b/main.rs
+    │   └── g16c/main.rs
+    └── sync/
+        ├── gs1/main.rs
+        ├── gs2/main.rs
+        ├── gs3/main.rs
+        └── gs4/main.rs
 
 specs/047-im-event-gate-inventory/scripts/
 └── generate-v1-evidence.mjs     # 只运行测试、索引、schema/hash 验证
@@ -213,8 +255,10 @@ specs/047-im-event-gate-inventory/scripts/
 `dialog_frame`、`dialog_patch`、`projector` 及只服务旧 Action/Frame 的 re-export。可复用的
 消息 shaping、query 和持久逻辑必须移动到 `event/` 或原领域模块，不以旧目录名残留。
 
-**Structure Decision**: 采用单 crate 内的深模块重构，不新增 crate 或运行时。event builder
-只负责“已提交事实 → event bytes”，module 负责业务编排，driver 继续原样搬运 bytes。
+**Structure Decision**: 采用单 crate 内的深模块重构，不新增 crate 或运行时。生产代码按领域
+分模块；测试也按领域 package + Gate 独立目录组织，并通过 `Cargo.toml` 显式注册独立
+integration target。event builder 只负责“已提交事实 → event bytes”，module 负责业务编排，
+driver 继续原样搬运 bytes。
 
 ## Complexity Tracking
 

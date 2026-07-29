@@ -2,8 +2,8 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, GuardedBumpSpec, MonotonicUpsertSpec, SqlValue, StorageOp,
-    UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScopedGuardedBumpSpec,
+    SqlValue, StorageOp, UpsertSpec,
 };
 use helix_core::PortError;
 use rusqlite::params_from_iter;
@@ -176,6 +176,46 @@ pub(super) async fn guarded_bump(
     .map_err(map_join_err)?
 }
 
+/// 在复合 scope + key 上以单条 SQL 执行守卫式自增与绝对列 patch。
+pub(super) async fn scoped_guarded_bump(
+    storage: &HostStorage,
+    spec: ScopedGuardedBumpSpec,
+) -> Result<(), PortError> {
+    let writer = Arc::clone(&storage.writer);
+    let trace = current_storage_trace_context();
+    tokio::task::spawn_blocking(move || {
+        let mut set_parts = vec![format!("{bump} = {bump} + ?", bump = spec.bump_col)];
+        set_parts.extend(
+            spec.set_cols
+                .iter()
+                .map(|(column, _)| format!("{column} = ?")),
+        );
+        let sql = format!(
+            "UPDATE {table} SET {set} WHERE {scope_col} = ? AND {key_col} = ? AND ? > {guard}",
+            table = spec.table,
+            set = set_parts.join(", "),
+            scope_col = spec.scope_col,
+            key_col = spec.key_col,
+            guard = spec.guard_col,
+        );
+        let mut params = sql_values(std::iter::once(&SqlValue::Integer(spec.bump_delta)));
+        params.extend(sql_values(spec.set_cols.iter().map(|(_, value)| value)));
+        params.extend(sql_values(std::iter::once(&spec.scope_val)));
+        params.extend(sql_values(std::iter::once(&spec.key_val)));
+        params.extend(sql_values(std::iter::once(&SqlValue::Integer(
+            spec.guard_val,
+        ))));
+        let conn = writer.lock().map_err(map_lock_err)?;
+        let mut stmt = conn.prepare_cached(&sql).map_err(map_sqlite_err)?;
+        let _span = trace_sql(&trace, "UPDATE", Some(spec.table), &sql, &params);
+        stmt.execute(params_from_iter(params.iter()))
+            .map(|_| ())
+            .map_err(map_sqlite_err)
+    })
+    .await
+    .map_err(map_join_err)?
+}
+
 pub(super) async fn batch_delete(
     storage: &HostStorage,
     spec: BatchDeleteSpec,
@@ -247,10 +287,11 @@ fn atomic_write_op(
         StorageOp::MonotonicUpsert(spec) => atomic_monotonic_upsert(tx, spec, trace),
         StorageOp::BatchUpdate(spec) => atomic_batch_update(tx, spec, trace),
         StorageOp::GuardedBump(spec) => atomic_guarded_bump(tx, spec, trace),
+        StorageOp::ScopedGuardedBump(spec) => atomic_scoped_guarded_bump(tx, spec, trace),
         StorageOp::BatchDelete(spec) => atomic_batch_delete(tx, spec, trace),
-        StorageOp::Get(_) | StorageOp::Scan(_) => Err(PortError::Storage(
-            "atomic storage write does not permit read operations".to_string(),
-        )),
+        StorageOp::Get(_) | StorageOp::ScopedGet(_) | StorageOp::Scan(_) => Err(
+            PortError::Storage("atomic storage write does not permit read operations".to_string()),
+        ),
     }
 }
 
@@ -390,6 +431,40 @@ fn atomic_guarded_bump(
     ))));
     let _span = trace_sql(trace, "UPDATE", Some(spec.table), &sql, &params);
     tx.execute(&sql, params_from_iter(params.iter()))
+        .map(|_| ())
+        .map_err(map_sqlite_err)
+}
+
+/// 在既有事务内兑现复合作用域守卫更新，保持 PersistAtomic 全写回滚语义。
+fn atomic_scoped_guarded_bump(
+    tx: &Transaction<'_>,
+    spec: &ScopedGuardedBumpSpec,
+    trace: &Option<StorageTraceContext>,
+) -> Result<(), PortError> {
+    let mut set_parts = vec![format!("{bump} = {bump} + ?", bump = spec.bump_col)];
+    set_parts.extend(
+        spec.set_cols
+            .iter()
+            .map(|(column, _)| format!("{column} = ?")),
+    );
+    let sql = format!(
+        "UPDATE {table} SET {set} WHERE {scope_col} = ? AND {key_col} = ? AND ? > {guard}",
+        table = spec.table,
+        set = set_parts.join(", "),
+        scope_col = spec.scope_col,
+        key_col = spec.key_col,
+        guard = spec.guard_col,
+    );
+    let mut params = sql_values(std::iter::once(&SqlValue::Integer(spec.bump_delta)));
+    params.extend(sql_values(spec.set_cols.iter().map(|(_, value)| value)));
+    params.extend(sql_values(std::iter::once(&spec.scope_val)));
+    params.extend(sql_values(std::iter::once(&spec.key_val)));
+    params.extend(sql_values(std::iter::once(&SqlValue::Integer(
+        spec.guard_val,
+    ))));
+    let mut stmt = tx.prepare_cached(&sql).map_err(map_sqlite_err)?;
+    let _span = trace_sql(trace, "UPDATE", Some(spec.table), &sql, &params);
+    stmt.execute(params_from_iter(params.iter()))
         .map(|_| ())
         .map_err(map_sqlite_err)
 }

@@ -12,7 +12,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use bytes::Bytes;
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec,
-    SortDirection, SparseTableSpec, SqlValue, StorageOp, UpsertSpec,
+    ScopedGetSpec, ScopedGuardedBumpSpec, SortDirection, SparseTableSpec, SqlValue, StorageOp,
+    UpsertSpec,
 };
 use helix_core::port_codec::{classify_port_error, rows_to_reply_bytes};
 use helix_core::ports::Storage;
@@ -160,7 +161,13 @@ impl WebSessionStore {
                 StorageOp::BatchUpdate(spec) => self.batch_update_sync(spec.clone()),
                 StorageOp::MonotonicUpsert(spec) => self.monotonic_upsert_sync(spec.clone()),
                 StorageOp::GuardedBump(spec) => self.guarded_bump_sync(spec.clone()),
+                StorageOp::ScopedGuardedBump(spec) => self.scoped_guarded_bump_sync(spec.clone()),
                 StorageOp::Get(spec) => self.get_sync(spec.clone()).map(|row| {
+                    last_read = row
+                        .map(|row| rows_to_reply_bytes(&[row]))
+                        .unwrap_or_default();
+                }),
+                StorageOp::ScopedGet(spec) => self.scoped_get_sync(spec.clone()).map(|row| {
                     last_read = row
                         .map(|row| rows_to_reply_bytes(&[row]))
                         .unwrap_or_default();
@@ -202,10 +209,12 @@ impl WebSessionStore {
     /// Keep `execute_ops_atomic` unchanged for legacy `PersistFire`; the correlated primitive
     /// rejects reads explicitly so a PortReply means one all-write transaction committed.
     pub fn execute_atomic_write(&self, ops: &[StorageOp]) -> PortOutcome {
-        if ops
-            .iter()
-            .any(|op| matches!(op, StorageOp::Get(_) | StorageOp::Scan(_)))
-        {
+        if ops.iter().any(|op| {
+            matches!(
+                op,
+                StorageOp::Get(_) | StorageOp::ScopedGet(_) | StorageOp::Scan(_)
+            )
+        }) {
             return PortOutcome::Err(classify_port_error(storage_error(
                 "atomic storage write does not permit read operations",
             )));
@@ -414,6 +423,35 @@ impl WebSessionStore {
         Ok(())
     }
 
+    /// 在复合 identity 行内执行前进守卫计数更新。
+    fn scoped_guarded_bump_sync(&self, spec: ScopedGuardedBumpSpec) -> Result<(), PortError> {
+        let mut state = self.lock()?;
+        let mut table = self.table(&state, spec.table)?.clone();
+        reject_identity_writes(
+            spec.table,
+            &table,
+            std::iter::once(spec.bump_col)
+                .chain(spec.set_cols.iter().map(|(column, _)| column.as_str())),
+        )?;
+        let Some(stored) = table.rows.iter_mut().find(|stored| {
+            row_value(&stored.values, spec.scope_col)
+                .is_some_and(|value| sql_value_eq(value, &spec.scope_val))
+                && row_value(&stored.values, spec.key_col)
+                    .is_some_and(|value| sql_value_eq(value, &spec.key_val))
+        }) else {
+            return Ok(());
+        };
+        let current_guard = integer_or_zero(row_value(&stored.values, spec.guard_col))?;
+        if spec.guard_val <= current_guard {
+            return Ok(());
+        }
+        bump_column(&mut stored.values, spec.bump_col, spec.bump_delta)?;
+        merge_patch(&mut stored.values, &spec.set_cols);
+        self.validate_table(spec.table, &table)?;
+        *self.table_mut(&mut state, spec.table)? = table;
+        Ok(())
+    }
+
     fn get_sync(&self, spec: GetSpec) -> Result<Option<Row>, PortError> {
         let state = self.lock()?;
         let table = self.table(&state, spec.table)?;
@@ -423,6 +461,22 @@ impl WebSessionStore {
             .find(|stored| {
                 row_value(&stored.values, spec.key_col)
                     .is_some_and(|value| sql_value_eq(value, &spec.key_val))
+            })
+            .map(|stored| stored.values.clone()))
+    }
+
+    /// 以两个 identity 列读取复合主键行。
+    fn scoped_get_sync(&self, spec: ScopedGetSpec) -> Result<Option<Row>, PortError> {
+        let state = self.lock()?;
+        let table = self.table(&state, spec.table)?;
+        Ok(table
+            .rows
+            .iter()
+            .find(|stored| {
+                row_value(&stored.values, spec.scope_col)
+                    .is_some_and(|value| sql_value_eq(value, &spec.scope_val))
+                    && row_value(&stored.values, spec.key_col)
+                        .is_some_and(|value| sql_value_eq(value, &spec.key_val))
             })
             .map(|stored| stored.values.clone()))
     }
@@ -625,8 +679,23 @@ impl Storage for WebSessionStore {
         result
     }
 
+    /// 兑现复合作用域守卫更新并在错误时锁闭 session store。
+    async fn scoped_guarded_bump(&self, spec: ScopedGuardedBumpSpec) -> Result<(), PortError> {
+        self.ensure_healthy()?;
+        let result = self.scoped_guarded_bump_sync(spec);
+        if let Err(error) = &result {
+            self.latch_fault(error);
+        }
+        result
+    }
+
     async fn get(&self, spec: GetSpec) -> Result<Option<Row>, PortError> {
         self.get_sync(spec)
+    }
+
+    /// 读取复合作用域内唯一行。
+    async fn scoped_get(&self, spec: ScopedGetSpec) -> Result<Option<Row>, PortError> {
+        self.scoped_get_sync(spec)
     }
 
     async fn scan(&self, spec: ScanSpec) -> Result<Vec<Row>, PortError> {

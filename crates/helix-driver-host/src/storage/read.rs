@@ -1,4 +1,4 @@
-use helix_core::effect::{GetSpec, Row as HelixRow, ScanSpec, SortDirection};
+use helix_core::effect::{GetSpec, Row as HelixRow, ScanSpec, ScopedGetSpec, SortDirection};
 use helix_core::PortError;
 use rusqlite::params_from_iter;
 use rusqlite::types::Value;
@@ -21,6 +21,34 @@ pub(super) async fn get(
                 key_col = spec.key_col,
             );
             let values = sql_values(std::iter::once(&spec.key_val));
+            let mut stmt = conn.prepare_cached(&sql).map_err(map_sqlite_err)?;
+            let _span = trace_sql(&trace, "SELECT", Some(spec.table), &sql, &values);
+            let mut rows = stmt
+                .query(params_from_iter(values.iter()))
+                .map_err(map_sqlite_err)?;
+            match rows.next().map_err(map_sqlite_err)? {
+                Some(row) => convert_row(row).map(Some),
+                None => Ok(None),
+            }
+        })
+        .await
+}
+
+/// 以 scope + key 两个绑定参数精确读取复合主键行。
+pub(super) async fn scoped_get(
+    storage: &HostStorage,
+    spec: ScopedGetSpec,
+) -> Result<Option<HelixRow>, PortError> {
+    let trace = current_storage_trace_context();
+    storage
+        .with_reader(move |conn| {
+            let sql = format!(
+                "SELECT * FROM {table} WHERE {scope_col} = ? AND {key_col} = ?",
+                table = spec.table,
+                scope_col = spec.scope_col,
+                key_col = spec.key_col,
+            );
+            let values = sql_values([&spec.scope_val, &spec.key_val].into_iter());
             let mut stmt = conn.prepare_cached(&sql).map_err(map_sqlite_err)?;
             let _span = trace_sql(&trace, "SELECT", Some(spec.table), &sql, &values);
             let mut rows = stmt

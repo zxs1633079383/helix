@@ -1,6 +1,6 @@
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanOrder,
-    ScanSpec, SqlValue, UpsertSpec,
+    ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec, SqlValue, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::tick::PortOutcome;
@@ -978,6 +978,103 @@ async fn channel_like_storage() -> HostStorage {
         .await
         .expect("create channel");
     storage
+}
+
+/// G-01 回归：复合主键原语只能命中指定 channel + user，且读回同一绝对态。
+#[tokio::test]
+async fn scoped_guarded_bump_and_get_isolate_channel_member_row(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let seq = DB_SEQ.fetch_add(1, Ordering::Relaxed);
+    let db = format!(
+        "file:helix_host_scoped_bump_{}_{}?mode=memory&cache=shared",
+        std::process::id(),
+        seq
+    );
+    let storage = HostStorage::open_sqlite_url(&db).await?;
+    storage
+        .execute_raw(
+            "CREATE TABLE channel_member (\
+             channel_id TEXT NOT NULL, user_id TEXT NOT NULL, \
+             unread_count INTEGER NOT NULL DEFAULT 0, \
+             last_post TEXT NOT NULL DEFAULT '', \
+             last_root_post_at INTEGER NOT NULL DEFAULT 0, \
+             PRIMARY KEY(channel_id, user_id))",
+        )
+        .await?;
+    storage
+        .batch_upsert(UpsertSpec {
+            table: "channel_member",
+            rows: vec![
+                vec![
+                    ("channel_id".to_string(), SqlValue::Text("c1".to_string())),
+                    ("user_id".to_string(), SqlValue::Text("u1".to_string())),
+                    ("unread_count".to_string(), SqlValue::Integer(4)),
+                    ("last_root_post_at".to_string(), SqlValue::Integer(100)),
+                ],
+                vec![
+                    ("channel_id".to_string(), SqlValue::Text("c2".to_string())),
+                    ("user_id".to_string(), SqlValue::Text("u1".to_string())),
+                    ("unread_count".to_string(), SqlValue::Integer(9)),
+                    ("last_root_post_at".to_string(), SqlValue::Integer(100)),
+                ],
+            ],
+            conflict_key: Some("channel_id,user_id"),
+            exclude_from_update: Vec::new(),
+        })
+        .await?;
+
+    storage
+        .scoped_guarded_bump(ScopedGuardedBumpSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text("c1".to_string()),
+            key_col: "user_id",
+            key_val: SqlValue::Text("u1".to_string()),
+            bump_col: "unread_count",
+            bump_delta: 1,
+            set_cols: vec![
+                ("last_post".to_string(), SqlValue::Text("p1".to_string())),
+                ("last_root_post_at".to_string(), SqlValue::Integer(200)),
+            ],
+            guard_col: "last_root_post_at",
+            guard_val: 200,
+        })
+        .await?;
+
+    let targeted = storage
+        .scoped_get(ScopedGetSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text("c1".to_string()),
+            key_col: "user_id",
+            key_val: SqlValue::Text("u1".to_string()),
+        })
+        .await?
+        .ok_or("missing targeted channel member")?;
+    let untouched = storage
+        .scoped_get(ScopedGetSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text("c2".to_string()),
+            key_col: "user_id",
+            key_val: SqlValue::Text("u1".to_string()),
+        })
+        .await?
+        .ok_or("missing untouched channel member")?;
+    let value = |row: &helix_core::effect::Row, column: &str| {
+        row.iter()
+            .find(|(name, _)| name == column)
+            .map(|(_, value)| value.clone())
+    };
+    assert!(matches!(
+        value(&targeted, "unread_count"),
+        Some(SqlValue::Integer(5))
+    ));
+    assert!(matches!(
+        value(&untouched, "unread_count"),
+        Some(SqlValue::Integer(9))
+    ));
+    Ok(())
 }
 
 /// 回归锚: S3 path3 —— guarded_bump 守卫命中 → unread +1（SQL 自增）+ 绝对列写。

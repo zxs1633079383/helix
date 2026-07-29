@@ -26,5 +26,6 @@ pub use operation::Effect;
 pub use sink::EffectSink;
 pub use storage::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row,
-    ScanOrder, ScanSpec, SortDirection, SparseTableSpec, SqlValue, StorageOp, UpsertSpec,
+    ScanOrder, ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec, SortDirection, SparseTableSpec,
+    SqlValue, StorageOp, UpsertSpec,
 };

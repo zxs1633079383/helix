@@ -39,7 +39,22 @@ where
                 Ok(()) => {}
                 Err(e) => return PortOutcome::Err(classify_port_error(e)),
             },
+            StorageOp::ScopedGuardedBump(spec) => {
+                match storage.scoped_guarded_bump(spec.clone()).await {
+                    Ok(()) => {}
+                    Err(e) => return PortOutcome::Err(classify_port_error(e)),
+                }
+            }
             StorageOp::Get(spec) => match storage.get(spec.clone()).await {
+                Ok(Some(row)) => {
+                    last_ok_bytes = rows_to_reply_bytes(&[row]);
+                }
+                Ok(None) => {
+                    last_ok_bytes = Bytes::new();
+                }
+                Err(e) => return PortOutcome::Err(classify_port_error(e)),
+            },
+            StorageOp::ScopedGet(spec) => match storage.scoped_get(spec.clone()).await {
                 Ok(Some(row)) => {
                     last_ok_bytes = rows_to_reply_bytes(&[row]);
                 }
@@ -93,7 +108,9 @@ pub fn table_set_key(ops: &[StorageOp]) -> String {
             StorageOp::BatchUpdate(s) => s.table,
             StorageOp::MonotonicUpsert(s) => s.table,
             StorageOp::GuardedBump(s) => s.table,
+            StorageOp::ScopedGuardedBump(s) => s.table,
             StorageOp::Get(s) => s.table,
+            StorageOp::ScopedGet(s) => s.table,
             StorageOp::Scan(s) => s.table,
             StorageOp::BatchDelete(s) => s.table,
         })

@@ -18,7 +18,7 @@
 
 use crate::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec,
-    StorageOp, UpsertSpec,
+    ScopedGetSpec, ScopedGuardedBumpSpec, StorageOp, UpsertSpec,
 };
 use crate::error::PortError;
 use crate::platform::{MaybeSend, MaybeSync};
@@ -104,8 +104,22 @@ pub trait Storage: MaybeSend + MaybeSync + 'static {
     /// 列名都是 `&'static str` 编译期常量（由上层提供，driver 不解释含义，守 HX-C001）。
     async fn guarded_bump(&self, spec: GuardedBumpSpec) -> Result<(), PortError>;
 
+    /// 在复合 scope + key 上执行单行守卫式自增，禁止跨作用域误更新。
+    async fn scoped_guarded_bump(&self, _spec: ScopedGuardedBumpSpec) -> Result<(), PortError> {
+        Err(PortError::Storage(
+            "scoped guarded bump is not implemented by this driver".to_string(),
+        ))
+    }
+
     /// get：单行查询
     async fn get(&self, spec: GetSpec) -> Result<Option<Row>, PortError>;
+
+    /// 以复合 scope + key 精确查询单行。
+    async fn scoped_get(&self, _spec: ScopedGetSpec) -> Result<Option<Row>, PortError> {
+        Err(PortError::Storage(
+            "scoped get is not implemented by this driver".to_string(),
+        ))
+    }
 
     /// scan：多行扫描读（评审待办 C3）。`limit = None` 表示全表，driver 应设硬上限防御。
     ///

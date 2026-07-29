@@ -10,8 +10,12 @@ pub enum StorageOp {
     /// 守卫式自增：`UPDATE … SET bump_col = bump_col + delta[, set…] WHERE key=? AND ? > guard_col`。
     /// 通用计数器原语（无 read-modify-write），见 `GuardedBumpSpec`。
     GuardedBump(GuardedBumpSpec),
+    /// 复合作用域守卫式自增：在 scope + key 精确单行内完成幂等计数与绝对列写。
+    ScopedGuardedBump(ScopedGuardedBumpSpec),
     /// get：SELECT * FROM table WHERE ...（单行）
     Get(GetSpec),
+    /// 复合作用域 get：SELECT * FROM table WHERE scope=? AND key=?（单行）
+    ScopedGet(ScopedGetSpec),
     /// scan：SELECT * FROM table [LIMIT n]（多行，C3）
     Scan(ScanSpec),
     /// batch delete：`DELETE FROM table WHERE scope_col = ? AND key_col IN (key_vals)`。
@@ -174,10 +178,45 @@ pub struct GuardedBumpSpec {
     pub guard_val: i64,
 }
 
+/// 复合作用域守卫式自增规格，避免复合主键热路径退化为应用层 read-modify-write。
+#[derive(Debug, Clone)]
+pub struct ScopedGuardedBumpSpec {
+    /// 目标表名（编译期常量；core 不解释业务 schema）。
+    pub table: &'static str,
+    /// 第一维作用域列名。
+    pub scope_col: &'static str,
+    /// 第一维作用域运行时值。
+    pub scope_val: SqlValue,
+    /// 第二维键列名。
+    pub key_col: &'static str,
+    /// 第二维键运行时值。
+    pub key_val: SqlValue,
+    /// 被自增的数值列。
+    pub bump_col: &'static str,
+    /// 自增量；0 表示只应用同一守卫下的绝对列 patch。
+    pub bump_delta: i64,
+    /// 与计数器同一 SQL 更新的绝对列。
+    pub set_cols: Row,
+    /// 前进守卫列。
+    pub guard_col: &'static str,
+    /// 仅严格大于当前守卫值时更新。
+    pub guard_val: i64,
+}
+
 /// get 规格（单行；MAJ-5：`table`/`key_col` = `&'static str`）。
 #[derive(Debug, Clone)]
 pub struct GetSpec {
     pub table: &'static str,
+    pub key_col: &'static str,
+    pub key_val: SqlValue,
+}
+
+/// 复合作用域 get 规格，用两个等值键 O(1) 定位复合主键行。
+#[derive(Debug, Clone)]
+pub struct ScopedGetSpec {
+    pub table: &'static str,
+    pub scope_col: &'static str,
+    pub scope_val: SqlValue,
     pub key_col: &'static str,
     pub key_val: SqlValue,
 }

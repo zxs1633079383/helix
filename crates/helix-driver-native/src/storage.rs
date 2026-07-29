@@ -7,7 +7,7 @@
 
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
-    Row as HelixRow, ScanSpec, StorageOp, UpsertSpec,
+    Row as HelixRow, ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec, StorageOp, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
@@ -54,8 +54,18 @@ impl Storage for NativeStorage {
         self.inner.guarded_bump(spec).await
     }
 
+    /// 将复合作用域守卫更新委托给共享 HostStorage。
+    async fn scoped_guarded_bump(&self, spec: ScopedGuardedBumpSpec) -> Result<(), PortError> {
+        self.inner.scoped_guarded_bump(spec).await
+    }
+
     async fn get(&self, spec: GetSpec) -> Result<Option<HelixRow>, PortError> {
         self.inner.get(spec).await
+    }
+
+    /// 将复合作用域读取委托给共享 HostStorage。
+    async fn scoped_get(&self, spec: ScopedGetSpec) -> Result<Option<HelixRow>, PortError> {
+        self.inner.scoped_get(spec).await
     }
 
     async fn scan(&self, spec: ScanSpec) -> Result<Vec<HelixRow>, PortError> {

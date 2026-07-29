@@ -28,7 +28,7 @@ use std::time::Instant;
 
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
-    Row as HelixRow, ScanSpec, UpsertSpec,
+    Row as HelixRow, ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
@@ -206,6 +206,17 @@ impl Storage for HostStorage {
         result
     }
 
+    /// 在复合主键作用域内兑现单条守卫式计数更新。
+    async fn scoped_guarded_bump(&self, spec: ScopedGuardedBumpSpec) -> Result<(), PortError> {
+        if !self.metrics.is_enabled() {
+            return write::scoped_guarded_bump(self, spec).await;
+        }
+        let started = Instant::now();
+        let result = write::scoped_guarded_bump(self, spec).await;
+        self.record_storage_result("scoped_guarded_bump", 1, started, &result);
+        result
+    }
+
     async fn get(&self, spec: GetSpec) -> Result<Option<HelixRow>, PortError> {
         if !self.metrics.is_enabled() {
             return read::get(self, spec).await;
@@ -218,6 +229,22 @@ impl Storage for HostStorage {
             .and_then(Option::as_ref)
             .map_or(0, |_| 1);
         self.record_storage_result("get", rows, started, &result);
+        result
+    }
+
+    /// 在复合主键作用域内读取唯一行。
+    async fn scoped_get(&self, spec: ScopedGetSpec) -> Result<Option<HelixRow>, PortError> {
+        if !self.metrics.is_enabled() {
+            return read::scoped_get(self, spec).await;
+        }
+        let started = Instant::now();
+        let result = read::scoped_get(self, spec).await;
+        let rows = result
+            .as_ref()
+            .ok()
+            .and_then(Option::as_ref)
+            .map_or(0, |_| 1);
+        self.record_storage_result("scoped_get", rows, started, &result);
         result
     }
 

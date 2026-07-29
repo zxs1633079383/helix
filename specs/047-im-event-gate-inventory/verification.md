@@ -19,15 +19,21 @@
 - **V-006**: `git diff --check`，预期无空白错误。
 - **V-007**: `node specs/047-im-event-gate-inventory/scripts/generate-v1-evidence.mjs`，
   预期 `.v1` 生成 30 个 Gate 目录、120 个声明合同文件、30 个捕获状态文件和
-  30 个 `captures/` 槽位目录；连续生成两次的全树 SHA-256 相同。
+  60 个结构样例文件及 30 个 `captures/` 槽位目录；连续生成两次的全树 SHA-256 相同。
 - **V-008**: `git check-ignore -v
   specs/047-im-event-gate-inventory/.v1/manifest.json` 必须命中仓库
   `**/.v1/` 规则；当前 manifest 必须如实报告 90 个原始捕获槽位中
   0 个存在、90 个缺失、总判定 `INCOMPLETE`。
 - **V-009**: `.v1` 的三类捕获必须精确为 `inbound/effects/emit`；`outbound-contract.json`
   中每个 channel 都必须声明 `core_output=Effect::Emit` 和源码位置。
-- **V-010**: `rg -ni 'surface|interactionframe|\bframe\b|\bdom\b'
+- **V-010**: `rg -ni 'surface|interactionframe|im:interaction:frame|\bdom\b'
   specs/047-im-event-gate-inventory/.v1`，预期无匹配；UI 层不得进入本地 v1 业务出站合同。
+  `ws/frame.rs` 属于真实 transport parser，不在该禁用层范围。
+- **V-011**: 30 个 Gate 必须各有 `inbound-sample.json` 和 `outbound-sample.json`；
+  共 60 份样例均须为 `SOURCE_DERIVED_SAMPLE`、`runtime_capture=false`。
+- **V-012**: 每个 outbound sample 的 `effect_variant` 必须为 `Effect::Emit`，
+  `domain_event_bytes_json.event` 必须能在对应 `source_refs` 的生产工厂中找到，
+  Native adapter view 必须满足 `channel == payload.event`。
 
 ## Evidence Rules
 

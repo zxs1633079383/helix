@@ -219,6 +219,312 @@ const GATE_EMITS = {
   },
 };
 
+const SAMPLE_IDS = {
+  channel: 'chreview000000000000000001',
+  topic: 'chtopic0000000000000000001',
+  message: 'msgreview00000000000000001',
+  temporary: 'tmpreview00000000000000001',
+  actor: 'user-actor-444',
+  observer: 'user-observer-678',
+  req: 'req-review-001',
+};
+
+const GATE_WS_ACTIONS = {
+  'G-S1': ['hello', 'increment_channel', 'increment_channel_end'],
+  'G-S2': [],
+  'G-S3': ['pong'],
+  'G-S4': ['increment_channel'],
+  'G-01': ['post'],
+  'G-02': ['post'],
+  'G-03a': ['post'],
+  'G-04': ['posts_update'],
+  'G-04a': ['posts_update'],
+  'G-05': ['post'],
+  'G-06': ['post_update'],
+  'G-07': ['post_update', 'update_channel'],
+  'G-08': ['post_schedule_created'],
+  'G-09': ['post_schedule_canceled'],
+  'G-10': [],
+  'G-10a': [],
+  'G-10b': ['post'],
+  'G-10c': ['post'],
+  'G-10d': ['post'],
+  'G-11': [],
+  'G-11a': ['post'],
+  'G-12': [],
+  'G-13': ['update_channel'],
+  'G-14': ['post_read'],
+  'G-14a': ['post_update'],
+  'G-15a': ['channel_created'],
+  'G-15': ['channel_created', 'post_update'],
+  'G-16': ['channel_close'],
+  'G-16b': ['channel_member_update'],
+  'G-16c': ['update_channel', 'update_channel_notice'],
+};
+
+const COMMAND_SAMPLE_SOURCES = {
+  im_send_message: 'crates/helix-im/tests/g01_shared/scenario.rs',
+  im_retry_send: 'crates/helix-im/tests/g03_media_retry_contract_test.rs',
+  im_relay_messages: 'crates/helix-im/tests/support/g05_scenario.rs',
+  im_create_schedule: 'crates/helix-im/tests/outbound_commands.rs',
+  im_post_read: 'crates/helix-im/tests/support/g14_scenario.rs',
+  im_create_channel: 'crates/helix-im/tests/p3b_channel_outbound_test.rs',
+  im_make_topic: 'crates/helix-im/tests/support/g15_scenario.rs',
+};
+
+/** 构造与当前命令 parser 字段一致的代表性 payload。 */
+function commandSamplePayload(name, gateId) {
+  const ids = SAMPLE_IDS;
+  const samples = {
+    im_query_dialog_list: { limit: 50 },
+    im_sync_channels: {
+      reason: gateId === 'G-S3' ? 'pong_gap' : 'offline_notify',
+      channel_id: ids.channel,
+      event_seq: 100,
+    },
+    im_channel_load_increment_by_channel_id: {
+      channel_id: ids.channel,
+      req_id: ids.req,
+      is_read: false,
+    },
+    im_send_message:
+      gateId === 'G-02'
+        ? {
+            channel_id: ids.channel,
+            type: 'DOCUMENT',
+            text: '【文档】 http://doc-pre.cses7.com/doc/review',
+            props: {
+              document: {
+                version: 1,
+                url: 'http://doc-pre.cses7.com/doc/review',
+                title: '打开文档',
+                placeholder: true,
+              },
+            },
+            req_id: ids.req,
+          }
+        : {
+            channel_id: ids.channel,
+            text: 'Gate review message',
+            type: 'TEXT',
+            props: {},
+            req_id: ids.req,
+          },
+    im_retry_send: { message_id: ids.temporary },
+    im_revoke: { post_id: ids.message },
+    im_relay_messages: {
+      post_ids: [ids.message],
+      target_channel_ids: [ids.topic],
+      mode: 'individual',
+      req_id: ids.req,
+    },
+    im_quick_reply: { post_id: ids.message, emoji: ':thumbsup:', req_id: ids.req },
+    im_urgent_post: { post_id: ids.message, target_ids: [ids.observer] },
+    im_urgent_confirm: { post_id: ids.message },
+    im_create_schedule: {
+      channel_id: ids.channel,
+      message: '下午三点发送',
+      schedule_post_at: 1_700_000_060_000,
+      type: 'TEXT',
+      props: {},
+    },
+    im_cancel_schedule: { channel_id: ids.channel },
+    im_query_messages_by_channel: { channel_id: ids.channel, limit: 60 },
+    im_load_older_context: {
+      channel_id: ids.channel,
+      anchor_post_id: ids.message,
+      before: 1_700_000_000_000,
+    },
+    im_load_newer_context: {
+      channel_id: ids.channel,
+      anchor_post_id: ids.message,
+      page_size: 60,
+    },
+    im_locate_message: {
+      channel_id: ids.channel,
+      message_id: ids.message,
+      page_size: 60,
+    },
+    im_get_posts: { post_ids: [ids.message], req_id: ids.req, locate: true },
+    im_get_replies: {
+      reply_id: ids.message,
+      req_id: ids.req,
+      channel_id: ids.channel,
+      root_message_id: ids.message,
+      page_number: 1,
+      page_size: 20,
+    },
+    im_get_reply_branch: {
+      reply_first_level_id: ids.message,
+      req_id: ids.req,
+      channel_id: ids.channel,
+      root_message_id: ids.message,
+      page_number: 1,
+      page_size: 20,
+    },
+    im_channels_view: { channels: [{ id: ids.channel, isRoot: true }] },
+    im_post_read: { channel_id: ids.channel, posts: [ids.message] },
+    im_template_received: { post_id: ids.message },
+    im_create_channel: {
+      type: 'O',
+      user_ids: [ids.actor, ids.observer],
+      display_name: 'Gate Review Group',
+      force_create: true,
+    },
+    im_make_topic: {
+      root_id: ids.message,
+      user_ids: [ids.observer],
+      display_name: 'Gate Review Topic',
+      req_id: ids.req,
+    },
+    im_channel_close: { channel_id: ids.channel },
+    im_channel_leave: { channel_id: ids.channel },
+    im_channel_change_display_name: {
+      channel_id: ids.channel,
+      display_name: 'Gate Review Renamed',
+    },
+    im_channel_change_notice: { channel_id: ids.channel, notice: 'Review notice' },
+    im_channel_change_info: {
+      channel_id: ids.channel,
+      purpose: 'Review purpose',
+      header: 'Review header',
+      expected_version: 7,
+    },
+  };
+  const payload = samples[name];
+  if (!payload) {
+    throw new Error(`Command sample missing: ${name}`);
+  }
+  return payload;
+}
+
+/** 构造生产 WS parser 当前接受的代表性 wire JSON。 */
+function wsSample(action) {
+  const ids = SAMPLE_IDS;
+  const post = {
+    id: ids.message,
+    temporaryId: ids.temporary,
+    channelId: ids.channel,
+    event_seq: 101,
+    createAt: 1_700_000_000_000,
+    message: 'Gate review message',
+    type: 'TEXT',
+    userId: ids.actor,
+    viewers: ['all'],
+    props: { channel_event_seq: 101 },
+  };
+  const samples = {
+    hello: { action: 'hello', data: { connectionId: 'conn-review-001' } },
+    pong: {
+      status: 'OK',
+      data: {
+        text: 'pong',
+        gaps: [{ channelId: ids.channel, fromSeq: 100, maxSeq: 101 }],
+        hashMismatch: false,
+      },
+    },
+    post: { v: 1, action: 'post', data: post, broadcast: {}, seq: 101 },
+    post_update: {
+      action: 'post_update',
+      data: {
+        ...post,
+        quickReply: [{ emoji: ':thumbsup:', userIds: [ids.actor] }],
+      },
+    },
+    posts_update: {
+      action: 'posts_update',
+      data: { event_seq: 102, channelId: ids.channel, posts: [{ ...post, revoke: true }] },
+    },
+    post_read: {
+      action: 'post_read',
+      data: { id: ids.message, channelId: ids.channel, readBits: '11' },
+    },
+    increment_channel: {
+      action: 'increment_channel',
+      data: {
+        id: ids.channel,
+        type: 'P',
+        displayName: 'Gate Review Group',
+        lastEventSeq: 101,
+        members: [{ id: ids.actor }, { id: ids.observer }],
+        owner: { id: ids.actor, nickName: 'Actor' },
+      },
+    },
+    increment_channel_end: { action: 'increment_channel_end', data: {} },
+    update_channel: {
+      action: 'update_channel',
+      data: {
+        id: ids.channel,
+        displayName: 'Gate Review Group',
+        unreadCount: 0,
+        mentionCount: 0,
+        urgentCount: 0,
+        lastReadSeq: 101,
+        settingVersion: 7,
+      },
+    },
+    update_channel_notice: {
+      action: 'update_channel_notice',
+      data: { channelId: ids.channel, notice: 'Review notice', settingVersion: 8 },
+    },
+    channel_created: {
+      action: 'channel_created',
+      data: {
+        id: ids.channel,
+        type: 'O',
+        displayName: 'Gate Review Group',
+        owner: { id: ids.actor },
+        members: [{ id: ids.actor }, { id: ids.observer }],
+        memberCount: 2,
+        createdAt: 1_700_000_000_000,
+      },
+    },
+    channel_close: {
+      action: 'channel_close',
+      data: { channelId: ids.channel, deleteAt: 1_700_000_000_500 },
+    },
+    channel_member_update: {
+      action: 'channel_member_update',
+      data: {
+        id: ids.channel,
+        type: 'P',
+        memberChange: { leave: [{ id: ids.observer }] },
+      },
+    },
+    post_schedule_created: {
+      action: 'post_schedule_created',
+      eventSeq: 108,
+      data: {
+        channelId: ids.channel,
+        scheduleId: 'schedule-review-001',
+        scheduleOwnerUserId: ids.actor,
+        message: '下午三点发送',
+        messagePreview: '下午三点发送',
+        sendAt: 1_700_000_060_000,
+        status: 'scheduled',
+        revision: 8,
+      },
+    },
+    post_schedule_canceled: {
+      action: 'post_schedule_canceled',
+      eventSeq: 109,
+      data: {
+        channelId: ids.channel,
+        scheduleId: 'schedule-review-001',
+        scheduleOwnerUserId: ids.actor,
+        sendAt: 1_700_000_060_000,
+        status: 'canceled',
+        revision: 9,
+      },
+    },
+  };
+  const wire = samples[action];
+  if (!wire) {
+    throw new Error(`WS sample missing: ${action}`);
+  }
+  return wire;
+}
+
 /** 将 Gate ID 转成测试文件使用的稳定小写前缀。 */
 function gatePrefix(gateId) {
   return gateId.toLowerCase().replaceAll('-', '');
@@ -321,6 +627,359 @@ function emitRecords(gateId) {
     required_semantics: definition.required,
     inferred_gaps: definition.inferred ?? [],
     coverage_status: definition.inferred?.length ? 'PARTIAL' : 'CURRENT_SOURCE',
+  };
+}
+
+/** 读取仓内 F5 canonical Emit，作为消息类样例的真实字段和值基线。 */
+function f5EmitSamples() {
+  const path = join(HELIX_TESTS, 'fixtures', 'f5', 'f5_golden_events.ndjson');
+  const events = readFileSync(path, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  return Object.fromEntries(events.map((event) => [event.event, event.data]));
+}
+
+/** 按生产工厂字段构造一个与本 Gate 入站锚点可关联的 DomainEvent data 样例。 */
+function eventSampleData(event, gateId) {
+  const ids = SAMPLE_IDS;
+  const f5 = f5EmitSamples();
+  const sending = {
+    ...structuredClone(f5['im:post:sending']),
+    channelId: ids.channel,
+    channel_id: ids.channel,
+    msgId: ids.temporary,
+    temporaryId: ids.temporary,
+    temporary_id: ids.temporary,
+    text: 'Gate review message',
+  };
+  const received = {
+    ...structuredClone(f5['im:post:received']),
+    channelId: ids.channel,
+    channel_id: ids.channel,
+    id: ids.message,
+    msgId: ids.message,
+    msg_id: ids.message,
+    temporaryId: ids.temporary,
+    serverId: ids.message,
+    userId: ids.actor,
+    message: 'Gate review message',
+    text: 'Gate review message',
+  };
+  if (gateId === 'G-02') {
+    const document = {
+      document: {
+        version: 1,
+        url: 'http://doc-pre.cses7.com/doc/review',
+        title: '打开文档',
+        placeholder: true,
+      },
+    };
+    sending.type = 'DOCUMENT';
+    sending.text = '【文档】 http://doc-pre.cses7.com/doc/review';
+    received.type = 'DOCUMENT';
+    received.message = '【文档】 http://doc-pre.cses7.com/doc/review';
+    received.text = received.message;
+    received.props = document;
+  }
+  if (gateId === 'G-07') {
+    received.urgent = true;
+    received.urgentRequesterId = ids.actor;
+    received.urgentTargetIds = [ids.observer];
+    received.urgentTargetCount = 1;
+    received.urgentConfirmedIds = [ids.observer];
+    received.urgentConfirmedCount = 1;
+    received.urgentRequiredCount = 1;
+    received.urgentState = 'completed';
+  }
+  if (gateId === 'G-14a') {
+    received.type = 'TEMPLATE';
+    received.props = { template: { userIds: [ids.observer] } };
+    received.templateReceived = true;
+    received.templateConfirmedCount = 1;
+    received.readerIds = [ids.observer];
+  }
+  const samples = {
+    'im:post:sending': sending,
+    'im:post:received': received,
+    'im:post:updated': {
+      ...received,
+      reactions: [{ emoji: ':thumbsup:', userIds: [ids.actor] }],
+      reactionCount: 1,
+      updateAt: 1_700_000_000_100,
+    },
+    'im:post:deleted': {
+      ...received,
+      type: 'system',
+      kind: 'system',
+      system: true,
+      systemEvent: 'message-recalled',
+      eventId: `revoke:${ids.channel}:101`,
+      actorId: ids.actor,
+      actorAvailable: true,
+      targetMsgId: ids.message,
+      recalledMsgId: ids.message,
+      occurredAt: 1_700_000_000_100,
+      displayText: '你撤回了一条消息',
+      previewText: '你撤回了一条消息',
+      recalledText: 'Gate review message',
+      subjectMemberIds: [],
+    },
+    'im:post:read': { ...received, receiptRevision: 7 },
+    'im:channel:read_echo': received,
+    'im:post:send-failed': {
+      channelId: ids.channel,
+      temporaryId: ids.temporary,
+      sendStatus: 'failed',
+      serverId: null,
+      isSelf: true,
+      actionCapabilities: {
+        canReply: false,
+        canForward: false,
+        canReact: false,
+        canUrgent: false,
+        canCreateTopic: false,
+        canRevoke: false,
+        canRetry: true,
+        canUrgentConfirm: false,
+        canMarkRead: false,
+        canViewReceipt: false,
+        canTemplateConfirm: false,
+        canLocate: false,
+      },
+    },
+    'im:post:batch-updated': { channel_id: ids.channel, posts: [received] },
+    'im:posts:batch-result': {
+      reqId: ids.req,
+      batchStatus: 'success',
+      acceptedCount: 1,
+      failedCount: 0,
+      deliveryAuthority: 'ws-post',
+      targets: [
+        {
+          channelId: ids.topic,
+          acceptanceStatus: 'accepted',
+          deliveryStatus: 'pending',
+          error: null,
+        },
+      ],
+    },
+    'im:sync:state': {
+      state: 'committed',
+      recovery: { channelId: ids.channel, committedSeq: 101 },
+      ...(gateId === 'G-S3' ? { trigger: 'pong_gap' } : {}),
+    },
+    'im:sync:too_long': {
+      channelId: ids.channel,
+      resetTo: 101,
+      mode: 'drop_and_reload',
+      dropLocalMessages: true,
+    },
+    'im:channels:loaded': { items: [] },
+    'im:channel:increment': {
+      channel_id: ids.channel,
+      increment: wsSample('increment_channel').data,
+    },
+    'im:channel:update': { channel_id: ids.channel },
+    'im:operation:status': {
+      reqId: ids.req,
+      kind: 'topic-create',
+      phase: 'remote-succeeded',
+      rootMessageId: ids.message,
+      topicChannelId: ids.topic,
+      failureCode: null,
+      retryable: false,
+    },
+    'im:messages:query_result': { channel_id: ids.channel, messages: [received] },
+    'im:read:result': {
+      req_id: ids.req,
+      body: { status: 'SUCCESS', data: { posts: [received] } },
+    },
+    'im:channel:replies': {
+      reqId: ids.req,
+      channelId: ids.channel,
+      rootMessageId: ids.message,
+      projectionMode: 'snapshot',
+      revision: 7,
+      replyIds: ['reply-review-001'],
+      nodes: [{ ...received, id: 'reply-review-001', msgId: 'reply-review-001' }],
+      replyCount: 1,
+      cursor: null,
+      hasMore: false,
+    },
+    'im:channel:members': {
+      channelId: ids.channel,
+      members: [
+        { memberId: ids.actor, nickname: 'Actor', admin: true },
+        { memberId: ids.observer, nickname: 'Observer', admin: false },
+      ],
+      leaves: [],
+    },
+    'im:post:readers': {
+      reqId: ids.req,
+      receipts: [
+        {
+          postId: ids.message,
+          state: 'completed',
+          snapshotId: 'snapshot-review-001',
+          snapshotVersion: 7,
+          readerCount: 1,
+          unreadCount: 0,
+          recipientUserIds: [ids.observer],
+          readBits: '1',
+          authorExcluded: true,
+          contractVersion: 2,
+          readerIds: [ids.observer],
+          unreadIds: [],
+          readers: [{ userId: ids.observer }],
+          unreaders: [],
+        },
+      ],
+    },
+    'im:channel:created': {
+      id: ids.channel,
+      channelId: ids.channel,
+      channel_id: ids.channel,
+      displayName: 'Gate Review Group',
+      group: 'group',
+      channelType: 'O',
+      channelKind: 'group',
+      memberCount: 2,
+      createdAt: 1_700_000_000_000,
+      lastActivityAt: 1_700_000_000_000,
+      top: false,
+      projectionSource: 'channel_created',
+      props: wsSample('channel_created').data,
+      channel: wsSample('channel_created').data,
+    },
+    'im:channel:closed': {
+      id: ids.channel,
+      channelId: ids.channel,
+      closed: true,
+      deleteAt: 1_700_000_000_500,
+    },
+    'im:channel:left': { id: ids.channel, channelId: ids.channel, left: true },
+    'im:channel:member-updated': {
+      channel_id: ids.channel,
+      channel: wsSample('channel_member_update').data,
+    },
+    'im:channel:settings-updated': {
+      channelId: ids.channel,
+      settings: { displayName: 'Gate Review Renamed', notice: 'Review notice' },
+      settingVersion: 8,
+      channelCapabilities: { canEdit: true, canManageMembers: true },
+    },
+    'im:channel:schedule-created': {
+      id: ids.channel,
+      channelId: ids.channel,
+      hasSchedulePost: true,
+      scheduleId: 'schedule-review-001',
+      sendAt: 1_700_000_060_000,
+      scheduleMessage: '下午三点发送',
+      messagePreview: '下午三点发送',
+      scheduleMessagePreview: '下午三点发送',
+      scheduleSendAt: 1_700_000_060_000,
+      status: 'scheduled',
+      revision: 8,
+      scheduleRevision: 8,
+      scheduleStatus: 'scheduled',
+    },
+    'im:channel:schedule-canceled': {
+      id: ids.channel,
+      channelId: ids.channel,
+      hasSchedulePost: false,
+      scheduleId: 'schedule-review-001',
+      sendAt: 1_700_000_060_000,
+      scheduleMessage: null,
+      messagePreview: null,
+      scheduleMessagePreview: null,
+      scheduleSendAt: 1_700_000_060_000,
+      status: 'canceled',
+      revision: 9,
+      scheduleRevision: 9,
+      scheduleStatus: 'canceled',
+    },
+  };
+  const sample = samples[event];
+  if (!sample) {
+    throw new Error(`Event sample missing: ${event}`);
+  }
+  return sample;
+}
+
+/** 生成 Gate 的 Command 与 WS authority 两类入站结构样例。 */
+function inboundSampleRecord(uc, sourceLock) {
+  const commands = uc.commands.map((command, index) => ({
+    sample_id: `command-${index + 1}`,
+    tick_variant: 'Tick::Command',
+    rust_shape: 'AppCommand { name: Cow<str>, payload: Bytes(JSON) }',
+    value: {
+      name: command.name,
+      payload: commandSamplePayload(command.name, uc.gate_id),
+    },
+    source_refs: [
+      'crates/helix-core/src/tick.rs',
+      COMMAND_SAMPLE_SOURCES[command.name] ?? 'crates/helix-im/contracts/strict-matrix.v1.json',
+    ],
+  }));
+  const authorities = (GATE_WS_ACTIONS[uc.gate_id] ?? []).map((action, index) => ({
+    sample_id: `ws-authority-${index + 1}`,
+    tick_variant: 'Tick::Inbound',
+    rust_shape: 'InboundBytes(Bytes(JSON))',
+    value: wsSample(action),
+    source_refs: [
+      'crates/helix-core/src/tick.rs',
+      'crates/helix-im/src/ws/frame.rs',
+      'crates/helix-im/tests/g01_shared/scenario.rs',
+      'crates/helix-im/tests/s1_ws_actions_test.rs',
+    ],
+  }));
+  return {
+    schema_version: 'helix-im-gate-inbound-sample/v1',
+    gate_id: uc.gate_id,
+    evidence_level: 'SOURCE_DERIVED_SAMPLE',
+    runtime_capture: false,
+    warning: '字段和值来自当前 parser/生产测试结构；这是审阅样例，不是本轮真实网络捕获。',
+    source_lock: sourceLock,
+    samples: [...commands, ...authorities],
+  };
+}
+
+/** 生成 Gate 的 Effect::Emit 及 Native adapter 视图样例。 */
+function outboundSampleRecord(gateId, sourceLock) {
+  const emits = emitRecords(gateId);
+  return {
+    schema_version: 'helix-im-gate-outbound-sample/v1',
+    gate_id: gateId,
+    evidence_level: 'SOURCE_DERIVED_SAMPLE',
+    runtime_capture: false,
+    warning:
+      'data 形状来自当前 emit 工厂/canonical fixture；样例证明结构可审阅，不证明该 Gate 当前运行路径已交付。',
+    source_lock: sourceLock,
+    samples: emits.channels.map((channel, index) => {
+      const domainEvent = { event: channel.event, data: eventSampleData(channel.event, gateId) };
+      return {
+        sample_id: `emit-${index + 1}`,
+        effect_variant: 'Effect::Emit',
+        domain_event_bytes_json: domainEvent,
+        native_adapter_view: {
+          bus: 'im:__bus__',
+          channel: channel.event,
+          payload: domainEvent,
+        },
+        ffi_adapter_view: {
+          callback: 'on_domain_events_batch',
+          batch_item: domainEvent,
+        },
+        source_refs: [
+          'crates/helix-core/src/effect/operation.rs',
+          channel.source,
+          'crates/helix-im/docs/projection-schema.md',
+        ],
+        source_status: channel.source_status,
+      };
+    }),
+    inferred_gaps: emits.inferred_gaps,
   };
 }
 
@@ -443,12 +1102,15 @@ function renderReadme(records, manifest) {
 
 每个 Gate 的 \`contract.json\` 是 Matrix 声明；\`capture-status.json\` 是原始捕获状态。
 Native/Tauri 的 \`channel=event\` 是适配器路由；FFI 按 step 批量交付 event bytes。
+\`inbound-sample.json\` 与 \`outbound-sample.json\` 是当前源码派生的审阅样例，
+固定 \`runtime_capture=false\`，不能冒充真实运行证据。
 真实采集文件只能写入 \`captures/inbound.ndjson\`、\`effects.ndjson\`、
 \`emit.ndjson\`。空文件仍按 \`NOT_CAPTURED\` 处理。
 
 ## 汇总
 
 - Gate：${manifest.summary.gates}
+- 源码派生审阅样例：${manifest.summary.source_derived_sample_files}
 - 必需捕获槽位：${manifest.summary.required_capture_slots}
 - 已存在但未验证槽位：${manifest.summary.present_unverified_capture_slots}
 - 缺失槽位：${manifest.summary.missing_capture_slots}
@@ -501,6 +1163,8 @@ function main() {
       direction_basis: contract.direction_basis,
       ...contract.outbound,
     });
+    writeJson(join(gateDir, 'inbound-sample.json'), inboundSampleRecord(uc, sourceLock));
+    writeJson(join(gateDir, 'outbound-sample.json'), outboundSampleRecord(gateId, sourceLock));
     rmSync(join(gateDir, 'response-contract.json'), { force: true });
     writeJson(join(gateDir, 'capture-status.json'), status);
     return { contract, status };
@@ -513,6 +1177,7 @@ function main() {
     gate_ids: GATE_IDS,
     summary: {
       gates: records.length,
+      source_derived_sample_files: records.length * 2,
       required_capture_slots: records.length * 3,
       present_unverified_capture_slots: present,
       missing_capture_slots: records.length * 3 - present,

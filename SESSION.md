@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 为 Spec 047 的 30 个 Gate 各生成一份可审阅的 inbound/outbound 结构样例；可证伪断言：① 每个 Gate 新增 `inbound-sample.json` 与 `outbound-sample.json`；② inbound 只使用当前 `Tick` 变体、Matrix command 字段及生产测试中的 WS wire 字段；③ outbound 每条均为真实 `Effect::Emit` `{event,data}` 信封并附工厂源码，Native `channel=event` 只作为 adapter view；④ 样例明确标为 SOURCE_DERIVED_SAMPLE、不是运行 capture；⑤ 60 份样例 JSON 可解析、每个 outbound event 能在引用源码中找到、生成幂等且 capture 仍为 0/90 INCOMPLETE | 赌注 高 | 可逆 是 | @2026-07-28T20:20:00-0700
+
+✅ DONE 已在忽略目录 `.v1/gates/<Gate>/` 为 30 Gate 各生成 `inbound-sample.json` 与 `outbound-sample.json`：共 35 个 command、30 个 WS authority 和 66 个 Effect::Emit 样例；每份均附 Tick/emit 工厂源码、Native channel view 与 FFI batch view，并固定 SOURCE_DERIVED_SAMPLE/runtime_capture=false。30/30 Gate、60/60 样例文件、Matrix 必填 command 字段、66 个 emit 源文字面、adapter event 对账、JSON、忽略规则和 `git diff --check` 通过；连续两次生成全树 hash `36843760...`。未运行 Cargo/WDIO/真实链，capture 仍为 0/90、manifest INCOMPLETE | @2026-07-28T20:40:00-0700
+
 🎯 EXPECT 纠正 Spec 047 的 Gate 证据边界；可证伪断言：① `.v1` 与本规格不再把 Surface/InteractionFrame/DOM 当业务出站；② 入站统一按 `Tick::{Command,Inbound,PortReply,Timer}`，内部副作用按 `Effect`，对端业务出站只认 `Effect::Emit` 的 `{event,data}`；③ Native 的 `channel=event` 与 FFI batch 仅作为适配器承载，不冒充第二套领域合同；④ 30 Gate 均列出当前源码已存在的 emit channel，缺失的 timeline/定位语义明确标 `INFERRED_REQUIRED`；⑤ 生成器幂等、`.v1` 零 Frame/Surface、JSON 与 `git diff --check` 通过 | 赌注 高 | 可逆 是 | @2026-07-28T19:40:00-0700
 
 ✅ DONE 已把 Spec 047 与忽略目录 `.v1` 改为 `Tick -> Effect -> Effect::Emit` 三段证据合同：30 Gate 各有 aggregate/inbound/effects/outbound 四份合同，outbound 只含当前源码可定位的 `{event,data}` channel；Native `channel=event` 与 FFI batch 明确降为适配器承载。G-10 至 G-11a 的窗口、anchor、定位与分页字段保持 PARTIAL/INFERRED_REQUIRED。30 Gate、120 合同、30 状态 JSON、全部 emit 源文字面核验、90 个空 capture 槽位、两次生成全树 hash `6cac41f7...`、忽略规则、旧 UI 术语零匹配和 `git diff --check` 均 PASS；未运行 Cargo/WDIO/真实链，manifest 仍为 INCOMPLETE | @2026-07-28T20:05:00-0700

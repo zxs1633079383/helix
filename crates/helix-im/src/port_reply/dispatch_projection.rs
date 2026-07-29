@@ -247,7 +247,7 @@ impl ImModule {
         ) {
             out.push(effect);
         }
-        self.project_channel_settings_projection_frame(&projection, now_ms, out)?;
+        let _legacy_projection_context = now_ms;
         Ok(())
     }
 }

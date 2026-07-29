@@ -122,6 +122,22 @@ path = "tests/message_v3/timeline/g12/main.rs"
 name = "message_v3_g13"
 path = "tests/message_v3/read/g13/main.rs"
 
+[[test]]
+name = "message_v3_g16"
+path = "tests/message_v3/channel/g16/main.rs"
+
+[[test]]
+name = "message_v3_g16b"
+path = "tests/message_v3/channel_member/g16b/main.rs"
+
+[[test]]
+name = "message_v3_g15"
+path = "tests/message_v3/channel/g15/main.rs"
+
+[[test]]
+name = "message_v3_g16c"
+path = "tests/message_v3/channel/g16c/main.rs"
+
 [[bench]]
 name = "step_inorder"
 harness = false

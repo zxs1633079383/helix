@@ -37,3 +37,42 @@ pub fn topic_created(data: Value) -> Result<MessageV3Event, crate::ImError> {
 pub fn settings_updated(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:channel:settings-updated", data)
 }
+
+/// 从已持久化的 HTTP/WS authority 提取真实频道设置字段。
+pub fn settings_from_authority(
+    channel_id: &str,
+    authority: &Value,
+) -> Result<Option<MessageV3Event>, crate::ImError> {
+    let settings = authority
+        .get("settings")
+        .filter(|value| value.is_object())
+        .unwrap_or(authority);
+    let Some(version) = authority
+        .get("settingVersion")
+        .or_else(|| authority.get("setting_version"))
+        .or_else(|| settings.get("settingVersion"))
+        .or_else(|| settings.get("setting_version"))
+        .cloned()
+    else {
+        return Ok(None);
+    };
+    let mut data = serde_json::Map::new();
+    data.insert("channelId".to_string(), Value::String(channel_id.to_string()));
+    data.insert("settingVersion".to_string(), version);
+    for key in [
+        "displayName",
+        "header",
+        "purpose",
+        "notice",
+        "orient",
+        "module",
+        "source",
+        "pictureType",
+        "picture",
+    ] {
+        if let Some(value) = settings.get(key) {
+            data.insert(key.to_string(), value.clone());
+        }
+    }
+    settings_updated(Value::Object(data)).map(Some)
+}

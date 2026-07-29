@@ -376,13 +376,13 @@ impl ImModule {
                     if let Some(event) = member_read_event {
                         out.push(event.into_effect());
                     }
-                    self.project_channel_settings_value_frame(
-                        channel_id,
+                    if let Some(event) = crate::event::channel::settings_from_authority(
+                        channel_id.as_str(),
                         channel.as_ref(),
-                        causation_id,
-                        now_ms,
-                        out,
-                    )?;
+                    )? {
+                        out.push(event.into_effect());
+                    }
+                    let _settings_projection_context = (channel_id, channel, causation_id, now_ms);
                 }
                 PortOutcome::Err(error) => {
                     tracing::warn!(
@@ -796,13 +796,7 @@ impl ImModule {
                             ("left", Some("memberLeft"))
                         }
                     };
-                    self.project_channel_lifecycle_frame(
-                        channel_id,
-                        state,
-                        reason,
-                        causation_id,
-                        out,
-                    )?;
+                    let _legacy_projection_context = (state, reason, causation_id);
                     if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
                         let frame = match transition {
                             crate::state::ChannelLifecycleTransition::Closed { .. } => self
@@ -819,9 +813,7 @@ impl ImModule {
                                     .patch_from_channel_update(scope, &patch)
                             }
                         };
-                        if let Some(frame) = frame {
-                            out.push(frame);
-                        }
+                        let _legacy_internal_state = frame;
                     }
                     out.push(match transition {
                         crate::state::ChannelLifecycleTransition::Closed { delete_at } => {
@@ -856,21 +848,40 @@ impl ImModule {
                             .committed_member_update_seqs
                             .insert((channel_id, seq));
                     }
-                    out.push(crate::acl::to_effect_s1::emit_channel_member_updated(
-                        channel_id,
-                        &raw_channel,
-                    ));
-                    out.push(crate::render_ready_members::emit_channel_members(
-                        channel_id.as_str(),
-                        members,
-                        leaves,
-                        crate::render_ready_members::MemberProjectionMode::Incremental,
-                    ));
-                    self.refresh_attached_member_rosters_with_causation(
-                        channel_id,
-                        causation_id,
-                        out,
-                    )?;
+                    let member_values = members
+                        .into_iter()
+                        .map(|member| {
+                            serde_json::json!({
+                                "userId": member.member_id,
+                                "nickName": member.nickname,
+                                "admin": member.admin,
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    let leave_events = leaves
+                        .iter()
+                        .map(|user_id| {
+                            crate::event::channel_member::left(serde_json::json!({
+                                "channelId": channel_id.as_str(),
+                                "userId": user_id,
+                                "state": "left",
+                            }))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    out.push(
+                        crate::event::channel_member::updated(serde_json::json!({
+                            "channelId": channel_id.as_str(),
+                            "members": member_values,
+                            "leaves": leaves,
+                            "source": serde_json::from_slice::<serde_json::Value>(&raw_channel)
+                                .unwrap_or(serde_json::Value::Null),
+                        }))?
+                        .into_effect(),
+                    );
+                    for event in leave_events {
+                        out.push(event.into_effect());
+                    }
+                    let _legacy_projection_context = causation_id;
                 }
                 PortOutcome::Err(error) => {
                     if let Some(seq) = event_seq {

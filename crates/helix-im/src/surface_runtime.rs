@@ -777,6 +777,41 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let rows = storage_rows(outcome);
+        let terminal_event = match (&request.surface, &request.scope) {
+            (SurfaceId::MessageChannelSummary, SurfaceScope::Channel { channel_id }) => {
+                let mut data = rows.first().cloned().unwrap_or_else(|| serde_json::json!({}));
+                if let Some(object) = data.as_object_mut() {
+                    object.insert(
+                        "channelId".to_string(),
+                        serde_json::Value::String(channel_id.clone()),
+                    );
+                    object.insert(
+                        "state".to_string(),
+                        serde_json::Value::String("recovered".to_string()),
+                    );
+                }
+                Some(crate::event::channel::update(data)?)
+            }
+            (SurfaceId::MessageMemberRoster, SurfaceScope::MemberRoster { channel_id, .. }) => {
+                Some(crate::event::channel::members(serde_json::json!({
+                    "channelId": channel_id,
+                    "members": rows.clone(),
+                    "state": "recovered",
+                }))?)
+            }
+            (
+                SurfaceId::MessageTopicList,
+                SurfaceScope::TopicList {
+                    parent_channel_id,
+                    ..
+                },
+            ) => Some(crate::event::channel::topic_created(serde_json::json!({
+                "parentChannelId": parent_channel_id,
+                "topics": rows.clone(),
+                "state": "recovered",
+            }))?),
+            _ => None,
+        };
         let mutation = match (&request.surface, &request.scope) {
             (SurfaceId::MessageChannelSummary, SurfaceScope::Channel { channel_id }) => {
                 let viewer_role = ChannelId::from_str(channel_id)
@@ -844,13 +879,11 @@ impl ImModule {
                 ))
             }
         };
-        let frame = frame_for_mutation(
-            "surface-storage",
-            self.action_surface_epoch()?,
-            mutation.clone(),
-        )?;
         self.register_channel_summary_action_bindings(&mutation, now_ms)?;
-        out.push(frame);
+        let _legacy_internal_state = mutation;
+        if let Some(event) = terminal_event {
+            out.push(event.into_effect());
+        }
         if let Some(request_id) = request.causation_id {
             self.state
                 .action_registry
@@ -941,6 +974,9 @@ impl ImModule {
             );
             object.remove("channelId");
         }
+        let event_title = projection.display_name.clone();
+        let event_topic_channel_id = projection.topic_channel_id;
+        let event_root_message_id = projection.root_message_id.clone();
         let surface_epoch = self.action_surface_epoch()?;
         let mut view = thread_detail_view(
             projection.topic_channel_id.as_str(),
@@ -952,7 +988,7 @@ impl ImModule {
             surface_epoch,
         )?;
         view.detail_context = DetailContextVm::Topic {
-            parent_channel_id,
+            parent_channel_id: parent_channel_id.clone(),
             topic_channel_id: projection.topic_channel_id.as_str().to_string(),
             root_message_id: projection.root_message_id.clone(),
             title: projection.display_name,
@@ -963,7 +999,18 @@ impl ImModule {
             .snapshot(view)
             .map_err(|error| ImError::Parse(format!("make-topic projection: {error}")))?;
         mutation.causation_id = Some(projection.req_id);
-        out.push(frame_for_mutation("make-topic", surface_epoch, mutation)?);
+        let _legacy_internal_state = mutation;
+        out.push(
+            crate::event::channel::topic_created(serde_json::json!({
+                "channelId": event_topic_channel_id.as_str(),
+                "parentChannelId": parent_channel_id,
+                "rootMessageId": event_root_message_id,
+                "displayName": event_title,
+                "rootPost": root_row,
+                "state": "created",
+            }))?
+            .into_effect(),
+        );
         Ok(())
     }
 

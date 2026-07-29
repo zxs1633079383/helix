@@ -202,8 +202,8 @@ fn run_persona(viewer_id: &str, initial_unread: i64) -> TestResult<PersonaTrace>
         events: emitted_events(harness.sink.as_slice()),
         ticks: vec![
             json!({"kind": "Inbound", "value": inbound, "now_ms": CREATE_AT}),
-            json!({"kind": "PortReply", "corr": persist_corr.raw(), "outcome": {"variant": "Ok"}, "now_ms": CREATE_AT + 1}),
-            json!({"kind": "PortReply", "corr": readback_corr.raw(), "outcome": {"variant": "Ok", "rows": [{"channel_id": CHANNEL_ID, "user_id": viewer_id, "unread_count": final_unread, "last_post": last_post}]}, "now_ms": CREATE_AT + 2}),
+            json!({"kind": "PortReply", "value": {"correlation": persist_corr.raw(), "outcome": {"variant": "Ok"}}, "now_ms": CREATE_AT + 1}),
+            json!({"kind": "PortReply", "value": {"correlation": readback_corr.raw(), "outcome": {"variant": "Ok", "rows": [{"channel_id": CHANNEL_ID, "user_id": viewer_id, "unread_count": final_unread, "last_post": last_post}]}}, "now_ms": CREATE_AT + 2}),
         ],
         final_unread,
     })
@@ -221,8 +221,10 @@ fn g01_emits_committed_post_and_persona_channel_absolute_state() -> TestResult<(
         assert_eq!(trace.events[0]["data"]["id"], POST_ID);
         assert_eq!(trace.events[0]["data"]["temporaryId"], TEMPORARY_ID);
         assert_eq!(trace.events[0]["data"]["sendStatus"], "sent");
+        assert!(trace.events[0]["data"].get("props").is_none());
         assert_eq!(trace.events[1]["data"]["channelId"], CHANNEL_ID);
         assert_eq!(trace.events[1]["data"]["lastPost"]["id"], POST_ID);
+        assert!(trace.events[1]["data"]["lastPost"].get("props").is_none());
         assert_eq!(trace.events[1]["data"]["unreadCount"], trace.final_unread);
         let encoded = serde_json::to_string(&trace.events).map_err(|error| error.to_string())?;
         assert!(!encoded.contains("temporary_id"));

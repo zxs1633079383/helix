@@ -15,15 +15,19 @@ pub(crate) fn queue_commit(
     corr: Correlation,
     event: EventEnvelope,
     out: &mut EffectSink,
-) {
-    let ops = crate::channel_write::message_v3_commit_ops(&event, auth_user_id);
+) -> Result<(), ImError> {
+    let projection = crate::event::post::authority_projection(&event)?;
+    let ops =
+        crate::channel_write::message_v3_commit_ops(&event, auth_user_id, &projection.last_post);
     state.corr_map.insert(
         corr,
         CorrelationContext::MessageV3PostPersist {
             event: Box::new(event),
+            received_data: Box::new(projection.received_data),
         },
     );
     out.push(Effect::PersistAtomic { corr, ops });
+    Ok(())
 }
 
 impl ImModule {
@@ -31,14 +35,15 @@ impl ImModule {
     pub(super) fn handle_message_v3_post_persist_reply(
         &mut self,
         event: EventEnvelope,
+        received_data: serde_json::Value,
         outcome: &PortOutcome,
         out: &mut EffectSink,
-    ) {
+    ) -> Result<(), ImError> {
         if !matches!(outcome, PortOutcome::Ok(_)) {
             if let Some(channel) = self.state.channels.get_mut(&event.channel_id) {
                 channel.restore_message_v3_post(event, out);
             }
-            return;
+            return Ok(());
         }
 
         let next = self
@@ -57,7 +62,7 @@ impl ImModule {
         self.state.corr_map.insert(
             readback_corr,
             CorrelationContext::MessageV3PostReadback {
-                event: Box::new(event),
+                received_data: Box::new(received_data),
             },
         );
 
@@ -69,14 +74,15 @@ impl ImModule {
                 next_corr,
                 next_event,
                 out,
-            );
+            )?;
         }
+        Ok(())
     }
 
     /// G-01 复合键读回成功后只释放 post 与 channel 两个 MessageV3 终态。
     pub(super) fn handle_message_v3_post_readback_reply(
         &mut self,
-        event: EventEnvelope,
+        received_data: serde_json::Value,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -97,7 +103,7 @@ impl ImModule {
         else {
             return Ok(());
         };
-        let received = crate::event::post::received_from_authority(&event)?;
+        let received = crate::event::post::received(received_data)?;
         let channel = crate::event::channel::update(serde_json::json!({
             "channelId": channel_id,
             "lastPost": last_post,

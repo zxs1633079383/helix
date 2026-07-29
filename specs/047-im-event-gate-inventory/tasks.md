@@ -95,8 +95,8 @@ Gate 从此只能走 MessageV3。
 
 **Goal**: 以同一 post identity 和 persona 独立状态迁移消息行为。
 
-- [ ] T026 [US2] 新增 `crates/helix-im/tests/message_v3/post/g02/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g02`，先覆盖文档消息 sender/receiver、附件数据和 channel preview 并观察失败
-- [ ] T027 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/post.rs` 实现 G-02，生成 JSON，删除该 Gate 旧投影并更新 ledger
+- [X] T026 [US2] 新增 `crates/helix-im/tests/message_v3/post/g02/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g02`，先覆盖文档消息 sender/receiver、附件数据和 channel preview 并观察失败
+- [X] T027 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/ws/handlers/post.rs` 实现 G-02，生成 JSON，删除该 Gate 旧投影并更新 ledger
 - [ ] T028 [US2] 新增 `crates/helix-im/tests/message_v3/post/g03a/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g03a`，先覆盖初次失败仅 sender、retry 复用 temporary_id、成功后 receiver 才可见并观察失败
 - [ ] T029 [US2] 在 `crates/helix-im/src/event/post.rs`、`crates/helix-im/src/port_reply/dispatch.rs` 实现 G-03a retry，生成 JSON，删除旧 sending/sent/failed fallback 并更新 ledger
 - [ ] T030 [US2] 新增 `crates/helix-im/tests/message_v3/post/g04/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g04`，先覆盖 `im:post:revoke`、同 post 幂等更新、双视角系统提示和 lastPost 更新并观察失败

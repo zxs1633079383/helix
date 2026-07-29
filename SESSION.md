@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 完成 Spec 047 P2 的 G-02 文档消息硬切；可证伪断言：① sender/receiver 的 `im:post:received` 均保留 authority `props.document.url/title/placeholder`；② 两视角 `im:channel:update.lastPost` 指向同一 DOCUMENT post 并保留文档预览字段，sender unread=0、receiver 仅 +1；③ PersistOk 前不 Emit，四类 JSON 由真实测试生成；④ 不改变 G-01 TEXT 的最小 payload，不修改 PC/Mobile/Go | 赌注 中 | 可逆 是 | @2026-07-29T09:35:00-0700
+
+✅ DONE Spec 047 P2/G-02 完成：DOCUMENT authority 的业务 `props.document` 只解析一次并同时进入 `im:post:received` 与持久化 `lastPost`，技术字段 `channel_event_seq` 不再重复泄漏到业务 props；sender/receiver 仍分别读回 unread=0 与 N+1。G-01/G-02 聚焦测试 4/4、三 Gate 部分 generated schema、cutover self-test 与 diff check 均 PASS；G-02 四类 `.v1` JSON 由 Rust producer 生成，manifest 标为 MIGRATED。全量 generated 仍为 3/30，E3 runtime、真实 dual-user 与 PC/Mobile 同步保持 NOT_RUN/NOT_SYNCED_BY_SCOPE；中途发现部分 schema 模式仍遍历 30 个空目录，已改为只校验存在 generated 的非空子集，默认全量模式继续要求精确 30 | @2026-07-29T05:03:00-0700
+
 🎯 EXPECT 完成 Spec 047 P1 的 G-15a/G-01 基线硬切；可证伪断言：① G-15a 只在 channel/member 原子提交后发 `im:channel:created` 与 `im:channel:members`；② G-01 以复合键作用域存储原语在 O(1) SQL 内更新当前 viewer 的 `channel_member`，sender 未读绝对值归零、receiver 在前进守卫下仅加一；③ message、channel 公共 lastPost、viewer member 绝对态和 cursor 同一原子提交，提交后复合键读回再发 `im:post:received` 与 `im:channel:update`；④ 两 Gate 产物均由真实 `ImModule::handle` 测试生成四份 JSON，不含 Frame/Surface/capability/重复别名；⑤ 不修改 PC/Mobile/Go，不触碰既有 `UC04-16-EXECUTION-INDEX.md` 删除 | 赌注 高 | 可逆 是 | @2026-07-29T08:30:00-0700
 
 ✅ DONE Spec 047 P1 基线完成：G-15a 的 channel/member 原子提交成功后只发 `im:channel:created` 与 `im:channel:members`，owner/invitee 的 `viewerRole` 分别为 OWNER/MEMBER；G-01 用 `ScopedGuardedBump` 与 `ScopedGet` 在复合主键上兑现 receiver 未读 +1、sender 未读归零，并在 message/channel/current-viewer-member/cursor 原子提交及读回后发 `im:post:received` 与 `im:channel:update`。两 Gate 聚焦测试 4/4、HostStorage 真 SQLite 1/1、core 21 项、三端 Rust check、Web wasm build、core 零运行时依赖与 cutover self-test 均 PASS；四类 `.v1` JSON 已由 Rust producer 生成，manifest 标为 MIGRATED。当前 generated 分母仍为 2/30，PC/Mobile/Go 未修改，runtime、真实 dual-user 与消费者同步保持 NOT_RUN/NOT_SYNCED_BY_SCOPE，既有 `UC04-16-EXECUTION-INDEX.md` 删除未触碰 | @2026-07-29T09:25:00-0700

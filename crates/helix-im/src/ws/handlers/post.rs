@@ -116,7 +116,7 @@ impl WsMessageHandler for PostHandler {
                     corr,
                     event,
                     out,
-                );
+                )?;
             }
         } else {
             let mut ignored_dialog_patches = Vec::new();

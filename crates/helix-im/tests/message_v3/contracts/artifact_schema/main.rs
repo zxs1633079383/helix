@@ -89,7 +89,7 @@ fn read_json(path: &Path) -> Value {
     .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()))
 }
 
-/// 生成器提供根目录时，逐 Gate 校验四类真实 Rust 产物而不是示例对象。
+/// 生成器提供根目录时校验真实 Rust 产物；迁移期可显式允许非空子集。
 #[test]
 fn generated_tree_matches_schemas_when_requested() {
     let Ok(root) = std::env::var("HELIX_GATE_ARTIFACT_ROOT") else {
@@ -106,13 +106,21 @@ fn generated_tree_matches_schemas_when_requested() {
     ))
     .expect("provenance schema JSON");
 
+    let allow_partial = std::env::var("HELIX_GATE_ARTIFACT_ALLOW_PARTIAL").as_deref() == Ok("1");
     let mut gates = std::fs::read_dir(root)
         .expect("artifact root exists")
         .map(|entry| entry.expect("gate directory").path())
-        .filter(|path| path.is_dir())
+        .filter(|path| path.is_dir() && (!allow_partial || path.join("generated").is_dir()))
         .collect::<Vec<_>>();
     gates.sort();
-    assert_eq!(gates.len(), 30, "generated tree must contain 30 gates");
+    if allow_partial {
+        assert!(
+            !gates.is_empty(),
+            "partial generated tree must not be empty"
+        );
+    } else {
+        assert_eq!(gates.len(), 30, "generated tree must contain 30 gates");
+    }
     for gate in gates {
         let generated = gate.join("generated");
         assert_schema(

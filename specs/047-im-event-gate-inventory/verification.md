@@ -59,6 +59,18 @@ G-15a 与 G-01 已在 migration manifest 标为 `MIGRATED`。两者当前最高�
 E3；E4 runtime、E5 真实 dual-user、跨端 mirror 后的 E6 canonical 均为 `NOT_RUN`，
 消费者同步继续为 `NOT_SYNCED_BY_SCOPE`。
 
+## P2 Post Gate 执行记录
+
+| Gate | 证据 | 等级 | 结果 | 原始输出与产物 | 边界 |
+|---|---|---|---|---|---|
+| G-02 | sender/receiver 独立回放、DOCUMENT props 单次解析、与 G-01 共用原子写后读回 | E1/E2 | `PASS 2/2` | `evidence/p2-g02-focused.txt`、`.v1/gates/G-02/generated/` | 双 persona 为本地确定性回放，不证明真实 Go 文档广播 |
+| G-01 regression | TEXT payload 仍不携业务空 props 或技术 `channel_event_seq`，未读规则保持不变 | E1/E2 | `PASS 2/2` | `evidence/p2-g02-focused.txt` | 只证明 G-02 扩展未膨胀 G-01 终态 |
+| partial artifact schema | 已生成 G-15a/G-01/G-02 的四类文件逐份通过冻结 schema | E2 contract | `PASS / 3 of 30` | `evidence/p2-g02-focused.txt` | 全 30 Gate 模式仍按设计失败关闭，剩余 27 Gate 未生成 |
+
+G-02 已在 migration manifest 标为 `MIGRATED`，当前最高连续等级为 E2。E3 真实驱动读回、
+E4 runtime、E5 真实 dual-user 与消费者同步后的 E6 canonical 均为 `NOT_RUN`；
+消费者同步继续为 `NOT_SYNCED_BY_SCOPE`。
+
 ## 当前来源与缺口
 
 | 证据面 | 当前来源 | 当前状态 | 不能证明 |

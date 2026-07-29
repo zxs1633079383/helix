@@ -164,8 +164,10 @@ fn g15a_writes_reviewable_dual_persona_artifacts() -> TestResult<()> {
             }),
             json!({
                 "kind": "PortReply",
-                "corr": sender.persist_corr,
-                "outcome": {"variant": "Ok", "reply_bytes": ""},
+                "value": {
+                    "correlation": sender.persist_corr,
+                    "outcome": {"variant": "Ok", "reply_bytes": ""}
+                },
                 "now_ms": 1_700_001_500_001_u64
             }),
         ],

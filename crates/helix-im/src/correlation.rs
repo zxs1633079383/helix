@@ -66,14 +66,15 @@ pub enum CorrelationContext {
     /// MessageV3 业务写提交屏障；只有 matching PersistOk 才按原顺序释放事件。
     MessageV3Commit { terminal_events: Vec<Vec<u8>> },
 
-    /// G-01 message/channel/member/cursor 原子提交后的读回路由。
+    /// G-01/G-02 原子提交后的读回路由，并保留一次生成的 post 投影。
     MessageV3PostPersist {
         event: Box<crate::sync_session::EventEnvelope>,
+        received_data: Box<serde_json::Value>,
     },
 
-    /// G-01 按当前 viewer 复合键读回绝对态后释放双事件。
+    /// G-01/G-02 按当前 viewer 读回绝对态后释放双事件。
     MessageV3PostReadback {
-        event: Box<crate::sync_session::EventEnvelope>,
+        received_data: Box<serde_json::Value>,
     },
 
     /// on_start `Scan(_helix_monotonic)` 回报：载入 per-channel cursor + proactive resync（取代旧 `scan_corr`）。

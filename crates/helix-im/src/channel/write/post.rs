@@ -199,27 +199,18 @@ pub fn message_class(upd: &PostChannelUpdate) -> &'static str {
     }
 }
 
-/// 构造 G-01 持久化与 channel preview 共用的最小 lastPost JSON。
-pub fn message_v3_last_post(fields: &crate::sync_session::PostFields) -> serde_json::Value {
-    serde_json::json!({
-        "id": fields.id,
-        "userId": fields.user_id,
-        "message": fields.message,
-        "createAt": fields.create_at,
-    })
-}
-
-/// 将 G-01 authority 编译为 message/channel/viewer-member/cursor 原子写集。
+/// 将 post authority 与预先投影的 lastPost 编译为原子写集。
 pub fn message_v3_commit_ops(
     event: &crate::sync_session::EventEnvelope,
     auth_user_id: &str,
+    last_post: &serde_json::Value,
 ) -> Vec<helix_core::effect::StorageOp> {
     use helix_core::effect::{
         BatchUpdateSpec, ScopedGuardedBumpSpec, SqlValue, StorageOp, UpsertSpec,
     };
 
     let fields = &event.fields;
-    let last_post = message_v3_last_post(fields).to_string();
+    let last_post = last_post.to_string();
     let channel_id = event.channel_id.as_str().to_string();
     let viewer_id = auth_user_id.to_string();
     let sender_view = fields.user_id == auth_user_id;

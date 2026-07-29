@@ -78,6 +78,19 @@
           "sha256": "ac23145a49952499380f326355ed086673b797279f2d06462306edba62a5f5b0"
         }
       ]
+    },
+    {
+      "id": "p2-g02-focused",
+      "command": "cargo test G-01/G-02 + Rust artifact generation + partial schema validation + cutover self-test + hot-path cleanup regression",
+      "started_at": "2026-07-29T12:00:57Z",
+      "ended_at": "2026-07-29T12:09:00Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p2-g02-focused.txt",
+          "sha256": "7434c2a26809faf7339b695e8abf307ed1bfc09df0d935f96e873d96036a0a0e"
+        }
+      ]
     }
   ]
 }

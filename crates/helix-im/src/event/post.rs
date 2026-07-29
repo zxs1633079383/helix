@@ -3,6 +3,12 @@
 use super::MessageV3Event;
 use serde_json::Value;
 
+/// 保存一次 authority 投影生成的 post 终态与 channel lastPost。
+pub struct AuthorityProjection {
+    pub received_data: Value,
+    pub last_post: Value,
+}
+
 /// 构造本地发送中事实。
 pub fn sending(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:post:sending", data)
@@ -13,11 +19,11 @@ pub fn received(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:post:received", data)
 }
 
-/// 从已提交的 G-01 authority 构造无能力壳、无重复别名的 received 数据。
-pub fn received_from_authority(
+/// 从 authority 一次解析 props，并生成 post 与 channel 共用的真实结构。
+pub fn authority_projection(
     event: &crate::sync_session::EventEnvelope,
-) -> Result<MessageV3Event, crate::ImError> {
-    received(serde_json::json!({
+) -> Result<AuthorityProjection, crate::ImError> {
+    let mut received_data = serde_json::json!({
         "id": event.fields.id,
         "channelId": event.channel_id.as_str(),
         "temporaryId": event.fields.temporary_id,
@@ -27,7 +33,33 @@ pub fn received_from_authority(
         "type": event.fields.msg_type,
         "createAt": event.fields.create_at,
         "sendStatus": "sent",
-    }))
+    });
+    let mut last_post = serde_json::json!({
+        "id": event.fields.id,
+        "userId": event.fields.user_id,
+        "message": event.fields.message,
+        "createAt": event.fields.create_at,
+    });
+    if event.fields.msg_type != "TEXT" {
+        last_post["type"] = serde_json::json!(event.fields.msg_type.as_str());
+    }
+    let mut props = if event.fields.props.trim().is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::from_str::<Value>(&event.fields.props)
+            .map_err(|error| crate::ImError::Parse(format!("post props: {error}")))?
+    };
+    if let Some(object) = props.as_object_mut() {
+        object.remove("channel_event_seq");
+    }
+    if !props.as_object().is_some_and(serde_json::Map::is_empty) && !props.is_null() {
+        received_data["props"] = props.clone();
+        last_post["props"] = props;
+    }
+    Ok(AuthorityProjection {
+        received_data,
+        last_post,
+    })
 }
 
 /// 构造发送失败事实。

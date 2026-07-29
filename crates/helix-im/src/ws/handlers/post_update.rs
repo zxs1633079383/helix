@@ -4,8 +4,8 @@
 //! （event_type=2 / "post_edited"）→ emit `im:post:updated` + 经 `on_ws_event` 推 cursor。
 //!
 //! wire：`data` 即 post 对象（顶层 `id` / `channelId` / `message` / `props` / `event_seq`）。
-//! 落库：`edit_content_op`（**仅覆盖内容列** UPDATE WHERE id，保留本地 read_bits/send_status，
-//! 对齐 C2 BLOCKING-1 不擦已读位）。建话题 makeTopic 也走 post_update（spec §S1）。
+//! 落库：普通 edit 走 `edit_content_op`；G-06 quickReply 走独立单列写与 cursor 原子提交，
+//! PersistOk 后再读 durable row。两者都保留本地 read_bits/send_status。
 //!
 //! BLOCKING-2：cursor 推进经 **channel gate**（严格 +1 / drop / buffer+1s-gate），与 post handler
 //! 的 `ch.ingest` 同口径——**不再**用 `try_advance` MAX-jump（会跨过两条 edit 间漏掉的 post 空洞
@@ -46,9 +46,8 @@ impl WsMessageHandler for PostUpdateHandler {
 
 /// 单条 post 编辑——经 channel gate 推进 cursor（type2，BLOCKING-2）。
 ///
-/// `post` = 单个 post JSON 对象（post_update 的 data 顶层）。落库（`edit_content_op` patch，
-/// 保留本地 read_bits）+ emit `im:post:updated` + cursor 推进**全由 gate** 完成（kind-aware）：
-/// gate 严格 +1 → 缺口 buffer + arm 1s gate，绝不 MAX-jump 跨过两条 edit 间漏掉的 post 空洞。
+/// `post` = 单个 post JSON 对象。普通 edit 仍由旧 gate 处理；G-06 reaction 复用 MessageV3
+/// 连续性 buffer，严格 +1 后才进入 correlated PersistAtomic 与 durable readback。
 /// channel_id 缺 / 未注册 → no-op（边界零信任，与 post handler ingest 门控同口径）。
 pub(super) fn apply_post_update(
     ctx: &mut ImWsContext<'_>,
@@ -80,6 +79,28 @@ pub(super) fn apply_post_update(
     let Some(target_seq) = frame.event_seq() else {
         return;
     };
+    if !fields.quick_reply.is_empty() {
+        let event = crate::sync_session::EventEnvelope::new(
+            channel_id,
+            target_seq,
+            EventKind::PostEdit,
+            fields,
+        )
+        .with_msg_id(msg_id)
+        .with_viewer_user_id(ctx.auth_user_id);
+        let Some(channel) = ctx.state.channels.get_mut(&channel_id) else {
+            return;
+        };
+        let Ok(admitted) = channel.admit_message_v3_post(event, out) else {
+            return;
+        };
+        if let Some(event) = admitted {
+            let corr = ctx.alloc_corr();
+            crate::port_reply::message_v3_reaction::queue_commit(ctx.state, corr, event, out);
+        }
+        super::gate::trigger_backfill_if_large_gap(ctx, channel_id, target_seq, out);
+        return;
+    }
     let Some(cursor) = ctx
         .state
         .channels

@@ -144,7 +144,8 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
 ///
 /// patch 范围 = helix `message` 表中 PostFields 携带的内容列：`type` / `message` / `props`，
 /// 以及仅在 wire 明确携带时更新的 `expedite_map`。后者承载 G-07 加急/确认终态；缺字段时不写，
-/// 避免普通编辑把既有加急状态擦空。复杂度 O(1)（UPDATE WHERE id，idx_message_id 命中）。
+/// 避免普通编辑把既有加急状态擦空。G-06 使用独立单列写，不经过此旧内容 patch。
+/// 复杂度 O(1)（UPDATE WHERE id，idx_message_id 命中）。
 pub fn edit_content_op(msg_id: &str, fields: &crate::sync_session::PostFields) -> StorageOp {
     use helix_core::effect::{BatchUpdateSpec, SqlValue};
     let mut patch = vec![

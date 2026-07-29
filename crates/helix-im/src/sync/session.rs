@@ -47,6 +47,8 @@ pub struct PostFields {
     pub mentions: Vec<String>,
     /// 服务端原始 expediteMap / expedite_map 对象字符串，供 urgent 判定和存储透传。
     pub expedite_map: String,
+    /// Go `post_update.quickReply` 规范化数组的 JSON 文本，独立落 message.quick_reply。
+    pub quick_reply: String,
     /// 消息的话题映射对象（Go wire `topic`），原样 JSON 持久化并投影给 UI。
     pub topic: String,
     /// 被回复消息 id，以及服务端归一后的回复根/一级回复锚。

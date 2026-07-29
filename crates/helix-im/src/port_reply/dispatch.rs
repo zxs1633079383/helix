@@ -203,6 +203,12 @@ impl ImModule {
             CorrelationContext::MessageV3RevokeChannelReadback => {
                 self.handle_message_v3_revoke_channel_readback_reply(outcome, out)?;
             }
+            CorrelationContext::MessageV3ReactionPersist { event } => {
+                self.handle_message_v3_reaction_persist_reply(*event, outcome, out)?
+            }
+            CorrelationContext::MessageV3ReactionReadback { message_id } => {
+                self.handle_message_v3_reaction_readback_reply(message_id, outcome, out)?;
+            }
             // 路由（E4）：on_start Scan 回报 → 加载 cursor + 触发 proactive resync
             CorrelationContext::ScanCursors => match outcome {
                 PortOutcome::Ok(reply) => {

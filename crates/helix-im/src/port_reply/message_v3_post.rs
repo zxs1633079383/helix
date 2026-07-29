@@ -69,16 +69,31 @@ impl ImModule {
         );
 
         if let Some(next_event) = next {
-            let next_corr = self.alloc_corr_internal();
-            queue_commit(
-                &mut self.state,
-                self.config.auth_user_id.as_str(),
-                next_corr,
-                next_event,
-                out,
-            )?;
+            self.queue_next_message_v3_event(next_event, out)?;
         }
         Ok(())
+    }
+
+    /// 按已冻结 Gate 语义继续处理刚变为连续的 MessageV3 缓冲事件。
+    pub(super) fn queue_next_message_v3_event(
+        &mut self,
+        event: EventEnvelope,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let corr = self.alloc_corr_internal();
+        if matches!(event.kind, crate::sync_session::EventKind::PostEdit)
+            && !event.fields.quick_reply.is_empty()
+        {
+            super::message_v3_reaction::queue_commit(&mut self.state, corr, event, out);
+            return Ok(());
+        }
+        queue_commit(
+            &mut self.state,
+            self.config.auth_user_id.as_str(),
+            corr,
+            event,
+            out,
+        )
     }
 
     /// G-01 复合键读回成功后只释放 post 与 channel 两个 MessageV3 终态。

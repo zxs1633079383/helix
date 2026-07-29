@@ -124,6 +124,7 @@ fn sample_fields() -> PostFields {
         message: "hello".to_string(),
         simple_message: "hello".to_string(),
         props: r#"{"k":"v"}"#.to_string(),
+        quick_reply: String::new(),
         user_snapshot: r#"{"userId":"u_sender"}"#.to_string(),
         create_at: 1_700_000_000,
         update_at: 1_700_000_025,

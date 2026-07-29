@@ -765,12 +765,12 @@ impl ActionBindingRegistry {
         }
     }
 
-    /// 仅在包含相同 causation 的终态 action Frame 已成功加入本 Tick 输出后调用。
+    /// 仅在包含相同 causation 的终态业务事件已成功加入本 Tick 输出后调用。
     ///
-    /// `handle_port_reply` 会先从 corr_map 移除对应上下文，再构造/emit Frame，再调用本函数；因此一旦
+    /// `handle_port_reply` 会先从 corr_map 移除对应上下文，再构造/emit 事件，再调用本函数；因此一旦
     /// requestId 可复用，旧 HTTP reply 已没有路由入口，不可能把同一 causation 误确认给新动作。
     /// session/identity reset 也会在清 registry 前移除 action corr，构成另一条安全释放路径。
-    pub fn complete_after_terminal_frame(&mut self, request_id: &str) -> bool {
+    pub fn complete_after_terminal_event(&mut self, request_id: &str) -> bool {
         let Some(action_ref) = self.in_flight_by_request_id.get(request_id).cloned() else {
             return false;
         };
@@ -789,6 +789,11 @@ impl ActionBindingRegistry {
         self.in_flight_by_request_id.remove(request_id);
         self.in_flight_by_action_ref.remove(&action_ref);
         true
+    }
+
+    /// 旧 Frame Gate 在物理下线前复用同一请求释放语义。
+    pub fn complete_after_terminal_frame(&mut self, request_id: &str) -> bool {
+        self.complete_after_terminal_event(request_id)
     }
 
     fn commit_without_receipt(

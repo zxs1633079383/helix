@@ -4,6 +4,7 @@ use super::MessageV3Event;
 use serde_json::Value;
 
 mod forward;
+mod reaction;
 
 /// 保存一次 authority 投影生成的 post 终态与 channel lastPost。
 pub struct AuthorityProjection {
@@ -298,4 +299,11 @@ fn value_alias<'a>(value: &'a Value, aliases: &[&str]) -> Option<&'a Value> {
 /// 构造消息字段更新事实。
 pub fn update(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:post:update", data)
+}
+
+/// 从 durable message row 重建 G-06 quickReply 绝对态。
+pub fn reaction_update_from_row(
+    row: &helix_core::effect::Row,
+) -> Result<Option<MessageV3Event>, crate::ImError> {
+    reaction::from_row(row)
 }

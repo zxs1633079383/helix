@@ -143,6 +143,19 @@
           "sha256": "d5d819941fd48cdff747e878f56b01d1777427d95e34eb40f555d06b69f2b07b"
         }
       ]
+    },
+    {
+      "id": "p2-g06-focused",
+      "command": "G-06 red/green, cross-Gate regression, hot-path audit, canonical schema, byte-exact, cargo check and cutover self-test",
+      "started_at": "2026-07-29T13:33:12Z",
+      "ended_at": "2026-07-29T13:59:17Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p2-g06-focused.txt",
+          "sha256": "4c09d5600283bf29eb2dc8fd178e8cd08255e99be55ba327c9d52e968928c025"
+        }
+      ]
     }
   ]
 }

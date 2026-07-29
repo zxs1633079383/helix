@@ -85,6 +85,14 @@ pub enum CorrelationContext {
     /// G-04 复合键读回只释放 channel 绝对态，不重复发布 post revoke。
     MessageV3RevokeChannelReadback,
 
+    /// G-06 quickReply 与 cursor 的原子提交屏障。
+    MessageV3ReactionPersist {
+        event: Box<crate::sync_session::EventEnvelope>,
+    },
+
+    /// G-06 提交成功后的 durable message 单行读回。
+    MessageV3ReactionReadback { message_id: String },
+
     /// on_start `Scan(_helix_monotonic)` 回报：载入 per-channel cursor + proactive resync（取代旧 `scan_corr`）。
     ScanCursors,
 

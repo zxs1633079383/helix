@@ -1,0 +1,1213 @@
+== G-06 RED: MessageV3 first-class quick_reply contract ==
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+error[E0425]: cannot find function `reaction_update_from_row` in module `helix_im::event::post`
+   --> crates/helix-im/tests/message_v3/post/g06/main.rs:318:40
+    |
+318 |     let event = helix_im::event::post::reaction_update_from_row(&durable_row())?
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^ not found in `helix_im::event::post`
+
+warning: unused imports: `PortOutcome` and `ReplyBytes`
+ --> crates/helix-im/tests/message_v3/post/g06/main.rs:6:38
+  |
+6 | use helix_core::tick::{InboundBytes, PortOutcome, ReplyBytes};
+  |                                      ^^^^^^^^^^^  ^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0599]: no variant or associated item named `Put` found for enum `StorageOp` in the current scope
+   --> crates/helix-im/tests/message_v3/post/g06/main.rs:144:20
+    |
+144 |         StorageOp::Put(spec) if spec.table == "_helix_monotonic"
+    |                    ^^^ variant or associated item not found in `StorageOp`
+
+Some errors have detailed explanations: E0425, E0599.
+For more information about an error, try `rustc --explain E0425`.
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+error: could not compile `helix-im` (test "message_v3_g06") due to 2 previous errors; 1 warning emitted
+
+== G-06 GREEN focused ==
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+error[E0308]: mismatched types
+  --> crates/helix-im/src/port_reply/message_v3_reaction.rs:62:66
+   |
+62 |         let rows = helix_core::port_codec::rows_from_reply_bytes(reply.0.as_ref())
+   |                    --------------------------------------------- ^^^^^^^^^^^^^^^^ expected `&Bytes`, found `&[u8]`
+   |                    |
+   |                    arguments to this function are incorrect
+   |
+   = note: expected reference `&bytes::Bytes`
+              found reference `&[u8]`
+note: function defined here
+  --> crates/helix-core/src/port_codec.rs:68:8
+   |
+68 | pub fn rows_from_reply_bytes(bytes: &Bytes) -> Result<Vec<Row>, String> {
+   |        ^^^^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `helix-im` (lib) due to 1 previous error
+
+== G-06 GREEN focused retry after compile fix ==
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+error[E0277]: `?` couldn't convert the error to `std::string::String`
+   --> crates/helix-im/tests/message_v3/post/g06/main.rs:316:80
+    |
+315 | fn g06_cold_start_row_rebuilds_the_same_terminal_event() -> TestResult<()> {
+    |                                                             -------------- expected `std::string::String` because of this
+316 |     let event = helix_im::event::post::reaction_update_from_row(&durable_row())?
+    |                 ---------------------------------------------------------------^ the trait `From<ImError>` is not implemented for `std::string::String`
+    |                 |
+    |                 this can't be annotated with `?` because it has type `Result<_, ImError>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = help: the following other types implement trait `From<T>`:
+              `std::string::String` implements `From<&mut str>`
+              `std::string::String` implements `From<&std::string::String>`
+              `std::string::String` implements `From<&str>`
+              `std::string::String` implements `From<Box<str>>`
+              `std::string::String` implements `From<Cow<'_, str>>`
+              `std::string::String` implements `From<char>`
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `helix-im` (test "message_v3_g06") due to 1 previous error
+
+== G-06 GREEN focused final compile ==
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.40s
+     Running tests/message_v3/post/g06/main.rs (target/debug/deps/message_v3_g06-bc762da0a25c2248)
+
+running 3 tests
+test g06_cold_start_row_rebuilds_the_same_terminal_event ... ok
+test g06_writes_reviewable_dual_persona_artifacts ... ok
+test g06_persists_and_emits_quick_reply_as_a_first_class_column ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+=== G06 focused regressions 2026-07-29T06:45:02-07:00 ===
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+error[E0063]: missing field `quick_reply` in initializer of `PostFields`
+   --> crates/helix-im/tests/projection_schema_test.rs:118:5
+    |
+118 |     PostFields {
+    |     ^^^^^^^^^^ missing `quick_reply`
+
+For more information about this error, try `rustc --explain E0063`.
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+error: could not compile `helix-im` (test "projection_schema_test") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.28s
+     Running unittests src/lib.rs (target/debug/deps/helix_im-13d0815dce6cb87c)
+
+running 5 tests
+test ws::parser::post_props::tests::root_level_quickreply_stays_outside_props ... ok
+test ws::parser::post_props::tests::missing_props_yields_empty_object_explicit_null_yields_empty_string ... ok
+test ws::parser::post_props::tests::plain_post_without_quickreply_keeps_props_untouched ... ok
+test ws::parser::post_props::tests::sequenced_live_post_persists_event_seq_inside_props ... ok
+test ws::parser::post_props::tests::top_level_quickreply_stays_outside_props ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 392 filtered out; finished in 0.00s
+
+
+=== G06 focused regressions retry 2026-07-29T06:46:04-07:00 ===
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.04s
+     Running tests/c3_sync_mutation_emits_test.rs (target/debug/deps/c3_sync_mutation_emits_test-490bfe779e908787)
+
+running 12 tests
+test sync_type1_body_still_rechecks_viewers_gate_locally ... ok
+test new_phantom_emits_nothing ... ok
+test revoke_event_emits_post_revoke_regardless_of_messages ... ok
+test revoke_replay_drops_transport_actor_and_display_metadata ... ok
+test read_event_emits_even_when_phantom ... ok
+test read_event_emits_channel_read_echo ... ok
+test sync_type1_sender_self_visible_exception_but_unread_zero ... ok
+test edit_event_emits_post_updated_when_visible_noop_when_phantom ... ok
+test new_visible_emits_received_and_channel_update ... ok
+test online_vs_offline_read_emit_names_differ ... ok
+test mixed_batch_emits_match_dispatch_table ... ok
+test handle_sync_reply_releases_mutation_events_after_persist_ack ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/message_v3/post/g06/main.rs (target/debug/deps/message_v3_g06-bc762da0a25c2248)
+
+running 3 tests
+test g06_cold_start_row_rebuilds_the_same_terminal_event ... ok
+test g06_writes_reviewable_dual_persona_artifacts ... ok
+test g06_persists_and_emits_quick_reply_as_a_first_class_column ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/one_line_server_contracts_test.rs (target/debug/deps/one_line_server_contracts_test-46591f10ac699084)
+
+running 12 tests
+test relay_without_req_id_still_fails_closed_for_invalid_business_inputs ... ok
+test candidate_users_default_to_company_directory_and_emit_render_ready_projection ... ok
+test create_posts_emits_partial_acceptance_without_claiming_delivery ... ok
+test relay_ids_are_loaded_from_local_store_before_create_posts ... ok
+test post_read_list_keeps_server_unavailable_row_when_bitmap_is_null ... ok
+test settings_select_viewer_capabilities_from_server_matrix ... ok
+test post_read_list_derives_render_ready_read_and_unread_members_from_snapshot ... ok
+test post_read_list_fails_closed_when_snapshot_and_bitmap_do_not_match ... ok
+test relay_public_command_without_req_id_keeps_one_generated_id_through_batch_result ... ok
+test post_read_list_rejects_repeated_author_and_illegal_bitmap ... ok
+test post_read_list_accepts_canonical_snapshot_without_author ... ok
+test relay_merged_mode_assembles_one_chat_record_after_all_local_lookups ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/projection_schema_test.rs (target/debug/deps/projection_schema_test-656eb13332b8beea)
+
+running 47 tests
+test extractor_returns_none_on_non_emit ... ok
+test im_channel_update_freezes_channel_id_only ... ok
+test im_channel_closed_freezes_channelid_deleteat_camelcase ... ok
+test im_channel_increment_invalid_raw_still_freezes_keys ... ok
+test im_channel_increment_freezes_channel_id_and_increment ... ok
+test im_channel_member_updated_freezes_channel_id_and_channel ... ok
+test im_channel_member_nickname_freezes_camelcase_triplet ... ok
+test im_channel_left_is_distinct_from_closed ... ok
+test im_channel_settings_updated_freezes_render_ready_settings_and_version ... ok
+test im_channel_replies_freezes_explicit_merge_and_paging_contract ... ok
+test im_channels_loaded_hello_path_freezes_items ... ok
+test im_connection_established_freezes_connectionid ... ok
+test im_channels_loaded_delete_path_freezes_reason ... ok
+test im_operation_status_freezes_topic_create_correlation_fields ... ok
+test im_messages_query_result_invalid_reply_still_freezes_keys ... ok
+test im_post_batch_updated_non_array_posts_degrades_to_empty_keeps_keys ... ok
+test im_channel_created_freezes_render_ready_dialog_and_wire_payload ... ok
+test im_post_send_failed_freezes_temporary_id_failed_patch ... ok
+test im_post_sending_freezes_channel_and_temporary_id ... ok
+test empty_type_defaults_to_text ... ok
+test fat_emit_carries_in_hand_data ... ok
+test im_schedule_created_never_uses_preview_as_editable_message_fallback ... ok
+test im_schedule_canceled_freezes_render_ready_schedule_fields_without_preview_leak ... ok
+test im_messages_query_result_freezes_channel_id_and_messages ... ok
+test im_sync_too_long_freezes_channelid_resetto_camelcase ... ok
+test im_schedule_created_freezes_render_ready_schedule_fields ... ok
+test im_channel_read_echo_freezes_fat_renderable_row ... ok
+test im_post_deleted_sparse_fields_still_fat_shape ... ok
+test im_post_deleted_freezes_fat_renderable_row ... ok
+test im_post_batch_updated_freezes_channel_id_and_posts ... ok
+test reconnect_requested_is_control_signal ... ok
+test im_post_read_freezes_fat_renderable_row ... ok
+test im_post_received_freezes_fat_renderable_row ... ok
+test im_post_updated_freezes_fat_renderable_row ... ok
+test message_interaction_capabilities_use_viewer_facts ... ok
+test post_dialog_patch_data_is_render_ready_before_frame_reduction ... ok
+test message_action_capabilities_are_viewer_relative_and_fail_closed ... ok
+test im_interaction_frame_freezes_left_dialog_list_outer_contract ... ok
+test render_ready_urgent_is_false_for_empty_expedite_map ... ok
+test post_updated_keeps_viewer_capabilities_and_template_reader_ids ... ok
+test recall_projection_is_viewer_ready_without_reusing_message_author_as_actor ... ok
+test render_ready_pinned_derives_from_props ... ok
+test merged_forward_online_emit_contains_render_ready_detail ... ok
+test render_ready_fields_derive_from_business_data ... ok
+test recall_projection_without_actor_is_visible_but_never_claims_self ... ok
+test revoked_message_does_not_advertise_locate ... ok
+test all_26_projection_factories_covered ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+=== G06 hot-path audit 2026-07-29T06:46:47-07:00 ===
+[hot-path-violation] crates/helix-im/src/channel/gate/storage.rs:48: multi-clone-per-fn
+  matched: event_to_upsert_op:48  f.channel_id.clone()
+  matched: event_to_upsert_op:54  f.temporary_id.clone()
+  matched: event_to_upsert_op:56  f.id.clone()
+  matched: event_to_upsert_op:70  ("id".to_string(), SqlValue::Text(f.id.clone())),
+  matched: event_to_upsert_op:72  ("user_id".to_string(), SqlValue::Text(f.user_id.clone())),
+  matched: event_to_upsert_op:73  ("type".to_string(), SqlValue::Text(f.msg_type.clone())),
+  matched: event_to_upsert_op:74  ("message".to_string(), SqlValue::Text(f.message.clone())),
+  matched: event_to_upsert_op:75  ("props".to_string(), SqlValue::Text(f.props.clone())),
+  matched: event_to_upsert_op:78  SqlValue::Text(serde_json::json!(f.viewers.clone()).to_string()),
+  matched: event_to_upsert_op:82  SqlValue::Text(f.user_snapshot.clone()),
+  matched: event_to_upsert_op:86  SqlValue::Text(serde_json::json!(f.mentions.clone()).to_string()),
+  matched: event_to_upsert_op:90  SqlValue::Text(f.expedite_map.clone()),
+  matched: event_to_upsert_op:92  ("topic".to_string(), SqlValue::Text(f.topic.clone())),
+  matched: event_to_upsert_op:95  SqlValue::Text(f.simple_message.clone()),
+  matched: event_to_upsert_op:97  ("reply_id".to_string(), SqlValue::Text(f.reply_id.clone())),
+  matched: event_to_upsert_op:100  SqlValue::Text(f.reply_root_id.clone()),
+  matched: event_to_upsert_op:104  SqlValue::Text(f.reply_first_level_id.clone()),
+  matched: event_to_upsert_op:108  SqlValue::Text(f.replied_message.clone()),
+  matched: event_to_upsert_op:112  SqlValue::Text(f.reply_messages.clone()),
+  matched: event_to_upsert_op:115  ("read_bits".to_string(), SqlValue::Text(f.read_bits.clone())),
+  rule:    一个函数体出现 ≥ 2 次 .clone() (实际 20 次) — 热路径深拷贝堆叠，违反 O(1) 铁律
+  fix:     用借用 / Arc / 字段拆分；只在出参 boundary 处必要时 clone 一次
+[hot-path-violation] crates/helix-im/src/channel/gate/storage.rs:152: multi-clone-per-fn
+  matched: edit_content_op:152  ("type".to_string(), SqlValue::Text(fields.msg_type.clone())),
+  matched: edit_content_op:155  SqlValue::Text(fields.message.clone()),
+  matched: edit_content_op:157  ("props".to_string(), SqlValue::Text(fields.props.clone())),
+  matched: edit_content_op:162  SqlValue::Text(fields.expedite_map.clone()),
+  matched: edit_content_op:168  SqlValue::Text(fields.quick_reply.clone()),
+  matched: edit_content_op:172  patch.push(("topic".to_string(), SqlValue::Text(fields.topic.clone())));
+  matched: edit_content_op:177  SqlValue::Text(fields.reply_id.clone()),
+  matched: edit_content_op:183  SqlValue::Text(fields.reply_root_id.clone()),
+  matched: edit_content_op:189  SqlValue::Text(fields.reply_first_level_id.clone()),
+  matched: edit_content_op:195  SqlValue::Text(fields.replied_message.clone()),
+  matched: edit_content_op:201  SqlValue::Text(fields.reply_messages.clone()),
+  rule:    一个函数体出现 ≥ 2 次 .clone() (实际 11 次) — 热路径深拷贝堆叠，违反 O(1) 铁律
+  fix:     用借用 / Arc / 字段拆分；只在出参 boundary 处必要时 clone 一次
+
+2 violation(s) in crates/helix-im/src/channel/gate/storage.rs — see /System/Volumes/Data/workspace/rust/helix/.agents/skills/helix-hot-path-write-audit/SKILL.md
+no hot-path violations in crates/helix-im/src/event/post/reaction.rs
+no hot-path violations in crates/helix-im/src/port_reply/message_v3_reaction.rs
+no hot-path violations in crates/helix-im/src/ws/handlers/post_update.rs
+[hot-path-violation] crates/helix-im/src/ws/parser/core/fields.rs:74: multi-clone-per-fn
+  matched: extract_post_fields_with_event_seq:74  .unwrap_or_else(|| message.clone());
+  matched: extract_post_fields_with_event_seq:131  .map(|items| serde_json::Value::Array(items.clone()).to_string())
+  rule:    一个函数体出现 ≥ 2 次 .clone() (实际 2 次) — 热路径深拷贝堆叠，违反 O(1) 铁律
+  fix:     用借用 / Arc / 字段拆分；只在出参 boundary 处必要时 clone 一次
+
+1 violation(s) in crates/helix-im/src/ws/parser/core/fields.rs — see /System/Volumes/Data/workspace/rust/helix/.agents/skills/helix-hot-path-write-audit/SKILL.md
+no hot-path violations in crates/helix-im/src/ws/parser/post_props.rs
+
+=== G06 narrow-write regression 2026-07-29T06:48:20-07:00 ===
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.37s
+     Running tests/message_v3/post/g06/main.rs (target/debug/deps/message_v3_g06-bc762da0a25c2248)
+
+running 3 tests
+test g06_cold_start_row_rebuilds_the_same_terminal_event ... ok
+test g06_writes_reviewable_dual_persona_artifacts ... ok
+test g06_persists_and_emits_quick_reply_as_a_first_class_column ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+=== G06 narrow-write hot-path audit ===
+no hot-path violations in crates/helix-im/src/channel/write/reaction.rs
+no hot-path violations in crates/helix-im/src/event/post/reaction.rs
+no hot-path violations in crates/helix-im/src/port_reply/message_v3_reaction.rs
+no hot-path violations in crates/helix-im/src/ws/handlers/post_update.rs
+no hot-path violations in crates/helix-im/src/ws/parser/core/fields.rs
+
+=== G06 canonical artifact generation 2026-07-29T06:48:49-07:00 ===
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/message_v3/post/g06/main.rs (target/debug/deps/message_v3_g06-bc762da0a25c2248)
+
+running 1 test
+test g06_writes_reviewable_dual_persona_artifacts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+
+=== G06 partial artifact schema ===
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: function `gate_bundle` is never used
+  --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:19:8
+   |
+19 | pub fn gate_bundle(
+   |        ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `write_bundle` is never used
+   --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:211:8
+    |
+211 | pub fn write_bundle(output: &Path, bundle: &ArtifactBundle) -> Result<Vec<PathBuf>, String> {
+    |        ^^^^^^^^^^^^
+
+warning: `helix-im` (test "message_v3_artifact_schema") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.05s
+     Running tests/message_v3/contracts/artifact_schema/main.rs (target/debug/deps/message_v3_artifact_schema-ae3483f0d0844708)
+
+running 1 test
+test generated_tree_matches_schemas_when_requested ... FAILED
+
+failures:
+
+---- generated_tree_matches_schemas_when_requested stdout ----
+
+thread 'generated_tree_matches_schemas_when_requested' (9375938) panicked at crates/helix-im/tests/message_v3/contracts/artifact_schema/main.rs:16:5:
+specs/047-im-event-gate-inventory/.v1/gates/G-06 inbound schema errors: [
+    "Additional properties are not allowed ('expected' was unexpected)",
+    "Additional properties are not allowed ('expected' was unexpected)",
+]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    generated_tree_matches_schemas_when_requested
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.11s
+
+error: test failed, to rerun pass `-p helix-im --test message_v3_artifact_schema`
+
+=== G06 byte-exact rerun ===
+zsh:11: no matches found: specs/047-im-event-gate-inventory/.v1/gates/G-06/generated/*.json
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/message_v3/post/g06/main.rs (target/debug/deps/message_v3_g06-bc762da0a25c2248)
+
+running 1 test
+test g06_writes_reviewable_dual_persona_artifacts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.01s
+
+zsh:14: no matches found: specs/047-im-event-gate-inventory/.v1/gates/G-06/generated/*.json
+
+BYTE_EXACT_PASS
+
+=== G06 canonical artifact generation retry absolute path 2026-07-29T06:50:08-07:00 ===
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/message_v3/post/g06/main.rs (target/debug/deps/message_v3_g06-bc762da0a25c2248)
+
+running 1 test
+test g06_writes_reviewable_dual_persona_artifacts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+false
+
+=== G06 canonical/schema/byte-exact final 2026-07-29T06:50:44-07:00 ===
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.01s
+     Running tests/message_v3/post/g06/main.rs (target/debug/deps/message_v3_g06-bc762da0a25c2248)
+
+running 1 test
+test g06_writes_reviewable_dual_persona_artifacts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.01s
+
+true
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `gate_bundle` is never used
+  --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:19:8
+   |
+19 | pub fn gate_bundle(
+   |        ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `write_bundle` is never used
+   --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:211:8
+    |
+211 | pub fn write_bundle(output: &Path, bundle: &ArtifactBundle) -> Result<Vec<PathBuf>, String> {
+    |        ^^^^^^^^^^^^
+
+warning: `helix-im` (test "message_v3_artifact_schema") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/message_v3/contracts/artifact_schema/main.rs (target/debug/deps/message_v3_artifact_schema-ae3483f0d0844708)
+
+running 1 test
+test generated_tree_matches_schemas_when_requested ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.18s
+
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/message_v3/post/g06/main.rs (target/debug/deps/message_v3_g06-bc762da0a25c2248)
+
+running 1 test
+test g06_writes_reviewable_dual_persona_artifacts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+14261beb85c9323f542675a20245e6750613c23881870ec3b71365505b707938  /System/Volumes/Data/workspace/rust/helix/specs/047-im-event-gate-inventory/.v1/gates/G-06/generated/inbound.json
+1e3263152f07ef3d8549910cdfe29a8b048463b5639864d5d011ce5a6b831140  /System/Volumes/Data/workspace/rust/helix/specs/047-im-event-gate-inventory/.v1/gates/G-06/generated/outbound.receiver.json
+9c3abbd8fe0740a6e44a8606d1c13b1cfb181053080d3d6951b11828a435faec  /System/Volumes/Data/workspace/rust/helix/specs/047-im-event-gate-inventory/.v1/gates/G-06/generated/outbound.sender.json
+5736e3e34e99aa4ca336ad1c1e52bc697dbcdbff649acf1117616854e1eb7fe9  /System/Volumes/Data/workspace/rust/helix/specs/047-im-event-gate-inventory/.v1/gates/G-06/generated/provenance.json
+BYTE_EXACT_PASS
+
+=== G06 mixed-gap final regression 2026-07-29T06:55:45-07:00 ===
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+error[E0603]: module `message_v3_reaction` is private
+   --> crates/helix-im/src/ws/handlers/post_update.rs:100:32
+    |
+100 |             crate::port_reply::message_v3_reaction::queue_commit(ctx.state, corr, event, out);
+    |                                ^^^^^^^^^^^^^^^^^^^  ------------ function `queue_commit` is not publicly re-exported
+    |                                |
+    |                                private module
+    |
+note: the module `message_v3_reaction` is defined here
+   --> crates/helix-im/src/port_reply.rs:13:1
+    |
+ 13 | mod message_v3_reaction;
+    | ^^^^^^^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0603`.
+error: could not compile `helix-im` (lib) due to 1 previous error
+
+=== G06 mixed-gap regression retry 2026-07-29T06:56:09-07:00 ===
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.41s
+     Running tests/message_v3/post/g06/main.rs (target/debug/deps/message_v3_g06-bc762da0a25c2248)
+
+running 4 tests
+test g06_cold_start_row_rebuilds_the_same_terminal_event ... ok
+test g06_gap_buffer_resumes_without_legacy_projection ... ok
+test g06_persists_and_emits_quick_reply_as_a_first_class_column ... ok
+test g06_writes_reviewable_dual_persona_artifacts ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+=== G06 final hot-path audit ===
+no hot-path violations in crates/helix-im/src/channel/write/reaction.rs
+no hot-path violations in crates/helix-im/src/event/post/reaction.rs
+no hot-path violations in crates/helix-im/src/port_reply/message_v3_reaction.rs
+no hot-path violations in crates/helix-im/src/port_reply/message_v3_post.rs
+no hot-path violations in crates/helix-im/src/ws/handlers/post_update.rs
+no hot-path violations in crates/helix-im/src/ws/parser/core/fields.rs
+
+=== G06 cross-gate final regressions 2026-07-29T06:57:00-07:00 ===
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g05/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g01/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+warning: `helix-im` (test "message_v3_g05") generated 1 warning
+warning: `helix-im` (test "message_v3_g01") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.55s
+     Running tests/c3_sync_mutation_emits_test.rs (target/debug/deps/c3_sync_mutation_emits_test-490bfe779e908787)
+
+running 12 tests
+test sync_type1_body_still_rechecks_viewers_gate_locally ... ok
+test new_phantom_emits_nothing ... ok
+test revoke_event_emits_post_revoke_regardless_of_messages ... ok
+test revoke_replay_drops_transport_actor_and_display_metadata ... ok
+test read_event_emits_even_when_phantom ... ok
+test read_event_emits_channel_read_echo ... ok
+test new_visible_emits_received_and_channel_update ... ok
+test edit_event_emits_post_updated_when_visible_noop_when_phantom ... ok
+test sync_type1_sender_self_visible_exception_but_unread_zero ... ok
+test online_vs_offline_read_emit_names_differ ... ok
+test mixed_batch_emits_match_dispatch_table ... ok
+test handle_sync_reply_releases_mutation_events_after_persist_ack ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/message_v3/post/g01/main.rs (target/debug/deps/message_v3_g01-ef53d6dbe944695e)
+
+running 2 tests
+test g01_writes_reviewable_dual_persona_artifacts ... ok
+test g01_emits_committed_post_and_persona_channel_absolute_state ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/message_v3/post/g05/main.rs (target/debug/deps/message_v3_g05-325b72771740c316)
+
+running 2 tests
+test g05_writes_reviewable_dual_persona_artifacts ... ok
+test g05_forwards_individual_and_merged_posts_without_rewriting_sources ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/message_v3/post/g06/main.rs (target/debug/deps/message_v3_g06-bc762da0a25c2248)
+
+running 4 tests
+test g06_cold_start_row_rebuilds_the_same_terminal_event ... ok
+test g06_gap_buffer_resumes_without_legacy_projection ... ok
+test g06_writes_reviewable_dual_persona_artifacts ... ok
+test g06_persists_and_emits_quick_reply_as_a_first_class_column ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/one_line_server_contracts_test.rs (target/debug/deps/one_line_server_contracts_test-46591f10ac699084)
+
+running 12 tests
+test relay_without_req_id_still_fails_closed_for_invalid_business_inputs ... ok
+test candidate_users_default_to_company_directory_and_emit_render_ready_projection ... ok
+test settings_select_viewer_capabilities_from_server_matrix ... ok
+test create_posts_emits_partial_acceptance_without_claiming_delivery ... ok
+test relay_ids_are_loaded_from_local_store_before_create_posts ... ok
+test relay_public_command_without_req_id_keeps_one_generated_id_through_batch_result ... ok
+test post_read_list_fails_closed_when_snapshot_and_bitmap_do_not_match ... ok
+test post_read_list_keeps_server_unavailable_row_when_bitmap_is_null ... ok
+test post_read_list_accepts_canonical_snapshot_without_author ... ok
+test post_read_list_rejects_repeated_author_and_illegal_bitmap ... ok
+test post_read_list_derives_render_ready_read_and_unread_members_from_snapshot ... ok
+test relay_merged_mode_assembles_one_chat_record_after_all_local_lookups ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/projection_schema_test.rs (target/debug/deps/projection_schema_test-656eb13332b8beea)
+
+running 47 tests
+test extractor_returns_none_on_non_emit ... ok
+test im_channel_member_nickname_freezes_camelcase_triplet ... ok
+test im_channel_member_updated_freezes_channel_id_and_channel ... ok
+test im_channel_increment_invalid_raw_still_freezes_keys ... ok
+test im_channel_increment_freezes_channel_id_and_increment ... ok
+test im_channel_closed_freezes_channelid_deleteat_camelcase ... ok
+test im_channel_left_is_distinct_from_closed ... ok
+test im_channel_update_freezes_channel_id_only ... ok
+test im_channel_replies_freezes_explicit_merge_and_paging_contract ... ok
+test im_connection_established_freezes_connectionid ... ok
+test im_channel_created_freezes_render_ready_dialog_and_wire_payload ... ok
+test im_channels_loaded_hello_path_freezes_items ... ok
+test im_channels_loaded_delete_path_freezes_reason ... ok
+test im_channel_settings_updated_freezes_render_ready_settings_and_version ... ok
+test im_operation_status_freezes_topic_create_correlation_fields ... ok
+test im_messages_query_result_invalid_reply_still_freezes_keys ... ok
+test im_post_batch_updated_non_array_posts_degrades_to_empty_keeps_keys ... ok
+test empty_type_defaults_to_text ... ok
+test im_post_send_failed_freezes_temporary_id_failed_patch ... ok
+test im_channel_read_echo_freezes_fat_renderable_row ... ok
+test fat_emit_carries_in_hand_data ... ok
+test im_post_sending_freezes_channel_and_temporary_id ... ok
+test im_messages_query_result_freezes_channel_id_and_messages ... ok
+test im_schedule_canceled_freezes_render_ready_schedule_fields_without_preview_leak ... ok
+test im_schedule_created_freezes_render_ready_schedule_fields ... ok
+test im_sync_too_long_freezes_channelid_resetto_camelcase ... ok
+test im_schedule_created_never_uses_preview_as_editable_message_fallback ... ok
+test im_post_deleted_sparse_fields_still_fat_shape ... ok
+test reconnect_requested_is_control_signal ... ok
+test im_post_batch_updated_freezes_channel_id_and_posts ... ok
+test im_post_read_freezes_fat_renderable_row ... ok
+test im_post_received_freezes_fat_renderable_row ... ok
+test im_post_deleted_freezes_fat_renderable_row ... ok
+test im_post_updated_freezes_fat_renderable_row ... ok
+test im_interaction_frame_freezes_left_dialog_list_outer_contract ... ok
+test message_action_capabilities_are_viewer_relative_and_fail_closed ... ok
+test message_interaction_capabilities_use_viewer_facts ... ok
+test post_updated_keeps_viewer_capabilities_and_template_reader_ids ... ok
+test recall_projection_without_actor_is_visible_but_never_claims_self ... ok
+test post_dialog_patch_data_is_render_ready_before_frame_reduction ... ok
+test recall_projection_is_viewer_ready_without_reusing_message_author_as_actor ... ok
+test merged_forward_online_emit_contains_render_ready_detail ... ok
+test render_ready_urgent_is_false_for_empty_expedite_map ... ok
+test render_ready_fields_derive_from_business_data ... ok
+test render_ready_pinned_derives_from_props ... ok
+test revoked_message_does_not_advertise_locate ... ok
+test all_26_projection_factories_covered ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.12s
+     Running unittests src/lib.rs (target/debug/deps/helix_im-13d0815dce6cb87c)
+
+running 5 tests
+test ws::parser::post_props::tests::missing_props_yields_empty_object_explicit_null_yields_empty_string ... ok
+test ws::parser::post_props::tests::root_level_quickreply_stays_outside_props ... ok
+test ws::parser::post_props::tests::plain_post_without_quickreply_keeps_props_untouched ... ok
+test ws::parser::post_props::tests::sequenced_live_post_persists_event_seq_inside_props ... ok
+test ws::parser::post_props::tests::top_level_quickreply_stays_outside_props ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 392 filtered out; finished in 0.00s
+
+
+=== G06 final canonical/schema/byte-exact 2026-07-29T06:58:02-07:00 ===
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/message_v3/post/g06/main.rs (target/debug/deps/message_v3_g06-bc762da0a25c2248)
+
+running 1 test
+test g06_writes_reviewable_dual_persona_artifacts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.01s
+
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: function `gate_bundle` is never used
+  --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:19:8
+   |
+19 | pub fn gate_bundle(
+   |        ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `write_bundle` is never used
+   --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:211:8
+    |
+211 | pub fn write_bundle(output: &Path, bundle: &ArtifactBundle) -> Result<Vec<PathBuf>, String> {
+    |        ^^^^^^^^^^^^
+
+warning: `helix-im` (test "message_v3_artifact_schema") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.00s
+     Running tests/message_v3/contracts/artifact_schema/main.rs (target/debug/deps/message_v3_artifact_schema-ae3483f0d0844708)
+
+running 1 test
+test generated_tree_matches_schemas_when_requested ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.16s
+
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g06") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/message_v3/post/g06/main.rs (target/debug/deps/message_v3_g06-bc762da0a25c2248)
+
+running 1 test
+test g06_writes_reviewable_dual_persona_artifacts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+14261beb85c9323f542675a20245e6750613c23881870ec3b71365505b707938  /System/Volumes/Data/workspace/rust/helix/specs/047-im-event-gate-inventory/.v1/gates/G-06/generated/inbound.json
+1e3263152f07ef3d8549910cdfe29a8b048463b5639864d5d011ce5a6b831140  /System/Volumes/Data/workspace/rust/helix/specs/047-im-event-gate-inventory/.v1/gates/G-06/generated/outbound.receiver.json
+9c3abbd8fe0740a6e44a8606d1c13b1cfb181053080d3d6951b11828a435faec  /System/Volumes/Data/workspace/rust/helix/specs/047-im-event-gate-inventory/.v1/gates/G-06/generated/outbound.sender.json
+5736e3e34e99aa4ca336ad1c1e52bc697dbcdbff649acf1117616854e1eb7fe9  /System/Volumes/Data/workspace/rust/helix/specs/047-im-event-gate-inventory/.v1/gates/G-06/generated/provenance.json
+BYTE_EXACT_PASS
+
+=== G06 final crate/cutover/diff checks 2026-07-29T06:58:49-07:00 ===
+    Checking helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.70s
+{"verdict":"PASS","gates":30,"missing":[],"extra":[],"duplicate":[],"generated":{"state":"PARTIAL","missing":["G-07","G-08","G-09","G-10","G-10a","G-10b","G-10c","G-10d","G-11","G-11a","G-12","G-13","G-14","G-14a","G-15","G-16","G-16b","G-16c","G-S1","G-S2","G-S3","G-S4"],"extra":[]},"active":1,"consumerSync":"NOT_SYNCED_BY_SCOPE","selfTest":"PASS"}
+true
+
+=== G06 forbidden additions ===
+NO_NEW_UNWRAP_EXPECT

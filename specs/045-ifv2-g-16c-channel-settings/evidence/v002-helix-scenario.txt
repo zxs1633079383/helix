@@ -1,4 +1,0 @@
-V-002 PASS
-g16c_full_flow_test: 6/6 passed
-g16c_wdio_fixture_contract_test: passed
-producer: ImModule::handle -> Effect::Emit -> InteractionFrameV2

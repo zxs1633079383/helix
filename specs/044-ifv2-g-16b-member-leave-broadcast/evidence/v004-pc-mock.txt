@@ -1,5 +1,0 @@
-PASS
-focused_jest: 32/32
-wdio_mock: 3/3
-run_id: mock-20260727002648509-11847
-claim: mock

@@ -1,6 +1,0 @@
-$ jq assertions over completed G13 single-real and dual-real reports
-yarn run v1.22.22
-$ CSES_WDIO_BOUNDARY_GATE=G13 node scripts/message-wdio/check-production-boundary.mjs
-{"checkedFiles":2735,"gate":"G13","mockProductionReachable":false,"ok":true}
-Done in 1.59s.
-PASS: G13 single-real 1/1 and dual-real 1/1, retry=0, real Tauri process topology and production boundary pass

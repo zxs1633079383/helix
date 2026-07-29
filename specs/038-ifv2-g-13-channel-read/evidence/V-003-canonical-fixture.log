@@ -1,8 +1,0 @@
-$ cargo test -p helix-im --test g13_wdio_fixture_contract_test -- --nocapture
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
-     Running tests/g13_wdio_fixture_contract_test.rs (target/debug/deps/g13_wdio_fixture_contract_test-93267dde300b89ef)
-
-running 1 test
-test current_g13_producer_matches_canonical_v2_fixtures_and_provenance ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s

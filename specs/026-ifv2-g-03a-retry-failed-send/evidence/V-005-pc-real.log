@@ -1,9 +1,0 @@
-source_commit=08c1843b7b7751029b6fb9b40ec54eb122f646d0
-$ yarn message:wdio:g03a:single-real
-result=PASS 1/1 evidenceLevel=single-real-chain
-assertions=fresh-group,Tauri-invoke,Helix,SQLite,HTTP,WS,FrameApplied,Actor-DOM
-$ yarn message:wdio:g03a:dual-real
-result=PASS 1/1 evidenceLevel=dual-real-chain
-assertions=fresh-group,Actor-Observer-WS-recovery,retry,timeline-dialog-DOM
-redactionVerdict=pass
-candidateSha256=6c9327d30752579fc988e8e94c77f619f9813e21c405d7dae923db6b4e8947da

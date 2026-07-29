@@ -1,4 +1,0 @@
-V-001 PASS
-command: cargo check -p helix-im
-result: exit 0
-boundary: helix-im producer build only

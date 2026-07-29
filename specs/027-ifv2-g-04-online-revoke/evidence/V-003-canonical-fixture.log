@@ -1,6 +1,0 @@
-$ cargo test -p helix-im --test g04_wdio_fixture_contract_test -- --nocapture
-result=PASS 1/1 goldenUpdate=false
-fixtureProducer=f323cd7a997fba0cb330299d98eb0b8bd73d4813
-inventory=group-created,revocable,recalled,recovered-recalled
-frames=4 schemaVersion=2
-policy=only UPDATE_G04_WDIO_FIXTURES=1 may replace canonical JSON

@@ -1,7 +1,0 @@
-PASS
-candidate_build: pass
-single_real: 1/1 single-real-20260727003952919-22983
-dual_real: 1/1 dual-real-20260727005242330-33969
-report_contract: 1/1
-failed: 0
-skipped: 0

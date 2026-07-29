@@ -1,6 +1,0 @@
-V-005 PASS
-single-real: single-real-20260727031737283-72296 1/1
-dual-real: dual-real-20260727032419543-78339 1/1
-chain: MessageV4 UI -> Tauri -> Helix -> HTTP -> PostgreSQL -> Go WS -> FrameApplied -> DOM
-Go server: isolated 127.0.0.1:18066, synchronous publish fallback
-claim exclusion: Pulsar broker plane was not exercised

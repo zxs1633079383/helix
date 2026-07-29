@@ -1,5 +1,0 @@
-PASS
-command: cargo check -p helix-im
-exit_code: 0
-runtime_dependency_scan: empty
-acceptance_revision: 74ebe9a6ba90c7506abc091f541521f6cd33c8cf

@@ -1,7 +1,0 @@
-PASS
-fixtures: 3
-schema_version: 2
-producer: 8c9a9706cb865d0849b17b91485f2e6f2480a4bd
-mirrors: helix, cses-client, mobile-qucik-c++
-raw_sha256: byte-exact
-provenance_sha256: 18677799878712f76cfae4fa0acef99491b39df4c3bcf6998d991b1f0418267e

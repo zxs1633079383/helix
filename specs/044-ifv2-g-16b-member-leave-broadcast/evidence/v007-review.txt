@@ -1,8 +1,0 @@
-PASS
-behavior: Green
-code_boundary: Green
-frame_v2: Green
-required_pass_rate: 1.0
-required_failed: 0
-required_skipped: 0
-report: evidence/gate-report.json

@@ -1,5 +1,0 @@
-$ cargo test -p helix-im --test g04a_full_flow_test --test g04_revoke_interaction_test -- --nocapture
-result=PASS
-g04a_full_flow=7/7
-g04_revoke_interaction=5/5
-assertions=fresh-group,explicit-sync,persist-barrier,authority-fact,duplicate,late-inbound,recovery

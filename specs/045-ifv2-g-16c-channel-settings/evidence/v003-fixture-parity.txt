@@ -1,5 +1,0 @@
-V-003 PASS
-fixture count: 6
-schema version: 2
-Helix/PC/Mobile mirrors: byte-exact
-provenance sha256: 9647b0b8c1b399869d238e5d7ee021f8abfd710269c86a22334621b0af437ea2

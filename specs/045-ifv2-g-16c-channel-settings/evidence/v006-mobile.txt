@@ -1,5 +1,0 @@
-V-006 PASS
-G16c fixture parity: 6/6
-G16CFrameContractTest: 5/5 passed
-Uc16ChannelLifecycleTest.CanonicalSettingsFrameBatchReachesTypedSummary: 1/1 passed
-source pin, Command API check and legacy hard-cut: passed

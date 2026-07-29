@@ -1,8 +1,0 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
-     Running tests/g06_wdio_fixture_contract_test.rs (target/debug/deps/g06_wdio_fixture_contract_test-94ea67a6bf6c5e9b)
-
-running 1 test
-test current_g06_producer_matches_canonical_v2_fixtures_and_provenance ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
-

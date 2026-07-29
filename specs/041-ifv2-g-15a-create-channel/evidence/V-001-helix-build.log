@@ -1,3 +1,0 @@
-    Checking helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.18s
-PASS helix-core runtime dependency scan is empty

@@ -437,15 +437,13 @@ pub enum CorrelationContext {
         pending: crate::projector::action::PendingAuthorityAction,
     },
 
-    /// G14 `post_read` 权威位图必须先提交到 message.read_bits；成功后才允许发布兼容事件、
-    /// 刷新 timeline，并为已 attach 的 participant-receipts slot 重取服务端快照。
+    /// G14 `post_read` 权威位图必须先提交到 message.read_bits；成功后才允许发布当前 viewer 事件。
     PostReadPersist {
         channel_id: ChannelId,
         message_id: String,
         receipt_revision: i64,
         read_bits: String,
-        pending_domain_event: Vec<u8>,
-        pending_action: Option<crate::projector::action::PendingAuthorityAction>,
+        terminal_event: Vec<u8>,
     },
 
     /// `posts_update` carries one channel event sequence and N message mutations. The entire write-set,

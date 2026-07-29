@@ -1156,42 +1156,16 @@ impl ImModule {
                 message_id,
                 receipt_revision,
                 read_bits,
-                pending_domain_event,
-                pending_action,
-            } => match outcome {
-                PortOutcome::Ok(_) => {
-                    self.state
-                        .committed_post_reads
-                        .insert(message_id.clone(), (receipt_revision, read_bits));
-                    out.push(helix_core::Effect::Emit {
-                        event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(
-                            pending_domain_event,
-                        )),
-                    });
-                    let causation_id = pending_action
-                        .as_ref()
-                        .map(|pending| pending.request_id.clone());
-                    if let Some(pending) = pending_action {
-                        self.state
-                            .pending_authority_actions
-                            .remove(&(pending.kind, pending.message_id));
-                    }
-                    self.state.invalidate_recent_message_coverage(channel_id);
-                    self.refresh_attached_latest_timeline(channel_id, causation_id.clone(), out)?;
-                    self.refresh_attached_read_receipts(
-                        channel_id.as_str(),
-                        message_id.as_str(),
-                        causation_id,
-                        out,
-                    )?;
-                }
-                PortOutcome::Err(error) => tracing::warn!(
-                    channel_id = channel_id.as_str(),
-                    message_id,
-                    error = ?error,
-                    "post_read persist failed; receipt projections remain unchanged"
-                ),
-            },
+                terminal_event,
+            } => self.handle_message_v3_post_read_persist_reply(
+                channel_id,
+                message_id,
+                receipt_revision,
+                read_bits,
+                terminal_event,
+                outcome,
+                out,
+            ),
 
             CorrelationContext::PostsUpdateAtomic {
                 channel_id,

@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "feature_directory": "specs/047-im-event-gate-inventory",
   "phase": "implementing",
-  "event_seq": 97,
+  "event_seq": 99,
   "next_action": "validate_evidence",
   "implementation_scope": {
     "denominator": 30,
@@ -648,6 +648,18 @@
       "at": "2026-07-29T14:33:00Z",
       "kind": "phase",
       "detail": "implementing->implementing: recorded evidence p2-g07-artifact-root-correction"
+    },
+    {
+      "seq": 98,
+      "at": "2026-07-29T14:47:12Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence p2-g14-hot-path-correction"
+    },
+    {
+      "seq": 99,
+      "at": "2026-07-29T14:47:14Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence p2-g14-focused"
     }
   ]
 }

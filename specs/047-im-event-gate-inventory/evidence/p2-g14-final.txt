@@ -1,0 +1,231 @@
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `refresh_attached_read_receipts` is never used
+   --> crates/helix-im/src/surface_runtime.rs:245:19
+    |
+ 78 | impl ImModule {
+    | ------------- method in this implementation
+...
+245 |     pub(crate) fn refresh_attached_read_receipts(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 3 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/read/g14/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g14") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.46s
+     Running tests/message_v3/read/g14/main.rs (target/debug/deps/message_v3_g14-352deacf14dcd59f)
+
+running 4 tests
+test g14_recovery_rebuilds_author_event_from_committed_facts ... ok
+test g14_persist_failure_emits_no_terminal_event ... ok
+test g14_splits_reader_and_author_events_without_frame_refresh ... ok
+test g14_writes_reviewable_dual_persona_artifacts ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `refresh_attached_read_receipts` is never used
+   --> crates/helix-im/src/surface_runtime.rs:245:19
+    |
+ 78 | impl ImModule {
+    | ------------- method in this implementation
+...
+245 |     pub(crate) fn refresh_attached_read_receipts(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 3 warnings
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: function `gate_bundle` is never used
+  --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:19:8
+   |
+19 | pub fn gate_bundle(
+   |        ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `write_bundle` is never used
+   --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:211:8
+    |
+211 | pub fn write_bundle(output: &Path, bundle: &ArtifactBundle) -> Result<Vec<PathBuf>, String> {
+    |        ^^^^^^^^^^^^
+
+warning: `helix-im` (test "message_v3_artifact_schema") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.59s
+     Running tests/message_v3/contracts/artifact_schema/main.rs (target/debug/deps/message_v3_artifact_schema-ae3483f0d0844708)
+
+running 1 test
+test generated_tree_matches_schemas_when_requested ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.18s
+
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `refresh_attached_read_receipts` is never used
+   --> crates/helix-im/src/surface_runtime.rs:245:19
+    |
+ 78 | impl ImModule {
+    | ------------- method in this implementation
+...
+245 |     pub(crate) fn refresh_attached_read_receipts(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 3 warnings
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.42s
+     Running tests/c3_sync_mutation_emits_test.rs (target/debug/deps/c3_sync_mutation_emits_test-490bfe779e908787)
+
+running 12 tests
+test sync_type1_body_still_rechecks_viewers_gate_locally ... ok
+test new_phantom_emits_nothing ... ok
+test revoke_event_emits_post_revoke_regardless_of_messages ... ok
+test revoke_replay_drops_transport_actor_and_display_metadata ... ok
+test read_event_emits_even_when_phantom ... ok
+test edit_event_emits_post_updated_when_visible_noop_when_phantom ... ok
+test read_event_emits_channel_read_echo ... ok
+test new_visible_emits_received_and_channel_update ... ok
+test sync_type1_sender_self_visible_exception_but_unread_zero ... ok
+test online_vs_offline_read_emit_names_differ ... ok
+test mixed_batch_emits_match_dispatch_table ... ok
+test handle_sync_reply_releases_mutation_events_after_persist_ack ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/p4_ws_events_test.rs (target/debug/deps/p4_ws_events_test-2b304c9f79f746b7)
+
+running 11 tests
+test event_seq_fallback_level3_top_level_channel_event_seq ... ok
+test event_seq_fallback_level2_props_channel_event_seq ... ok
+test event_seq_fallback_level1_data_event_seq_wins ... ok
+test event_seq_fallback_level4_data_seq_last_resort ... ok
+test p4_new_actions_are_graceful_noop ... ok
+test change_channel_approval_action_value_has_no_status_suffix ... ok
+test in_memory_post_without_event_seq_does_not_advance_cursor ... ok
+test p4_mobile_thin_actions_emit_bus_without_cursor_advance ... ok
+test dead_actions_are_noop_and_do_not_reconcile ... ok
+test cursor_anchors_next_seq_not_max_event_seq ... ok
+test all_19_wire_actions_route_through_registry_without_error ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/read_relay_test.rs (target/debug/deps/read_relay_test-3848ba0d9ea17f9e)
+
+running 11 tests
+test is_read_marks_read_family_only ... ok
+test read_http_error_emits_read_error ... ok
+test read_command_without_req_id_degrades_to_fire_and_forget ... ok
+test reply_query_without_req_id_never_emits_uncorrelated_projection ... ok
+test get_schedule_keeps_req_id_local_and_omits_client_owner_from_wire ... ok
+test write_command_does_not_register_relay ... ok
+test locate_post_without_attached_timeline_emits_no_raw_projection ... ok
+test read_command_registers_relay_and_emits_result ... ok
+test read_malformed_envelope_emits_read_error ... ok
+test members_by_ids_emits_authoritative_snapshot_projection ... ok
+test stale_reply_snapshot_is_suppressed_after_latest_frame ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+    Checking helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `refresh_attached_read_receipts` is never used
+   --> crates/helix-im/src/surface_runtime.rs:245:19
+    |
+ 78 | impl ImModule {
+    | ------------- method in this implementation
+...
+245 |     pub(crate) fn refresh_attached_read_receipts(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 3 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.41s
+no hot-path violations in crates/helix-im/src/event/read.rs
+[hot-path-violation] crates/helix-im/src/ws/handlers/post_read.rs:99: multi-clone-per-fn
+  matched: handle:99  let authority = (receipt_revision, fields.read_bits.clone());
+  matched: handle:132  post_id.clone(),
+  matched: handle:140  message_id: post_id.clone(),
+  matched: handle:142  read_bits: fields.read_bits.clone(),
+  rule:    一个函数体出现 ≥ 2 次 .clone() (实际 4 次) — 热路径深拷贝堆叠，违反 O(1) 铁律
+  fix:     用借用 / Arc / 字段拆分；只在出参 boundary 处必要时 clone 一次
+
+1 violation(s) in crates/helix-im/src/ws/handlers/post_read.rs — see /System/Volumes/Data/workspace/rust/helix/.agents/skills/helix-hot-path-write-audit/SKILL.md
+no hot-path violations in crates/helix-im/src/port_reply/dispatch_read.rs

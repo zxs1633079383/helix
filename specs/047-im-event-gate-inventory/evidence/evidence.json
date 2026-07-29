@@ -182,6 +182,32 @@
           "sha256": "9581f7e7d1cebbc4af3de96514662c6a1dce2800e2fe3cc3d659d1d365a6d640"
         }
       ]
+    },
+    {
+      "id": "p2-g14-hot-path-correction",
+      "command": "G-14 first focused run exposed hot-path clone violations",
+      "started_at": "2026-07-29T15:00:00Z",
+      "ended_at": "2026-07-29T15:10:00Z",
+      "result": "FAIL",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p2-g14-final.txt",
+          "sha256": "076f45de0c98e58b1a03f4f325c1b79787f9103e60411f31de0a9b1db640b17c"
+        }
+      ]
+    },
+    {
+      "id": "p2-g14-focused",
+      "command": "cargo test G-14 + partial artifact schema + cargo check + hot-path audit + cutover self-test + diff check",
+      "started_at": "2026-07-29T15:15:00Z",
+      "ended_at": "2026-07-29T14:47:13Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p2-g14-verified.txt",
+          "sha256": "fae431b3ebf8b1c4128797134f54253866f39d771f8aa0c551041b8a2b1bafb0"
+        }
+      ]
     }
   ]
 }

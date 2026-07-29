@@ -10,6 +10,7 @@ mod dispatch_core;
 mod dispatch_projection;
 mod dispatch_read;
 pub(crate) mod message_v3_post;
+mod message_v3_read;
 pub(crate) mod message_v3_reaction;
 mod message_v3_revoke;
 pub(crate) mod message_v3_urgent;

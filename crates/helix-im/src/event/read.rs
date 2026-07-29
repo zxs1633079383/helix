@@ -17,3 +17,34 @@ pub fn post(data: Value) -> Result<MessageV3Event, crate::ImError> {
 pub fn post_readers(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:post:readers", data)
 }
+
+/// 按当前 viewer 与权威 reader 的关系构造 G-14 单视角终态。
+pub fn post_for_viewer(
+    channel_id: &str,
+    post_id: &str,
+    reader_id: &str,
+    read_bits: &str,
+    receipt_revision: i64,
+    viewer_user_id: &str,
+) -> Result<MessageV3Event, crate::ImError> {
+    if !reader_id.is_empty() && reader_id == viewer_user_id {
+        return post(serde_json::json!({
+            "id": post_id,
+            "channelId": channel_id,
+            "readBits": read_bits,
+            "readerId": reader_id,
+            "receiptRevision": receipt_revision,
+        }));
+    }
+    post_readers(serde_json::json!({
+        "id": post_id,
+        "channelId": channel_id,
+        "readBits": read_bits,
+        "readerIds": if reader_id.is_empty() {
+            Vec::<&str>::new()
+        } else {
+            vec![reader_id]
+        },
+        "receiptRevision": receipt_revision,
+    }))
+}

@@ -1,0 +1,86 @@
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `refresh_attached_read_receipts` is never used
+   --> crates/helix-im/src/surface_runtime.rs:245:19
+    |
+ 78 | impl ImModule {
+    | ------------- method in this implementation
+...
+245 |     pub(crate) fn refresh_attached_read_receipts(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 3 warnings
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/read/g14/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_g14") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.94s
+     Running tests/message_v3/read/g14/main.rs (target/debug/deps/message_v3_g14-352deacf14dcd59f)
+
+running 4 tests
+test g14_recovery_rebuilds_author_event_from_committed_facts ... ok
+test g14_persist_failure_emits_no_terminal_event ... ok
+test g14_writes_reviewable_dual_persona_artifacts ... ok
+test g14_splits_reader_and_author_events_without_frame_refresh ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Checking helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `refresh_attached_read_receipts` is never used
+   --> crates/helix-im/src/surface_runtime.rs:245:19
+    |
+ 78 | impl ImModule {
+    | ------------- method in this implementation
+...
+245 |     pub(crate) fn refresh_attached_read_receipts(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 3 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.14s
+no hot-path violations in crates/helix-im/src/event/read.rs
+no hot-path violations in crates/helix-im/src/ws/handlers/post_read.rs
+no hot-path violations in crates/helix-im/src/port_reply/dispatch_read.rs

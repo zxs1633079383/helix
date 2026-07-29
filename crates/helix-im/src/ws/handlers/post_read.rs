@@ -18,8 +18,8 @@
 //!     把无序的旁路已读回执塞进 gate 推进它会污染同步基线（违 spec §S6 cursor 单调语义）。
 //!
 //! ∴ post_read 走**专用相关持久直路**：`apply_read_op`（覆盖 read_bits）先经 `PersistOk`，
-//! 成功后才释放 `emit_post_read`、attached timeline readback 与 receipt authority refresh；
-//! **不经 gate**。守 HX-C005（数据在手不回读：read_bits 取帧内 readMap，不回查 DB）。
+//! 成功后才释放当前 viewer 的 MessageV3 已读终态；**不经 gate**。守 HX-C005（数据在手
+//! 不回读：read_bits 取帧内 readMap，不回查 DB）。
 //!
 //! content event（`post` / `post_update` / `post_revoke`）仍走 gate 严格 +1（那是带序的消息事件，
 //! 序列化对消息正确）——本改**只**让幂等覆盖类 read 旁路，gate 对消息事件的 event_seq 校验不动。
@@ -96,57 +96,49 @@ impl WsMessageHandler for PostReadHandler {
             .and_then(serde_json::Value::as_i64)
             .unwrap_or_default();
 
-        let authority = (receipt_revision, fields.read_bits.clone());
-        if ctx
-            .state
-            .committed_post_reads
-            .get(&post_id)
-            .is_some_and(|committed| {
-                committed == &authority
-                    || (receipt_revision > 0 && committed.0 > 0 && receipt_revision < committed.0)
-            })
+        if let Some((committed_revision, committed_bits)) =
+            ctx.state.committed_post_reads.get(post_id.as_str())
         {
-            return Ok(());
+            if (*committed_revision == receipt_revision && committed_bits == &fields.read_bits)
+                || (receipt_revision > 0
+                    && *committed_revision > 0
+                    && receipt_revision < *committed_revision)
+            {
+                return Ok(());
+            }
         }
-        let pending_domain_event =
-            match crate::acl::to_effect::emit_post_read_with_receipt_revision_for_viewer(
-                channel_id,
-                0,
-                &post_id,
-                &fields,
-                receipt_revision,
-                ctx.auth_user_id,
-            ) {
-                Effect::Emit { event } => event.0.to_vec(),
-                _ => return Ok(()),
-            };
-        let pending_action = ctx
-            .state
-            .pending_authority_actions
-            .get(&(
-                crate::projector::action::AuthorityMutationKind::Read,
-                post_id.clone(),
-            ))
-            .cloned();
+        let reader_id = data
+            .get("userId")
+            .or_else(|| data.get("user_id"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let terminal_event = match crate::event::read::post_for_viewer(
+            channel_id.as_str(),
+            post_id.as_str(),
+            reader_id,
+            fields.read_bits.as_str(),
+            receipt_revision,
+            ctx.auth_user_id,
+        ) {
+            Ok(event) => event.into_bytes(),
+            Err(_) => return Ok(()),
+        };
+        let read_op = crate::channel::apply_read_op(&post_id, fields.read_bits.as_str());
         let corr = ctx.alloc_corr();
         ctx.state.corr_map.insert(
             corr,
             crate::state::CorrelationContext::PostReadPersist {
                 channel_id,
-                message_id: post_id.clone(),
+                message_id: post_id,
                 receipt_revision,
-                read_bits: fields.read_bits.clone(),
-                pending_domain_event,
-                pending_action,
+                read_bits: fields.read_bits,
+                terminal_event,
             },
         );
         // read_bits 是旁路权威事实，不推进 channel cursor；但必须等待相关写回执后再对 renderer 可见。
         out.push(Effect::Persist {
             corr,
-            ops: vec![crate::channel::apply_read_op(
-                &post_id,
-                fields.read_bits.as_str(),
-            )],
+            ops: vec![read_op],
         });
         Ok(())
     }

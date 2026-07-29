@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 #[path = "../../support/artifact.rs"]
 mod artifact;
 #[path = "../g10c/main.rs"]
-mod base;
+pub(crate) mod base;
 
 const CHANNEL_ID: &str = "chfixx0000000000000000001c";
 const TARGET_ID: &str = "srvfix0000000000000000000a";
@@ -22,7 +22,7 @@ struct PersonaTrace {
 }
 
 /// 通过真实 locate authority 把 attached latest window 切换为稳定 anchor。
-fn locate_away_from_bottom(replay: &mut base::Replay) -> TestResult<()> {
+pub(crate) fn locate_away_from_bottom(replay: &mut base::Replay) -> TestResult<()> {
     replay.command(
         "im_locate_message",
         json!({

@@ -88,7 +88,7 @@ impl ImModule {
     pub(super) fn emit_timeline_navigation_failed_frame(
         &mut self,
         state: &crate::timeline_navigation::TimelineNavigationState,
-        now_ms: u64,
+        _now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let mutation = self
@@ -128,12 +128,30 @@ impl ImModule {
             );
             return Ok(());
         }
-        let frame_id = format!(
-            "timeline-{}-{}",
-            mutation.scope.canonical_key(),
-            mutation.revision
+        let crate::timeline_navigation::TimelineNavigationKind::Locate {
+            target_message_id,
+            navigation_token,
+        } = state.kind()
+        else {
+            return Ok(());
+        };
+        let page = state.page();
+        let _legacy_internal_state = mutation;
+        out.push(
+            crate::event::timeline::located(serde_json::json!({
+                "channelId": state.channel_id().as_str(),
+                "windowToken": state.window_token(),
+                "state": "failed",
+                "messages": [],
+                "hasOlder": page.has_older,
+                "hasNewer": page.has_newer,
+                "targetMessageId": target_message_id,
+                "anchorPostId": target_message_id,
+                "revealPostId": target_message_id,
+                "navigationToken": navigation_token,
+            }))?
+            .into_effect(),
         );
-        out.push(self.build_registered_timeline_frame(frame_id, vec![mutation], now_ms)?);
         Ok(())
     }
 

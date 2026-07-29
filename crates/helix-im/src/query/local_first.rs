@@ -910,7 +910,7 @@ impl ImModule {
     pub(crate) fn emit_timeline_navigation_page(
         &mut self,
         state: &crate::timeline_navigation::TimelineNavigationState,
-        now_ms: u64,
+        _now_ms: u64,
     ) -> Result<Effect, ImError> {
         let rows = Value::Array(state.rows().to_vec());
         let mut shaped = crate::render_ready::shape_message_rows_for_viewer(
@@ -997,12 +997,30 @@ impl ImModule {
             )?
             .into_effect());
         }
-        let frame_id = format!(
-            "timeline-{}-{}",
-            mutation.scope.canonical_key(),
-            mutation.revision
-        );
-        self.build_registered_timeline_frame(frame_id, vec![mutation], now_ms)
+        let crate::timeline_navigation::TimelineNavigationKind::Locate {
+            target_message_id,
+            navigation_token,
+        } = state.kind()
+        else {
+            return Err(ImError::Parse(
+                "timeline navigation kind changed after page dispatch".to_string(),
+            ));
+        };
+        let page = state.page();
+        let _legacy_internal_state = mutation;
+        Ok(crate::event::timeline::located(serde_json::json!({
+            "channelId": state.channel_id().as_str(),
+            "windowToken": state.window_token(),
+            "state": "ready",
+            "messages": state.rows(),
+            "hasOlder": page.has_older,
+            "hasNewer": page.has_newer,
+            "targetMessageId": target_message_id,
+            "anchorPostId": target_message_id,
+            "revealPostId": target_message_id,
+            "navigationToken": navigation_token,
+        }))?
+        .into_effect())
     }
 
     fn emit_timeline_failed(

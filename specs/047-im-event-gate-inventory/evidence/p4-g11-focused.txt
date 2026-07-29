@@ -1,0 +1,9 @@
+Spec 047 P4 G-11 聚焦证据
+
+- message_v3_g11: PASS 9/9（含复用的 G-10c/G-10d 回归）
+- sender: locate authority 经 HTTP、message PersistOk 与 matching durable row Get 后发布 im:timeline:located
+- receiver: persona-local Gate generated receiver events 为空
+- success: bounded 11 rows，targetMessageId/anchorPostId/revealPostId/navigationToken 同一终态
+- boundary: 无 InteractionFrame、Surface、ActivateWindow、Scroll、directive 或 capability
+- artifact: .v1/gates/G-11/generated 四文件由 Rust producer 生成
+- contract/runtime/dual-user/canonical: 仅 E1/E2；消费者 scroll 与真实 SQLite 均 NOT_RUN

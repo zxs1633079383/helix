@@ -37,7 +37,6 @@ Frame。PC WDIO 与 Mobile GTest/QuickJS 可以镜像并消费这些文件，但
 | `g10-wdio/` | G-10 | 切群并加载最新消息首屏 | timeline ready、缓存降级、请求失败、竞态只接纳当前 generation、恢复 |
 | `g10a-wdio/` | G-10a | 上拉加载更早历史 | older page 合并、历史耗尽、HTTP/持久化失败、竞态只接纳当前 generation |
 | `g10b-wdio/` | G-10b | 下拉加载更新消息 | revision-1 latest Snapshot、定位 Delta、newer 尾插、耗尽边界、耗尽后晚到消息 |
-| `g11-wdio/` | G-11 | 按消息定位 | 初始 bounded window、定位目标后的 active window/滚动指令 |
 | `g11a-wdio/` | G-11a | 未缓存消息定位与双向分页 | latest、两个并发 locate 乱序回放、当前 token 激活、旧 response 仅合并数据、定位后 older/newer |
 | `g12-wdio/` | G-12 | 回复列表与话题分支 | thread snapshot、回复分支数据 |
 | `g13-wdio/` | G-13 | 会话已读 | 初始未读 dialog、会话已读终态、冷启动恢复 |

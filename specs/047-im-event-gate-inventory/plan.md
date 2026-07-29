@@ -31,7 +31,8 @@ Command/Inbound/Effect/PersistOk/Emit 顺序，并在 `HELIX_GATE_ARTIFACT_DIR` 
 PersistOk 后业务终态来源；测试使用 sans-IO `StorageOp/PortReply`
 
 **Testing**: 30 个 Gate 各自使用独立目录和显式 `[[test]]` target；目录先按
-`message_v3/{post,schedule,timeline,read,channel,sync}` 领域分包，再按 Gate 分目录；
+`message_v3/{post,schedule,timeline,read,channel,channel_member,sync}` 领域分包，再按
+Gate 分目录；机器 `domain=channel-member` 映射到 Rust 包 `channel_member`；
 聚焦 `cargo test -p helix-im --test message_v3_<gate> -- --nocapture`；最终
 `cargo test -p helix-im` 与三端 Rust check/build
 
@@ -74,8 +75,9 @@ Frame/Surface 目标描述。历史证据可保留，但必须明确标记为 re
 - **I-003**: `crates/helix-im/src` 当前 Frame/Surface、旧 raw emit、WS parser、query、
   correlation 和 PersistOk 路径。
 - **I-004**: `crates/helix-im/tests` 当前 Gate 回放、fixture producer 和 focused tests。
-- **I-005**: `.v1/gates/<Gate>/inbound-sample.json|outbound-sample.json` 只作人工审核输入；
-  实现后必须由 Rust 测试生成物替换，不得倒灌生产字段。
+- **I-005**: `.v1/gates/<Gate>/inbound-sample.json|outbound-sample.json` 是冻结人工审核输入，
+  不被脚本重写；Rust 测试另写 `generated/*` 并成为实现后的唯一权威合同，二者不得覆盖或
+  倒灌字段。
 
 ### Action Chain
 
@@ -89,13 +91,16 @@ Frame/Surface 目标描述。历史证据可保留，但必须明确标记为 re
 
 ### State Contract
 
-- **S-001**: `PLANNED -> TEST_RED -> MESSAGE_V3_GREEN -> LEGACY_REMOVED -> MIGRATED`。
+- **S-001**: 单 Gate 状态
+  `PLANNED -> IN_PROGRESS -> TEST_RED -> MESSAGE_V3_GREEN -> LEGACY_REMOVED -> MIGRATED`。
 - **S-002**: 任一 schema、Persist barrier、双视角或删除检查失败：
-  `TEST_RED|MESSAGE_V3_GREEN -> BLOCKED`，不得开始下一 Gate。
+  `IN_PROGRESS|TEST_RED|MESSAGE_V3_GREEN -> BLOCKED`，不得开始下一 Gate。
 - **S-003**: `.v1` artifact 状态：
   `MISSING -> GENERATED -> SCHEMA_VALID -> HASHED`；手写或来源不明进入 `REJECTED`。
 - **S-004**: 共享旧壳状态：
   `REFERENCED -> LAST_GATE_REMOVED -> ZERO_REFERENCE -> DELETED`。
+- **S-005**: P0/P7 共享 workflow phase 只写 `review-ledger.json`，单 Gate 迁移状态只写
+  `gate-migration.v1.json`；checker 合并两者后断言 `IN_PROGRESS <= 1`。
 
 ### Validators
 
@@ -105,6 +110,10 @@ Frame/Surface 目标描述。历史证据可保留，但必须明确标记为 re
 - **V-004**: Gate-scoped `rg` 删除清单证明已迁移 Gate 不再调用 V2/V1。
 - **V-005**: manifest 集合检查证明 30 Gate missing/extra/duplicate 均为 0。
 - **V-006**: `cargo check`、`cargo test -p helix-im`、wasm build 证明共享删除未破坏三端 Rust。
+- **V-007**: P0 manifest 校验证明 30 Gate 的生产 owner 与 V2/V1 删除引用在任何生产编码前
+  已登记，未知项不得使用空数组或 `TODO` 逃逸。
+- **V-008**: 公共红测试必须先证明 `PersistOk` 前无 terminal Emit、匹配回复后恰好释放一次，
+  再允许实现公共释放编排。
 
 ## Phase 0: Research
 
@@ -116,7 +125,8 @@ Frame/Surface 目标描述。历史证据可保留，但必须明确标记为 re
 3. 旧 WS action 的服务端 wire parser 按仍在用/compat 两类审计；保留真实 Go wire，
    删除 `legacy_event.rs` 与只服务旧合同的 alias/fallback。
 4. Rust 测试是业务 JSON 唯一 producer；Node 只编排，不生成字段。
-5. 本版本只产 Helix `.v1`，跨仓镜像延后。
+5. 本版本只产 Helix `.v1`，跨仓镜像延后并记为 `NOT_SYNCED_BY_SCOPE`。
+6. P0 先生成完整 30 Gate 删除清单，再写公共或 Gate 生产代码；清单不是实现后的补作文档。
 
 ## Phase 1: Design
 
@@ -137,7 +147,7 @@ MessageV3Event、PersonaArtifact、Provenance、MigrationEntry 与状态转换�
 
 | 阶段 | Gate | 主要目标 | 阶段删除 |
 |---|---|---|---|
-| P0 | shared | event envelope/builders、artifact writer、schema、ledger | JavaScript 手拼 payload |
+| P0 | shared | 完整删除清单、event envelope/builders、Persist 红测、artifact writer、schema、ledger | JavaScript 手拼 payload |
 | P1 | G-15a、G-01 | 建群前置与文本发送主链 | 对应 Frame composer/旧 send emit |
 | P2 | G-02、G-03a、G-04、G-04a、G-05、G-06、G-07、G-14、G-14a | Post 变更与双视角 | post Frame/旧 compatibility |
 | P3 | G-08、G-09 | schedule 私有终态 | schedule Surface/旧 emit |
@@ -173,7 +183,8 @@ specs/047-im-event-gate-inventory/
 │   ├── message-v3-event.schema.json
 │   ├── gate-artifact.schema.json
 │   ├── gate-provenance.schema.json
-│   └── gate-migration.schema.json
+│   ├── gate-migration.schema.json
+│   └── gate-migration.v1.json      # T005 生成的 30 Gate 迁移清单实例
 └── .v1/                         # ignored runtime evidence
     └── gates/<Gate>/generated/
         ├── inbound.json
@@ -190,6 +201,7 @@ crates/helix-im/src/
 │   ├── mod.rs                   # 唯一 MessageV3 envelope/build 入口
 │   ├── post.rs
 │   ├── channel.rs
+│   ├── channel_member.rs
 │   ├── schedule.rs
 │   ├── timeline.rs
 │   ├── read.rs
@@ -239,8 +251,9 @@ crates/helix-im/
     │   ├── g15a/main.rs
     │   ├── g15/main.rs
     │   ├── g16/main.rs
-    │   ├── g16b/main.rs
     │   └── g16c/main.rs
+    ├── channel_member/
+    │   └── g16b/main.rs
     └── sync/
         ├── gs1/main.rs
         ├── gs2/main.rs
@@ -256,8 +269,9 @@ specs/047-im-event-gate-inventory/scripts/
 消息 shaping、query 和持久逻辑必须移动到 `event/` 或原领域模块，不以旧目录名残留。
 
 **Structure Decision**: 采用单 crate 内的深模块重构，不新增 crate 或运行时。生产代码按领域
-分模块；测试也按领域 package + Gate 独立目录组织，并通过 `Cargo.toml` 显式注册独立
-integration target。event builder 只负责“已提交事实 → event bytes”，module 负责业务编排，
+分模块；测试也按七个业务域的 Rust package + Gate 独立目录组织，并通过 `Cargo.toml`
+显式注册独立 integration target。`channel-member` 仅在 Rust 文件路径中转写为
+`channel_member`。event builder 只负责“已提交事实 → event bytes”，module 负责业务编排，
 driver 继续原样搬运 bytes。
 
 ## Complexity Tracking

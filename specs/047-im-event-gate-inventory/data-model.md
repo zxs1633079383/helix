@@ -5,7 +5,7 @@
 | 字段 | 类型 | 约束 |
 |---|---|---|
 | `gate_id` | string | 冻结 30 Gate 集合内唯一 |
-| `domain` | enum | `post/schedule/timeline_read/channel/sync` |
+| `domain` | enum | `post/schedule/timeline/read/channel/channel-member/sync` |
 | `commands` | string[] | canonical command；可为空但须有 host observation |
 | `ws_actions` | string[] | 真实 Go wire action，不含兼容 alias |
 | `sender_events` | string[] | sender 可见 event 顺序 |
@@ -74,12 +74,13 @@ JSON key，或在 Gate 合同中声明为 correlation/query/role 派生；未知
 |---|---|---|
 | `gate_id` | string | 冻结集合内唯一 |
 | `phase` | enum | `P1..P6` |
-| `state` | enum | `PLANNED/TEST_RED/MESSAGE_V3_GREEN/LEGACY_REMOVED/MIGRATED/BLOCKED` |
-| `test_package` | enum | `post/schedule/timeline/read/channel/sync` |
+| `state` | enum | `PLANNED/IN_PROGRESS/TEST_RED/MESSAGE_V3_GREEN/LEGACY_REMOVED/MIGRATED/BLOCKED` |
+| `domain` | enum | 与 `GateDefinition.domain` 一致 |
+| `test_package` | enum | `post/schedule/timeline/read/channel/channel_member/sync`；`channel-member` 映射为 `channel_member` |
 | `test_target` | string | `message_v3_<gate>`，一 Gate 一个显式 target |
 | `test_path` | string | `tests/message_v3/<package>/<gate>/main.rs` |
 | `generated_files` | string[] | 固定四文件 |
-| `legacy_inventory` | LegacyRef[] | 每项 `removed/N/A` + 证据 |
+| `legacy_inventory` | LegacyRef[] | Helix 项为 `removed/N/A`，客户端项可为 `DEFERRED_BY_SCOPE`，均带证据 |
 | `verification` | string[] | 聚焦命令与结果引用 |
 
 ## Relationships
@@ -97,6 +98,7 @@ PersonaArtifact * ── 1 Provenance
 
 ```text
 PLANNED
+  -> IN_PROGRESS
   -> TEST_RED
   -> MESSAGE_V3_GREEN
   -> LEGACY_REMOVED

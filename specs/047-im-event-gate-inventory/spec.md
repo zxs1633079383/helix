@@ -160,29 +160,36 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 
 ### Goal
 
-形成一个可人工审核的 Gate 目录：每个 Gate 有稳定事件域、触发指令、Actor/Observer
-视角、权威完成条件、Emit channel、当前代码覆盖和明确缺口。
+在 Helix 仓内，以已冻结的 30 Gate 双视角目录为输入，完成 MessageV3 硬切：每个 Gate
+先建立可人工审核的稳定事件域、触发指令、Actor/Observer 视角、权威完成条件、Emit
+channel 与缺口标注，再由真实 `ImModule::handle` 回放测试驱动生产接码、生成 `.v1`
+canonical JSON，并按 Gate 物理删除对应 V2 Frame/Surface 与旧 V1 链。
 
 ### Completion
 
-本规格完成仅表示：
+本轮完成表示：
 
-1. 截图中的 30 个 Gate 全部完成归类；
-2. 当前 Matrix 与截图的差集已列明；
-3. 每个 Gate 的双视角或 persona-local 性质无歧义；
-4. 当前覆盖与推导补项严格分开；
-5. 用户确认本轮 Gate 清单可以作为下一轮补充和计划输入。
+1. 截图中的 30 个 Gate 全部完成归类，差集（G-03、G-17..G-27）与 Matrix 差异已列明；
+2. 每个 Gate 的双视角或 persona-local 性质无歧义，当前覆盖与推导补项（MISSING/INFERRED）严格分开；
+3. 30 个 Gate 均已在 Helix 仓内完成 MessageV3 硬切：真实回放测试 → 生产接码 →
+   `.v1` canonical JSON 生成 → 该 Gate 的 V2/V1 专属链删除 → 迁移 ledger 标 `MIGRATED`；
+4. 生产源码与真实 Gate 测试对 InteractionFrame/Surface/ActionBinding/UiDirective/FrameApplied
+   的业务引用为 0（历史归档文档除外）。
 
-它不表示任何 Gate runtime Green，也不表示生产代码或测试已经补齐。
+本轮完成不表示 PC WDIO / Mobile GTest 已消费或跨仓已同步；那属于后续版本（见 §Explicitly
+Out Of Scope）。`.v1` 生成物具备 byte-exact 可镜像性即视为满足本轮对下游的义务。
 
 ### Boundaries
 
-- 本轮只写规格、覆盖盘点和 loop discovery，不修改 Helix、PC、Mobile 或 Go 生产代码。
-- 本轮不新增、重写或运行 WDIO/Cargo 测试。
-- 本轮主表只覆盖截图中的 30 个 Gate；G-03 与 G-17 至 G-27 进入差集和后续决策。
+- 本轮改动范围 = Helix 仓：修改 `helix-im` 生产代码、新增并运行真实 `ImModule::handle`
+  Cargo 回放测试、生成被 Git 忽略的 `.v1` canonical JSON，并按 Gate 删除 V2/V1 专属链。
+- 本轮不修改、不同步 cses-client(PC/WDIO)、Mobile(GTest) 或 Go 后端生产代码；
+  不新增或运行 WDIO/GTest（跨仓镜像与消费属后续版本）。
+- 本轮主表只覆盖截图中的 30 个 Gate；G-03 与 G-17 至 G-27 保持 `OUT_OF_SCOPE`，
+  不创建空测试或占位 JSON 冒充覆盖。
 - 业务出站只认 `Effect::Emit` 的 `{event,data}`；HTTP、Persist、Timer 是内部 Effect，
   Native channel 与 FFI batch 是适配器承载。
-- 最多使用当前源码可证明的角色和字段；缺失项只写成推导目标。
+- 现状角色/字段以当前源码可证明者为准；未覆盖断言标 `MISSING`，业务不变量推导标 `INFERRED`。
 
 ### Human Gate
 
@@ -278,6 +285,12 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 - **FR-036**: 无法直接映射到本地列或已观测 JSON-text 键的字段 MUST 进入
   `non_storage_or_derived_fields`，只能解释为 command correlation、查询/分页派生、角色派生
   或待确认字段；不得冒充本地持久事实。
+- **FR-036A**: `inbound-sample.json` 与 `outbound-sample.json`（含 `sender_samples`/
+  `receiver_samples`）是 FR-033..036 定义的**冻结人工审核输入**，位于 `.v1/gates/<Gate>/`，
+  本轮不再由脚本重写。它们与 FR-043/FR-045 定义的**测试生成物**
+  `.v1/gates/<Gate>/generated/{inbound.json,outbound.sender.json,outbound.receiver.json}`
+  是"审核输入 vs 权威产物"两层：实现完成后以 generated/* 为唯一权威合同，sample 文件仅作
+  人工比对基线保留，二者的 schema 与字段命名各自独立、不得互相顶替或倒灌。
 - **FR-037**: MessageV3 MUST 以 Gate 定义的 `Effect::Emit {event,data}` 作为唯一跨端
   业务出站合同。生产路径和测试路径均不得再产生、包装或消费 InteractionFrame、
   Surface、SurfaceMutation、ActionBinding、UiDirective、FrameApplied 或平台业务 VM。
@@ -292,9 +305,11 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 - **FR-041**: 重构 MUST 按 Gate 纵向执行。一个 Gate 只有在 Helix 生产回放测试、该测试
   生成的 canonical JSON、真实 `ImModule::handle` 路径和 Helix 删除清单全部通过后，才能
   标记 `MIGRATED` 并开始下一个 Gate；不得以全局兼容层跨 Gate 延后删除。
-- **FR-042**: 每个 Gate 的删除清单 MUST 至少覆盖 V2 Frame composer/projector/VM/fixture、
-  旧 V1 inbound parser/command alias、旧 outbound emit/subscription/reducer、capability
-  注册、测试 helper、客户端镜像与文档引用；未命中项必须注明 `N/A` 及代码证据。
+- **FR-042**: 每个 Gate 的删除清单 MUST 在任何生产编码前完成，并至少覆盖 V2 Frame
+  composer/projector/VM/fixture、旧 V1 inbound parser/command alias、旧 outbound
+  emit/subscription/reducer、capability 注册、测试 helper、客户端镜像与文档引用。Helix
+  仓内未命中项必须注明 `N/A` 及代码证据；受 FR-044 约束的客户端镜像只能标
+  `DEFERRED_BY_SCOPE` 并附跨仓零写入证据，不得伪装为已删除。
 - **FR-043**: 本版本 MUST 只在 Helix 仓内生成
   `.v1/gates/<Gate>/generated/inbound.json`、`outbound.sender.json`、
   `outbound.receiver.json` 和 `provenance.json`；生成动作必须由对应 Gate 的真实生产回放
@@ -358,6 +373,13 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 | 旧 UI 合同漂移 | 当前 Matrix 仍含 `im:interaction:frame` 投影 | 本规格不继承该投影；以 raw Emit 合同记录为待收敛目标 |
 
 ## Gate Inventory
+
+> 说明：以下 A–E 分组是**人工审核用的粗粒度归类**。Gate 的**实现域**（决定测试包与
+> `src/event/*` 归属）以 `contracts/gate-migration.v1.json` 的 `domain` 字段与 plan 的
+> 测试包为机器权威，取值为 FR-005 的 `post / schedule / timeline / read / channel /
+> channel-member / sync`。审核分组与实现域不一一对应时，以实现域为准；已知差异：
+> **G-13 → read**（会话已读回执，非频道生命周期）、**G-14 → read**（单条已读回执，
+> 非 post 变更）。G-14a 保持 `post`（模板"已收到"属 post 更新）。
 
 ### A. Sync / Recovery
 
@@ -459,9 +481,10 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 - **SC-007**: 用户能够仅根据本规格逐 Gate 判断“分类正确 / 角色错误 / 需要新增场景”，
   无需先阅读实现代码。
 - **SC-008**: 规格质量清单全部通过，未保留模板占位符或未解释的 clarification。
-- **SC-009**: 生产源、测试源、Matrix、文档与客户端仓库对
-  `InteractionFrame|SurfaceMutation|ActionBinding|UiDirective|FrameApplied` 的 MessageV3
-  业务引用均为 0；仅允许明确标记的历史文档归档命中。
+- **SC-009**: Helix 生产源、当前测试源、当前 Matrix 与当前合同文档对
+  `InteractionFrame|SurfaceMutation|ActionBinding|UiDirective|FrameApplied` 的
+  MessageV3 业务引用均为 0；仅允许明确标记的历史文档归档命中。客户端仓库按 FR-044
+  保持 `NOT_SYNCED_BY_SCOPE`，其既有引用不得借入本版本的零引用结论。
 - **SC-010**: 每个本轮 Gate 至少有一条生产 `ImModule::handle -> Persist/PersistOk ->
   Effect::Emit` 回放测试，并由该测试直接写出对应 inbound/outbound canonical JSON。
 - **SC-011**: 每个 Gate 的 Helix 生产回放测试均能独立生成完整 canonical JSON 与
@@ -472,8 +495,10 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
   Git 忽略，但 30 个 Gate 的测试类、生成逻辑、schema 和 provenance 合同受版本控制。
 - **SC-014**: 实现 manifest、测试类、`.v1` Gate 目录和迁移 ledger 的 Gate ID 集合均与
   冻结 30 Gate 集合完全相等；集合差异检查输出 missing=0、extra=0、duplicate=0。
-- **SC-015**: 迁移 ledger 始终只有一个 Gate/基础阶段处于 `IN_PROGRESS`；任何后续阶段启动
-  时，所有前置阶段均具备测试生成 JSON、删除清单和聚焦验证通过证据。
+- **SC-015**: `review-ledger.json` 中 P0/P7 共享阶段与
+  `contracts/gate-migration.v1.json` 中单 Gate 状态合并计算后，始终至多一个条目处于
+  `IN_PROGRESS`；任何后续阶段启动时，所有前置阶段均具备测试生成 JSON、删除清单和聚焦
+  验证通过证据。共享 workflow phase 只写 review ledger，Gate 业务迁移状态只写 manifest。
 
 ## Assumptions
 
@@ -481,6 +506,7 @@ Mock/single/dual 场景，同时确保“文件存在”不会被写成运行通
 - Actor 表示动作发起者或当前被测 viewer；Observer 表示第二账号，不一定总是被动 receiver。
 - 对查询、分页、定位、已读和 recovery，双视角的核心可能是隔离，而不是状态传播。
 - 对建群、退出和设置变更，角色差异优先于两端 VM 字节完全一致。
-- 当前 Helix 测试和 WDIO 场景源码是现状分析输入；本轮没有运行它们，因此不产生新 Green。
+- 当前 Helix 测试与 WDIO 场景源码是现状分析输入；WDIO 场景本轮不运行、不产生跨仓 Green。
+  Helix 侧则相反：每个 Gate 必须由本轮新增的真实回放测试跑出 Green 才能标 `MIGRATED`。
 - MessageV3 的 `Effect::Emit {event,data}` 是唯一跨端业务出站真源；Native channel 与
   FFI batch 仅交付同一 bytes，端侧不得补造第二套业务状态机或 Frame/Surface 套壳。

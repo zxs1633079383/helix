@@ -32,6 +32,9 @@ outbound.receiver.json
 provenance.json
 ```
 
+G-16b 的机器 `domain` 为 `channel-member`，对应 Rust 测试包目录为
+`tests/message_v3/channel_member/g16b/`；其余 domain 与测试包同名。
+
 ## 全 30 Gate 生成
 
 ```bash
@@ -50,6 +53,11 @@ git check-ignore -v specs/047-im-event-gate-inventory/.v1/manifest.json
 
 预期 Gate 数为 30，且 `.v1` 被忽略。manifest 必须报告
 `missing=0/extra=0/duplicate=0`。
+
+在任何生产编码前，`contracts/gate-migration.v1.json` 还必须已经为 30 Gate 填满生产 owner
+和删除引用；空数组、`TODO` 或未知 owner 均应由 checker 拒绝。P0/P7 的共享
+`IN_PROGRESS` 来自 `review-ledger.json`，单 Gate `IN_PROGRESS` 来自 migration manifest，
+两者合并后最多一个。
 
 ## 单 Gate 旧链删除
 

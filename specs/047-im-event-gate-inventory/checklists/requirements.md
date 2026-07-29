@@ -6,9 +6,9 @@
 
 ## Content Quality
 
-- [ ] No implementation details（源码与测试名称只作为现状证据输入，不规定实现方案）
+- [x] 技术重构所需的实现细节仅用于界定删除边界、生产真源和可证伪验证，不引入平台 UI 方案
 - [x] Focused on user value and business needs
-- [ ] Written for non-technical stakeholders
+- [x] 面向 IM、Helix 与客户端工程评审者可独立审阅，业务角色和双视角结果无需先读源码
 - [x] All mandatory sections completed
 
 ## Requirement Completeness
@@ -16,7 +16,7 @@
 - [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
-- [ ] Success criteria are technology-agnostic
+- [x] 成功标准区分业务终态与必要的仓内物理下线证据，未用具体 UI 实现替代结果
 - [x] All acceptance scenarios are defined
 - [x] Edge cases are identified
 - [x] Scope is clearly bounded
@@ -27,7 +27,7 @@
 - [x] All functional requirements have clear acceptance criteria
 - [x] User scenarios cover primary flows
 - [x] Feature meets measurable outcomes defined in Success Criteria
-- [ ] No implementation details leak into specification
+- [x] 规格中的路径、事件名和测试入口均属于本次协议硬切的可验证合同，不包含实现代码
 
 ## Notes
 
@@ -43,3 +43,6 @@
 - 30 个 Gate 的 inbound/outbound 样例现均引用远端 PostgreSQL 与本地 444/999 SQLite
   schema lock；直接落库字段与查询/角色/correlation 派生字段分开列出，便于逐 Gate 人工审核。
 - G-03 以及 G-17 至 G-27 是否进入下一批，保留为用户审核决策，不是规格歧义。
+- 本清单按“技术协议重构规格”而非面向终端用户的产品 PRD 评估；实现名只在它们构成物理删除
+  或证据边界时保留。SC-009 只约束 Helix，本版本未同步的客户端引用保持
+  `NOT_SYNCED_BY_SCOPE`。

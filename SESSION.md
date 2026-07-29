@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 重新执行 Spec 047 的 Plan/Tasks 并使 R2/R3 对齐最新规格；可证伪断言：① plan、research、data-model、schema、quickstart 与 spec 的 Helix-only MessageV3 范围一致，冻结 sample 不被 generated 覆盖；② 每 Gate 删除清单在任何生产编码前已经完整登记，PersistOk 公共实现前有专门红测试；③ 七个业务域与物理测试包映射无歧义，G-13/G-14 属 read、G-16b 属 channel-member；④ 90 个任务与 90 个 Loop Task Contract 一一对应且 R2/R3 PASS；⑤ 仅修改 Spec 047 规划资产、SESSION 和 loop ledger，不触碰既有 `UC04-16-EXECUTION-INDEX.md` 删除，不运行 Cargo | 赌注 高 | 可逆 是 | @2026-07-29T03:10:00-0700
+
+✅ DONE 已重新执行 Spec 047 的 Plan/Tasks：先修正 SC-009 与 FR-044 的范围冲突，把零引用限定为 Helix，客户端保持 `NOT_SYNCED_BY_SCOPE`；冻结 sample 与 `generated/*` 分层不再互相覆盖。P0 现在要求生产编码前完成 30 Gate 删除清单，T009 在公共 PersistOk 编排前先做“提交前不 Emit、匹配后恰好一次”的红测。七个实现域已与七个测试包对齐，`channel-member -> channel_member`，G-13/G-14 属 read、G-16b 独立归 channel_member。90/90 checkbox 与 Loop Task Contract、30/30 Gate 路径与 target、16/16 checklist、219 份 JSON 解析、schema 结构/负例逻辑与 `git diff --check` 均通过；Spec Kit R1 event 32、R2 event 33、R3 event 34 PASS，event 35 已给出 `IMPLEMENTATION_ADMITTED`。未运行 Cargo，未触碰既有 `UC04-16-EXECUTION-INDEX.md` 删除 | @2026-07-29T03:12:02-0700
+
 🎯 EXPECT 修正 Spec 047 的 MessageV3 测试组织；可证伪断言：① 30 个 Gate 不再平铺在 `tests/` 根，每个 Gate 都有 `tests/message_v3/<domain>/<gate>/main.rs` 独立目录；② 先按 post/schedule/timeline/read/channel/sync 六个领域分包，再由 `Cargo.toml` 为每个 Gate 显式注册唯一 `message_v3_<gate>` integration target；③ plan、research、data-model、schema、quickstart、tasks 的路径与命令一致；④ 30 个目录、30 个 target、90 个任务与 90 个 Loop Task Contract 精确对账；⑤ 只修正规划资产，不创建测试或修改生产代码，不触碰既有 `UC04-16-EXECUTION-INDEX.md` 删除 | 赌注 中 | 可逆 是 | @2026-07-29T01:56:42-0700
 
 ✅ DONE Spec 047 已把测试布局修正为 `tests/message_v3/<domain>/<gate>/main.rs`：post 9、schedule 2、timeline 8、read 2、channel 5、sync 4，共 30 个独立 Gate 目录；每个红测试任务同时要求在 `crates/helix-im/Cargo.toml` 注册唯一 `message_v3_<gate>` 显式 target。公共 artifact/scenario 工具独立放在 `tests/message_v3/support/`，三项基础合同各自使用 `tests/message_v3/contracts/<contract>/main.rs`。迁移 schema 新增 `test_package/test_path`，quickstart 改用 `--test message_v3_g01`。机器对账确认 30/30 路径、30/30 target、90/90 task/contract，无旧平铺路径；Spec Kit R2 event 26、R3 event 27 PASS，JSON 与 `git diff --check` 通过。未创建测试类、未修改 Cargo/生产代码、未运行 Cargo | @2026-07-29T01:56:42-0700

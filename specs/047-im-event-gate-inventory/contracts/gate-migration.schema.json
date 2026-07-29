@@ -8,6 +8,7 @@
     "gate_id",
     "phase",
     "state",
+    "domain",
     "test_package",
     "test_target",
     "test_path",
@@ -24,6 +25,7 @@
     "state": {
       "enum": [
         "PLANNED",
+        "IN_PROGRESS",
         "TEST_RED",
         "MESSAGE_V3_GREEN",
         "LEGACY_REMOVED",
@@ -31,8 +33,27 @@
         "BLOCKED"
       ]
     },
+    "domain": {
+      "enum": [
+        "post",
+        "schedule",
+        "timeline",
+        "read",
+        "channel",
+        "channel-member",
+        "sync"
+      ]
+    },
     "test_package": {
-      "enum": ["post", "schedule", "timeline", "read", "channel", "sync"]
+      "enum": [
+        "post",
+        "schedule",
+        "timeline",
+        "read",
+        "channel",
+        "channel_member",
+        "sync"
+      ]
     },
     "test_target": {
       "type": "string",
@@ -40,7 +61,7 @@
     },
     "test_path": {
       "type": "string",
-      "pattern": "^crates/helix-im/tests/message_v3/(?:post|schedule|timeline|read|channel|sync)/(?:g|gs)[0-9]+[a-z]?/main\\.rs$"
+      "pattern": "^crates/helix-im/tests/message_v3/(?:post|schedule|timeline|read|channel|channel_member|sync)/(?:g|gs)[0-9]+[a-z]?/main\\.rs$"
     },
     "generated_files": {
       "type": "array",
@@ -57,7 +78,9 @@
         "properties": {
           "kind": { "type": "string" },
           "path": { "type": "string" },
-          "disposition": { "enum": ["removed", "N/A"] },
+          "disposition": {
+            "enum": ["removed", "N/A", "DEFERRED_BY_SCOPE"]
+          },
           "evidence": { "type": "string", "minLength": 1 }
         }
       }
@@ -66,5 +89,49 @@
       "type": "array",
       "items": { "type": "string" }
     }
-  }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "domain": { "const": "post" },
+        "test_package": { "const": "post" }
+      }
+    },
+    {
+      "properties": {
+        "domain": { "const": "schedule" },
+        "test_package": { "const": "schedule" }
+      }
+    },
+    {
+      "properties": {
+        "domain": { "const": "timeline" },
+        "test_package": { "const": "timeline" }
+      }
+    },
+    {
+      "properties": {
+        "domain": { "const": "read" },
+        "test_package": { "const": "read" }
+      }
+    },
+    {
+      "properties": {
+        "domain": { "const": "channel" },
+        "test_package": { "const": "channel" }
+      }
+    },
+    {
+      "properties": {
+        "domain": { "const": "channel-member" },
+        "test_package": { "const": "channel_member" }
+      }
+    },
+    {
+      "properties": {
+        "domain": { "const": "sync" },
+        "test_package": { "const": "sync" }
+      }
+    }
+  ]
 }

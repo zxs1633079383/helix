@@ -59,8 +59,10 @@ Frame schema、surface revision、actionRef、VM 包装是被废弃的呈现协�
 ## R-005：测试产物生成
 
 **Decision**: 每 Gate 一个独立目录和 integration test target。测试根固定为
-`tests/message_v3/`，先按 `post/schedule/timeline/read/channel/sync` 领域分包，再使用
-`<gate>/main.rs` 隔离 Gate；`Cargo.toml` 用显式 `[[test]]` 注册
+`tests/message_v3/`，先按
+`post/schedule/timeline/read/channel/channel_member/sync` 七个领域分包，再使用
+`<gate>/main.rs` 隔离 Gate；机器合同的 `channel-member` 在 Rust 路径中映射为
+`channel_member`。`Cargo.toml` 用显式 `[[test]]` 注册
 `message_v3_<gate>`。公共代码只放在 `tests/message_v3/support/`。测试始终在内存中校验；
 设置 `HELIX_GATE_ARTIFACT_DIR` 时额外原子写 JSON。Node 脚本只调用测试并校验结果。
 
@@ -73,6 +75,7 @@ Frame schema、surface revision、actionRef、VM 包装是被废弃的呈现协�
 - 每次普通测试都写仓库：并行和只读 CI 不稳定。
 - 单个 30 Gate 巨型测试：失败定位差且违背逐 Gate 硬切。
 - 30 个测试平铺在 `tests/` 根：无法按领域识别 owner，也不满足独立测试目录要求。
+- 把 G-16b 混入 `channel`：会让 `domain` 与测试 owner 不一致，削弱 registry 的机器对账。
 
 ## R-006：本版本跨仓边界
 
@@ -87,7 +90,21 @@ WDIO/GTest。artifact schema 预留 consumer 和镜像 hash 字段，但当前�
 - 直接跨仓读取 `.v1`：依赖绝对路径且 `.v1` 被忽略。
 - 本版本同步 mirror：超出确认范围。
 
-## R-007：迁移顺序
+## R-007：删除清单与生产编码顺序
+
+**Decision**: 在 P0 的任何生产编码前，先为精确 30 Gate 建立完整迁移 manifest，登记生产
+owner、V2/V1 引用、客户端镜像和文档引用。Helix 命中项必须给出待删除路径或 `N/A` 证据；
+客户端项只能按本版本边界记为 `DEFERRED_BY_SCOPE`。
+
+**Rationale**: Constitution 要求 per-Gate deletion inventory 是实现准入条件。实现后补清单
+会让旧链删除依赖记忆，也无法证明某 Gate 没有借共享路径继续双写。
+
+**Alternatives considered**:
+
+- 实现完成后再扫描：顺序违反准入合同，且无法指导逐 Gate 物理下线。
+- 只登记共享文件：无法判断已迁移 Gate 是否仍从共享旧壳可达。
+
+## R-008：迁移顺序
 
 **Decision**: shared → G-15a/G-01 → Post → Schedule → Timeline/Read → Channel →
 Sync/Recovery → global purge。

@@ -32,8 +32,8 @@ Gate 不允许双写，也不允许借用其他证据面宣称 Green。
 - [ ] T002 [US5] 在 `docs/harness/decisions.md` 新增取代 ADR-015 的 MessageV3 决策并把 ADR-015 标为 superseded，保留历史而不伪装为现状
 - [ ] T003 [US5] 更新 `docs/ROADMAP.md`，把 P0→P7、30 Gate 硬切、Helix-only 产物与跨仓同步延期写入活账
 - [ ] T004 [US5] 更新 `AGENTS.md` 的行为真源、多端 checklist 与文档索引，移除 Frame/Surface 作为当前目标的指令
-- [ ] T005 [US1] 创建 `specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json`，登记精确 30 Gate、阶段、`test_package`、`test_path`、显式测试目标、生产 owner 与删除清单
-- [ ] T006 [US5] 新增 `specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs`，校验 Gate 集合、迁移状态、禁用引用和跨仓零写入
+- [ ] T005 [US1] 在任何生产编码前创建 `specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json`，登记精确 30 Gate、阶段、`domain`（FR-005 七域取值）、`test_package`、`test_path`、显式测试目标、生产 owner 与完整 V2/V1/客户端/文档删除清单；`channel-member` 映射到 `channel_member`，G-13/G-14 记为 `read`，未知项不得用空数组或 `TODO` 逃逸
+- [ ] T006 [US5] 新增 `specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs`，校验 Gate 集合、domain/package 映射、迁移状态、禁用引用和跨仓零写入，并合并 `review-ledger.json` 的 P0/P7 与 migration manifest 的 Gate 状态，断言 `IN_PROGRESS` 条目 ≤1
 - [ ] T007 [US5] 更新 `specs/047-im-event-gate-inventory/verification.md`，拆分 deterministic、contract、integration、runtime、dual-user、canonical 六级证据
 - [ ] T008 [US5] 更新 `specs/047-im-event-gate-inventory/discovery.md` 与 `specs/047-im-event-gate-inventory/review-ledger.json`，记录本轮 30 Gate 分母和 G-03/G-17..G-27 排除边界
 
@@ -46,18 +46,18 @@ Gate 不允许双写，也不允许借用其他证据面宣称 Green。
 
 ### Tests First
 
-- [ ] T009 [US5] 新增 `crates/helix-im/tests/message_v3/contracts/event/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_event_contract`，先断言事件只含 `event` 与 `data`、禁止 Frame/Surface 字段并观察失败
+- [ ] T009 [US5] 新增 `crates/helix-im/tests/message_v3/contracts/event/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_event_contract`，先断言事件只含 `event` 与 `data`、禁止 Frame/Surface 字段，并以失败用例证明 matching `PersistOk` 前无 terminal Emit、匹配后恰好释放一次
 - [ ] T010 [US5] 新增 `crates/helix-im/tests/message_v3/contracts/artifact_schema/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_artifact_schema`，先断言四类 generated JSON 满足 `contracts/*.schema.json` 并观察失败
 - [ ] T011 [US1] 新增 `crates/helix-im/tests/message_v3/contracts/gate_registry/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_gate_registry`，先断言 manifest 与显式 test target 精确覆盖 30 Gate、无重复、无 G-03/G-17..G-27
 
 ### Implementation
 
-- [ ] T012 [US5] 新增 `crates/helix-im/src/event/mod.rs` 与 `crates/helix-im/src/event/{post,channel,schedule,timeline,read,sync}.rs`，提供按领域构造 `Effect::Emit` 的类型化入口
+- [ ] T012 [US5] 新增 `crates/helix-im/src/event/mod.rs` 与 `crates/helix-im/src/event/{post,channel,channel_member,schedule,timeline,read,sync}.rs`，提供按七个业务域构造 `Effect::Emit` 的类型化入口
 - [ ] T013 [US5] 新增 `crates/helix-im/tests/message_v3/support/{artifact,scenario}.rs`，从真实 Tick、`ImModule::handle`、完整 Effect、持久化读回和 persona 输出确定性 JSON
 - [ ] T014 [US5] 在 `crates/helix-im/src/module/` 与 `crates/helix-im/src/port_reply/` 建立 PersistOk 后才释放 terminal MessageV3 事件的公共编排
 - [ ] T015 [US5] 重写 `specs/047-im-event-gate-inventory/scripts/generate-v1-evidence.mjs`，只编排 Rust 测试、schema 校验、索引和 hash，不再拼装业务 payload
 - [ ] T016 [US5] 在 `crates/helix-im/tests/message_v3/contracts/artifact_schema/main.rs` 增加相同输入重复生成 byte/hash 稳定性和敏感字段拒绝测试
-- [ ] T017 [US5] 在 `specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json` 完成 V2 Frame/Surface 与 V1 alias/fallback 的逐 Gate 引用清单
+- [ ] T017 [US5] 对账并冻结 `specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json` 的预编码删除清单，补入公共基础开发中新发现的共享引用，证明 30 Gate 均无未知 owner、空清单或 `TODO`
 - [ ] T018 [US5] 运行 P0 聚焦验证并把命令、失败分类和当前证据等级写回 `specs/047-im-event-gate-inventory/verification.md`
 
 **Checkpoint**: 公共基础 Green，但尚未迁移的 Gate 仍可临时引用共享旧基础；任何已迁移
@@ -69,7 +69,7 @@ Gate 从此只能走 MessageV3。
 
 **Independent Test**: 运行 registry test，缺一个、重复一个或混入 G-03/G-17..G-27 均失败。
 
-- [ ] T019 [US1] 在 `crates/helix-im/tests/message_v3/contracts/gate_registry/main.rs` 对账 `spec.md`、`gate-migration.v1.json`、领域/Gate 目录与 `Cargo.toml` 显式测试目标集合
+- [ ] T019 [US1] 在 `crates/helix-im/tests/message_v3/contracts/gate_registry/main.rs` 对账 Gate **集合**（spec 30 Gate ↔ manifest ↔ 目录 ↔ `Cargo.toml` 目标，missing/extra/duplicate=0）与每 Gate **domain/package 映射**（同名映射，唯 `channel-member -> channel_member`）；spec §A-E 审核分组不参与集合/域断言，仅 domain 字段为权威
 - [ ] T020 [US1] 在 `specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs` 校验 `.v1/gates/*/generated` 目录集合只能是精确 30 Gate
 - [ ] T021 [US1] 更新 `specs/047-im-event-gate-inventory/verification.md`，把已有测试源、WDIO 场景源、缺失 receiver 断言和 INFERRED 行为分别列明
 
@@ -162,8 +162,8 @@ Frame/Surface 中。
 - [ ] T067 [US3] 在 `crates/helix-im/src/event/channel.rs`、`crates/helix-im/src/ws/handlers/update_channel.rs` 实现 G-15，生成 JSON，删除旧 topic Frame 并更新 ledger
 - [ ] T068 [US3] 新增 `crates/helix-im/tests/message_v3/channel/g16/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g16`，先覆盖关闭群或退出群后的 actor/observer lifecycle 与恢复并观察失败
 - [ ] T069 [US3] 在 `crates/helix-im/src/event/channel.rs`、`crates/helix-im/src/ws/handlers/channel_close.rs`、`crates/helix-im/src/ws/handlers/channel_member_update.rs` 实现 G-16，生成 JSON，删除旧 lifecycle Frame 并更新 ledger
-- [ ] T070 [US3] 新增 `crates/helix-im/tests/message_v3/channel/g16b/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g16b`，先覆盖成员退出广播、leaver 与 remaining-member roster 双视角及恢复并观察失败
-- [ ] T071 [US3] 在 `crates/helix-im/src/event/channel.rs`、`crates/helix-im/src/ws/handlers/channel_member_update.rs` 实现 G-16b，生成 JSON，删除旧 roster Frame 并更新 ledger
+- [ ] T070 [US3] 新增 `crates/helix-im/tests/message_v3/channel_member/g16b/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g16b`，先覆盖成员退出广播、leaver 与 remaining-member roster 双视角及恢复并观察失败
+- [ ] T071 [US3] 在 `crates/helix-im/src/event/channel_member.rs`、`crates/helix-im/src/ws/handlers/channel_member_update.rs` 实现 G-16b，生成 JSON，删除旧 roster Frame 并更新 ledger
 - [ ] T072 [US3] 新增 `crates/helix-im/tests/message_v3/channel/g16c/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g16c`，先覆盖群名称、简介、公告更新、observer 权限差异与恢复并观察失败
 - [ ] T073 [US3] 在 `crates/helix-im/src/event/channel.rs`、`crates/helix-im/src/ws/handlers/update_channel.rs`、`crates/helix-im/src/ws/handlers/update_channel_notice.rs` 实现 G-16c，生成 JSON，删除旧 settings Frame 并更新 ledger
 
@@ -195,8 +195,8 @@ Frame/Surface 中。
 - [ ] T086 [US5] 清理 `crates/helix-im/tests/` 中旧 Frame/Surface/V1 fixture 与断言，并确保 `crates/helix-im/tests/message_v3/<domain>/<gate>/main.rs` 与 `Cargo.toml` 每个 Gate 恰好一个显式 MessageV3 target
 - [ ] T087 [US5] 运行 `specs/047-im-event-gate-inventory/scripts/generate-v1-evidence.mjs`，生成精确 30 Gate 的 inbound、sender outbound、receiver outbound 与 provenance，并校验 schema/hash/去敏
 - [ ] T088 [US5] 运行 `cargo check -p helix-im`、`cargo test -p helix-im` 及计划中的三端 Rust 验收，把 deterministic/contract 结果写入 `specs/047-im-event-gate-inventory/verification.md`
-- [ ] T089 [US5] 运行 `specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs`，证明生产源码和测试零 V2 Frame/Surface、零旧 V1 兼容引用、30 Gate 全部 MIGRATED
-- [ ] T090 [US5] 执行 `git diff --check`、跨仓零修改检查与 `.v1` git-ignore 检查，在 `specs/047-im-event-gate-inventory/review-ledger.json` 记录未执行的 WDIO/Mobile/runtime/dual-user/canonical 证据为 NOT_RUN
+- [ ] T089 [US5] 运行 `specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs`，证明 Helix 生产源码、当前测试、当前 Matrix/合同零 V2 Frame/Surface、零旧 V1 兼容引用且 30 Gate 全部 MIGRATED；历史归档只允许显式 allowlist
+- [ ] T090 [US5] 执行 `git diff --check`、跨仓零修改检查与 `.v1` git-ignore 检查，在 `specs/047-im-event-gate-inventory/review-ledger.json` 记录 PC/Mobile 为 `NOT_SYNCED_BY_SCOPE`，WDIO/Mobile/runtime/dual-user/canonical 证据为 NOT_RUN
 
 **Final Checkpoint**: Helix 生产代码与真实 Gate 测试完成 MessageV3 硬切；`.v1` 是可复现、
 被忽略的本地产物。PC/Mobile 同步和实际消费仍明确延期，不冒充完成。
@@ -242,8 +242,6 @@ Frame/Surface 中。
 
 每个 Gate 都是独立可验收批次：红测试 → 实现 → 本地提交 → MessageV3 Emit → 删除旧路径 →
 generated JSON → focused Green。批次失败则标记 `BLOCKED`，不得推进其依赖 Gate，也不得用
-手写 sample 填补。
-
 ## Loop Task Contracts
 
 > 每个 checkbox 恰好一行。`Validator` 是最低验证，不代表 runtime、dual-user 或 canonical
@@ -255,26 +253,26 @@ generated JSON → focused Green。批次失败则标记 `BLOCKED`，不得推�
 | T002 | FR-040 | P0 治理 | `docs/harness/decisions.md` | T001 | ADR 状态检查 | ADR-015 superseded |
 | T003 | FR-040,FR-047 | P0 治理 | `docs/ROADMAP.md` | T002 | P0-P7 文本检查 | 活账已更新 |
 | T004 | FR-040 | P0 治理 | `AGENTS.md` | T003 | 指令禁用词扫描 | 开局指令一致 |
-| T005 | FR-046,FR-047 | P0 清单 | `contracts/gate-migration.v1.json` | T004 | JSON schema+30 集合 | manifest 有效 |
-| T006 | FR-038,FR-046 | P0 护栏 | `scripts/check-message-v3-cutover.mjs` | T005 | 破坏性样例证伪 | checker 可证伪 |
+| T005 | FR-042,FR-046,FR-047 | P0 清单 | `contracts/gate-migration.v1.json` | T004 | schema+30 集合+非空 owner/引用 | 预编码清单完整 |
+| T006 | FR-038,FR-046,SC-015 | P0 护栏 | `scripts/check-message-v3-cutover.mjs` | T005 | 破坏性样例证伪+双 ledger 单活跃断言 | checker 可证伪 |
 | T007 | FR-027-FR-031 | P0 证据 | `verification.md` | T005 | 分级字段检查 | 六级证据分离 |
 | T008 | FR-001-FR-004 | P0 分母 | discovery+ledger | T005 | Gate 差集为空 | 范围一致 |
-| T009 | FR-037,FR-038 | P0 红测 | event contract test | T008 | 测试预期失败 | 红因正确 |
+| T009 | FR-012,FR-037,FR-038 | P0 红测 | event contract test | T008 | envelope+Persist barrier 预期失败 | 红因正确 |
 | T010 | FR-043,FR-045 | P0 红测 | artifact schema test | T009 | 测试预期失败 | 红因正确 |
 | T011 | FR-046 | P0 红测 | registry test | T010 | 测试预期失败 | 红因正确 |
-| T012 | FR-037 | P0 事件模块 | `src/event/*` | T011 | event contract test | 仅 event/data |
+| T012 | FR-005,FR-037 | P0 事件模块 | `src/event/*` | T011 | event contract test | 七域仅 event/data |
 | T013 | FR-043 | P0 测试工具 | artifact helper | T012 | helper unit test | 真 Effect 可序列化 |
 | T014 | FR-012,FR-041 | P0 释放规则 | module+port_reply | T013 | PersistOk 顺序断言 | terminal 延后释放 |
 | T015 | FR-043-FR-045 | P0 生成器 | generator script | T014 | 禁 builder 扫描 | 仅编排 Rust 产物 |
 | T016 | FR-043 | P0 确定性 | schema test | T015 | 重复 hash 相等 | byte 稳定 |
-| T017 | FR-042,FR-048 | P0 删除清单 | migration manifest | T016 | 引用清单非空 | owner 可追踪 |
-| T018 | SC-009,SC-010 | P0 验证 | verification | T017 | P0 聚焦命令 | 基础 Green |
-| T019 | FR-046 | US1 分母 | registry test | T018 | 30 集合相等 | 测试注册一致 |
+| T017 | FR-042,FR-048 | P0 删除清单 | migration manifest | T016 | 30 Gate 无未知 owner/空清单 | 清单冻结 |
+| T018 | FR-037,FR-043,SC-010 | P0 验证 | verification | T017 | P0 聚焦命令 | 基础 Green |
+| T019 | FR-005,FR-046 | US1 分母 | registry test | T018 | 30 集合+domain/package 映射 | 测试注册一致 |
 | T020 | FR-043,FR-046 | US1 产物 | cutover checker | T019 | 目录集合相等 | generated 分母一致 |
 | T021 | FR-027-FR-031 | US1 证据 | verification | T020 | 状态枚举检查 | 缺口未漂绿 |
 | T022 | FR-021,FR-041 | P1 G-15a 红测 | G-15a test | T021 | 预期失败 | 双视角红因正确 |
 | T023 | FR-021,FR-042 | P1 G-15a | channel owners | T022 | G-15a focused test | G-15a MIGRATED |
-| T024 | FR-016A,FR-041 | P1 G-01 红测 | G-01 test | T023 | 预期失败 | unread/lastPost 红因正确 |
+| T024 | FR-014,FR-016A,FR-041 | P1 G-01 红测 | G-01 test | T023 | 预期失败 | unread/lastPost 红因正确 |
 | T025 | FR-016A,FR-042 | P1 G-01 | post owners | T024 | G-01 focused test | G-01 MIGRATED |
 | T026 | FR-016,FR-041 | P2 G-02 红测 | G-02 test | T025 | 预期失败 | 文档消息红因正确 |
 | T027 | FR-016,FR-042 | P2 G-02 | post event | T026 | G-02 focused test | G-02 MIGRATED |
@@ -307,14 +305,14 @@ generated JSON → focused Green。批次失败则标记 `BLOCKED`，不得推�
 | T054 | FR-026,FR-041 | P4 G-10c 红测 | G-10c test | T053 | 预期失败 | append 红因正确 |
 | T055 | FR-026,FR-042 | P4 G-10c | append path | T054 | G-10c focused test | G-10c MIGRATED |
 | T056 | FR-025,FR-026 | P4 G-10d 红测 | G-10d test | T055 | 预期失败 | anchor 红因正确 |
-| T057 | FR-025,FR-042 | P4 G-10d | anchor path | T056 | G-10d focused test | G-10d MIGRATED |
+| T057 | FR-014,FR-025,FR-042 | P4 G-10d | anchor path | T056 | G-10d focused test | G-10d MIGRATED |
 | T058 | FR-025,FR-041 | P4 G-11 红测 | G-11 test | T057 | 预期失败 | locate 红因正确 |
 | T059 | FR-025,FR-042 | P4 G-11 | locate path | T058 | G-11 focused test | G-11 MIGRATED |
 | T060 | FR-025,FR-041 | P4 G-11a 红测 | G-11a test | T059 | 预期失败 | 双向分页红因正确 |
 | T061 | FR-025,FR-042 | P4 G-11a | locate paging | T060 | G-11a focused test | G-11a MIGRATED |
 | T062 | FR-025,FR-041 | P4 G-12 红测 | G-12 test | T061 | 预期失败 | thread 红因正确 |
 | T063 | FR-025,FR-042 | P4 G-12 | thread path | T062 | G-12 focused test | G-12 MIGRATED |
-| T064 | FR-019,FR-041 | P4 G-13 红测 | G-13 test | T063 | 预期失败 | viewer read 红因正确 |
+| T064 | FR-014,FR-019,FR-041 | P4 G-13 红测 | G-13 test | T063 | 预期失败 | viewer read 红因正确 |
 | T065 | FR-019,FR-042 | P4 G-13 | dialog read | T064 | G-13 focused test | G-13 MIGRATED |
 | T066 | FR-021,FR-041 | P5 G-15 红测 | G-15 test | T065 | 预期失败 | topic 红因正确 |
 | T067 | FR-021,FR-042 | P5 G-15 | channel topic | T066 | G-15 focused test | G-15 MIGRATED |
@@ -337,7 +335,7 @@ generated JSON → focused Green。批次失败则标记 `BLOCKED`，不得推�
 | T084 | FR-038 | P7 V1 删除 | WS legacy path | T083 | alias/fallback 扫描 | 旧 V1 删除 |
 | T085 | FR-038,FR-042 | P7 清理 | acl/query/client_api | T084 | capabilities/wrapper 扫描 | 套壳清除 |
 | T086 | FR-038,FR-046 | P7 测试清理 | helix-im tests | T085 | registry test | 一 Gate 一目标 |
-| T087 | FR-043-FR-046 | P7 产物 | `.v1` generated | T086 | schema/hash/30 集合 | 产物完整 |
+| T087 | FR-036A,FR-043-FR-046 | P7 产物 | `.v1` generated | T086 | schema/hash/30 集合 | 产物完整 |
 | T088 | SC-009-SC-012 | P7 Rust 验证 | workspace crates | T087 | cargo 命令 | Rust 证据记录 |
-| T089 | SC-009,SC-013 | P7 零引用 | cutover checker | T088 | checker pass | 全部 MIGRATED |
-| T090 | FR-044,SC-014 | P7 收口 | diff+ledger | T089 | diff/ignore/跨仓检查 | Helix-only 完成 |
+| T089 | SC-009,SC-013 | P7 零引用 | cutover checker | T088 | Helix scoped checker pass | 全部 MIGRATED |
+| T090 | FR-044,SC-014 | P7 收口 | diff+ledger | T089 | diff/ignore/跨仓检查 | Helix-only 完成、客户端未同步 |

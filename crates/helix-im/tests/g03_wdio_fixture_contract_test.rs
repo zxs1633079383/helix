@@ -1,4 +1,4 @@
-//! G03 WDIO canonical InteractionFrame V2 fixtures.
+//! G03 WDIO canonical InteractionFrame V3 fixtures.
 //!
 //! Frames are produced by the real timeline Surface projector. Set
 //! `UPDATE_G03_WDIO_FIXTURES=1` explicitly to update checked-in bytes.
@@ -15,7 +15,7 @@ mod scenario;
 
 use scenario::{assert_g03_frame_contract, G03ScenarioRunner};
 
-const HELIX_COMMIT: &str = "8e61747461ff823e818ed0599e55922b65b14854";
+const HELIX_COMMIT: &str = "c298d27fdfa606892145fad1c6a586dca3976c7d";
 const GENERATED_AT: &str = "2026-07-27T16:00:00+08:00";
 const PRODUCER: &str =
     "G03ScenarioRunner -> TimelineProjector -> SurfaceMutationV2 -> InteractionFrameV2";
@@ -31,26 +31,26 @@ fn produce_cases() -> Vec<FixtureCase> {
     let scenario = G03ScenarioRunner::run();
     vec![
         FixtureCase {
-            fixture_id: "g03-image-sending-v2",
-            file_name: "image-sending.frame-v2.json",
+            fixture_id: "g03-image-sending-v3",
+            file_name: "image-sending.frame-v3.json",
             case_name: "image-sending",
             frame: scenario.image_sending,
         },
         FixtureCase {
-            fixture_id: "g03-image-sent-v2",
-            file_name: "image-sent.frame-v2.json",
+            fixture_id: "g03-image-sent-v3",
+            file_name: "image-sent.frame-v3.json",
             case_name: "image-sent",
             frame: scenario.image_sent,
         },
         FixtureCase {
-            fixture_id: "g03-file-uploading-v2",
-            file_name: "file-uploading.frame-v2.json",
+            fixture_id: "g03-file-uploading-v3",
+            file_name: "file-uploading.frame-v3.json",
             case_name: "file-uploading",
             frame: scenario.file_uploading,
         },
         FixtureCase {
-            fixture_id: "g03-file-sent-v2",
-            file_name: "file-sent.frame-v2.json",
+            fixture_id: "g03-file-sent-v3",
+            file_name: "file-sent.frame-v3.json",
             case_name: "file-sent",
             frame: scenario.file_sent,
         },
@@ -58,7 +58,7 @@ fn produce_cases() -> Vec<FixtureCase> {
 }
 
 #[test]
-fn g03_wdio_fixtures_match_the_surface_frame_v2_producer() {
+fn g03_wdio_fixtures_match_the_surface_frame_v3_producer() {
     let update = std::env::var("UPDATE_G03_WDIO_FIXTURES").as_deref() == Ok("1");
     let fixture_dir = fixture_dir();
     if update {
@@ -152,7 +152,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/revision",
             "/mutations/*/baseRevision"
         ],
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "semanticSha256": semantic_sha256(&case.frame),
         "sourceKind": "rust-export",
         "surfaces": ["message.timeline"]

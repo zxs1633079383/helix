@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +8,7 @@ const ROOT = resolve(FEATURE_DIR, '..', '..');
 const MANIFEST_PATH = resolve(FEATURE_DIR, 'contracts/gate-migration.v1.json');
 const LEDGER_PATH = resolve(FEATURE_DIR, 'review-ledger.json');
 const SPEC_PATH = resolve(FEATURE_DIR, 'spec.md');
+const GENERATED_GATES_PATH = resolve(FEATURE_DIR, '.v1/gates');
 const FORBIDDEN_RUNTIME_TERMS =
   /\b(?:InteractionFrame|SurfaceMutation|ActionBinding|UiDirective|FrameApplied)\b/;
 const DOMAIN_PACKAGES = new Map([
@@ -53,6 +54,34 @@ function compareGateSets(entries) {
     );
   }
   return { missing, extra, duplicate: [...new Set(duplicate)].sort() };
+}
+
+/** 对 generated 目录执行集合对账；迁移中允许缺失，最终模式要求精确 30。 */
+function validateGeneratedDirectories(expected, requireGenerated) {
+  if (!existsSync(GENERATED_GATES_PATH)) {
+    if (requireGenerated) {
+      throw new Error(`generated gate root is missing: ${GENERATED_GATES_PATH}`);
+    }
+    return { state: 'NOT_GENERATED', missing: [...expected].sort(), extra: [] };
+  }
+  const actual = readdirSync(GENERATED_GATES_PATH, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        existsSync(resolve(GENERATED_GATES_PATH, entry.name, 'generated')),
+    )
+    .map((entry) => entry.name);
+  const actualSet = new Set(actual);
+  const missing = [...expected].filter((id) => !actualSet.has(id)).sort();
+  const extra = [...actualSet].filter((id) => !expected.has(id)).sort();
+  if (extra.length || (requireGenerated && missing.length)) {
+    throw new Error(`generated gate set mismatch missing=${missing} extra=${extra}`);
+  }
+  return {
+    state: missing.length ? 'PARTIAL' : 'EXACT',
+    missing,
+    extra,
+  };
 }
 
 /** 验证每个 Gate 的 domain、test path、owner 与七类删除引用。 */
@@ -135,6 +164,15 @@ function runSelfTest(manifest, ledger) {
   const twoActive = structuredClone(manifest.entries);
   twoActive[0].state = 'IN_PROGRESS';
   expectFailure('shared and gate both active', () => validateSingleActive(ledger, twoActive));
+
+  const expected = expectedGateIds();
+  const generatedWithExtra = new Set([...expected, 'G-17']);
+  expectFailure('generated extra gate', () => {
+    const extra = [...generatedWithExtra].filter((id) => !expected.has(id));
+    if (extra.length) {
+      throw new Error(`generated extra=${extra}`);
+    }
+  });
 }
 
 /** 运行 MessageV3 cutover 的确定性静态护栏。 */
@@ -146,6 +184,10 @@ function main() {
   }
   const setResult = compareGateSets(manifest.entries);
   validateEntries(manifest);
+  const generated = validateGeneratedDirectories(
+    expectedGateIds(),
+    process.argv.includes('--require-generated'),
+  );
   const active = validateSingleActive(ledger, manifest.entries);
   validateMigratedOwners(manifest.entries);
   if (process.argv.includes('--self-test')) {
@@ -156,6 +198,7 @@ function main() {
       verdict: 'PASS',
       gates: manifest.entries.length,
       ...setResult,
+      generated,
       active,
       consumerSync: 'NOT_SYNCED_BY_SCOPE',
       selfTest: process.argv.includes('--self-test') ? 'PASS' : 'NOT_RUN',

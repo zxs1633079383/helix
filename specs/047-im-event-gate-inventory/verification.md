@@ -45,6 +45,21 @@ P0 当前最高连续等级为 E2。`message_v3_gate_registry` 的缺失 target 
 测试或占位 JSON；因此公共事件与 artifact 基础可进入 Gate 纵切，但 30 Gate 分母仍不能宣称
 Green。E3 integration、E4 runtime、E5 dual-user 与 E6 canonical 均为 `NOT_RUN`。
 
+## 当前来源与缺口
+
+| 证据面 | 当前来源 | 当前状态 | 不能证明 |
+|---|---|---|---|
+| Helix 历史 producer/test | `crates/helix-im/tests/g*_*.rs` 与既有 support scenario | `SOURCE_PRESENT / NOT_RUN` | MessageV3 event-only、旧链物理删除 |
+| cses-client WDIO mock | `tests/e2e/wdio/specs` 的 mock/suite 场景 | `SOURCE_PRESENT / NOT_RUN` | Native、真实 Go/WS、双账号 |
+| cses-client single-real | 同目录 `*-real.e2e.ts` | `SOURCE_PRESENT / NOT_RUN` | Observer 独立本地库与双视角 |
+| cses-client dual-real | 同目录 `*-dual-real.e2e.ts` | `SOURCE_PRESENT / NOT_RUN` | 当前 Helix HEAD 或本轮 `.v1` canonical |
+| receiver 明确断言 | G-01/G-04/G-15a/G-16/G-16b 等现有角色场景 | `PARTIAL` | G-15 Observer thread、G-16c 简介/公告等未覆盖字段 |
+| persona-local | G-08/G-09/G-10/G-10a/G-10b/G-11/G-11a/G-13 | `INFERRED + PARTIAL_SOURCE` | receiver 为空的完整 production replay |
+
+缺失 receiver 断言继续标 `MISSING`；从业务不变量补出的行为继续标 `INFERRED`。两者只有在
+对应 Gate 的真实 Rust replay 和 persona artifact 落地后才能升级为 E2，不能由 WDIO 文件存在、
+历史 Frame fixture 或人工 `.v1` sample 替代。
+
 ## Required Runs
 
 - **V-001**: `jq '[.uc_cases[]] | {total:length, active:(map(select(.lifecycle ==
@@ -113,6 +128,10 @@ Green。E3 integration、E4 runtime、E5 dual-user 与 E6 canonical 均为 `NOT_
 - **V-019**: 每个 outbound event 的顶层 data 字段必须恰好落入
   `direct_local_sources` 或 `non_storage_or_derived_fields` 之一。后者只表示查询/分页、
   correlation、角色派生或待确认字段，不能登记为持久事实。
+- **V-020**: `node
+  specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs
+  --require-generated` 必须证明 `.v1/gates` 目录与冻结 30 Gate missing/extra 均为 0；
+  实现中默认模式只允许 missing，不允许任何额外 Gate。
 
 ## Evidence Rules
 

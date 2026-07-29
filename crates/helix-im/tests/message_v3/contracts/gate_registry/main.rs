@@ -44,6 +44,30 @@ fn cargo_gate_targets() -> BTreeMap<String, String> {
     targets
 }
 
+/// 从 spec 的冻结 Gate 主表读取 ID，避免测试维护第二份分母。
+fn spec_gate_ids() -> Vec<String> {
+    let spec = std::fs::read_to_string(format!(
+        "{ROOT}/../../specs/047-im-event-gate-inventory/spec.md"
+    ))
+    .expect("spec exists");
+    spec.lines()
+        .filter_map(|line| {
+            let id = line.strip_prefix("| G-")?.split(" |").next()?;
+            Some(id.trim_start_matches("| ").to_string())
+        })
+        .filter(|id| {
+            id.strip_prefix("G-").is_some_and(|suffix| {
+                let bytes = suffix.as_bytes();
+                matches!(suffix, "S1" | "S2" | "S3" | "S4")
+                    || (bytes.len() == 2 && bytes.iter().all(u8::is_ascii_digit))
+                    || (bytes.len() == 3
+                        && bytes[..2].iter().all(u8::is_ascii_digit)
+                        && bytes[2].is_ascii_lowercase())
+            })
+        })
+        .collect()
+}
+
 /// manifest 中每个 Gate 必须有唯一显式 target，且排除项不得混入。
 #[test]
 fn manifest_and_explicit_gate_targets_cover_exactly_thirty_gates() {
@@ -57,6 +81,14 @@ fn manifest_and_explicit_gate_targets_cover_exactly_thirty_gates() {
         .collect::<BTreeSet<_>>();
     assert_eq!(entries.len(), 30);
     assert_eq!(ids.len(), 30);
+    let spec_ids = spec_gate_ids();
+    let spec_set = spec_ids.iter().collect::<BTreeSet<_>>();
+    assert_eq!(spec_ids.len(), 30, "spec must list exactly 30 Gate rows");
+    assert_eq!(spec_set.len(), 30, "spec Gate rows must be unique");
+    assert_eq!(
+        ids.iter().copied().collect::<BTreeSet<_>>(),
+        spec_set.into_iter().map(String::as_str).collect()
+    );
 
     let targets = cargo_gate_targets();
     let expected = entries

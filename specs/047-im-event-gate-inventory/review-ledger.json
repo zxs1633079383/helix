@@ -2,8 +2,8 @@
   "schema_version": "1.0",
   "feature_directory": "specs/047-im-event-gate-inventory",
   "phase": "implementing",
-  "event_seq": 63,
-  "next_action": "validate_evidence",
+  "event_seq": 66,
+  "next_action": "implement_tasks",
   "implementation_scope": {
     "denominator": 30,
     "gate_source": "spec.md#\u672c\u8f6e\u622a\u56fe\u5206\u6bcd",
@@ -49,8 +49,8 @@
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "14891b8743e934a154fc973bb683a1f267638d53315868a572cbbcd2c4d67c2b",
-      "checked_at": "2026-07-29T10:58:45Z",
+      "fingerprint": "a6af3a9821433a2f361e9011bb9f085eddd6af65394ce443d00cb735606c49f1",
+      "checked_at": "2026-07-29T11:01:38Z",
       "issues": []
     },
     "r4_evidence": {
@@ -444,6 +444,24 @@
       "at": "2026-07-29T10:58:57Z",
       "kind": "phase",
       "detail": "verifying->implementing: recorded evidence p0-static-cutover-pass"
+    },
+    {
+      "seq": 64,
+      "at": "2026-07-29T11:01:38Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 65,
+      "at": "2026-07-29T11:01:38Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 66,
+      "at": "2026-07-29T11:01:45Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
     }
   ]
 }

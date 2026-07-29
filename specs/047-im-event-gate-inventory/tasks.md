@@ -69,9 +69,9 @@ Gate 从此只能走 MessageV3。
 
 **Independent Test**: 运行 registry test，缺一个、重复一个或混入 G-03/G-17..G-27 均失败。
 
-- [ ] T019 [US1] 在 `crates/helix-im/tests/message_v3/contracts/gate_registry/main.rs` 对账 Gate **集合**（spec 30 Gate ↔ manifest ↔ 目录 ↔ `Cargo.toml` 目标，missing/extra/duplicate=0）与每 Gate **domain/package 映射**（同名映射，唯 `channel-member -> channel_member`）；spec §A-E 审核分组不参与集合/域断言，仅 domain 字段为权威
-- [ ] T020 [US1] 在 `specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs` 校验 `.v1/gates/*/generated` 目录集合只能是精确 30 Gate
-- [ ] T021 [US1] 更新 `specs/047-im-event-gate-inventory/verification.md`，把已有测试源、WDIO 场景源、缺失 receiver 断言和 INFERRED 行为分别列明
+- [X] T019 [US1] 在 `crates/helix-im/tests/message_v3/contracts/gate_registry/main.rs` 对账 Gate **集合**（spec 30 Gate ↔ manifest ↔ 目录 ↔ `Cargo.toml` 目标，missing/extra/duplicate=0）与每 Gate **domain/package 映射**（同名映射，唯 `channel-member -> channel_member`）；spec §A-E 审核分组不参与集合/域断言，仅 domain 字段为权威
+- [X] T020 [US1] 在 `specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs` 校验 `.v1/gates/*/generated` 目录集合只能是精确 30 Gate
+- [X] T021 [US1] 更新 `specs/047-im-event-gate-inventory/verification.md`，把已有测试源、WDIO 场景源、缺失 receiver 断言和 INFERRED 行为分别列明
 
 **Checkpoint**: 分母可由机器证明，证据等级不互借。
 

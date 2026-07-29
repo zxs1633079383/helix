@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "feature_directory": "specs/047-im-event-gate-inventory",
   "phase": "implementing",
-  "event_seq": 100,
+  "event_seq": 101,
   "next_action": "validate_evidence",
   "implementation_scope": {
     "denominator": 30,
@@ -666,6 +666,12 @@
       "at": "2026-07-29T14:54:13Z",
       "kind": "phase",
       "detail": "implementing->implementing: recorded evidence p2-g14a-focused"
+    },
+    {
+      "seq": 101,
+      "at": "2026-07-29T15:03:20Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence p3-g08-focused"
     }
   ]
 }

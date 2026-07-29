@@ -21,6 +21,7 @@ mod post;
 mod program;
 mod reaction;
 mod revoke;
+mod schedule;
 mod template;
 mod urgent;
 
@@ -35,6 +36,7 @@ pub use post::{
 pub use program::program_full;
 pub use reaction::message_v3_reaction_op;
 pub use revoke::message_v3_revoke_channel_ops;
+pub(crate) use schedule::ScheduleFact;
 pub use template::message_v3_template_op;
 pub use urgent::message_v3_urgent_op;
 

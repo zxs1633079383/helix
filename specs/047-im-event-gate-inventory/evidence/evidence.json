@@ -221,6 +221,19 @@
           "sha256": "9ac5138f2eaf272516e646b60dcb6b3d18d9accb66ae8a73d1742f0c5cd5d33a"
         }
       ]
+    },
+    {
+      "id": "p3-g08-focused",
+      "command": "G-08 producer generation + focused test + partial artifact schema + cargo check + hot-path audit + cutover self-test + diff check",
+      "started_at": "2026-07-29T16:20:00Z",
+      "ended_at": "2026-07-29T15:03:18Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p3-g08-focused.txt",
+          "sha256": "e02cef24690cf69bae057d360b29dcf757891de14d46079fe33240d1add26c3b"
+        }
+      ]
     }
   ]
 }

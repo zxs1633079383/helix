@@ -13,6 +13,7 @@ pub(crate) mod message_v3_post;
 pub(crate) mod message_v3_reaction;
 mod message_v3_read;
 mod message_v3_revoke;
+mod message_v3_schedule;
 pub(crate) mod message_v3_template;
 pub(crate) mod message_v3_urgent;
 mod progress;

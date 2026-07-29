@@ -301,6 +301,9 @@ pub enum CorrelationContext {
         causation_id: Option<String>,
     },
 
+    /// G08 原子提交成功后读取 creator 本地 channel_schedule 绝对态。
+    MessageV3ScheduleCreatedReadback,
+
     /// G09 canceled fact 与 channel read model 原子提交后才允许重读并发布 Frame。
     ScheduleCanceledPersist {
         channel_id: ChannelId,

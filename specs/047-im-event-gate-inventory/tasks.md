@@ -121,8 +121,8 @@ MISSING/INFERRED，不用手写 JSON 填绿。
 
 **Goal**: 定时消息创建/取消保持 creator 私有，实际触发后的普通消息由 G-01 合同负责。
 
-- [ ] T044 [US2] 新增 `crates/helix-im/tests/message_v3/schedule/g08/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g08`，先覆盖空 channel summary、定时状态、creator-only Emit 与冷启动恢复并观察失败
-- [ ] T045 [US2] 在 `crates/helix-im/src/event/schedule.rs`、`crates/helix-im/src/ws/handlers/post_schedule_created.rs` 实现 G-08，生成 JSON，删除旧 schedule Frame 并更新 ledger
+- [X] T044 [US2] 新增 `crates/helix-im/tests/message_v3/schedule/g08/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g08`，覆盖空状态、定时状态、creator-only Emit 与冷启动恢复
+- [X] T045 [US2] 在 `crates/helix-im/src/event/schedule.rs`、`crates/helix-im/src/channel/write/schedule.rs`、`crates/helix-im/src/port_reply/message_v3_schedule.rs`、`crates/helix-im/src/ws/handlers/post_schedule_created.rs` 实现 G-08，生成 JSON，删除旧 schedule Frame 并更新 ledger
 - [ ] T046 [US2] 新增 `crates/helix-im/tests/message_v3/schedule/g09/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_g09`，先覆盖已定时到取消终态、creator-only Emit 与冷启动恢复并观察失败
 - [ ] T047 [US2] 在 `crates/helix-im/src/event/schedule.rs`、`crates/helix-im/src/ws/handlers/post_schedule_canceled.rs` 实现 G-09，生成 JSON，删除旧 schedule Frame 并更新 ledger
 

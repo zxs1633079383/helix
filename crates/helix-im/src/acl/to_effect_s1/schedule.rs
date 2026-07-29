@@ -126,7 +126,12 @@ impl ScheduleFact {
     }
 
     /// 将 authority fact 与 channel read model 放进同一个原子持久屏障。
-    pub(crate) fn storage_ops(&self) -> Vec<StorageOp> {
+    pub(crate) fn storage_ops(self) -> Vec<StorageOp> {
+        let (schedule_id_for_schedule, schedule_id_for_channel) = duplicate_text(self.schedule_id);
+        let (owner_for_schedule, owner_for_channel) = duplicate_text(self.owner_user_id);
+        let (message_for_schedule, message_for_channel) = duplicate_text(self.message);
+        let (preview_for_schedule, preview_for_channel) = duplicate_text(self.message_preview);
+        let (status_for_schedule, status_for_channel) = duplicate_text(self.status);
         let schedule_row: Row = vec![
             (
                 "channel_id".to_string(),
@@ -134,19 +139,19 @@ impl ScheduleFact {
             ),
             (
                 "schedule_id".to_string(),
-                SqlValue::Text(self.schedule_id.clone()),
+                SqlValue::Text(schedule_id_for_schedule),
             ),
             (
                 "owner_user_id".to_string(),
-                SqlValue::Text(self.owner_user_id.clone()),
+                SqlValue::Text(owner_for_schedule),
             ),
-            ("message".to_string(), SqlValue::Text(self.message.clone())),
+            ("message".to_string(), SqlValue::Text(message_for_schedule)),
             (
                 "message_preview".to_string(),
-                SqlValue::Text(self.message_preview.clone()),
+                SqlValue::Text(preview_for_schedule),
             ),
             ("send_at".to_string(), SqlValue::Integer(self.send_at)),
-            ("status".to_string(), SqlValue::Text(self.status.clone())),
+            ("status".to_string(), SqlValue::Text(status_for_schedule)),
             (
                 "revision".to_string(),
                 SqlValue::Integer(self.revision as i64),
@@ -159,19 +164,19 @@ impl ScheduleFact {
             ),
             (
                 "schedule_id".to_string(),
-                SqlValue::Text(self.schedule_id.clone()),
+                SqlValue::Text(schedule_id_for_channel),
             ),
             (
                 "schedule_owner_user_id".to_string(),
-                SqlValue::Text(self.owner_user_id.clone()),
+                SqlValue::Text(owner_for_channel),
             ),
             (
                 "schedule_message".to_string(),
-                SqlValue::Text(self.message.clone()),
+                SqlValue::Text(message_for_channel),
             ),
             (
                 "schedule_message_preview".to_string(),
-                SqlValue::Text(self.message_preview.clone()),
+                SqlValue::Text(preview_for_channel),
             ),
             (
                 "schedule_send_at".to_string(),
@@ -179,7 +184,7 @@ impl ScheduleFact {
             ),
             (
                 "schedule_status".to_string(),
-                SqlValue::Text(self.status.clone()),
+                SqlValue::Text(status_for_channel),
             ),
             (
                 "schedule_revision".to_string(),
@@ -201,6 +206,11 @@ impl ScheduleFact {
             }),
         ]
     }
+}
+
+/// 为两个规范化读模型创建恰好一份必要副本。
+fn duplicate_text(value: String) -> (String, String) {
+    (value.clone(), value)
 }
 
 /// schedule 全文和摘要只在服务端明确授权，或 owner 与当前登录用户一致时开放。

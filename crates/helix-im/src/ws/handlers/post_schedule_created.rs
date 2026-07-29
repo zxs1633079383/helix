@@ -20,7 +20,7 @@ impl WsMessageHandler for ScheduleCreatedHandler {
         SCHEDULE_CREATED_ACTION
     }
 
-    /// 将 G08 authority 帧放入原子持久屏障，禁止直接发布 raw 或 terminal Frame。
+    /// 将 G08 authority 放入原子持久屏障，禁止直接发布 raw 或终态事件。
     fn handle(
         &self,
         ctx: &mut ImWsContext<'_>,
@@ -30,13 +30,15 @@ impl WsMessageHandler for ScheduleCreatedHandler {
         let Ok(data) = frame.data_required() else {
             return Ok(());
         };
-        let Some(fact) = crate::acl::to_effect_s1::ScheduleFact::from_created_ws(
+        let Some(fact) = crate::channel::write::ScheduleFact::from_created_ws(
             data,
-            ctx.auth_user_id,
             frame.event_seq().map(|seq| seq.0),
         ) else {
             return Ok(());
         };
+        if fact.owner_user_id.is_empty() || fact.owner_user_id != ctx.auth_user_id {
+            return Ok(());
+        }
         let committed = ctx
             .state
             .committed_schedule_revisions

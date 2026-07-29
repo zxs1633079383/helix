@@ -2,8 +2,8 @@
   "schema_version": "1.0",
   "feature_directory": "specs/047-im-event-gate-inventory",
   "phase": "implementing",
-  "event_seq": 54,
-  "next_action": "implement_tasks",
+  "event_seq": 63,
+  "next_action": "validate_evidence",
   "implementation_scope": {
     "denominator": 30,
     "gate_source": "spec.md#\u672c\u8f6e\u622a\u56fe\u5206\u6bcd",
@@ -31,7 +31,8 @@
     "324df701aa92e7b5": 1,
     "9f93f0d321877443": 1,
     "1a75f83861bd13af": 1,
-    "82186b29fd932ffe": 1
+    "82186b29fd932ffe": 1,
+    "507b95491b56d351": 1
   },
   "gates": {
     "r1_spec": {
@@ -48,8 +49,8 @@
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "173231612d8271c05161eb196cae752e791e580f50e1a0fbe443796be3cae621",
-      "checked_at": "2026-07-29T10:44:01Z",
+      "fingerprint": "14891b8743e934a154fc973bb683a1f267638d53315868a572cbbcd2c4d67c2b",
+      "checked_at": "2026-07-29T10:58:45Z",
       "issues": []
     },
     "r4_evidence": {
@@ -57,7 +58,7 @@
       "fingerprint": null,
       "checked_at": null,
       "issues": [
-        "missing evidence/evidence.json"
+        "evidence manifest has no PASS run"
       ]
     }
   },
@@ -389,6 +390,60 @@
       "at": "2026-07-29T10:44:03Z",
       "kind": "phase",
       "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 55,
+      "at": "2026-07-29T10:50:36Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence p0-contract-red"
+    },
+    {
+      "seq": 56,
+      "at": "2026-07-29T10:56:47Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence p0-contract-focused"
+    },
+    {
+      "seq": 57,
+      "at": "2026-07-29T10:56:55Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence p0-compile-correction"
+    },
+    {
+      "seq": 58,
+      "at": "2026-07-29T10:58:45Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 59,
+      "at": "2026-07-29T10:58:45Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 60,
+      "at": "2026-07-29T10:58:46Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 61,
+      "at": "2026-07-29T10:58:48Z",
+      "kind": "failure",
+      "detail": "r4_evidence:507b95491b56d351: attempt 1"
+    },
+    {
+      "seq": 62,
+      "at": "2026-07-29T10:58:48Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: evidence manifest has no PASS run"
+    },
+    {
+      "seq": 63,
+      "at": "2026-07-29T10:58:57Z",
+      "kind": "phase",
+      "detail": "verifying->implementing: recorded evidence p0-static-cutover-pass"
     }
   ]
 }

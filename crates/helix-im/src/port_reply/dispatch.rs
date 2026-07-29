@@ -170,6 +170,16 @@ impl ImModule {
         };
 
         match ctx {
+            // MessageV3 terminal events 只在同一业务写真实提交后释放一次。
+            CorrelationContext::MessageV3Commit { terminal_events } => {
+                if matches!(outcome, PortOutcome::Ok(_)) {
+                    for event in terminal_events {
+                        out.push(helix_core::Effect::Emit {
+                            event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(event)),
+                        });
+                    }
+                }
+            }
             // 路由（E4）：on_start Scan 回报 → 加载 cursor + 触发 proactive resync
             CorrelationContext::ScanCursors => match outcome {
                 PortOutcome::Ok(reply) => {

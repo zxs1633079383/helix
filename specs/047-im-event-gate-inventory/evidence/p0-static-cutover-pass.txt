@@ -1,0 +1,1 @@
+{"verdict":"PASS","gates":30,"missing":[],"extra":[],"duplicate":[],"active":1,"consumerSync":"NOT_SYNCED_BY_SCOPE","selfTest":"PASS"}

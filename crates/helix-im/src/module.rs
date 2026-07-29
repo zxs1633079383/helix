@@ -97,6 +97,27 @@ pub struct ImModule {
 }
 
 impl ImModule {
+    /// 排队一个原子业务写，并把 MessageV3 terminal events 绑定到 matching PersistOk。
+    #[doc(hidden)]
+    pub fn queue_message_v3_commit(
+        &mut self,
+        ops: Vec<helix_core::effect::StorageOp>,
+        terminal_events: Vec<crate::event::MessageV3Event>,
+        out: &mut EffectSink,
+    ) -> helix_core::Correlation {
+        let corr = self.alloc_corr_internal();
+        let terminal_events = terminal_events
+            .into_iter()
+            .map(crate::event::MessageV3Event::into_bytes)
+            .collect();
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::MessageV3Commit { terminal_events },
+        );
+        out.push(helix_core::Effect::PersistAtomic { corr, ops });
+        corr
+    }
+
     /// PC/Flutter 默认使用 durable host store。
     pub fn new(config: ImConfig) -> Self {
         Self::new_with_local_store(config, crate::query::LocalStoreMode::Durable)

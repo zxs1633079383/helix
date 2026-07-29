@@ -1,0 +1,73 @@
+   Compiling futures-sink v0.3.32
+   Compiling slab v0.4.12
+   Compiling tokio v1.52.3
+   Compiling ppv-lite86 v0.2.21
+   Compiling fancy-regex v0.16.2
+   Compiling futures-channel v0.3.32
+   Compiling futures-util v0.3.32
+   Compiling rand_chacha v0.9.0
+   Compiling hyper v1.10.1
+   Compiling helix-core v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-core)
+   Compiling proptest v1.11.0
+   Compiling tower v0.5.3
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+   Compiling hyper-util v0.1.20
+   Compiling tower-http v0.6.11
+   Compiling reqwest v0.12.28
+   Compiling jsonschema v0.33.0
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+error: couldn't read `crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs`: No such file or directory (os error 2)
+ --> crates/helix-im/tests/message_v3/contracts/artifact_schema/main.rs:4:1
+  |
+4 | mod artifact;
+  | ^^^^^^^^^^^^^
+
+error: could not compile `helix-im` (test "message_v3_artifact_schema") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error[E0432]: unresolved import `helix_im::event`
+ --> crates/helix-im/tests/message_v3/contracts/event/main.rs:6:15
+  |
+6 | use helix_im::event::post;
+  |               ^^^^^ could not find `event` in `helix_im`
+
+error[E0432]: unresolved import `helix_im::ImConfig`
+ --> crates/helix-im/tests/message_v3/contracts/event/main.rs:7:16
+  |
+7 | use helix_im::{ImConfig, ImModule};
+  |                ^^^^^^^^ no `ImConfig` in the root
+
+error[E0599]: no method named `queue_message_v3_commit` found for struct `ImModule` in the current scope
+  --> crates/helix-im/tests/message_v3/contracts/event/main.rs:76:23
+   |
+76 |     let corr = module.queue_message_v3_commit(vec![persisted_row()], vec![terminal], &mut sink);
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^ method not found in `ImModule`
+
+error[E0599]: no method named `queue_message_v3_commit` found for struct `ImModule` in the current scope
+   --> crates/helix-im/tests/message_v3/contracts/event/main.rs:135:23
+    |
+135 |     let corr = module.queue_message_v3_commit(
+    |                -------^^^^^^^^^^^^^^^^^^^^^^^ method not found in `ImModule`
+
+Some errors have detailed explanations: E0432, E0599.
+For more information about an error, try `rustc --explain E0432`.
+error: could not compile `helix-im` (test "message_v3_event_contract") due to 4 previous errors

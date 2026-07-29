@@ -46,19 +46,19 @@ Gate 不允许双写，也不允许借用其他证据面宣称 Green。
 
 ### Tests First
 
-- [ ] T009 [US5] 新增 `crates/helix-im/tests/message_v3/contracts/event/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_event_contract`，先断言事件只含 `event` 与 `data`、禁止 Frame/Surface 字段，并以失败用例证明 matching `PersistOk` 前无 terminal Emit、匹配后恰好释放一次
-- [ ] T010 [US5] 新增 `crates/helix-im/tests/message_v3/contracts/artifact_schema/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_artifact_schema`，先断言四类 generated JSON 满足 `contracts/*.schema.json` 并观察失败
-- [ ] T011 [US1] 新增 `crates/helix-im/tests/message_v3/contracts/gate_registry/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_gate_registry`，先断言 manifest 与显式 test target 精确覆盖 30 Gate、无重复、无 G-03/G-17..G-27
+- [X] T009 [US5] 新增 `crates/helix-im/tests/message_v3/contracts/event/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_event_contract`，先断言事件只含 `event` 与 `data`、禁止 Frame/Surface 字段，并以失败用例证明 matching `PersistOk` 前无 terminal Emit、匹配后恰好释放一次
+- [X] T010 [US5] 新增 `crates/helix-im/tests/message_v3/contracts/artifact_schema/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_artifact_schema`，先断言四类 generated JSON 满足 `contracts/*.schema.json` 并观察失败
+- [X] T011 [US1] 新增 `crates/helix-im/tests/message_v3/contracts/gate_registry/main.rs` 并在 `crates/helix-im/Cargo.toml` 注册 `message_v3_gate_registry`，先断言 manifest 与显式 test target 精确覆盖 30 Gate、无重复、无 G-03/G-17..G-27
 
 ### Implementation
 
-- [ ] T012 [US5] 新增 `crates/helix-im/src/event/mod.rs` 与 `crates/helix-im/src/event/{post,channel,channel_member,schedule,timeline,read,sync}.rs`，提供按七个业务域构造 `Effect::Emit` 的类型化入口
-- [ ] T013 [US5] 新增 `crates/helix-im/tests/message_v3/support/{artifact,scenario}.rs`，从真实 Tick、`ImModule::handle`、完整 Effect、持久化读回和 persona 输出确定性 JSON
-- [ ] T014 [US5] 在 `crates/helix-im/src/module/` 与 `crates/helix-im/src/port_reply/` 建立 PersistOk 后才释放 terminal MessageV3 事件的公共编排
-- [ ] T015 [US5] 重写 `specs/047-im-event-gate-inventory/scripts/generate-v1-evidence.mjs`，只编排 Rust 测试、schema 校验、索引和 hash，不再拼装业务 payload
-- [ ] T016 [US5] 在 `crates/helix-im/tests/message_v3/contracts/artifact_schema/main.rs` 增加相同输入重复生成 byte/hash 稳定性和敏感字段拒绝测试
-- [ ] T017 [US5] 对账并冻结 `specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json` 的预编码删除清单，补入公共基础开发中新发现的共享引用，证明 30 Gate 均无未知 owner、空清单或 `TODO`
-- [ ] T018 [US5] 运行 P0 聚焦验证并把命令、失败分类和当前证据等级写回 `specs/047-im-event-gate-inventory/verification.md`
+- [X] T012 [US5] 新增 `crates/helix-im/src/event/mod.rs` 与 `crates/helix-im/src/event/{post,channel,channel_member,schedule,timeline,read,sync}.rs`，提供按七个业务域构造 `Effect::Emit` 的类型化入口
+- [X] T013 [US5] 新增 `crates/helix-im/tests/message_v3/support/{artifact,scenario}.rs`，从真实 Tick、`ImModule::handle`、完整 Effect、持久化读回和 persona 输出确定性 JSON
+- [X] T014 [US5] 在 `crates/helix-im/src/module/` 与 `crates/helix-im/src/port_reply/` 建立 PersistOk 后才释放 terminal MessageV3 事件的公共编排
+- [X] T015 [US5] 重写 `specs/047-im-event-gate-inventory/scripts/generate-v1-evidence.mjs`，只编排 Rust 测试、schema 校验、索引和 hash，不再拼装业务 payload
+- [X] T016 [US5] 在 `crates/helix-im/tests/message_v3/contracts/artifact_schema/main.rs` 增加相同输入重复生成 byte/hash 稳定性和敏感字段拒绝测试
+- [X] T017 [US5] 对账并冻结 `specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json` 的预编码删除清单，补入公共基础开发中新发现的共享引用，证明 30 Gate 均无未知 owner、空清单或 `TODO`
+- [X] T018 [US5] 运行 P0 聚焦验证并把命令、失败分类和当前证据等级写回 `specs/047-im-event-gate-inventory/verification.md`
 
 **Checkpoint**: 公共基础 Green，但尚未迁移的 Gate 仍可临时引用共享旧基础；任何已迁移
 Gate 从此只能走 MessageV3。

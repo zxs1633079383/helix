@@ -13,6 +13,58 @@
           "sha256": "e49772808f31b1ce4bd54b2a29884613d8995f1568eb2644df026c251dbf5cdd"
         }
       ]
+    },
+    {
+      "id": "p0-contract-red",
+      "command": "cargo test -p helix-im --test message_v3_event_contract --test message_v3_artifact_schema --test message_v3_gate_registry",
+      "started_at": "2026-07-29T10:50:35Z",
+      "ended_at": "2026-07-29T10:50:35Z",
+      "result": "FAIL",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p0-contract-red.txt",
+          "sha256": "04ea1501545ae97c7a7c1be06a1945eec63ba7ddbbbec4a63f25389cc9194cb4"
+        }
+      ]
+    },
+    {
+      "id": "p0-contract-focused",
+      "command": "cargo test -p helix-im --test message_v3_event_contract --test message_v3_artifact_schema --test message_v3_gate_registry -- --nocapture",
+      "started_at": "2026-07-29T10:56:46Z",
+      "ended_at": "2026-07-29T10:56:46Z",
+      "result": "FAIL",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p0-contract-focused.txt",
+          "sha256": "c0b47dff83c2f422610678e617832fec2dc462ee1a10dd3c75e752283c9c7016"
+        }
+      ]
+    },
+    {
+      "id": "p0-compile-correction",
+      "command": "cargo test -p helix-im --test message_v3_gate_registry -- --nocapture",
+      "started_at": "2026-07-29T10:56:54Z",
+      "ended_at": "2026-07-29T10:56:54Z",
+      "result": "FAIL",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p0-gate-registry-red.txt",
+          "sha256": "8b982364979f60b82c6d360eebfb8805b33b68b5773baea0c2907efb645d2d49"
+        }
+      ]
+    },
+    {
+      "id": "p0-static-cutover-pass",
+      "command": "node specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs --self-test",
+      "started_at": "2026-07-29T10:58:55Z",
+      "ended_at": "2026-07-29T10:58:55Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p0-static-cutover-pass.txt",
+          "sha256": "d5d0e88750f81dbda5ddd3598a1ddfa0c11c39b3f0b58382da36b87cf65f75c1"
+        }
+      ]
     }
   ]
 }

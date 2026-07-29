@@ -30,6 +30,21 @@
 失败至少归入 `DETERMINISM`、`SCHEMA`、`PERSISTENCE`、`PROTOCOL`、`RUNTIME`、
 `DUAL_USER`、`CANONICAL` 或 `ENVIRONMENT`；不得把环境阻塞改写为业务通过。
 
+## P0 公共基础执行记录
+
+| 证据 | 等级 | 结果 | 原始输出 | 边界 |
+|---|---|---|---|---|
+| 三份合同测试首次编译 | E2 contract | `EXPECTED_RED` | `evidence/p0-contract-red.txt` | 缺少 `event/*`、PersistOk 编排与 artifact support，证明测试先于实现 |
+| registry 单独编译 | E2 contract | `FAIL -> FIXED` | `evidence/p0-gate-registry-red.txt` | `DomainEventBytes` 不支持 `PartialEq`；改为上下文持有 owned bytes，未修改 core 合同 |
+| event contract | E1/E2 | `PASS 3/3` | `evidence/p0-contract-focused.txt` | 证明 event/data-only、matching PersistOk 一次释放、PersistErr fail closed；未执行真实 SQLite |
+| artifact schema | E1/E2 | `PASS 5/5` | `evidence/p0-contract-focused.txt` | 证明四类 schema、byte/hash 稳定和敏感字段拒绝；未生成任一业务 Gate 产物 |
+| Gate registry | E2 | `EXPECTED_RED 1/2` | `evidence/p0-contract-focused.txt` | domain/package 已通过；30 个 Gate target 尚未逐 Gate 创建，明确留给 T019 收敛 |
+| 静态迁移护栏 | E2 | `PASS` | `check-message-v3-cutover.mjs --self-test` | 30 Gate、owner、七类遗留引用和单活动项通过；消费者仍为 `NOT_SYNCED_BY_SCOPE` |
+
+P0 当前最高连续等级为 E2。`message_v3_gate_registry` 的缺失 target 是计划内 RED，不创建空
+测试或占位 JSON；因此公共事件与 artifact 基础可进入 Gate 纵切，但 30 Gate 分母仍不能宣称
+Green。E3 integration、E4 runtime、E5 dual-user 与 E6 canonical 均为 `NOT_RUN`。
+
 ## Required Runs
 
 - **V-001**: `jq '[.uc_cases[]] | {total:length, active:(map(select(.lifecycle ==

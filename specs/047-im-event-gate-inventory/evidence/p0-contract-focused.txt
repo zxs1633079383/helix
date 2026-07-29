@@ -1,0 +1,72 @@
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `window_context_for_anchor` is never used
+   --> crates/helix-im/src/projector/timeline.rs:246:19
+    |
+210 | impl TimelineProjector {
+    | ---------------------- method in this implementation
+...
+246 |     pub(crate) fn window_context_for_anchor(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 2 warnings
+warning: function `write_bundle` is never used
+   --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:146:8
+    |
+146 | pub fn write_bundle(output: &Path, bundle: &ArtifactBundle) -> Result<Vec<PathBuf>, String> {
+    |        ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (test "message_v3_artifact_schema") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.23s
+     Running tests/message_v3/contracts/artifact_schema/main.rs (target/debug/deps/message_v3_artifact_schema-ae3483f0d0844708)
+
+running 5 tests
+test generated_tree_matches_schemas_when_requested ... ok
+test sensitive_fields_are_rejected_before_artifact_write ... ok
+test repeated_generation_is_byte_and_hash_stable ... ok
+test artifact_schema_rejects_retired_wrapper_fields ... ok
+test four_generated_artifacts_match_contract_schemas ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/message_v3/contracts/event/main.rs (target/debug/deps/message_v3_event_contract-314a8b7fff55cda9)
+
+running 3 tests
+test message_v3_event_contains_only_event_and_data ... ok
+test matching_persist_ok_releases_terminal_event_exactly_once ... ok
+test persist_error_discards_terminal_event ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/message_v3/contracts/gate_registry/main.rs (target/debug/deps/message_v3_gate_registry-410ebeaaf2884845)
+
+running 2 tests
+test domain_and_test_package_mapping_is_exact ... ok
+
+thread 'manifest_and_explicit_gate_targets_cover_exactly_thirty_gates' (8076452) panicked at crates/helix-im/tests/message_v3/contracts/gate_registry/main.rs:71:5:
+assertion `left == right` failed: all Gate targets must be explicit
+  left: 0
+ right: 30
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test manifest_and_explicit_gate_targets_cover_exactly_thirty_gates ... FAILED
+
+failures:
+
+failures:
+    manifest_and_explicit_gate_targets_cover_exactly_thirty_gates
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p helix-im --test message_v3_gate_registry`

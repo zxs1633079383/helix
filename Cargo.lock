@@ -909,6 +909,7 @@ dependencies = [
  "criterion",
  "helix-core",
  "inventory",
+ "jsonschema",
  "proptest",
  "serde",
  "serde_json",

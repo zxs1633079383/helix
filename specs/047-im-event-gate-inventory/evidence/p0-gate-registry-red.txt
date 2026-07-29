@@ -1,0 +1,18 @@
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+error[E0369]: binary operation `==` cannot be applied to type `&Vec<DomainEventBytes>`
+  --> crates/helix-im/src/correlation.rs:68:9
+   |
+64 | #[derive(Debug, Clone, PartialEq)]
+   |                        --------- in this derive macro expansion
+...
+68 |         terminal_events: Vec<helix_core::effect::DomainEventBytes>,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: `DomainEventBytes` does not implement `PartialEq`
+  --> crates/helix-core/src/effect/ids.rs:67:1
+   |
+67 | pub struct DomainEventBytes(pub Bytes);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ `DomainEventBytes` is defined in another crate
+
+For more information about this error, try `rustc --explain E0369`.
+error: could not compile `helix-im` (lib) due to 1 previous error

@@ -3,9 +3,9 @@
   "inventory_catalog": {
     "v2-production": {
       "kind": "v2_production",
-      "path": "crates/helix-im/src/{interaction_frame.rs,surface_composer.rs,surface_runtime.rs,dialog_frame.rs,dialog_patch.rs,projector/**}",
+      "path": "crates/helix-im/src/{interaction_frame.rs,surface_composer.rs,surface_runtime.rs,dialog_frame.rs,dialog_patch.rs,projector/**,correlation.rs,module/trait_impl.rs,port_reply/dispatch*.rs}",
       "disposition": "PENDING_REMOVAL",
-      "evidence": "当前模块导出和生产路径仍构造旧呈现合同；T082-T083 在最后引用 Gate 后删除"
+      "evidence": "公共基础接码发现 correlation、command dispatch 与 PersistOk dispatch 仍携带旧呈现上下文；T082-T083 在最后引用 Gate 后删除"
     },
     "v1-inbound": {
       "kind": "v1_inbound",
@@ -15,9 +15,9 @@
     },
     "v1-outbound": {
       "kind": "v1_outbound",
-      "path": "crates/helix-im/src/acl/{projection_control_effects.rs,projection_message_effects.rs,to_effect*.rs}",
+      "path": "crates/helix-im/src/{acl/{projection_control_effects.rs,projection_message_effects.rs,to_effect*.rs},port_reply_emit.rs,ws/handlers/{post_update.rs,posts_update.rs,post_read.rs}}",
       "disposition": "PENDING_REMOVAL",
-      "evidence": "当前 raw emit 与旧投影出口仍可达；逐 Gate 迁移后删除，T084 全局收口"
+      "evidence": "公共基础接码确认 raw emit bytes 仍在 ACL、PortReply 与 WS handler 间暂存；逐 Gate 迁移到 event/* 后删除，T084 全局收口"
     },
     "capability": {
       "kind": "capability",

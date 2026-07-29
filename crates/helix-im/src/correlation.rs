@@ -63,6 +63,9 @@ impl SyncTrigger {
 // （非 key），`PartialEq` 供 ws/registry 测试 `assert_eq!`，`Eq` 无用处（grep 实证）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum CorrelationContext {
+    /// MessageV3 业务写提交屏障；只有 matching PersistOk 才按原顺序释放事件。
+    MessageV3Commit { terminal_events: Vec<Vec<u8>> },
+
     /// on_start `Scan(_helix_monotonic)` 回报：载入 per-channel cursor + proactive resync（取代旧 `scan_corr`）。
     ScanCursors,
 

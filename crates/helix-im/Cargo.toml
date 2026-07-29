@@ -20,6 +20,19 @@ tracing     = { workspace = true }
 proptest = "1"
 criterion = "0.5"
 sha2 = "0.10"
+jsonschema = "0.33"
+
+[[test]]
+name = "message_v3_event_contract"
+path = "tests/message_v3/contracts/event/main.rs"
+
+[[test]]
+name = "message_v3_artifact_schema"
+path = "tests/message_v3/contracts/artifact_schema/main.rs"
+
+[[test]]
+name = "message_v3_gate_registry"
+path = "tests/message_v3/contracts/gate_registry/main.rs"
 
 [[bench]]
 name = "step_inorder"

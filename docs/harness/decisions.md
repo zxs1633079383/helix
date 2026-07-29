@@ -96,7 +96,7 @@
 - **理由**：必须复用的是业务语义，不是每个平台的物理 I/O 和持久化实现。先冻结统一业务门面与能力适配边界，再决定 Web driver/runtime 形状，才能避免把浏览器限制反向污染 PC/Flutter 默认实现，也避免 UI 复制业务流程。
 - **状态**：原则与代码模块方案均已定（2026-07-14 用户拍板）；A1-A4、A5 最小浏览器 glue、Go query 鉴权、正式 Web gate/HX-C003 与历史 wasm 清理已落地。真 Go send/echo/断连恢复继续按 ROADMAP M4 验收，旧执行方案继续失效。实施文件、类型和验收以 [`../ROADMAP.md`](../ROADMAP.md) M4 活账为准。
 
-## ADR-015 — Helix 统一多端 UI 交互语义，业务模块产出 InteractionProtocol
+## ADR-015 — Helix 统一多端 UI 交互语义，业务模块产出 InteractionProtocol（已取代）
 
 - **决策**：Helix 的“一次实现”范围从业务状态与数据 ViewModel 扩展到跨端统一 UI 交互语义。`helix-im` 拥有 `SurfaceModel / ViewNode / ViewMutation / ActionBinding / UiDirective`，以 `InteractionFrame` 向 PC、Flutter 与 Web 批量发布语义 view tree、稳定动作地址和一次性平台无关指令；各端只回送生成合同内的 `UiEvent/HostObservation/ack`，机械 apply frame，并把语义 renderer key/directive 映射到本端实现。
 - **Headless 定义**：Headless 表示内核不依赖 renderer、组件框架、窗口系统和 I/O runtime，不表示内核只能产出扁平 ViewModel。平台无关的呈现状态机、语义交互图、动作裁决与 directive 属于业务内核；具体 DOM/Component/Widget、像素、动画和平台句柄属于 shell。ViewModel 是 InteractionProtocol 的一个组成面，不是终点。
@@ -105,7 +105,8 @@
 - **一致性要求**：可见业务终态经过 Persist barrier；同一领域事实的跨实体变化在一个 frame 原子发布；surface/epoch/revision/ack/resync fail closed；相同输入剧本跨 native/FFI/Web 输出字节等价 frame；FFI 按 frame 批量传输，不逐 mutation 往返。
 - **理由**：仅统一 RenderNode 数据仍会让 Angular、QuickJS/C++、Flutter/Web 各自维护 temporaryId 对账、窗口排序、未读、权限、动作完成和导航 fallback，等价于保留多套业务引擎。统一语义交互协议消除这些跨端漂移，同时以“语义合同不等于具体 UI 工具包”守住 runtime-agnostic、sans-IO 和可替换 renderer。
 - **实施范围**：本轮实现与迁移仓库固定为 `helix`、`cses-client`、`mobile-qucik-c++`；`cses-im-server` 只在 InteractionProtocol 揭示真实 wire、持久化或权威状态缺口时条件介入。`loopforge-tauri-im` 与 `pd/message` 明确不在实施、联调、发布证据和任务量估算范围内；Dioxus/Crux 仅作机制参照。
-- **状态**：已定（2026-07-15，用户明确拍板“Spec 是新版本 Helix 多端统一 UI 交互；命中 Goal 时调整 Goal”）。覆盖 GOAL §6 旧“方向 A 只允许数据形态 ViewModel”的高度边界；不改变 ADR-014 的 Web W0 交付事实，也不宣称 InteractionProtocol 已实现或 Gate 已 Green。
+- **状态**：已由 ADR-017 于 2026-07-29 取代。本文仅保留历史决策背景，不得再作为生产
+  合同、测试目标或完成判据。
 
 ## ADR-016 — 媒体票据由 Rust 直连 Java，PUT 2xx 后本地完成
 
@@ -115,6 +116,30 @@
 - **持久化与进度**：媒体首次 message 与 prepare journal 必须同一 `PersistAtomic` 提交，失败补偿也原子写回 `unsend` message 与原始 journal。PUT 失败或进程停在 PUT 阶段时重新 Prepare；PUT 2xx 后先持久化 Local Complete 阶段，重启只重放本地 `bucket + uri` 原子提交，不重复 PUT 或调用 Java Complete。rich 最多九图，prepare Effect 同批吐给 host 并发执行，图片只显示整条 Sending、不发逐图百分比；FILE 保留 5% 进度，PUT 终态等待在途进度 Persist 回执后再推进，防止旧百分比覆盖 100%。当前 Helix v1 的 64 MiB 上限使用流式单 PUT；现网更大文件的 multipart/checkpoint 不在本轮等价范围，切换前须单独拍板并实现该合同。
 - **理由**：用户明确要求 Rust 直接依赖 Java，Java 地址由前端提供；Go 媒体 facade 会增加一跳、重复状态与地址配置归属。显式双地址让服务边界可测试，Java owner-bound media 模式又避免把原有可自选 bucket/key/expiry 的通用预签名能力直接暴露给终端。
 - **状态**：Rust 直连 Java、前端注入双地址与图片/文件进度边界已定；2026-07-28 用户进一步拍板删除 Java `/oss/completeMediaUpload` 校验，以 PUT 2xx 作为对象写入成功事实并由 Helix 本地完成。64 MiB 单 PUT 是当前 v1 实现边界，已向用户显式同步但尚未获得其作为现网 multipart 替代能力的确认。三端验证与真实 OSS rich/file E2E 仍是生产可用证据，不能用本地合同测试替代。
+
+## ADR-017 — MessageV3 Gate Event 是唯一跨端业务真源
+
+- **决策**：`helix-im` 只通过 `Effect::Emit {event,data}` 发布跨端业务事实。
+  InteractionFrame、Surface、SurfaceMutation、ActionBinding、UiDirective 与 FrameApplied
+  退出目标架构；Native channel、FFI batch 与 Web bridge 仅原样交付同一 event bytes。
+- **持久屏障**：声称 durable 的 event 必须在 matching `PersistOk` 后由 tenant-local
+  持久事实或同一原子提交的 committed values 构造。HTTP 受理、WS 入队、内存 mutation、
+  陈旧 reply、错误 scope 与 PersistErr 都不得释放 terminal success。
+- **双视角**：sender 与 receiver 分别从自己的本地绝对态生成未读、角色、权限和频道摘要。
+  壳不得消费 delta、拼接多个 event 或维护第二套业务 reducer。
+- **迁移方式**：以 Spec 047 的精确 30 Gate 为本轮分母，按 P0 至 P7 串行硬切。每个 Gate
+  必须先有真实 `ImModule::handle` 红测，再接生产路径、生成四份 canonical JSON、物理删除
+  专属 V2/V1 链并通过聚焦回归；共享旧壳只在最后一个引用消失后删除。
+- **证据合同**：`.v1` 是被 Git 忽略的本地证据/schema 目录，不是运行时 V1。canonical
+  payload 只能由 Rust 生产回放测试生成，Node 只做调用、索引、schema/hash 校验。
+- **本版本边界**：只修改 Helix。PC WDIO、Mobile GTest 与 fixture mirror 保持
+  `NOT_SYNCED_BY_SCOPE`，后续版本按 provenance/hash 做 byte-exact 同步；不得借客户端既有
+  引用否定 Helix 本轮零引用，也不得冒充三端 Green。
+- **理由**：Frame/Surface 套壳让业务事实再次经过呈现协议与平台状态机，增加转换、双写和
+  恢复漂移。Gate Event 直接表达已提交业务事实，保留 sans-IO、确定性和跨端批处理，同时让
+  sender/receiver 合同可以由真实存储结构与回放测试证伪。
+- **状态**：已定（2026-07-29，用户选择方案 A 并批准 Constitution 2.0 与 Spec 047）。
+  本 ADR 取代 ADR-015；实施状态以 Spec 047 migration manifest 与 review ledger 为准。
 
 ---
 

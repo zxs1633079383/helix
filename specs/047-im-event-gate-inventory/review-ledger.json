@@ -2,15 +2,16 @@
   "schema_version": "1.0",
   "feature_directory": "specs/047-im-event-gate-inventory",
   "phase": "implementing",
-  "event_seq": 35,
-  "next_action": "implement_tasks",
+  "event_seq": 38,
+  "next_action": "validate_evidence",
   "budget": {
     "max_same_failure_attempts": 2
   },
   "failure_attempts": {
     "324df701aa92e7b5": 1,
     "9f93f0d321877443": 1,
-    "1a75f83861bd13af": 1
+    "1a75f83861bd13af": 1,
+    "82186b29fd932ffe": 1
   },
   "gates": {
     "r1_spec": {
@@ -32,10 +33,12 @@
       "issues": []
     },
     "r4_evidence": {
-      "status": "pending",
+      "status": "blocked",
       "fingerprint": null,
       "checked_at": null,
-      "issues": []
+      "issues": [
+        "missing evidence/evidence.json"
+      ]
     }
   },
   "convergence": {
@@ -252,6 +255,24 @@
       "at": "2026-07-29T10:10:38Z",
       "kind": "phase",
       "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 36,
+      "at": "2026-07-29T10:20:01Z",
+      "kind": "failure",
+      "detail": "r4_evidence:82186b29fd932ffe: attempt 1"
+    },
+    {
+      "seq": 37,
+      "at": "2026-07-29T10:20:01Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: missing evidence/evidence.json"
+    },
+    {
+      "seq": 38,
+      "at": "2026-07-29T10:25:56Z",
+      "kind": "phase",
+      "detail": "verifying->implementing: recorded evidence pre-implement-hook-blocked"
     }
   ]
 }

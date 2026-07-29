@@ -3,8 +3,11 @@
 /worktrees/
 /.perf/
 **/*.rs.bk
+*.log
+.env*
 .DS_Store
 .idea/
+.vscode/
 .superpowers/
 crates/helix-driver-ffi/smoke/build/
 /.idea/

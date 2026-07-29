@@ -45,7 +45,7 @@
 | [HX-C015](./HX-C015-workflow-done-via-notification-not-poll.md) | active | medium | workflow/后台 agent 完成靠 task-notification 自动回灌，禁手工轮询；只外部不可追踪态才 /loop | 日志 grep「等…报告结果」计数↓ | 2 | 2026-06-23 |
 | [HX-C016](./HX-C016-e2e-env-recovery-and-fast-harness.md) | active | major | 真Go e2e:WS hello 依赖 tp/gRPC 隧道会随时间断(恢复 playbook)+全UC单脚本双持久连接 wait_for(~3min)非LLM-workflow+快smoke vs精确per-UC取舍 | hello probe + 脚本 PASS/FAIL 表 | 2 | 2026-06-24 |
 | [HX-C017](./HX-C017-distributed-performance-evidence-boundary.md) | active | major | 性能证据保持逐跳 correlation、确定性顺序与负载窗口边界 | 回放 + 分段指标 + 窗口检查 | 1 | 2026-07-13 |
-| [HX-C018](./HX-C018-headless-semantic-interaction-boundary.md) | active | blocker | Headless 不是只吐 ViewModel：统一语义交互但禁止具体平台 UI | grep + 跨端 frame parity/负向破坏 | 1 | 2026-07-15 |
+| [HX-C018](./HX-C018-headless-semantic-interaction-boundary.md) | active | blocker | Headless MessageV3：业务事实只在 helix-im 计算 | PersistOk/Emit + 零旧合同引用 | 2 | 2026-07-29 |
 
 > 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l` == AGENTS.md §4 表行数（都应=18）。不等 = 漂移，立即修。
 

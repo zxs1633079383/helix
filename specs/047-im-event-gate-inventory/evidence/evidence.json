@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "pre-implement-hook-blocked",
+      "command": "python3 .specify/extensions/helix-loop/scripts/loop_engine.py advance",
+      "started_at": "2026-07-29T03:20:00-07:00",
+      "ended_at": "2026-07-29T03:21:00-07:00",
+      "result": "BLOCKED",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/pre-implement-hook-blocked.txt",
+          "sha256": "e49772808f31b1ce4bd54b2a29884613d8995f1568eb2644df026c251dbf5cdd"
+        }
+      ]
+    }
+  ]
+}

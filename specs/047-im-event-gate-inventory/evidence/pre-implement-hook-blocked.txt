@@ -1,0 +1,5 @@
+2026-07-29T03:21:00-07:00
+before_implement 调用 advance 时，ledger 已由 after_tasks 置为 implementing。
+loop_engine 将本次调用解释为 R4 验证并报告 missing evidence/evidence.json。
+本记录结果为 BLOCKED，只用于通过官方 record-evidence 恢复 implementing；
+它不是实现证据，也不得用于 R4 PASS。

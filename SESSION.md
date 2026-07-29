@@ -14,6 +14,8 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 按 Spec 047 的 90 项任务实施 MessageV3 Gate Event 硬切；可证伪断言：① 严格从 T001 开始按 P0→P7 串行，任何非并行任务失败立即停止；② 先完成治理、30 Gate 预编码删除清单与公共红测，再接生产代码；③ 每 Gate 必须真实 `ImModule::handle` 红测→PersistOk 后 `{event,data}`→生成四份 JSON→物理删除专属 V2/V1→聚焦 Green，任务证据存在后才标 `[X]`；④ 不修改 PC/Mobile/Go，不触碰既有 `UC04-16-EXECUTION-INDEX.md` 删除；⑤ Rust 编码遵守 Cargo 全程 2-3 次纪律，最终 R4 只接受真实验证证据 | 赌注 高 | 可逆 是 | @2026-07-29T03:21:00-0700
+
 🎯 EXPECT 重新执行 Spec 047 的 Plan/Tasks 并使 R2/R3 对齐最新规格；可证伪断言：① plan、research、data-model、schema、quickstart 与 spec 的 Helix-only MessageV3 范围一致，冻结 sample 不被 generated 覆盖；② 每 Gate 删除清单在任何生产编码前已经完整登记，PersistOk 公共实现前有专门红测试；③ 七个业务域与物理测试包映射无歧义，G-13/G-14 属 read、G-16b 属 channel-member；④ 90 个任务与 90 个 Loop Task Contract 一一对应且 R2/R3 PASS；⑤ 仅修改 Spec 047 规划资产、SESSION 和 loop ledger，不触碰既有 `UC04-16-EXECUTION-INDEX.md` 删除，不运行 Cargo | 赌注 高 | 可逆 是 | @2026-07-29T03:10:00-0700
 
 ✅ DONE 已重新执行 Spec 047 的 Plan/Tasks：先修正 SC-009 与 FR-044 的范围冲突，把零引用限定为 Helix，客户端保持 `NOT_SYNCED_BY_SCOPE`；冻结 sample 与 `generated/*` 分层不再互相覆盖。P0 现在要求生产编码前完成 30 Gate 删除清单，T009 在公共 PersistOk 编排前先做“提交前不 Emit、匹配后恰好一次”的红测。七个实现域已与七个测试包对齐，`channel-member -> channel_member`，G-13/G-14 属 read、G-16b 独立归 channel_member。90/90 checkbox 与 Loop Task Contract、30/30 Gate 路径与 target、16/16 checklist、219 份 JSON 解析、schema 结构/负例逻辑与 `git diff --check` 均通过；Spec Kit R1 event 32、R2 event 33、R3 event 34 PASS，event 35 已给出 `IMPLEMENTATION_ADMITTED`。未运行 Cargo，未触碰既有 `UC04-16-EXECUTION-INDEX.md` 删除 | @2026-07-29T03:12:02-0700

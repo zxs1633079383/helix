@@ -461,23 +461,27 @@ impl ImModule {
                     };
                     self.state.corr_map.insert(terminal_corr, context);
                     out.push(Effect::CancelTimer { id: timeout_timer });
-                    out.push(crate::acl::to_effect::emit_post_send_failed(
-                        channel_id.as_str(),
-                        temporary_id.0.as_str(),
-                    ));
+                    out.push(
+                        crate::event::post::send_failed_for_identity(
+                            channel_id.as_str(),
+                            temporary_id.0.as_str(),
+                        )?
+                        .into_effect(),
+                    );
                 }
             }
         }
         Ok(())
     }
 
+    /// 将 posts/create 终态收敛到本地发送状态，并只发布 MessageV3 失败事实。
     pub(super) fn handle_outbound_send_http_reply(
         &mut self,
         channel_id: ChannelId,
         temporary_id: TemporaryId,
         outcome: &PortOutcome,
         out: &mut EffectSink,
-    ) {
+    ) -> Result<(), ImError> {
         let timeline_readback = self
             .state
             .pending_sends
@@ -533,12 +537,16 @@ impl ImModule {
                         },
                     );
                 }
-                out.push(crate::acl::to_effect::emit_post_send_failed(
-                    channel_id.as_str(),
-                    temporary_id.0.as_str(),
-                ));
+                out.push(
+                    crate::event::post::send_failed_for_identity(
+                        channel_id.as_str(),
+                        temporary_id.0.as_str(),
+                    )?
+                    .into_effect(),
+                );
             }
         }
+        Ok(())
     }
 
     pub(super) fn handle_sync_pull_reply(
@@ -676,12 +684,14 @@ mod tests {
         );
 
         let mut out = EffectSink::new();
-        module.handle_outbound_send_http_reply(
-            channel_id,
-            temporary_id,
-            &PortOutcome::Ok(successful_posts_create_reply()),
-            &mut out,
-        );
+        module
+            .handle_outbound_send_http_reply(
+                channel_id,
+                temporary_id,
+                &PortOutcome::Ok(successful_posts_create_reply()),
+                &mut out,
+            )
+            .expect("successful posts/create reply must emit valid MessageV3 effects");
 
         let (terminal_corr, terminal_context) = terminal_refresh(&module, &out);
         assert_eq!(
@@ -789,12 +799,14 @@ mod tests {
         );
 
         let mut out = EffectSink::new();
-        module.handle_outbound_send_http_reply(
-            channel_id,
-            temporary_id,
-            &PortOutcome::Err(helix_core::tick::PortError::Network),
-            &mut out,
-        );
+        module
+            .handle_outbound_send_http_reply(
+                channel_id,
+                temporary_id,
+                &PortOutcome::Err(helix_core::tick::PortError::Network),
+                &mut out,
+            )
+            .expect("failed posts/create reply must emit valid MessageV3 effects");
 
         assert_eq!(
             terminal_refresh(&module, &out).1,
@@ -806,6 +818,7 @@ mod tests {
         );
     }
 
+    /// 普通发送失败继续使用 latest timeline，并发布可重试的 MessageV3 失败事实。
     #[test]
     fn ordinary_send_terminal_keeps_latest_fallback() {
         let mut module = ImModule::new(crate::module::ImConfig::default());
@@ -814,12 +827,14 @@ mod tests {
         install_retry_pending(&mut module, &temporary_id, None, Some("ordinary-request"));
 
         let mut out = EffectSink::new();
-        module.handle_outbound_send_http_reply(
-            channel_id,
-            temporary_id,
-            &PortOutcome::Err(helix_core::tick::PortError::Network),
-            &mut out,
-        );
+        module
+            .handle_outbound_send_http_reply(
+                channel_id,
+                temporary_id,
+                &PortOutcome::Err(helix_core::tick::PortError::Network),
+                &mut out,
+            )
+            .expect("ordinary failed send reply must emit valid MessageV3 effects");
 
         assert_eq!(
             terminal_refresh(&module, &out).1,

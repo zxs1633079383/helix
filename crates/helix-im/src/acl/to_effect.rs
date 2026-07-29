@@ -5,8 +5,7 @@
 
 pub use super::projection_control_effects::{
     emit_channel_increment, emit_channel_update, emit_channels_loaded, emit_connection_established,
-    emit_post_batch_updated, emit_post_send_failed, emit_post_sending,
-    emit_post_sending_with_reply, emit_reconnect_requested, emit_sync_state,
+    emit_post_batch_updated, emit_reconnect_requested, emit_sync_state,
     emit_sync_state_with_trigger, emit_sync_too_long, emit_topic_operation_status,
     member_dialog_patch_data, post_dialog_patch_data,
 };

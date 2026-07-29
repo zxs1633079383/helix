@@ -425,7 +425,9 @@ impl ImModule {
             CorrelationContext::OutboundSendHttp {
                 channel_id,
                 temporary_id,
-            } => self.handle_outbound_send_http_reply(channel_id, temporary_id, outcome, out),
+            } => {
+                self.handle_outbound_send_http_reply(channel_id, temporary_id, outcome, out)?;
+            }
             CorrelationContext::TimelineRefreshAfterSendPersist {
                 channel_id,
                 window_token,

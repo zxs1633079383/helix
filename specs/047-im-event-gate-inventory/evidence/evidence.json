@@ -91,6 +91,19 @@
           "sha256": "7434c2a26809faf7339b695e8abf307ed1bfc09df0d935f96e873d96036a0a0e"
         }
       ]
+    },
+    {
+      "id": "p2-g03a-focused",
+      "command": "cargo test G-03a + projection schema + posts_create units + Rust artifact generation/byte-exact rerun + partial schema + cutover self-test + hot-path audit",
+      "started_at": "2026-07-29T12:20:52Z",
+      "ended_at": "2026-07-29T12:25:52Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p2-g03a-focused.txt",
+          "sha256": "a7ee3f35522e12dd5e46c2f45946831c33c3bb4f839c62a7443b2c1f064a9be5"
+        }
+      ]
     }
   ]
 }

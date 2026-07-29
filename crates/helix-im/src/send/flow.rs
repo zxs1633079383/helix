@@ -117,16 +117,16 @@ impl ImModule {
             });
         }
 
-        // 4. Emit(im:post:sending)（render-ready 乐观行：text/type 由 helix 吐·壳直绑不取 pendingText）。
-        out.push(crate::acl::to_effect::emit_post_sending_with_reply(
-            channel_id,
-            &tmp_id_str,
-            body["message"].as_str().unwrap_or(""),
-            body["type"].as_str().unwrap_or("TEXT"),
-            body["replyId"].as_str().unwrap_or(""),
-            body["replyRootId"].as_str().unwrap_or(""),
-            body["replyFirstLevelId"].as_str().unwrap_or(""),
-        ));
+        // 4. MessageV3 optimistic 事实只含本地消息 identity、内容和发送状态。
+        out.push(
+            crate::event::post::sending_from_local_body(
+                channel_id.as_str(),
+                &tmp_id_str,
+                self.config.auth_user_id.as_str(),
+                &body,
+            )?
+            .into_effect(),
+        );
 
         // 注册 PendingSend（等待 echo 对账）。connection_id 维度（M1）：记录本条在哪个握手
         // 会话下发，重连 increment 补回时按 temporaryId 去重不双份。

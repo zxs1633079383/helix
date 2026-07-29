@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 完成 Spec 047 P2/G-03a 失败重发硬切；可证伪断言：① 初次发送的 optimistic sending 只作为失败前置，Gate sender 样例顺序精确为 send-failed→sending→received→channel:update，failed/retry-sending 复用同一 temporaryId 且没有 capability/snake 别名；② receiver 在成功 authority 前无事件，之后只收到 received 与自身 unread=1 的 channel:update；③ retry HTTP 复用原 temporaryId 且 PersistOk 前不发起；④ 四类 JSON 由真实命令、PortReply 与 Inbound 测试生成，不修改 PC/Mobile/Go | 赌注 高 | 可逆 是 | @2026-07-29T05:20:00-0700
+
+✅ DONE Spec 047 P2/G-03a 完成：初次 optimistic sending 仅作为失败前置，Gate sender canonical 精确为 send-failed→同 temporaryId sending→received→channel:update，receiver 仅在成功 authority 后收到 received 与 unread=1 的 channel:update；retry PersistOk 前无 HTTP，成功/失败 posts/create 终态仍保留 window 与 causation。旧 sending/send-failed projection factories 已物理删除，所有发送、重试、超时及上传失败出口统一经 `event::post` 输出最小 MessageV3 data，无 capability 与 snake/camel 重复别名。G-03a 2/2、projection schema 47/47、posts_create unit 2/2、四 Gate partial schema 与 cutover self-test PASS；四类 `.v1` JSON 已由完整 Command/PortReply/Inbound 回放生成。热路径新 event helper 审计为 clean；其余 owner 命中的 clone 为既有债务且本任务未新增。当前 generated 为 4/30，E3 runtime、真实 dual-user 与 PC/Mobile 同步保持 NOT_RUN/NOT_SYNCED_BY_SCOPE | @2026-07-29T05:24:35-0700
+
 🎯 EXPECT 完成 Spec 047 P2 的 G-02 文档消息硬切；可证伪断言：① sender/receiver 的 `im:post:received` 均保留 authority `props.document.url/title/placeholder`；② 两视角 `im:channel:update.lastPost` 指向同一 DOCUMENT post 并保留文档预览字段，sender unread=0、receiver 仅 +1；③ PersistOk 前不 Emit，四类 JSON 由真实测试生成；④ 不改变 G-01 TEXT 的最小 payload，不修改 PC/Mobile/Go | 赌注 中 | 可逆 是 | @2026-07-29T09:35:00-0700
 
 ✅ DONE Spec 047 P2/G-02 完成：DOCUMENT authority 的业务 `props.document` 只解析一次并同时进入 `im:post:received` 与持久化 `lastPost`，技术字段 `channel_event_seq` 不再重复泄漏到业务 props；sender/receiver 仍分别读回 unread=0 与 N+1。G-01/G-02 聚焦测试 4/4、三 Gate 部分 generated schema、cutover self-test 与 diff check 均 PASS；G-02 四类 `.v1` JSON 由 Rust producer 生成，manifest 标为 MIGRATED。全量 generated 仍为 3/30，E3 runtime、真实 dual-user 与 PC/Mobile 同步保持 NOT_RUN/NOT_SYNCED_BY_SCOPE；中途发现部分 schema 模式仍遍历 30 个空目录，已改为只校验存在 generated 的非空子集，默认全量模式继续要求精确 30 | @2026-07-29T05:03:00-0700

@@ -890,18 +890,14 @@ fn continue_retry(
             "sending",
         )],
     });
-    out.push(crate::acl::to_effect::emit_post_sending_with_reply(
-        channel_id,
-        &temporary_id.0,
-        body.get("message").and_then(Value::as_str).unwrap_or(""),
-        body.get("type").and_then(Value::as_str).unwrap_or("TEXT"),
-        body.get("replyId").and_then(Value::as_str).unwrap_or(""),
-        body.get("replyRootId")
-            .and_then(Value::as_str)
-            .unwrap_or(""),
-        body.get("replyFirstLevelId")
-            .and_then(Value::as_str)
-            .unwrap_or(""),
-    ));
+    out.push(
+        crate::event::post::sending_from_local_body(
+            channel_id.as_str(),
+            &temporary_id.0,
+            module.config.auth_user_id.as_str(),
+            &body,
+        )?
+        .into_effect(),
+    );
     Ok(())
 }

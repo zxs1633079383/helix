@@ -14,6 +14,36 @@ pub fn sending(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:post:sending", data)
 }
 
+/// 从本地待发送 body 构造只含业务字段的 optimistic 事实。
+pub fn sending_from_local_body(
+    channel_id: &str,
+    temporary_id: &str,
+    user_id: &str,
+    body: &Value,
+) -> Result<MessageV3Event, crate::ImError> {
+    let mut data = serde_json::json!({
+        "channelId": channel_id,
+        "temporaryId": temporary_id,
+        "message": body.get("message").and_then(Value::as_str).unwrap_or(""),
+        "type": body.get("type").and_then(Value::as_str).unwrap_or("TEXT"),
+        "createAt": body.get("createAt").and_then(Value::as_i64).unwrap_or_default(),
+        "sendStatus": "sending",
+    });
+    if !user_id.is_empty() {
+        data["userId"] = serde_json::json!(user_id);
+    }
+    for key in ["replyId", "replyRootId", "replyFirstLevelId"] {
+        if let Some(value) = body
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            data[key] = serde_json::json!(value);
+        }
+    }
+    sending(data)
+}
+
 /// 构造服务端已接收消息事实。
 pub fn received(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:post:received", data)
@@ -65,6 +95,18 @@ pub fn authority_projection(
 /// 构造发送失败事实。
 pub fn send_failed(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:post:send-failed", data)
+}
+
+/// 构造按 temporaryId 锚定的本地发送失败事实。
+pub fn send_failed_for_identity(
+    channel_id: &str,
+    temporary_id: &str,
+) -> Result<MessageV3Event, crate::ImError> {
+    send_failed(serde_json::json!({
+        "channelId": channel_id,
+        "temporaryId": temporary_id,
+        "sendStatus": "failed",
+    }))
 }
 
 /// 构造消息撤回事实。

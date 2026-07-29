@@ -202,6 +202,29 @@ fn ch() -> ChannelId {
     channel_id(7)
 }
 
+/// 构造新 MessageV3 sending 事实，替代已物理删除的旧 projection factory。
+fn message_v3_sending_effect() -> Effect {
+    helix_im::event::post::sending_from_local_body(
+        ch().as_str(),
+        TMP_ID,
+        "projection-schema-actor",
+        &serde_json::json!({
+            "message": "hello",
+            "type": "TEXT",
+            "createAt": 123
+        }),
+    )
+    .expect("static MessageV3 sending fixture")
+    .into_effect()
+}
+
+/// 构造新 MessageV3 failed 事实，替代已物理删除的旧 projection factory。
+fn message_v3_failed_effect() -> Effect {
+    helix_im::event::post::send_failed_for_identity(ch().as_str(), TMP_ID)
+        .expect("static MessageV3 failed fixture")
+        .into_effect()
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // §1a. message-row fat 类（精确 = FAT_KEYS 完整集）—— spec06 FixB 核心证伪点
 //      缺任一字段 = 前端回退回读蠢模式（缺陷B）→ fail（反转旧「多一即漂移」契约）。
@@ -607,54 +630,33 @@ fn im_channel_update_freezes_channel_id_only() {
     assert_frozen(&e, "im:channel:update", &["channel_id"]);
 }
 
+/// 冻结无 capability 与重复别名的 MessageV3 sending 字段集。
 #[test]
 fn im_post_sending_freezes_channel_and_temporary_id() {
-    // 乐观上屏：temporary_id 是 message 表 PK（前端按它定位乐观行）。S6（issue #55·C013）补
-    // render-ready 乐观终态行字段（msgId/temporaryId/channelId/eventSeq/sendStatus/readBits/text/type）→
-    // 前端 applyPostSending 退纯绑定（不再取 pendingText/pendingType）。snake 锚 channel_id/temporary_id 保留。
-    let e = to_effect::emit_post_sending(ch(), TMP_ID, "hello", "TEXT");
+    let e = message_v3_sending_effect();
     assert_frozen(
         &e,
         "im:post:sending",
         &[
-            "channel_id",
-            "temporary_id",
-            "msgId",
-            "temporaryId",
             "channelId",
-            "eventSeq",
+            "createAt",
+            "message",
             "sendStatus",
-            "serverId",
-            "isSelf",
-            "actionCapabilities",
-            "readBits",
-            "text",
+            "temporaryId",
             "type",
-            "replyId",
-            "replyRootId",
-            "replyFirstLevelId",
-            "replyCount",
-            "replyMessages",
+            "userId",
         ],
     );
 }
 
+/// 冻结只按 identity 和状态表达的 MessageV3 failed 字段集。
 #[test]
 fn im_post_send_failed_freezes_temporary_id_failed_patch() {
-    // HTTP PortError 真实失败路径：按 temporaryId 锚定乐观行，UI 只直绑 sendStatus="failed"。
-    let channel_id = ch();
-    let e = to_effect::emit_post_send_failed(channel_id.as_str(), TMP_ID);
+    let e = message_v3_failed_effect();
     assert_frozen(
         &e,
         "im:post:send-failed",
-        &[
-            "channelId",
-            "sendStatus",
-            "temporaryId",
-            "serverId",
-            "isSelf",
-            "actionCapabilities",
-        ],
+        &["channelId", "sendStatus", "temporaryId"],
     );
 }
 
@@ -1059,6 +1061,7 @@ fn im_channels_loaded_delete_path_freezes_reason() {
 
 /// 冻结全集计数：本测试覆盖的工厂调用数 == projection-schema.md §1 表行数 == 26。
 /// 任何新增 emit 工厂未在本测试加 case → 此断言提示补齐（防漏测漂移）。
+/// 对账迁移中的 26 个可达事件/投影出口，避免删除旧 factory 后漏测。
 #[test]
 fn all_26_projection_factories_covered() {
     // 逐工厂构造一次，收集 (channel, keys)——证明 26 个出口全可达且产合法 Emit。
@@ -1068,8 +1071,8 @@ fn all_26_projection_factories_covered() {
     let f = sample_fields();
     let effects: Vec<Effect> = vec![
         to_effect::emit_post_received(ch(), SEQ, MSG_ID, &f),
-        to_effect::emit_post_sending(ch(), TMP_ID, "", "TEXT"),
-        to_effect::emit_post_send_failed(ch().as_str(), TMP_ID),
+        message_v3_sending_effect(),
+        message_v3_failed_effect(),
         helix_im::render_ready_candidates::emit("req", &serde_json::json!({"data": []})),
         to_effect::emit_sync_too_long(ch(), Seq(1)),
         to_effect::emit_connection_established("c"),

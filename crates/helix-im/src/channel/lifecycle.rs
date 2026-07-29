@@ -148,10 +148,13 @@ impl ImModule {
                         },
                     );
                 }
-                out.push(crate::acl::to_effect::emit_post_send_failed(
-                    channel_id.as_str(),
-                    tmp_id.0.as_str(),
-                ));
+                out.push(
+                    crate::event::post::send_failed_for_identity(
+                        channel_id.as_str(),
+                        tmp_id.0.as_str(),
+                    )?
+                    .into_effect(),
+                );
             }
             return Ok(());
         }

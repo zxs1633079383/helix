@@ -172,7 +172,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
         schedule_status TEXT NOT NULL DEFAULT '',\
         schedule_revision INTEGER NOT NULL DEFAULT 0\
     )",
-    // G08 authority fact; channel columns above are a denormalized read model for one-step Surface recovery.
+    // G08 authority fact; channel columns above are a denormalized read model for one-step recovery.
     "CREATE TABLE IF NOT EXISTS channel_schedule (\
         channel_id TEXT PRIMARY KEY,\
         schedule_id TEXT NOT NULL DEFAULT '',\

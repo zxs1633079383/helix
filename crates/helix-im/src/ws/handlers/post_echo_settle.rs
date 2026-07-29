@@ -116,8 +116,8 @@ pub(super) fn reconcile_post_echo(
         ctx.state.corr_map.remove(&corr);
     }
     // The reconcile Persist is the durable terminal fact. Its PortReply re-enters
-    // the attached local-first timeline projector, so the renderer receives a
-    // typed replaceView Frame rather than consuming the legacy post echo.
+    // the attached local-first timeline readback, so consumers receive a
+    // MessageV3 timeline event rather than consuming the raw post echo.
     ctx.state.corr_map.insert(reconcile_corr, {
         let crate::pending_send::TimelineReadbackContext {
             window_token,

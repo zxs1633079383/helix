@@ -53,11 +53,7 @@ pub fn run(event: MessageV3Event) -> TestResult<SyncTrace> {
 }
 
 /// 写出单 viewer sync Gate artifact。
-pub fn write_artifact(
-    gate_id: &str,
-    producer: &str,
-    trace: SyncTrace,
-) -> TestResult<()> {
+pub fn write_artifact(gate_id: &str, producer: &str, trace: SyncTrace) -> TestResult<()> {
     let Some(output) = std::env::var_os("HELIX_GATE_ARTIFACT_DIR") else {
         return Ok(());
     };

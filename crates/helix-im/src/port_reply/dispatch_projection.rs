@@ -100,7 +100,7 @@ impl ImModule {
         );
     }
 
-    /// matching PersistOk 后读取 root durable fact，禁止从 HTTP body直接拼 renderer Frame。
+    /// matching PersistOk 后读取 root durable fact，禁止从 HTTP body 直接拼事件。
     pub(super) fn handle_make_topic_persist_reply(
         &mut self,
         projection: MakeTopicProjection,
@@ -129,8 +129,48 @@ impl ImModule {
         });
         self.state.corr_map.insert(
             read_corr,
-            CorrelationContext::OutboundMakeTopicFrameRead { projection },
+            CorrelationContext::OutboundMakeTopicRootRead { projection },
         );
+    }
+
+    /// 从持久化后的 root 行发布话题创建绝对态，拒绝用 HTTP 请求体补造字段。
+    pub(super) fn handle_make_topic_thread_readback(
+        &mut self,
+        projection: MakeTopicProjection,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), crate::error::ImError> {
+        let PortOutcome::Ok(reply) = outcome else {
+            return Ok(());
+        };
+        let rows = serde_json::from_slice::<Vec<serde_json::Value>>(reply.0.as_ref()).map_err(
+            |error| crate::error::ImError::Parse(format!("topic root readback: {error}")),
+        )?;
+        let Some(root_row) = rows.first() else {
+            return Ok(());
+        };
+        let parent_channel_id = root_row
+            .get("channel_id")
+            .or_else(|| root_row.get("channelId"))
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                crate::error::ImError::Parse(
+                    "make-topic root row omitted parent channel".to_string(),
+                )
+            })?;
+        out.push(
+            crate::event::channel::topic_created(serde_json::json!({
+                "channelId": projection.topic_channel_id.as_str(),
+                "parentChannelId": parent_channel_id,
+                "rootMessageId": projection.root_message_id,
+                "displayName": projection.display_name,
+                "rootPost": root_row,
+                "state": "created",
+            }))?
+            .into_effect(),
+        );
+        Ok(())
     }
 
     /// 将成功 HTTP authority 转成单行 channel 持久屏障，失败或不完整回包保持无可见副作用。
@@ -141,23 +181,8 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) {
-        let viewer_role = self
-            .state
-            .viewer_channel_roles
-            .get(&expected_channel_id)
-            .map(String::as_str)
-            .or_else(|| {
-                self.state
-                    .channel_summary_projector
-                    .current_view(expected_channel_id.as_str())
-                    .map(|view| match view.viewer_role {
-                        crate::interaction_frame::ChannelRole::Owner => "CREATOR",
-                        crate::interaction_frame::ChannelRole::Admin => "MANAGER",
-                        crate::interaction_frame::ChannelRole::Member => "MEMBER",
-                    })
-            });
         let Some(projection) =
-            decode_settings_projection(expected_channel_id, causation_id, outcome, viewer_role)
+            decode_settings_projection(expected_channel_id, causation_id, outcome)
         else {
             return;
         };
@@ -201,12 +226,12 @@ impl ImModule {
         );
     }
 
-    /// 在 channel PersistOk 后同时释放兼容事件与已 attach 的 typed summary Frame。
+    /// 在 channel PersistOk 后释放频道设置的 MessageV3 权威事件。
     pub(super) fn handle_channel_settings_persist_reply(
         &mut self,
         projection: ChannelSettingsProjection,
         outcome: &PortOutcome,
-        now_ms: u64,
+        _now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), crate::error::ImError> {
         if !matches!(outcome, PortOutcome::Ok(_)) {
@@ -230,24 +255,13 @@ impl ImModule {
                 serde_json::Value::String(projection.channel_id.as_str().to_string()),
             );
         }
-        if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
-            if let Some(frame) = self
-                .state
-                .dialog_list_frame
-                .patch_from_channel_update(scope, &channel)
-            {
-                out.push(frame);
-            }
-        }
         if let Some(effect) = crate::acl::to_effect_s1::emit_channel_settings_updated(
             projection.channel_id,
             &channel,
             projection.setting_version,
-            projection.channel_capabilities.clone(),
         ) {
             out.push(effect);
         }
-        let _legacy_projection_context = now_ms;
         Ok(())
     }
 }
@@ -304,7 +318,6 @@ fn decode_settings_projection(
     expected_channel_id: ChannelId,
     causation_id: Option<String>,
     outcome: &PortOutcome,
-    viewer_role: Option<&str>,
 ) -> Option<ChannelSettingsProjection> {
     let data = response_data(outcome)?;
     let channel_id = data
@@ -329,19 +342,12 @@ fn decode_settings_projection(
         .or_else(|| settings.get("settingVersion"))
         .and_then(serde_json::Value::as_u64)
         .filter(|version| *version <= i64::MAX as u64)?;
-    let capabilities_by_role = data
-        .get("capabilitiesByRole")
-        .or_else(|| settings.get("capabilitiesByRole"));
     Some(ChannelSettingsProjection {
         channel_id,
         display_name,
         purpose,
         header,
         setting_version,
-        channel_capabilities: crate::channel_capabilities::for_viewer(
-            capabilities_by_role,
-            viewer_role,
-        ),
         causation_id,
     })
 }

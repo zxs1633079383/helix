@@ -13,7 +13,7 @@ impl ImModule {
     /// 1. Persist{P1, 乐观落库 Sending}
     /// 2. Emit(im:post:sending)
     ///
-    /// 普通文本会先等待 P1 的已 attach timeline 读回产生真实 Frame，随后才吐
+    /// 普通文本会先等待 P1 的已 attach timeline 读回产生真实事件，随后才吐
     /// `Http{H1, POST /posts/create}` + `ScheduleTimer{T1, 15s}`；rich/file 若存在
     /// 上传门控，首步只向 Java 发 `/oss/getPresignedUrl`；PUT 成功后停在 WaitingComplete，完整
     /// complete/posts.create 链由 G-03 B2 接续。

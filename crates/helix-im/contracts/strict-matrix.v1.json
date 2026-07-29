@@ -1,5 +1,8 @@
 {
   "schema_version": "helix-im-strict-matrix/v1",
+  "lifecycle": "RETIRED_HISTORICAL",
+  "retired_by": "specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json",
+  "retired_reason": "InteractionFrame V2 合同已物理下线；本文件只保留迁移前 50 Gate 历史快照。",
   "contract_epoch": 12,
   "source_documents": [
     "docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md",

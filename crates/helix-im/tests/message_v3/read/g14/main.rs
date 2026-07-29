@@ -87,8 +87,7 @@ fn assert_read_write_set(effects: &[Effect]) -> TestResult<()> {
     assert_eq!(spec.table, "message");
     assert_eq!(spec.key_col, "id");
     assert!(spec.patch.iter().any(|(column, value)| {
-        column == "read_bits"
-            && matches!(value, SqlValue::Text(value) if value == READ_BITS)
+        column == "read_bits" && matches!(value, SqlValue::Text(value) if value == READ_BITS)
     }));
     assert!(ops.iter().all(|op| !matches!(
         op,
@@ -103,7 +102,10 @@ fn run_persona(viewer_id: &str, include_command: bool) -> TestResult<PersonaTrac
     let mut ticks = Vec::new();
     if include_command {
         let payload = json!({"channel_id": CHANNEL_ID, "posts": [POST_ID]});
-        harness.step(command_json("im_post_read", payload.clone()), REVISION as u64);
+        harness.step(
+            command_json("im_post_read", payload.clone()),
+            REVISION as u64,
+        );
         assert_eq!(
             harness.last_http_body(),
             Some(json!({"channelId": CHANNEL_ID, "posts": [POST_ID]}))
@@ -191,9 +193,15 @@ fn g14_splits_reader_and_author_events_without_frame_refresh() -> TestResult<()>
             }
         })]
     );
-    let encoded = serde_json::to_string(&trace.receiver.events)
-        .map_err(|error| error.to_string())?;
-    for forbidden in ["InteractionFrame", "Surface", "actionCapabilities", "receipts", "reqId"] {
+    let encoded =
+        serde_json::to_string(&trace.receiver.events).map_err(|error| error.to_string())?;
+    for forbidden in [
+        "InteractionFrame",
+        "Surface",
+        "actionCapabilities",
+        "receipts",
+        "reqId",
+    ] {
         assert!(!encoded.contains(forbidden), "forbidden field {forbidden}");
     }
     Ok(())
@@ -203,8 +211,7 @@ fn g14_splits_reader_and_author_events_without_frame_refresh() -> TestResult<()>
 #[test]
 fn g14_persist_failure_emits_no_terminal_event() -> TestResult<()> {
     let mut harness = Harness::new_with_identity(&[14], AUTHOR_ID, "g14-company", "", "", "");
-    let inbound =
-        serde_json::to_vec(&read_authority()).map_err(|error| error.to_string())?;
+    let inbound = serde_json::to_vec(&read_authority()).map_err(|error| error.to_string())?;
     harness.step(
         Tick::Inbound(InboundBytes(Bytes::from(inbound))),
         REVISION as u64,
@@ -220,12 +227,7 @@ fn g14_persist_failure_emits_no_terminal_event() -> TestResult<()> {
 #[test]
 fn g14_recovery_rebuilds_author_event_from_committed_facts() -> TestResult<()> {
     let event = helix_im::event::read::post_for_viewer(
-        CHANNEL_ID,
-        POST_ID,
-        READER_ID,
-        READ_BITS,
-        REVISION,
-        AUTHOR_ID,
+        CHANNEL_ID, POST_ID, READER_ID, READ_BITS, REVISION, AUTHOR_ID,
     )
     .map_err(|error| error.to_string())?;
     let Effect::Emit { event } = event.into_effect() else {

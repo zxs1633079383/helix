@@ -17,7 +17,6 @@ use crate::state::{ChannelId, ConnState, CorrelationContext, ImState, SendStatus
 use helix_core::effect::TimerId;
 use helix_core::{CoreError, EffectSink, Module, Tick};
 
-pub(crate) mod action;
 mod trait_impl;
 
 /// Driver 向 sans-I/O IM 模块同步当前 host 身份的内部命令。
@@ -306,7 +305,7 @@ impl ImModule {
         // The post handler has already appended its PersistFire write. The host
         // driver serializes Persist/PersistFire by the same `message` table key,
         // so this local-first query observes that accepted durable write before
-        // producing the next typed Frame.
+        // producing the next MessageV3 event.
         for (channel_id, causation_id) in timeline_refreshes {
             self.refresh_attached_latest_timeline(channel_id, causation_id, out)
                 .map_err(|e| CoreError::ModuleError {
@@ -317,7 +316,3 @@ impl ImModule {
         Ok(())
     }
 }
-
-#[cfg(test)]
-#[path = "module_tests.rs"]
-mod handshake_tests;

@@ -13,8 +13,9 @@
 mod common;
 use common::*;
 
-use helix_core::effect::{Effect, SqlValue, StorageOp};
-use helix_core::tick::InboundBytes;
+use helix_core::effect::{Effect, Row, SqlValue, StorageOp};
+use helix_core::port_codec::rows_to_reply_bytes;
+use helix_core::tick::{InboundBytes, ReplyBytes};
 use helix_core::Tick;
 use helix_im::state::SendStatus;
 
@@ -53,6 +54,51 @@ fn acknowledge_optimistic_persist(
         })
         .expect("ordinary send must begin with P1 persist");
     harness.step(port_reply_ok(corr), 1_001)
+}
+
+/// 确认 G-01 原子提交并回灌当前 viewer 的 channel_member 绝对态。
+fn acknowledge_post_commit(
+    harness: &mut Harness,
+    effects: &[EffectKind],
+    temporary_id: &str,
+    server_id: u64,
+    now_ms: u64,
+) -> Vec<EffectKind> {
+    let persist_corr = effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::PersistAtomic(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("post echo must begin with MessageV3 PersistAtomic");
+    let readback = harness.step(port_reply_ok(persist_corr), now_ms);
+    let readback_corr = readback
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("post commit must read back current channel_member");
+    let last_post = serde_json::json!({
+        "id": sid(server_id),
+        "temporaryId": temporary_id,
+        "channelId": cid(1),
+        "message": "hello",
+        "type": "TEXT",
+        "createAt": 1_100
+    });
+    let row: Row = vec![
+        ("channel_id".to_string(), SqlValue::Text(cid(1).to_string())),
+        ("unread_count".to_string(), SqlValue::Integer(0)),
+        (
+            "last_post".to_string(),
+            SqlValue::Text(last_post.to_string()),
+        ),
+    ];
+    harness.step(
+        port_reply_with_body(readback_corr, ReplyBytes(rows_to_reply_bytes(&[row])).0),
+        now_ms.saturating_add(1),
+    )
 }
 
 /// 回归锚: S5 —— echo 走真源 `post` action → reconcile + CancelTimer + cursor 推进。
@@ -115,7 +161,8 @@ fn s5_post_action_echo_reconciles() {
             .any(|e| matches!(e, EffectKind::CancelTimer(t) if *t == timeout_timer)),
         "post-action echo 须 CancelTimer 15s 超时，got {echo:?}"
     );
-    // 5. cursor 独立推进到 echo seq=1。
+    // 5. 原子提交成功后 cursor 独立推进到 echo seq=1。
+    let _ = acknowledge_post_commit(&mut h, &echo, "tmp_e", 42, 1_101);
     assert_eq!(
         h.module.cursor_for(channel_id(1)),
         Some(1),
@@ -130,77 +177,69 @@ fn s5_post_action_echo_reconciles() {
 #[test]
 fn s5_core_echo_temporary_id_hit_does_not_increment_unread() {
     let mut h = Harness::new(&[1]);
-    let _ = h.step(send_message_cmd(1, "tmp_e", "hello"), 1000);
+    let initial = h.step(send_message_cmd(1, "tmp_e", "hello"), 1000);
+    let _ = acknowledge_optimistic_persist(&mut h, &initial);
     let _ = h.step(post_echo_frame(1, 1, "tmp_e", 42), 1100);
 
     let bump = h.sink.as_slice().iter().find_map(|e| match e {
-        Effect::PersistFire { ops } | Effect::Persist { ops, .. } => {
-            ops.iter().find_map(|op| match op {
-                StorageOp::GuardedBump(s) if s.bump_col == "unread_count" => Some(s.bump_delta),
-                _ => None,
-            })
-        }
+        Effect::PersistFire { ops }
+        | Effect::Persist { ops, .. }
+        | Effect::PersistAtomic { ops, .. } => ops.iter().find_map(|op| match op {
+            StorageOp::GuardedBump(s) if s.bump_col == "unread_count" => Some(s.bump_delta),
+            StorageOp::ScopedGuardedBump(s) if s.bump_col == "unread_count" => Some(s.bump_delta),
+            _ => None,
+        }),
         _ => None,
     });
-    assert_eq!(
-        bump,
-        Some(0),
+    assert!(
+        bump.is_none_or(|delta| delta == 0),
         "temporaryId 命中 pending send 的 own echo 不得增加 unread_count，got {bump:?}"
     );
 }
 
-/// 回归锚: fix/im-send-echo-reconcile —— 本端 self-echo 在 cursor gap（seq≫cursor+1·被 gate
-/// buffer）下，仍**兜底 emit `im:post:received`** 结算乐观行 DOM（壳纯渲染靠投影；DB 已由
-/// reconcile_post_echo 落 id）。守不变量：cursor **不**被该兜底推进（仍卡在 gap 前）。
+/// 回归锚: MessageV3 硬切 —— cursor gap 下禁止绕过 gate 提前发布终态事件。
 #[test]
-fn s5_self_echo_under_gap_still_emits_post_received_for_dom_settle() {
+fn s5_self_echo_under_gap_waits_for_durable_gate_commit() {
     let mut h = Harness::new(&[1]);
-    let _ = h.step(send_message_cmd(1, "tmp_gap", "hello"), 1000);
-    // HTTP 200 无 server id（cses Pulsar 异步建）→ 标 Sent 但保留 pending（path1 修复）。
-    // 直接打 echo 即可验 path2 DOM 兜底（pending 仍在）。
+    let initial = h.step(send_message_cmd(1, "tmp_gap", "hello"), 1000);
+    let _ = acknowledge_optimistic_persist(&mut h, &initial);
 
     // echo seq=9 ≫ cursor(0)+1 → ch.ingest buffer（不 apply-emit）。
     let echo = h.step(post_echo_frame(1, 9, "tmp_gap", 55), 1100);
 
-    // 兜底 emit：sink 中须有 im:post:received，data.temporaryId==tmp_gap·id==server_id·sendStatus==sent。
-    let settle = h.sink.as_slice().iter().find_map(|e| match e {
+    // MessageV3 禁止为 DOM 结算绕过持久化屏障；补齐缺口后才释放 post/channel 终态。
+    let settle = h.sink.as_slice().iter().any(|e| match e {
         Effect::Emit { event } => {
-            let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).ok()?;
-            if v.get("event").and_then(|x| x.as_str()) == Some("im:post:received") {
-                Some(v)
-            } else {
-                None
-            }
+            serde_json::from_slice::<serde_json::Value>(event.0.as_ref())
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("event")
+                        .and_then(|item| item.as_str())
+                        .map(str::to_string)
+                })
+                .as_deref()
+                == Some("im:post:received")
         }
-        _ => None,
+        _ => false,
     });
-    let v = settle.expect(
-        "self-echo under gap 须兜底 emit im:post:received（DOM 结算），否则乐观行永停 sending",
-    );
-    let data = v.get("data").expect("im:post:received 须含 data");
-    assert_eq!(
-        data.get("temporaryId").and_then(|x| x.as_str()),
-        Some("tmp_gap"),
-        "兜底投影须按 temporaryId 结算乐观行"
-    );
-    assert_eq!(
-        data.get("msg_id").and_then(|x| x.as_str()),
-        Some(sid(55).as_str()),
-        "兜底投影 msg_id 须为 server_id（tmp→server 覆写）"
-    );
-    assert_eq!(
-        data.get("sendStatus").and_then(|x| x.as_str()),
-        Some("sent"),
-        "兜底投影 sendStatus 须 sent"
+    assert!(
+        !settle,
+        "gap self-echo must not emit im:post:received before durable gate commit"
     );
 
-    // 不变量：cursor 不被兜底推进（gap 未填→仍卡 0；HX-C008 单调由 gate 严格 +1 守）。
+    // 不变量：gap 未补齐时 cursor 不推进，且不会产生 MessageV3 原子提交。
     assert_eq!(
         h.module.cursor_for(channel_id(1)),
         Some(0),
-        "DOM 兜底投影**不**推 cursor（cursor 仍卡在 gap 前，待 sync 回补）"
+        "cursor remains at the gap boundary until sync backfill"
     );
-    let _ = echo;
+    assert!(
+        !echo
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::PersistAtomic(_))),
+        "buffered gap echo must not enter MessageV3 commit early"
+    );
 }
 
 /// 回归锚: fix/im-send-echo-reconcile —— 连续 echo（seq==cursor+1·gate apply）下**不**双发
@@ -208,8 +247,10 @@ fn s5_self_echo_under_gap_still_emits_post_received_for_dom_settle() {
 #[test]
 fn s5_self_echo_contiguous_does_not_double_emit_post_received() {
     let mut h = Harness::new(&[1]);
-    let _ = h.step(send_message_cmd(1, "tmp_c", "hello"), 1000);
-    let _ = h.step(post_echo_frame(1, 1, "tmp_c", 66), 1100); // seq=1==cursor+1 连续
+    let initial = h.step(send_message_cmd(1, "tmp_c", "hello"), 1000);
+    let _ = acknowledge_optimistic_persist(&mut h, &initial);
+    let echo = h.step(post_echo_frame(1, 1, "tmp_c", 66), 1100); // seq=1==cursor+1 连续
+    let _ = acknowledge_post_commit(&mut h, &echo, "tmp_c", 66, 1_101);
 
     let count = h
         .sink

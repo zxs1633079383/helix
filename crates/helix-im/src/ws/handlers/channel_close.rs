@@ -25,7 +25,7 @@ impl WsMessageHandler for ChannelCloseHandler {
         CHANNEL_CLOSE_ACTION
     }
 
-    /// 将可信 close tombstone 放入 G16 原子持久屏障，提交前不发布终态 Frame。
+    /// 将可信 close tombstone 放入 G16 原子持久屏障，提交前不发布终态事件。
     fn handle(
         &self,
         ctx: &mut ImWsContext<'_>,

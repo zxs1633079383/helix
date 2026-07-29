@@ -132,7 +132,7 @@ pub(super) fn message_item_data(
     msg_id: &str,
     fields: &crate::sync_session::PostFields,
     viewer_user_id: &str,
-    revoked: bool,
+    _revoked: bool,
 ) -> serde_json::Value {
     use serde_json::json;
     let props: serde_json::Value = if fields.props.is_empty() {
@@ -152,15 +152,6 @@ pub(super) fn message_item_data(
     };
     let is_self = !viewer_user_id.is_empty() && fields.user_id == viewer_user_id;
     let has_server_id = !msg_id.is_empty();
-    let action_capabilities = crate::message_capabilities::build(
-        has_server_id,
-        is_self,
-        viewer_user_id,
-        &props,
-        &expedite_map,
-        false,
-        revoked,
-    );
     let urgent =
         crate::query::render_ready::urgent::project(&expedite_map, viewer_user_id, has_server_id);
     // type 空串容错 "TEXT"（render-ready·前端不再 `d.type || "TEXT"` 兜底）。
@@ -207,7 +198,6 @@ pub(super) fn message_item_data(
         "sendStatus": "sent",
         "serverId": if has_server_id { serde_json::Value::String(msg_id.to_string()) } else { serde_json::Value::Null },
         "isSelf": is_self,
-        "actionCapabilities": action_capabilities,
         "reactions": resolve_reactions(&props),
         "reactionCount": resolve_reaction_count(&props),
         "expediteMap": expedite_map,

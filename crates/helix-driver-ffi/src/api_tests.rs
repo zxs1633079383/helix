@@ -157,59 +157,6 @@ fn command_rejects_null_handle() {
 }
 
 #[test]
-fn action_invoke_rejects_null_handle_and_malformed_envelope() {
-    let invalid = b"{not-json";
-    let null_status =
-        unsafe { helix_invoke_action(std::ptr::null_mut(), invalid.as_ptr(), invalid.len()) };
-    assert_eq!(null_status, FFI_NULL);
-
-    let api = b"https://api.example.test";
-    let ws = b"wss://ws.example.test/socket";
-    let handle = unsafe {
-        helix_create_with_network(
-            api.as_ptr(),
-            api.len(),
-            ws.as_ptr(),
-            ws.len(),
-            test_vtable(),
-        )
-    };
-    assert!(!handle.is_null());
-    let invalid_status = unsafe { helix_invoke_action(handle, invalid.as_ptr(), invalid.len()) };
-    assert_eq!(invalid_status, FFI_INVALID);
-    unsafe { helix_destroy(handle) };
-}
-
-#[test]
-fn action_invoke_enqueues_a_strict_versioned_envelope() {
-    let api = b"https://api.example.test";
-    let ws = b"wss://ws.example.test/socket";
-    let handle = unsafe {
-        helix_create_with_network(
-            api.as_ptr(),
-            api.len(),
-            ws.as_ptr(),
-            ws.len(),
-            test_vtable(),
-        )
-    };
-    assert!(!handle.is_null());
-    let envelope = br#"{
-        "schemaVersion":1,
-        "requestId":"request-1",
-        "actorId":"viewer-1",
-        "surface":"message.timeline",
-        "scope":{"kind":"timeline","channelId":"channel-1","windowToken":"latest"},
-        "surfaceEpoch":1,
-        "observedRevision":1,
-        "invocation":{"actionRef":"act.v1.0000000000000001","input":{}}
-    }"#;
-    let status = unsafe { helix_invoke_action(handle, envelope.as_ptr(), envelope.len()) };
-    assert_eq!(status, FFI_OK);
-    unsafe { helix_destroy(handle) };
-}
-
-#[test]
 fn command_enqueues_successfully() {
     let api = b"https://api.example.test";
     let ws = b"wss://ws.example.test/socket";

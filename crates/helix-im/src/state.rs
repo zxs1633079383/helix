@@ -54,9 +54,6 @@ pub struct ImState {
     /// per-channel 聚合（消息 + 游标 + gate）
     pub channels: HashMap<ChannelId, Channel>,
 
-    /// 当前登录用户在各频道的服务端角色事实；每次 hello 清空，由增量/成员帧重新建立。
-    pub viewer_channel_roles: HashMap<ChannelId, String>,
-
     /// 待对账的发送（temporaryId → PendingSend）
     /// 来自源码：乐观落库后等 echo 或 sync 对账，15s 超时 → unSend
     pub pending_sends: HashMap<TemporaryId, PendingSend>,
@@ -179,7 +176,7 @@ pub struct ImState {
     pub recovery_session: crate::sync_session::RecoverySession,
 
     /// `hashMismatch` fan-out 的批次屏障。只跟踪在途 Persist correlation，
-    /// 避免每个 channel commit 都单独发布 dialog Frame。
+    /// 避免每个 channel commit 都单独发布 channel 列表事件。
     pub(crate) pong_gap_batch: crate::sync::pong_batch::PongGapBatch,
 
     /// UC-10：本 hello 会话累积 mention+urgent post id，global increment-end 拉 queryTodoList 后清空。
@@ -209,43 +206,14 @@ pub struct ImState {
     /// 使同会话内晚到的旧 Scan/HTTP/cache 回包不能覆盖新窗口结果。
     pub(crate) message_query_generations: HashMap<(ChannelId, String), u64>,
 
-    /// 左侧会话列表已发布的 render-ready 行与 revision。只用于构造原子 frame，不保存 raw storage 行。
-    pub(crate) dialog_list_frame: crate::dialog_frame::DialogListFrameState,
-
-    /// 已 attach 的有界时间线窗口；只保存 typed VM/revision，raw 行仍由 query/render-ready 边界消费。
-    pub(crate) timeline_projector: crate::projector::timeline::TimelineProjector,
-
-    /// 回复抽屉的 HTTP 权威快照/replaceView slot；只存 typed VM，不保留原始回复 body。
-    pub(crate) thread_detail_projector: crate::projector::thread_detail::ThreadDetailProjector,
-
-    /// channel/member/topic 的本地事实重放 slot。它们与 timeline 同属 identity-scoped
-    /// SurfaceRuntime，不能跨登录会话复用 revision。
-    pub(crate) channel_summary_projector:
-        crate::projector::channel_summary::ChannelSummaryProjector,
-    pub(crate) composer_projector: crate::projector::composer::ComposerProjector,
-    pub(crate) member_roster_projector: crate::projector::member_roster::MemberRosterProjector,
-    pub(crate) topic_list_projector: crate::projector::topic_list::TopicListProjector,
-
-    /// Frame 下发时登记的 opaque action lease 与本 session replay ledger。它与 timeline slot 同属
-    /// SurfaceRuntime，会话/身份边界必须一起清除。
-    pub(crate) action_registry: crate::projector::action::ActionBindingRegistry,
-
-    /// invoke 受理结果的有界 protocol receipt 队列。receipt 不是业务完成，真正终态仍等 causation
-    /// Frame；此队列仅保证前端能可靠知道当前请求是否被 Helix 接受。
-    pub(crate) action_receipts: crate::projector::action::ActionReceiptBus,
-
-    /// In-flight mutation causation keyed by authority family and message id. Renderer input can never choose
-    /// this key; it is derived from the trusted ActionDispatch grant.
-    pub(crate) pending_authority_actions: BTreeMap<
-        (crate::projector::action::AuthorityMutationKind, String),
-        crate::projector::action::PendingAuthorityAction,
-    >,
+    /// 已附着的有界时间线窗口；只保存分页与定位所需的业务事实。
+    pub(crate) timeline_state: crate::timeline_state::TimelineState,
 
     /// G05 request-scoped, bounded target ledger. Only trusted WS authority may consume an entry;
     /// HTTP acceptance merely prunes explicit failures and never establishes delivery.
     pub(crate) pending_forward_deliveries: crate::forward::PendingForwardDeliveryLedger,
 
-    /// G08 command request 只为下一条匹配 authority Frame 提供 causation，不建立成功事实。
+    /// G08 command request 只为下一条匹配 authority 事件提供 causation，不建立成功事实。
     pub(crate) pending_schedule_requests: BTreeMap<ChannelId, String>,
 
     /// G09 cancel request 与 G08 create request 分槽，避免竞态时串用 causation。
@@ -262,11 +230,6 @@ pub struct ImState {
     /// G16b 已提交/在途 WS event 序号分账，失败可重放且重复 authority 不重复出帧。
     pub(crate) inflight_member_update_seqs: HashSet<(ChannelId, Seq)>,
     pub(crate) committed_member_update_seqs: HashSet<(ChannelId, Seq)>,
-
-    /// action 的权威 HTTP 回包以 typed participant-receipts Frame 发布，不能把 raw read/list body
-    /// 直接交给 renderer 推导。
-    pub(crate) participant_receipts_projector:
-        crate::projector::participant_receipts::ParticipantReceiptsProjector,
 
     /// 已经通过持久屏障的 G14 authority 版本；用于 O(1) 丢弃重复或倒退的 WS 回执。
     pub(crate) committed_post_reads: BTreeMap<String, (i64, String)>,
@@ -288,7 +251,6 @@ impl ImState {
             conn: ConnState::Disconnected,
             connection_id: None,
             channels: HashMap::new(),
-            viewer_channel_roles: HashMap::new(),
             pending_sends: HashMap::new(),
             pending_uploads: HashMap::new(),
             pending_media_ops: HashMap::new(),
@@ -328,25 +290,7 @@ impl ImState {
             hydration_pending: HashSet::new(),
             recent_message_coverage: HashMap::new(),
             message_query_generations: HashMap::new(),
-            dialog_list_frame: crate::dialog_frame::DialogListFrameState::default(),
-            timeline_projector: crate::projector::timeline::TimelineProjector::default(),
-            thread_detail_projector:
-                crate::projector::thread_detail::ThreadDetailProjector::default(),
-            channel_summary_projector:
-                crate::projector::channel_summary::ChannelSummaryProjector::default(),
-            composer_projector: crate::projector::composer::ComposerProjector::default(),
-            member_roster_projector:
-                crate::projector::member_roster::MemberRosterProjector::default(),
-            topic_list_projector: crate::projector::topic_list::TopicListProjector::default(),
-            action_registry: crate::projector::action::ActionBindingRegistry::new(
-                crate::projector::action::DEFAULT_ACTION_REGISTRY_CAPACITY,
-            )
-            .expect("static action registry capacity must be non-zero"),
-            action_receipts: crate::projector::action::ActionReceiptBus::new(
-                crate::projector::action::DEFAULT_ACTION_RECEIPT_CAPACITY,
-            )
-            .expect("static action receipt capacity must be non-zero"),
-            pending_authority_actions: BTreeMap::new(),
+            timeline_state: crate::timeline_state::TimelineState::default(),
             pending_forward_deliveries: crate::forward::PendingForwardDeliveryLedger::default(),
             pending_schedule_requests: BTreeMap::new(),
             pending_schedule_cancel_requests: BTreeMap::new(),
@@ -356,8 +300,6 @@ impl ImState {
             committed_channel_creates: HashSet::new(),
             inflight_member_update_seqs: HashSet::new(),
             committed_member_update_seqs: HashSet::new(),
-            participant_receipts_projector:
-                crate::projector::participant_receipts::ParticipantReceiptsProjector::default(),
             committed_post_reads: BTreeMap::new(),
             query_session_epoch: 0,
         }
@@ -377,7 +319,6 @@ impl ImState {
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
         self.hydration_pending.clear();
-        self.viewer_channel_roles.clear();
         self.reply_projection_revisions.clear();
         self.reply_projection_seen_ids.clear();
         self.reset_transport_query_session();
@@ -385,13 +326,7 @@ impl ImState {
 
     pub(crate) fn reset_recent_query_coverage(&mut self) {
         self.reset_query_session_correlations();
-        self.timeline_projector.reset();
-        self.thread_detail_projector.reset();
-        self.channel_summary_projector.reset();
-        self.composer_projector.reset();
-        self.member_roster_projector.reset();
-        self.topic_list_projector.reset();
-        self.participant_receipts_projector.reset();
+        self.timeline_state.reset();
     }
 
     /// A transport reconnect invalidates query coverage and in-flight replies, but it is not an
@@ -402,10 +337,9 @@ impl ImState {
         self.drop_query_session_correlations();
     }
 
-    /// 完整 query/session reset 同时撤销 renderer capability；仅 identity 或 projector 重建可走此边界。
+    /// 完整 query/session reset 同时撤销旧查询回包。
     fn reset_query_session_correlations(&mut self) {
         self.drop_query_session_correlations();
-        self.action_registry.clear();
         self.clear_pending_action_state();
     }
 
@@ -419,16 +353,13 @@ impl ImState {
                 CorrelationContext::MessageQueryLocal { .. }
                     | CorrelationContext::MessageQueryRemote { .. }
                     | CorrelationContext::MessageQueryCache { .. }
-                    | CorrelationContext::InteractionViewReceipt { .. }
             )
         });
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
     }
 
-    /// 清理依赖旧 transport authority 回包的 action 辅助态，不触碰是否保留 grant 的策略。
+    /// 清理依赖旧 transport authority 回包的请求辅助态。
     fn clear_pending_action_state(&mut self) {
-        self.action_receipts.clear();
-        self.pending_authority_actions.clear();
         self.pending_forward_deliveries = crate::forward::PendingForwardDeliveryLedger::default();
         self.pending_schedule_requests.clear();
         self.pending_schedule_cancel_requests.clear();
@@ -436,9 +367,8 @@ impl ImState {
         self.inflight_channel_creates.clear();
     }
 
-    /// 身份 scope 切换是 SurfaceRuntime 的硬边界：旧 viewer 的 attach slot、读侧相关性与
-    /// coverage 都不能在新 viewer 下继续出帧。该清理不影响发送/同步等非 query 业务 corr。
-    pub(crate) fn reset_surface_runtime_for_identity_change(&mut self) {
+    /// 身份切换时清除旧 viewer 的附着窗口、相关性与覆盖证明。
+    pub(crate) fn reset_message_v3_identity(&mut self) {
         self.recovery_session.invalidate();
         // Tenant/actor facts are never portable.  A B session must rediscover
         // channels and cursors from its own store rather than treating A's
@@ -454,7 +384,6 @@ impl ImState {
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
         self.reset_recent_query_coverage();
-        self.dialog_list_frame.reset();
         self.corr_map.retain(|_, context| {
             !matches!(
                 context,
@@ -468,9 +397,6 @@ impl ImState {
                     | CorrelationContext::OutboundIncrementHydration { .. }
                     | CorrelationContext::UpdateChannelDialogPersist { .. }
                     | CorrelationContext::DialogListQuery { .. }
-                    | CorrelationContext::SurfaceStorageSnapshot { .. }
-                    | CorrelationContext::SurfaceThreadSnapshot { .. }
-                    | CorrelationContext::SurfaceReceiptSnapshot { .. }
                     | CorrelationContext::PostReadPersist { .. }
                     | CorrelationContext::OutboundChannelCreate { .. }
                     | CorrelationContext::ChannelCreatePersist { .. }

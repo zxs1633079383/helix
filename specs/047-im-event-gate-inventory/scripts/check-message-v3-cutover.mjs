@@ -9,8 +9,24 @@ const MANIFEST_PATH = resolve(FEATURE_DIR, 'contracts/gate-migration.v1.json');
 const LEDGER_PATH = resolve(FEATURE_DIR, 'review-ledger.json');
 const SPEC_PATH = resolve(FEATURE_DIR, 'spec.md');
 const GENERATED_GATES_PATH = resolve(FEATURE_DIR, '.v1/gates');
+const RETIRED_MATRIX_PATH = resolve(ROOT, 'crates/helix-im/contracts/strict-matrix.v1.json');
+const RETIRED_COMMAND_API_PATH = resolve(ROOT, 'crates/helix-im/contracts/command-api.v1.json');
 const FORBIDDEN_RUNTIME_TERMS =
-  /\b(?:InteractionFrame|SurfaceMutation|ActionBinding|UiDirective|FrameApplied)\b/;
+  /\b(?:InteractionFrame|SurfaceMutation|ActionBinding|UiDirective|FrameApplied)\b|im:interaction:frame|actionCapabilities|channelCapabilities/;
+const FORBIDDEN_CODE_DEPENDENCIES =
+  /helix_im::(?:interaction_frame|projector)|\bSurfaceRuntime\b|\bSurfaceMutationV\d*\b|\bInteractionFrameV\d*\b|im:interaction:frame|helix_invoke_action|build_surface_resync_command|build_action_invocation_command/;
+const RETIRED_SOURCE_PATHS = [
+  'crates/helix-im/src/interaction_frame.rs',
+  'crates/helix-im/src/surface_composer.rs',
+  'crates/helix-im/src/surface_runtime.rs',
+  'crates/helix-im/src/dialog_frame.rs',
+  'crates/helix-im/src/dialog_patch.rs',
+  'crates/helix-im/src/projector',
+  'crates/helix-im/src/ws/handlers/legacy_event.rs',
+  'crates/helix-im/src/ws/parser/core/inbound.rs',
+  'crates/helix-im/src/message_capabilities.rs',
+  'crates/helix-im/src/channel_capabilities.rs',
+];
 const DOMAIN_PACKAGES = new Map([
   ['post', 'post'],
   ['schedule', 'schedule'],
@@ -28,6 +44,23 @@ function readJson(path) {
   } catch (error) {
     throw new Error(`invalid JSON ${path}: ${error.message}`);
   }
+}
+
+/** 深度枚举目录下满足谓词的普通文件，并保持稳定排序。 */
+function walkFiles(root, predicate = () => true) {
+  if (!existsSync(root)) {
+    return [];
+  }
+  const files = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = resolve(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...walkFiles(path, predicate));
+    } else if (entry.isFile() && predicate(path)) {
+      files.push(path);
+    }
+  }
+  return files.sort();
 }
 
 /** 从规格 Gate 表提取冻结分母，避免维护第二份手写 ID 列表。 */
@@ -116,6 +149,9 @@ function validateEntries(manifest) {
     if (JSON.stringify(entry).includes('TODO')) {
       throw new Error(`${entry.gate_id} contains unresolved TODO`);
     }
+    if (entry.state === 'MIGRATED' && entry.verification.length === 0) {
+      throw new Error(`${entry.gate_id} migrated entry has no verification`);
+    }
   }
 }
 
@@ -137,6 +173,120 @@ function validateMigratedOwners(entries) {
       if (FORBIDDEN_RUNTIME_TERMS.test(source)) {
         throw new Error(`${entry.gate_id} migrated owner still references retired contract: ${owner}`);
       }
+    }
+  }
+}
+
+/** 证明共享旧模块已物理删除，且生产 Rust 源码不再引用退役业务合同。 */
+function validateProductionCutover() {
+  const remaining = RETIRED_SOURCE_PATHS.filter((path) => existsSync(resolve(ROOT, path)));
+  if (remaining.length) {
+    throw new Error(`retired production paths still exist: ${remaining.join(',')}`);
+  }
+  const violations = walkFiles(resolve(ROOT, 'crates/helix-im/src'), (path) =>
+    path.endsWith('.rs'),
+  ).filter((path) => FORBIDDEN_RUNTIME_TERMS.test(readFileSync(path, 'utf8')));
+  if (violations.length) {
+    throw new Error(
+      `production source still references retired contract: ${violations
+        .map((path) => path.slice(ROOT.length + 1))
+        .join(',')}`,
+    );
+  }
+}
+
+/** 证明 native/FFI/Web 当前代码与测试不再依赖旧 UI 协议或独立 action ABI。 */
+function validateDriverAndTestCutover() {
+  const roots = [
+    'crates/helix-im/tests',
+    'crates/helix-driver-native/src',
+    'crates/helix-driver-ffi/src',
+    'crates/helix-driver-ffi/tests',
+    'crates/helix-driver-web/src',
+  ];
+  const violations = roots
+    .flatMap((root) => walkFiles(resolve(ROOT, root), (path) => path.endsWith('.rs')))
+    .filter((path) => FORBIDDEN_CODE_DEPENDENCIES.test(readFileSync(path, 'utf8')));
+  if (violations.length) {
+    throw new Error(
+      `current test/driver still depends on retired contract: ${violations
+        .map((path) => path.slice(ROOT.length + 1))
+        .join(',')}`,
+    );
+  }
+}
+
+/** 把旧 50 Gate Matrix 与其下游 API 锁为显式历史快照，禁止继续冒充当前合同。 */
+function validateRetiredMatrixAllowlist() {
+  for (const path of [RETIRED_MATRIX_PATH, RETIRED_COMMAND_API_PATH]) {
+    const contract = readJson(path);
+    if (
+      contract.lifecycle !== 'RETIRED_HISTORICAL' ||
+      contract.retired_by !== 'specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json'
+    ) {
+      throw new Error(`historical Matrix allowlist entry is not retired: ${path}`);
+    }
+  }
+  return [
+    'crates/helix-im/contracts/strict-matrix.v1.json',
+    'crates/helix-im/contracts/command-api.v1.json',
+    'crates/helix-im/docs/Strict Matrix/**',
+    'crates/helix-im/docs/projection-schema.md',
+    'crates/helix-im/docs/interaction-v2/**',
+    'docs/interaction-frame-v2-全量替换-按UC/**',
+    'specs/018-interaction-frame-v2-cutover..046-timeline-v3-delta-window/**',
+  ];
+}
+
+/** 验证 30 个 Gate 各自拥有唯一显式 Cargo target 与真实 main.rs。 */
+function validateGateTargets(entries) {
+  const cargo = readFileSync(resolve(ROOT, 'crates/helix-im/Cargo.toml'), 'utf8');
+  const targetCounts = new Map();
+  for (const match of cargo.matchAll(/^name\s*=\s*"([^"]+)"/gm)) {
+    targetCounts.set(match[1], (targetCounts.get(match[1]) ?? 0) + 1);
+  }
+  for (const entry of entries) {
+    if (targetCounts.get(entry.test_target) !== 1) {
+      throw new Error(`${entry.gate_id} test target must be registered exactly once`);
+    }
+    if (!existsSync(resolve(ROOT, entry.test_path))) {
+      throw new Error(`${entry.gate_id} test main is missing: ${entry.test_path}`);
+    }
+  }
+}
+
+/** 递归拒绝同一业务对象同时携带 temporaryId 与 temporary_id。 */
+function rejectDuplicateTemporaryAlias(value, location) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => rejectDuplicateTemporaryAlias(item, `${location}[${index}]`));
+    return;
+  }
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(value, 'temporaryId') &&
+    Object.prototype.hasOwnProperty.call(value, 'temporary_id')
+  ) {
+    throw new Error(`duplicate temporary id aliases at ${location}`);
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'actionCapabilities' || key === 'channelCapabilities') {
+      throw new Error(`retired capability payload at ${location}.${key}`);
+    }
+    rejectDuplicateTemporaryAlias(item, `${location}.${key}`);
+  }
+}
+
+/** 最终模式逐文件检查 generated JSON，防止 schema 外重新混入旧套壳或重复别名。 */
+function validateGeneratedPayloads(entries, requireGenerated) {
+  if (!requireGenerated) {
+    return;
+  }
+  for (const entry of entries) {
+    for (const name of entry.generated_files) {
+      const path = resolve(GENERATED_GATES_PATH, entry.gate_id, 'generated', name);
+      rejectDuplicateTemporaryAlias(readJson(path), `${entry.gate_id}/${name}`);
     }
   }
 }
@@ -163,7 +313,11 @@ function runSelfTest(manifest, ledger) {
 
   const twoActive = structuredClone(manifest.entries);
   twoActive[0].state = 'IN_PROGRESS';
-  expectFailure('shared and gate both active', () => validateSingleActive(ledger, twoActive));
+  const implementingLedger = structuredClone(ledger);
+  implementingLedger.phase = 'implementing';
+  expectFailure('shared and gate both active', () =>
+    validateSingleActive(implementingLedger, twoActive),
+  );
 
   const expected = expectedGateIds();
   const generatedWithExtra = new Set([...expected, 'G-17']);
@@ -190,6 +344,17 @@ function main() {
   );
   const active = validateSingleActive(ledger, manifest.entries);
   validateMigratedOwners(manifest.entries);
+  validateProductionCutover();
+  validateDriverAndTestCutover();
+  const historicalAllowlist = validateRetiredMatrixAllowlist();
+  validateGateTargets(manifest.entries);
+  validateGeneratedPayloads(manifest.entries, process.argv.includes('--require-generated'));
+  if (
+    process.argv.includes('--require-generated') &&
+    manifest.entries.some((entry) => entry.state !== 'MIGRATED')
+  ) {
+    throw new Error(`final cutover requires all 30 gates to be MIGRATED`);
+  }
   if (process.argv.includes('--self-test')) {
     runSelfTest(manifest, ledger);
   }
@@ -201,6 +366,7 @@ function main() {
       generated,
       active,
       consumerSync: 'NOT_SYNCED_BY_SCOPE',
+      historicalAllowlist,
       selfTest: process.argv.includes('--self-test') ? 'PASS' : 'NOT_RUN',
     })}\n`,
   );

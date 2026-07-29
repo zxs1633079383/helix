@@ -155,7 +155,7 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 
 实现 / 修复 IM 行为有争议时，**现网 `~/workspace/angular/cses-client/src-tauri/src/features/im/` 对应 handler 是 source of truth**；机制级对齐标注见 [`docs/过会方案/helix-core-im-架构设计.md`](docs/过会方案/helix-core-im-架构设计.md) 各节。
 
-### 4.5.1 前端 UC 投影 + Strict Matrix + 迁移图谱（接口/事件/用例 索引 · 按需 Read）
+### 4.5.1 MessageV3 Gate + 迁移图谱（接口/事件/用例 索引 · 按需 Read）
 
 > 现网（cses-im-server + cses-client）的**UC / command / projection / HTTP / WS / 远端 DB / Helix storage**综合映射，以及 fail-closed 发布证据合同。已删除的 takeover-plan 与 sync-v2 阶段快照不再作入口。本表只挂索引，正文按需 Read。
 
@@ -163,8 +163,8 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 |---|---|---|
 | [`specs/047-im-event-gate-inventory/spec.md`](specs/047-im-event-gate-inventory/spec.md) | **MessageV3 Gate Event 目标合同（ADR-017）** | Helix 当前方向：Command/Inbound → Effect/PersistOk → `Effect::Emit {event,data}`；三端只原样交付与消费 bytes |
 | [`crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md) | **UC 消费视角真源** | Gate、command、Effect、投影字段、HTTP、WS、Go DB、Helix storage 和 UI VM 的最新代码分析；SessionStart 必读 |
-| [`crates/helix-im/docs/Strict Matrix/README.md`](crates/helix-im/docs/Strict%20Matrix/README.md) | **UC 发布证据入口** | 机器合同、生成矩阵、远端存储真源与持久证据包；任一证据面缺失即 Red |
-| [`crates/helix-im/docs/projection-schema.md`](crates/helix-im/docs/projection-schema.md) | **投影 payload 契约真源（C2 冻结）** | 21 个 `im:__bus__` 投影 emit 工厂字段集 + 信号/透传/控制三类 + 命名陷阱词典；配 `tests/projection_schema_test.rs` 强制对账 |
+| [`specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json`](specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json) | **当前 30 Gate 机器真源** | Gate 分母、领域 owner、独立测试 target、删除清单、生成文件与迁移状态 |
+| [`specs/047-im-event-gate-inventory/contracts/message-v3-event.schema.json`](specs/047-im-event-gate-inventory/contracts/message-v3-event.schema.json) | **MessageV3 出站 schema** | 业务信封只含 `event` 与 `data`；具体字段由真实 Gate 测试和本地/远端事实生成 |
 | [`crates/helix-im/docs/csesapi-migration/真机curl真源.md`](crates/helix-im/docs/csesapi-migration/真机curl真源.md) | **outbound 请求体/头 ground truth（真抓包 > 源码推断）** | 现网 cses-client 实抓 6 个 curl（posts/create·makeTopic·revoke·channel/create·member/change·close）逐字 body+头；helix-im outbound 命令体必须对齐此处（send 无回声真因=体不对·非 Pulsar；普通发消息 WS 推 `post` 非 `posted`）|
 | [`crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md`](crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md) | **全量图谱总索引** | backend-\*（源端 HTTP/WS 清单）+ client-\*（前端用例/渲染/Tauri）+ gap-\* 三类导读 |
 | [`crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md`](crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md) | **缺口矩阵** | covered 86 / partial 30 / missing 7 + 替代 mattermost 阻塞能力优先级 |

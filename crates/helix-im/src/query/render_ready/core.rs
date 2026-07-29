@@ -221,15 +221,6 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         .unwrap_or_else(|| json!({}));
     let is_self = !viewer_user_id.is_empty() && user_id == viewer_user_id;
     let has_server_id = !server_id.is_empty();
-    let action_capabilities = crate::message_capabilities::build(
-        has_server_id,
-        is_self,
-        viewer_user_id,
-        &props,
-        &expedite_map,
-        send_status == "failed",
-        revoke_bool(row),
-    );
     let (reactions, reaction_count, template_confirmed_count) = interaction_summary(&props);
     let urgent = super::urgent::project(&expedite_map, viewer_user_id, has_server_id);
     let urgent_fields = json!({
@@ -279,7 +270,6 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "templateConfirmation": template_confirmation,
         "serverId": if has_server_id { Value::String(server_id.to_string()) } else { Value::Null },
         "isSelf": is_self,
-        "actionCapabilities": action_capabilities,
         "reactions": reactions,
         "reactionCount": reaction_count,
         "expediteMap": expedite_map,
@@ -327,7 +317,3 @@ pub fn shape_message_rows_for_viewer(rows: &Value, viewer_user_id: &str) -> Valu
     }
     Value::Array(out)
 }
-
-#[cfg(test)]
-#[path = "core_tests.rs"]
-mod tests;

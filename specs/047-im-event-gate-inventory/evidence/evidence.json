@@ -179,7 +179,7 @@
       "files": [
         {
           "path": "specs/047-im-event-gate-inventory/evidence/p2-g07-focused.txt",
-          "sha256": "9581f7e7d1cebbc4af3de96514662c6a1dce2800e2fe3cc3d659d1d365a6d640"
+          "sha256": "f91cb91297841014d42ed954e1de4f857235cf5e31973d75f21ea5afd605b05b"
         }
       ]
     },
@@ -232,6 +232,45 @@
         {
           "path": "specs/047-im-event-gate-inventory/evidence/p3-g08-focused.txt",
           "sha256": "e02cef24690cf69bae057d360b29dcf757891de14d46079fe33240d1add26c3b"
+        }
+      ]
+    },
+    {
+      "id": "p7-final-validation-correction",
+      "command": "final acceptance bundle; first run exposed cfg-scoped import after stale re-export removal",
+      "started_at": "2026-07-29T18:08:55Z",
+      "ended_at": "2026-07-29T18:08:56Z",
+      "result": "FAIL",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p7-final-validation-failed.txt",
+          "sha256": "9cc1dcf35fe04ce0235f11f0a7c27d31e58ecd970d20cf7b56041641c42ea646"
+        }
+      ]
+    },
+    {
+      "id": "p7-final-validation",
+      "command": "cargo check multi-crate; cargo test helix-im/core/ffi; wasm build; core dependency scan; canonical generation; cutover self-test; diff/ignore checks",
+      "started_at": "2026-07-29T18:09:00Z",
+      "ended_at": "2026-07-29T18:13:03Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p7-final-validation.txt",
+          "sha256": "a620e5d65fb79ed440b9b218c3a9139e33724c2ee3f8afb54afe3b0b71dc0faa"
+        }
+      ]
+    },
+    {
+      "id": "p7-evidence-manifest-reconciled",
+      "command": "verify every evidence/evidence.json sha256 against its registered raw file after correcting the stale G-07 metadata digest",
+      "started_at": "2026-07-29T18:17:00Z",
+      "ended_at": "2026-07-29T18:17:02Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/047-im-event-gate-inventory/evidence/p7-evidence-manifest-reconciled.txt",
+          "sha256": "c1d4651c75eecb04c445d8090bc10c3393e567055749249dc65825a45da9dd45"
         }
       ]
     }

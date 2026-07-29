@@ -1,0 +1,1 @@
+PASS: all registered evidence digests match current files

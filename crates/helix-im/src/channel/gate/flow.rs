@@ -1,6 +1,6 @@
 //! Channel ingest and contiguous-buffer state machine.
 
-use super::projection::{collect_dialog_patch_for_post, visible_post_for_storage};
+use super::projection::{collect_channel_update_for_post, visible_post_for_storage};
 use super::{emit_for_kind, event_to_storage_op, Channel, Gate, MAX_GATE_BUFFER};
 use crate::error::ImError;
 use crate::state::{ChannelId, Cursor, Seq};
@@ -74,9 +74,9 @@ impl Channel {
         if !self.cursor.try_advance(target_seq) {
             return Ok(false);
         }
-        let mut dialog_patches = Vec::new();
-        self.flush_contiguous_from_buffer(fx, &mut dialog_patches)?;
-        for pending in dialog_patches {
+        let mut channel_updates = Vec::new();
+        self.flush_contiguous_from_buffer(fx, &mut channel_updates)?;
+        for pending in channel_updates {
             fx.push(crate::acl::to_effect::bump_channel_unread(&pending.update));
         }
         Ok(true)
@@ -93,22 +93,22 @@ impl Channel {
         fx: &mut EffectSink,
         now_ms: u64,
     ) -> Result<(), ImError> {
-        let mut dialog_patches = Vec::new();
-        self.ingest_collecting_dialog_patches(ev, fx, now_ms, &mut dialog_patches)?;
-        for pending in dialog_patches {
+        let mut channel_updates = Vec::new();
+        self.ingest_collecting_channel_updates(ev, fx, now_ms, &mut channel_updates)?;
+        for pending in channel_updates {
             fx.push(crate::acl::to_effect::bump_channel_unread(&pending.update));
         }
         Ok(())
     }
 
-    /// 生产路径使用的 `ingest` 变体：DialogPatch 需要 channel 写后读回累计行，
+    /// 生产路径使用的 `ingest` 变体：ChannelUpdate 需要 channel 写后读回累计行，
     /// 因此这里只收集待注册的 correlated Persist，不在同 step 内直接 emit delta patch。
-    pub fn ingest_collecting_dialog_patches(
+    pub fn ingest_collecting_channel_updates(
         &mut self,
         ev: EventEnvelope,
         fx: &mut EffectSink,
         now_ms: u64,
-        dialog_patches: &mut Vec<crate::dialog_patch::PendingDialogPatch>,
+        channel_updates: &mut Vec<crate::channel_update::PendingChannelUpdate>,
     ) -> Result<(), ImError> {
         if self.is_terminal() {
             tracing::info!(
@@ -139,7 +139,7 @@ impl Channel {
         );
         match ev.seq.cmp(&expected) {
             std::cmp::Ordering::Equal => {
-                self.apply_and_flush_contiguous(ev, fx, now_ms, dialog_patches)
+                self.apply_and_flush_contiguous(ev, fx, now_ms, channel_updates)
             }
             std::cmp::Ordering::Less => Ok(()), // dup drop，幂等
             std::cmp::Ordering::Greater => self.buffer_and_arm_gate(ev, fx),
@@ -215,9 +215,9 @@ impl Channel {
             std::cmp::Ordering::Equal => {
                 self.cursor.try_advance(seq);
                 fx.push(crate::acl::to_effect::advance_cursor(self.id, seq));
-                let mut dialog_patches = Vec::new();
-                self.flush_contiguous_from_buffer(fx, &mut dialog_patches)?;
-                for pending in dialog_patches {
+                let mut channel_updates = Vec::new();
+                self.flush_contiguous_from_buffer(fx, &mut channel_updates)?;
+                for pending in channel_updates {
                     fx.push(crate::acl::to_effect::bump_channel_unread(&pending.update));
                 }
                 // 缺口已被本帧填平 → 若无后续缺口，gate 由 flush 后的连续性自然失效；
@@ -233,23 +233,19 @@ impl Channel {
         }
     }
 
-    /// 处理 PortReply{corr=X, Ok}：推进 cursor（写成功才推）
+    /// 处理同步原子写成功回执，并交出下一条刚变连续的实时事件。
     ///
     /// sync 权威路径的 commit 阶段：
     /// 1. 从 pending_commits 取出 target_seq
     /// 2. commit_cursor（MAX guard）
-    /// 3. flush_contiguous_from_buffer（尝试继续处理缓冲中已就绪的事件）
-    pub fn on_persist_ok(&mut self, corr: Correlation, fx: &mut EffectSink) -> Result<(), ImError> {
+    /// 3. 把下一条实时事件交给 MessageV3 correlated persistence，禁止在此绕回 fire-and-forget。
+    pub fn on_persist_ok(&mut self, corr: Correlation) -> Result<Option<EventEnvelope>, ImError> {
         if let Some(target_seq) = self.pending_commits.remove(&corr) {
             self.commit_cursor(target_seq)?;
-            // 尝试放行 buffer 中已就绪的连续段
-            let mut dialog_patches = Vec::new();
-            self.flush_contiguous_from_buffer(fx, &mut dialog_patches)?;
-            for pending in dialog_patches {
-                fx.push(crate::acl::to_effect::bump_channel_unread(&pending.update));
-            }
+            let next_seq = Seq(self.cursor.value().0.saturating_add(1));
+            return Ok(self.buffer.remove(&next_seq));
         }
-        Ok(())
+        Ok(None)
     }
 
     // ─── 私有方法 ──────────────────────────────────────────────────────────────
@@ -263,7 +259,7 @@ impl Channel {
         ev: EventEnvelope,
         fx: &mut EffectSink,
         _now_ms: u64,
-        dialog_patches: &mut Vec<crate::dialog_patch::PendingDialogPatch>,
+        channel_updates: &mut Vec<crate::channel_update::PendingChannelUpdate>,
     ) -> Result<(), ImError> {
         let seq = ev.seq;
 
@@ -280,7 +276,7 @@ impl Channel {
         // ⑤：未读 bump（handler 算定，gate 单一发出点）。立即 apply 与 flush 共用此逻辑——
         // 乱序经 buffer 的消息 flush 时同样补未读。`None`（echo / 非新消息 / sync）→ 不发。
         // GuardedBump 守卫（create_at > last_root_post_at）兜底幂等，重复/旧消息不重复 +1。
-        collect_dialog_patch_for_post(&ev, "online_post", dialog_patches);
+        collect_channel_update_for_post(&ev, "online_post", channel_updates);
 
         // 推进内存 cursor（WS 路径：直接 try_advance，不等 PortReply）
         // 理由：WS 顺序可靠，PersistFire 幂等（写 678 message 表，与 sync 路径同表同 PK）；
@@ -296,7 +292,7 @@ impl Channel {
         }
 
         // 尝试放行 buffer 中紧接着的连续段
-        self.flush_contiguous_from_buffer(fx, dialog_patches)?;
+        self.flush_contiguous_from_buffer(fx, channel_updates)?;
 
         Ok(())
     }
@@ -368,7 +364,7 @@ impl Channel {
     fn flush_contiguous_from_buffer(
         &mut self,
         fx: &mut EffectSink,
-        dialog_patches: &mut Vec<crate::dialog_patch::PendingDialogPatch>,
+        channel_updates: &mut Vec<crate::channel_update::PendingChannelUpdate>,
     ) -> Result<(), ImError> {
         loop {
             let next_expected = Seq(self.cursor.value().0 + 1);
@@ -383,7 +379,7 @@ impl Channel {
                 }
                 // ⑤：乱序 post 经 buffer flush 时补未读——与立即 apply 同口径（gate 单一发出点，
                 // 修复偏差：原 flush 路径只落 message 不补 channel 未读）。`None`→不发。
-                collect_dialog_patch_for_post(&ev, "online_post", dialog_patches);
+                collect_channel_update_for_post(&ev, "online_post", channel_updates);
                 self.cursor.try_advance(seq);
                 fx.push(crate::acl::to_effect::advance_cursor(self.id, seq));
                 if visible_post {

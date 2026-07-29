@@ -6,9 +6,9 @@ use helix_core::{Correlation, Effect};
 use serde_json::{json, Value};
 
 use crate::error::ImError;
-use crate::interaction_frame::{TimelineEntityKeyVm, WindowPageVm};
-use crate::projector::timeline::TimelinePageSize;
 use crate::state::ChannelId;
+use crate::timeline_state::TimelinePageSize;
+use crate::timeline_state::{TimelineEntityKey, WindowPage};
 
 /// 下拉读取更新消息的正式命令。
 pub const LOAD_NEWER_CONTEXT: &str = "im_load_newer_context";
@@ -20,11 +20,11 @@ pub const LOCATE_MESSAGE: &str = "im_locate_message";
 pub enum TimelineNavigationKind {
     Older {
         anchor_post_id: String,
-        cursor: TimelineEntityKeyVm,
+        cursor: TimelineEntityKey,
     },
     Newer {
         anchor_post_id: String,
-        cursor: TimelineEntityKeyVm,
+        cursor: TimelineEntityKey,
     },
     Locate {
         target_message_id: String,
@@ -41,18 +41,18 @@ pub struct TimelineNavigationState {
     request_id: Option<String>,
     kind: TimelineNavigationKind,
     rows: Vec<Value>,
-    page: WindowPageVm,
+    page: WindowPage,
 }
 
 impl TimelineNavigationState {
     /// 创建上拉分页状态；复合游标同样只能来自 attached typed state。
     pub fn older(
         channel_id: ChannelId,
-        page: WindowPageVm,
+        page: WindowPage,
         page_size: u32,
         request_id: Option<String>,
         anchor_post_id: String,
-        cursor: TimelineEntityKeyVm,
+        cursor: TimelineEntityKey,
     ) -> Self {
         Self {
             channel_id,
@@ -71,11 +71,11 @@ impl TimelineNavigationState {
     /// 创建下拉分页状态；复合游标只能来自 Helix attached typed state。
     pub fn newer(
         channel_id: ChannelId,
-        page: WindowPageVm,
+        page: WindowPage,
         page_size: u32,
         request_id: Option<String>,
         anchor_post_id: String,
-        cursor: TimelineEntityKeyVm,
+        cursor: TimelineEntityKey,
     ) -> Self {
         Self {
             channel_id,
@@ -102,7 +102,7 @@ impl TimelineNavigationState {
     ) -> Self {
         Self {
             channel_id,
-            page: WindowPageVm {
+            page: WindowPage {
                 window_token: window_token.clone(),
                 has_older: true,
                 has_newer: true,
@@ -156,7 +156,7 @@ impl TimelineNavigationState {
     }
 
     /// 返回成功 HTTP 页建立的边界。
-    pub fn page(&self) -> WindowPageVm {
+    pub fn page(&self) -> WindowPage {
         self.page.clone()
     }
 

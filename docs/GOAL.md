@@ -1,6 +1,6 @@
 # Helix 项目北极星
 
-> 本文是 Helix 的 L2 目标常量。当前实现、运行证据和排期分别以代码、Strict Matrix、
+> 本文是 Helix 的 L2 目标常量。当前实现、运行证据和排期分别以代码、MessageV3 Gate manifest、
 > evidence pack 与 [`ROADMAP.md`](./ROADMAP.md) 为准，历史合同不得反向改写本目标。
 
 ## 1. 一句话定义
@@ -65,15 +65,15 @@ IM 是首个业务模块，不是内核特例。`helix-core` 只提供 sans-IO �
 ### 三端同核 Gate 闭环率（TGCR）
 
 ```text
-TGCR(epoch, matrix_sha) =
+TGCR(epoch, manifest_sha) =
   同一候选版本中 Helix canonical + PC + Mobile + Web 全部 Green 的 active Gate 数
   -------------------------------------------------------------------------
-  Strict Matrix 在该 epoch 下 lifecycle=active 的 Gate 数
+  MessageV3 manifest 在该 epoch 下 lifecycle=active 的 Gate 数
 ```
 
 一个 Gate 只有同时满足以下条件才进入分子：
 
-1. Matrix、Helix revision、三端 pin 与 canonical hash 一致；
+1. Gate manifest、Helix revision、三端 pin 与 canonical hash 一致；
 2. Helix 真实 command/inbound 经 authority、PersistOk 后产出唯一 MessageV3 event；
 3. 三端原样消费同一 event bytes，未保留旧协议或平台业务 reducer；
 4. required fail=0、required skip=0，且证据处于同一有界运行窗口；
@@ -105,6 +105,6 @@ Spec 047 当前版本只完成 Helix producer、测试、物理下线与 canonic
 
 - ADR 位于 [`harness/decisions.md`](./harness/decisions.md)，当前实施活账位于
   [`ROADMAP.md`](./ROADMAP.md)。
-- Strict Matrix、Spec、代码和 evidence pack 的状态不得手工复制成另一套权威表。
-- 新 Gate 先更新 manifest/Matrix；状态变化只由测试、删除清单和机器证据派生。
+- Gate manifest、Spec、代码和 evidence pack 的状态不得手工复制成另一套权威表。
+- 新 Gate 先更新 manifest；状态变化只由测试、删除清单和机器证据派生。
 - 任何与本文不变量冲突的改动必须先停止并请求决策。

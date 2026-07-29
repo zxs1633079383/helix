@@ -85,14 +85,9 @@ fn extract_trace_sidecar(payload: Vec<u8>) -> Result<(Vec<u8>, Option<TraceCarri
     Ok((payload, Some(carrier)))
 }
 
-/// Routes the one typed private surface request without widening the public API.
+/// 统一通过 MessageV3 公开命令构造器校验移动端业务输入。
 fn build_app_command(public_name: String, payload_vec: Vec<u8>) -> Result<AppCommand, i32> {
-    let decoded = if public_name == helix_im::client_api::SURFACE_RESYNC_COMMAND {
-        helix_im::client_api::build_surface_resync_command(&payload_vec)
-    } else {
-        helix_im::client_api::build_command(public_name.as_str(), &payload_vec)
-    };
-    match decoded {
+    match helix_im::client_api::build_command(public_name.as_str(), &payload_vec) {
         Ok(command) => Ok(command),
         Err(error) => {
             tracing::warn!(
@@ -102,46 +97,6 @@ fn build_app_command(public_name: String, payload_vec: Vec<u8>) -> Result<AppCom
             );
             Err(FFI_INVALID)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Proves Mobile surface attachment enters the private typed builder.
-    #[test]
-    fn surface_snapshot_command_uses_typed_private_builder() {
-        let payload = br#"{"surface":"message.timeline","scope":{"kind":"timeline","channelId":"channel-1","windowToken":"latest"}}"#;
-        let command = build_app_command(
-            helix_im::client_api::SURFACE_RESYNC_COMMAND.to_string(),
-            payload.to_vec(),
-        )
-        .expect("typed surface snapshot command");
-
-        assert_eq!(
-            command.name.as_ref(),
-            helix_im::client_api::SURFACE_RESYNC_COMMAND
-        );
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&command.payload)
-                .expect("canonical private payload"),
-            serde_json::from_slice::<serde_json::Value>(payload).expect("input payload")
-        );
-    }
-
-    /// Keeps unrelated reserved commands rejected by the generic FFI entry.
-    #[test]
-    fn generic_ffi_command_does_not_open_other_private_commands() {
-        let result = build_app_command(
-            helix_im::interaction_frame::FRAME_APPLIED_COMMAND.to_string(),
-            b"{}".to_vec(),
-        );
-
-        assert_eq!(
-            result.expect_err("private command must stay closed"),
-            FFI_INVALID
-        );
     }
 }
 

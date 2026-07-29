@@ -101,8 +101,7 @@ impl Replay {
             .iter()
             .filter_map(|effect| match effect {
                 Effect::Emit { event } => Some(
-                    serde_json::from_slice(event.0.as_ref())
-                        .map_err(|error| error.to_string()),
+                    serde_json::from_slice(event.0.as_ref()).map_err(|error| error.to_string()),
                 ),
                 _ => None,
             })
@@ -229,11 +228,11 @@ fn g12_emits_snapshot_and_branch_events() -> TestResult<()> {
     let trace = run_success()?;
     assert_eq!(trace.events.len(), 2);
     assert_eq!(trace.events[0]["event"], "im:timeline:thread");
-    assert_eq!(trace.events[0]["data"]["mode"], "snapshot");
+    assert_eq!(trace.events[0]["data"]["projectionMode"], "snapshot");
     assert_eq!(trace.events[0]["data"]["rootMessageId"], ROOT_ID);
     assert_eq!(trace.events[0]["data"]["replyCount"], 2);
     assert_eq!(trace.events[1]["event"], "im:timeline:thread");
-    assert_eq!(trace.events[1]["data"]["mode"], "append");
+    assert_eq!(trace.events[1]["data"]["projectionMode"], "append");
     assert_eq!(trace.events[1]["data"]["replyIds"][0], BRANCH_REPLY_ID);
     Ok(())
 }
@@ -241,8 +240,8 @@ fn g12_emits_snapshot_and_branch_events() -> TestResult<()> {
 /// G-12 事件不泄露 Frame、Surface 或 renderer action。
 #[test]
 fn g12_has_no_renderer_shell_fields() -> TestResult<()> {
-    let encoded = serde_json::to_string(&run_success()?.events)
-        .map_err(|error| error.to_string())?;
+    let encoded =
+        serde_json::to_string(&run_success()?.events).map_err(|error| error.to_string())?;
     for forbidden in [
         "InteractionFrame",
         "Surface",

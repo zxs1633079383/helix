@@ -241,14 +241,14 @@ impl ImModule {
                 channel_id,
                 trigger,
                 wants_continuation,
-                dialog_patches,
+                channel_updates,
                 pending_domain_events,
             } => self.handle_channel_persist_reply(
                 corr,
                 channel_id,
                 trigger,
                 wants_continuation,
-                dialog_patches,
+                channel_updates,
                 pending_domain_events,
                 outcome,
                 out,
@@ -285,40 +285,16 @@ impl ImModule {
                 out,
             )?,
 
-            CorrelationContext::DialogPatchByPost { pending } => match outcome {
+            CorrelationContext::ChannelUpdateByPost { pending } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    if let Some(data) =
-                        pending.frame_patch_data_from_channel_reply(reply.0.as_ref())
-                    {
-                        let terminal_causation = (pending.source == "sync_events")
-                            .then(|| pending.causation_id.clone())
-                            .flatten();
-                        let mut frame =
-                            crate::dialog_frame::patch_from_dialog_projection_with_causation(
-                                &mut self.state.dialog_list_frame,
-                                &data,
-                                terminal_causation.clone(),
-                            );
-                        if frame.is_none() {
-                            if let (Some(scope), Some(causation_id)) = (
-                                self.state.dialog_list_frame.scope().cloned(),
-                                terminal_causation,
-                            ) {
-                                frame = self
-                                    .state
-                                    .dialog_list_frame
-                                    .authority_refresh_with_causation(scope, causation_id);
-                            }
-                        }
-                        if let Some(frame) = frame {
-                            out.push(frame);
-                        }
+                    if let Some(data) = pending.event_data_from_channel_reply(reply.0.as_ref()) {
+                        out.push(crate::event::channel::update(data)?.into_effect());
                         self.schedule_topic_activity_projection(&pending, reply.0.as_ref(), out);
                     } else {
                         tracing::warn!(
                             channel_id = pending.channel_id.as_str(),
                             corr = corr.raw(),
-                            "dialog patch channel row readback empty; skip emit to avoid delta-as-total"
+                            "channel row readback empty; skip MessageV3 update"
                         );
                     }
                 }
@@ -327,20 +303,19 @@ impl ImModule {
                         channel_id = pending.channel_id.as_str(),
                         corr = corr.raw(),
                         error = ?e,
-                        "dialog patch channel write/read failed"
+                        "channel update write/read failed"
                     );
                 }
             },
 
             CorrelationContext::UpdateChannelDialogPersist {
-                scope,
                 channel_id,
                 channel,
-                member_dialog,
-                causation_id,
+                member_channel,
+                causation_id: _,
             } => match outcome {
                 PortOutcome::Ok(_) => {
-                    let member_read_event = member_dialog
+                    let member_read_event = member_channel
                         .as_deref()
                         .map(|projection| {
                             crate::event::read::channel_from_member_projection(
@@ -349,30 +324,25 @@ impl ImModule {
                             )
                         })
                         .transpose()?;
-                    if let Some(scope) = scope {
-                        if self.state.dialog_list_frame.scope() != Some(&scope) {
-                            tracing::debug!(
-                                corr = corr.raw(),
-                                "update_channel PersistOk belongs to a detached dialog scope"
-                            );
-                        } else {
-                            let frame = match member_dialog.as_deref() {
-                                Some(dialog) => self
-                                    .state
-                                    .dialog_list_frame
-                                    .patch_from_channel_and_dialog_projection(
-                                        scope,
-                                        channel.as_ref(),
-                                        dialog,
-                                    ),
-                                None => self
-                                    .state
-                                    .dialog_list_frame
-                                    .patch_from_channel_update(scope, channel.as_ref()),
-                            };
-                            let _legacy_internal_state = frame;
+                    let mut update = channel.as_ref().clone();
+                    if !update.is_object() {
+                        update = serde_json::json!({});
+                    }
+                    if let Some(object) = update.as_object_mut() {
+                        object.insert(
+                            "channelId".to_string(),
+                            serde_json::Value::String(channel_id.as_str().to_string()),
+                        );
+                        if let Some(member) = member_channel.as_deref() {
+                            if let Some(member_update) = member
+                                .get("dialogPatch")
+                                .and_then(serde_json::Value::as_object)
+                            {
+                                object.extend(member_update.clone());
+                            }
                         }
                     }
+                    out.push(crate::event::channel::update(update)?.into_effect());
                     if let Some(event) = member_read_event {
                         out.push(event.into_effect());
                     }
@@ -382,13 +352,13 @@ impl ImModule {
                     )? {
                         out.push(event.into_effect());
                     }
-                    let _settings_projection_context = (channel_id, channel, causation_id, now_ms);
+                    let _event_time = now_ms;
                 }
                 PortOutcome::Err(error) => {
                     tracing::warn!(
                         corr = corr.raw(),
                         error = ?error,
-                        "update_channel persistence failed; suppress paired dialog/unread Frame"
+                        "update_channel persistence failed; suppress MessageV3 updates"
                     );
                 }
             },
@@ -412,19 +382,13 @@ impl ImModule {
 
             CorrelationContext::TooLongReloadPersist {
                 channel_id,
-                dialog_patches,
+                channel_updates,
             } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    for pending in dialog_patches {
-                        if let Some(data) =
-                            pending.frame_patch_data_from_channel_reply(reply.0.as_ref())
+                    for pending in channel_updates {
+                        if let Some(data) = pending.event_data_from_channel_reply(reply.0.as_ref())
                         {
-                            if let Some(frame) = crate::dialog_frame::patch_from_dialog_projection(
-                                &mut self.state.dialog_list_frame,
-                                &data,
-                            ) {
-                                out.push(frame);
-                            }
+                            out.push(crate::event::channel::update(data)?.into_effect());
                         }
                     }
                     self.finish_increment_hydration(channel_id, out)?;
@@ -631,30 +595,6 @@ impl ImModule {
                 out,
             )?,
 
-            CorrelationContext::SurfaceStorageSnapshot {
-                request,
-                refresh_existing,
-            } => {
-                self.handle_surface_storage_snapshot(
-                    request,
-                    refresh_existing,
-                    outcome,
-                    now_ms,
-                    out,
-                )?;
-            }
-
-            CorrelationContext::SurfaceThreadSnapshot {
-                request,
-                expected_revision,
-            } => {
-                self.handle_surface_thread_snapshot(request, expected_revision, outcome, out)?;
-            }
-
-            CorrelationContext::SurfaceReceiptSnapshot { request } => {
-                self.handle_surface_receipt_snapshot(request, outcome, out)?;
-            }
-
             CorrelationContext::ForwardSourceLookup { assembly } => {
                 if let Err(error) =
                     crate::forward::handle_lookup_reply(self, *assembly, outcome, out)
@@ -671,74 +611,38 @@ impl ImModule {
                 }
             }
 
-            // 左侧会话列表 Scan 回报首先发布完整 render-ready frame；Err 同样发布空 snapshot，
-            // 使 frame 客户端能原子结束 loading，而不是用 raw channel 行补算 UI。
+            // 左侧会话列表只发布 MessageV3 频道绝对态与当前 viewer 已读绝对态。
             CorrelationContext::DialogListQuery { causation_id } => match outcome {
                 PortOutcome::Ok(reply) => {
                     let read_events = crate::event::read::channels_from_storage_rows(
                         reply.0.as_ref(),
                         self.config.auth_user_id.as_str(),
                     )?;
-                    let surface_epoch = self.action_surface_epoch()?;
-                    self.state
-                        .dialog_list_frame
-                        .set_surface_epoch(surface_epoch);
-                    let scope = crate::dialog_frame::DialogListScope::new(
-                        self.config.auth_user_id.as_str(),
-                        self.config.company_id.as_str(),
+                    let channels = serde_json::from_slice::<serde_json::Value>(reply.0.as_ref())
+                        .map_err(|error| {
+                            ImError::Parse(format!("channel list readback: {error}"))
+                        })?;
+                    out.push(
+                        crate::event::channel::list(serde_json::json!({
+                            "channels": channels.as_array().cloned().unwrap_or_default(),
+                            "requestId": causation_id,
+                        }))?
+                        .into_effect(),
                     );
-                    let terminal_channel_ids = self
-                        .state
-                        .channels
-                        .iter()
-                        .filter_map(|(channel_id, channel)| {
-                            channel
-                                .is_terminal()
-                                .then(|| channel_id.as_str().to_string())
-                        })
-                        .collect();
-                    let legacy_internal_state =
-                        crate::query::emit_dialog_list_frame_result_with_terminal_channels(
-                            reply.0.as_ref(),
-                            scope,
-                            &mut self.state.dialog_list_frame,
-                            &terminal_channel_ids,
-                            causation_id.clone(),
-                        );
-                    let _legacy_internal_state = legacy_internal_state;
                     for event in read_events {
                         out.push(event.into_effect());
                     }
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(error = ?e, "dialog list scan failed");
-                    let surface_epoch = self.action_surface_epoch()?;
-                    self.state
-                        .dialog_list_frame
-                        .set_surface_epoch(surface_epoch);
-                    let scope = crate::dialog_frame::DialogListScope::new(
-                        self.config.auth_user_id.as_str(),
-                        self.config.company_id.as_str(),
+                    out.push(
+                        crate::event::channel::list(serde_json::json!({
+                            "channels": [],
+                            "requestId": causation_id,
+                            "state": "failed",
+                        }))?
+                        .into_effect(),
                     );
-                    let terminal_channel_ids = self
-                        .state
-                        .channels
-                        .iter()
-                        .filter_map(|(channel_id, channel)| {
-                            channel
-                                .is_terminal()
-                                .then(|| channel_id.as_str().to_string())
-                        })
-                        .collect();
-                    let legacy_internal_state =
-                        crate::query::emit_dialog_list_frame_result_with_terminal_channels(
-                            b"[]",
-                            scope,
-                            &mut self.state.dialog_list_frame,
-                            &terminal_channel_ids,
-                            causation_id,
-                        );
-                    let _legacy_internal_state = legacy_internal_state;
                 }
             },
 
@@ -785,36 +689,9 @@ impl ImModule {
             CorrelationContext::ChannelLifecyclePersist {
                 channel_id,
                 transition,
-                causation_id,
+                causation_id: _,
             } => match outcome {
                 PortOutcome::Ok(_) => {
-                    let (state, reason) = match transition {
-                        crate::state::ChannelLifecycleTransition::Closed { .. } => {
-                            ("closed", Some("channelClosed"))
-                        }
-                        crate::state::ChannelLifecycleTransition::Left => {
-                            ("left", Some("memberLeft"))
-                        }
-                    };
-                    let _legacy_projection_context = (state, reason, causation_id);
-                    if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
-                        let frame = match transition {
-                            crate::state::ChannelLifecycleTransition::Closed { .. } => self
-                                .state
-                                .dialog_list_frame
-                                .patch_closed(scope, channel_id.as_str()),
-                            crate::state::ChannelLifecycleTransition::Left => {
-                                let patch = serde_json::json!({
-                                    "channelId": channel_id.as_str(),
-                                    "left": true,
-                                });
-                                self.state
-                                    .dialog_list_frame
-                                    .patch_from_channel_update(scope, &patch)
-                            }
-                        };
-                        let _legacy_internal_state = frame;
-                    }
                     out.push(match transition {
                         crate::state::ChannelLifecycleTransition::Closed { delete_at } => {
                             crate::acl::to_effect_s1::emit_channel_closed(channel_id, delete_at)
@@ -940,7 +817,7 @@ impl ImModule {
                 self.handle_make_topic_persist_reply(projection, outcome, out);
             }
 
-            CorrelationContext::OutboundMakeTopicFrameRead { projection } => {
+            CorrelationContext::OutboundMakeTopicRootRead { projection } => {
                 self.handle_make_topic_thread_readback(projection, outcome, out)?;
             }
 
@@ -973,7 +850,7 @@ impl ImModule {
                 crate::port_reply_emit::emit_contact_candidates(&req_id, outcome, out);
             }
 
-            // G12 回复族只发布完整 `message.thread-detail` Frame；HTTP/raw reply 不再是渲染合同。
+            // G12 回复族只发布完整 thread 领域事件；HTTP/raw reply 不再是消费合同。
             CorrelationContext::OutboundReplies { request } => {
                 let projection = crate::port_reply_emit::normalize_replies(
                     &request,
@@ -982,22 +859,31 @@ impl ImModule {
                     &mut self.state.reply_projection_seen_ids,
                 );
                 if let Some(projection) = projection {
-                    if let Err(error) =
-                        self.project_reply_thread_frame(&request.req_id, projection, out)
-                    {
-                        tracing::warn!(
-                            req_id = request.req_id,
-                            error = ?error,
-                            "reply authority did not produce a valid thread Frame"
-                        );
-                    }
+                    let projection_mode = match projection.projection_mode {
+                        crate::render_ready_replies::ReplyProjectionMode::Snapshot => "snapshot",
+                        crate::render_ready_replies::ReplyProjectionMode::Append => "append",
+                    };
+                    out.push(
+                        crate::event::timeline::thread(serde_json::json!({
+                            "requestId": request.req_id,
+                            "channelId": projection.channel_id,
+                            "rootMessageId": projection.root_message_id,
+                            "projectionMode": projection_mode,
+                            "revision": projection.revision,
+                            "replyIds": projection.reply_ids,
+                            "messages": crate::event::timeline::thread_messages(&projection.nodes),
+                            "replyCount": projection.reply_count,
+                            "hasMore": projection.has_more,
+                        }))?
+                        .into_effect(),
+                    );
                 }
             }
 
             CorrelationContext::OutboundLocatePost { req_id, post_id } => {
                 let Some(expected_channel_id) = self
                     .state
-                    .timeline_projector
+                    .timeline_state
                     .located_target_channel(&post_id)
                     .map(str::to_string)
                 else {
@@ -1016,34 +902,25 @@ impl ImModule {
                     .map_err(|error| {
                         ImError::Parse(format!("locate response envelope: {error}"))
                     })?;
-                crate::render_ready_locate::normalize_located_window(
+                let rows = crate::render_ready_locate::normalize_located_window(
                     raw_body.as_ref(),
                     &expected_channel_id,
                     &post_id,
                     self.config.auth_user_id.as_str(),
                 )
                 .map_err(|error| ImError::Parse(format!("locate authority: {error}")))?;
-                if let Some(mut mutation) = self
-                    .state
-                    .timeline_projector
-                    .patch_located_target(&post_id, None)
-                    .map_err(|error| {
-                        ImError::Parse(format!("locate timeline projection: {error}"))
-                    })?
-                {
-                    mutation.causation_id = Some(req_id.clone());
-                    out.push(self.build_registered_timeline_frame_with_directives(
-                        format!("locate-{req_id}"),
-                        vec![mutation],
-                        vec![crate::render_ready_locate::reveal_directive(format!(
-                            "reveal-{req_id}"
-                        ))],
-                        now_ms,
-                    )?);
-                    self.state
-                        .action_registry
-                        .complete_after_terminal_frame(&req_id);
-                }
+                out.push(
+                    crate::event::timeline::located(serde_json::json!({
+                        "requestId": req_id,
+                        "channelId": expected_channel_id,
+                        "windowToken": format!("locate-{post_id}"),
+                        "state": "ready",
+                        "messages": rows,
+                        "targetMessageId": post_id,
+                        "revealPostId": post_id,
+                    }))?
+                    .into_effect(),
+                );
             }
 
             CorrelationContext::OutboundCreatePosts { req_id } => {
@@ -1057,7 +934,7 @@ impl ImModule {
                     }
                 }
                 // createPosts 仅确认各 target admission，不是 delivery authority。只有携同一
-                // csesTrackId 的 WS post 经 dialog 持久化读回后才允许发布 terminal Frame；
+                // csesTrackId 的 WS post 经 channel 持久化读回后才允许发布终态事件；
                 // 因而这里也不能完成 ActionRegistry，避免 WS-first 后迟到 HTTP 重复确认。
                 crate::port_reply_emit::emit_create_posts_result(&req_id, outcome, out)?;
             }
@@ -1078,57 +955,6 @@ impl ImModule {
 
             CorrelationContext::OutboundPostReaders { req_id } => {
                 crate::port_reply_emit::emit_post_readers(&req_id, outcome, out);
-                if let PortOutcome::Ok(reply) = outcome {
-                    if let Ok(raw_body) =
-                        crate::http_envelope::unwrap_sync_envelope(reply.0.as_ref())
-                    {
-                        if let Ok(body) =
-                            serde_json::from_slice::<serde_json::Value>(raw_body.as_ref())
-                        {
-                            let receipts = crate::query::render_ready::receipts::project(&body);
-                            let mutations = self
-                                .state
-                                .timeline_projector
-                                .patch_receipts(&receipts)
-                                .map_err(|error| {
-                                    ImError::Parse(format!("timeline receipt projection: {error}"))
-                                })?;
-                            if !mutations.is_empty() {
-                                out.push(self.build_registered_timeline_frame(
-                                    format!("timeline-receipts-{req_id}"),
-                                    mutations,
-                                    now_ms,
-                                )?);
-                            }
-                        }
-                    }
-                }
-            }
-
-            CorrelationContext::InteractionViewReceipt {
-                request_id,
-                channel_id,
-                message_id,
-            } => {
-                self.handle_action_view_receipt_reply(
-                    &request_id,
-                    channel_id,
-                    message_id,
-                    outcome,
-                    out,
-                )?;
-            }
-
-            CorrelationContext::InteractionMutationAck { pending } => {
-                if let PortOutcome::Err(error) = outcome {
-                    self.state
-                        .pending_authority_actions
-                        .remove(&(pending.kind, pending.message_id.clone()));
-                    self.state
-                        .action_registry
-                        .complete_after_terminal_frame(&pending.request_id);
-                    tracing::warn!(error = ?error, "interaction mutation authority request failed");
-                }
             }
 
             CorrelationContext::PostReadPersist {
@@ -1151,8 +977,7 @@ impl ImModule {
                 channel_id,
                 target_seq,
                 pending_domain_events,
-                pending_action,
-                refresh_legacy_timeline,
+                refresh_timeline,
             } => match outcome {
                 PortOutcome::Ok(_) => {
                     let committed = self
@@ -1177,16 +1002,8 @@ impl ImModule {
                                 )),
                             });
                         }
-                        let causation_id = pending_action
-                            .as_ref()
-                            .map(|pending| pending.request_id.clone());
-                        if let Some(pending) = pending_action {
-                            self.state
-                                .pending_authority_actions
-                                .remove(&(pending.kind, pending.message_id.clone()));
-                        }
-                        if refresh_legacy_timeline {
-                            self.refresh_attached_latest_timeline(channel_id, causation_id, out)?;
+                        if refresh_timeline {
+                            self.refresh_attached_latest_timeline(channel_id, None, out)?;
                         }
                     }
                 }
@@ -1204,7 +1021,6 @@ impl ImModule {
                 channel_id,
                 target_seq,
                 pending_domain_event,
-                pending_action,
             } => match outcome {
                 PortOutcome::Ok(_) => {
                     let committed = self
@@ -1221,15 +1037,7 @@ impl ImModule {
                                 pending_domain_event,
                             )),
                         });
-                        let causation_id = pending_action
-                            .as_ref()
-                            .map(|pending| pending.request_id.clone());
-                        if let Some(pending) = pending_action {
-                            self.state
-                                .pending_authority_actions
-                                .remove(&(pending.kind, pending.message_id.clone()));
-                        }
-                        self.refresh_attached_latest_timeline(channel_id, causation_id, out)?;
+                        self.refresh_attached_latest_timeline(channel_id, None, out)?;
                     } else {
                         tracing::warn!(
                             channel_id = channel_id.as_str(),
@@ -1267,11 +1075,11 @@ impl ImModule {
                         error = ?error,
                         "load_older_context message persist failed"
                     );
-                    self.emit_load_older_failed_frame(&state, now_ms, out)?;
+                    self.emit_load_older_failed_event(&state, now_ms, out)?;
                 }
             },
 
-            // G10a durable readback：完整 storage rows 是唯一 success Frame 输入。
+            // G10a durable readback：完整 storage rows 是唯一成功事件输入。
             CorrelationContext::LoadOlderReadback { state } => {
                 self.handle_load_older_readback_reply(state, outcome, now_ms, out)?;
             }
@@ -1292,11 +1100,11 @@ impl ImModule {
                         error = ?error,
                         "timeline navigation persist failed"
                     );
-                    self.emit_timeline_navigation_failed_frame(&state, now_ms, out)?;
+                    self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
                 }
             },
 
-            // readback 是 success Frame 的最后一道本地事实屏障。
+            // readback 是成功事件的最后一道本地事实屏障。
             CorrelationContext::TimelineNavigationReadback { state } => {
                 self.handle_timeline_navigation_readback_reply(state, outcome, now_ms, out)?;
             }

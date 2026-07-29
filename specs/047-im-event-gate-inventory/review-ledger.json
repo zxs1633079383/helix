@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/047-im-event-gate-inventory",
-  "phase": "implementing",
-  "event_seq": 104,
-  "next_action": "implement_tasks",
+  "phase": "verifying",
+  "event_seq": 116,
+  "next_action": "run_speckit_converge_or_close",
   "implementation_scope": {
     "denominator": 30,
     "gate_source": "spec.md#\u672c\u8f6e\u622a\u56fe\u5206\u6bcd",
@@ -24,6 +24,18 @@
     "excluded_disposition": "OUT_OF_SCOPE",
     "consumer_sync": "NOT_SYNCED_BY_SCOPE"
   },
+  "verification_scope": {
+    "deterministic": "PASS",
+    "contract": "PASS",
+    "rust_driver_integration": "PASS",
+    "pc_fixture_sync": "NOT_SYNCED_BY_SCOPE",
+    "mobile_fixture_sync": "NOT_SYNCED_BY_SCOPE",
+    "wdio": "NOT_RUN",
+    "mobile_gtest": "NOT_RUN",
+    "runtime": "NOT_RUN",
+    "dual_user": "NOT_RUN",
+    "canonical_consumer": "NOT_RUN"
+  },
   "budget": {
     "max_same_failure_attempts": 2
   },
@@ -32,7 +44,8 @@
     "9f93f0d321877443": 1,
     "1a75f83861bd13af": 1,
     "82186b29fd932ffe": 1,
-    "507b95491b56d351": 1
+    "507b95491b56d351": 1,
+    "40cd1a7342634d7b": 1
   },
   "gates": {
     "r1_spec": {
@@ -49,22 +62,22 @@
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "caadf0230d56a257bec7f2bcc839f3cbf9cfadda90cc92bf240f2a43a7c27650",
-      "checked_at": "2026-07-29T15:57:40Z",
+      "fingerprint": "a23da7835fbc053c2680e7f1967e7ebdd208ec6233d590477a29d0c33327b5b4",
+      "checked_at": "2026-07-29T18:15:45Z",
       "issues": []
     },
     "r4_evidence": {
-      "status": "invalid",
-      "fingerprint": "9ec4c6c0240f641dc8f5a8d2f7b72873ddd92767c98924cea07ce332bb480748",
-      "checked_at": "2026-07-29T12:05:02Z",
-      "issues": [
-        "invalidated by changed input for r4_evidence"
-      ]
+      "status": "pass",
+      "fingerprint": "9837fc676804fcca7732990e46cf758dd2b81261205f55eebe06871600b5bb9b",
+      "checked_at": "2026-07-29T18:17:37Z",
+      "issues": []
     }
   },
   "convergence": {
-    "tasks_fingerprint": "9e77e3370c46f66af6993e0e7d091c02c9e18b317f2a18b4145ebe8359eb163d",
-    "reason": "evidence accepted"
+    "tasks_fingerprint": "a23da7835fbc053c2680e7f1967e7ebdd208ec6233d590477a29d0c33327b5b4",
+    "reason": [
+      "evidence file digest mismatch: specs/047-im-event-gate-inventory/evidence/p2-g07-focused.txt"
+    ]
   },
   "events": [
     {
@@ -690,6 +703,78 @@
       "at": "2026-07-29T15:57:46Z",
       "kind": "phase",
       "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 105,
+      "at": "2026-07-29T17:57:08Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 106,
+      "at": "2026-07-29T17:57:08Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 107,
+      "at": "2026-07-29T18:13:24Z",
+      "kind": "phase",
+      "detail": "ready->implementing: recorded evidence p7-final-validation-correction"
+    },
+    {
+      "seq": 108,
+      "at": "2026-07-29T18:13:25Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence p7-final-validation"
+    },
+    {
+      "seq": 109,
+      "at": "2026-07-29T18:15:45Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 110,
+      "at": "2026-07-29T18:15:45Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 111,
+      "at": "2026-07-29T18:15:52Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 112,
+      "at": "2026-07-29T18:15:57Z",
+      "kind": "failure",
+      "detail": "r4_evidence:40cd1a7342634d7b: attempt 1"
+    },
+    {
+      "seq": 113,
+      "at": "2026-07-29T18:15:57Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: evidence file digest mismatch: specs/047-im-event-gate-inventory/evidence/p2-g07-focused.txt"
+    },
+    {
+      "seq": 114,
+      "at": "2026-07-29T18:16:45Z",
+      "kind": "phase",
+      "detail": "verifying->converging: targeted convergence started"
+    },
+    {
+      "seq": 115,
+      "at": "2026-07-29T18:17:32Z",
+      "kind": "phase",
+      "detail": "converging->implementing: recorded evidence p7-evidence-manifest-reconciled"
+    },
+    {
+      "seq": 116,
+      "at": "2026-07-29T18:17:37Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: r4_evidence passed"
     }
   ]
 }

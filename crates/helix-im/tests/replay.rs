@@ -27,10 +27,12 @@ fn smoke_inbound_unknown_parse_does_not_panic() {
     // 用 inbound_event 构造 parse 可成功的帧（JSON 格式符合）
     let ev = inbound_event(1, 1, 1);
     let effects = h.step(ev, 1000);
-    // 应不 panic；对已注册 channel=1 的 seq=1，应产出 PersistFire（连续帧直接放行）
+    // 应不 panic；对已注册 channel=1 的 seq=1，应先产出 MessageV3 原子持久化屏障。
     assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::PersistFire)),
-        "valid inbound event should emit PersistFire, got: {:?}",
+        effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::PersistAtomic(_))),
+        "valid inbound event should emit PersistAtomic, got: {:?}",
         effects
     );
 }

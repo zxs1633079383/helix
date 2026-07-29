@@ -53,7 +53,7 @@ impl ImModule {
 
         let auth_user_id = self.config.auth_user_id.as_str();
         let mut ops = Vec::new();
-        let mut dialog_patches = Vec::new();
+        let mut channel_updates = Vec::new();
         for post in posts {
             let mut fields = crate::ws::parser::extract_post_fields(&post);
             if fields.channel_id.is_empty() {
@@ -81,7 +81,7 @@ impl ImModule {
             )
             .with_msg_id(Some(msg_id.clone()));
             ops.push(crate::channel::event_to_upsert_op(&ev));
-            dialog_patches.push(crate::dialog_patch::PendingDialogPatch::new(
+            channel_updates.push(crate::channel_update::PendingChannelUpdate::new(
                 channel_id,
                 seq,
                 msg_id.as_str(),
@@ -91,12 +91,12 @@ impl ImModule {
             ));
         }
 
-        for pending in &dialog_patches {
+        for pending in &channel_updates {
             ops.push(crate::acl::to_effect::bump_channel_unread_op(
                 &pending.update,
             ));
         }
-        if !dialog_patches.is_empty() {
+        if !channel_updates.is_empty() {
             ops.push(crate::acl::to_effect::get_channel_row_op(channel_id));
         }
         if ops.is_empty() {
@@ -105,7 +105,7 @@ impl ImModule {
         }
 
         let persist_corr = self.alloc_corr_internal();
-        let emit_dialog_patches = dialog_patches
+        let emit_channel_updates = channel_updates
             .last()
             .cloned()
             .into_iter()
@@ -118,7 +118,7 @@ impl ImModule {
             persist_corr,
             CorrelationContext::TooLongReloadPersist {
                 channel_id,
-                dialog_patches: emit_dialog_patches,
+                channel_updates: emit_channel_updates,
             },
         );
         Ok(())

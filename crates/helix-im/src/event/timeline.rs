@@ -3,7 +3,7 @@
 use super::MessageV3Event;
 use serde_json::Value;
 
-/// 从 durable message 行构造不含 Frame/Surface/action 派生字段的有界窗口终态。
+/// 从 durable message 行构造只含业务事实的有界窗口终态。
 #[allow(clippy::too_many_arguments)]
 pub fn window(
     channel_id: &str,
@@ -116,7 +116,11 @@ pub fn thread_messages(rows: &[Value]) -> Vec<Value> {
             let object = row.as_object()?;
             let clean = KEYS
                 .iter()
-                .filter_map(|key| object.get(*key).map(|value| ((*key).to_string(), value.clone())))
+                .filter_map(|key| {
+                    object
+                        .get(*key)
+                        .map(|value| ((*key).to_string(), value.clone()))
+                })
                 .collect();
             Some(Value::Object(clean))
         })

@@ -133,7 +133,6 @@ pub fn emit_channel_settings_updated(
     channel_id: ChannelId,
     channel: &serde_json::Value,
     setting_version: u64,
-    channel_capabilities: serde_json::Value,
 ) -> Option<Effect> {
     let mut settings = serde_json::Map::new();
     for key in [
@@ -160,7 +159,6 @@ pub fn emit_channel_settings_updated(
             "channelId": channel_id.as_str(),
             "settings": settings,
             "settingVersion": setting_version,
-            "channelCapabilities": channel_capabilities,
         }),
     ))
 }

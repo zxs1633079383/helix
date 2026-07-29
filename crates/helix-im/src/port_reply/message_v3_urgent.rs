@@ -104,14 +104,7 @@ impl ImModule {
             return Ok(());
         };
         out.push(event.into_effect());
-        if let Some(pending) = self.state.pending_authority_actions.remove(&(
-            crate::projector::action::AuthorityMutationKind::Urgent,
-            message_id,
-        )) {
-            self.state
-                .action_registry
-                .complete_after_terminal_event(&pending.request_id);
-        }
+        let _confirmed_message_id = message_id;
         Ok(())
     }
 }

@@ -40,7 +40,7 @@ impl<'a> ImWsContext<'a> {
     }
 
     /// 请求在当前 WS step 完成后重读已 attach 的最新时间线。集合去重保证一次
-    /// 连续 gate flush 至多追加一次 readback，不让原始 post payload 越过 Frame 边界。
+    /// 连续 gate flush 至多追加一次 readback，不让原始 post payload 越过持久化边界。
     pub(crate) fn request_attached_timeline_refresh(&mut self, channel_id: ChannelId) {
         self.attached_timeline_refreshes
             .entry(channel_id)

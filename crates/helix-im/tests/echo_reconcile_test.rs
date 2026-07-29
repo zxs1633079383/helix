@@ -141,7 +141,15 @@ fn echo_reconciles_pending_send() {
         echo_effects
     );
 
-    // 5. cursor 经 gate apply 推进到 echo 帧 seq=1（连续，HX-C008：与消息可见性解耦）
+    // 5. MessageV3 的 message/channel/member/cursor 原子事务成功后才推进 cursor。
+    let gate_persist_corr = echo_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::PersistAtomic(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("echo must queue one MessageV3 atomic gate persistence");
+    h.step(port_reply_ok(gate_persist_corr), 1_101);
     let cid1 = channel_id(1);
     assert_eq!(
         h.module.cursor_for(cid1),

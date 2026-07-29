@@ -1,7 +1,0 @@
-{
-  "scenario": "equal-sequence",
-  "causationId": "sync-gs01-equal",
-  "expectedEffects": [],
-  "expectedFrame": null,
-  "reason": "An authority head equal to the committed cursor is a recovery no-op."
-}

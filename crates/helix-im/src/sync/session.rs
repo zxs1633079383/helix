@@ -208,7 +208,7 @@ pub enum EventKind {
     ///
     /// 该事件只允许经 `/channel/sync/notify` 的严格 wire 进入；它不是 post，不能落到
     /// message 表或沿用普通 cursor 提交链。`sync::flow` 会把 tombstone marker 与 cursor
-    /// 放进同一个 `PersistAtomic`，收到成功回执后才关闭本地 channel 并发布 Frame。
+    /// 放进同一个 `PersistAtomic`，收到成功回执后才关闭本地 channel 并发布终态事件。
     ChannelTerminalClosed,
     /// 其他类型（暂不处理）
     Other(u8),

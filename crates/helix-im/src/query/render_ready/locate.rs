@@ -57,14 +57,6 @@ pub fn normalize_located_window(
     Ok(rows)
 }
 
-/// Reveal is an acknowledgement-time UI semantic; the committed VM owns the target identity.
-pub fn reveal_directive(directive_id: impl Into<String>) -> crate::interaction_frame::UiDirective {
-    crate::interaction_frame::UiDirective {
-        directive_id: directive_id.into(),
-        kind: "revealMessage".to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,15 +80,5 @@ mod tests {
             normalize_located_window(cross_channel, "c1", "target", "u1"),
             Err(LocateProjectionError::ChannelMismatch { .. })
         ));
-    }
-
-    #[test]
-    /// 证明 reveal directive 不携带端侧可解释的消息身份。
-    fn reveal_directive_contains_no_target_payload() {
-        let directive = reveal_directive("reveal-1");
-        assert_eq!(
-            serde_json::to_value(directive).unwrap(),
-            serde_json::json!({"directiveId":"reveal-1","kind":"revealMessage"})
-        );
     }
 }

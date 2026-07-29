@@ -474,8 +474,9 @@ fn candidate_users_default_to_company_directory_and_emit_render_ready_projection
     assert_eq!(data["users"][0]["orgName"], "CEO");
 }
 
+/// 设置事件只保留持久业务字段，不再派生 renderer capability 矩阵。
 #[test]
-fn settings_select_viewer_capabilities_from_server_matrix() {
+fn settings_drop_viewer_capabilities_from_server_matrix() {
     let channel = cid(7);
     let mut h = Harness::new_with_identity(&[], "444", "", "", "", "");
     h.step(
@@ -501,9 +502,12 @@ fn settings_select_viewer_capabilities_from_server_matrix() {
         })),
         2,
     );
+    let corr = persist_corr(&h);
+    h.step(port_reply_ok(corr), 3);
 
     let data = &emits(&h, "im:channel:settings-updated")[0];
     assert_eq!(data["settingVersion"], 91);
-    assert_eq!(data["channelCapabilities"]["canManageSettings"], true);
-    assert_eq!(data["channelCapabilities"]["canCloseChannel"], false);
+    assert_eq!(data["displayName"], "新群名");
+    assert!(data.get("channelCapabilities").is_none());
+    assert!(data.get("capabilitiesByRole").is_none());
 }

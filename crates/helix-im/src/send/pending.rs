@@ -24,7 +24,7 @@ pub use persistence::{
 
 /// 一次发送 attempt 的 timeline 因果回读地址。
 ///
-/// window 与 causation 必须整体复制：只复制其中一个会让 action retry 的后续 Frame
+/// window 与 causation 必须整体复制：只复制其中一个会让 action retry 的后续事件
 /// 退回 `latest` 或失去 request confirmation。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TimelineReadbackContext {
@@ -54,7 +54,7 @@ pub struct PendingSend {
     pub timeline_readback: TimelineReadbackContext,
     /// rich/file 上传完成后才真正发 posts/create；普通文本无此缓存。
     pub body: Option<Value>,
-    /// `posts/create` 已经出站的单飞闸。普通文本必须先把 P1 的真实 timeline Frame
+    /// `posts/create` 已经出站的单飞闸。普通文本必须先把 P1 的真实 timeline 事件
     /// 发给已 attach 的 surface，随后才允许这一跳 HTTP；上传链和 retry 也复用此闸，
     /// 防止重复的 projector 回包把同一 temporary_id 再次发出。
     pub http_started: bool,

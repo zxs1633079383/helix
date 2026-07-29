@@ -99,13 +99,15 @@ fn g15_emits_created_topic_after_root_readback() -> TestResult<()> {
 #[test]
 fn artifact_test() -> TestResult<()> {
     let (sender, receiver) = run_success()?;
-    let Some(output) = std::env::var_os("HELIX_GATE_ARTIFACT_DIR") else { return Ok(()); };
+    let Some(output) = std::env::var_os("HELIX_GATE_ARTIFACT_DIR") else {
+        return Ok(());
+    };
     let bundle = artifact::gate_bundle(
         "G-15",
         "message_v3_g15",
         vec![
             json!({"kind":"Command","value":{"name":"im_make_topic","payload":{"root_id":ROOT_ID}},"now_ms":1_700_001_510_000_i64}),
-            json!({"kind":"PortReply","value":{"outcome":{"variant":"Ok"}},"now_ms":1_700_001_510_003_i64})
+            json!({"kind":"PortReply","value":{"outcome":{"variant":"Ok"}},"now_ms":1_700_001_510_003_i64}),
         ],
         sender,
         receiver,

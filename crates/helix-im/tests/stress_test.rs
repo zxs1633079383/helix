@@ -3,11 +3,10 @@
 //! ## 测什么
 //!
 //! 1. `stress_inorder_100k`：注册 1 个 channel，喂 10 万条连续 seq 的
-//!    Tick::Inbound（posted 帧 JSON），测 ImModule::handle 的 step 吞吐（帧/秒）。
-//!    每帧产出 3 个 Effect（PersistFire 消息 + PersistFire cursor + Emit），
-//!    度量包含 JSON parse + Effect 构造（含 String 分配），不含 driver 兑现。
+//!    Tick::Inbound（现役 Go `action=post` JSON），并逐条确认 `PersistAtomic`，
+//!    测 ImModule::handle 的入站与 durable commit 吞吐（帧/秒）。
 //! 2. `stress_gap_5000_ws_flush`：乱序场景 A —— 5000 条带缺口事件堆入 buffer
-//!    （arm gate），随后补上缺口 seq=1，单次 step 触发 5000 条 contiguous flush。
+//!    （arm gate），随后补上缺口 seq=1，通过逐条原子提交释放 contiguous buffer。
 //! 3. `stress_gap_5000_sync_backfill`：乱序场景 B —— gate timer 超时 →
 //!    Http{sync/notify} → PortReply 灌入 5000 events 的 sync 响应
 //!    （parse + 5000 个 BatchUpsert op 构造），再 PortReply Ok 触发
@@ -33,7 +32,7 @@ use helix_im::module::ImConfig;
 use helix_im::ImModule;
 
 mod common;
-use common::channel_id;
+use common::{channel_id, server_id};
 
 // ─── 辅助 ────────────────────────────────────────────────────────────────────
 
@@ -89,18 +88,19 @@ fn base64_std(bytes: &[u8]) -> String {
     out
 }
 
-/// 构造 posted WS 帧（与 common.rs::inbound_event 同构，payload 约 150 字节）
+/// 构造现役 Go `action=post` WS 帧，并使用合法 26 字符业务 ID。
 fn make_inbound_tick(channel_id: u64, seq: u64) -> Tick {
     let payload = serde_json::json!({
-        "event": "posted",
+        "action": "post",
         "data": {
-            "channel_id": cid(channel_id),
-            "seq": seq,
-            "event_type": 1,
-            "msg_id": format!("msg_{}", seq),
-            "actor_id": "user_1",
-            "created_at": 1000000_u64,
-            "payload": null
+            "id": server_id(seq).as_str(),
+            "temporaryId": format!("stress-{seq:020}"),
+            "channelId": cid(channel_id),
+            "event_seq": seq,
+            "userId": "user_1",
+            "type": "TEXT",
+            "message": "stress body",
+            "createAt": 1000000_u64 + seq
         }
     });
     let bytes = serde_json::to_vec(&payload).expect("build inbound json");
@@ -134,6 +134,26 @@ fn stress_inorder_100k() {
             .handle(tick, 1_000_000, &mut sink)
             .expect("handle inorder");
         total_effects += sink.as_slice().len() as u64;
+        let persist_corr = sink
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::PersistAtomic { corr, .. } => Some(*corr),
+                _ => None,
+            })
+            .expect("in-order post must enter MessageV3 atomic commit");
+        sink.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr: persist_corr,
+                    outcome: PortOutcome::Ok(ReplyBytes::default()),
+                },
+                1_000_001,
+                &mut sink,
+            )
+            .expect("commit inorder");
+        total_effects += sink.as_slice().len() as u64;
     }
     let elapsed = start.elapsed();
 
@@ -144,8 +164,8 @@ fn stress_inorder_100k() {
     );
     assert_eq!(
         total_effects,
-        N * 3,
-        "each in-order frame must yield 3 effects"
+        N * 2,
+        "each in-order frame must yield one atomic commit and one member readback"
     );
 
     let fps = N as f64 / elapsed.as_secs_f64();
@@ -186,13 +206,36 @@ fn stress_gap_5000_ws_flush() {
         "cursor must NOT advance while gapped"
     );
 
-    // 补上缺口 seq=1：单次 step 触发 apply + flush_contiguous 5000 条
+    // 补上缺口 seq=1：首条进入原子提交，后续事件在每次 durable commit 后依次释放。
     let hole_tick = make_inbound_tick(1, 1);
     sink.clear();
     let start_flush = Instant::now();
     module
         .handle(&hole_tick, 1_000_001, &mut sink)
         .expect("handle hole fill");
+    let mut flush_effects = sink.as_slice().len();
+    let mut next_corr = sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::PersistAtomic { corr, .. } => Some(*corr),
+        _ => None,
+    });
+    while let Some(corr) = next_corr {
+        sink.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr,
+                    outcome: PortOutcome::Ok(ReplyBytes::default()),
+                },
+                1_000_002,
+                &mut sink,
+            )
+            .expect("commit buffered post");
+        flush_effects += sink.as_slice().len();
+        next_corr = sink.as_slice().iter().find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, .. } => Some(*corr),
+            _ => None,
+        });
+    }
     let flush_elapsed = start_flush.elapsed();
 
     assert_eq!(
@@ -200,12 +243,10 @@ fn stress_gap_5000_ws_flush() {
         Some(GAP + 1),
         "cursor must reach 5001"
     );
-    // 5001 个事件 × 3 effects（首条的 gate 已 arm，flush 不再 arm timer）
-    let flush_effects = sink.as_slice().len();
     assert!(
-        flush_effects >= (GAP as usize + 1) * 3,
+        flush_effects >= (GAP as usize + 1) * 2,
         "flush step must yield >= {} effects, got {}",
-        (GAP + 1) * 3,
+        (GAP + 1) * 2,
         flush_effects
     );
 
@@ -385,7 +426,7 @@ fn stress_gap_5000_sync_backfill() {
         "cursor must NOT advance before PortReply Ok"
     );
 
-    // 4. Persist 成功回报 → commit cursor 到 5000 + flush buffer 中的 5001
+    // 4. 恢复批提交到 5000 后，buffer 中的 5001 进入独立 MessageV3 原子提交。
     let commit_tick = Tick::PortReply {
         corr: persist_corr,
         outcome: PortOutcome::Ok(ReplyBytes::default()),
@@ -395,6 +436,25 @@ fn stress_gap_5000_sync_backfill() {
     module
         .handle(&commit_tick, 1_001_200, &mut sink)
         .expect("persist ok");
+    let buffered_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("buffered seq=5001 must enter MessageV3 atomic commit");
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: buffered_corr,
+                outcome: PortOutcome::Ok(ReplyBytes::default()),
+            },
+            1_001_201,
+            &mut sink,
+        )
+        .expect("buffered post persist ok");
     let commit_elapsed = start_commit.elapsed();
 
     assert_eq!(

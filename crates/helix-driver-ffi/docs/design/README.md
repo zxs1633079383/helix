@@ -20,7 +20,8 @@
 - **C-ABI 导出**：推荐 `helix_create_with_endpoints(go, java, ws, vtable)` 显式注入双 HTTP
   origin；兼容 `helix_create_with_network(go, ws, vtable)` 保留原 ABI、Java 为空且不推测。
   其余为 `helix_destroy` / `helix_set_header` / `helix_remove_header` /
-  `helix_invoke_action` / `helix_command` / `helix_query`（仅元信息）/ `helix_query_free`。
+  `helix_command` / `helix_query`（仅元信息）/ `helix_query_free`；MessageV3 业务 action
+  统一作为公开 command 数据进入 `helix_command`，不再保留独立 UI action ABI。
   > 注：旧 `helix_on_ws_frame` / `helix_on_http_response` **已删**——入站帧由 `SharedWsClient::with_inbound_tick` 在 Rust 内部直发 `Tick::Inbound`，不再经 C++（见 `pump.rs`）。
 - **engine 泵（F4 ✅）**：`pump.rs` 起专用 `std::thread` + current_thread tokio runtime，`block_on` host `run_engine_loop`（复用 `helix-driver-host` 泛型泵核）；装配 storage/http/ws/eventsink/clock + `register(ImModule)`（FFI 身兼 composition root）。
 - **共享 host ports**：pump 直接装配 `HostStorage`（StorageOp 单一真源，含 BatchDelete）、`SharedWsClient`、`FfiHttpRequester(SharedHttpClient)`、`FfiEventSink`。

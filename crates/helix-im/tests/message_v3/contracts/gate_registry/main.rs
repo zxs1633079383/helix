@@ -53,7 +53,7 @@ fn spec_gate_ids() -> Vec<String> {
     spec.lines()
         .filter_map(|line| {
             let id = line.strip_prefix("| G-")?.split(" |").next()?;
-            Some(id.trim_start_matches("| ").to_string())
+            Some(format!("G-{}", id.trim()))
         })
         .filter(|id| {
             id.strip_prefix("G-").is_some_and(|suffix| {
@@ -102,9 +102,13 @@ fn manifest_and_explicit_gate_targets_cover_exactly_thirty_gates() {
         .collect::<BTreeMap<_, _>>();
     assert_eq!(targets.len(), 30, "all Gate targets must be explicit");
     for (target, path) in expected {
-        assert_eq!(targets.get(target).map(String::as_str), Some(path));
+        let cargo_path = path.strip_prefix("crates/helix-im/").unwrap_or(path);
+        assert_eq!(targets.get(target).map(String::as_str), Some(cargo_path));
         assert!(
-            std::path::Path::new(ROOT).join(path).is_file(),
+            std::path::Path::new(ROOT)
+                .join("../..")
+                .join(path)
+                .is_file(),
             "missing Gate test source: {path}"
         );
     }

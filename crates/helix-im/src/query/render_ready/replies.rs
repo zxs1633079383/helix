@@ -345,7 +345,3 @@ pub fn emit_channel_replies(req_id: &str, projection: FlatReplyProjection) -> Ef
         event: DomainEventBytes(bytes),
     }
 }
-
-#[cfg(test)]
-#[path = "replies_tests.rs"]
-mod tests;

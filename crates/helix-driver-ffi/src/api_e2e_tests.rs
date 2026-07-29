@@ -143,7 +143,7 @@ fn create_applies_im_schema_before_async_business_query() {
     while std::time::Instant::now() < deadline {
         got_projection = recorder.lock().unwrap().iter().any(|event| {
             std::str::from_utf8(event)
-                .map(|text| text.contains("im:interaction:frame"))
+                .map(|text| text.contains("im:channel:list"))
                 .unwrap_or(false)
         });
         if got_projection {
@@ -153,7 +153,7 @@ fn create_applies_im_schema_before_async_business_query() {
     }
     assert!(
         got_projection,
-        "空库异步 dialog query 应产出 typed InteractionFrame 事件"
+        "空库异步 dialog query 应产出 MessageV3 channel list 事件"
     );
 
     unsafe { helix_destroy(handle) };

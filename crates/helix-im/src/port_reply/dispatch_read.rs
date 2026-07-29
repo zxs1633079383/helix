@@ -41,7 +41,7 @@ impl ImModule {
             PortOutcome::Ok(reply) => reply,
             PortOutcome::Err(error) => {
                 tracing::warn!(error = ?error, "timeline navigation HTTP failed");
-                self.emit_timeline_navigation_failed_frame(&state, now_ms, out)?;
+                self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
                 return Ok(());
             }
         };
@@ -49,13 +49,13 @@ impl ImModule {
             Ok(raw) => raw,
             Err(error) => {
                 tracing::warn!(error = ?error, "timeline navigation envelope invalid");
-                self.emit_timeline_navigation_failed_frame(&state, now_ms, out)?;
+                self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
                 return Ok(());
             }
         };
         if let Err(error) = state.ingest_http_body(&raw) {
             tracing::warn!(error = ?error, "timeline navigation body invalid");
-            self.emit_timeline_navigation_failed_frame(&state, now_ms, out)?;
+            self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
             return Ok(());
         }
         let (rows, ops) = crate::query::local_first::visible_remote_rows_and_cache_ops(
@@ -72,7 +72,7 @@ impl ImModule {
         if self.local_store_mode == LocalStoreMode::Disabled {
             tracing::warn!(
                 channel_id = state.channel_id().as_str(),
-                "timeline navigation requires durable storage before Frame publication"
+                "timeline navigation requires durable storage before event publication"
             );
             return Ok(());
         }
@@ -85,22 +85,12 @@ impl ImModule {
     }
 
     /// Publishes a bounded failed delta for the existing cursor-based Timeline window.
-    pub(super) fn emit_timeline_navigation_failed_frame(
+    pub(super) fn emit_timeline_navigation_failed_event(
         &mut self,
         state: &crate::timeline_navigation::TimelineNavigationState,
         _now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let mutation = self
-            .state
-            .timeline_projector
-            .patch_failed_for_anchor(state.channel_id().as_str(), state.anchor_message_id())
-            .map_err(|error| {
-                ImError::Parse(format!("timeline navigation failure projection: {error}"))
-            })?;
-        let Some(mutation) = mutation else {
-            return Ok(());
-        };
         let page_direction = match state.kind() {
             crate::timeline_navigation::TimelineNavigationKind::Older {
                 anchor_post_id, ..
@@ -112,7 +102,6 @@ impl ImModule {
         };
         if let Some((direction, anchor_post_id)) = page_direction {
             let page = state.page();
-            let _legacy_internal_state = mutation;
             out.push(
                 crate::event::timeline::page(
                     state.channel_id().as_str(),
@@ -136,7 +125,6 @@ impl ImModule {
             return Ok(());
         };
         let page = state.page();
-        let _legacy_internal_state = mutation;
         out.push(
             crate::event::timeline::located(serde_json::json!({
                 "channelId": state.channel_id().as_str(),
@@ -155,7 +143,7 @@ impl ImModule {
         Ok(())
     }
 
-    /// PersistOk 后只读回页内权威行；该 readback 完成前不得发布 success Frame。
+    /// PersistOk 后只读回页内权威行；该 readback 完成前不得发布成功事件。
     pub(super) fn schedule_timeline_navigation_readback(
         &mut self,
         state: Box<crate::timeline_navigation::TimelineNavigationState>,
@@ -293,7 +281,7 @@ impl ImModule {
             }
             PortOutcome::Err(e) => {
                 tracing::warn!(error = ?e, "load_older_context postContext http failed");
-                self.emit_load_older_failed_frame(&state, now_ms, out)?;
+                self.emit_load_older_failed_event(&state, now_ms, out)?;
             }
         }
         Ok(())
@@ -307,7 +295,7 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         if state.failed() {
-            return self.emit_load_older_failed_frame(&state, now_ms, out);
+            return self.emit_load_older_failed_event(&state, now_ms, out);
         }
         let (_, ops) = match crate::query::local_first::visible_remote_rows_and_cache_ops(
             *state.channel_id(),
@@ -322,7 +310,7 @@ impl ImModule {
                     error = ?error,
                     "load_older_context response could not become durable messages"
                 );
-                return self.emit_load_older_failed_frame(&state, now_ms, out);
+                return self.emit_load_older_failed_event(&state, now_ms, out);
             }
         };
         if ops.is_empty() {
@@ -333,7 +321,7 @@ impl ImModule {
                 channel_id = state.channel_id().as_str(),
                 "load_older_context requires a writable store for durable timeline publication"
             );
-            return self.emit_load_older_failed_frame(&state, now_ms, out);
+            return self.emit_load_older_failed_event(&state, now_ms, out);
         }
         let corr = self.alloc_corr_internal();
         out.push(Effect::Persist { corr, ops });
@@ -343,7 +331,7 @@ impl ImModule {
         Ok(())
     }
 
-    /// Schedules the exact bounded storage readback that is the only success Frame input.
+    /// 调度唯一可生成成功事件的有界存储读回。
     pub(super) fn schedule_load_older_readback(
         &mut self,
         state: Box<LoadOlderState>,
@@ -367,7 +355,7 @@ impl ImModule {
         Ok(())
     }
 
-    /// Builds the terminal G10a Frame from the durable readback while preserving Helix paging facts.
+    /// 从 durable readback 构造 G10a 终态事件并保留 Helix 分页事实。
     pub(super) fn handle_load_older_readback_reply(
         &mut self,
         state: Box<LoadOlderState>,
@@ -385,7 +373,7 @@ impl ImModule {
                             error = ?error,
                             "load_older_context readback was malformed"
                         );
-                        return self.emit_load_older_failed_frame(&state, now_ms, out);
+                        return self.emit_load_older_failed_event(&state, now_ms, out);
                     }
                 }
             }
@@ -395,7 +383,7 @@ impl ImModule {
                     error = ?error,
                     "load_older_context readback failed"
                 );
-                return self.emit_load_older_failed_frame(&state, now_ms, out);
+                return self.emit_load_older_failed_event(&state, now_ms, out);
             }
         };
         crate::query::local_first::sort_recent_rows_desc(&mut rows_desc);
@@ -407,7 +395,7 @@ impl ImModule {
             limit: state.readback_limit(),
             window_token: window_token.to_string(),
         };
-        let page = crate::interaction_frame::WindowPageVm {
+        let page = crate::timeline_state::WindowPage {
             window_token: window_token.to_string(),
             has_older: state.has_more(),
             has_newer: false,
@@ -423,27 +411,26 @@ impl ImModule {
         Ok(())
     }
 
-    /// Publishes a failed replaceView for the attached window without erasing its last good items.
-    pub(super) fn emit_load_older_failed_frame(
+    /// 发布上拉失败状态，但不擦除上一次成功窗口。
+    pub(super) fn emit_load_older_failed_event(
         &mut self,
         state: &LoadOlderState,
-        now_ms: u64,
+        _now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let mutation = self
-            .state
-            .timeline_projector
-            .patch_failed_for_anchor(state.channel_id().as_str(), state.anchor_post_id())
-            .map_err(|error| ImError::Parse(format!("load older failure projection: {error}")))?;
-        let Some(mutation) = mutation else {
-            return Ok(());
-        };
-        let frame_id = format!(
-            "timeline-{}-{}",
-            mutation.scope.canonical_key(),
-            mutation.revision
+        out.push(
+            crate::event::timeline::page(
+                state.channel_id().as_str(),
+                state.window_token().unwrap_or("latest"),
+                "older",
+                "failed",
+                Vec::new(),
+                true,
+                false,
+                Some(state.anchor_post_id()),
+            )?
+            .into_effect(),
         );
-        out.push(self.build_registered_timeline_frame(frame_id, vec![mutation], now_ms)?);
         Ok(())
     }
 }

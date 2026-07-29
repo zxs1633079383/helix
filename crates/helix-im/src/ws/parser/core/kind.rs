@@ -4,7 +4,7 @@ use crate::sync_session::EventKind;
 /// 从 WS type 数字解析 EventKind
 ///
 /// type 7 是 closed terminal tombstone。它只能在 sync parser 的严格 wire 校验后由专属
-/// 原子提交路径消费；legacy WS 数值帧会在 `parse_inbound_value` 明确拒绝，不能借普通 post
+/// 原子提交路径消费；未知 WS action 会在 registry 边界明确拒绝，不能借普通 post
 /// gate 或“仅推进 cursor”的兼容分支半消费终态。
 pub(super) fn parse_event_kind(type_num: u8) -> Result<EventKind, ImError> {
     match type_num {

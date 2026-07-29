@@ -18,6 +18,11 @@ pub fn update(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:channel:update", data)
 }
 
+/// 构造当前 viewer 的频道列表绝对态。
+pub fn list(data: Value) -> Result<MessageV3Event, crate::ImError> {
+    super::encode("im:channel:list", data)
+}
+
 /// 构造频道关闭终态。
 pub fn closed(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:channel:closed", data)
@@ -57,7 +62,10 @@ pub fn settings_from_authority(
         return Ok(None);
     };
     let mut data = serde_json::Map::new();
-    data.insert("channelId".to_string(), Value::String(channel_id.to_string()));
+    data.insert(
+        "channelId".to_string(),
+        Value::String(channel_id.to_string()),
+    );
     data.insert("settingVersion".to_string(), version);
     for key in [
         "displayName",

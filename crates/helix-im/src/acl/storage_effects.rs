@@ -193,14 +193,14 @@ pub fn update_channel_partial_op(
 /// 这是「当前登录用户在某 channel 的 dialog badge 真值」，不是全群 `channel` 公共字段。
 /// Go 后端会按可见性/mention/urgent 计算 member 维度计数后定向广播 `update_channel`，
 /// Helix 只覆盖帧中出现的字段，不把 member 计数写回 channel 行。
-pub fn upsert_channel_member_dialog(row: Row) -> Option<Effect> {
+pub fn upsert_channel_member_channel(row: Row) -> Option<Effect> {
     Some(Effect::PersistFire {
-        ops: vec![upsert_channel_member_dialog_op(row)?],
+        ops: vec![upsert_channel_member_channel_op(row)?],
     })
 }
 
 /// 返回可并入相关事务的当前 viewer 对话绝对态 upsert。
-pub fn upsert_channel_member_dialog_op(row: Row) -> Option<StorageOp> {
+pub fn upsert_channel_member_channel_op(row: Row) -> Option<StorageOp> {
     if row.is_empty() {
         return None;
     }
@@ -284,7 +284,7 @@ pub fn bump_channel_unread_op(upd: &crate::channel_write::PostChannelUpdate) -> 
 }
 
 /// 读取写后的 channel 投影行。通常跟在 `GuardedBump` 之后放入同一 `Persist{corr}` 批次，
-/// 由 driver 顺序执行并把最后一个 `Get` 的 row 回给 Helix 组装累计 DialogPatch。
+/// 由 driver 顺序执行并把最后一个 `Get` 的 row 回给 Helix 组装累计 ChannelUpdate。
 pub fn get_channel_row_op(channel_id: ChannelId) -> StorageOp {
     use helix_core::effect::{GetSpec, SqlValue};
     StorageOp::Get(GetSpec {

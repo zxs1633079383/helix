@@ -1,0 +1,898 @@
+$ cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-web
+    Checking helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+   Compiling helix-driver-ffi v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-driver-ffi)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (lib) generated 1 warning
+    Checking helix-driver-web v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-driver-web)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.93s
+$ cargo test -p helix-im --quiet
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `gate_bundle` is never used
+  --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:19:8
+   |
+19 | pub fn gate_bundle(
+   |        ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `write_bundle` is never used
+   --> crates/helix-im/tests/message_v3/contracts/artifact_schema/../../support/artifact.rs:211:8
+    |
+211 | pub fn write_bundle(output: &Path, bundle: &ArtifactBundle) -> Result<Vec<PathBuf>, String> {
+    |        ^^^^^^^^^^^^
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g03a/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g04a/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/channel_member/g16b/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/channel/g16c/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/schedule/g08/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g06/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/read/g14/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/channel/g15a/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/channel/g16/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/schedule/g09/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/read/g13/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/timeline/g10/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/timeline/g12/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g04/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g02/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/timeline/g11a/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/timeline/g11a/../g10c/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g07/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/timeline/g10a/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/timeline/g10b/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g14a/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/sync/gs2/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `effects` is never used
+  --> crates/helix-im/tests/message_v3/sync/gs2/../../support/scenario.rs:83:12
+   |
+17 | impl Scenario {
+   | ------------- method in this implementation
+...
+83 |     pub fn effects(&self) -> &[Effect] {
+   |            ^^^^^^^
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g01/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/sync/gs3/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `effects` is never used
+  --> crates/helix-im/tests/message_v3/sync/gs3/../../support/scenario.rs:83:12
+   |
+17 | impl Scenario {
+   | ------------- method in this implementation
+...
+83 |     pub fn effects(&self) -> &[Effect] {
+   |            ^^^^^^^
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/sync/gs4/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `effects` is never used
+  --> crates/helix-im/tests/message_v3/sync/gs4/../../support/scenario.rs:83:12
+   |
+17 | impl Scenario {
+   | ------------- method in this implementation
+...
+83 |     pub fn effects(&self) -> &[Effect] {
+   |            ^^^^^^^
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/channel/g15/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/timeline/g10c/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/timeline/g11/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/timeline/g11/../g10d/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/timeline/g11/../g10d/../g10c/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/post/g05/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/sync/gs1/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `effects` is never used
+  --> crates/helix-im/tests/message_v3/sync/gs1/../../support/scenario.rs:83:12
+   |
+17 | impl Scenario {
+   | ------------- method in this implementation
+...
+83 |     pub fn effects(&self) -> &[Effect] {
+   |            ^^^^^^^
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/timeline/g10d/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `example_bundle` is never used
+  --> crates/helix-im/tests/message_v3/timeline/g10d/../g10c/../../support/artifact.rs:83:8
+   |
+83 | pub fn example_bundle() -> ArtifactBundle {
+   |        ^^^^^^^^^^^^^^
+
+
+running 194 tests
+....................................................................................... 87/194
+....................................................................................... 174/194
+....................
+test result: ok. 194 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+
+running 7 tests
+.......
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 8 tests
+........
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 7 tests
+.......
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+.......
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+.......
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+
+running 6 tests
+......
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+......
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 8 tests
+........
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 12 tests
+............
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+.......
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 6 tests
+......
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 8 tests
+........
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 10 tests
+..........
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 6 tests
+......
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 6 tests
+......
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 12 tests
+............
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 13 tests
+.............
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 34 tests
+..................................
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 18 tests
+..................
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 27 tests
+...........................
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 27 tests
+...........................
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 13 tests
+.............
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 7 tests
+.......
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 18 tests
+..................
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 27 tests
+...........................
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 7 tests
+.......
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+
+running 11 tests
+...........
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 20 tests
+iiiiiiiiiii.........
+test result: ok. 9 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 14 tests
+..............
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.04s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+.....
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+$ cargo test -p helix-core
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running unittests src/lib.rs (target/debug/deps/helix_core-5a1117a46f4026b0)
+
+running 16 tests
+test auth::tests::auth_kind_unknown_is_none ... ok
+test auth::tests::auth_kind_roundtrip ... ok
+test auth::tests::auth_kind_header_is_intent_only_namespace ... ok
+test engine::tests::unknown_progress_is_a_noop ... ok
+test engine::tests::empty_shell_step_no_effects ... ok
+test ports::upload::tests::upload_urls_require_write_and_public_addresses ... ok
+test auth::tests::auth_intent_is_stripped_and_resolved_credential_overrides_stale_value ... ok
+test ports::upload::tests::upload_effect_keeps_distinct_validated_urls ... ok
+test port_codec::tests::error_mapping_is_shared_by_all_drivers ... ok
+test engine::tests::repeated_one_shot_timers_do_not_leak ... ok
+test engine::tests::progress_peeks_without_consuming_terminal_correlation ... ok
+test engine::tests::one_shot_timer_reclaimed_on_fire ... ok
+test engine::tests::atomic_persist_reply_routes_back_to_emitting_module ... ok
+test engine::tests::rearm_new_id_heartbeat_stays_bounded ... ok
+test port_codec::tests::http_envelope_keeps_binary_body_and_repeated_headers ... ok
+test port_codec::tests::row_codec_round_trips_every_sql_value ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/frame_sender_contract.rs (target/debug/deps/frame_sender_contract-a2aee87657a731dc)
+
+running 1 test
+test frame_sender_requires_only_send_and_is_dyn_safe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/multi_module_corr_routing.rs (target/debug/deps/multi_module_corr_routing-042295f2a4580c71)
+
+running 1 test
+test start_corr_routes_to_originating_module ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/request_reply_replay.rs (target/debug/deps/request_reply_replay-d8c29a25d453623a)
+
+running 4 tests
+test unknown_corr_reply_silently_ignored ... ok
+test direction_one_error_reply_routes_back ... ok
+test direction_one_request_reply_loop ... ok
+test replay_determinism_same_ticks_same_effects ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests helix_core
+
+running 2 tests
+test crates/helix-core/src/engine.rs - engine::ExecutionShell (line 20) ... ignored
+test crates/helix-core/src/error.rs - error::PortError (line 39) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.68s
+
+$ cargo test -p helix-driver-ffi --quiet
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+
+running 26 tests
+..........................
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+
+running 9 tests
+.........
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+....
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+
+running 3 tests
+...
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.85s
+
+
+running 6 tests
+......
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+$ cargo build --target wasm32-unknown-unknown -p helix-driver-web
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `helix-im` (lib) generated 1 warning
+   Compiling helix-driver-web v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-driver-web)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.76s
+$ cargo tree -p helix-core runtime dependency scan
+PASS: helix-core runtime dependency scan empty
+$ node specs/047-im-event-gate-inventory/scripts/generate-v1-evidence.mjs
+{"verdict":"PASS","gates":30,"files":120,"tree_sha256":"0969896be01dc28bcc63aafe62894cd31ce4ed02947dcbaeb888c756397ee0fc","consumer_sync":"NOT_SYNCED_BY_SCOPE"}
+$ node specs/047-im-event-gate-inventory/scripts/check-message-v3-cutover.mjs --require-generated --self-test
+{"verdict":"PASS","gates":30,"missing":[],"extra":[],"duplicate":[],"generated":{"state":"EXACT","missing":[],"extra":[]},"active":0,"consumerSync":"NOT_SYNCED_BY_SCOPE","historicalAllowlist":["crates/helix-im/contracts/strict-matrix.v1.json","crates/helix-im/contracts/command-api.v1.json","crates/helix-im/docs/Strict Matrix/**","crates/helix-im/docs/projection-schema.md","crates/helix-im/docs/interaction-v2/**","docs/interaction-frame-v2-全量替换-按UC/**","specs/018-interaction-frame-v2-cutover..046-timeline-v3-delta-window/**"],"selfTest":"PASS"}
+$ git diff --check
+$ git check-ignore -v specs/047-im-event-gate-inventory/.v1/gates/G-01/generated/inbound.json
+.gitignore:21:**/.v1/	specs/047-im-event-gate-inventory/.v1/gates/G-01/generated/inbound.json

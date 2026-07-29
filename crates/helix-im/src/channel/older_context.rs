@@ -3,7 +3,7 @@
 //! 解 NEED_HELIX_FIX_PULL_REFRESH：legacy `fetch_older_posts_by_context` 是 8 轮 `posts/postContext`
 //! 翻页循环（moving anchor + 严格更早过滤 + 跨批去重 + pivot 推进），而 helix `im_post_context` 仅**单次**
 //! request/response，翻不到顶。本命令把那段翻页**编排**下沉：每轮 postContext 回报推进 anchor，凑够 target
-//! 条严格更早 / 服务端无更早 / pivot 卡住 / 轮数耗尽 → durable message readback 后发布 timeline Frame。
+//! 条严格更早 / 服务端无更早 / pivot 卡住 / 轮数耗尽 → durable message readback 后发布 timeline 事件。
 //!
 //! sans-IO（HX-C001）：每 HTTP = `Effect::Http` 经 `PortReply` 回报，多轮**不是**同步 `for` 而是
 //! corr_map 续接状态机（module.rs 注册 `LoadOlderContext` 携 [`LoadOlderState`]，每回报 → `ingest_round`
@@ -23,9 +23,9 @@ const MAX_ROUNDS: u32 = 8;
 
 /// canonical `before` 合法区间。
 const TARGET_MIN: u32 = 1;
-const TARGET_MAX: u32 = crate::projector::timeline::MAX_TIMELINE_PAGE_SIZE;
+const TARGET_MAX: u32 = crate::timeline_state::MAX_TIMELINE_PAGE_SIZE;
 /// `before` 缺省。
-const TARGET_DEFAULT: u32 = crate::projector::timeline::DEFAULT_TIMELINE_PAGE_SIZE;
+const TARGET_DEFAULT: u32 = crate::timeline_state::DEFAULT_TIMELINE_PAGE_SIZE;
 
 /// 一轮 `ingest_round` 后的续/停决策（停因写进 [`LoadOlderState::has_more`]）。
 #[derive(Debug, PartialEq, Eq)]
@@ -101,7 +101,7 @@ impl LoadOlderState {
         &self.channel_id
     }
 
-    /// 返回 host transport correlation；它不得进入 Go body 或 Frame 业务字段。
+    /// 返回 host transport correlation；它不得进入 Go body 或业务事件字段。
     pub fn request_id(&self) -> Option<&str> {
         self.request_id.as_deref()
     }
@@ -141,7 +141,7 @@ impl LoadOlderState {
         self.window_token = Some(window_token);
         self.readback_limit = visible_items
             .saturating_add(self.target as usize)
-            .min(crate::projector::timeline::MAX_TIMELINE_WINDOW_ITEMS)
+            .min(crate::timeline_state::MAX_TIMELINE_WINDOW_ITEMS)
             as u32;
     }
 

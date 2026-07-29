@@ -28,7 +28,10 @@ fn run_persona(viewer: &str) -> TestResult<(Vec<Value>, u64)> {
         }
     }))
     .map_err(|error| error.to_string())?;
-    harness.step(Tick::Inbound(InboundBytes(Bytes::from(inbound))), 1_700_001_610_000);
+    harness.step(
+        Tick::Inbound(InboundBytes(Bytes::from(inbound))),
+        1_700_001_610_000,
+    );
     let corr = harness
         .sink
         .as_slice()
@@ -76,14 +79,17 @@ fn g16b_emits_roster_and_leave_for_both_personas() -> TestResult<()> {
 fn artifact_test() -> TestResult<()> {
     let (sender, corr) = run_persona(LEAVER_ID)?;
     let (receiver, _) = run_persona("g16b-remaining")?;
-    let Some(output) = std::env::var_os("HELIX_GATE_ARTIFACT_DIR") else { return Ok(()); };
-    let storage = json!([{"table":"channel_member","columns":["channel_id","user_id","role","nick_name"]}]);
+    let Some(output) = std::env::var_os("HELIX_GATE_ARTIFACT_DIR") else {
+        return Ok(());
+    };
+    let storage =
+        json!([{"table":"channel_member","columns":["channel_id","user_id","role","nick_name"]}]);
     let bundle = artifact::gate_bundle(
         "G-16b",
         "message_v3_g16b",
         vec![
             json!({"kind":"Inbound","value":{"action":"channel_member_update","data":{"id":CHANNEL_ID,"event_seq":51,"memberChange":{"leave":[{"id":LEAVER_ID}]}}},"now_ms":1_700_001_610_000_i64}),
-            json!({"kind":"PortReply","value":{"correlation":corr,"outcome":{"variant":"Ok"}},"now_ms":1_700_001_610_001_i64})
+            json!({"kind":"PortReply","value":{"correlation":corr,"outcome":{"variant":"Ok"}},"now_ms":1_700_001_610_001_i64}),
         ],
         sender,
         receiver,

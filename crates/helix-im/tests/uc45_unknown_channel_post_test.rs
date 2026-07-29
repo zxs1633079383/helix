@@ -19,7 +19,7 @@
 //! ## 修复后（本测试锁住）
 //!
 //! `entry().or_insert_with(|| Channel::new(channel_id, 0))` 自动注册（cursor=0 = 本地未确认，
-//! 不误种服务端水位）→ gate 接管：event_seq==1 立即 apply（落库 + emit + cursor→1）；
+//! 不误种服务端水位）→ gate 接管：event_seq==1 进入原子落库，成功后推进 cursor 并读回 emit；
 //! event_seq>1 缺口 → buffer + arm 1s gate → sync 回拉前置消息，首条不丢。
 //!
 //! 可证伪（HX-C011）：
@@ -30,8 +30,9 @@
 mod common;
 use common::*;
 
-use helix_core::effect::{Effect, StorageOp};
-use helix_core::tick::InboundBytes;
+use helix_core::effect::{Effect, Row, SqlValue, StorageOp};
+use helix_core::port_codec::rows_to_reply_bytes;
+use helix_core::tick::{InboundBytes, ReplyBytes};
 use helix_core::Tick;
 
 /// 构造真 Go 在线广播 `post` 帧（与 post_action_inbound_test 同源信封）。
@@ -63,17 +64,57 @@ fn post_frame(
     Tick::Inbound(InboundBytes(serde_json::to_vec(&payload).unwrap().into()))
 }
 
-/// 在 sink 里找 message 表 BatchUpsert（PersistFire / Persist）。
+/// 在 sink 里找 message 表 BatchUpsert，包括 MessageV3 原子提交。
 fn has_message_upsert(h: &Harness) -> bool {
     h.sink.as_slice().iter().any(|e| {
         let ops = match e {
             Effect::PersistFire { ops } => ops,
             Effect::Persist { ops, .. } => ops,
+            Effect::PersistAtomic { ops, .. } => ops,
             _ => return false,
         };
         ops.iter()
             .any(|op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"))
     })
+}
+
+/// 确认陌生频道首条消息并回灌当前 viewer 的绝对态读回。
+fn acknowledge_unknown_channel_post(harness: &mut Harness, effects: &[EffectKind]) {
+    let persist_corr = effects.iter().find_map(|effect| match effect {
+        EffectKind::PersistAtomic(corr) => Some(*corr),
+        _ => None,
+    });
+    let Some(persist_corr) = persist_corr else {
+        panic!("unknown channel post must enter MessageV3 atomic commit");
+    };
+    let readback = harness.step(port_reply_ok(persist_corr), 1_001);
+    let readback_corr = readback.iter().find_map(|effect| match effect {
+        EffectKind::Persist(corr) => Some(*corr),
+        _ => None,
+    });
+    let Some(readback_corr) = readback_corr else {
+        panic!("committed post must read back current channel_member");
+    };
+    let last_post = serde_json::json!({
+        "id": "7xq3r6nqrjrm8nydit6awaaaaa",
+        "temporaryId": "tmpverify0001",
+        "channelId": cid(7),
+        "message": "first-post-new-group",
+        "type": "TEXT",
+        "createAt": 1_000
+    });
+    let row: Row = vec![
+        ("channel_id".to_string(), SqlValue::Text(cid(7))),
+        ("unread_count".to_string(), SqlValue::Integer(1)),
+        (
+            "last_post".to_string(),
+            SqlValue::Text(last_post.to_string()),
+        ),
+    ];
+    harness.step(
+        port_reply_with_body(readback_corr, ReplyBytes(rows_to_reply_bytes(&[row])).0),
+        1_002,
+    );
 }
 
 #[test]
@@ -102,12 +143,25 @@ fn unknown_channel_first_post_at_seq1_persists_and_emits() {
         has_message_upsert(&h),
         "陌生 channel 首条 post（seq=1）必须落库 message，got: {effects:?}"
     );
-    // ② emit im:post:received（前端可渲染）。
+    // ② durable commit + 绝对态读回后再 emit，入站当步不允许越过持久化屏障。
     assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::Emit)),
-        "陌生 channel post 必须 emit（im:post:received），got: {effects:?}"
+        !effects.iter().any(|e| matches!(e, EffectKind::Emit)),
+        "陌生 channel post 在持久化确认前不得 emit，got: {effects:?}"
     );
-    // ③ 自动注册 + cursor 推进到 event_seq（seq==cursor+1==1 → 立即 apply）。
+    assert_eq!(
+        h.module.cursor_for(channel_id(7)),
+        Some(0),
+        "陌生 channel 应自动注册，但持久化确认前 cursor 仍为 0"
+    );
+    acknowledge_unknown_channel_post(&mut h, &effects);
+    assert!(
+        h.sink
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Emit { .. })),
+        "陌生 channel post 在持久化和读回成功后必须 emit"
+    );
+    // ③ 自动注册 + durable commit 后 cursor 推进到 event_seq。
     assert_eq!(
         h.module.cursor_for(channel_id(7)),
         Some(1),

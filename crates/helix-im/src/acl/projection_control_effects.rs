@@ -206,7 +206,7 @@ pub fn emit_post_batch_updated(channel_id: ChannelId, posts: &serde_json::Value)
 }
 
 mod dialog;
-pub use dialog::{member_dialog_patch_data, post_dialog_patch_data};
+pub use dialog::{member_channel_update_data, post_channel_update_data};
 
 #[cfg(test)]
 #[path = "projection_control_effects_tests.rs"]

@@ -1,0 +1,82 @@
+$ cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-web
+    Checking helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+   Compiling helix-driver-ffi v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-driver-ffi)
+error[E0425]: cannot find value `message_key` in this scope
+  --> crates/helix-im/src/query/local_first.rs:70:25
+   |
+70 |             .filter_map(message_key)
+   |                         ^^^^^^^^^^^ not found in this scope
+   |
+help: consider importing this function
+   |
+ 6 + use crate::query::local_first::data::message_key;
+   |
+
+error[E0425]: cannot find function `server_id` in this scope
+  --> crates/helix-im/src/query/local_first.rs:94:14
+   |
+94 |             !server_id(row).is_empty()
+   |              ^^^^^^^^^ not found in this scope
+   |
+help: consider importing this function
+   |
+ 6 + use crate::query::local_first::data::server_id;
+   |
+
+error[E0425]: cannot find function `classify_local_read` in this scope
+   --> crates/helix-im/src/query/local_first.rs:338:24
+    |
+338 |         let coverage = classify_local_read(
+    |                        ^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  6 + use crate::query::local_first::data::classify_local_read;
+    |
+
+error[E0425]: cannot find function `parse_latest_posts_reply` in this scope
+   --> crates/helix-im/src/query/local_first.rs:407:34
+    |
+407 |         let remote_posts = match parse_latest_posts_reply(reply) {
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  6 + use crate::query::local_first::data::parse_latest_posts_reply;
+    |
+
+error[E0425]: cannot find function `dedup_recent_rows` in this scope
+   --> crates/helix-im/src/query/local_first.rs:439:9
+    |
+439 |         dedup_recent_rows(&mut remote_rows_desc);
+    |         ^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  6 + use crate::query::local_first::data::dedup_recent_rows;
+    |
+
+error[E0425]: cannot find function `stale_local_server_rows_delete_op` in this scope
+   --> crates/helix-im/src/query/local_first.rs:449:35
+    |
+449 |             if let Some(delete) = stale_local_server_rows_delete_op(
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  6 + use crate::query::local_first::data::stale_local_server_rows_delete_op;
+    |
+
+error[E0425]: cannot find function `merge_recent_rows` in this scope
+   --> crates/helix-im/src/query/local_first.rs:457:32
+    |
+457 |         let merged_rows_desc = merge_recent_rows(
+    |                                ^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+  6 + use crate::query::local_first::data::merge_recent_rows;
+    |
+
+For more information about this error, try `rustc --explain E0425`.
+error: could not compile `helix-im` (lib) due to 7 previous errors

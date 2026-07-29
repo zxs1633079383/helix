@@ -1,9 +1,9 @@
 //! Timeline V3 共用 pageSize 与定位配额策略合同。
 
-use helix_im::projector::timeline::{
+use helix_im::query::{message_scan_spec, parse_message_query};
+use helix_im::timeline_state::{
     allocate_locate_window, TimelinePageSize, DEFAULT_TIMELINE_PAGE_SIZE, MAX_TIMELINE_PAGE_SIZE,
 };
-use helix_im::query::{message_scan_spec, parse_message_query};
 use serde_json::json;
 
 const CHANNEL_ID: &str = "chpolicy000000000000000001";

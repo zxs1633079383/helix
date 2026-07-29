@@ -4,16 +4,12 @@ use crate::state::CorrelationContext;
 use helix_core::EffectSink;
 
 impl ImModule {
-    /// Recovery completion is a cold authority boundary. One full scan here is
-    /// cheaper and more coherent than publishing one dialog Frame per channel.
-    pub(crate) fn refresh_attached_dialog_list(
+    /// 恢复完成后重新读取当前 viewer 的频道列表。
+    pub(crate) fn refresh_channel_list(
         &mut self,
         causation_id: Option<String>,
         out: &mut EffectSink,
     ) -> Result<bool, ImError> {
-        if self.state.dialog_list_frame.scope().is_none() {
-            return Ok(false);
-        }
         let payload = serde_json::to_vec(&serde_json::json!({
             "req_id": causation_id,
         }))
@@ -61,7 +57,7 @@ impl ImModule {
                     crate::timeline_navigation::parse_older_request(payload)?;
                 let (page, _, cursor) = self
                     .state
-                    .timeline_projector
+                    .timeline_state
                     .paging_context_for_anchor(channel_id.as_str(), &anchor_post_id)
                     .ok_or_else(|| {
                         ImError::Parse(
@@ -85,7 +81,7 @@ impl ImModule {
                     crate::timeline_navigation::parse_newer_request(payload)?;
                 let (page, _, cursor) = self
                     .state
-                    .timeline_projector
+                    .timeline_state
                     .paging_context_for_anchor(channel_id.as_str(), &anchor_post_id)
                     .ok_or_else(|| {
                         ImError::Parse(
@@ -109,7 +105,7 @@ impl ImModule {
                     crate::timeline_navigation::parse_locate_request(payload)?;
                 let (window_token, _) = self
                     .state
-                    .timeline_projector
+                    .timeline_state
                     .unique_attached_window_for_channel(channel_id.as_str())
                     .ok_or_else(|| {
                         ImError::Parse(
@@ -120,7 +116,7 @@ impl ImModule {
                 let navigation_token = navigation_token
                     .or_else(|| request_id.clone())
                     .unwrap_or_else(|| format!("locate:{target_message_id}"));
-                self.state.timeline_projector.begin_locate_navigation(
+                self.state.timeline_state.begin_locate_navigation(
                     channel_id.as_str(),
                     window_token.as_str(),
                     navigation_token.as_str(),

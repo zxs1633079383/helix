@@ -84,7 +84,6 @@ impl WsMessageHandler for PostsUpdateHandler {
         // as bytes in the corr context and released only after the driver acknowledges the transaction.
         let mut ops = Vec::with_capacity(posts.len().saturating_add(1));
         let mut pending_domain_events = Vec::new();
-        let mut pending_action = None;
         let mut channel_id: Option<ChannelId> = None;
         let mut saw_edit = false;
         for post in posts {
@@ -115,16 +114,6 @@ impl WsMessageHandler for PostsUpdateHandler {
             };
             ops.push(op);
             if is_revoke {
-                if pending_action.is_none() {
-                    pending_action = ctx
-                        .state
-                        .pending_authority_actions
-                        .get(&(
-                            crate::projector::action::AuthorityMutationKind::Revoke,
-                            msg_id.to_string(),
-                        ))
-                        .cloned();
-                }
                 pending_domain_events.push(
                     crate::event::post::revoke_from_authority(post, target_seq.0)?.into_bytes(),
                 );
@@ -162,8 +151,7 @@ impl WsMessageHandler for PostsUpdateHandler {
                 channel_id: channel_for_gate,
                 target_seq,
                 pending_domain_events,
-                pending_action,
-                refresh_legacy_timeline: saw_edit,
+                refresh_timeline: saw_edit,
             },
         );
         out.push(Effect::PersistAtomic { corr, ops });

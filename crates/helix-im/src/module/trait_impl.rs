@@ -46,7 +46,7 @@ impl Module for ImModule {
                     if auth_user_id != self.config.auth_user_id
                         || company_id != self.config.company_id
                     {
-                        self.state.reset_surface_runtime_for_identity_change();
+                        self.state.reset_message_v3_identity();
                     }
                     self.config.auth_user_id = auth_user_id;
                     self.config.company_id = company_id;
@@ -54,7 +54,7 @@ impl Module for ImModule {
                     // The identity reset intentionally invalidates A's recovery window, but a
                     // live B transport must immediately open its own window; otherwise every
                     // startup sync commit is misclassified as ordinary online work and emits
-                    // one dialog Frame per channel.
+                    // one channel-list event per channel.
                     if self.state.connection_id.is_some()
                         && !self.config.auth_user_id.is_empty()
                         && !self
@@ -66,36 +66,6 @@ impl Module for ImModule {
                             .recovery_session
                             .begin(self.config.auth_user_id.as_str());
                     }
-                }
-                crate::client_api::INTERACTION_ACTION_INVOKE_COMMAND => {
-                    self.handle_action_invocation(cmd.payload.as_ref(), now_ms, out)
-                        .map_err(|e| CoreError::ModuleError {
-                            module: self.name(),
-                            source: Box::new(e),
-                        })?;
-                }
-                crate::surface_runtime::SURFACE_RESYNC_COMMAND => {
-                    self.handle_surface_resync(cmd.payload.as_ref(), now_ms, out)
-                        .map_err(|e| CoreError::ModuleError {
-                            module: self.name(),
-                            source: Box::new(e),
-                        })?;
-                }
-                crate::interaction_frame::FRAME_APPLIED_COMMAND => {
-                    let ack =
-                        crate::interaction_frame::FrameApplied::from_payload(cmd.payload.as_ref())
-                            .map_err(|error| CoreError::ModuleError {
-                                module: self.name(),
-                                source: Box::new(crate::error::ImError::Parse(error.to_string())),
-                            })?;
-                    tracing::info!(
-                        hop = "interaction_frame.applied",
-                        corr_key = %ack.transaction_id,
-                        transaction_id = %ack.transaction_id,
-                        applied_slots = ack.applied_slots,
-                        result = ?ack.result,
-                        "renderer committed InteractionFrame V2"
-                    );
                 }
                 "im_send_message" => {
                     self.handle_send_message(cmd.payload.as_ref(), now_ms, out)
@@ -197,7 +167,7 @@ impl Module for ImModule {
                             } else if name == "im_user_candidates" {
                                 CorrelationContext::OutboundContactCandidates { req_id }
                             } else if name == "im_get_replies" || name == "im_get_reply_branch" {
-                                // G12 回复族冻结请求语义，PortReply 只生成 typed thread Frame。
+                                // G12 回复族冻结请求语义，PortReply 只生成 typed thread event。
                                 let request =
                                     crate::render_ready_replies::ReplyProjectionRequest::from_command(
                                         name,

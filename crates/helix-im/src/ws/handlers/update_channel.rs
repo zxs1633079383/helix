@@ -50,7 +50,7 @@ impl WsMessageHandler for UpdateChannelHandler {
         UPDATE_CHANNEL_ACTION
     }
 
-    /// G-04 lastPost 走写后读回 MessageV3；其余 channel patch 暂留旧投影路径。
+    /// G-04 lastPost 与普通频道更新都在持久化成功后发布 MessageV3 绝对态。
     fn handle(
         &self,
         ctx: &mut ImWsContext<'_>,
@@ -73,12 +73,6 @@ impl WsMessageHandler for UpdateChannelHandler {
         else {
             return Ok(());
         };
-        crate::channel_capabilities::remember_viewer_role(
-            ctx.state,
-            channel_id,
-            channel,
-            ctx.auth_user_id,
-        );
         if let Some(last_post) = revoke_last_post(data)? {
             let corr = ctx.alloc_corr();
             let ops = crate::channel_write::message_v3_revoke_channel_ops(
@@ -100,16 +94,16 @@ impl WsMessageHandler for UpdateChannelHandler {
         if let Some(op) = crate::acl::to_effect::update_channel_partial_op(channel_id, cols) {
             ops.push(op);
         }
-        let member_dialog = if let Some((row, projection)) =
-            crate::dialog_patch::member_dialog_from_update_channel(
+        let member_channel = if let Some((row, projection)) =
+            crate::channel_update::member_channel_from_update_channel(
                 data,
                 channel_id,
                 ctx.auth_user_id,
             ) {
-            if let Some(op) = crate::acl::to_effect::upsert_channel_member_dialog_op(row) {
+            if let Some(op) = crate::acl::to_effect::upsert_channel_member_channel_op(row) {
                 ops.push(op);
             }
-            Some(crate::acl::to_effect::member_dialog_patch_data(
+            Some(crate::acl::to_effect::member_channel_update_data(
                 channel_id,
                 &projection,
                 UPDATE_CHANNEL_ACTION,
@@ -117,13 +111,7 @@ impl WsMessageHandler for UpdateChannelHandler {
         } else {
             None
         };
-        let scope = ctx.state.dialog_list_frame.scope().cloned();
-        let summary_attached = ctx
-            .state
-            .channel_summary_projector
-            .current_view(channel_id.as_str())
-            .is_some();
-        if !ops.is_empty() && (scope.is_some() || summary_attached) {
+        if !ops.is_empty() {
             let corr = ctx.alloc_corr();
             out.push(helix_core::Effect::Persist { corr, ops });
             let causation_id = frame.cses_track_id().map(str::to_string).or_else(|| {
@@ -144,15 +132,12 @@ impl WsMessageHandler for UpdateChannelHandler {
             ctx.state.corr_map.insert(
                 corr,
                 crate::state::CorrelationContext::UpdateChannelDialogPersist {
-                    scope,
                     channel_id,
                     channel: Box::new(persisted_channel),
-                    member_dialog: member_dialog.map(Box::new),
+                    member_channel: member_channel.map(Box::new),
                     causation_id,
                 },
             );
-        } else if !ops.is_empty() {
-            out.push(helix_core::Effect::PersistFire { ops });
         }
         Ok(())
     }

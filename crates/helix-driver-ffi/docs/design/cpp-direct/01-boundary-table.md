@@ -31,7 +31,6 @@
 | `helix_destroy(handle)` | void | ✅ 已实现 | null-check → Box::from_raw → take/drop tick_tx + send shutdown → **join pump_thread**（最后一批回调在 ctx 释放前返回）|
 | `helix_set_header(handle, name, nlen, value, vlen)` | i32 | ✅ 已实现 | `headers.set_header_sync` |
 | `helix_remove_header(handle, name, nlen)` | i32 | ✅ 已实现 | `headers.remove_header_sync` |
-| `helix_invoke_action(handle, envelope, len)` | i32 | ✅ 已实现 | 校验版本化 action envelope 后入同一 `Tick::Command` pump |
 | `helix_command(handle, name, nlen, payload, plen)` | i32 | ✅ 已实现（**有真实 pump 消费者**：`tick_rx` → step → Effect）| 立即拷贝（ACL-3）→ `Tick::Command` → `try_send`；Full=FFI_BUSY，禁静默丢 |
 | `helix_query(handle, qname, qnlen, qpayload, qplen, out_ptr, out_len)` | i32 | ✅ 元信息查询 | 支持 `helix_capabilities` / `helix_version`；业务查询返回 `FFI_UNIMPLEMENTED`，必须改走 `helix_command` + DomainEvent 批次 |
 | `helix_query_free(ptr, len)` | void | ✅ 已实现（null-check + Box::from_raw slice）| 配对 helix_query 成功时的 Box::into_raw |

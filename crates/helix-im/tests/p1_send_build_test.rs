@@ -590,7 +590,7 @@ fn send_reply_merges_root_fields() {
     assert_eq!(body["repliedMessage"]["message"], json!("原消息"));
     assert_eq!(sending["data"]["replyId"], "m_root");
     assert_eq!(sending["data"]["replyRootId"], "m_root");
-    assert_eq!(sending["data"]["replyFirstLevelId"], "");
+    assert!(sending["data"].get("replyFirstLevelId").is_none());
 }
 
 // ─── fail-hard ①：普通发消息 echo 锚 `post` 非 `posted`（B3，真 Go WebsocketEventPost）───

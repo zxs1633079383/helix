@@ -47,17 +47,17 @@ pub fn emit_for_kind(ev: &EventEnvelope) -> Effect {
             f,
             ev.viewer_user_id.as_str(),
         ),
-        // type7 is never a post projection. Legacy WS input rejects it and sync::flow publishes
-        // the closed dialog Frame only after PersistAtomic succeeds.
+        // type7 is never a post projection. WS input rejects it and sync::flow publishes
+        // the closed channel event only after PersistAtomic succeeds.
         EventKind::ChannelTerminalClosed => Effect::PersistFire { ops: Vec::new() },
         EventKind::Other(_) => crate::acl::to_effect::emit_post_received(ev.id, seq, msg_id, f),
     }
 }
 
-pub(super) fn collect_dialog_patch_for_post(
+pub(super) fn collect_channel_update_for_post(
     ev: &EventEnvelope,
     source: &str,
-    out: &mut Vec<crate::dialog_patch::PendingDialogPatch>,
+    out: &mut Vec<crate::channel_update::PendingChannelUpdate>,
 ) {
     use crate::sync_session::EventKind;
     if !matches!(ev.kind, EventKind::PostUpsert) {
@@ -75,7 +75,7 @@ pub(super) fn collect_dialog_patch_for_post(
         .filter(|id| !id.is_empty())
         .unwrap_or(ev.fields.id.as_str());
     out.push(
-        crate::dialog_patch::PendingDialogPatch::new(
+        crate::channel_update::PendingChannelUpdate::new(
             ev.id, ev.seq.0, msg_id, &ev.fields, update, source,
         )
         .with_causation_id(ev.causation_id.clone()),

@@ -68,21 +68,6 @@ struct CppHostVtable {
 
 extern "C" {
 
-/// 提交一个严格版本化的 SurfaceRuntime action envelope（UI → engine）。
-///
-/// 与 `helix_command` 不同，这个 ABI 没有可伪造的 business command name：payload 必须是完整
-/// `ActionInvocationEnvelope`，由 helix-im 在入队前校验 schema/unknown fields，并在 module 中再与
-/// host 注入的 runtime actor 和 opaque lease 比对。返回 `FFI_OK` 仅代表 Tick 已入队；业务完成仍需
-/// 等待同 requestId causation 的 `im:interaction:frame`。
-///
-/// # Safety
-///
-/// - `handle`：有效指针或 null。
-/// - `envelope`：指向至少 `envelope_len` 字节、并在本调用期间保持有效的内存；函数返回前会复制。
-int32_t helix_invoke_action(HelixHandle *handle,
-                            const uint8_t *envelope,
-                            uintptr_t envelope_len);
-
 /// 向 engine 发送应用命令（UI → engine）。
 ///
 /// 立即将 `name` / `payload` 拷贝到 Rust 堆（ACL-3），构造 `Tick::Command`，

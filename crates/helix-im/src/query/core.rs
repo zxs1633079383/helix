@@ -48,8 +48,7 @@ pub fn is_query(name: &str) -> bool {
 }
 
 /// Timeline V3 缺省页长；所有 latest/older/newer/locate 入口共享同一策略。
-pub(crate) const QUERY_MESSAGES_DEFAULT: u32 =
-    crate::projector::timeline::DEFAULT_TIMELINE_PAGE_SIZE;
+pub(crate) const QUERY_MESSAGES_DEFAULT: u32 = crate::timeline_state::DEFAULT_TIMELINE_PAGE_SIZE;
 /// Timeline V3 单页硬上限；非法值在产生 Effect 前拒绝而不是 clamp。
 
 /// dialogList 投影单次上限（会话列表全量，宽于消息分页；对齐现网根群可达数千会话上限护栏）。
@@ -61,8 +60,7 @@ pub(crate) const QUERY_DIALOGS_MAX: u32 = 2000;
 pub struct MessageQueryRequest {
     pub channel_id: ChannelId,
     pub limit: u32,
-    /// SurfaceRuntime 的 timeline slot token。旧调用未提供时固定为 `latest`，使兼容入口仍落到
-    /// 一个明确、可 attach 的有界窗口，而不是把所有时间线混到 channel 级 scope。
+    /// Timeline 查询窗口 token；缺省为 `latest`，避免把多个窗口混到 channel 级 scope。
     pub window_token: String,
 }
 
@@ -83,7 +81,7 @@ pub fn parse_message_query(payload: &[u8]) -> Result<MessageQueryRequest, ImErro
         .ok_or_else(|| ImError::Parse("im_query_messages_by_channel 缺 channel_id".into()))?;
     let channel_id = ChannelId::from_str(channel)
         .ok_or_else(|| ImError::Parse(format!("非法 channel_id: {channel}")))?;
-    let limit = crate::projector::timeline::TimelinePageSize::parse(
+    let limit = crate::timeline_state::TimelinePageSize::parse(
         value.get("pageSize").or_else(|| value.get("limit")),
     )
     .map_err(|error| ImError::Parse(format!("im_query_messages_by_channel pageSize: {error}")))?
@@ -251,54 +249,6 @@ pub fn build_dialog_list_query(payload: &[u8], corr: Correlation) -> Result<Effe
     })
 }
 
-/// `im_query_dialog_list` 的唯一生产消费面：把本地 channel scan 提升为完整的
-/// `message.left-dialog-list` snapshot frame。行内所有展示判定均在 Helix 完成；客户
-/// 端只核验 scope/revision 并按 `orderedChannelIds` 绑定。
-pub fn emit_dialog_list_frame_result(
-    reply_bytes: &[u8],
-    scope: crate::dialog_frame::DialogListScope,
-    state: &mut crate::dialog_frame::DialogListFrameState,
-) -> Option<Effect> {
-    emit_dialog_list_frame_result_with_terminal_channels(
-        reply_bytes,
-        scope,
-        state,
-        &std::collections::HashSet::new(),
-        None,
-    )
-}
-
-/// Same dialog snapshot projection with the durable type7 terminal marker overlaid from the
-/// channel aggregate. The `channel` scan intentionally remains a raw storage read; terminal
-/// truth lives in the cursor projection and is applied in Helix before the renderer receives the
-/// frame, so a restart cannot reopen a locally confirmed closed channel.
-pub fn emit_dialog_list_frame_result_with_terminal_channels(
-    reply_bytes: &[u8],
-    scope: crate::dialog_frame::DialogListScope,
-    state: &mut crate::dialog_frame::DialogListFrameState,
-    terminal_channel_ids: &std::collections::HashSet<String>,
-    causation_id: Option<String>,
-) -> Option<Effect> {
-    let mut rows = crate::dialog_frame::rows_from_dialog_scan(reply_bytes)?;
-    for row in &mut rows {
-        if terminal_channel_ids.contains(&row.channel_id) {
-            row.state.closed = true;
-        }
-    }
-    state.snapshot_with_causation(scope, rows, causation_id)
-}
-
-/// 单频道 hydration 写入成功后，仅在已有左侧列表 snapshot 时发布同一 surface 的属性 patch。
-/// 没有 snapshot 时不伪造半份列表；下次 `im_query_dialog_list` 会给出权威 snapshot。
-pub fn patch_hydrated_dialog_frame(
-    channel_bytes: &[u8],
-    state: &mut crate::dialog_frame::DialogListFrameState,
-) -> Option<Effect> {
-    let channel: serde_json::Value = serde_json::from_slice(channel_bytes).ok()?;
-    let scope = state.scope()?.clone();
-    state.patch_from_channel_update(scope, &channel)
-}
-
 /// `im_delete_all_dialogs`（测试用）：emit `im:channels:loaded` 刷新信号。
 ///
 /// 见模块头注「核原语缺口」：core 无 truncate 原语，物理 `DELETE FROM channel/channel_member`
@@ -317,10 +267,6 @@ pub fn emit_dialogs_cleared() -> Effect {
         event: DomainEventBytes(bytes),
     }
 }
-
-#[cfg(test)]
-#[path = "core_tests.rs"]
-mod tests;
 
 #[cfg(test)]
 #[path = "core_message_tests.rs"]

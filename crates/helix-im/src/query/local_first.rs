@@ -14,14 +14,8 @@ use crate::state::{ChannelId, CorrelationContext};
 
 use super::MessageQueryRequest;
 
-/// Internal prefix carried through the existing correlated local-first pipeline.
-/// The suffix is the native request id and becomes renderer-visible causation.
-const SURFACE_TIMELINE_RESYNC_CAUSATION_PREFIX: &str = "__helix_surface_timeline_resync:";
-
 mod data;
 
-#[cfg(test)]
-pub(crate) use data::parse_latest_posts_body;
 use data::{
     classify_local_read, dedup_recent_rows, merge_recent_rows, message_key,
     parse_latest_posts_reply, server_id, stale_local_server_rows_delete_op,
@@ -130,8 +124,7 @@ impl ImModule {
         .map(|_| ())
     }
 
-    /// Action authority is scope-bound: its causal terminal Frame must return to the exact
-    /// timeline window that granted the opaque actionRef.
+    /// 对已附着的指定窗口执行权威读回。
     pub(crate) fn refresh_attached_timeline(
         &mut self,
         channel_id: ChannelId,
@@ -149,10 +142,7 @@ impl ImModule {
         .map(|_| ())
     }
 
-    /// P1 may only release an ordinary text send's HTTP after the attached
-    /// timeline has emitted a typed Frame from its durable local fact. When no
-    /// timeline is attached there is no renderer transition to protect, so the
-    /// caller receives `false` and may start HTTP directly after P1.
+    /// 已附着窗口先读回持久事实，再释放普通消息 HTTP。
     pub(crate) fn refresh_attached_latest_timeline_with_deferred_send(
         &mut self,
         channel_id: ChannelId,
@@ -162,7 +152,7 @@ impl ImModule {
     ) -> Result<bool, ImError> {
         let Some((window_token, _)) = self
             .state
-            .timeline_projector
+            .timeline_state
             .unique_attached_window_for_channel(channel_id.as_str())
         else {
             return Ok(false);
@@ -185,16 +175,16 @@ impl ImModule {
         deferred_send_http: Option<crate::state::TemporaryId>,
         out: &mut EffectSink,
     ) -> Result<bool, ImError> {
-        let scope = crate::interaction_frame::SurfaceScope::Timeline {
+        let scope = crate::timeline_state::TimelineScope {
             channel_id: channel_id.as_str().to_string(),
             window_token: window_token.to_string(),
         };
-        if !self.state.timeline_projector.is_attached(&scope) {
+        if !self.state.timeline_state.is_attached(&scope) {
             return Ok(false);
         }
         let visible_limit = self
             .state
-            .timeline_projector
+            .timeline_state
             .current_view(&scope)
             .map(|view| view.items.len())
             .filter(|visible| *visible > 0)
@@ -202,7 +192,7 @@ impl ImModule {
             .map(|visible| {
                 visible
                     .saturating_add(1)
-                    .min(crate::projector::timeline::MAX_TIMELINE_WINDOW_ITEMS as u32)
+                    .min(crate::timeline_state::MAX_TIMELINE_WINDOW_ITEMS as u32)
             })
             .unwrap_or(super::QUERY_MESSAGES_DEFAULT);
         let payload = serde_json::json!({
@@ -234,30 +224,7 @@ impl ImModule {
         self.dispatch_message_query_with_causation_and_deferred_send(payload, true, None, None, out)
     }
 
-    /// Runs the normal authoritative local-first read but forces its terminal
-    /// publication to be a complete snapshot. A detached renderer has no
-    /// retained base revision, even when the in-memory projector still does.
-    pub(crate) fn dispatch_surface_timeline_resync(
-        &mut self,
-        payload: &[u8],
-        causation_id: Option<&str>,
-        out: &mut EffectSink,
-    ) -> Result<(), ImError> {
-        self.dispatch_message_query_with_causation_and_deferred_send(
-            payload,
-            true,
-            Some(format!(
-                "{SURFACE_TIMELINE_RESYNC_CAUSATION_PREFIX}{}",
-                causation_id.unwrap_or_default()
-            )),
-            None,
-            out,
-        )
-    }
-
-    /// Runs the same local-first query as an explicit renderer request, while
-    /// preserving command-owned causation and an optional internal send continuation.
-    /// The renderer never supplies either value.
+    /// 执行 local-first 查询并保留内部因果键与发送 continuation。
     fn dispatch_message_query_with_causation_and_deferred_send(
         &mut self,
         payload: &[u8],
@@ -309,17 +276,12 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let explicit_surface_resync = is_surface_timeline_resync(&causation_id);
-        let causal_action_readback = causation_id.is_some() && !explicit_surface_resync;
-        if !explicit_surface_resync
-            && !causal_action_readback
-            && !self.is_current_message_query(
-                request.channel_id,
-                &request.window_token,
-                query_session_epoch,
-                query_generation,
-            )
-        {
+        if !self.is_current_message_query(
+            request.channel_id,
+            &request.window_token,
+            query_session_epoch,
+            query_generation,
+        ) {
             return Ok(());
         }
         let mut local_rows_desc = match outcome {
@@ -334,7 +296,7 @@ impl ImModule {
                     );
                     if !allow_remote_fallback {
                         out.push(self.emit_timeline_failed(&request, now_ms, causation_id)?);
-                        self.emit_deferred_posts_create_after_timeline_frame(
+                        self.emit_deferred_posts_create_after_timeline_event(
                             deferred_send_http,
                             out,
                         )?;
@@ -352,7 +314,7 @@ impl ImModule {
                 );
                 if !allow_remote_fallback {
                     out.push(self.emit_timeline_failed(&request, now_ms, causation_id)?);
-                    self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
+                    self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
                     return Ok(());
                 }
                 Vec::new()
@@ -368,7 +330,7 @@ impl ImModule {
                 causation_id,
                 None,
             )?);
-            self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
+            self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
             return Ok(());
         }
 
@@ -394,7 +356,7 @@ impl ImModule {
                 causation_id,
                 None,
             )?);
-            self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
+            self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
             return Ok(());
         }
         self.start_remote_message_query(
@@ -419,17 +381,12 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let explicit_surface_resync = is_surface_timeline_resync(&causation_id);
-        let causal_action_readback = causation_id.is_some() && !explicit_surface_resync;
-        if !explicit_surface_resync
-            && !causal_action_readback
-            && !self.is_current_message_query(
-                request.channel_id,
-                &request.window_token,
-                query_session_epoch,
-                query_generation,
-            )
-        {
+        if !self.is_current_message_query(
+            request.channel_id,
+            &request.window_token,
+            query_session_epoch,
+            query_generation,
+        ) {
             return Ok(());
         }
         let reply = match outcome {
@@ -441,7 +398,7 @@ impl ImModule {
                     "message query remote fallback failed"
                 );
                 out.push(self.emit_timeline_failed(&request, now_ms, causation_id)?);
-                self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
+                self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
                 return Ok(());
             }
         };
@@ -455,7 +412,7 @@ impl ImModule {
                     "message query remote fallback returned invalid response"
                 );
                 out.push(self.emit_timeline_failed(&request, now_ms, causation_id)?);
-                self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
+                self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
                 return Ok(());
             }
         };
@@ -474,7 +431,7 @@ impl ImModule {
                     "message query remote fallback contained invalid posts"
                 );
                 out.push(self.emit_timeline_failed(&request, now_ms, causation_id)?);
-                self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
+                self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
                 return Ok(());
             }
         };
@@ -511,7 +468,7 @@ impl ImModule {
                 causation_id,
                 None,
             )?);
-            self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
+            self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
             return Ok(());
         }
 
@@ -548,15 +505,12 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let explicit_surface_resync = is_surface_timeline_resync(&causation_id);
-        if !explicit_surface_resync
-            && !self.is_current_message_query(
-                request.channel_id,
-                &request.window_token,
-                query_session_epoch,
-                query_generation,
-            )
-        {
+        if !self.is_current_message_query(
+            request.channel_id,
+            &request.window_token,
+            query_session_epoch,
+            query_generation,
+        ) {
             return Ok(());
         }
         match outcome {
@@ -587,7 +541,7 @@ impl ImModule {
             causation_id,
             None,
         )?);
-        self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
+        self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
         Ok(())
     }
 
@@ -645,7 +599,7 @@ impl ImModule {
         Ok(())
     }
 
-    fn emit_deferred_posts_create_after_timeline_frame(
+    fn emit_deferred_posts_create_after_timeline_event(
         &mut self,
         deferred_send_http: Option<crate::state::TemporaryId>,
         out: &mut EffectSink,
@@ -707,24 +661,18 @@ impl ImModule {
         &mut self,
         request: &MessageQueryRequest,
         rows_desc: &[Value],
-        now_ms: u64,
+        _now_ms: u64,
         causation_id: Option<String>,
-        page_override: Option<crate::interaction_frame::WindowPageVm>,
+        page_override: Option<crate::timeline_state::WindowPage>,
     ) -> Result<Effect, ImError> {
-        let explicit_resync = is_surface_timeline_resync(&causation_id);
-        let renderer_causation = surface_timeline_renderer_causation(&causation_id);
-        let terminal_action_request = if explicit_resync {
-            None
-        } else {
-            causation_id.clone()
-        };
-        let scope = crate::interaction_frame::SurfaceScope::Timeline {
+        let terminal_request = causation_id.clone();
+        let scope = crate::timeline_state::TimelineScope {
             channel_id: request.channel_id.as_str().to_string(),
             window_token: request.window_token.to_string(),
         };
-        let current_view = self.state.timeline_projector.current_view(&scope);
+        let current_view = self.state.timeline_state.current_view(&scope);
         let anchored_window = current_view.is_some_and(|view| {
-            view.anchor.mode == crate::interaction_frame::TimelineAnchorMode::Locate
+            view.anchor.mode == crate::timeline_state::TimelineAnchorMode::Locate
         });
         let anchored_create_at = current_view.and_then(|view| {
             let anchor_id = view.anchor.message_id.as_deref()?;
@@ -738,24 +686,19 @@ impl ImModule {
             .map(|view| (view.page.has_older, view.page.has_newer, view.page.has_more));
         let had_attached_window = current_view.is_some();
         let visible_len = current_view
-            .filter(|view| !explicit_resync && view.page.has_older)
+            .filter(|view| view.page.has_older)
             .map_or(request.limit as usize, |view| view.items.len());
         let has_local_older = rows_desc.len() > visible_len;
         let rows_asc = Value::Array(rows_desc.iter().take(visible_len).rev().cloned().collect());
-        let mut shaped = crate::render_ready::shape_message_rows_for_viewer(
+        let shaped = crate::render_ready::shape_message_rows_for_viewer(
             &rows_asc,
             self.config.auth_user_id.as_str(),
-        );
-        close_topic_links(
-            &mut shaped,
-            request.channel_id.as_str(),
-            &self.state.dialog_list_frame,
         );
         let rows = shaped.as_array().ok_or_else(|| {
             ImError::Parse("render-ready timeline rows must be an array".to_string())
         })?;
         let mut timeline_request =
-            crate::projector::timeline::TimelineWindowRequest::latest_with_window_token(
+            crate::timeline_state::TimelineWindowRequest::latest_with_window_token(
                 request.channel_id.as_str(),
                 request.window_token.as_str(),
             );
@@ -780,46 +723,33 @@ impl ImModule {
             timeline_request.page.has_older = true;
             timeline_request.page.has_more = true;
         }
-        timeline_request.surface_epoch = self.action_surface_epoch()?;
-        timeline_request.action_authority_available = !self.config.auth_user_id.is_empty();
         let has_older = timeline_request.page.has_older;
         let has_newer = timeline_request.page.has_newer;
-        let mutation = if explicit_resync {
-            self.state
-                .timeline_projector
-                .snapshot_from_render_ready_with_causation(
-                    timeline_request,
-                    rows,
-                    renderer_causation,
-                )
-        } else if anchored_window && timeline_request.target_message_id.is_none() {
+        if anchored_window && timeline_request.target_message_id.is_none() {
             // 离底窗口收到 durable 新消息时只向新侧扩展；不得用 latest scan 隐式重定位。
-            self.state.timeline_projector.patch_page_from_render_ready(
+            self.state.timeline_state.patch_page_from_render_ready(
                 timeline_request,
                 rows,
-                crate::projector::timeline::TimelinePageMutation::Newer,
+                crate::timeline_state::TimelinePageMutation::Newer,
                 causation_id,
             )
-        } else if self.state.timeline_projector.current_view(&scope).is_some() {
-            self.state.timeline_projector.patch_from_render_ready(
-                timeline_request,
-                rows,
-                causation_id,
-            )
+        } else if self.state.timeline_state.current_view(&scope).is_some() {
+            self.state
+                .timeline_state
+                .patch_from_render_ready(timeline_request, rows, causation_id)
         } else {
             self.state
-                .timeline_projector
+                .timeline_state
                 .snapshot_from_render_ready_with_causation(timeline_request, rows, causation_id)
         }
-        .map_err(|error| ImError::Parse(format!("timeline projection: {error}")))?;
-        self.register_timeline_action_bindings(&mutation, now_ms)?;
+        .map_err(|error| ImError::Parse(format!("timeline state: {error}")))?;
         let event_rows = rows_asc.as_array().cloned().unwrap_or_default();
         let anchor_post_id = self
             .state
-            .timeline_projector
+            .timeline_state
             .current_view(&scope)
             .and_then(|view| view.anchor.message_id.as_deref());
-        let effect = if explicit_resync || !had_attached_window {
+        let effect = if !had_attached_window {
             crate::event::timeline::window(
                 request.channel_id.as_str(),
                 request.window_token.as_str(),
@@ -873,35 +803,10 @@ impl ImModule {
             )?
         }
         .into_effect();
-        if let Some(request_id) = terminal_action_request {
-            // 转发的 timeline reconciliation 与 left-dialog patch 是两条独立投影。
-            // dialog 已 attach 时保留 target authority，直到其写后读 Frame 发出；否则
-            // headless timeline 是唯一可观察终态，才在这里消费 ledger。
-            let is_forward_action = self
-                .state
+        if let Some(request_id) = terminal_request {
+            self.state
                 .pending_forward_deliveries
-                .contains_request(&request_id);
-            if is_forward_action && self.state.dialog_list_frame.scope().is_none() {
-                let batch_complete = self
-                    .state
-                    .pending_forward_deliveries
-                    .complete_target(&request_id, request.channel_id);
-                if batch_complete
-                    && !self
-                        .state
-                        .action_registry
-                        .complete_after_terminal_frame(&request_id)
-                {
-                    tracing::warn!(
-                        request_id,
-                        "timeline action frame had no in-flight request ledger entry"
-                    );
-                }
-            } else if !is_forward_action {
-                self.state
-                    .action_registry
-                    .complete_after_terminal_frame(&request_id);
-            }
+                .complete_target(&request_id, request.channel_id);
         }
         Ok(effect)
     }
@@ -913,31 +818,23 @@ impl ImModule {
         _now_ms: u64,
     ) -> Result<Effect, ImError> {
         let rows = Value::Array(state.rows().to_vec());
-        let mut shaped = crate::render_ready::shape_message_rows_for_viewer(
+        let shaped = crate::render_ready::shape_message_rows_for_viewer(
             &rows,
             self.config.auth_user_id.as_str(),
-        );
-        close_topic_links(
-            &mut shaped,
-            state.channel_id().as_str(),
-            &self.state.dialog_list_frame,
         );
         let rows = shaped.as_array().ok_or_else(|| {
             ImError::Parse("timeline navigation rows must shape to array".to_string())
         })?;
-        let mut request =
-            crate::projector::timeline::TimelineWindowRequest::latest_with_window_token(
-                state.channel_id().as_str(),
-                state.window_token(),
-            );
+        let mut request = crate::timeline_state::TimelineWindowRequest::latest_with_window_token(
+            state.channel_id().as_str(),
+            state.window_token(),
+        );
         request.page_size = state.page_size();
         request.page = state.page();
-        request.surface_epoch = self.action_surface_epoch()?;
-        request.action_authority_available = !self.config.auth_user_id.is_empty();
         let locate_is_current = match state.kind() {
             crate::timeline_navigation::TimelineNavigationKind::Locate {
                 navigation_token, ..
-            } => self.state.timeline_projector.is_current_locate_navigation(
+            } => self.state.timeline_state.is_current_locate_navigation(
                 state.channel_id().as_str(),
                 state.window_token(),
                 navigation_token,
@@ -946,23 +843,22 @@ impl ImModule {
         };
         let page_mutation = match state.kind() {
             crate::timeline_navigation::TimelineNavigationKind::Older { .. } => {
-                crate::projector::timeline::TimelinePageMutation::Older
+                crate::timeline_state::TimelinePageMutation::Older
             }
             crate::timeline_navigation::TimelineNavigationKind::Newer { .. } => {
-                crate::projector::timeline::TimelinePageMutation::Newer
+                crate::timeline_state::TimelinePageMutation::Newer
             }
             crate::timeline_navigation::TimelineNavigationKind::Locate {
                 target_message_id,
                 navigation_token,
-            } => crate::projector::timeline::TimelinePageMutation::Locate {
+            } => crate::timeline_state::TimelinePageMutation::Locate {
                 target_message_id: target_message_id.to_string(),
                 navigation_token: navigation_token.to_string(),
                 activate: locate_is_current,
             },
         };
-        let mutation = self
-            .state
-            .timeline_projector
+        self.state
+            .timeline_state
             .patch_page_from_render_ready(
                 request,
                 rows,
@@ -987,7 +883,6 @@ impl ImModule {
                 .filter(|row| row.get("id").and_then(Value::as_str) != Some(anchor_post_id))
                 .cloned()
                 .collect();
-            let _legacy_internal_state = mutation;
             return Ok(crate::event::timeline::page(
                 state.channel_id().as_str(),
                 state.window_token(),
@@ -1010,7 +905,6 @@ impl ImModule {
             ));
         };
         let page = state.page();
-        let _legacy_internal_state = mutation;
         if !locate_is_current {
             return Ok(crate::event::timeline::page(
                 state.channel_id().as_str(),
@@ -1042,40 +936,10 @@ impl ImModule {
     fn emit_timeline_failed(
         &mut self,
         request: &MessageQueryRequest,
-        now_ms: u64,
-        causation_id: Option<String>,
+        _now_ms: u64,
+        _causation_id: Option<String>,
     ) -> Result<Effect, ImError> {
-        let explicit_resync = is_surface_timeline_resync(&causation_id);
-        let renderer_causation = surface_timeline_renderer_causation(&causation_id);
-        let mut failed =
-            crate::projector::timeline::TimelineWindowRequest::latest_with_window_token(
-                request.channel_id.as_str(),
-                request.window_token.as_str(),
-            );
-        failed.surface_epoch = self.action_surface_epoch()?;
-        failed.state = crate::interaction_frame::SurfaceLoadState::Failed;
-        failed.action_authority_available = false;
-        let scope = crate::interaction_frame::SurfaceScope::Timeline {
-            channel_id: request.channel_id.as_str().to_string(),
-            window_token: request.window_token.to_string(),
-        };
-        let projection_causation = causation_id.clone();
-        let mutation = if explicit_resync {
-            self.state
-                .timeline_projector
-                .snapshot_from_render_ready_with_causation(failed, &[], renderer_causation)
-        } else if self.state.timeline_projector.current_view(&scope).is_some() {
-            self.state
-                .timeline_projector
-                .patch_from_render_ready(failed, &[], projection_causation)
-        } else {
-            self.state
-                .timeline_projector
-                .snapshot_from_render_ready_with_causation(failed, &[], projection_causation)
-        }
-        .map_err(|error| ImError::Parse(format!("timeline failure projection: {error}")))?;
-        self.register_timeline_action_bindings(&mutation, now_ms)?;
-        let effect = crate::event::timeline::window(
+        Ok(crate::event::timeline::window(
             request.channel_id.as_str(),
             request.window_token.as_str(),
             "failed",
@@ -1084,120 +948,6 @@ impl ImModule {
             false,
             None,
         )?
-        .into_effect();
-        if let Some(request_id) = causation_id.filter(|_| !explicit_resync) {
-            self.state
-                .action_registry
-                .complete_after_terminal_frame(&request_id);
-        }
-        Ok(effect)
+        .into_effect())
     }
 }
-
-fn is_surface_timeline_resync(causation_id: &Option<String>) -> bool {
-    causation_id
-        .as_deref()
-        .is_some_and(|value| value.starts_with(SURFACE_TIMELINE_RESYNC_CAUSATION_PREFIX))
-}
-
-fn surface_timeline_renderer_causation(causation_id: &Option<String>) -> Option<String> {
-    causation_id
-        .as_deref()?
-        .strip_prefix(SURFACE_TIMELINE_RESYNC_CAUSATION_PREFIX)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
-/// 用已物化 topic dialog authority 闭合 parent root relation，并保留 durable activity。
-fn close_topic_links(
-    shaped: &mut Value,
-    parent_channel_id: &str,
-    dialogs: &crate::dialog_frame::DialogListFrameState,
-) {
-    let Some(rows) = shaped.as_array_mut() else {
-        return;
-    };
-    for row in rows {
-        let Some(row_object) = row.as_object_mut() else {
-            continue;
-        };
-        let Some(topic_channel_id) = row_object
-            .get("topic")
-            .and_then(Value::as_object)
-            .and_then(|topic| {
-                topic
-                    .get("topicChannelId")
-                    .or_else(|| topic.get("channelId"))
-            })
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-        else {
-            continue;
-        };
-        let Some((root_message_id, title)) = dialogs.topic_link_metadata(&topic_channel_id) else {
-            continue;
-        };
-        let (topic_message_count, topic_activity_at, topic_preview) = dialogs
-            .topic_activity_metadata(&topic_channel_id)
-            .unwrap_or_default();
-        let row_message_id = row_object
-            .get("msgId")
-            .or_else(|| row_object.get("id"))
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if row_message_id != root_message_id {
-            continue;
-        }
-        let root_created_at = row_object
-            .get("createAt")
-            .or_else(|| row_object.get("create_at"))
-            .and_then(Value::as_i64)
-            .unwrap_or_default();
-        let topic = row_object
-            .entry("topic".to_string())
-            .or_insert_with(|| serde_json::json!({}));
-        let Some(topic) = topic.as_object_mut() else {
-            continue;
-        };
-        topic.insert(
-            "parentChannelId".to_string(),
-            Value::String(parent_channel_id.to_string()),
-        );
-        topic.insert(
-            "topicChannelId".to_string(),
-            Value::String(topic_channel_id),
-        );
-        topic.insert("rootMessageId".to_string(), Value::String(root_message_id));
-        topic.insert("title".to_string(), Value::String(title));
-        if !topic.get("replyCount").is_some_and(Value::is_u64) {
-            topic.insert("replyCount".to_string(), Value::from(topic_message_count));
-        }
-        if !topic.get("lastActivityAt").is_some_and(Value::is_i64) {
-            topic.insert(
-                "lastActivityAt".to_string(),
-                Value::from(topic_activity_at.max(root_created_at)),
-            );
-        }
-        if !topic.contains_key("latestReply") {
-            if let Some(preview) = topic_preview {
-                if let (Some(author_user_id), Some(text)) = (preview.sender_user_id, preview.text) {
-                    topic.insert(
-                        "latestReply".to_string(),
-                        serde_json::json!({
-                            "author": {"userId": author_user_id},
-                            "preview": {"kind": "text", "text": text},
-                            "createdAt": preview.sent_at.unwrap_or(topic_activity_at),
-                        }),
-                    );
-                }
-            }
-        }
-        topic.remove("channelId");
-        topic.remove("latestReplyId");
-    }
-}
-
-#[cfg(test)]
-#[path = "local_first_tests.rs"]
-mod tests;

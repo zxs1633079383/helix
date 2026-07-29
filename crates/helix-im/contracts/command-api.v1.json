@@ -1,5 +1,8 @@
 {
   "schema_version": "helix-im-command-api/v1",
+  "lifecycle": "RETIRED_HISTORICAL",
+  "retired_by": "specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json",
+  "retired_reason": "该下游 API 由已退役的 InteractionFrame V2 Matrix 生成，只作历史审计。",
   "source": {
     "matrix_path": "crates/helix-im/contracts/strict-matrix.v1.json",
     "contract_epoch": 12,

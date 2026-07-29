@@ -18,8 +18,8 @@
 //!
 //! ## 验证点
 //!
-//! 1. `post` 帧 event_seq == cursor+1 → 立即 apply：PersistFire(message upsert) +
-//!    advance_cursor + emit_post_received；cursor 推进到 event_seq。
+//! 1. `post` 帧 event_seq == cursor+1 → 形成 MessageV3 原子写；matching PersistOk 后
+//!    推进 cursor 并读回 viewer channel 绝对态。
 //! 2. message 行 upsert 字段对齐（temporary_id PK / id / message / readBits / props）。
 //! 3. event_seq > cursor+1 → buffer + arm 1s gate（不立即落库）。
 //! 4. echo（本端 temporary_id 命中乐观行）复用同 `post`→gate→ON CONFLICT(temporary_id) 路径。
@@ -89,7 +89,7 @@ fn post_frame(
     Tick::Inbound(InboundBytes(bytes.into()))
 }
 
-/// 从 sink 找到 message 表的 BatchUpsert spec（PersistFire 或 Persist）。
+/// 从 sink 找到 message 表的 BatchUpsert spec（包含 MessageV3 原子写）。
 fn find_message_upsert(h: &Harness) -> helix_core::effect::UpsertSpec {
     h.sink
         .as_slice()
@@ -98,6 +98,7 @@ fn find_message_upsert(h: &Harness) -> helix_core::effect::UpsertSpec {
             let ops = match e {
                 Effect::PersistFire { ops } => ops,
                 Effect::Persist { ops, .. } => ops,
+                Effect::PersistAtomic { ops, .. } => ops,
                 _ => return None,
             };
             ops.iter().find_map(|op| match op {
@@ -113,7 +114,7 @@ fn find_message_upsert(h: &Harness) -> helix_core::effect::UpsertSpec {
 /// 回归锚: C1 —— 真 Go `post` 帧（event_seq == cursor+1）→ apply → message 行 + cursor 推进。
 ///
 /// 复刻 live 帧：channel cursor 种子 = 40112（increment 种），post 帧 event_seq = 40113 ==
-/// cursor+1 → gate 立即 apply。断言 PersistFire(message upsert) + emit + cursor → 40113。
+/// cursor+1 → gate 立即接纳。断言 PersistAtomic 后 cursor → 40113。
 #[test]
 fn post_frame_at_cursor_plus_one_persists_and_advances() {
     let mut h = harness_with_seed(1, 40_112);
@@ -129,19 +130,19 @@ fn post_frame_at_cursor_plus_one_persists_and_advances() {
         1_100,
     );
 
-    // 1. 立即落库（PersistFire，WS 直连路径幂等）
-    assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::PersistFire)),
-        "post at cursor+1 must PersistFire (message upsert), got: {:?}",
-        effects
-    );
-    // 2. emit_post_received 通知前端
-    assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::Emit)),
-        "post apply must emit im post:received, got: {:?}",
-        effects
-    );
-    // 3. cursor 单调推进到 event_seq
+    let persist_corr = effects.iter().find_map(|effect| match effect {
+        EffectKind::PersistAtomic(corr) => Some(*corr),
+        _ => None,
+    });
+    let Some(persist_corr) = persist_corr else {
+        panic!("post at cursor+1 must enter PersistAtomic, got {effects:?}");
+    };
+    assert!(!effects.iter().any(|e| matches!(e, EffectKind::Emit)));
+    let committed = h.step(port_reply_ok(persist_corr), 1_101);
+    assert!(committed
+        .iter()
+        .any(|effect| matches!(effect, EffectKind::Persist(_))));
+    // matching PersistOk 后 cursor 单调推进到 event_seq。
     assert_eq!(
         h.module.cursor_for(channel_id(1)),
         Some(40_113),
@@ -313,10 +314,12 @@ fn echo_post_frame_reconciles_via_temporary_id_upsert() {
         1_100,
     );
 
-    // (a) 落库（gate PersistFire upsert，PK 命中乐观行）+ reconcile（Persist 覆写 send_status）
+    // (a) gate 原子写以 temporary_id 命中乐观行，reconcile 另写 send_status。
     assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::PersistFire)),
-        "echo post must persist via gate (upsert overwrites optimistic row), got: {:?}",
+        effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::PersistAtomic(_))),
+        "echo post must enter MessageV3 PersistAtomic, got: {:?}",
         effects
     );
     // (b) CancelTimer 撤 15s 发送超时（核心修复点：否则 15s 后误标 UnSend）
@@ -375,7 +378,15 @@ fn echo_post_frame_reconciles_via_temporary_id_upsert() {
         "echo reconcile must explicitly write send_status='sent' for the optimistic-row conflict"
     );
 
-    // (f) cursor 推进（与可见性解耦，HX-C008；reconcile 不重复推进）
+    // (f) matching PersistOk 后 cursor 推进；reconcile 不重复推进。
+    let atomic_corr = effects.iter().find_map(|effect| match effect {
+        EffectKind::PersistAtomic(corr) => Some(*corr),
+        _ => None,
+    });
+    let Some(atomic_corr) = atomic_corr else {
+        panic!("echo post missing MessageV3 atomic correlation");
+    };
+    h.step(port_reply_ok(atomic_corr), 1_101);
     assert_eq!(
         h.module.cursor_for(channel_id(1)),
         Some(40_113),
@@ -445,7 +456,7 @@ fn post_echo_then_15s_timer_does_not_mark_unsend() {
 ///
 /// 对齐真源 `on_ws_event` `gate_states.entry().or_insert_with(default)` + `handle_new_post` 无条件
 /// 落库：陌生 channel（首次见到的新群 / 被拉入群）的首条在线 push 在 increment 种 cursor 之前到达时
-/// 不丢——以 cursor=0 惰性注册，gate 接管：event_seq=1（==cursor+1）→ 立即 apply（PersistFire 落库）。
+/// 不丢——以 cursor=0 惰性注册，gate 接管：event_seq=1（==cursor+1）→ 进入原子写屏障。
 /// 此用例同时锁住 echo 不变量：陌生 channel 的 post（无对应 in-flight send）仍**不创建** PendingSend。
 #[test]
 fn post_frame_unregistered_channel_auto_registers_and_persists() {
@@ -470,12 +481,15 @@ fn post_frame_unregistered_channel_auto_registers_and_persists() {
 
     let tick = post_frame(5, 1, "tmp_u", "7xq3r6nqrjrm8nydit6awaaaaa", "orphan");
     let effects = h.step(tick, 1_100);
-    // 自动注册 + 立即 apply（event_seq=1 == cursor+1）：陌生 channel 不再丢帧。
-    assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::PersistFire)),
-        "陌生 channel post（seq=1）应自动注册并 PersistFire 落库（不再静默丢弃），got: {:?}",
-        effects
-    );
+    // 自动注册 + 进入原子写（event_seq=1 == cursor+1）：陌生 channel 不再丢帧。
+    let atomic_corr = effects.iter().find_map(|effect| match effect {
+        EffectKind::PersistAtomic(corr) => Some(*corr),
+        _ => None,
+    });
+    let Some(atomic_corr) = atomic_corr else {
+        panic!("陌生 channel post（seq=1）应进入 MessageV3 PersistAtomic，got {effects:?}");
+    };
+    h.step(port_reply_ok(atomic_corr), 1_101);
     assert_eq!(
         h.module.cursor_for(channel_id(5)),
         Some(1),

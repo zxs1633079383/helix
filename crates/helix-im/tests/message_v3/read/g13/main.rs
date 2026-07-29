@@ -54,7 +54,10 @@ impl Replay {
     /// 发起 command 并返回指定 Effect 类型的 correlation。
     fn command_corr(&mut self, name: &'static str, payload: Value) -> TestResult<Correlation> {
         let bytes = serde_json::to_vec(&payload).map_err(|error| error.to_string())?;
-        self.step(Tick::Command(AppCommand::new(name, bytes)), CREATED_AT as u64)?;
+        self.step(
+            Tick::Command(AppCommand::new(name, bytes)),
+            CREATED_AT as u64,
+        )?;
         self.only_corr()
     }
 
@@ -114,7 +117,10 @@ impl Replay {
             })
             .collect::<Vec<_>>();
         if correlations.len() != 1 {
-            return Err(format!("expected one correlation, got {}", correlations.len()));
+            return Err(format!(
+                "expected one correlation, got {}",
+                correlations.len()
+            ));
         }
         correlations
             .first()
@@ -129,8 +135,7 @@ impl Replay {
             .iter()
             .filter_map(|effect| match effect {
                 Effect::Emit { event } => Some(
-                    serde_json::from_slice(event.0.as_ref())
-                        .map_err(|error| error.to_string()),
+                    serde_json::from_slice(event.0.as_ref()).map_err(|error| error.to_string()),
                 ),
                 _ => None,
             })
@@ -144,8 +149,7 @@ fn run_success() -> TestResult<PersonaTrace> {
     let query_corr = replay.command_corr("im_query_dialog_list", json!({}))?;
     replay.reply(
         query_corr,
-        serde_json::to_vec(&vec![dialog_row(3, 1, 1)])
-            .map_err(|error| error.to_string())?,
+        serde_json::to_vec(&vec![dialog_row(3, 1, 1)]).map_err(|error| error.to_string())?,
         CREATED_AT as u64 + 1,
     )?;
     let initial = replay.events()?;
@@ -154,11 +158,7 @@ fn run_success() -> TestResult<PersonaTrace> {
         "im_channels_view",
         json!({"channels":[{"id":CHANNEL_ID,"isRoot":true}]}),
     )?;
-    replay.reply(
-        view_corr,
-        http_success()?,
-        CREATED_AT as u64 + 2,
-    )?;
+    replay.reply(view_corr, http_success()?, CREATED_AT as u64 + 2)?;
     let persist_corr = replay.ingest_read()?;
     replay.reply(persist_corr, Vec::new(), CREATED_AT as u64 + 3)?;
     let terminal = replay.events()?;
@@ -167,8 +167,7 @@ fn run_success() -> TestResult<PersonaTrace> {
     let recovery_corr = recovered.command_corr("im_query_dialog_list", json!({}))?;
     recovered.reply(
         recovery_corr,
-        serde_json::to_vec(&vec![dialog_row(0, 0, 0)])
-            .map_err(|error| error.to_string())?,
+        serde_json::to_vec(&vec![dialog_row(0, 0, 0)]).map_err(|error| error.to_string())?,
         CREATED_AT as u64 + 4,
     )?;
     let recovery = recovered.events()?;
@@ -246,23 +245,28 @@ fn base64_std(bytes: &[u8]) -> String {
 #[test]
 fn g13_emits_initial_terminal_and_recovery_states() -> TestResult<()> {
     let trace = run_success()?;
-    assert_eq!(trace.events.len(), 3);
-    assert_eq!(trace.events[0]["event"], "im:read:channel");
-    assert_eq!(trace.events[0]["data"]["state"], "unread");
-    assert_eq!(trace.events[0]["data"]["unreadCount"], 3);
-    assert_eq!(trace.events[1]["data"]["state"], "read");
-    assert_eq!(trace.events[1]["data"]["unreadCount"], 0);
-    assert_eq!(trace.events[1]["data"]["lastReadSeq"], 41);
-    assert_eq!(trace.events[2]["data"]["state"], "read");
-    assert_eq!(trace.events[2]["data"]["unreadCount"], 0);
+    assert_eq!(trace.events.len(), 6);
+    assert_eq!(trace.events[0]["event"], "im:channel:list");
+    assert_eq!(trace.events[1]["event"], "im:read:channel");
+    assert_eq!(trace.events[1]["data"]["state"], "unread");
+    assert_eq!(trace.events[1]["data"]["unreadCount"], 3);
+    assert_eq!(trace.events[2]["event"], "im:channel:update");
+    assert_eq!(trace.events[3]["event"], "im:read:channel");
+    assert_eq!(trace.events[3]["data"]["state"], "read");
+    assert_eq!(trace.events[3]["data"]["unreadCount"], 0);
+    assert_eq!(trace.events[3]["data"]["lastReadSeq"], 41);
+    assert_eq!(trace.events[4]["event"], "im:channel:list");
+    assert_eq!(trace.events[5]["event"], "im:read:channel");
+    assert_eq!(trace.events[5]["data"]["state"], "read");
+    assert_eq!(trace.events[5]["data"]["unreadCount"], 0);
     Ok(())
 }
 
 /// G-13 输出不再含 paired Frame 或 renderer mutation。
 #[test]
 fn g13_has_no_frame_or_surface_payload() -> TestResult<()> {
-    let encoded = serde_json::to_string(&run_success()?.events)
-        .map_err(|error| error.to_string())?;
+    let encoded =
+        serde_json::to_string(&run_success()?.events).map_err(|error| error.to_string())?;
     for forbidden in ["InteractionFrame", "Surface", "mutation", "directive"] {
         assert!(!encoded.contains(forbidden), "forbidden field {forbidden}");
     }

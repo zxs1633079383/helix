@@ -341,7 +341,7 @@ impl ImModule {
                     from_seq,
                     persist_corr.raw()
                 );
-                let dialog_patches = crate::acl::to_effect::sync_dialog_patch_plans(
+                let channel_updates = crate::acl::to_effect::sync_channel_update_plans(
                     &events,
                     &messages,
                     auth_user_id,
@@ -352,7 +352,7 @@ impl ImModule {
                         &messages,
                         auth_user_id,
                     );
-                for pending in &dialog_patches {
+                for pending in &channel_updates {
                     persist_ops.push(crate::acl::to_effect::bump_channel_unread_op(
                         &pending.update,
                     ));
@@ -436,7 +436,7 @@ impl ImModule {
                         channel_id,
                         trigger,
                         wants_continuation: needs_continuation,
-                        dialog_patches,
+                        channel_updates,
                         pending_domain_events:
                             crate::acl::to_effect::sync_mutation_emits_with_auth(
                                 &events,
@@ -543,7 +543,7 @@ impl ImModule {
                         channel_id,
                         trigger,
                         wants_continuation: false,
-                        dialog_patches: Vec::new(),
+                        channel_updates: Vec::new(),
                         pending_domain_events: Vec::new(),
                     },
                 );
@@ -633,7 +633,7 @@ impl ImModule {
         };
         if channel.is_terminal() || terminal_seq <= channel.cursor.value() {
             // Same seq replay is an idempotent no-op. A restored tombstone is already terminal,
-            // and no second Frame/cursor write must be emitted.
+            // and no second terminal event/cursor write must be emitted.
             return Ok(());
         }
         let persist_corr = self.alloc_corr_internal();
@@ -645,7 +645,7 @@ impl ImModule {
             auth_user_id,
         );
         for pending in
-            crate::acl::to_effect::sync_dialog_patch_plans(prefix, &messages, auth_user_id)
+            crate::acl::to_effect::sync_channel_update_plans(prefix, &messages, auth_user_id)
         {
             ops.push(crate::acl::to_effect::bump_channel_unread_op(
                 &pending.update,

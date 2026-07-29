@@ -5,8 +5,9 @@
 ## 本 crate 文档索引（`docs/` · 按需 Read）
 
 - **🟢 UC 消费视角真源（SessionStart 必读）** → [`docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md)：Gate、command、Effect、projection、HTTP、WS、Go DB、Helix storage 与 UI VM 综合对齐。
-- **🟢 UC 发布证据入口** → [`docs/Strict Matrix/README.md`](docs/Strict%20Matrix/README.md)：机器合同 + 生成矩阵 + 持久证据包 + 远端存储真源，fail-closed 判定。
-- **🟢 投影 payload 契约真源（C2 冻结）** → [`docs/projection-schema.md`](docs/projection-schema.md)：21 个 `im:__bus__` 投影 emit 工厂的 `payload.data` 字段集冻结 + 信号/透传/控制三类区分 + 命名陷阱词典（`unReadPostId` 大写R / SYSTEN / createAt）。配 `tests/projection_schema_test.rs` 强制对账（缺失/多余即 fail）。**改任何 emit 工厂字段前必读**。
+- **🟢 当前 30 Gate 机器真源** → [`../../specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json`](../../specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json)：Gate 分母、领域 owner、独立测试 target、删除清单、生成文件与迁移状态。
+- **🟢 MessageV3 出站 schema** → [`../../specs/047-im-event-gate-inventory/contracts/message-v3-event.schema.json`](../../specs/047-im-event-gate-inventory/contracts/message-v3-event.schema.json)：业务信封只含 `event` 与 `data`；字段必须来自真实 Gate 测试及本地/远端事实。
+- **⚪ 历史 Matrix 与投影文档** → `contracts/strict-matrix.v1.json`、`contracts/command-api.v1.json`、`docs/Strict Matrix/`、`docs/projection-schema.md` 已标记 `RETIRED_HISTORICAL`，只供迁移审计，不得作为当前实现或完成证据。
 - **🟢 UC 自动化编排谱（依赖序 + 数据流）** → [`docs/uc-automation/uc-test-order-spec.md`](docs/uc-automation/uc-test-order-spec.md)：搭自动化测试用的执行顺序真源——DAG（连接→建群→发消息→操作→历史/管理→终结）+ 变量提取登记表（上游产出 post_id/channel_id 等→下游输入）+ 分阶段 UC×HTTP×WS 表 + 5 条防本末倒置铁律。排除 bot/agent+Notification。
 - **🔴 outbound 请求体真源（真抓包）** → [`docs/csesapi-migration/真机curl真源.md`](docs/csesapi-migration/真机curl真源.md)：现网实抓 6 curl 逐字 body+头 + 附录 A createPosts 三方证据定论；改任何 outbound 命令体（send/makeTopic/create/revoke/close/member/createPosts）前**必读**。真抓包 > 源码推断。
 - **csesapi → cses-im-server 迁移全量图谱** → [`docs/csesapi-migration/full-map/00-README-index.md`](docs/csesapi-migration/full-map/00-README-index.md)：现网后端 HTTP(124)/WS(19 事件) + 前端 message-v3 用例/UI 渲染/src-tauri Tauri 交互全清单 + 三态缺口矩阵（[`30-capability-gap-matrix.md`](docs/csesapi-migration/full-map/30-capability-gap-matrix.md)）。接口可达性 + 蓝图见 [`csesapi-migration/01-接口可达性清单.md`](docs/csesapi-migration/01-接口可达性清单.md) · [`02-迁移蓝图.md`](docs/csesapi-migration/02-迁移蓝图.md)。

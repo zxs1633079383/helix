@@ -58,7 +58,7 @@ pub(crate) fn extract_post_fields_with_event_seq(
         .or_else(|| pick_str("userId").filter(|value| !value.is_empty()))
         // Historical reconnect/system rows use createBy=SYS while the old
         // user snapshot is empty. Preserve that authoritative identity in the
-        // typed field so both the immediate Frame and the SQLite readback stay
+        // typed field so both the immediate event and the SQLite readback stay
         // renderable.
         .or_else(|| pick_str("create_by").filter(|value| !value.is_empty()))
         .or_else(|| pick_str("createBy").filter(|value| !value.is_empty()))

@@ -56,6 +56,8 @@ impl PendingForwardDeliveryLedger {
             .then(|| request_id.to_string())
     }
 
+    /// 测试只读探针：判断转发请求是否仍在等待全部目标确认。
+    #[cfg(test)]
     pub(crate) fn contains_request(&self, request_id: &str) -> bool {
         self.targets_by_request.contains_key(request_id)
     }

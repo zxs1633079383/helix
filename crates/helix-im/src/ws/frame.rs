@@ -3,8 +3,6 @@ use bytes::Bytes;
 use crate::error::ImError;
 use crate::state::Seq;
 
-pub(crate) const LEGACY_EVENT_ACTION: &str = "__legacy_event__";
-
 /// 合成 action：心跳 pong ACK 帧（`status==OK` + 带 `gaps`/`hashMismatch`，**无** `action` 字段）。
 ///
 /// 现网 cses-client 的 pong 走 runtime `ack_observer`（status==OK 被心跳校验吞，不进 handler）。
@@ -32,17 +30,15 @@ impl WsFrame {
     /// WS-1：惰性从已解析 root 取 action `&str`——删 action 字段，不每帧堆分配 String（HX-C005
     /// `&'static str` 字面纪律）。借用 `&self.root`，唯一消费方在同步 dispatch 内，借用安全。
     ///
-    /// 显式 `action` 字段优先；**无 action** 时若帧形如心跳 pong ACK（`status=="OK"` 且 `data`
-    /// 带 `gaps`/`hashMismatch`）→ 合成 `PONG_ACTION`（UC-4.4 消费侧路由）；其余无 action 帧
-    /// 仍回退 `LEGACY_EVENT_ACTION`（legacy 数值帧）。
-    pub(crate) fn action(&self) -> &str {
+    /// 显式 `action` 字段优先；无 action 的心跳 ACK 合成 `PONG_ACTION`，其余帧拒绝。
+    pub(crate) fn action(&self) -> Result<&str, ImError> {
         if let Some(action) = self.root.get("action").and_then(serde_json::Value::as_str) {
-            return action;
+            return Ok(action);
         }
         if self.is_pong_frame() {
-            return PONG_ACTION;
+            return Ok(PONG_ACTION);
         }
-        LEGACY_EVENT_ACTION
+        Err(ImError::InvalidWsFrame("missing action".to_string()))
     }
 
     /// 心跳 pong ACK 判定（零信任）：`status=="OK"` 且 `data` 含 `gaps` 或 `hashMismatch`。
@@ -130,82 +126,5 @@ impl WsFrame {
     pub(crate) fn event_seq_required(&self) -> Result<Seq, ImError> {
         self.event_seq()
             .ok_or_else(|| ImError::InvalidWsFrame("missing event_seq".to_string()))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_action_frame_reads_top_level_action() {
-        let frame = WsFrame::parse(br#"{"action":"posted","eventSeq":7}"#).unwrap();
-
-        assert_eq!(frame.action(), "posted");
-        assert_eq!(frame.raw(), br#"{"action":"posted","eventSeq":7}"#);
-    }
-
-    #[test]
-    fn parse_payload_action_when_top_level_action_missing() {
-        let frame = WsFrame::parse(br#"{"payload":{"action":"posted"}}"#).unwrap();
-
-        assert_eq!(frame.action(), LEGACY_EVENT_ACTION);
-    }
-
-    #[test]
-    fn parse_legacy_frame_uses_legacy_action_key() {
-        let frame = WsFrame::parse(br#"{"payload":{"eventSeq":8}}"#).unwrap();
-
-        assert_eq!(frame.action(), LEGACY_EVENT_ACTION);
-    }
-
-    #[test]
-    fn parse_invalid_json_returns_invalid_ws_frame() {
-        let err = match WsFrame::parse(br#"{"action":"posted""#) {
-            Ok(_) => panic!("invalid JSON should fail"),
-            Err(err) => err,
-        };
-
-        assert!(matches!(err, ImError::InvalidWsFrame(_)));
-    }
-
-    #[test]
-    fn event_seq_uses_legacy_wire_priority_before_compatibility_fields() {
-        let data_seq = WsFrame::parse(
-            br#"{"action":"posted","eventSeq":2,"event":{"seq":3},"payload":{"eventSeq":4},"channel_event_seq":5,"data":{"event_seq":6,"props":{"channel_event_seq":7}}}"#,
-        )
-        .unwrap();
-        assert_eq!(data_seq.event_seq(), Some(Seq(6)));
-
-        let props_seq = WsFrame::parse(
-            br#"{"action":"post_update","eventSeq":2,"event":{"seq":3},"payload":{"eventSeq":4},"channel_event_seq":5,"data":{"props":{"channel_event_seq":7}}}"#,
-        )
-        .unwrap();
-        assert_eq!(props_seq.event_seq(), Some(Seq(7)));
-
-        let root_seq = WsFrame::parse(
-            br#"{"action":"posts_update","eventSeq":2,"event":{"seq":3},"payload":{"eventSeq":4},"channel_event_seq":5,"data":{}}"#,
-        )
-        .unwrap();
-        assert_eq!(root_seq.event_seq(), Some(Seq(5)));
-    }
-
-    #[test]
-    fn event_seq_uses_compatibility_fields_after_legacy_wire_fields() {
-        let event_seq = WsFrame::parse(
-            br#"{"action":"post_update","eventSeq":2,"event":{"seq":3},"payload":{"eventSeq":4}}"#,
-        )
-        .unwrap();
-        assert_eq!(event_seq.event_seq(), Some(Seq(2)));
-
-        let event_dot_seq = WsFrame::parse(
-            br#"{"action":"post_update","event":{"seq":3},"payload":{"eventSeq":4}}"#,
-        )
-        .unwrap();
-        assert_eq!(event_dot_seq.event_seq(), Some(Seq(3)));
-
-        let payload_seq =
-            WsFrame::parse(br#"{"action":"posts_update","payload":{"eventSeq":4}}"#).unwrap();
-        assert_eq!(payload_seq.event_seq(), Some(Seq(4)));
     }
 }

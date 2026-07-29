@@ -15,24 +15,45 @@ use helix_core::effect::Correlation;
 use helix_core::tick::{PortOutcome, ReplyBytes};
 use helix_core::Tick;
 
+/// 执行一个 Tick，并逐个确认其产生的 MessageV3 原子写屏障。
+fn step_durable(harness: &mut Harness, tick: Tick, now_ms: u64) -> Vec<EffectKind> {
+    let mut effects = harness.step(tick, now_ms);
+    let mut pending: Vec<u64> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            EffectKind::PersistAtomic(corr) => Some(*corr),
+            _ => None,
+        })
+        .collect();
+    let mut offset = 1_u64;
+    while let Some(corr) = pending.pop() {
+        let next = harness.step(port_reply_ok(corr), now_ms.saturating_add(offset));
+        pending.extend(next.iter().filter_map(|effect| match effect {
+            EffectKind::PersistAtomic(next_corr) => Some(*next_corr),
+            _ => None,
+        }));
+        effects.extend(next);
+        offset = offset.saturating_add(1);
+    }
+    effects
+}
+
 // ─── WS 路径：连续帧直接放行 ──────────────────────────────────────────────────
 
 #[test]
 fn gate_contiguous_ws_applies_immediately() {
     let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // cursor = 0，喂 seq=1（连续）
-    let effects = h.step(inbound_event(1, 1, 1), 1000);
-    // 应产出：PersistFire（落库）+ PersistFire（advance_cursor）+ Emit
+    let effects = step_durable(&mut h, inbound_event(1, 1, 1), 1000);
+    // MessageV3 连续帧先产原子写，写成功后才推进内存 cursor。
     assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::PersistFire)),
-        "contiguous WS event should emit PersistFire, got: {:?}",
+        effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::PersistAtomic(_))),
+        "contiguous WS event should emit PersistAtomic, got: {:?}",
         effects
     );
-    assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::Emit)),
-        "contiguous WS event should emit domain event, got: {:?}",
-        effects
-    );
+    assert_eq!(h.module.cursor_for(channel_id(1)), Some(1));
     // 不应 arm gate timer（连续不进 buffer）
     assert!(
         !effects
@@ -75,7 +96,7 @@ fn gate_out_of_order_arms_timer() {
 fn gate_dup_drop_silently() {
     let mut h = Harness::new(&[1]);
     // 先让 seq=1 通过（cursor→1）
-    h.step(inbound_event(1, 1, 1), 1000);
+    step_durable(&mut h, inbound_event(1, 1, 1), 1000);
     // 再喂 seq=1（dup，seq <= cursor）
     let effects = h.step(inbound_event(1, 1, 1), 1001);
     // 应该完全静默（无 PersistFire, 无 Emit, 无 ScheduleTimer）
@@ -333,20 +354,17 @@ fn gate_buffer_flush_on_contiguous_arrival() {
     // 喂 seq=2（断号，进 buffer，不重复 arm）
     h.step(inbound_event(1, 2, 1), 1001);
     // 喂 seq=1（连续！cursor=0+1=1）→ apply + 从 buffer flush 2,3
-    let effects = h.step(inbound_event(1, 1, 1), 1002);
+    let effects = step_durable(&mut h, inbound_event(1, 1, 1), 1002);
 
-    // 应产出多个 PersistFire
-    let persist_fire_count = effects
+    // 每条连续消息都必须独立经过原子写屏障。
+    let persist_atomic_count = effects
         .iter()
-        .filter(|e| matches!(e, EffectKind::PersistFire))
+        .filter(|e| matches!(e, EffectKind::PersistAtomic(_)))
         .count();
-    // seq 1: PersistFire(upsert) + PersistFire(cursor)
-    // seq 2: PersistFire(upsert) + PersistFire(cursor) [from flush]
-    // seq 3: PersistFire(upsert) + PersistFire(cursor) [from flush]
     assert!(
-        persist_fire_count >= 4,
-        "should flush buffer after contiguous seq arrives (got {} PersistFire)",
-        persist_fire_count
+        persist_atomic_count >= 3,
+        "should flush buffer after contiguous seq arrives (got {} PersistAtomic)",
+        persist_atomic_count
     );
 
     // cursor 最终应为 3
@@ -365,7 +383,7 @@ fn cursor_never_decreases_under_any_input() {
     let mut h = Harness::new(&[1]);
     // 先喂 seq 1..5 连续（cursor=5）
     for seq in 1u64..=5 {
-        h.step(inbound_event(1, seq, 1), seq * 1000);
+        step_durable(&mut h, inbound_event(1, seq, 1), seq * 1000);
     }
     let cursor_after_5 = h.module.cursor_for(channel_id(1)).unwrap_or(0);
     assert_eq!(cursor_after_5, 5, "cursor should be 5 after contiguous 1-5");
@@ -396,8 +414,8 @@ fn cursor_never_decreases_under_any_input() {
 fn large_gap_echo_triggers_immediate_backfill_then_flushes_buffered_echo() {
     let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // 前置：连续 seq 1,2 → cursor=2。
-    h.step(inbound_event(1, 1, 1), 1000);
-    h.step(inbound_event(1, 2, 1), 1001);
+    step_durable(&mut h, inbound_event(1, 1, 1), 1000);
+    step_durable(&mut h, inbound_event(1, 2, 1), 1001);
     assert_eq!(h.module.cursor_for(channel_id(1)), Some(2), "前置 cursor=2");
 
     // 大缺口 echo（seq=5 / gap=3 > 阈值）→ buffer（不 emit·不推 cursor）+ **立即** backfill sync。
@@ -442,28 +460,26 @@ fn large_gap_echo_triggers_immediate_backfill_then_flushes_buffered_echo() {
         })
         .expect("backfill 回报产 Persist");
 
-    // persist ok → commit cursor 到 4 → flush_contiguous 放行 buffered seq=5 → cursor=5 + emit。
-    h.step(port_reply_ok(persist_corr), 2100);
+    // backfill 写成功先提交 cursor=4，再为刚变连续的 seq=5 排队 MessageV3 原子写。
+    let buffered = h.step(port_reply_ok(persist_corr), 2100);
+    let buffered_corr = buffered.iter().find_map(|effect| match effect {
+        EffectKind::PersistAtomic(corr) => Some(*corr),
+        _ => None,
+    });
+    let Some(buffered_corr) = buffered_corr else {
+        panic!("buffered seq=5 必须进入 MessageV3 PersistAtomic");
+    };
+    h.step(port_reply_ok(buffered_corr), 2101);
     assert_eq!(
         h.module.cursor_for(channel_id(1)),
         Some(5),
-        "cursor 经 backfill commit(4) + buffered echo flush(5) 追平到 5"
+        "cursor 经 backfill commit(4) + buffered echo durable commit(5) 追平到 5"
     );
-    let received = h.sink.as_slice().iter().any(|e| match e {
-        helix_core::Effect::Emit { event } => {
-            serde_json::from_slice::<serde_json::Value>(event.0.as_ref())
-                .ok()
-                .and_then(|v| {
-                    v.get("event")
-                        .and_then(|s| s.as_str())
-                        .map(|s| s == "im:post:received")
-                })
-                .unwrap_or(false)
-        }
-        _ => false,
-    });
     assert!(
-        received,
-        "buffered echo（seq 5）flush 时须 emit im:post:received（活动频道 echo 终于渲染）"
+        h.sink
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, helix_core::Effect::Persist { .. })),
+        "buffered seq=5 持久成功后必须请求 viewer channel 绝对态读回"
     );
 }

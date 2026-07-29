@@ -793,8 +793,8 @@ fn send_and_receive_interleaved() {
     assert!(
         recv_effects
             .iter()
-            .any(|e| matches!(e, EffectKind::PersistFire)),
-        "inbound WS event should still work while send is pending"
+            .any(|e| matches!(e, EffectKind::PersistAtomic(_))),
+        "inbound WS event should enter MessageV3 atomic commit while send is pending"
     );
 
     // 发送的消息和接收的事件应该互不影响

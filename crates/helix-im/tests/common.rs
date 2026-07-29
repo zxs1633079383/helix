@@ -224,20 +224,21 @@ pub fn timer_tick(id_raw: u64) -> Tick {
     Tick::Timer(TimerId::from_raw(id_raw))
 }
 
-/// 构造带 seq 的 WS Inbound 帧（JSON，用于测试 gate 状态机）
+/// 构造现役 Go `action=post` WS 帧，用于测试 gate 状态机。
 #[allow(dead_code)]
-pub fn inbound_event(channel_id: u64, seq: u64, event_type: u8) -> Tick {
+pub fn inbound_event(channel_id: u64, seq: u64, _event_type: u8) -> Tick {
     use serde_json::json;
     let payload = json!({
-        "event": "posted",
+        "action": "post",
         "data": {
-            "channel_id": cid(channel_id),
-            "seq": seq,
-            "event_type": event_type,
-            "msg_id": format!("msg_{}", seq),
-            "actor_id": "user_1",
-            "created_at": 1000000_u64,
-            "payload": null
+            "id": sid(seq),
+            "temporaryId": format!("tmp-{seq}"),
+            "channelId": cid(channel_id),
+            "event_seq": seq,
+            "userId": "user_1",
+            "type": "TEXT",
+            "message": format!("message-{seq}"),
+            "createAt": 1000000_u64 + seq
         }
     });
     let bytes = serde_json::to_vec(&payload).unwrap();

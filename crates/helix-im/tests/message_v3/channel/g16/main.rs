@@ -22,7 +22,10 @@ fn run_persona(user_id: &str) -> TestResult<(Vec<Value>, u64)> {
         "data":{"channelId":CHANNEL_ID,"deleteAt":1_700_001_600_010_i64}
     }))
     .map_err(|error| error.to_string())?;
-    harness.step(Tick::Inbound(InboundBytes(Bytes::from(inbound))), 1_700_001_600_010);
+    harness.step(
+        Tick::Inbound(InboundBytes(Bytes::from(inbound))),
+        1_700_001_600_010,
+    );
     let corr = harness
         .sink
         .as_slice()
@@ -32,7 +35,11 @@ fn run_persona(user_id: &str) -> TestResult<(Vec<Value>, u64)> {
             _ => None,
         })
         .ok_or_else(|| "missing lifecycle persistence".to_string())?;
-    assert!(!harness.sink.as_slice().iter().any(|effect| matches!(effect, Effect::Emit { .. })));
+    assert!(!harness
+        .sink
+        .as_slice()
+        .iter()
+        .any(|effect| matches!(effect, Effect::Emit { .. })));
     harness.step(
         Tick::PortReply {
             corr,
@@ -70,14 +77,16 @@ fn g16_emits_committed_lifecycle_for_both_personas() -> TestResult<()> {
 fn artifact_test() -> TestResult<()> {
     let (sender, corr) = run_persona("g16-actor")?;
     let (receiver, _) = run_persona("g16-observer")?;
-    let Some(output) = std::env::var_os("HELIX_GATE_ARTIFACT_DIR") else { return Ok(()); };
+    let Some(output) = std::env::var_os("HELIX_GATE_ARTIFACT_DIR") else {
+        return Ok(());
+    };
     let storage = json!([{"table":"channel","columns":["id","delete_at"]}]);
     let bundle = artifact::gate_bundle(
         "G-16",
         "message_v3_g16",
         vec![
             json!({"kind":"Inbound","value":{"action":"channel_close","data":{"channelId":CHANNEL_ID,"deleteAt":1_700_001_600_010_i64}},"now_ms":1_700_001_600_010_i64}),
-            json!({"kind":"PortReply","value":{"correlation":corr,"outcome":{"variant":"Ok"}},"now_ms":1_700_001_600_011_i64})
+            json!({"kind":"PortReply","value":{"correlation":corr,"outcome":{"variant":"Ok"}},"now_ms":1_700_001_600_011_i64}),
         ],
         sender,
         receiver,

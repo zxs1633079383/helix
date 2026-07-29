@@ -34,6 +34,7 @@ fn dispatch(
     h.module.handle(&tick, now, &mut h.sink)
 }
 
+/// 返回当前批次发布的领域事件名。
 fn emit_names(sink: &helix_core::EffectSink) -> Vec<String> {
     sink.as_slice()
         .iter()
@@ -148,6 +149,15 @@ fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
         1_000,
     )
     .expect("update_channel_notice must route Ok");
+    let notice_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { corr, .. } => Some(corr.raw()),
+        _ => None,
+    });
+    let Some(notice_corr) = notice_corr else {
+        panic!("update_channel_notice must wait for correlated persistence");
+    };
+    assert!(!emit_names(&h.sink).iter().any(|n| n == "im:channel:update"));
+    h.step(port_reply_ok(notice_corr), 1_001);
     assert!(emit_names(&h.sink).iter().any(|n| n == "im:channel:update"));
     assert_eq!(
         h.module.cursor_for(channel_id(1)),
@@ -182,6 +192,15 @@ fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
         1_000,
     )
     .expect("nested update_channel must route Ok");
+    let update_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { corr, .. } => Some(corr.raw()),
+        _ => None,
+    });
+    let Some(update_corr) = update_corr else {
+        panic!("update_channel must wait for correlated persistence");
+    };
+    assert!(!emit_names(&h.sink).iter().any(|n| n == "im:channel:update"));
+    h.step(port_reply_ok(update_corr), 1_001);
     assert!(emit_names(&h.sink).iter().any(|n| n == "im:channel:update"));
     assert_eq!(
         h.module.cursor_for(channel_id(1)),
@@ -272,83 +291,6 @@ fn dead_actions_are_noop_and_do_not_reconcile() {
         before_cursor,
         "dead action 不得推进 cursor"
     );
-}
-
-// ─── ⑤ event_seq 三/四级 fallback：data.event_seq → props.channel_event_seq → 顶层 → data.seq ─
-//
-// 真源 parser::parse_inbound（legacy 数值帧的 event_seq 选取）。直接断言 parser 产出的
-// EventEnvelope.seq（隔离 gate 行为：经 handle 走 channel gate 会按严格 +1 缓冲 gap，cursor
-// 不直接 = parser 选取值，掩盖 fallback 真正选了哪级）。逐级缺字段验证下钻选取。
-
-/// 经 parser 解析 legacy 帧，返回选取的 event_seq（u64）。
-fn parsed_seq(value: serde_json::Value) -> u64 {
-    let bytes = serde_json::to_vec(&value).unwrap();
-    helix_im::parser::parse_inbound(&bytes)
-        .expect("legacy frame parses")
-        .seq
-        .0
-}
-
-#[test]
-fn event_seq_fallback_level1_data_event_seq_wins() {
-    let cid1 = cid(1);
-    // data.event_seq=7 必须压过 props.channel_event_seq=8 / 顶层=9 / data.seq=6。
-    let seq = parsed_seq(json!({
-        "event": "posted",
-        "channel_event_seq": 9,
-        "data": {
-            "channel_id": cid1, "event_seq": 7, "seq": 6, "event_type": 1,
-            "props": { "channel_event_seq": 8 }
-        }
-    }));
-    assert_eq!(
-        seq, 7,
-        "level1: data.event_seq 必须胜出（压过 props/顶层/data.seq）"
-    );
-}
-
-#[test]
-fn event_seq_fallback_level2_props_channel_event_seq() {
-    let cid1 = cid(1);
-    // 缺 data.event_seq → 取 props.channel_event_seq=8（压过顶层 9 / data.seq 6）。
-    let seq = parsed_seq(json!({
-        "event": "posted",
-        "channel_event_seq": 9,
-        "data": {
-            "channel_id": cid1, "seq": 6, "event_type": 1,
-            "props": { "channel_event_seq": 8 }
-        }
-    }));
-    assert_eq!(
-        seq, 8,
-        "level2: props.channel_event_seq 兜底（缺 data.event_seq 时）"
-    );
-}
-
-#[test]
-fn event_seq_fallback_level3_top_level_channel_event_seq() {
-    let cid1 = cid(1);
-    // 缺 data.event_seq + props → 取顶层 channel_event_seq=9（压过 data.seq 6）。
-    let seq = parsed_seq(json!({
-        "event": "posted",
-        "channel_event_seq": 9,
-        "data": { "channel_id": cid1, "seq": 6, "event_type": 1 }
-    }));
-    assert_eq!(
-        seq, 9,
-        "level3: 顶层 channel_event_seq 兜底（缺 data.event_seq + props 时）"
-    );
-}
-
-#[test]
-fn event_seq_fallback_level4_data_seq_last_resort() {
-    let cid1 = cid(1);
-    // 全缺 → 末级 data.seq=6（legacy 兼容兜底）。
-    let seq = parsed_seq(json!({
-        "event": "posted",
-        "data": { "channel_id": cid1, "seq": 6, "event_type": 1 }
-    }));
-    assert_eq!(seq, 6, "level4: data.seq 末级兜底（全缺时）");
 }
 
 // ─── ⑥ 内存构造 post（缺 event_seq）不推 cursor（边界，复用 P5b bot #2/#32 口径）──────

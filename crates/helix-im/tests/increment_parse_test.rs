@@ -17,7 +17,7 @@ use helix_core::effect::Effect;
 use helix_core::tick::InboundBytes;
 use helix_core::Module;
 use helix_core::Tick;
-use helix_im::parser::{parse_inbound_value, parse_increment_channel};
+use helix_im::parser::parse_increment_channel;
 use helix_im::state::{ChannelId, Seq};
 
 /// 26 字符 ASCII channelId（base32 形态占位，长度恰 26）。
@@ -128,107 +128,6 @@ fn increment_channel_needsync_false_respected() {
     let data = serde_json::json!({ "id": CH26, "lastEventSeq": 7, "needSync": false });
     let ic = parse_increment_channel(&data).expect("valid increment data");
     assert!(!ic.need_sync);
-}
-
-// ─── ② event_seq 三级 fallback：三用例各命中一级 ──────────────────────────────
-
-/// 构造 legacy 数值事件帧（无 action → parse_inbound 路径）。
-fn event_envelope_from(frame: &serde_json::Value) -> helix_im::sync_session::EventEnvelope {
-    let bytes = serde_json::to_vec(frame).unwrap();
-    helix_im::parser::parse_inbound(&bytes).expect("event frame should parse")
-}
-
-#[test]
-fn event_seq_fallback_level1_data_event_seq() {
-    // ① 顶层 data.event_seq 权威（真 Go int64 数值，非 26 字符 id）。
-    let frame = serde_json::json!({
-        "data": { "channel_id": CH26, "event_seq": 111, "event_type": 1 }
-    });
-    let ev = event_envelope_from(&frame);
-    assert_eq!(ev.seq, Seq(111));
-    assert_eq!(ev.channel_id, ChannelId::from_str(CH26).unwrap());
-}
-
-#[test]
-fn event_seq_fallback_level2_props_channel_event_seq() {
-    // ② per-post props.channel_event_seq（posted 冗余），data.event_seq 缺失时命中。
-    let frame = serde_json::json!({
-        "data": {
-            "channel_id": CH26,
-            "event_type": 1,
-            "props": { "channel_event_seq": 222 }
-        }
-    });
-    let ev = event_envelope_from(&frame);
-    assert_eq!(ev.seq, Seq(222));
-}
-
-#[test]
-fn event_seq_fallback_level3_top_level_channel_event_seq() {
-    // ③ 顶层 channel_event_seq（legacy），前两级缺失时命中。
-    let frame = serde_json::json!({
-        "channel_event_seq": 333,
-        "data": { "channel_id": CH26, "event_type": 1 }
-    });
-    let ev = event_envelope_from(&frame);
-    assert_eq!(ev.seq, Seq(333));
-}
-
-#[test]
-fn event_seq_legacy_data_seq_still_compatible() {
-    // legacy data.seq 兼容（既有抽象 wire / 测试帧，无三级字段时兜底）。
-    let frame = serde_json::json!({
-        "data": { "channel_id": CH26, "seq": 444, "event_type": 1 }
-    });
-    let ev = event_envelope_from(&frame);
-    assert_eq!(ev.seq, Seq(444));
-}
-
-#[test]
-fn event_seq_priority_level1_over_others() {
-    // 三级同时存在时 data.event_seq 优先（权威）。
-    let frame = serde_json::json!({
-        "channel_event_seq": 333,
-        "data": {
-            "channel_id": CH26,
-            "event_seq": 111,
-            "event_type": 1,
-            "props": { "channel_event_seq": 222 }
-        }
-    });
-    let ev = event_envelope_from(&frame);
-    assert_eq!(ev.seq, Seq(111), "data.event_seq 应优先于 props / 顶层");
-}
-
-#[test]
-fn parse_inbound_value_reuses_parsed_json_for_event_seq_fallback() {
-    let frame = serde_json::json!({
-        "channel_event_seq": 333,
-        "data": {
-            "channel_id": CH26,
-            "event_type": 1,
-            "props": { "channel_event_seq": 222 }
-        }
-    });
-
-    let ev = parse_inbound_value(&frame).expect("parsed Value frame should parse");
-
-    assert_eq!(ev.seq, Seq(222));
-    assert_eq!(ev.channel_id, ChannelId::from_str(CH26).unwrap());
-}
-
-#[test]
-fn parse_inbound_value_rejects_invalid_data_without_bytes() {
-    let frame = serde_json::json!({
-        "data": { "event_seq": 111, "event_type": 1 }
-    });
-
-    let err = parse_inbound_value(&frame).expect_err("missing channel_id should fail");
-
-    assert!(
-        matches!(&err, helix_im::ImError::Parse(msg) if msg == "missing/invalid data.channel_id"),
-        "unexpected error: {err:?}"
-    );
 }
 
 // ─── ③ 非法 data → Ignored / None（零信任，不 panic） ────────────────────────

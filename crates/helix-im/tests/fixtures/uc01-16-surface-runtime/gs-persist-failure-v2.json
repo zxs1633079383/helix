@@ -1,7 +1,0 @@
-{
-  "scenario": "persist-failure",
-  "causationId": "sync-persist-failure-1",
-  "expectedEffects": ["PersistAtomic"],
-  "expectedFrame": null,
-  "invariants": ["cursor-unchanged", "ledger-unchanged", "coverage-unchanged", "no-final-frame"]
-}

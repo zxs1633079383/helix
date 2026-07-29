@@ -1,13 +1,13 @@
 //! Dialog-row projection emit factories.
 
 use crate::state::ChannelId;
-pub fn post_dialog_patch_data(
+pub fn post_channel_update_data(
     channel_id: ChannelId,
     event_seq: u64,
     msg_id: &str,
     fields: &crate::sync_session::PostFields,
     update: &crate::channel_write::PostChannelUpdate,
-    projection: &crate::dialog_patch::DialogPatchProjection,
+    projection: &crate::channel_update::ChannelUpdateProjection,
     source: &str,
 ) -> serde_json::Value {
     use serde_json::json;
@@ -15,7 +15,7 @@ pub fn post_dialog_patch_data(
     let message_class = crate::channel_write::message_class(update);
     let mention_delta = if update.mention_hit { 1 } else { 0 };
     let urgent_delta = if update.urgent_hit { 1 } else { 0 };
-    let dialog_patch = json!({
+    let channel_update = json!({
         "id": channel_id.as_str(),
         "channelId": channel_id.as_str(),
         "lastPost": last_post.clone(),
@@ -57,14 +57,14 @@ pub fn post_dialog_patch_data(
                 "urgentUserIds": update.urgent_user_ids.clone(),
                 "mentionList": projection.mention_list.clone(),
                 "urgentPostList": projection.urgent_post_list.clone(),
-                "dialogPatch": dialog_patch,
+                "dialogPatch": channel_update,
     })
 }
 
 /// 后端 `update_channel` 定向成员绝对态 → 左侧 Dialog 行 badge/lastPost 指令。
-pub fn member_dialog_patch_data(
+pub fn member_channel_update_data(
     channel_id: ChannelId,
-    projection: &crate::dialog_patch::MemberDialogProjection,
+    projection: &crate::channel_update::MemberChannelUpdate,
     source: &str,
 ) -> serde_json::Value {
     use serde_json::json;
@@ -117,7 +117,7 @@ pub fn member_dialog_patch_data(
         .get("message")
         .cloned()
         .unwrap_or(serde_json::Value::Null);
-    let mut dialog_patch = json!({
+    let mut channel_update = json!({
         "id": channel_id.as_str(),
         "channelId": channel_id.as_str(),
         "userId": projection.user_id.clone(),
@@ -142,9 +142,10 @@ pub fn member_dialog_patch_data(
         "lastPostAt": projection.last_post_at,
         "lastRootPostAt": projection.last_root_post_at,
     });
-    if let (Some(revision), Some(object)) =
-        (projection.projection_revision, dialog_patch.as_object_mut())
-    {
+    if let (Some(revision), Some(object)) = (
+        projection.projection_revision,
+        channel_update.as_object_mut(),
+    ) {
         object.insert("projectionRevision".to_string(), revision.into());
     }
     let mut data = json!({
@@ -166,7 +167,7 @@ pub fn member_dialog_patch_data(
         "urgentPostList": projection.urgent_post_list.clone(),
         "msgCount": projection.msg_count,
         "lastReadSeq": projection.last_read_seq,
-        "dialogPatch": dialog_patch,
+        "dialogPatch": channel_update,
     });
     if let (Some(revision), Some(object)) = (projection.projection_revision, data.as_object_mut()) {
         object.insert("projectionRevision".to_string(), revision.into());

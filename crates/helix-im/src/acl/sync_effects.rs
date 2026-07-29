@@ -195,11 +195,11 @@ pub fn sync_unread_bump_ops(
     ops
 }
 
-pub fn sync_dialog_patch_plans(
+pub fn sync_channel_update_plans(
     events: &[EventEnvelope],
     messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
     auth_user_id: &str,
-) -> Vec<crate::dialog_patch::PendingDialogPatch> {
+) -> Vec<crate::channel_update::PendingChannelUpdate> {
     use crate::sync_session::EventKind;
 
     let mut plans = Vec::new();
@@ -218,7 +218,7 @@ pub fn sync_dialog_patch_plans(
         if !update.visible {
             continue;
         }
-        plans.push(crate::dialog_patch::PendingDialogPatch::new(
+        plans.push(crate::channel_update::PendingChannelUpdate::new(
             ev.channel_id,
             ev.seq.0,
             msg_id,

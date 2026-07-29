@@ -74,10 +74,7 @@ fn durable_row(event_seq: u64, confirmed: bool) -> Row {
             "channel_id".to_string(),
             SqlValue::Text(CHANNEL_ID.to_string()),
         ),
-        (
-            "event_seq".to_string(),
-            SqlValue::Integer(event_seq as i64),
-        ),
+        ("event_seq".to_string(), SqlValue::Integer(event_seq as i64)),
         (
             "update_at".to_string(),
             SqlValue::Integer(CREATE_AT + (event_seq as i64 * 10)),
@@ -139,7 +136,13 @@ fn assert_urgent_write_set(effects: &[Effect], event_seq: u64, confirmed: bool) 
         column == "event_seq"
             && matches!(value, SqlValue::Integer(value) if *value == event_seq as i64)
     }));
-    for forbidden in ["message", "props", "quick_reply", "read_bits", "send_status"] {
+    for forbidden in [
+        "message",
+        "props",
+        "quick_reply",
+        "read_bits",
+        "send_status",
+    ] {
         assert!(
             patch.iter().all(|(column, _)| column != forbidden),
             "urgent write must not touch {forbidden}"
@@ -243,13 +246,7 @@ fn run_persona(viewer_id: &str, sender: bool) -> TestResult<PersonaTrace> {
         "HTTP ack is admission only"
     );
 
-    let mut events = apply_authority(
-        &mut harness,
-        1,
-        false,
-        CREATE_AT as u64 + 2,
-        &mut ticks,
-    )?;
+    let mut events = apply_authority(&mut harness, 1, false, CREATE_AT as u64 + 2, &mut ticks)?;
     events.extend(apply_authority(
         &mut harness,
         2,

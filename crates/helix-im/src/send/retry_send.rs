@@ -19,40 +19,9 @@ struct RetrySendCommand {
     req_id: Option<String>,
 }
 
-pub(crate) fn prepare_retry_send_payload(
-    message_id: &str,
-    request_id: &str,
-) -> Result<Vec<u8>, ImError> {
-    if message_id.is_empty() || request_id.is_empty() {
-        return Err(ImError::Parse(
-            "im_retry_send action payload requires message_id and req_id".to_string(),
-        ));
-    }
-    serde_json::to_vec(&RetrySendCommand {
-        message_id: message_id.to_string(),
-        req_id: Some(request_id.to_string()),
-    })
-    .map_err(|error| ImError::Serialize(error.to_string()))
-}
-
 #[cfg(test)]
-mod action_payload_tests {
+mod retry_tests {
     use super::*;
-
-    #[test]
-    fn retry_action_payload_contains_only_canonical_message_and_request_ids() {
-        let payload = prepare_retry_send_payload("temporary-1", "request-1").unwrap();
-        let value: Value = serde_json::from_slice(&payload).unwrap();
-        assert_eq!(
-            value,
-            serde_json::json!({
-                "message_id": "temporary-1",
-                "req_id": "request-1"
-            })
-        );
-        assert!(prepare_retry_send_payload("", "request-1").is_err());
-        assert!(prepare_retry_send_payload("temporary-1", "").is_err());
-    }
 
     #[test]
     fn media_retry_without_java_base_fails_before_mutating_failed_state() {
@@ -151,24 +120,7 @@ pub(crate) fn handle_retry_send(
     handle_retry_send_with_window(module, payload, now_ms, None, None, out)
 }
 
-pub(crate) fn handle_retry_send_for_window(
-    module: &mut ImModule,
-    payload: &[u8],
-    now_ms: u64,
-    channel_id: ChannelId,
-    window_token: String,
-    out: &mut EffectSink,
-) -> Result<(), ImError> {
-    handle_retry_send_with_window(
-        module,
-        payload,
-        now_ms,
-        Some(channel_id),
-        Some(window_token),
-        out,
-    )
-}
-
+/// 解析 retry 请求并按内存或本地存储事实恢复发送。
 fn handle_retry_send_with_window(
     module: &mut ImModule,
     payload: &[u8],
@@ -360,7 +312,7 @@ fn retry_failed_media(
             };
             crate::send::upload_props::mark_media_stage(props, operation.target(), status)?;
         }
-        // 用户显式 retry 的单次边界整体复制：后续 progress / terminal Frame 必须同时保留
+        // 用户显式 retry 的单次边界整体复制：后续 progress / terminal event 必须同时保留
         // 授权 window 与 causation，不能让二者分叉。
         let timeline_readback = crate::pending_send::TimelineReadbackContext {
             window_token,

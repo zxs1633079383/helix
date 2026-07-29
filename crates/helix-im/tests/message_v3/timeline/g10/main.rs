@@ -365,7 +365,20 @@ fn g10_local_recovery_avoids_remote_http() -> TestResult<()> {
     assert_eq!(replay.http_count(), 0);
     let events = replay.events()?;
     assert_eq!(events.len(), 1);
-    assert_ready_event(&events[0], "g10-recovery")
+    assert_eq!(events[0]["event"], "im:timeline:update");
+    assert_eq!(events[0]["data"]["channelId"], CHANNEL_ID);
+    assert_eq!(events[0]["data"]["windowToken"], WINDOW_TOKEN);
+    assert_eq!(events[0]["data"]["direction"], "append");
+    assert_eq!(events[0]["data"]["state"], "ready");
+    assert_eq!(
+        events[0]["data"]["messages"].as_array().map(Vec::len),
+        Some(20)
+    );
+    assert_eq!(
+        events[0]["data"]["messages"][19]["message"],
+        "g10-recovery-20"
+    );
+    Ok(())
 }
 
 /// G-10 两个 persona 分别从自身状态机得到无 wrapper 的同一可见窗口。

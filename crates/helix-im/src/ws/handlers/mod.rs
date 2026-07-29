@@ -8,7 +8,6 @@ pub(crate) mod hello;
 pub(crate) mod ignored;
 pub(crate) mod increment_channel;
 pub(crate) mod increment_channel_end;
-pub(crate) mod legacy_event;
 pub(crate) mod pong;
 pub(crate) mod post;
 pub(crate) mod post_echo_settle;
@@ -37,7 +36,6 @@ pub(crate) fn force_link_inventory() {
     ignored::inventory_link_anchor();
     increment_channel::inventory_link_anchor();
     increment_channel_end::inventory_link_anchor();
-    legacy_event::inventory_link_anchor();
     pong::inventory_link_anchor();
     post::inventory_link_anchor();
     post_pin::inventory_link_anchor();

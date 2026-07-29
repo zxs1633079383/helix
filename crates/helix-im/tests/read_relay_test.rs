@@ -392,12 +392,9 @@ fn stale_reply_snapshot_is_suppressed_after_latest_frame() {
     h.step(port_reply_with_body(new_corr, enveloped(latest)), 1002);
     let latest_emits = emit_jsons(&h.sink);
     assert_eq!(latest_emits.len(), 1);
-    assert_eq!(latest_emits[0]["event"], "im:interaction:frame");
-    assert_eq!(latest_emits[0]["data"]["causationId"], "new");
-    assert_eq!(
-        latest_emits[0]["data"]["mutations"][0]["mutation"]["kind"],
-        "threadDetailSnapshot"
-    );
+    assert_eq!(latest_emits[0]["event"], "im:timeline:thread");
+    assert_eq!(latest_emits[0]["data"]["requestId"], "new");
+    assert_eq!(latest_emits[0]["data"]["projectionMode"], "snapshot");
 
     let stale = bytes::Bytes::from(
         serde_json::to_vec(&serde_json::json!({

@@ -11,7 +11,31 @@
 mod common;
 use common::*;
 
+use helix_core::Tick;
 use proptest::prelude::*;
+
+/// 执行一个 Tick，并确认其产生的全部 MessageV3 原子持久化屏障。
+fn step_durable(harness: &mut Harness, tick: Tick, now_ms: u64) -> Vec<EffectKind> {
+    let mut effects = harness.step(tick, now_ms);
+    let mut pending: Vec<u64> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            EffectKind::PersistAtomic(corr) => Some(*corr),
+            _ => None,
+        })
+        .collect();
+    let mut offset = 1_u64;
+    while let Some(corr) = pending.pop() {
+        let next = harness.step(port_reply_ok(corr), now_ms.saturating_add(offset));
+        pending.extend(next.iter().filter_map(|effect| match effect {
+            EffectKind::PersistAtomic(next_corr) => Some(*next_corr),
+            _ => None,
+        }));
+        effects.extend(next);
+        offset = offset.saturating_add(1);
+    }
+    effects
+}
 
 // ─── 策略：生成随机 (channel_id, seq) 序列 ───────────────────────────────────
 
@@ -37,7 +61,7 @@ proptest! {
         let mut last_cursor: u64 = 0;
 
         for (i, seq) in seqs.iter().enumerate() {
-            h.step(inbound_event(1, *seq, 1), (i as u64 + 1) * 100);
+            step_durable(&mut h, inbound_event(1, *seq, 1), (i as u64 + 1) * 100);
             let cursor = h.module.cursor_for(channel_id(1)).unwrap_or(0);
             prop_assert!(
                 cursor >= last_cursor,
@@ -65,7 +89,7 @@ proptest! {
         // 先喂 seq 1..10 连续（确保 cursor=10），然后喂 extra_seqs
         let mut h = Harness::new(&[1]);
         for seq in 1u64..=10 {
-            h.step(inbound_event(1, seq, 1), seq * 100);
+            step_durable(&mut h, inbound_event(1, seq, 1), seq * 100);
         }
         // cursor 应为 10
         let cursor_after_prefix = h.module.cursor_for(channel_id(1)).unwrap_or(0);
@@ -75,7 +99,11 @@ proptest! {
         // 喂额外 seqs（可能乱序/dup/超前）
         for (i, seq) in extra_seqs.iter().enumerate() {
             let prev = h.module.cursor_for(channel_id(1)).unwrap_or(0);
-            h.step(inbound_event(1, *seq, 1), (11 + i as u64) * 100);
+            step_durable(
+                &mut h,
+                inbound_event(1, *seq, 1),
+                (11 + i as u64) * 100,
+            );
             let after = h.module.cursor_for(channel_id(1)).unwrap_or(0);
             prop_assert!(after >= prev,
                 "cursor decreased on extra seq={}: {} -> {}", seq, prev, after);
@@ -131,7 +159,7 @@ proptest! {
         let mut h = Harness::new(&[1]);
         // 先喂到 base_seq 为止的连续序列
         for seq in 1u64..=base_seq {
-            h.step(inbound_event(1, seq, 1), seq * 100);
+            step_durable(&mut h, inbound_event(1, seq, 1), seq * 100);
         }
         let cursor_before = h.module.cursor_for(channel_id(1)).unwrap_or(0);
         prop_assert_eq!(cursor_before, base_seq);
@@ -180,7 +208,7 @@ proptest! {
 
         // 喂所有 seq（顺序由 perm_seed 决定）
         for seq in &seqs {
-            h.step(inbound_event(1, *seq, 1), ts);
+            step_durable(&mut h, inbound_event(1, *seq, 1), ts);
             ts += 100;
         }
 

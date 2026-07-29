@@ -55,13 +55,14 @@ fn as_text(v: &SqlValue) -> Option<&str> {
     }
 }
 
-/// 收集所有 message 表 upsert 行（PersistFire / Persist 都算）的某列 TEXT 值。
+/// 收集所有 message 表 upsert 行（含原子写屏障）的某列 TEXT 值。
 fn message_upsert_col(sink: &helix_core::EffectSink, col: &str) -> Vec<String> {
     let mut out = Vec::new();
     for e in sink.as_slice() {
         let ops = match e {
             Effect::PersistFire { ops } => ops,
             Effect::Persist { ops, .. } => ops,
+            Effect::PersistAtomic { ops, .. } => ops,
             _ => continue,
         };
         for op in ops {
@@ -86,10 +87,10 @@ fn message_upsert_col(sink: &helix_core::EffectSink, col: &str) -> Vec<String> {
 
 // ─── ① post.json：真新消息帧 → 落库 message 行 + cursor 推进 ─────────────────────
 
-/// 真 Go `action=="post"` 帧（event_seq=cursor+1）→ 立即 apply：
-/// - PersistFire 落 message 行，列 temporary_id / id / message / read_bits 全对齐真帧；
-/// - advance_cursor 把 cursor 推到 40114；
-/// - emit im:post:received。
+/// 真 Go `action=="post"` 帧（event_seq=cursor+1）先形成 MessageV3 原子写：
+/// - message 行列 temporary_id / id / message / read_bits 全对齐真帧；
+/// - matching PersistOk 后把 cursor 推到 40114；
+/// - viewer 绝对态读回完成后才发布终态事件。
 ///
 /// **这是 post/posted 回归的活护栏**：若 parser 把 action 名写错（如退回 "posted"），
 /// classify_inbound 会判 Ignored → 零 effect → 本测试立刻红。
@@ -106,19 +107,17 @@ fn real_go_post_frame_persists_message_and_advances_cursor() {
 
     let effects = h.step(inbound(POST_JSON), 1000);
 
-    // 立即 apply 产出序列：PersistFire(message upsert) + PersistFire(advance_cursor) + Emit。
-    let persist_fire = effects
-        .iter()
-        .filter(|e| **e == EffectKind::PersistFire)
-        .count();
+    // 连续帧必须先形成唯一原子写屏障，回执前不得发布终态。
+    let persist_corr = effects.iter().find_map(|effect| match effect {
+        EffectKind::PersistAtomic(corr) => Some(*corr),
+        _ => None,
+    });
+    let Some(persist_corr) = persist_corr else {
+        panic!("真 post 帧必须形成 MessageV3 PersistAtomic，got {effects:?}");
+    };
     assert!(
-        persist_fire >= 2,
-        "真 post 帧立即 apply 须有 message upsert + advance_cursor 两条 PersistFire，got {:?}",
-        effects
-    );
-    assert!(
-        effects.iter().any(|e| *e == EffectKind::Emit),
-        "真 post 帧须 emit im:post:received，got {:?}",
+        !effects.iter().any(|e| *e == EffectKind::Emit),
+        "真 post 帧持久回执前不得 emit，got {:?}",
         effects
     );
 
@@ -144,7 +143,14 @@ fn real_go_post_frame_persists_message_and_advances_cursor() {
         "message 行 read_bits 须取真帧 data.readBits（camelCase 路径，防 c2 readBits 回归）"
     );
 
-    // cursor 推进到真帧 event_seq。
+    // matching PersistOk 后推进 cursor，并发起 viewer channel 绝对态读回。
+    let committed = h.step(port_reply_ok(persist_corr), 1001);
+    assert!(
+        committed
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Persist(_))),
+        "真 post 帧提交后必须读回 viewer channel 绝对态"
+    );
     assert_eq!(
         h.module.cursor_for(channel),
         Some(40114),
@@ -243,13 +249,13 @@ fn real_go_increment_channel_registers_and_seeds_cursor() {
         })
         .expect("真 increment_channel_end 必须形成相关 Persist");
     let committed = h.step(port_reply_ok(persist_corr), 1_200);
-    assert_eq!(
+    assert!(
         committed
             .iter()
             .filter(|effect| **effect == EffectKind::Emit)
-            .count(),
-        2,
-        "事务成功后应发布 channel:increment + channels:loaded"
+            .count()
+            >= 2,
+        "事务成功后至少发布 channel:increment + channels:loaded"
     );
 }
 

@@ -92,14 +92,10 @@ impl WsMessageHandler for PostHandler {
             .with_viewer_user_id(ctx.auth_user_id)
             .with_causation_id(forward_causation);
 
-        // MessageV3 G-01：陌生 channel 仍以本地 cursor=0 惰性注册，但连续事件不再走
-        // PersistFire + Frame。gate 只决定 apply/buffer/drop，真正的 message/channel/member/cursor
-        // 写入由 correlated PersistAtomic 完成，matching PersistOk 后再读当前 viewer 复合键绝对态。
-        let ch = ctx
-            .state
-            .channels
-            .entry(ev.channel_id)
-            .or_insert_with(|| crate::channel::Channel::new(ev.channel_id, 0));
+        // MessageV3 G-01：陌生 channel 仍以本地 cursor=0 惰性注册；gate 只决定
+        // apply/buffer/drop，真正的 message/channel/member/cursor 写入由 correlated
+        // PersistAtomic 完成，matching PersistOk 后再读当前 viewer 复合键绝对态。
+        let recent_start = out.as_slice().len();
         let post_visible = ev
             .unread_bump
             .as_ref()
@@ -107,21 +103,34 @@ impl WsMessageHandler for PostHandler {
             .unwrap_or(true);
         let pin_effect = post_pin_effect_from_notice(&ev);
         let (ingest_channel, ingest_seq) = (ev.channel_id, ev.seq);
-        if post_visible {
-            if let Some(event) = ch.admit_message_v3_post(ev, out)? {
-                let corr = ctx.alloc_corr();
-                crate::port_reply::message_v3_post::queue_commit(
-                    ctx.state,
-                    ctx.auth_user_id,
-                    corr,
-                    event,
+        {
+            let ch = ctx
+                .state
+                .channels
+                .entry(ev.channel_id)
+                .or_insert_with(|| crate::channel::Channel::new(ev.channel_id, 0));
+            if post_visible {
+                if let Some(event) = ch.admit_message_v3_post(ev, out)? {
+                    let corr = ctx.alloc_corr();
+                    crate::port_reply::message_v3_post::queue_commit(
+                        ctx.state,
+                        ctx.auth_user_id,
+                        corr,
+                        event,
+                        out,
+                    )?;
+                }
+            } else {
+                let mut ignored_channel_updates = Vec::new();
+                ch.ingest_collecting_channel_updates(
+                    ev,
                     out,
+                    ctx.now_ms,
+                    &mut ignored_channel_updates,
                 )?;
             }
-        } else {
-            let mut ignored_dialog_patches = Vec::new();
-            ch.ingest_collecting_dialog_patches(ev, out, ctx.now_ms, &mut ignored_dialog_patches)?;
         }
+        super::gate::schedule_reload_if_recent_too_long(ctx, ingest_channel, recent_start, out)?;
         if let Some((persist, emit)) = pin_effect {
             // Pin notice 属独立 post-update Gate；G-01 普通 TEXT 不会进入此分支。
             out.push(persist);

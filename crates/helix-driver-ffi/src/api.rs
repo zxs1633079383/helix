@@ -16,14 +16,12 @@
 //! - panic=abort 保证不跨 FFI unwind（release profile 已设置）
 //! - 每个 unsafe 块必须有 // SAFETY: 注释（clippy deny undocumented_unsafe_blocks）
 
-mod action;
 mod command;
 mod handle;
 mod headers;
 mod query;
 mod shared;
 
-pub use action::helix_invoke_action;
 pub use command::helix_command;
 pub use handle::{
     helix_create_with_endpoints, helix_create_with_network, helix_destroy, HelixHandle,

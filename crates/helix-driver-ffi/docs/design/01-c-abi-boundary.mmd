@@ -4,7 +4,7 @@
 
 flowchart TD
     subgraph HOST["C++ / Flutter host"]
-        HCMD["调用导出函数<br/>create / destroy / set_header / action / command / query"]
+        HCMD["调用导出函数<br/>create / destroy / set_header / command / query"]
         HVT["CppHostVtable<br/>on_domain_events_batch · now_ms · ctx"]
     end
 
@@ -14,7 +14,6 @@ flowchart TD
         E_DESTROY["✅ helix_destroy<br/>shutdown + join + Box::from_raw"]
         E_SETH["✅ helix_set_header"]
         E_RMH["✅ helix_remove_header"]
-        E_ACTION["✅ helix_invoke_action<br/>严格 action envelope"]
         E_CMD["✅ helix_command<br/>拷贝 name/payload → Tick::Command"]
         E_QUERY["✅ helix_query<br/>capabilities / version 元信息"]
     end
@@ -40,7 +39,6 @@ flowchart TD
     HCMD --> E_CREATE_LEGACY
     HCMD --> E_SETH
     HCMD --> E_RMH
-    HCMD --> E_ACTION
     HCMD --> E_CMD
     HCMD --> E_QUERY
     HCMD --> E_DESTROY

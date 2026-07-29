@@ -1,5 +1,0 @@
-{
-  "requestId": "action-1",
-  "status": "rejected",
-  "validationErrors": [{ "field": "selectedUserIds", "message": "must select at least one member" }]
-}

@@ -18,8 +18,10 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:post:send-failed",
     "im:post:increment-failed",
     "im:messages:query_result",
-    "im:interaction:frame",
-    "im:interaction:action-receipt",
+    "im:timeline:window",
+    "im:timeline:update",
+    "im:timeline:located",
+    "im:timeline:thread",
     "im:channels:loaded",
     "im:channel:increment",
     "im:channel:update",
@@ -69,8 +71,7 @@ pub fn capabilities_json() -> Vec<u8> {
             "helixOwnedTemporaryId": true,
             "batchEventCallback": true,
             "readResultReqId": true,
-            "opaqueActionInvokeV1": true,
-            "opaqueSurfaceResyncV1": true,
+            "messageV3Events": true,
             "noPerBusinessAbiSymbol": true
         }
     });
@@ -100,13 +101,13 @@ mod tests {
         assert!(!queries.iter().any(|q| q == "im_query_dialog_list"));
         assert!(!queries.iter().any(|q| q == "im_query_messages_by_channel"));
         assert_eq!(caps["features"]["sendFailedProjection"], true);
-        assert_eq!(caps["features"]["opaqueSurfaceResyncV1"], true);
+        assert_eq!(caps["features"]["messageV3Events"], true);
         let events = caps["events"].as_array().unwrap();
         assert!(events.iter().any(|e| e == "im:post:sending"));
         assert!(events.iter().any(|e| e == "im:post:received"));
         assert!(events.iter().any(|e| e == "im:post:increment-failed"));
         assert!(events.iter().any(|e| e == "im:post:send-failed"));
-        assert!(events.iter().any(|e| e == "im:interaction:frame"));
+        assert!(events.iter().any(|e| e == "im:timeline:window"));
         assert!(events.iter().any(|e| e == "im:operation:status"));
     }
 }

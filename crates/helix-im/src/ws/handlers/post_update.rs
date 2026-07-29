@@ -153,40 +153,12 @@ pub(super) fn apply_post_update(
         _ => return,
     };
     let corr = ctx.alloc_corr();
-    let authority_kind = if post
-        .get("expediteMap")
-        .or_else(|| post.get("expedite_map"))
-        .is_some()
-    {
-        crate::projector::action::AuthorityMutationKind::Urgent
-    } else {
-        crate::projector::action::AuthorityMutationKind::Reaction
-    };
-    let pending_action = ctx
-        .state
-        .pending_authority_actions
-        .get(&(authority_kind, msg_id_ref.to_string()))
-        .cloned()
-        .or_else(|| {
-            [
-                crate::projector::action::AuthorityMutationKind::Reaction,
-                crate::projector::action::AuthorityMutationKind::Urgent,
-            ]
-            .into_iter()
-            .find_map(|kind| {
-                ctx.state
-                    .pending_authority_actions
-                    .get(&(kind, msg_id_ref.to_string()))
-                    .cloned()
-            })
-        });
     ctx.state.corr_map.insert(
         corr,
         crate::state::CorrelationContext::PostUpdateAtomic {
             channel_id,
             target_seq,
             pending_domain_event,
-            pending_action,
         },
     );
     out.push(Effect::PersistAtomic {

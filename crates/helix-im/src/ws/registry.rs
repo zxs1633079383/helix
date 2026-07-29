@@ -25,7 +25,7 @@ pub(crate) struct WsHandlerRegistration {
 
 inventory::collect!(WsHandlerRegistration);
 
-const EXPECTED_WS_HANDLER_COUNT: usize = 28;
+const EXPECTED_WS_HANDLER_COUNT: usize = 27;
 
 static WS_HANDLER_MAP: OnceLock<
     Result<HashMap<&'static str, &'static dyn WsMessageHandler>, ImError>,
@@ -82,7 +82,7 @@ pub(crate) fn dispatch_ws(
     // 真源：native engine_loop 经 Tick::Inbound 直泵 helix-im，**绕过** Recording::recv() 的
     // ws-recv tee（helix-driver-native/transport.rs:8）→ run.jsonl 永无 ws-recv 帧（②面盲点）。
     // 在 dispatch 入口常驻 tracing 一行，让「后端是否把帧推到了 helix」可观测（落 run-app.log）。
-    let action = frame.action();
+    let action = frame.action()?;
     tracing::info!(
         hop = "2-ws-recv",
         action = %action,
@@ -356,40 +356,6 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_ws_routes_legacy_no_action_event_through_registry() {
-        let mut state = ImState::new();
-        let channel_id = crate::state::test_channel_id(1);
-        state
-            .channels
-            .insert(channel_id, Channel::new(channel_id, 0));
-        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
-        let raw = format!(
-            r#"{{"event":"posted","data":{{"channel_id":"{}","seq":1,"event_type":1,"msg_id":"msg_1","actor_id":"user_1","created_at":1000000,"payload":null}}}}"#,
-            channel_id.as_str()
-        );
-        let frame = WsFrame::parse(raw.as_bytes()).unwrap();
-        let mut out = EffectSink::new();
-
-        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
-
-        assert!(
-            out.as_slice()
-                .iter()
-                .any(|effect| matches!(effect, Effect::PersistFire { .. })),
-            "legacy event should still apply through channel.ingest, got: {:?}",
-            out.as_slice()
-        );
-        assert!(
-            out.as_slice()
-                .iter()
-                .any(|effect| matches!(effect, Effect::Emit { .. })),
-            "legacy event should still emit domain event, got: {:?}",
-            out.as_slice()
-        );
-    }
-
-    #[test]
     fn dispatch_ws_routes_hello_through_registry() {
         let mut state = ImState::new();
         let channel_id = crate::state::test_channel_id(7);
@@ -643,5 +609,4 @@ mod tests {
         assert!(ctx.state.increment_fetched.is_empty());
         assert!(out.as_slice().is_empty());
     }
-
 }

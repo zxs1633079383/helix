@@ -326,9 +326,8 @@ fn business_query_uses_async_command_and_event_batch() {
         )
     };
     assert_eq!(async_status, FFI_OK);
-    let event = wait_for_event(&recorder, "im:interaction:frame");
-    assert!(event.contains("message.left-dialog-list"));
-    assert!(event.contains("dialogListSnapshot"));
+    let event = wait_for_event(&recorder, "im:channel:list");
+    assert!(event.contains("\"channels\""));
 
     // SAFETY: handle was created by this test and not yet destroyed.
     unsafe { helix_destroy(handle) };

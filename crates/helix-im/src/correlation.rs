@@ -21,7 +21,6 @@ pub struct ChannelSettingsProjection {
     pub purpose: String,
     pub header: String,
     pub setting_version: u64,
-    pub channel_capabilities: serde_json::Value,
     pub causation_id: Option<String>,
 }
 
@@ -112,7 +111,7 @@ pub enum CorrelationContext {
     /// on_start `Scan(_helix_monotonic)` 回报：载入 per-channel cursor + proactive resync（取代旧 `scan_corr`）。
     ScanCursors,
 
-    /// channel sync **Persist** 回报：`channel.on_persist_ok(corr)` 推进 cursor。
+    /// channel sync **Persist** 回报：推进 cursor，并把下一条连续实时事件交回 MessageV3 写屏障。
     /// （取代旧 `corr_to_channel` + `continuation_pending` 两张表——续拉意图降为本变体的
     /// `wants_continuation` 标志，因为它本就与同一 `persist_corr` 绑定，不是独立路由类别。）
     ChannelPersist {
@@ -121,39 +120,20 @@ pub enum CorrelationContext {
         /// E3 续拉：该批 sync 响应 `needs_continuation=true` 时为 true；
         /// on_persist_ok 推进 cursor 后据此决定是否 `maybe_continue_sync`。
         wants_continuation: bool,
-        /// sync events 中需要在 channel 写后读回累计行再 emit 的 DialogPatch。
-        dialog_patches: Vec<crate::dialog_patch::PendingDialogPatch>,
+        /// sync events 中需要在 channel 写后读回累计行再 emit 的 ChannelUpdate。
+        channel_updates: Vec<crate::channel_update::PendingChannelUpdate>,
         /// sync HTTP 解析出的 mutation 投影；事务 ack 前不得发布。
         pending_domain_events: Vec<Vec<u8>>,
     },
 
     /// type7 closed tombstone 的 `PersistAtomic` 回执。成功前不改变内存 cursor/terminal 状态，
-    /// 也不发布 renderer Frame；失败则 context 被一次性消费且无后续副作用。
+    /// 也不发布终态事件；失败则 context 被一次性消费且无后续副作用。
     ChannelTerminalPersist {
         channel_id: ChannelId,
         terminal_seq: crate::state::Seq,
         trigger: SyncTrigger,
         /// 同一权威批次中 terminal 前的可见消息投影；与 tombstone 共用原子回执。
         pending_domain_events: Vec<Vec<u8>>,
-    },
-
-    /// Opaque SurfaceResyncRequest 对本地 channel/member/topic 事实的异步读取。
-    /// renderer 只提交 surface+scope，不能选择表、SQL 或领域 command。
-    SurfaceStorageSnapshot {
-        request: crate::surface_runtime::SurfaceResyncRequest,
-        /// `true` 表示权威事实刷新既有 slot，允许产生 replace patch。
-        refresh_existing: bool,
-    },
-
-    /// thread 由既有 getReplies HTTP 权威回包建立 typed slot。
-    SurfaceThreadSnapshot {
-        request: crate::surface_runtime::SurfaceResyncRequest,
-        expected_revision: Option<u64>,
-    },
-
-    /// participant receipt 由既有 post/read/list HTTP 权威回包建立 typed slot。
-    SurfaceReceiptSnapshot {
-        request: crate::surface_runtime::SurfaceResyncRequest,
     },
 
     /// hello increment 全批 channel/member/cursor 事务回报。
@@ -163,17 +143,16 @@ pub enum CorrelationContext {
 
     /// 在线 post/gate 路径：channel GuardedBump + Get(channel) 的 PortReply 回来后发布
     /// `message.left-dialog-list` 属性 frame。该变体承载“写后累计终值”链路，避免前端按事件 delta 自增。
-    DialogPatchByPost {
-        pending: crate::dialog_patch::PendingDialogPatch,
+    ChannelUpdateByPost {
+        pending: crate::channel_update::PendingChannelUpdate,
     },
 
     /// `update_channel` 的公共 channel 稀疏字段与当前 viewer `channel_member`
-    /// 绝对态已进入同一相关 Persist；仅成功回执允许推进 paired dialog/unread Frame。
+    /// 绝对态已进入同一相关 Persist；仅成功回执允许发布 channel/read 双事件。
     UpdateChannelDialogPersist {
-        scope: Option<crate::dialog_frame::DialogListScope>,
         channel_id: ChannelId,
         channel: Box<serde_json::Value>,
-        member_dialog: Option<Box<serde_json::Value>>,
+        member_channel: Option<Box<serde_json::Value>>,
         causation_id: Option<String>,
     },
 
@@ -186,7 +165,7 @@ pub enum CorrelationContext {
     /// too_long 首屏重拉落库 + channel 写后读回。
     TooLongReloadPersist {
         channel_id: ChannelId,
-        dialog_patches: Vec<crate::dialog_patch::PendingDialogPatch>,
+        channel_updates: Vec<crate::channel_update::PendingChannelUpdate>,
     },
 
     /// P1 乐观落库 **Persist** 回报：把对应 `PendingSend` 状态推进到 `Sending`（取代旧 `corr_to_send`）。
@@ -199,7 +178,7 @@ pub enum CorrelationContext {
     /// 发送事实已由本地存储确认后，重新读取已 attach 的 timeline。
     ///
     /// 这把 P1、HTTP 对账、WS echo 和失败终态统一收敛为同一条
-    /// "durable fact -> local-first projector -> typed Frame" 路径；renderer 不消费
+    /// “durable fact -> local-first readback -> MessageV3 event”路径；consumer 不消费
     /// `im:post:*` 补业务状态。`causation_id` 只来自调用方 request id，缺失时保持 None。
     TimelineRefreshAfterSendPersist {
         channel_id: ChannelId,
@@ -222,7 +201,7 @@ pub enum CorrelationContext {
         message_id: String,
         requested_at_ms: u64,
         request_id: Option<String>,
-        /// Surface action 的可信 scope channel；legacy command 没有 action ledger，保持 None。
+        /// action 的可信 scope channel；普通 command 没有 action ledger，保持 None。
         action_channel_id: Option<ChannelId>,
         window_token: Option<String>,
         lookup_by_id: bool,
@@ -246,7 +225,7 @@ pub enum CorrelationContext {
         /// follows a confirmed durable mutation. Ordinary renderer queries use None.
         causation_id: Option<String>,
         /// P1 has made an ordinary text send durable. The first authoritative
-        /// timeline Frame must leave the core before its posts/create HTTP starts.
+        /// timeline optimistic event must leave the core before its posts/create HTTP starts.
         /// It is an internal continuation, never renderer input.
         deferred_send_http: Option<TemporaryId>,
     },
@@ -294,7 +273,7 @@ pub enum CorrelationContext {
         request_id: Option<String>,
     },
 
-    /// G08 schedule fact 与 channel read model 原子提交后才允许重读并发布 Frame。
+    /// G08 schedule fact 与 channel read model 原子提交后才允许重读并发布事件。
     ScheduleCreatedPersist {
         channel_id: ChannelId,
         revision: u64,
@@ -304,7 +283,7 @@ pub enum CorrelationContext {
     /// G08 原子提交成功后读取 creator 本地 channel_schedule 绝对态。
     MessageV3ScheduleCreatedReadback,
 
-    /// G09 canceled fact 与 channel read model 原子提交后才允许重读并发布 Frame。
+    /// G09 canceled fact 与 channel read model 原子提交后才允许重读并发布事件。
     ScheduleCanceledPersist {
         channel_id: ChannelId,
         revision: u64,
@@ -314,7 +293,7 @@ pub enum CorrelationContext {
     /// G09 原子提交成功后读取 creator 本地 canceled 绝对态。
     MessageV3ScheduleCanceledReadback,
 
-    /// UC-3 `im_query_dialog_list` Scan 回报 → emit `message.left-dialog-list` 完整 snapshot frame。
+    /// UC-3 `im_query_dialog_list` Scan 回报 → emit channel list 与 viewer read 绝对态。
     DialogListQuery { causation_id: Option<String> },
 
     /// spec06 缺陷A：读族 outbound **HTTP** 回报（request-response 回灌）。
@@ -327,14 +306,14 @@ pub enum CorrelationContext {
     /// 自己退群写族 HTTP 回报；SUCCESS 只排队本地持久屏障，不直接发布 renderer 状态。
     OutboundLeave { channel_id: ChannelId },
 
-    /// G16 关闭/退出生命周期事实提交后才允许发布 channel-summary/dialog terminal Frame。
+    /// G16 关闭/退出生命周期事实提交后才允许发布 channel 终态事件。
     ChannelLifecyclePersist {
         channel_id: ChannelId,
         transition: ChannelLifecycleTransition,
         causation_id: Option<String>,
     },
 
-    /// G16b 成员变更写集的单次持久屏障；成功前 raw 兼容事件与 roster Frame 均不可见。
+    /// G16b 成员变更写集的单次持久屏障；成功前成员终态事件不可见。
     ChannelMemberUpdatePersist {
         channel_id: ChannelId,
         event_seq: Option<crate::state::Seq>,
@@ -370,8 +349,8 @@ pub enum CorrelationContext {
     /// G-15 topic channel + root message 关联持久成功后读取 durable root fact。
     OutboundMakeTopicPersist { projection: MakeTopicProjection },
 
-    /// G-15 durable root readback 只允许释放 typed thread-detail Frame。
-    OutboundMakeTopicFrameRead { projection: MakeTopicProjection },
+    /// G-15 durable root readback 只允许释放 topic MessageV3 事件。
+    OutboundMakeTopicRootRead { projection: MakeTopicProjection },
 
     /// 群设置/公告写回：服务端 SUCCESS 必须携带完整权威设置快照与 settingVersion。
     OutboundChannelSettings {
@@ -411,7 +390,7 @@ pub enum CorrelationContext {
     /// S8 回复族（UC-2.4·issue #57）：`im_get_replies` / `im_get_reply_branch` HTTP 回报。
     ///
     /// 读族无 WS 回声、HTTP 响应体即 authority；本上下文冻结请求身份、snapshot/append
-    /// 模式与 revision，PortReply 只允许生成完整 `message.thread-detail` Frame。
+    /// 模式与 revision，PortReply 只允许生成完整 thread MessageV3 事件。
     OutboundReplies {
         request: crate::render_ready_replies::ReplyProjectionRequest,
     },
@@ -436,21 +415,6 @@ pub enum CorrelationContext {
     /// G-14 post/read/list 双 emit：通用 read result + render-ready readerIds/readers。
     OutboundPostReaders { req_id: String },
 
-    /// SurfaceRuntime `viewReceipt` action 的同一 canonical `post/read/list` 回包。它保留 legacy
-    /// read/readers emits，并额外投影带 requestId causation 的 typed participant-receipts Frame；HTTP
-    /// accepted 本身不允许确认 renderer pending state。
-    InteractionViewReceipt {
-        request_id: String,
-        channel_id: String,
-        message_id: String,
-    },
-
-    /// Mutation HTTP replies are transport acknowledgements only. The authoritative WS/sync handler owns
-    /// persistence and the terminal business events, so this corr route intentionally performs no UI work.
-    InteractionMutationAck {
-        pending: crate::projector::action::PendingAuthorityAction,
-    },
-
     /// G14 `post_read` 权威位图必须先提交到 message.read_bits；成功后才允许发布当前 viewer 事件。
     PostReadPersist {
         channel_id: ChannelId,
@@ -466,9 +430,7 @@ pub enum CorrelationContext {
         channel_id: ChannelId,
         target_seq: crate::state::Seq,
         pending_domain_events: Vec<Vec<u8>>,
-        pending_action: Option<crate::projector::action::PendingAuthorityAction>,
-        /// 撤回 Gate 已迁移为 raw MessageV3，不再刷新旧 timeline Frame。
-        refresh_legacy_timeline: bool,
+        refresh_timeline: bool,
     },
 
     /// Single `post_update` fact and its channel cursor share one durable commit. The render-ready update is
@@ -477,7 +439,6 @@ pub enum CorrelationContext {
         channel_id: ChannelId,
         target_seq: crate::state::Seq,
         pending_domain_event: Vec<u8>,
-        pending_action: Option<crate::projector::action::PendingAuthorityAction>,
     },
 
     /// UC-10 `posts/queryTodoList` HTTP 回报 → emit `im:todo:updated{items}`（内核自驱、无 req_id）。
@@ -493,7 +454,7 @@ pub enum CorrelationContext {
         state: Box<crate::older_context::LoadOlderState>,
     },
 
-    /// G10a 持久化后的完整 timeline readback；只从该结果构造 Frame V2。
+    /// G10a 持久化后的完整 timeline readback；只从该结果构造 MessageV3 事件。
     LoadOlderReadback {
         state: Box<crate::older_context::LoadOlderState>,
     },

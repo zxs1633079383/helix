@@ -1,4 +1,17 @@
-# helix-im V2 Interaction Docs
+# helix-im 文档目录规则
+
+当前生产下行合同是 MessageV3 typed event：`Effect::Emit -> EventSink`。不得把已物理下线的
+`InteractionFrame`、`Surface` 或 V1 compatibility 当作当前实现。分析发送、同步、Gate
+时应优先读取当前 Rust/Go 源码、`tests/message_v3/` 和本目录的当前运行时文档。
+
+当前发送链入口：
+
+- [`消息发送全流程/在线与离线发送消息全流程.md`](./消息发送全流程/在线与离线发送消息全流程.md)
+- [`消息发送全流程/在线与离线发送消息全流程.mmd`](./消息发送全流程/在线与离线发送消息全流程.mmd)
+
+以下内容是硬切前 V2 文档的历史阅读规则，只在追溯旧设计时使用。
+
+# 历史 helix-im V2 Interaction Docs
 
 本文件是 `crates/helix-im/docs/` 的局部 Agent 入口。它不覆盖仓库根
 `AGENTS.md` 的架构、验证和提交规则；只规定 **InteractionFrame v2** 任务在本目录

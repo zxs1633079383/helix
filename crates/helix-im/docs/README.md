@@ -1,4 +1,19 @@
-# helix-im InteractionFrame v2 文档入口
+# helix-im 当前文档入口
+
+> 当前生产协议已经硬切为 MessageV3 typed event：UI 下行是
+> `Effect::Emit -> EventSink`，不再存在 `InteractionFrame`、`Surface` 或 V1 compatibility
+> 套壳。`interaction-v2/` 与旧 Frame 合同仅保留为历史设计材料，不得当作当前运行时真源。
+
+## 当前运行时流程
+
+| 文档 | 用途 |
+|---|---|
+| [`消息发送全流程/在线与离线发送消息全流程.md`](./消息发送全流程/在线与离线发送消息全流程.md) | 结合 Helix 与现役 Go server 源码，说明 `im_send_message`、Persist/HTTP/timer/PortReply、WS authority、sender/receiver 未读、离线补偿与手动 retry。 |
+| [`消息发送全流程/在线与离线发送消息全流程.mmd`](./消息发送全流程/在线与离线发送消息全流程.mmd) | 同一链路的 Mermaid 图源。 |
+
+下面的 V2 内容是硬切前历史索引，只用于追溯设计决策。
+
+## 历史 InteractionFrame v2 入口
 
 > 这是 V2 Agent 的最小上下文入口。先读 [`AGENTS.md`](./AGENTS.md)，再从本页按 Gate
 > 取用合同；不要以旧 V1 文档、raw emit 或端侧 ProjectionStore 建立 V2 运行时上下文。

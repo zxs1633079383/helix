@@ -1,0 +1,84 @@
+flowchart TB
+    subgraph CLIENT["客户端 / Helix"]
+        CMD["Tick::Command(im_send_message)"]
+        BUILD["校验命令并由 Helix 分配 temporaryId"]
+        P1["Effect::Persist(message, send_status=sending)"]
+        E1["Effect::Emit(im:post:sending)"]
+        PR1["Tick::PortReply(P1)"]
+        MEDIA["检测 IMAGE / FILE 的本地媒体"]
+        PREP["Effect::Http(POST /oss/getPresignedUrl)"]
+        PM["Persist pending_media prepare / put / complete"]
+        PUT["Effect::UploadFile(PUT presigned URL)"]
+        PROGRESS["Tick::PortProgress -> Persist upload_progress_percent"]
+        COMPLETE["PersistAtomic(stable props + delete media journal)"]
+        HTTP["Effect::Http(POST /api/cses/posts/create)"]
+        TIMER["Effect::ScheduleTimer(send_timeout_ms=15000)"]
+        HPR["Tick::PortReply(HTTP corr)"]
+        WSI["Tick::Inbound(action=post)"]
+        GATE["按 channel event_seq 做连续性 gate"]
+        PA["Effect::PersistAtomic(message + channel + channel_member + cursor)"]
+        PR2["Tick::PortReply(authority PersistAtomic)"]
+        READ["Effect::Persist(ScopedGet channel_member)"]
+        PR3["Tick::PortReply(readback rows)"]
+        UI["Effect::Emit(im:post:received + im:channel:update)"]
+        FAIL["Persist send_status=unsend + CancelTimer + Emit send-failed"]
+        RETRY["Tick::Command(im_retry_send, same temporaryId)"]
+        LOOKUP["必要时 Get message by temporary_id"]
+        LPR["Tick::PortReply(durable message Get)"]
+        SPR["Tick::PortReply(SyncPull)"]
+    end
+
+    subgraph DRIVER["Host Driver"]
+        STORE["Storage port / SQLite"]
+        HTTPPORT["HttpRequester"]
+        CLOCK["TimerRegistry"]
+        SINK["EventSink"]
+        WS["WebSocket transport"]
+    end
+
+    subgraph GO["cses-im-server"]
+        ROUTE["POST /api/cses/posts/create"]
+        ADMIT["createPost + CreateCsesPostWithTrack"]
+        ACK["HTTP 200 CommonRes status=SUCCESS"]
+        PULSAR["Pulsar post_sender-1 or sync fallback"]
+        CONSUME["ConsumePostSenderMessage -> SendPosts"]
+        DB["DB transaction: post + counts + channel_event + delivery_outbox"]
+        PUB["publishPostEvent(action=post, event_seq)"]
+        FANOUT["WS local fanout + cross-pod fanout"]
+        SYNC["POST /api/cses/channel/sync/notify"]
+    end
+
+    CMD --> BUILD
+    BUILD --> P1
+    BUILD --> E1
+    P1 --> STORE --> PR1
+    E1 --> SINK
+    PR1 --> MEDIA
+    MEDIA -->|"无附件"| HTTP
+    MEDIA -->|"IMAGE / FILE"| PREP --> HTTPPORT
+    HTTPPORT -. "prepare reply" .-> PM --> STORE
+    STORE -. "media stage reply" .-> PUT
+    PUT --> PROGRESS --> STORE
+    PUT -->|"upload PortReply"| PM
+    PM -->|"complete stage committed"| COMPLETE --> STORE
+    STORE -. "all media locally complete" .-> HTTP
+    HTTP --> TIMER
+    HTTP --> HTTPPORT --> ROUTE
+    TIMER --> CLOCK
+    ROUTE --> ADMIT
+    ADMIT --> ACK --> HTTPPORT --> HPR
+    ADMIT --> PULSAR --> CONSUME --> DB --> PUB --> FANOUT --> WS --> WSI
+    WSI --> GATE --> PA --> STORE --> PR2 --> READ --> STORE --> PR3 --> UI --> SINK
+
+    HPR -->|"HTTP error"| FAIL
+    CLOCK -->|"Tick::Timer before authority"| FAIL
+    FAIL --> RETRY
+    RETRY -->|"memory miss / restart"| LOOKUP --> STORE
+    RETRY -->|"memory hit"| P1
+    STORE -. "durable Get reply" .-> LPR --> P1
+
+    FANOUT -. "receiver offline: no live socket" .-> SYNC
+    WS -. "disconnect / reconnect" .-> SYNC
+    SYNC --> HTTPPORT
+    HTTPPORT -. "events + messages + nextSeq" .-> SPR
+    SPR --> GATE

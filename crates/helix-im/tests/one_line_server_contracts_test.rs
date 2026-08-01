@@ -324,7 +324,15 @@ fn post_read_list_derives_render_ready_read_and_unread_members_from_snapshot() {
         data["receipts"][0]["recipientUserIds"],
         serde_json::json!(["678", "555"])
     );
-    assert_eq!(data["receipts"][0]["readBits"], "01");
+    assert_eq!(
+        data["receipts"][0]["readUserIds"],
+        serde_json::json!(["555"])
+    );
+    assert_eq!(
+        data["receipts"][0]["unreadUserIds"],
+        serde_json::json!(["678"])
+    );
+    assert!(data["receipts"][0].get("readBits").is_none());
     assert_eq!(data["receipts"][0]["authorExcluded"], true);
     assert_eq!(data["receipts"][0]["contractVersion"], 2);
     assert_eq!(data["receipts"][0]["readers"][0]["userId"], "555");
@@ -357,7 +365,9 @@ fn post_read_list_accepts_canonical_snapshot_without_author() {
         receipt["recipientUserIds"],
         serde_json::json!(["678", "555"])
     );
-    assert_eq!(receipt["readBits"], "01");
+    assert_eq!(receipt["readUserIds"], serde_json::json!(["555"]));
+    assert_eq!(receipt["unreadUserIds"], serde_json::json!(["678"]));
+    assert!(receipt.get("readBits").is_none());
     assert_eq!(receipt["authorExcluded"], true);
     assert_eq!(receipt["contractVersion"], 2);
 }
@@ -383,7 +393,9 @@ fn post_read_list_rejects_repeated_author_and_illegal_bitmap() {
     assert_eq!(data["receipts"][1]["state"], "unavailable");
     for receipt in data["receipts"].as_array().expect("receipts") {
         assert_eq!(receipt["recipientUserIds"], serde_json::json!([]));
-        assert_eq!(receipt["readBits"], "");
+        assert_eq!(receipt["readUserIds"], serde_json::json!([]));
+        assert_eq!(receipt["unreadUserIds"], serde_json::json!([]));
+        assert!(receipt.get("readBits").is_none());
         assert_eq!(receipt["authorExcluded"], true);
         assert_eq!(receipt["contractVersion"], 2);
     }
@@ -410,7 +422,9 @@ fn post_read_list_fails_closed_when_snapshot_and_bitmap_do_not_match() {
     assert_eq!(receipt["readerCount"], 0);
     assert_eq!(receipt["unreadCount"], 0);
     assert_eq!(receipt["recipientUserIds"], serde_json::json!([]));
-    assert_eq!(receipt["readBits"], "");
+    assert_eq!(receipt["readUserIds"], serde_json::json!([]));
+    assert_eq!(receipt["unreadUserIds"], serde_json::json!([]));
+    assert!(receipt.get("readBits").is_none());
     assert_eq!(receipt["authorExcluded"], true);
     assert_eq!(receipt["contractVersion"], 2);
 }

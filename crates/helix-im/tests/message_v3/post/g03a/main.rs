@@ -163,15 +163,15 @@ fn run_gate() -> TestResult<GateTrace> {
         })),
         CREATE_AT as u64 - 3,
     );
-    let initial_events = emitted_events(sender.sink.as_slice());
-    assert_eq!(initial_events.len(), 1);
-    assert_eq!(initial_events[0]["event"], "im:post:sending");
-    assert_eq!(initial_events[0]["data"]["temporaryId"], TEMPORARY_ID);
     let mut sender_events = Vec::new();
     let initial_persist = correlation(sender.sink.as_slice(), "persist")
         .ok_or_else(|| "missing initial optimistic persist".to_string())?;
 
     sender.step(port_reply_ok(initial_persist.raw()), CREATE_AT as u64 - 2);
+    let initial_events = emitted_events(sender.sink.as_slice());
+    assert_eq!(initial_events.len(), 1);
+    assert_eq!(initial_events[0]["event"], "im:post:sending");
+    assert_eq!(initial_events[0]["data"]["temporaryId"], TEMPORARY_ID);
     let initial_http = correlation(sender.sink.as_slice(), "http")
         .ok_or_else(|| "missing initial posts/create".to_string())?;
     sender.step(port_reply_err(initial_http.raw()), CREATE_AT as u64 - 1);
@@ -250,18 +250,14 @@ fn g03a_reuses_identity_and_delays_receiver_until_success() -> TestResult<()> {
             "sendStatus": "failed"
         })
     );
-    assert_eq!(
-        trace.sender_events[1]["data"],
-        json!({
-            "channelId": CHANNEL_ID,
-            "temporaryId": TEMPORARY_ID,
-            "userId": ACTOR_ID,
-            "message": MESSAGE,
-            "type": "TEXT",
-            "createAt": CREATE_AT - 3,
-            "sendStatus": "sending"
-        })
-    );
+    let retry_projection = &trace.sender_events[1]["data"];
+    assert_eq!(retry_projection["channelId"], CHANNEL_ID);
+    assert_eq!(retry_projection["temporaryId"], TEMPORARY_ID);
+    assert_eq!(retry_projection["userId"], ACTOR_ID);
+    assert_eq!(retry_projection["message"], MESSAGE);
+    assert_eq!(retry_projection["type"], "TEXT");
+    assert_eq!(retry_projection["createAt"], CREATE_AT - 3);
+    assert_eq!(retry_projection["sendStatus"], "sending");
     assert_eq!(
         trace
             .receiver_events

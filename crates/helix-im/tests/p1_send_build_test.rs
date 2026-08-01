@@ -571,6 +571,7 @@ fn send_reply_merges_root_fields() {
         })),
         1000,
     );
+    let _ = acknowledge_optimistic_persist(&mut h, &initial_effects);
     let sending = h
         .sink
         .as_slice()
@@ -581,8 +582,7 @@ fn send_reply_merges_root_fields() {
                 .filter(|value| value["event"] == "im:post:sending"),
             _ => None,
         })
-        .expect("回复发送必须立即给 UI 一条带关系锚的乐观投影");
-    let _ = acknowledge_optimistic_persist(&mut h, &initial_effects);
+        .expect("回复发送持久成功后必须给 UI 一条带关系锚的乐观投影");
     let body = h.last_http_body().unwrap();
     assert_eq!(body["replyId"], json!("m_root"));
     assert_eq!(body["replyRootId"], json!("m_root"));

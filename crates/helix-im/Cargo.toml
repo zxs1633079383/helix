@@ -35,6 +35,142 @@ name = "message_v3_gate_registry"
 path = "tests/message_v3/contracts/gate_registry/main.rs"
 
 [[test]]
+name = "message_v3_phase1_registry"
+path = "tests/message_v3/contracts/phase1_registry/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g08a"
+path = "tests/message_v3/channel/mv3_g08a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01a"
+path = "tests/message_v3/post/mv3_g01a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01b"
+path = "tests/message_v3/post/mv3_g01b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01c"
+path = "tests/message_v3/upload/mv3_g01c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01d"
+path = "tests/message_v3/upload/mv3_g01d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01e"
+path = "tests/message_v3/upload/mv3_g01e/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01f"
+path = "tests/message_v3/post/mv3_g01f/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01g"
+path = "tests/message_v3/upload/mv3_g01g/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01h"
+path = "tests/message_v3/post/mv3_g01h/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01i"
+path = "tests/message_v3/post/mv3_g01i/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01j"
+path = "tests/message_v3/post/mv3_g01j/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01k"
+path = "tests/message_v3/post/mv3_g01k/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01l"
+path = "tests/message_v3/post/mv3_g01l/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g02a"
+path = "tests/message_v3/post/mv3_g02a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g02b"
+path = "tests/message_v3/post/mv3_g02b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g02c"
+path = "tests/message_v3/post/mv3_g02c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g02d"
+path = "tests/message_v3/upload/mv3_g02d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g02e"
+path = "tests/message_v3/draft/mv3_g02e/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g03a"
+path = "tests/message_v3/post/mv3_g03a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g03b"
+path = "tests/message_v3/post/mv3_g03b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g03c"
+path = "tests/message_v3/upload/mv3_g03c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g04a"
+path = "tests/message_v3/schedule/mv3_g04a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g04b"
+path = "tests/message_v3/schedule/mv3_g04b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g04c"
+path = "tests/message_v3/schedule/mv3_g04c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g04d"
+path = "tests/message_v3/schedule/mv3_g04d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g04e"
+path = "tests/message_v3/schedule/mv3_g04e/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g05a"
+path = "tests/message_v3/post/mv3_g05a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g05b"
+path = "tests/message_v3/post/mv3_g05b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g05c"
+path = "tests/message_v3/post/mv3_g05c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g05d"
+path = "tests/message_v3/post/mv3_g05d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g05e"
+path = "tests/message_v3/post/mv3_g05e/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g05l"
+path = "tests/message_v3/post/mv3_g05l/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g07b"
+path = "tests/message_v3/announcement/mv3_g07b/main.rs"
+
+[[test]]
 name = "message_v3_g15a"
 path = "tests/message_v3/channel/g15a/main.rs"
 

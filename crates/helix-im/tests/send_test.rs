@@ -123,6 +123,26 @@ fn last_sending_projection(h: &Harness) -> Option<Value> {
         })
 }
 
+/// 从当前 optimistic 写集中读取 Helix 分配的 temporaryId。
+fn persisted_temporary_id(h: &Harness) -> Option<String> {
+    h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { ops, .. } => ops.iter().find_map(|op| match op {
+            StorageOp::BatchUpsert(spec) if spec.table == "message" => {
+                spec.rows.iter().find_map(|row| {
+                    row.iter()
+                        .find_map(|(key, value)| match (key.as_str(), value) {
+                            ("temporary_id", SqlValue::Text(value)) => Some(value.clone()),
+                            _ => None,
+                        })
+                })
+            }
+            _ => None,
+        }),
+        _ => None,
+    })
+}
+
+/// Helix 分配的 temporaryId 必须贯穿 optimistic 持久化、sending 投影和 HTTP。
 #[test]
 fn send_message_mints_one_temporary_id_for_projection_persist_and_http() {
     let mut h = Harness::new(&[1]);
@@ -137,10 +157,8 @@ fn send_message_mints_one_temporary_id_for_projection_persist_and_http() {
         1_700_000_000_000,
     );
 
-    let projection = last_sending_projection(&h).expect("send must emit optimistic projection");
-    let temporary_id = projection["data"]["temporaryId"]
-        .as_str()
-        .expect("projection must expose Helix temporary_id");
+    let temporary_id =
+        persisted_temporary_id(&h).expect("optimistic persist must contain Helix temporary_id");
     assert!(temporary_id.starts_with("helix_tmp_"));
 
     let persisted_same_id = h.sink.as_slice().iter().any(|effect| match effect {
@@ -149,7 +167,7 @@ fn send_message_mints_one_temporary_id_for_projection_persist_and_http() {
                 spec.rows.iter().any(|row| {
                     row.iter().any(|(key, value)| {
                         key == "temporary_id"
-                            && matches!(value, SqlValue::Text(value) if value == temporary_id)
+                            && matches!(value, SqlValue::Text(value) if value == temporary_id.as_str())
                     })
                 })
             }
@@ -160,6 +178,9 @@ fn send_message_mints_one_temporary_id_for_projection_persist_and_http() {
     assert!(persisted_same_id, "optimistic row must use the minted id");
 
     let _ = acknowledge_optimistic_persist(&mut h, &first_effects, 1_700_000_000_001);
+    let projection =
+        last_sending_projection(&h).expect("PersistOk must emit optimistic projection");
+    assert_eq!(projection["data"]["temporaryId"], temporary_id);
 
     let http_same_id = h.sink.as_slice().iter().any(|effect| match effect {
         Effect::Http { req, .. } if req.url.ends_with("/posts/create") => {
@@ -168,13 +189,13 @@ fn send_message_mints_one_temporary_id_for_projection_persist_and_http() {
                 .and_then(|body| serde_json::from_slice::<Value>(body).ok())
                 .and_then(|body| body["temporaryId"].as_str().map(str::to_string))
                 .as_deref()
-                == Some(temporary_id)
+                == Some(temporary_id.as_str())
         }
         _ => false,
     });
     assert!(http_same_id, "posts/create must use the minted id");
 
-    let _second_effects = h.step(
+    let second_effects = h.step(
         command_json(
             "im_send_message",
             serde_json::json!({
@@ -185,14 +206,19 @@ fn send_message_mints_one_temporary_id_for_projection_persist_and_http() {
         ),
         1_700_000_000_000,
     );
-    let second = last_sending_projection(&h).expect("second send projection");
+    let second_persisted_id =
+        persisted_temporary_id(&h).expect("second optimistic persist must contain temporary_id");
+    let _ = acknowledge_optimistic_persist(&mut h, &second_effects, 1_700_000_000_001);
+    let second = last_sending_projection(&h).expect("second PersistOk projection");
     let second_id = second["data"]["temporaryId"].as_str().unwrap();
+    assert_eq!(second_id, second_persisted_id);
     assert_ne!(second_id, temporary_id);
     assert_ne!(second_id, "caller-must-not-own-this");
 }
 
-// ─── 发送命令产出 4 个 Effect ─────────────────────────────────────────────────
+// ─── 发送命令跨持久屏障产出发送 Effects ───────────────────────────────────────
 
+/// 初始命令只写 optimistic 事实，PersistOk 后才 Emit/Http/ScheduleTimer。
 #[test]
 fn send_message_emits_four_effects() {
     let mut h = Harness::new(&[1]);
@@ -214,15 +240,20 @@ fn send_message_emits_four_effects() {
         "im_send_message must wait for P1 before HTTP/timer, got: {:?}",
         initial_effects
     );
-    // 应产出 Emit(im:post:sending)
+    // P1 尚未确认时不得发布 im:post:sending。
     assert!(
         initial_effects
             .iter()
-            .any(|e| matches!(e, EffectKind::Emit)),
-        "im_send_message should emit Emit(im:post:sending), got: {:?}",
+            .all(|e| !matches!(e, EffectKind::Emit)),
+        "im_send_message must wait for P1 before sending projection, got: {:?}",
         initial_effects
     );
     let after_p1 = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
+    assert!(
+        after_p1.iter().any(|e| matches!(e, EffectKind::Emit)),
+        "P1 acknowledgement should emit im:post:sending, got: {:?}",
+        after_p1
+    );
     assert!(
         after_p1.iter().any(|e| matches!(e, EffectKind::Http(_))),
         "P1 acknowledgement should emit Http(H1), got: {:?}",

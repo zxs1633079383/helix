@@ -17,7 +17,9 @@ const CHANNEL_ID: &str = "chfixx0000000000000000000e";
 const POST_ID: &str = "srvrea00000000000000000014";
 const READER_ID: &str = "g14-reader";
 const AUTHOR_ID: &str = "g14-author";
-const READ_BITS: &str = "010";
+const OTHER_ID: &str = "g14-other";
+const SNAPSHOT_ID: &str = "g14-snapshot";
+const READ_BITS: &str = "10";
 const REVISION: i64 = 1_700_001_400_020;
 
 type TestResult<T> = Result<T, String>;
@@ -41,7 +43,10 @@ fn read_authority() -> Value {
         "data": {
             "channelId": CHANNEL_ID,
             "postId": POST_ID,
-            "userId": READER_ID,
+            "authorUserId": AUTHOR_ID,
+            "readerUserId": READER_ID,
+            "snapshotId": SNAPSHOT_ID,
+            "memberIds": [READER_ID, OTHER_ID],
             "readMap": READ_BITS,
             "createAt": REVISION - 20,
             "updateAt": REVISION
@@ -163,36 +168,27 @@ fn run_gate() -> TestResult<GateTrace> {
     })
 }
 
-/// G-14 reader 只收到 read，author 只收到 readers。
+/// G-14 reader 只收到 read，author 只收到 readers，二者都不接触 bitmap。
 #[test]
 fn g14_splits_reader_and_author_events_without_frame_refresh() -> TestResult<()> {
     let trace = run_gate()?;
-    assert_eq!(
-        trace.sender.events,
-        vec![json!({
-            "event": "im:post:read",
-            "data": {
-                "id": POST_ID,
-                "channelId": CHANNEL_ID,
-                "readBits": READ_BITS,
-                "readerId": READER_ID,
-                "receiptRevision": REVISION
-            }
-        })]
-    );
-    assert_eq!(
-        trace.receiver.events,
-        vec![json!({
-            "event": "im:post:readers",
-            "data": {
-                "id": POST_ID,
-                "channelId": CHANNEL_ID,
-                "readBits": READ_BITS,
-                "readerIds": [READER_ID],
-                "receiptRevision": REVISION
-            }
-        })]
-    );
+    assert_eq!(trace.sender.events.len(), 1);
+    assert_eq!(trace.receiver.events.len(), 1);
+    assert_eq!(trace.sender.events[0]["event"], "im:post:read");
+    assert_eq!(trace.receiver.events[0]["event"], "im:post:readers");
+    for event in [&trace.sender.events[0], &trace.receiver.events[0]] {
+        let data = &event["data"];
+        assert_eq!(data["postId"], POST_ID);
+        assert_eq!(data["channelId"], CHANNEL_ID);
+        assert_eq!(data["readerUserId"], READER_ID);
+        assert_eq!(data["snapshotId"], SNAPSHOT_ID);
+        assert_eq!(data["readUserIds"], json!([READER_ID]));
+        assert_eq!(data["unreadUserIds"], json!([OTHER_ID]));
+        assert_eq!(data["readCount"], 1);
+        assert_eq!(data["unreadCount"], 1);
+        assert!(data.get("readBits").is_none());
+        assert!(data.get("memberIds").is_none());
+    }
     let encoded =
         serde_json::to_string(&trace.receiver.events).map_err(|error| error.to_string())?;
     for forbidden in [
@@ -227,7 +223,15 @@ fn g14_persist_failure_emits_no_terminal_event() -> TestResult<()> {
 #[test]
 fn g14_recovery_rebuilds_author_event_from_committed_facts() -> TestResult<()> {
     let event = helix_im::event::read::post_for_viewer(
-        CHANNEL_ID, POST_ID, READER_ID, READ_BITS, REVISION, AUTHOR_ID,
+        CHANNEL_ID,
+        POST_ID,
+        AUTHOR_ID,
+        READER_ID,
+        SNAPSHOT_ID,
+        &[READER_ID.to_string(), OTHER_ID.to_string()],
+        READ_BITS,
+        REVISION,
+        AUTHOR_ID,
     )
     .map_err(|error| error.to_string())?;
     let Effect::Emit { event } = event.into_effect() else {
@@ -236,8 +240,8 @@ fn g14_recovery_rebuilds_author_event_from_committed_facts() -> TestResult<()> {
     let actual =
         serde_json::from_slice::<Value>(event.0.as_ref()).map_err(|error| error.to_string())?;
     assert_eq!(actual["event"], "im:post:readers");
-    assert_eq!(actual["data"]["readBits"], READ_BITS);
-    assert_eq!(actual["data"]["readerIds"], json!([READER_ID]));
+    assert_eq!(actual["data"]["snapshotId"], SNAPSHOT_ID);
+    assert_eq!(actual["data"]["memberIds"], json!([READER_ID, OTHER_ID]));
     Ok(())
 }
 

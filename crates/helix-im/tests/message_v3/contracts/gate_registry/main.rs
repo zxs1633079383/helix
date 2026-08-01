@@ -90,7 +90,7 @@ fn manifest_and_explicit_gate_targets_cover_exactly_thirty_gates() {
         spec_set.into_iter().map(String::as_str).collect()
     );
 
-    let targets = cargo_gate_targets();
+    let registered_targets = cargo_gate_targets();
     let expected = entries
         .iter()
         .map(|entry| {
@@ -99,6 +99,11 @@ fn manifest_and_explicit_gate_targets_cover_exactly_thirty_gates() {
                 entry["test_path"].as_str().expect("test_path"),
             )
         })
+        .collect::<BTreeMap<_, _>>();
+    let targets = registered_targets
+        .iter()
+        .filter(|(target, _)| expected.contains_key(target.as_str()))
+        .map(|(target, path)| (target.clone(), path.clone()))
         .collect::<BTreeMap<_, _>>();
     assert_eq!(targets.len(), 30, "all Gate targets must be explicit");
     for (target, path) in expected {
@@ -127,7 +132,7 @@ fn manifest_and_explicit_gate_targets_cover_exactly_thirty_gates() {
         "message_v3_g27",
     ] {
         assert!(
-            !targets.contains_key(excluded),
+            !registered_targets.contains_key(excluded),
             "excluded target leaked: {excluded}"
         );
     }

@@ -290,11 +290,42 @@ fn expected_event(event_seq: u64, confirmed: bool) -> Value {
     })
 }
 
+/// 构造同一次 authority 的会话级加急信号（`urgentPostList` 是会话列表闪电的权威源）。
+///
+/// 本 fixture 的 `expediteMap.sender` 只有 id 没有 name，因此 `urgentCurrentName` 走空串降级。
+fn expected_channel_signal(confirmed: bool) -> Value {
+    json!({
+        "event": "im:channel:update",
+        "data": if confirmed {
+            json!({
+                "channelId": CHANNEL_ID,
+                "urgentPostList": [],
+                "urgentCurrentName": "",
+                "hasUrgentPost": false
+            })
+        } else {
+            json!({
+                "channelId": CHANNEL_ID,
+                "urgentPostList": [POST_ID],
+                "urgentCurrentName": "",
+                "hasUrgentPost": true
+            })
+        }
+    })
+}
+
 /// G-07 双视角按同一 absolute map 分别解读 pending 与 completed。
 #[test]
 fn g07_emits_absolute_expedite_map_for_sender_and_receiver() -> TestResult<()> {
     let trace = run_gate()?;
-    let expected = vec![expected_event(1, false), expected_event(2, true)];
+    // 每次 authority 的精确出站序列 = post 绝对投影 → 会话级加急信号（visual 参考包
+    // `post/mv3-g05c` / `post/mv3-g05d` outbound sequence 1 + 2）。
+    let expected = vec![
+        expected_event(1, false),
+        expected_channel_signal(false),
+        expected_event(2, true),
+        expected_channel_signal(true),
+    ];
     assert_eq!(trace.sender.events, expected);
     assert_eq!(trace.receiver.events, expected);
     let encoded = serde_json::to_string(&trace.sender.events).map_err(|error| error.to_string())?;

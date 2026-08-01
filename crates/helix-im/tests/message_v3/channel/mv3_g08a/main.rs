@@ -1,0 +1,250 @@
+use bytes::Bytes;
+use helix_core::effect::Effect;
+use helix_core::tick::InboundBytes;
+use helix_core::Tick;
+use serde_json::{json, Value};
+
+#[path = "../../../common.rs"]
+mod common;
+#[path = "../../support/phase1_reference.rs"]
+mod phase1_reference;
+
+use common::{
+    command_json, enveloped, port_reply_err, port_reply_ok, port_reply_with_body, EffectKind,
+    Harness,
+};
+
+const ACTOR_ID: &str = "user-actor-444";
+const RECEIVER_A_ID: &str = "user-receiver-445";
+const RECEIVER_B_ID: &str = "user-receiver-446";
+const NOW_MS: u64 = 1_700_008_000_000;
+
+/// 构造 G08a 的最小建群意图，身份信息不由客户端重复提交。
+fn create_command() -> Tick {
+    command_json(
+        "im_create_channel",
+        json!({
+            "type": "P",
+            "user_ids": [RECEIVER_A_ID, RECEIVER_B_ID],
+            "display_name": "Phase 1 验收群",
+            "force_create": false,
+            "req_id": "req-mv3-g08a-001"
+        }),
+    )
+}
+
+/// 构造 Go channel/create 与 channel_created 共用的权威频道对象。
+fn channel_authority() -> Value {
+    json!({
+        "id": common::cid(808),
+        "type": "P",
+        "displayName": "Phase 1 验收群",
+        "mentionPermission": "MANAGER",
+        "noticePermission": "MANAGER",
+        "topPermission": "MANAGER",
+        "teamId": "company-phase1",
+        "createAt": NOW_MS,
+        "owner": {
+            "id": ACTOR_ID,
+            "role": "OWNER",
+            "nickName": "Actor 444"
+        },
+        "members": [
+            {
+                "id": RECEIVER_A_ID,
+                "role": "MEMBER",
+                "nickName": "Receiver 445"
+            },
+            {
+                "id": RECEIVER_B_ID,
+                "role": "MEMBER",
+                "nickName": "Receiver 446"
+            }
+        ]
+    })
+}
+
+/// 从当前 effect batch 中读取指定类别的 correlation。
+fn correlation_of(effects: &[Effect], kind: &str) -> u64 {
+    effects
+        .iter()
+        .find_map(|effect| match (kind, effect) {
+            ("http", Effect::Http { corr, .. })
+            | ("persist", Effect::PersistAtomic { corr, .. }) => Some(corr.raw()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("missing {kind} correlation"))
+}
+
+/// 从当前 effect batch 解码指定名称的 MessageV3 投影。
+fn emitted_event(effects: &[Effect], event_name: &str) -> Value {
+    effects
+        .iter()
+        .filter_map(|effect| {
+            let Effect::Emit { event } = effect else {
+                return None;
+            };
+            serde_json::from_slice::<Value>(event.0.as_ref()).ok()
+        })
+        .find(|event| event["event"] == event_name)
+        .unwrap_or_else(|| panic!("missing {event_name} projection"))
+}
+
+/// 将权威频道包装成现网 channel_created WS action。
+fn channel_created_inbound() -> Tick {
+    let frame = json!({
+        "action": "channel_created",
+        "data": channel_authority()
+    });
+    Tick::Inbound(InboundBytes(Bytes::from(
+        serde_json::to_vec(&frame).expect("channel_created frame must serialize"),
+    )))
+}
+
+/// 断言提交后的 created 投影完全符合 Angular 直接 Upsert 的绝对态。
+fn assert_created_projection(event: &Value) {
+    assert_eq!(
+        event["data"],
+        json!({
+            "id": common::cid(808),
+            "type": "P",
+            "displayName": "Phase 1 验收群",
+            "mentionPermission": "MANAGER",
+            "noticePermission": "MANAGER",
+            "topPermission": "MANAGER",
+            "memberIds": [ACTOR_ID, RECEIVER_A_ID, RECEIVER_B_ID],
+            "memberCount": 3,
+            "members": [
+                {"userId": ACTOR_ID, "role": "OWNER", "nickName": "Actor 444"},
+                {"userId": RECEIVER_A_ID, "role": "MEMBER", "nickName": "Receiver 445"},
+                {"userId": RECEIVER_B_ID, "role": "MEMBER", "nickName": "Receiver 446"}
+            ],
+            "owner": {"userId": ACTOR_ID, "role": "OWNER", "nickName": "Actor 444"},
+            "ownerId": ACTOR_ID,
+            "unreadCount": 0,
+            "mentionCount": 0
+        })
+    );
+}
+
+/// 证明 MV3-G08a 的 visual 目标参考包完整且未伪装为运行时证据。
+#[test]
+fn reference_package_is_complete() {
+    phase1_reference::assert_reference_gate("MV3-G08a", "channel/mv3-g08a");
+}
+
+/// 发送者建群必须依次经过真实 HTTP、原子持久化，再发布唯一终态投影。
+#[test]
+fn sender_create_is_http_then_persist_then_absolute_projection() {
+    let mut harness = Harness::new_with_identity(&[], ACTOR_ID, "company-phase1", "", "", "");
+
+    let command_effects = harness.step(create_command(), NOW_MS);
+    assert_eq!(command_effects.len(), 1);
+    let http_corr = correlation_of(harness.sink.as_slice(), "http");
+    let Effect::Http { req, .. } = &harness.sink.as_slice()[0] else {
+        panic!("im_create_channel must start with HTTP");
+    };
+    assert!(req.url.ends_with("/channel/create"));
+    assert_eq!(
+        serde_json::from_slice::<Value>(
+            req.body
+                .as_ref()
+                .expect("channel/create body is required")
+                .as_ref()
+        )
+        .expect("channel/create body must be json"),
+        json!({
+            "type": "P",
+            "userIds": [RECEIVER_A_ID, RECEIVER_B_ID],
+            "displayName": "Phase 1 验收群",
+            "forceCreate": false
+        })
+    );
+
+    let response = json!({"status": "SUCCESS", "data": channel_authority()});
+    let http_reply_effects = harness.step(
+        port_reply_with_body(
+            http_corr,
+            enveloped(Bytes::from(
+                serde_json::to_vec(&response).expect("response must serialize"),
+            )),
+        ),
+        NOW_MS + 1,
+    );
+    assert_eq!(http_reply_effects.len(), 1);
+    assert!(matches!(
+        http_reply_effects.as_slice(),
+        [EffectKind::PersistAtomic(_)]
+    ));
+    assert!(!harness
+        .sink
+        .as_slice()
+        .iter()
+        .any(|effect| matches!(effect, Effect::Emit { .. })));
+
+    let persist_corr = harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("missing persist correlation: {:?}", harness.sink.as_slice()));
+    harness.step(port_reply_ok(persist_corr), NOW_MS + 2);
+    assert_created_projection(&emitted_event(
+        harness.sink.as_slice(),
+        "im:channel:created",
+    ));
+}
+
+/// 接收者消费同一 WS authority 时保持成员顺序，且重复帧不重复发布。
+#[test]
+fn receiver_ws_projection_is_ordered_and_idempotent() {
+    let mut harness = Harness::new_with_identity(&[], RECEIVER_A_ID, "company-phase1", "", "", "");
+
+    let initial = harness.step(channel_created_inbound(), NOW_MS);
+    assert!(matches!(initial.as_slice(), [EffectKind::PersistAtomic(_)]));
+    let persist_corr = correlation_of(harness.sink.as_slice(), "persist");
+    harness.step(port_reply_ok(persist_corr), NOW_MS + 1);
+    assert_created_projection(&emitted_event(
+        harness.sink.as_slice(),
+        "im:channel:created",
+    ));
+
+    let duplicate = harness.step(channel_created_inbound(), NOW_MS + 2);
+    assert!(
+        duplicate.is_empty(),
+        "committed channel_created must be idempotent"
+    );
+}
+
+/// 持久化失败时禁止发布 created/members，避免 Angular 看见不可恢复的假终态。
+#[test]
+fn persist_failure_suppresses_terminal_projection() {
+    let mut harness = Harness::new_with_identity(&[], ACTOR_ID, "company-phase1", "", "", "");
+    let command_effects = harness.step(create_command(), NOW_MS);
+    let http_corr = match command_effects.as_slice() {
+        [EffectKind::Http(corr)] => *corr,
+        other => panic!("expected one channel/create HTTP, got {other:?}"),
+    };
+    let response = json!({"status": "SUCCESS", "data": channel_authority()});
+    harness.step(
+        port_reply_with_body(
+            http_corr,
+            enveloped(Bytes::from(
+                serde_json::to_vec(&response).expect("response must serialize"),
+            )),
+        ),
+        NOW_MS + 1,
+    );
+    let persist_corr = correlation_of(harness.sink.as_slice(), "persist");
+
+    let failure_effects = harness.step(port_reply_err(persist_corr), NOW_MS + 2);
+    assert!(failure_effects.is_empty());
+    assert!(!harness
+        .sink
+        .as_slice()
+        .iter()
+        .any(|effect| matches!(effect, Effect::Emit { .. })));
+}

@@ -297,6 +297,7 @@ fn row_reply_bytes_roundtrip_is_shared() {
     ));
 }
 
+/// 验证 Host Storage 读命中、读 miss 与错误短路都返回可判定的 PortOutcome。
 #[tokio::test]
 async fn execute_storage_ops_returns_rows_bytes_and_short_circuits_on_error() {
     let storage = storage().await;
@@ -324,6 +325,22 @@ async fn execute_storage_ops_returns_rows_bytes_and_short_circuits_on_error() {
     };
     let rows = rows_from_reply_bytes(&bytes.0).expect("rows json");
     assert_eq!(rows.len(), 1);
+
+    let miss = execute_storage_ops(
+        &storage,
+        &[helix_core::effect::StorageOp::Get(GetSpec {
+            table: "messages",
+            key_col: "id",
+            key_val: SqlValue::Integer(404),
+        })],
+    )
+    .await;
+    let PortOutcome::Ok(bytes) = miss else {
+        panic!("missing get should return an empty rows envelope");
+    };
+    assert!(rows_from_reply_bytes(&bytes.0)
+        .expect("empty rows json")
+        .is_empty());
 
     let err = execute_storage_ops(
         &storage,

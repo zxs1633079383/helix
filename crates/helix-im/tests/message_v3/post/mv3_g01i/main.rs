@@ -33,8 +33,11 @@ fn check_gap_surfaces(
     outbound: &Value,
     outbound_sample: &Value,
 ) -> Result<(), String> {
-    if inbound["rust_entry"] != json!("NONE") || inbound["rust_commands"] != json!([]) {
-        return Err("gap must expose no Rust command entry".to_string());
+    if inbound["angular_port_method"] != json!("NONE")
+        || inbound["rust_entry"] != json!("NONE")
+        || inbound["rust_commands"] != json!([])
+    {
+        return Err("gap must expose no Angular or Rust command entry".to_string());
     }
     if sample["rust_entry_inputs"] != json!([]) {
         return Err("gap must contain no synthetic Rust input".to_string());
@@ -87,7 +90,7 @@ fn deferred_gap_has_zero_runtime_surface() {
     check_deferred_gap().expect("VOTE gap contract must remain empty");
     assert_eq!(
         reference_file("inbound-contract.json")["angular_port_method"],
-        "createVote"
+        "NONE"
     );
 }
 

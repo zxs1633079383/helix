@@ -174,7 +174,11 @@ pub enum CorrelationContext {
     OutboundSendHttp {
         temporary_id: TemporaryId,
         channel_id: ChannelId,
+        /// 仅显式 retry 为 true；admission 成功后强制从 Go 权威历史按 temporaryId 对账。
+        authoritative_readback: bool,
     },
+    /// 权威历史已命中 retry 消息后的终态持久化回报；timeline 已由同一远端查询发布。
+    AuthoritativeSendReconcilePersist { temporary_id: TemporaryId },
     /// 发送事实已由本地存储确认后，重新读取已 attach 的 timeline。
     ///
     /// 这把 P1、HTTP 对账、WS echo 和失败终态统一收敛为同一条
@@ -238,6 +242,8 @@ pub enum CorrelationContext {
         query_generation: u64,
         causation_id: Option<String>,
         deferred_send_http: Option<TemporaryId>,
+        /// 显式 retry 的权威对账键；普通 timeline 查询保持 None。
+        authoritative_send_readback: Option<TemporaryId>,
     },
 
     /// 最近消息 local-first 第 3 段：cache Persist 回报后才记录当前会话 coverage 并 emit。

@@ -24,12 +24,14 @@ pub(crate) fn register_outbound_send_http_corr(
     h1_corr: Correlation,
     channel_id: crate::state::ChannelId,
     temporary_id: TemporaryId,
+    authoritative_readback: bool,
 ) {
     state.corr_map.insert(
         h1_corr,
         CorrelationContext::OutboundSendHttp {
             channel_id,
             temporary_id,
+            authoritative_readback,
         },
     );
 }

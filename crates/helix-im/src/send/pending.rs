@@ -58,6 +58,8 @@ pub struct PendingSend {
     /// 发给已 attach 的 surface，随后才允许这一跳 HTTP；上传链和 retry 也复用此闸，
     /// 防止重复的 projector 回包把同一 temporary_id 再次发出。
     pub http_started: bool,
+    /// 显式 retry 的 HTTP admission 后必须强制远端读回，避免服务端幂等确认不再广播 echo 时二次超时。
+    pub authoritative_readback_after_http: bool,
     /// 仍待成功的上传数；归零后才发 posts/create。
     pub remaining_uploads: usize,
     /// 上传失败闸。失败时 send status 同步进入 UnSend 供公开 VM 暴露 retry；
@@ -83,6 +85,7 @@ impl PendingSend {
             timeline_readback: TimelineReadbackContext::default(),
             body: None,
             http_started: false,
+            authoritative_readback_after_http: false,
             remaining_uploads: 0,
             upload_failed: false,
         }

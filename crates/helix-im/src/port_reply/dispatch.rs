@@ -411,8 +411,24 @@ impl ImModule {
             CorrelationContext::OutboundSendHttp {
                 channel_id,
                 temporary_id,
+                authoritative_readback,
             } => {
-                self.handle_outbound_send_http_reply(channel_id, temporary_id, outcome, out)?;
+                self.handle_outbound_send_http_reply(
+                    channel_id,
+                    temporary_id,
+                    authoritative_readback,
+                    outcome,
+                    out,
+                )?;
+            }
+            CorrelationContext::AuthoritativeSendReconcilePersist { temporary_id } => {
+                if let PortOutcome::Err(error) = outcome {
+                    tracing::warn!(
+                        tmp_id = temporary_id.0.as_str(),
+                        error = ?error,
+                        "authoritative retry reconcile persist failed"
+                    );
+                }
             }
             CorrelationContext::TimelineRefreshAfterSendPersist {
                 channel_id,
@@ -562,6 +578,7 @@ impl ImModule {
                 query_generation,
                 causation_id,
                 deferred_send_http,
+                authoritative_send_readback,
             } => self.handle_message_query_remote_reply(
                 *request,
                 *local_rows_desc,
@@ -569,6 +586,7 @@ impl ImModule {
                 query_generation,
                 causation_id,
                 deferred_send_http,
+                authoritative_send_readback,
                 now_ms,
                 outcome,
                 out,

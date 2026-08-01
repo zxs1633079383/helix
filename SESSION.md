@@ -14,6 +14,8 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 修复 Phase 1 显式失败重试在 Go 幂等 admission 后缺少第二次 WS echo 的真实链；可证伪断言：① 初次 posts/create HTTP 200 仍保持 Sending 并可在 15 秒后失败；② 只有 im_retry_send 的 HTTP 200 强制触发 getLatestPost 权威回读；③ 回读命中同 temporaryId 后以服务端 id 落定 sent、撤销 timer 且清理 pending；④ 只修改 helix-im send/query/correlation 与 focused F1 测试，不修改 Go 幂等合同 | 赌注 高 | 可逆 是 | @2026-08-01T04:30:00-0700
+
 🎯 EXPECT 完成 MessageV3 Phase 1 发送域 33 Gate 的 producer-first 迁移；可证伪断言：① 首批只新增 `message-v3-phase1-send.registry.json`、`tests/message_v3/{support,contracts,post,upload,schedule,draft,announcement,channel}` 与 Phase 1 所需现役模块，不触碰既有 `UC04-16-EXECUTION-INDEX.md` 删除；② 33 个 target 可发现且三个 Gap 保持 fail-closed；③ Core 不新增 Tauri/tokio/sqlx/reqwest 依赖，Rust Cargo 调用总计控制在模块完成与 Phase 验收两处；④ 未取得真实 HTTP/WS/Storage、dual-user 和 Native 证据的 Gate 不标 PASS | 赌注 高 | 可逆 是 | @2026-07-30T00:00:00-0700
 
 ✅ DONE MessageV3 Phase 1 发送域已完成 30 个真实接入 Gate + 3 个 Gap 的确定性生产链与独立 target：registry 提取的 33/33 target 全部通过，`helix-im` + `helix-driver-host` check 通过，Native/FFI/Web 三端 Rust 构建证据已沉淀。三个 Gap 继续 fail-closed，helix-core 未新增平台运行时依赖。预期偏离：旧 `UC04-16-EXECUTION-INDEX.md` 与当前 MessageV3 Gate Event 真源冲突，本轮一并删除；真实 PC/Mobile 消费、dual-user、Native 与 canonical 仍保持 UNVERIFIED，不借 deterministic/contract Green 晋级 | @2026-07-31T21:04:00-0700

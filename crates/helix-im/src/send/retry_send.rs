@@ -837,6 +837,7 @@ fn continue_retry(
     pending.status = SendStatus::Local;
     pending.timeout_timer = timeout_timer;
     pending.http_started = false;
+    pending.authoritative_readback_after_http = true;
     pending.body = Some(body.clone());
     if request_id.is_some() {
         pending.timeline_readback.causation_id = request_id;

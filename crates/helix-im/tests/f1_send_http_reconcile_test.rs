@@ -106,6 +106,101 @@ fn send_http_success_without_server_id_keeps_waiting_for_echo() {
     );
 }
 
+/// 显式 retry 的幂等 HTTP admission 必须转入 Go 历史读回，不能再次依赖缺失的 WS echo。
+#[test]
+fn retry_http_success_without_second_echo_settles_from_authoritative_readback() {
+    use helix_core::effect::Effect;
+
+    let mut h = Harness::new(&[1]);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_retry_readback", "hello"), 1_000);
+    let h1 = start_posts_create(&mut h, &initial_effects);
+    let timeout_timer = h
+        .effect_log
+        .last()
+        .and_then(|effects| {
+            effects.iter().find_map(|effect| match effect {
+                EffectKind::ScheduleTimer(timer) => Some(*timer),
+                _ => None,
+            })
+        })
+        .expect("initial posts/create must schedule the send timeout");
+
+    let admission = posts_create_reply(h1, json!({ "status": "SUCCESS" }));
+    assert!(h.step(admission, 1_100).is_empty());
+    h.step(timer_tick(timeout_timer), 16_100);
+    assert_eq!(
+        h.module.pending_send_status("tmp_retry_readback"),
+        Some(SendStatus::UnSend)
+    );
+
+    let retry_effects = h.step(
+        command_json(
+            "im_retry_send",
+            json!({"message_id":"tmp_retry_readback","req_id":"retry-readback"}),
+        ),
+        16_200,
+    );
+    let retry_persist = retry_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("retry must re-enter the optimistic persist barrier");
+    let retry_after_persist = h.step(port_reply_ok(retry_persist), 16_201);
+    let retry_http = http_corr(&retry_after_persist);
+
+    let retry_admission = posts_create_reply(retry_http, json!({ "status": "SUCCESS" }));
+    let readback_effects = h.step(retry_admission, 16_202);
+    let readback_corr = readback_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Http(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("retry admission must force getLatestPost readback");
+    assert!(h.sink.as_slice().iter().any(|effect| matches!(
+        effect,
+        Effect::Http { req, .. } if req.url.ends_with("/posts/getLatestPost")
+    )));
+
+    let latest_body = json!({
+        "status": "SUCCESS",
+        "data": {
+            "posts": [{
+                "id": sid(77),
+                "temporaryId": "tmp_retry_readback",
+                "channelId": cid(1),
+                "userId": "user-1",
+                "type": "TEXT",
+                "message": "hello",
+                "createAt": 1_001
+            }]
+        }
+    });
+    let readback = port_reply_with_body(
+        readback_corr,
+        enveloped(bytes::Bytes::from(
+            serde_json::to_vec(&latest_body).unwrap(),
+        )),
+    );
+    let terminal_effects = h.step(readback, 16_203);
+
+    assert_eq!(
+        h.module.pending_send_status("tmp_retry_readback"),
+        None,
+        "authority match must clear pending instead of allowing a second timeout"
+    );
+    assert!(terminal_effects
+        .iter()
+        .any(|effect| matches!(effect, EffectKind::CancelTimer(_))));
+    assert_eq!(
+        echo_persisted_id(&h, "tmp_retry_readback"),
+        Some(sid(77)),
+        "authority match must persist the canonical server id"
+    );
+}
+
 // ─── HTTP admission 后由 WS echo 补 server_id ────────────────────────────────
 
 /// 构造真 Go `action=="post"` echo 帧（带 temporary_id + server id + event_seq）。

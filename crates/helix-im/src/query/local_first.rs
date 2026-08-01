@@ -105,6 +105,57 @@ fn message_create_at(row: &Value) -> Option<i64> {
 }
 
 impl ImModule {
+    /// 显式 retry 在 HTTP admission 后绕过本地 coverage，直接读取 Go 最新消息完成幂等对账。
+    pub(crate) fn start_authoritative_send_readback(
+        &mut self,
+        channel_id: ChannelId,
+        window_token: Option<&str>,
+        causation_id: Option<String>,
+        temporary_id: crate::state::TemporaryId,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let window_token = window_token
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                self.state
+                    .timeline_state
+                    .unique_attached_window_for_channel(channel_id.as_str())
+                    .map(|(token, _)| token)
+            })
+            .unwrap_or_else(|| "latest".to_string());
+        let scope = crate::timeline_state::TimelineScope {
+            channel_id: channel_id.as_str().to_string(),
+            window_token: window_token.clone(),
+        };
+        let limit = self
+            .state
+            .timeline_state
+            .current_view(&scope)
+            .map(|view| view.items.len())
+            .filter(|visible| *visible > 0)
+            .and_then(|visible| u32::try_from(visible).ok())
+            .map(|visible| visible.saturating_add(1))
+            .unwrap_or(super::QUERY_MESSAGES_DEFAULT);
+        let request = MessageQueryRequest {
+            channel_id,
+            limit,
+            window_token,
+        };
+        let query_generation = self
+            .state
+            .begin_message_query_generation(channel_id, request.window_token.as_str());
+        self.start_remote_message_query(
+            request,
+            Vec::new(),
+            query_generation,
+            causation_id,
+            None,
+            Some(temporary_id),
+            out,
+        )
+    }
+
     /// A durable mutation may change an already attached latest timeline without
     /// another renderer intent. Re-enter the existing local-first projector
     /// after the write acknowledgement instead of leaking a legacy `im:post:*`
@@ -244,6 +295,7 @@ impl ImModule {
                 query_generation,
                 causation_id,
                 deferred_send_http,
+                None,
                 out,
             );
         }
@@ -365,10 +417,12 @@ impl ImModule {
             query_generation,
             causation_id,
             deferred_send_http,
+            None,
             out,
         )
     }
 
+    /// 合并 Go 权威最近消息，并在显式 retry 命中时同步落定发送聚合。
     pub(crate) fn handle_message_query_remote_reply(
         &mut self,
         request: MessageQueryRequest,
@@ -377,6 +431,7 @@ impl ImModule {
         query_generation: u64,
         causation_id: Option<String>,
         deferred_send_http: Option<crate::state::TemporaryId>,
+        authoritative_send_readback: Option<crate::state::TemporaryId>,
         now_ms: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
@@ -417,6 +472,14 @@ impl ImModule {
             }
         };
         let received_count = remote_posts.len();
+        if let Some(temporary_id) = authoritative_send_readback {
+            self.reconcile_authoritative_send_readback(
+                request.channel_id,
+                &temporary_id,
+                &remote_posts,
+                out,
+            );
+        }
         let (mut remote_rows_desc, mut cache_ops) = match visible_remote_rows_and_cache_ops(
             request.channel_id,
             remote_posts,
@@ -545,6 +608,7 @@ impl ImModule {
         Ok(())
     }
 
+    /// 发起单次 Go `getLatestPost` 查询并登记其 query/retry continuation。
     fn start_remote_message_query(
         &mut self,
         request: MessageQueryRequest,
@@ -552,6 +616,7 @@ impl ImModule {
         query_generation: u64,
         causation_id: Option<String>,
         deferred_send_http: Option<crate::state::TemporaryId>,
+        authoritative_send_readback: Option<crate::state::TemporaryId>,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let corr = self.alloc_corr_internal();
@@ -594,9 +659,54 @@ impl ImModule {
                 query_generation,
                 causation_id,
                 deferred_send_http,
+                authoritative_send_readback,
             },
         );
         Ok(())
+    }
+
+    /// 用 Go 历史中的同 temporaryId + 合法 server id 结算 retry，并撤销其超时令牌。
+    fn reconcile_authoritative_send_readback(
+        &mut self,
+        channel_id: ChannelId,
+        temporary_id: &crate::state::TemporaryId,
+        posts: &[Value],
+        out: &mut EffectSink,
+    ) {
+        let server_id = posts.iter().find_map(|post| {
+            let fields = crate::ws::parser::extract_post_fields(post);
+            (fields.temporary_id == temporary_id.0)
+                .then(|| crate::state::ServerId::from_str(fields.id.as_str()))
+                .flatten()
+        });
+        let Some(server_id) = server_id else {
+            return;
+        };
+        let Some(persist_corr) = self
+            .state
+            .pending_sends
+            .get(temporary_id)
+            .and_then(|pending| pending.persist_corr)
+        else {
+            return;
+        };
+        let reconcile_corr = self.alloc_corr_internal();
+        if let Some(pending) = self.state.pending_sends.get_mut(temporary_id) {
+            pending.reconcile(server_id, reconcile_corr, out);
+        }
+        self.state.pending_sends.remove(temporary_id);
+        self.state.corr_map.remove(&persist_corr);
+        self.state.corr_map.insert(
+            reconcile_corr,
+            CorrelationContext::AuthoritativeSendReconcilePersist {
+                temporary_id: temporary_id.clone(),
+            },
+        );
+        tracing::info!(
+            channel_id = channel_id.as_str(),
+            tmp_id = temporary_id.0.as_str(),
+            "explicit retry settled from authoritative history"
+        );
     }
 
     fn emit_deferred_posts_create_after_timeline_event(

@@ -427,3 +427,9 @@
 🎯 EXPECT 梳理当前在线与离线发送消息全流程；可证伪断言：① 文档只依据当前 `reactor/MessageV3-helix` 的真实 Command/Tick/Effect/driver/PortReply/storage/EventSink 路径，不把已删除 Frame/Surface 或过期 sample 当现状；② 明确 HTTP SUCCESS 不等于 Sent，只有合法 WS authority、持久提交与读回后才产生 terminal MessageV3 Emit；③ `.md` 与 `.mmd` 覆盖正常发送、断网失败/超时、timer、重试、重连补偿和 sender/receiver 分流；④ 所有源码链接存在且 Mermaid 可解析，`git diff --check` 通过 | 赌注 中 | 可逆 是 | @2026-07-29T20:55:10-07:00
 ✅ DONE 已在 `crates/helix-im/docs/消息发送全流程/` 交付中文 `.md` 与 Mermaid `.mmd`，按当前 Helix 与现役 Go 源码串起 Command、Persist、媒体预签名/PUT、HTTP、timer、PortReply、Go Pulsar/事务/WS、sender/receiver 未读、离线 sync 与 retry；README/AGENTS 已标明 Frame/Surface/V1 为历史材料。G-01 2/2、G-03a 2/2、媒体 active 9/9 通过（11 个旧媒体合同 ignored），Mermaid CLI 解析及 `git diff --check` 通过；未执行真 Go、双账号 WS、真实 SQLite 文件或 Mobile GTest | @2026-07-29T21:11:40-07:00
 ⚡ DRIFT-PRED 开局预期“无合法 server id 不进入 Sent”，但当前 Helix 在 Go 正常无 id 的 `SUCCESS` 回包后会写 `send_status=sent` 并撤 timer，仅保留 PendingSend 等 WS echo 补 id；文档已如实列为待修差异而非冒充理想合同 → 候选教训：发送验收必须拆开 HTTP admission、本地状态与 WS/DB authority | @2026-07-29T21:11:40-07:00
+
+🎯 EXPECT Spec006 G02c 显式 retry 的 HTTP admission 后只通过 Go 权威历史结算；`getLatestPost.pageSize` 必须保持在 timeline V3 的 1..=60 合同内，命中同 temporaryId 与合法 server id 后取消 timer、清 pending、持久化 canonical id；普通首发 HTTP 仍不得直接标 Sent | 赌注 高 | 可逆 是 | @2026-07-31T21:35:00-07:00
+
+✅ DONE 已为显式 retry 接入权威 `getLatestPost` continuation，并把读回页长截断到 Go timeline V3 最大 60；真实服务复现旧实现返回 `status=failed, invalid timeline query: pageSize`，生产破坏去掉上限后聚焦测试精确红（61 != 60，exit 101），恢复后页长合同 2/2 与发送 HTTP/WS/readback 9/9 全绿。Native WDIO 候选与 G02b/G02c 真实 lane 将继续重建复跑，不在此条提前晋级 real PASS | @2026-07-31T21:36:00-07:00
+
+🎯 EXPECT Spec006 转发 picker 的权威频道补偿查询在冷启动 18K+ 投影突发下仍返回目标群；可证伪断言：① `im_channel_query.condition.display_name` 出站严格还原为 Go `displayName`；② Native 默认有界事件窗口覆盖本轮已观测突发；③ Helix focused read/query、Tauri helix_im 与 dual-real-forward 全绿后才记账 T029 | 赌注 中 | 可逆 是 | @2026-08-01T05:10:00-0700

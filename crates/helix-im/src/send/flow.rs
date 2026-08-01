@@ -4,7 +4,45 @@ use crate::pending_send::PendingSend;
 use crate::state::{ChannelId, SendStatus, TemporaryId};
 use helix_core::effect::HttpRequest;
 use helix_core::{Effect, EffectSink};
-use serde_json::json;
+use serde_json::{json, Value};
+
+/// 递归定位仍未被 Host 解析的 opaque 媒体句柄，返回其 JSON 路径。
+///
+/// Host（`features/helix_im/media_stage.rs`）负责把 `mediaHandle` 换成账号绑定的
+/// `mediaInput`；Core 侧只要还看得见 handle，就说明该 payload 没走过 Host 解析。
+fn residual_media_handle(props: &Value) -> Option<String> {
+    fn walk(value: &Value, path: &str, found: &mut Option<String>) {
+        if found.is_some() {
+            return;
+        }
+        match value {
+            Value::Object(object) => {
+                for (key, child) in object {
+                    if key == "mediaHandle" || key == "media_handle" {
+                        *found = Some(format!("{path}.{key}"));
+                        return;
+                    }
+                    walk(child, &format!("{path}.{key}"), found);
+                    if found.is_some() {
+                        return;
+                    }
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    walk(child, &format!("{path}[{index}]"), found);
+                    if found.is_some() {
+                        return;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut found = None;
+    walk(props, "props", &mut found);
+    found
+}
 
 impl ImModule {
     /// 处理 im_send_message 命令（§4.5 发送链路）
@@ -26,6 +64,15 @@ impl ImModule {
         // 解析命令载荷
         let cmd: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| ImError::Parse(format!("im_send_message payload: {}", e)))?;
+
+        // T073 / INV-01：opaque handle 活着进 Core ⇒ Host 的账号绑定解析被绕过。
+        // 必须在任何状态变更 / Effect 之前 fail closed，且错误要点名具体 handle 路径，
+        // 否则生产上媒体发送失败时无法定位是哪个文件的暂存记录丢了。
+        if let Some(path) = cmd.get("props").and_then(residual_media_handle) {
+            return Err(ImError::Parse(format!(
+                "unresolved media handle at {path}: Host must resolve mediaHandle into mediaInput before Core"
+            )));
+        }
 
         let channel_id = cmd["channel_id"]
             .as_str()
@@ -116,17 +163,6 @@ impl ImModule {
                 ops: optimistic_ops,
             });
         }
-
-        // 4. MessageV3 optimistic 事实只含本地消息 identity、内容和发送状态。
-        out.push(
-            crate::event::post::sending_from_local_body(
-                channel_id.as_str(),
-                &tmp_id_str,
-                self.config.auth_user_id.as_str(),
-                &body,
-            )?
-            .into_effect(),
-        );
 
         // 注册 PendingSend（等待 echo 对账）。connection_id 维度（M1）：记录本条在哪个握手
         // 会话下发，重连 increment 补回时按 temporaryId 去重不双份。

@@ -50,7 +50,7 @@ where
                     last_ok_bytes = rows_to_reply_bytes(&[row]);
                 }
                 Ok(None) => {
-                    last_ok_bytes = Bytes::new();
+                    last_ok_bytes = rows_to_reply_bytes(&[]);
                 }
                 Err(e) => return PortOutcome::Err(classify_port_error(e)),
             },
@@ -59,7 +59,7 @@ where
                     last_ok_bytes = rows_to_reply_bytes(&[row]);
                 }
                 Ok(None) => {
-                    last_ok_bytes = Bytes::new();
+                    last_ok_bytes = rows_to_reply_bytes(&[]);
                 }
                 Err(e) => return PortOutcome::Err(classify_port_error(e)),
             },

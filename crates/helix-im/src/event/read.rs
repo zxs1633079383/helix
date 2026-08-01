@@ -97,29 +97,26 @@ pub fn post_readers(data: Value) -> Result<MessageV3Event, crate::ImError> {
 pub fn post_for_viewer(
     channel_id: &str,
     post_id: &str,
+    author_user_id: &str,
     reader_id: &str,
+    snapshot_id: &str,
+    member_ids: &[String],
     read_bits: &str,
     receipt_revision: i64,
     viewer_user_id: &str,
 ) -> Result<MessageV3Event, crate::ImError> {
-    if !reader_id.is_empty() && reader_id == viewer_user_id {
-        return post(serde_json::json!({
-            "id": post_id,
-            "channelId": channel_id,
-            "readBits": read_bits,
-            "readerId": reader_id,
-            "receiptRevision": receipt_revision,
-        }));
-    }
-    post_readers(serde_json::json!({
-        "id": post_id,
+    let data = serde_json::json!({
+        "postId": post_id,
         "channelId": channel_id,
+        "authorUserId": author_user_id,
+        "readerUserId": reader_id,
+        "snapshotId": snapshot_id,
+        "memberIds": member_ids,
         "readBits": read_bits,
-        "readerIds": if reader_id.is_empty() {
-            Vec::<&str>::new()
-        } else {
-            vec![reader_id]
-        },
         "receiptRevision": receipt_revision,
-    }))
+    });
+    if !reader_id.is_empty() && reader_id == viewer_user_id {
+        return post(data);
+    }
+    post_readers(data)
 }

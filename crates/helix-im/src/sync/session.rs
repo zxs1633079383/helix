@@ -39,6 +39,8 @@ pub struct PostFields {
     /// 服务端权威已读位（C2 / type=6 真源 post.rs:1087-1089）。
     /// 缺省空串=该 post 无已读信息；落库时**单调覆盖** message.read_bits 列（非累加）。
     pub read_bits: String,
+    /// 创建时成员快照权威键；缺省空串表示服务端未提供，禁止本地合成。
+    pub snapshot_id: String,
     /// 可见性受众（A3/CAP-9：sync 应用未读 +1 的 `visible_to_user` 谓词真源
     /// message_service.rs:323-333——`viewers` 含 `"all"` 或当前 auth_id 即可见）。
     /// 缺省空 Vec（无堆分配）；NOTICE 类型恒可见不依赖此字段。

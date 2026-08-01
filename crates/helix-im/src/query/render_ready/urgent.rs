@@ -88,6 +88,28 @@ mod tests {
         assert!(projection.can_confirm);
     }
 
+    /// INV-12：发起人即使被写进 `recipients`，也不得派生出待确认动作。
+    ///
+    /// 独立守护 `can_confirm` 里的 `requester_id != Some(viewer_user_id)` 分支——
+    /// 去掉该条件本用例必须变红（该分支此前无任何测试覆盖）。
+    #[test]
+    fn requester_listed_as_recipient_never_becomes_confirmable() {
+        let value = json!({
+            "sender":{"id":"u1"},
+            "recipients":{"u1":{"status":0},"u2":{"status":0}}
+        });
+        let requester = project(&value, "u1", true);
+        assert_eq!(requester.requester_id, Some("u1"));
+        // 绝对面如实保留发起人在 target 集合内，只有 viewer-local 的动作面被关掉。
+        assert!(requester.target_ids.contains(&"u1"));
+        assert!(
+            !requester.can_confirm,
+            "加急发起人不得对自己发起的加急出现待确认动作（INV-12）"
+        );
+        // 同一份绝对 map 下普通被点名成员不受影响。
+        assert!(project(&value, "u2", true).can_confirm);
+    }
+
     #[test]
     fn fully_confirmed_is_acknowledged_and_not_confirmable() {
         let value = json!({

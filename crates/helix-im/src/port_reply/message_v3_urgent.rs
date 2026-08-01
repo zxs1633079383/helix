@@ -85,7 +85,11 @@ impl ImModule {
         Ok(())
     }
 
-    /// 从 durable message row 发布唯一 expediteMap 终态，并释放旧 action 请求占位。
+    /// 从 durable message row 发布 expediteMap 终态与会话级加急信号，并释放旧 action 请求占位。
+    ///
+    /// 出站序列固定两条（visual 参考包 `post/mv3-g05c` / `post/mv3-g05d` outbound sequence 1 + 2）：
+    /// 1. `im:post:updated` —— 绝对 expediteMap，气泡加急标与「已读」动作由它派生。
+    /// 2. `im:channel:update` —— 会话级加急标识，会话列表闪电 / 头像红框只读 `urgentPostList`。
     pub(super) fn handle_message_v3_urgent_readback_reply(
         &mut self,
         message_id: String,
@@ -104,7 +108,92 @@ impl ImModule {
             return Ok(());
         };
         out.push(event.into_effect());
+        if let Some(signal) = urgent_channel_signal_from_row(row)? {
+            out.push(signal.into_effect());
+        }
         let _confirmed_message_id = message_id;
         Ok(())
     }
+}
+
+/// 从同一份 durable expediteMap 派生会话级加急信号（sequence 2）。
+///
+/// 判定是**绝对**的（不是 viewer-local）：只要还有 recipient 未确认（`status <= 0`），
+/// 该 postId 就留在 `urgentPostList` 里、闪电亮着；全员确认后整体熄灭。
+/// 两个 persona 各自独立回放同一份绝对 map，因此天然收敛到同一结果，
+/// 不存在任何跨视角复制（INV-12）。
+///
+/// `urgentCount` 是死字段（会话列表只读 `urgentPostList`），本函数永不产出它。
+fn urgent_channel_signal_from_row(
+    row: &helix_core::effect::Row,
+) -> Result<Option<crate::event::MessageV3Event>, ImError> {
+    let (Some(post_id), Some(channel_id), Some(expedite_map)) = (
+        text_column(row, "id"),
+        text_column(row, "channel_id"),
+        text_column(row, "expedite_map")
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .filter(serde_json::Value::is_object),
+    ) else {
+        return Ok(None);
+    };
+    let data = if has_pending_recipient(&expedite_map) {
+        serde_json::json!({
+            "channelId": channel_id,
+            "urgentPostList": [post_id],
+            "urgentCurrentName": requester_display_name(&expedite_map),
+            "hasUrgentPost": true,
+        })
+    } else {
+        serde_json::json!({
+            "channelId": channel_id,
+            "urgentPostList": [],
+            "urgentCurrentName": "",
+            "hasUrgentPost": false,
+        })
+    };
+    crate::event::channel::update(data).map(Some)
+}
+
+/// 是否仍有未确认的加急目标（缺 `status` 视为未确认，宁可多提醒不可漏提醒）。
+fn has_pending_recipient(expedite_map: &serde_json::Value) -> bool {
+    expedite_map
+        .get("recipients")
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|recipients| {
+            recipients.values().any(|recipient| {
+                recipient
+                    .get("status")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or_default()
+                    <= 0
+            })
+        })
+}
+
+/// 读取加急发起人显示名（会话摘要 `${urgentCurrentName}加急了你` 的唯一来源）。
+///
+/// 服务端未下发显示名时降级为空串——绝不回落成 userId（UI 会把它当人名直接渲染）。
+fn requester_display_name(expedite_map: &serde_json::Value) -> &str {
+    expedite_map
+        .get("sender")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|sender| {
+            ["name", "nickname", "userName", "displayName"]
+                .iter()
+                .find_map(|key| sender.get(*key))
+        })
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+}
+
+/// 从 driver row 读取文本列，不接受隐式类型转换。
+fn text_column<'a>(row: &'a helix_core::effect::Row, column: &str) -> Option<&'a str> {
+    row.iter().find_map(|(name, value)| {
+        (name == column)
+            .then_some(value)
+            .and_then(|value| match value {
+                helix_core::effect::SqlValue::Text(value) => Some(value.as_str()),
+                _ => None,
+            })
+    })
 }

@@ -60,6 +60,26 @@ pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
         identity_cols: &["temporary_id", "target_key"],
         scope_col: Some("temporary_id"),
     },
+    SparseTableSpec {
+        table: "receiver_snapshot",
+        identity_cols: &["snapshot_id"],
+        scope_col: Some("channel_id"),
+    },
+    SparseTableSpec {
+        table: "post_receipt",
+        identity_cols: &["snapshot_id"],
+        scope_col: Some("channel_id"),
+    },
+    SparseTableSpec {
+        table: "message_draft",
+        identity_cols: &["account_id", "channel_id"],
+        scope_col: Some("channel_id"),
+    },
+    SparseTableSpec {
+        table: "media_handle",
+        identity_cols: &["account_id", "handle"],
+        scope_col: Some("account_id"),
+    },
 ];
 
 /// IM 业务 schema（DDL 当数据）。host-cli 启动 migrate 后 loop execute_raw 叠加。
@@ -100,6 +120,13 @@ pub const IM_SCHEMA: &[&'static str] = &[
         send_status TEXT NOT NULL DEFAULT '',\
         upload_progress_percent INTEGER NOT NULL DEFAULT 0,\
         revoke INTEGER NOT NULL DEFAULT 0,\
+        snapshot_id TEXT NOT NULL DEFAULT '',\
+        receiver_user_ids TEXT NOT NULL DEFAULT '[]',\
+        http_in_flight INTEGER NOT NULL DEFAULT 0,\
+        echo_timer_id TEXT NOT NULL DEFAULT '',\
+        failure_code TEXT NOT NULL DEFAULT '',\
+        failure_message TEXT NOT NULL DEFAULT '',\
+        failure_retryable INTEGER NOT NULL DEFAULT 0,\
         create_at INTEGER NOT NULL DEFAULT 0,\
         update_at INTEGER NOT NULL DEFAULT 0\
     )",
@@ -262,11 +289,58 @@ pub const IM_SCHEMA: &[&'static str] = &[
         UNIQUE (tenant_id, channel_id, from_seq, to_seq)\
     )",
     "CREATE INDEX IF NOT EXISTS idx_channel_sync_coverage_range ON channel_sync_coverage(tenant_id, channel_id, from_seq, to_seq)",
+    // Receiver order is immutable at message creation; the author never occupies a bitmap slot.
+    "CREATE TABLE IF NOT EXISTS receiver_snapshot (\
+        snapshot_id TEXT PRIMARY KEY,\
+        channel_id TEXT NOT NULL,\
+        temporary_id TEXT NOT NULL,\
+        post_id TEXT NOT NULL DEFAULT '',\
+        author_id TEXT NOT NULL,\
+        create_at INTEGER NOT NULL,\
+        receiver_user_ids TEXT NOT NULL,\
+        read_bits TEXT NOT NULL DEFAULT ''\
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_receiver_snapshot_fallback ON receiver_snapshot(channel_id, create_at)",
+    "CREATE INDEX IF NOT EXISTS idx_receiver_snapshot_temporary_id ON receiver_snapshot(temporary_id)",
+    // Receipt keeps only the bitmap authority; ordered user ids are projected from receiver_snapshot.
+    "CREATE TABLE IF NOT EXISTS post_receipt (\
+        snapshot_id TEXT PRIMARY KEY,\
+        post_id TEXT NOT NULL,\
+        channel_id TEXT NOT NULL,\
+        read_bits TEXT NOT NULL DEFAULT '',\
+        updated_at INTEGER NOT NULL DEFAULT 0\
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_post_receipt_post_id ON post_receipt(post_id)",
+    // Draft is account-scoped local state and never emits a MessageV3 business event.
+    "CREATE TABLE IF NOT EXISTS message_draft (\
+        account_id TEXT NOT NULL,\
+        channel_id TEXT NOT NULL,\
+        text TEXT NOT NULL DEFAULT '',\
+        props TEXT NOT NULL DEFAULT '{}',\
+        updated_at INTEGER NOT NULL DEFAULT 0,\
+        PRIMARY KEY (account_id, channel_id)\
+    )",
+    // Host-issued opaque handles bind staged media to one account without exposing local paths.
+    "CREATE TABLE IF NOT EXISTS media_handle (\
+        account_id TEXT NOT NULL,\
+        handle TEXT NOT NULL,\
+        client_stream_id TEXT NOT NULL,\
+        file_name TEXT NOT NULL,\
+        content_type TEXT NOT NULL,\
+        size INTEGER NOT NULL,\
+        sha256 TEXT NOT NULL,\
+        metadata TEXT NOT NULL DEFAULT '{}',\
+        staged_path TEXT NOT NULL,\
+        created_at INTEGER NOT NULL,\
+        PRIMARY KEY (account_id, handle)\
+    )",
     // `pending_media` is an internal recovery journal. Local paths stay out of
     // public props; legacy upload_url/headers_json columns are retained but always written empty.
     "CREATE TABLE IF NOT EXISTS pending_media (\
         temporary_id TEXT NOT NULL,\
         target_key TEXT NOT NULL,\
+        account_id TEXT NOT NULL DEFAULT '',\
+        media_handle TEXT NOT NULL DEFAULT '',\
         stage TEXT NOT NULL,\
         channel_id TEXT NOT NULL,\
         local_path TEXT NOT NULL,\
@@ -281,6 +355,11 @@ pub const IM_SCHEMA: &[&'static str] = &[
         public_url TEXT NOT NULL DEFAULT '',\
         object_key TEXT NOT NULL DEFAULT '',\
         headers_json TEXT NOT NULL DEFAULT '[]',\
+        uploaded_bytes INTEGER NOT NULL DEFAULT 0,\
+        upload_status TEXT NOT NULL DEFAULT '',\
+        retry_count INTEGER NOT NULL DEFAULT 0,\
+        last_error TEXT NOT NULL DEFAULT '',\
+        stable_object_ref TEXT NOT NULL DEFAULT '',\
         PRIMARY KEY (temporary_id, target_key)\
     )",
     "CREATE INDEX IF NOT EXISTS idx_pending_media_temporary_id ON pending_media(temporary_id)",
@@ -293,6 +372,13 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE message ADD COLUMN reply_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE message ADD COLUMN event_seq INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE message ADD COLUMN upload_progress_percent INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE message ADD COLUMN snapshot_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE message ADD COLUMN receiver_user_ids TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE message ADD COLUMN http_in_flight INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE message ADD COLUMN echo_timer_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE message ADD COLUMN failure_code TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE message ADD COLUMN failure_message TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE message ADD COLUMN failure_retryable INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel ADD COLUMN header TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel ADD COLUMN schedule_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel ADD COLUMN schedule_owner_user_id TEXT NOT NULL DEFAULT ''",
@@ -302,6 +388,20 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE channel ADD COLUMN schedule_status TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel ADD COLUMN schedule_revision INTEGER NOT NULL DEFAULT 0",
     "CREATE TABLE IF NOT EXISTS channel_schedule (channel_id TEXT PRIMARY KEY, schedule_id TEXT NOT NULL DEFAULT '', owner_user_id TEXT NOT NULL DEFAULT '', message TEXT NOT NULL DEFAULT '', message_preview TEXT NOT NULL DEFAULT '', send_at INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS receiver_snapshot (snapshot_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, temporary_id TEXT NOT NULL, post_id TEXT NOT NULL DEFAULT '', author_id TEXT NOT NULL, create_at INTEGER NOT NULL, receiver_user_ids TEXT NOT NULL, read_bits TEXT NOT NULL DEFAULT '')",
+    "CREATE INDEX IF NOT EXISTS idx_receiver_snapshot_fallback ON receiver_snapshot(channel_id, create_at)",
+    "CREATE INDEX IF NOT EXISTS idx_receiver_snapshot_temporary_id ON receiver_snapshot(temporary_id)",
+    "CREATE TABLE IF NOT EXISTS post_receipt (snapshot_id TEXT PRIMARY KEY, post_id TEXT NOT NULL, channel_id TEXT NOT NULL, read_bits TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL DEFAULT 0)",
+    "CREATE INDEX IF NOT EXISTS idx_post_receipt_post_id ON post_receipt(post_id)",
+    "CREATE TABLE IF NOT EXISTS message_draft (account_id TEXT NOT NULL, channel_id TEXT NOT NULL, text TEXT NOT NULL DEFAULT '', props TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (account_id, channel_id))",
+    "CREATE TABLE IF NOT EXISTS media_handle (account_id TEXT NOT NULL, handle TEXT NOT NULL, client_stream_id TEXT NOT NULL, file_name TEXT NOT NULL, content_type TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL, metadata TEXT NOT NULL DEFAULT '{}', staged_path TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (account_id, handle))",
+    "ALTER TABLE pending_media ADD COLUMN account_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE pending_media ADD COLUMN media_handle TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE pending_media ADD COLUMN uploaded_bytes INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE pending_media ADD COLUMN upload_status TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE pending_media ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE pending_media ADD COLUMN last_error TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE pending_media ADD COLUMN stable_object_ref TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel_member ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN unread_post_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel_member ADD COLUMN last_post TEXT NOT NULL DEFAULT ''",

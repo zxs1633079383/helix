@@ -5,6 +5,18 @@ use serde_json::{json, Map, Value};
 const MEDIA_INPUT_FIELDS: [&str; 5] = ["localPath", "fileName", "contentType", "size", "sha256"];
 const MAX_MEDIA_SIZE: u64 = 64 << 20;
 const MAX_RICH_IMAGES: usize = 9;
+const TRANSIENT_REFERENCE_FIELDS: [&str; 10] = [
+    "uploadId",
+    "uploadToken",
+    "method",
+    "url",
+    "publicUrl",
+    "headers",
+    "expiresAt",
+    "status",
+    "state",
+    "etag",
+];
 const SERVER_OWNED_FIELDS: [&str; 19] = [
     "bucket",
     "id",
@@ -27,6 +39,7 @@ const SERVER_OWNED_FIELDS: [&str; 19] = [
     "etag",
 ];
 
+/// 根据消息类型构造上传计划；稳定对象引用保持零上传。
 pub fn build_upload_plan(
     msg_type: &str,
     message: &str,
@@ -38,6 +51,15 @@ pub fn build_upload_plan(
         _ => Vec::new(),
     };
     let targets = media.iter().map(|item| item.target.clone()).collect();
+    // 消息级进度是**按总字节加权**的 O(n) 单趟投影，只在规划这一次边界算一次；
+    // 后续单文件推进走 O(1) 的 `apply_upload_state`，不在此重算（T076）。
+    if !media.is_empty() {
+        let weighted = UploadTarget::message_upload_progress(&props)?;
+        props
+            .as_object_mut()
+            .ok_or_else(|| ImError::Parse("props must be object".to_string()))?
+            .insert("uploadProgress".to_string(), json!(weighted));
+    }
     Ok(UploadPlan {
         props,
         targets,
@@ -45,6 +67,7 @@ pub fn build_upload_plan(
     })
 }
 
+/// 线性扫描图片项，区分待上传 mediaInput 与已存在稳定对象。
 fn build_rich_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
     if props.get("file").is_some() {
         return Err(ImError::Parse(
@@ -79,18 +102,20 @@ fn build_rich_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
         )));
     }
 
-    files
-        .iter_mut()
-        .enumerate()
-        .map(|(index, image)| {
-            extract_media(image, "rich image").map(|input| PlannedMedia {
-                target: UploadTarget::RichImage { index },
-                input,
-            })
-        })
-        .collect()
+    let mut media = Vec::with_capacity(files.len());
+    for (index, image) in files.iter_mut().enumerate() {
+        if is_stable_object_reference(image, "rich image")? {
+            continue;
+        }
+        media.push(PlannedMedia {
+            target: UploadTarget::RichImage { index },
+            input: extract_media(image, "rich image")?,
+        });
+    }
+    Ok(media)
 }
 
+/// 构造单文件计划；已有稳定对象引用不进入上传链。
 fn build_file_plan(_message: &str, props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
     if props.get("files").is_some() {
         return Err(ImError::Parse(
@@ -100,6 +125,9 @@ fn build_file_plan(_message: &str, props: &mut Value) -> Result<Vec<PlannedMedia
     let file = props
         .get_mut("file")
         .ok_or_else(|| ImError::Parse("file message requires props.file".to_string()))?;
+    if is_stable_object_reference(file, "file")? {
+        return Ok(Vec::new());
+    }
     let input = extract_media(file, "file")?;
     Ok(vec![PlannedMedia {
         target: UploadTarget::File,
@@ -107,6 +135,64 @@ fn build_file_plan(_message: &str, props: &mut Value) -> Result<Vec<PlannedMedia
     }])
 }
 
+/// 识别不可伪造临时凭据的稳定对象描述符，并拒绝半完整引用。
+fn is_stable_object_reference(node: &Value, label: &str) -> Result<bool, ImError> {
+    let object = node
+        .as_object()
+        .ok_or_else(|| ImError::Parse(format!("{label} must be object")))?;
+    if object.contains_key("mediaInput") {
+        return Ok(false);
+    }
+    let has_reference_field = ["bucket", "id", "uri"]
+        .iter()
+        .any(|field| object.contains_key(*field));
+    if !has_reference_field {
+        return Ok(false);
+    }
+    if let Some(field) = TRANSIENT_REFERENCE_FIELDS
+        .iter()
+        .find(|field| object.contains_key(**field))
+    {
+        return Err(ImError::Parse(format!(
+            "{label} stable reference must not contain transient field {field}"
+        )));
+    }
+    let bucket = stable_reference_string(object, "bucket", label)?;
+    let id = stable_reference_string(object, "id", label)?;
+    let uri = stable_reference_string(object, "uri", label)?;
+    if bucket.len() > 64
+        || id.len() > 255
+        || !uri.starts_with('/')
+        || uri.starts_with("//")
+        || uri.contains("..")
+        || uri.contains(['?', '#', '\\'])
+    {
+        return Err(ImError::Parse(format!(
+            "{label} stable object reference is invalid"
+        )));
+    }
+    Ok(true)
+}
+
+/// 读取稳定引用的必填非空字符串字段。
+fn stable_reference_string<'a>(
+    object: &'a Map<String, Value>,
+    field: &str,
+    label: &str,
+) -> Result<&'a str, ImError> {
+    object
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            ImError::Parse(format!(
+                "{label} stable reference requires non-empty {field}"
+            ))
+        })
+}
+
+/// 提取并清除 Host 暂存输入，只保留可持久化媒体元数据。
 fn extract_media(node: &mut Value, label: &str) -> Result<MediaInput, ImError> {
     reject_server_owned_fields(node, label)?;
     let object = node
@@ -144,6 +230,8 @@ fn extract_media(node: &mut Value, label: &str) -> Result<MediaInput, ImError> {
     object.insert("contentType".to_string(), json!(&content_type));
     object.insert("size".to_string(), json!(size));
     object.insert("upload".to_string(), json!({"status": "preparing"}));
+    // 逐文件绝对进度必须在乐观落库/首帧 Sending 之前就位（INV-01 / T076）。
+    super::state::init_upload_state(object);
     Ok(MediaInput {
         local_path,
         file_name,

@@ -9,6 +9,8 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:post:sending",
     "im:post:received",
     "im:post:updated",
+    "im:post:updates",
+    "im:post:revoke",
     "im:posts:batch-result",
     "im:post:read",
     "im:post:readers",
@@ -109,5 +111,27 @@ mod tests {
         assert!(events.iter().any(|e| e == "im:post:send-failed"));
         assert!(events.iter().any(|e| e == "im:timeline:window"));
         assert!(events.iter().any(|e| e == "im:operation:status"));
+    }
+
+    /// 证明 Phase 1 Post 词表包含单条撤回和批量绝对态 Upsert。
+    #[test]
+    fn capabilities_advertise_phase1_post_projection_events() {
+        let caps: serde_json::Value = serde_json::from_slice(&capabilities_json()).unwrap();
+        let events = caps["events"].as_array().unwrap();
+        for expected in [
+            "im:post:sending",
+            "im:post:received",
+            "im:post:updated",
+            "im:post:updates",
+            "im:post:send-failed",
+            "im:post:read",
+            "im:post:readers",
+            "im:post:revoke",
+        ] {
+            assert!(
+                events.iter().any(|event| event == expected),
+                "missing Phase 1 event {expected}"
+            );
+        }
     }
 }

@@ -65,6 +65,30 @@ fn collect_urgent_from_props(props: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
+/// 承载「加急目标集合」的容器键：命中即只从这些键下钻，兄弟键一律不是目标。
+const URGENT_TARGET_CONTAINER_KEYS: [&str; 4] = ["recipients", "users", "userIds", "targets"];
+
+/// 单条目形态 `{"id": "u1"}` / `{"userId": "u1"}`：目标在 value 上，键本身不是 userId。
+const URGENT_TARGET_ID_KEYS: [&str; 3] = ["id", "userId", "user_id"];
+
+/// expediteMap / recipient 条目里描述「发起人与元数据」的结构键。
+///
+/// 它们既不是 userId，也不得被下钻——`sender` 一旦被当成目标容器，
+/// 发起人就会出现在自己消息的加急名单里（违反 INV-12：禁止 sender/receiver 状态互抄）。
+const URGENT_STRUCTURE_KEYS: [&str; 11] = [
+    "sender",
+    "status",
+    "confirmAt",
+    "confirm_at",
+    "name",
+    "teamId",
+    "team_id",
+    "createAt",
+    "create_at",
+    "updateAt",
+    "update_at",
+];
+
 fn collect_urgent_targets(value: &serde_json::Value, out: &mut Vec<String>) {
     match value {
         serde_json::Value::String(s) if !s.is_empty() => out.push(s.clone()),
@@ -74,17 +98,45 @@ fn collect_urgent_targets(value: &serde_json::Value, out: &mut Vec<String>) {
                 collect_urgent_targets(item, out);
             }
         }
-        serde_json::Value::Object(map) => {
-            for (key, value) in map {
-                if key == "users" || key == "userIds" || key == "targets" {
-                    collect_urgent_targets(value, out);
-                } else if value.as_bool().unwrap_or(true) {
-                    out.push(key.clone());
-                    collect_urgent_targets(value, out);
-                }
-            }
-        }
+        serde_json::Value::Object(map) => collect_urgent_targets_from_object(map, out),
         _ => {}
+    }
+}
+
+/// 从一个 object 结点收集加急目标。
+///
+/// 三种真实形态，按优先级判定，**互斥**（判定出结构化形态后绝不再退回扁平枚举）：
+/// 1. 容器形态 `{"sender":…, "recipients":{userId:…}}` / `{"users":[…]}`：只下钻容器键，
+///    `sender` 及其它兄弟键一律跳过（发起人不是加急目标，INV-12）。
+/// 2. 单条目形态 `{"id":"u1"}` / `{"userId":"u1"}`：目标在 value 上。
+/// 3. 扁平映射 `{userId: true}` / `{userId: {"status":0}}`：键即 userId，只取键不再下钻——
+///    下钻会把 `status` / `confirmAt` / 显示名等结构字段误当成 userId 推入目标集合。
+fn collect_urgent_targets_from_object(
+    map: &serde_json::Map<String, serde_json::Value>,
+    out: &mut Vec<String>,
+) {
+    let mut structured = map.contains_key("sender");
+    for key in URGENT_TARGET_CONTAINER_KEYS {
+        if let Some(value) = map.get(key) {
+            structured = true;
+            collect_urgent_targets(value, out);
+        }
+    }
+    if structured {
+        return;
+    }
+    if let Some(value) = URGENT_TARGET_ID_KEYS.iter().find_map(|key| map.get(*key)) {
+        collect_urgent_targets(value, out);
+        return;
+    }
+    for (key, value) in map {
+        if URGENT_STRUCTURE_KEYS.contains(&key.as_str()) {
+            continue;
+        }
+        if matches!(value, serde_json::Value::Bool(false)) {
+            continue;
+        }
+        out.push(key.clone());
     }
 }
 

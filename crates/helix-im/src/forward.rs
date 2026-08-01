@@ -198,8 +198,11 @@ pub(crate) fn start(
         .and_then(Value::as_str)
         .unwrap_or("individual")
     {
-        "individual" => ForwardMode::Individual,
-        "merged" => ForwardMode::Merged,
+        // MessageV3 Phase 1 参考包（gates/post/mv3-g03a|mv3-g03b/inbound-sample.json）声明的
+        // canonical token 是 `item` / `merge`；`individual` / `merged` 是既有内核别名，两者
+        // 同义且都必须被接受，否则 canonical 载荷会被 fail-closed 拒绝。
+        "individual" | "item" => ForwardMode::Individual,
+        "merged" | "merge" => ForwardMode::Merged,
         other => {
             return Err(ImError::Parse(format!(
                 "im_relay_messages: 不支持的 mode '{other}'"

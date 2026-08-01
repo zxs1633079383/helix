@@ -113,6 +113,10 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
             ),
             ("reply_count".to_string(), SqlValue::Integer(f.reply_count)),
             ("read_bits".to_string(), SqlValue::Text(f.read_bits.clone())),
+            (
+                "snapshot_id".to_string(),
+                SqlValue::Text(f.snapshot_id.clone()),
+            ),
             ("event_seq".to_string(), SqlValue::Integer(ev.seq.0 as i64)),
             (
                 "send_status".to_string(),

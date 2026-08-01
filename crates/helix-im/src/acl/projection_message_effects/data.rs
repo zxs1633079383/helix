@@ -185,6 +185,7 @@ pub(super) fn message_item_data(
         "userId": fields.user_id.as_str(),
         "type": msg_type,
         "message": fields.message.as_str(),
+        "simpleMessage": fields.simple_message.as_str(),
         "text": fields.message.as_str(),
         "props": props,
         "forwardDetail": forward_detail,

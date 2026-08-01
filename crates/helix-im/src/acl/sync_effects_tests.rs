@@ -166,6 +166,47 @@ fn sync_read_keeps_authenticated_author_as_self_in_both_receipt_projections() {
     }
 }
 
+/// 定向消息的隐藏成员不得从离线 read replay 得知 post identity 或回执状态。
+#[test]
+fn sync_read_skips_all_projections_for_hidden_viewer() {
+    const AUTHOR: &str = "user-author-444";
+    const VISIBLE: &str = "user-visible-678";
+    const HIDDEN: &str = "user-hidden-999";
+    let mut messages = HashMap::new();
+    messages.insert(
+        MSG.to_string(),
+        PostFields {
+            id: MSG.to_string(),
+            user_id: AUTHOR.to_string(),
+            msg_type: "TEXT".to_string(),
+            viewers: vec![VISIBLE.to_string()],
+            read_bits: "1".to_string(),
+            ..PostFields::default()
+        },
+    );
+
+    let emits = sync_mutation_emits_with_auth(&[read_ev(4, VISIBLE)], &messages, HIDDEN);
+    assert!(
+        emits.is_empty(),
+        "隐藏成员不得收到定向消息的 read replay 投影"
+    );
+}
+
+/// 缺消息快照时无法证明 viewer 权限，read replay 必须零投影而不是泄露 post identity。
+#[test]
+fn sync_read_without_message_snapshot_fails_closed() {
+    let emits = sync_mutation_emits_with_auth(
+        &[read_ev(4, "user-reader-678")],
+        &HashMap::new(),
+        "user-hidden-999",
+    );
+
+    assert!(
+        emits.is_empty(),
+        "缺消息快照的 read replay 必须 fail-closed"
+    );
+}
+
 /// 可证伪对偶：actorId 或 readBits 任一缺失，Helix 不得猜 reader 或伪造离线回执。
 #[test]
 fn sync_read_without_authoritative_identity_or_bits_does_not_replay_post_read() {

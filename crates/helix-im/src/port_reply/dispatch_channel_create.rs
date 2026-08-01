@@ -109,34 +109,9 @@ impl ImModule {
         match outcome {
             PortOutcome::Ok(_) => {
                 self.state.committed_channel_creates.insert(channel_id);
-                let viewer_role = member_rows.iter().find_map(|member| {
-                    let user_id = member.get("user_id").and_then(serde_json::Value::as_str)?;
-                    (user_id == self.config.auth_user_id).then(|| {
-                        member
-                            .get("role")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("MEMBER")
-                            .to_string()
-                    })
-                });
-                let created = serde_json::json!({
-                    "channelId": channel_id.as_str(),
-                    "displayName": channel.get("displayName").and_then(serde_json::Value::as_str).unwrap_or(channel_id.as_str()),
-                    "channelType": channel.get("type").and_then(serde_json::Value::as_str).unwrap_or("O"),
-                    "memberCount": member_rows.len(),
-                    "createdAt": channel.get("createAt").or_else(|| channel.get("createdAt")).and_then(serde_json::Value::as_i64).unwrap_or(0),
-                    "viewerRole": viewer_role.unwrap_or_else(|| "MEMBER".to_string()),
-                });
-                let members = member_rows
-                    .iter()
-                    .map(|member| {
-                        serde_json::json!({
-                            "userId": member.get("user_id").and_then(serde_json::Value::as_str).unwrap_or_default(),
-                            "role": member.get("role").and_then(serde_json::Value::as_str).unwrap_or("MEMBER"),
-                            "nickName": member.get("nick_name").and_then(serde_json::Value::as_str).unwrap_or_default(),
-                        })
-                    })
-                    .collect::<Vec<_>>();
+                let created =
+                    build_message_v3_created_projection(channel_id, &channel, &member_rows);
+                let members = build_message_v3_members(&member_rows);
                 out.push(crate::event::channel::created(created)?.into_effect());
                 out.push(
                     crate::event::channel::members(serde_json::json!({
@@ -155,6 +130,85 @@ impl ImModule {
         }
         Ok(())
     }
+}
+
+/// 构造 Angular 可直接 Upsert 的建群绝对态，并以 owner 开头保持稳定成员顺序。
+fn build_message_v3_created_projection(
+    channel_id: ChannelId,
+    channel: &serde_json::Value,
+    member_rows: &[serde_json::Value],
+) -> serde_json::Value {
+    let owner_id = channel
+        .get("owner")
+        .and_then(|owner| owner.get("id"))
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| channel.get("ownerId").and_then(serde_json::Value::as_str))
+        .unwrap_or_default();
+    let mut member_ids = Vec::with_capacity(member_rows.len());
+    let mut seen = std::collections::HashSet::with_capacity(member_rows.len());
+    if !owner_id.is_empty() && seen.insert(owner_id) {
+        member_ids.push(owner_id);
+    }
+    for user_id in member_rows
+        .iter()
+        .filter_map(|member| member.get("user_id").and_then(serde_json::Value::as_str))
+    {
+        if !user_id.is_empty() && seen.insert(user_id) {
+            member_ids.push(user_id);
+        }
+    }
+    let members = build_message_v3_members(member_rows);
+    let owner = members
+        .iter()
+        .find(|member| member.get("userId").and_then(serde_json::Value::as_str) == Some(owner_id))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let mut projection = serde_json::json!({
+        "id": channel_id.as_str(),
+        "type": channel.get("type").and_then(serde_json::Value::as_str).unwrap_or("O"),
+        "displayName": channel.get("displayName").and_then(serde_json::Value::as_str).unwrap_or(channel_id.as_str()),
+        "memberIds": member_ids,
+        "memberCount": members.len(),
+        "members": members,
+        "owner": owner,
+        "ownerId": owner_id,
+        "unreadCount": 0,
+        "mentionCount": 0,
+    });
+    // 权限三件套是 Go 建群默认事实，created 投影必须保留，避免 UI 把群主权限误判为关闭。
+    if let Some(projection_object) = projection.as_object_mut() {
+        for permission in ["mentionPermission", "noticePermission", "topPermission"] {
+            if let Some(value) = channel.get(permission).filter(|value| value.is_string()) {
+                projection_object.insert(permission.to_string(), value.clone());
+            }
+        }
+    }
+    projection
+}
+
+/// 把持久化后的 roster 行转换为 Angular 可直接水合的稳定成员数组。
+fn build_message_v3_members(member_rows: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    let mut members = member_rows
+        .iter()
+        .filter_map(|member| {
+            let user_id = member
+                .get("user_id")
+                .and_then(serde_json::Value::as_str)
+                .filter(|user_id| !user_id.is_empty())?;
+            Some(serde_json::json!({
+                "userId": user_id,
+                "role": member.get("role").and_then(serde_json::Value::as_str).unwrap_or("MEMBER"),
+                "nickName": member.get("nick_name").and_then(serde_json::Value::as_str).unwrap_or_default(),
+            }))
+        })
+        .collect::<Vec<_>>();
+    if let Some(owner_index) = members
+        .iter()
+        .position(|member| member.get("role").and_then(serde_json::Value::as_str) == Some("OWNER"))
+    {
+        members[..=owner_index].rotate_right(1);
+    }
+    members
 }
 
 /// 解包并校验 channel/create 的 SUCCESS 权威对象。

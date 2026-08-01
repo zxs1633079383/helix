@@ -30,6 +30,22 @@ use serde_json::{json, Map, Value};
 /// scalar）计数而非 byte，与 JS `String.slice(0, 2000)` 的 UTF-16 语义近似（CJK 同为 1）。
 pub const MAX_MESSAGE_CHARS: usize = 2000;
 
+/// `@所有人` / 全员可见的 wire 哨兵值（`mentions` 与 `viewers` 共用同一字面量）。
+const ALL_SENTINEL: &str = "all";
+
+/// TEMPLATE 壳内芯的默认渲染形态。
+///
+/// MV3-G01b 参考包 `post/mv3-g01b`：`type='TEMPLATE'` + `props.template={type:'TEXT',text}`。
+/// `props.template.type='TEXT'` 只表示内芯按纯文本渲染，**不是**能力降级——TEMPLATE 壳承载
+/// 「👌🏻 收到」回执业务能力，改成别的值会同时丢链接预览与纯文本摘要特判。
+const TEMPLATE_INNER_TEXT: &str = "TEXT";
+
+/// `props.document.version` 的 Helix 权威常量（MV3-G01f 参考包固定 `1`）。
+const DOCUMENT_PROPS_VERSION: u64 = 1;
+
+/// 空文档的会话摘要兜底（MV3-G01f inbound 契约：正文前 50 字，空文档兜底 `[文档]`）。
+const DOCUMENT_EMPTY_SIMPLE_MESSAGE: &str = "[文档]";
+
 /// 当前登录用户身份（host 经 ImConfig 注入，确定性身份；core/im 不自取登录态）。
 ///
 /// `org_name` / `dept_name` / `user_name` 是 ucenter 跨 feature 读依赖（现网
@@ -162,6 +178,151 @@ fn canonical_message_type(msg_type: &str) -> &str {
     }
 }
 
+/// `mentions` 规范化（Helix 权威，前端只提交「点了谁」的最小意图）。
+///
+/// MV3-G01b：`@所有人` 的 wire 形态恒为 `["all"]`。前端可能提交
+/// `["all"]` / `["all","u1"]` / `["u1","all","u1"]` / 带空白的脏值 / 非数组，Helix 统一收敛：
+///
+/// - 命中 `all` 哨兵 → 整体塌缩为 `["all"]`（哨兵吞并具体 id，避免 Go 侧双语义）；
+/// - 否则按首现序去重、剔空白项；
+/// - 非数组（含 `null` / 对象 / 字符串）→ `[]`（零信任，不把脏值透传给 Go）。
+///
+/// 注：`mentions == ["all"]` 不满足前端 `includes(currentUserId)`，故 @所有人 **不**加 @ 角标
+/// ——这是既定设计（触达确认走 `props.template.userIds` 回执），不是缺陷。
+fn normalize_mentions(mentions: &Value) -> Value {
+    let Some(items) = mentions.as_array() else {
+        return json!([]);
+    };
+    let mut normalized: Vec<String> = Vec::with_capacity(items.len());
+    for item in items {
+        let Some(id) = item.as_str() else {
+            continue;
+        };
+        let id = id.trim();
+        if id.is_empty() {
+            continue;
+        }
+        if id == ALL_SENTINEL {
+            return json!([ALL_SENTINEL]);
+        }
+        if !normalized.iter().any(|existing| existing == id) {
+            normalized.push(id.to_string());
+        }
+    }
+    json!(normalized)
+}
+
+/// `viewers` 规范化（Helix 权威；MV3-G01l 定向可见发送）。
+///
+/// 前端只提交「勾选了谁」（INV-01），Helix 把这份白名单**原样**送上 wire 并原样投影。
+///
+/// 三条规则（顺序敏感）：
+/// - 命中 `all` 哨兵 → 整体塌缩为 `["all"]`（哨兵吞并具体 id，避免 Go 侧双语义）；
+/// - 否则按首现序去重、剔空白项；
+/// - 空数组 / 全空白 → `["all"]`（与 `build_message_object` 的既有空补行为等价）。
+///
+/// ## 为什么**不**在这里并入 senderId
+///
+/// 可见集 `viewers ∪ {senderId}` 是 Go `NormalizeViewersWithUser` 的**服务端**语义，由 Go
+/// 在 `posts/create` 落库时计算，并体现在回推的 authority 帧上（发送者因此恒能投影出自己
+/// 发的定向消息）。客户端再预并一次对 Go 是幂等冗余，却会**污染出站投影**：
+/// `im:post:sending` / `im:post:received` 的 `data.viewers` 直接取自本 body，而参考包
+/// `gates/post/mv3-g01l/outbound-sample.json`（线型权威）两处都声明
+/// `viewers == ["user-receiver-445"]` —— 即勾选白名单原样，**不含**发送者；
+/// `contract.json` 的 outbound 序 1/2 同样写死「勾选的白名单数组」「白名单原样回显」。
+/// 批次 1 的客户端预并入与该权威样本直接矛盾（缺陷 10），故回改实现对齐样本。
+///
+/// 发送者对自己定向消息的可见性由两条独立路径保证，不依赖本函数：
+/// Go 服务端并入（authority 帧含 senderId）+ 可见性判定的「自己发的」分支
+/// （`userId == currentUserId`）。
+///
+/// ## 为什么只在 `build_from_command` 调用，而不下沉进 `build_message_object`
+///
+/// `build_from_command` 是**客户端意图的边界**——脏值与哨兵只从这里进来，规范化必须且只需
+/// 在此发生一次。`build_message_object` 还被 `retry_send::rehydrate` 复用：它喂进来的
+/// `viewers` 是**上次已规范化并落库的 wire 值**，再归一一次是无谓重复（幂等但语义错位——
+/// 重发不是一次新的客户端意图）。
+fn normalize_viewers(viewers: &[String]) -> Vec<String> {
+    let mut normalized: Vec<String> = Vec::with_capacity(viewers.len());
+    for viewer in viewers {
+        let viewer = viewer.trim();
+        if viewer.is_empty() {
+            continue;
+        }
+        if viewer == ALL_SENTINEL {
+            return vec![ALL_SENTINEL.to_string()];
+        }
+        if !normalized.iter().any(|existing| existing == viewer) {
+            normalized.push(viewer.to_string());
+        }
+    }
+    if normalized.is_empty() {
+        return vec![ALL_SENTINEL.to_string()];
+    }
+    normalized
+}
+
+/// `props` 规范化（Helix 权威构造 wire 形态；INV-01 前端只提交最小意图）。
+///
+/// 只对 TEMPLATE / DOCUMENT 两类做**加法**补全，其余类型原样透传：
+///
+/// - **TEMPLATE**（MV3-G01b）：补 `props.template.type='TEXT'`（缺失/空串时）与
+///   `props.template.text=<正文>`（缺失/空串时）。已有 `template` 的其它字段（如回执名单
+///   `userIds`）与同级 sibling props **原样保留**。
+/// - **DOCUMENT**（MV3-G01f）：构造 `props.document`，补 `version=1`（缺失/非数值时）与
+///   空文档快照 `{type:'doc',content:[]}`（仅当既无 `snapshot` 也无 `url` 的无内容意图时；
+///   helix G-02 的 `{url,title,placeholder}` 形态因此不被伪造 snapshot 污染）。
+///   `document` 内的扩展字段与同级 sibling props **一律不删**（T053）。
+///
+/// 非对象 props（`null` / 数组 / 标量）视为空对象后再补全，绝不 panic。
+fn normalize_props(msg_type: &str, message: &str, props: &Value) -> Value {
+    let mut normalized: Map<String, Value> = props.as_object().cloned().unwrap_or_default();
+    match msg_type {
+        "TEMPLATE" => {
+            let mut template = normalized
+                .get("template")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            if !has_non_empty_str(&template, "type") {
+                template.insert("type".to_string(), json!(TEMPLATE_INNER_TEXT));
+            }
+            if !has_non_empty_str(&template, "text") {
+                template.insert("text".to_string(), json!(message));
+            }
+            normalized.insert("template".to_string(), Value::Object(template));
+        }
+        "DOCUMENT" => {
+            let mut document = normalized
+                .get("document")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            if !document.get("version").is_some_and(Value::is_number) {
+                document.insert("version".to_string(), json!(DOCUMENT_PROPS_VERSION));
+            }
+            let has_content = document.contains_key("snapshot") || document.contains_key("url");
+            if !has_content {
+                document.insert(
+                    "snapshot".to_string(),
+                    json!({"type": "doc", "content": []}),
+                );
+            }
+            normalized.insert("document".to_string(), Value::Object(document));
+        }
+        _ => {}
+    }
+    Value::Object(normalized)
+}
+
+/// 对象内某 key 是否为非空字符串（规范化的「已由前端给足」判据）。
+fn has_non_empty_str(object: &Map<String, Value>, key: &str) -> bool {
+    object
+        .get(key)
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.is_empty())
+}
+
 fn simple_message(msg_type: &str, message: &str, props: &Value) -> String {
     let (prefix, content) = match msg_type {
         "IMAGE" => ("[图片]", message),
@@ -176,6 +337,15 @@ fn simple_message(msg_type: &str, message: &str, props: &Value) -> String {
         ),
         "AUDIO" => ("[音频]", message),
         "VIDEO" => ("[视频]", message),
+        // MV3-G01f：正文前 50 字；空文档兜底 `[文档]`（会话列表摘要不得为空串）。
+        "DOCUMENT" => (
+            "",
+            if message.trim().is_empty() {
+                DOCUMENT_EMPTY_SIMPLE_MESSAGE
+            } else {
+                message
+            },
+        ),
         _ => ("", message),
     };
     prefix.chars().chain(content.chars()).take(50).collect()
@@ -214,12 +384,16 @@ pub fn build_message_object(input: &BuildInput<'_>) -> Option<Value> {
 
     let message = truncate_chars(input.text);
     let msg_type = canonical_message_type(input.msg_type);
+    // INV-01：wire 语义由 Helix 权威构造（TEMPLATE 壳 / DOCUMENT 快照 / mentions 哨兵），
+    // 前端只提交最小业务意图。规范化必须在 simpleMessage 之前，摘要才能读到补全后的 props。
+    let props = normalize_props(msg_type, &message, &input.props);
     // 会话列表摘要沿用现网媒体前缀；按 char 保持总长不超过 50。
-    let simple_message = simple_message(msg_type, &message, &input.props);
+    let simple_message = simple_message(msg_type, &message, &props);
 
     // viewers 空补 ["all"]（现网 `if (message.viewers.length === 0) viewers = ['all']`）。
+    // 定向白名单的哨兵塌缩 / 去重在客户端意图边界完成，见 `normalize_viewers`。
     let viewers: Vec<String> = if input.viewers.is_empty() {
-        vec!["all".to_string()]
+        vec![ALL_SENTINEL.to_string()]
     } else {
         input.viewers.clone()
     };
@@ -228,7 +402,8 @@ pub fn build_message_object(input: &BuildInput<'_>) -> Option<Value> {
     let mut body: Map<String, Value> = Map::new();
     body.insert("viewers".to_string(), json!(viewers));
     body.insert("message".to_string(), json!(message));
-    body.insert("mentions".to_string(), input.mentions.clone());
+    // mentions 规范化：`all` 哨兵塌缩 + 去重 + 非数组零信任兜底（MV3-G01b）。
+    body.insert("mentions".to_string(), normalize_mentions(&input.mentions));
     body.insert("temporaryId".to_string(), json!(input.temporary_id));
     // type：默认 "TEXT"，文档/图片等富媒体透传真值（UC-1.2）。空串容错为 "TEXT"。
     body.insert("type".to_string(), json!(msg_type));
@@ -249,7 +424,7 @@ pub fn build_message_object(input: &BuildInput<'_>) -> Option<Value> {
     // id：新建时空串（现网 self message `id: ''`）；编辑时传被编辑消息真 post id（非空 →
     // Go 当 update 而非 create，UC-1.6）。透传 `input.post_id`，默认空串。
     body.insert("id".to_string(), json!(input.post_id));
-    body.insert("props".to_string(), input.props.clone());
+    body.insert("props".to_string(), props);
     body.insert("topicId".to_string(), json!(input.topic_id));
     body.insert("revoke".to_string(), json!(false));
     // C3：createAt 经 Clock 注入（**非 createdAt**，B3）。
@@ -305,7 +480,7 @@ pub fn optimistic_persist_op(temporary_id: &str, channel_id: &str, text: String)
 /// 命令载荷字段（前端只传 UI 字段，C1 纯渲染）：`text`（纯文本）/ `viewers`（空数组省略亦可）/
 /// `mentions` / `props` / `topic_id` / `type`（默认 `"TEXT"`，DOCUMENT 等富媒体）/ `id`（默认空串，
 /// 编辑时传被编辑消息真 post id）/ `replied{id,reply_id,reply_root_id,reply_first_level_id,`
-/// `snapshot{replied_user_id,replied_user_name,message,simple_message,is_revoke,type,props,viewers}}`。
+/// `snapshot{replied_user_id,replied_user_name,message,is_revoke,type,props,viewers}}`。
 /// 返回 `None` = 空消息拦截（不发）。`channel_id` / `temporary_id` 由调用方先校验（typed PK）后传入。
 pub fn build_from_command(
     cmd: &Value,
@@ -326,6 +501,9 @@ pub fn build_from_command(
                 .collect()
         })
         .unwrap_or_default();
+    // MV3-G01l：定向可见集在客户端意图边界一次规范化（哨兵塌缩 / 去重 / 空补 ["all"]）。
+    // 不并入 senderId：那是 Go NormalizeViewersWithUser 的服务端语义，见 `normalize_viewers`。
+    let viewers = normalize_viewers(&viewers);
     let mentions = cmd.get("mentions").cloned().unwrap_or_else(|| json!([]));
     let props = cmd.get("props").cloned().unwrap_or_else(|| json!({}));
     let topic_id = cmd["topic_id"].as_str().unwrap_or("");
@@ -367,17 +545,22 @@ fn parse_replied_snapshot(snapshot: &Value) -> Option<RepliedSnapshot> {
     let replied_user_id = snapshot["replied_user_id"].as_str()?;
     let replied_user_name = snapshot["replied_user_name"].as_str()?;
     let message = snapshot["message"].as_str()?;
-    let simple_message = snapshot["simple_message"].as_str()?;
     let is_revoke = snapshot["is_revoke"].as_bool()?;
     let msg_type = snapshot["type"].as_str()?;
+    let props = snapshot.get("props").cloned().unwrap_or_else(|| json!({}));
+    // 回复摘要属于发送领域权威派生，Angular 只提交被选消息原始展示事实。
+    let simple_message = snapshot["simple_message"]
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| simple_message(msg_type, message, &props));
     Some(RepliedSnapshot {
         replied_user_id: replied_user_id.to_string(),
         replied_user_name: replied_user_name.to_string(),
         message: message.to_string(),
-        simple_message: simple_message.to_string(),
+        simple_message,
         is_revoke,
         msg_type: msg_type.to_string(),
-        props: snapshot.get("props").cloned().unwrap_or_else(|| json!({})),
+        props,
         viewers: snapshot["viewers"]
             .as_array()
             .map(|items| {

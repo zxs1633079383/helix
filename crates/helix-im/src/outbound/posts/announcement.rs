@@ -5,11 +5,35 @@
 //! 各为独立命令（独立 endpoint + body + inventory 注册），默认写族 `is_read=false`。
 //!
 //! ## endpoint / body 真源
-//! - save：后端要**完整 Post 结构**，body = 整个 args 透传（args.clone()），不裁字段。
+//! - save：MessageV3 Gate `MV3-G07b`（`im_save_announcement`）的唯一出站入口，见下节。
 //! - delete：`{postIds:[], postId:[]}`（两字段同值数组，兼容后端单/复数命名差异）。
 //! - read：`{postId, channelId}`（标记某公告已读）。
+//!
+//! ## MV3-G07b｜发布 / 修改群公告（`im_save_announcement` → 内核名 `im_announcement_save`）
+//!
+//! 权威参考包：`specs/003-messagev3-gate-inventory/gates/announcement/mv3-g07b/`（visual 仓）。
+//!
+//! - **入参**（`inbound-sample.json`）：snake_case `{channel_id, announcement_id, content}`，
+//!   `announcement_id` 为 `null` / 空串 = 新建，非空 = 编辑同一条公告。
+//!   `inbound-contract.json.rust_commands[0].forbid_unknown = true` → 未知顶层键一律 fail-closed。
+//! - **INV-01**：`temporaryId / createAt / simpleMessage / readBits` 归 Helix 所有，
+//!   Angular 一旦提交即 fail-closed（[`HELIX_OWNED_KEYS`]），不是"照单透传"。
+//! - **INV-10**：公告只调用公告专用接口 `POST post/announcement/save`
+//!   （`contract.json.coverage.goEndpoint`），**不得**额外调用 `posts/create`；
+//!   唯一 Post 由该接口的 WS 回声 / read-back 形成。
+//! - **body**：后端要**完整 Post 结构**，由 Helix 按 `contract.json.inbound.params` 组装
+//!   （camelCase），不再把 args 原样透传——透传会把 snake_case 入参直接送进 Go，
+//!   且让 Angular 有机会自造 `temporaryId/readBits`。
+//!
+//! ### temporaryId 的确定性铸造
+//!
+//! 公告链是 **Http → Persist → Emit**（`effects-contract.json`，与发送内核的 Persist→Http 相反），
+//! 无乐观落库，`temporaryId` 只用于 WS 回声对账。Helix 由「保存意图三元组」
+//! `(channel_id, announcement_id, content)` 确定性铸造它：同一保存意图重放必须收敛到
+//! **同一个** `temporaryId`，否则一次重试就会在时间线上留下两条 Post，直接违反 INV-10
+//! 的「唯一 Post」。铸造是纯函数（无 Clock / 无 RNG / 无模块状态），满足 sans-IO。
 
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::error::ImError;
 
@@ -27,15 +51,173 @@ fn require_str_array(args: &Value, key: &str, cmd: &str) -> Result<Value, ImErro
         .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空 {key}（非空字符串数组）")))
 }
 
-/// POST .../post/announcement/save — 发布/保存公告。
-/// 后端要完整 Post 结构 → body = 整个 args 透传（不裁字段，build 直回 args.clone()）。
+// ── MV3-G07b：im_save_announcement ─────────────────────────────────────────────
+
+/// 公告专用接口（`contract.json.coverage.goEndpoint` = `POST /post/announcement/save`）。
+/// 唯一创建入口——INV-10 禁止本 Gate 触碰 `posts/create`。
+pub const ANNOUNCEMENT_SAVE_PATH: &str = "post/announcement/save";
+
+const SAVE_COMMAND: &str = "im_announcement_save";
+
+/// `im_save_announcement` 公开边界允许的**全部**顶层键。
+///
+/// 前三个是 Gate 权威业务意图（`inbound-sample.json`）；`self_id/team_id/user_name/org_name/
+/// dept_name` 是宿主注入的运行时身份（沿用 `im_create_channel` / `im_team_upsert` 的
+/// 「壳只传身份，不拼 wire body」约定）；`req_id` 供 `Cses-Track-Id` 头。
+const SAVE_KEYS: &[&str] = &[
+    "channel_id",
+    "announcement_id",
+    "content",
+    "self_id",
+    "team_id",
+    "user_name",
+    "org_name",
+    "dept_name",
+    "req_id",
+];
+
+/// INV-01 归 Helix 所有、Angular **不得**提交的字段。
+///
+/// 单列出来是为了把「未知字段」与「越权字段」区分成两类错误：前者多半是拼写，
+/// 后者说明壳又开始自造消息事实（tasks.md 记录的 G07b 端到端漂移正是此类）。
+const HELIX_OWNED_KEYS: &[&str] = &[
+    "temporary_id",
+    "create_at",
+    "simple_message",
+    "read_bits",
+    "message",
+    "type",
+    "viewers",
+    "topic_id",
+    "user_snapshot",
+    "post",
+    "props",
+];
+
+/// `im_save_announcement` 的已校验入参（Gate 权威业务意图 + 宿主身份）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveAnnouncementCommand {
+    pub channel_id: String,
+    /// 空串 = 新建；非空 = 编辑该 id 的公告（`contract.json`：区分新建 vs 编辑的唯一依据）。
+    pub announcement_id: String,
+    pub content: String,
+    pub self_id: String,
+    pub team_id: String,
+    pub user_name: String,
+    pub org_name: String,
+    pub dept_name: String,
+}
+
+impl SaveAnnouncementCommand {
+    /// 解析并校验保存意图；未知键 / INV-01 越权键 / 缺必填 → `Err`（fail closed，零 panic）。
+    pub fn parse(args: &Value) -> Result<Self, ImError> {
+        let obj = args
+            .as_object()
+            .ok_or_else(|| ImError::Parse(format!("{SAVE_COMMAND}: payload 必须是 JSON 对象")))?;
+        for key in obj.keys() {
+            if HELIX_OWNED_KEYS.contains(&key.as_str()) {
+                return Err(ImError::Parse(format!(
+                    "{SAVE_COMMAND}: 字段 {key} 由 Helix 铸造，客户端不得提交（INV-01）"
+                )));
+            }
+            if !SAVE_KEYS.contains(&key.as_str()) {
+                return Err(ImError::Parse(format!("{SAVE_COMMAND}: 未知字段 {key}")));
+            }
+        }
+        Ok(Self {
+            channel_id: require_str(args, "channel_id", SAVE_COMMAND)?.to_string(),
+            announcement_id: optional_announcement_id(obj)?,
+            content: require_str(args, "content", SAVE_COMMAND)?.to_string(),
+            self_id: optional_str(obj, "self_id", SAVE_COMMAND)?,
+            team_id: optional_str(obj, "team_id", SAVE_COMMAND)?,
+            user_name: optional_str(obj, "user_name", SAVE_COMMAND)?,
+            org_name: optional_str(obj, "org_name", SAVE_COMMAND)?,
+            dept_name: optional_str(obj, "dept_name", SAVE_COMMAND)?,
+        })
+    }
+
+    /// 保存意图的确定性对账键：同一 `(channel_id, announcement_id, content)` 恒为同一值。
+    ///
+    /// 见模块文档「temporaryId 的确定性铸造」。FNV-1a 64 位，纯函数、零依赖。
+    pub fn temporary_id(&self) -> String {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for part in [
+            self.channel_id.as_str(),
+            self.announcement_id.as_str(),
+            self.content.as_str(),
+        ] {
+            for byte in part.as_bytes().iter().chain(std::iter::once(&0x1fu8)) {
+                hash ^= *byte as u64;
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        format!("ann{hash:016x}")
+    }
+
+    /// 组装公告专用接口的完整 Post body（camelCase，逐字段对齐 `contract.json.inbound.params`）。
+    pub fn wire_body(&self) -> Value {
+        json!({
+            "temporaryId": self.temporary_id(),
+            "channelId": self.channel_id,
+            "userId": self.self_id,
+            "teamId": self.team_id,
+            "topicId": "",
+            "type": "ANNOUNCEMENT",
+            // 公告正文既是消息体也是摘要（`outbound-sample.json` 两者同值）。
+            "message": self.content,
+            "simpleMessage": self.content,
+            // 公告不走消息位图已读（`contract.json`：readBits 常量 ''）。
+            "readBits": "",
+            // 公告对全群可见，不支持定向（空 viewers 会让公告对任何人都不可见）。
+            "viewers": ["all"],
+            "userSnapshot": {
+                "userId": self.self_id,
+                "teamId": self.team_id,
+                "userName": self.user_name,
+                "orgName": self.org_name,
+                "deptName": self.dept_name,
+            },
+            "props": {
+                "announcement": {
+                    "announcementId": self.announcement_id,
+                    "content": self.content,
+                }
+            },
+        })
+    }
+}
+
+/// `announcement_id`：缺省 / `null` / 空串 = 新建（归一为空串）；非空字符串 = 编辑。
+fn optional_announcement_id(obj: &Map<String, Value>) -> Result<String, ImError> {
+    match obj.get("announcement_id") {
+        None | Some(Value::Null) => Ok(String::new()),
+        Some(Value::String(value)) => Ok(value.clone()),
+        Some(_) => Err(ImError::Parse(format!(
+            "{SAVE_COMMAND}: announcement_id 必须是字符串或 null"
+        ))),
+    }
+}
+
+/// 可选字符串（缺省 / `null` → 空串；类型错 → `Err`，不静默吞掉）。
+fn optional_str(obj: &Map<String, Value>, key: &str, cmd: &str) -> Result<String, ImError> {
+    match obj.get(key) {
+        None | Some(Value::Null) => Ok(String::new()),
+        Some(Value::String(value)) => Ok(value.clone()),
+        Some(_) => Err(ImError::Parse(format!("{cmd}: {key} 必须是字符串"))),
+    }
+}
+
+/// POST .../post/announcement/save — 发布 / 修改群公告（Gate `MV3-G07b`）。
+///
+/// 见模块文档；body 由 [`SaveAnnouncementCommand::wire_body`] 组装，**不**透传 args。
 struct AnnouncementSaveCommand;
 impl OutboundCommand for AnnouncementSaveCommand {
     fn name(&self) -> &'static str {
-        "im_announcement_save"
+        SAVE_COMMAND
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
-        Ok(("post/announcement/save", args.clone()))
+        let command = SaveAnnouncementCommand::parse(args)?;
+        Ok((ANNOUNCEMENT_SAVE_PATH, command.wire_body()))
     }
 }
 static ANNOUNCEMENT_SAVE: AnnouncementSaveCommand = AnnouncementSaveCommand;
@@ -116,19 +298,54 @@ mod tests {
         }
     }
 
-    /// save：整个 args 透传（含任意 Post 字段，camelCase 原样）。
+    /// save：Gate 权威 snake_case 意图 → 完整 camelCase Post body（**不**透传 args）。
+    ///
+    /// 旧断言 `body == args`（整体透传）随 MV3-G07b 落地作废：透传会把 snake_case 入参
+    /// 直接送进 Go，并把 `temporaryId/readBits/simpleMessage` 的所有权让回客户端（违反 INV-01）。
     #[test]
-    fn announcement_save_passthrough() {
+    fn announcement_save_builds_full_post_body() {
         let args = json!({
-            "id": "p1",
-            "channelId": "c1",
-            "message": "公告内容",
-            "createAt": 123,
+            "channel_id": "c1",
+            "announcement_id": null,
+            "content": "公告内容",
+            "self_id": "u1",
+            "team_id": "t1",
         });
         let (url, body) = dispatch("im_announcement_save", &args);
         assert_eq!(url, "http://h/api/post/announcement/save");
-        // 整体透传：字段逐字保留。
-        assert_eq!(body, args);
+        assert_eq!(body["type"], "ANNOUNCEMENT");
+        assert_eq!(body["channelId"], "c1");
+        assert_eq!(body["userId"], "u1");
+        assert_eq!(body["message"], "公告内容");
+        assert_eq!(body["simpleMessage"], "公告内容");
+        assert_eq!(body["readBits"], "");
+        assert_eq!(body["viewers"], json!(["all"]));
+        assert_eq!(body["props"]["announcement"]["announcementId"], "");
+        assert_eq!(body["props"]["announcement"]["content"], "公告内容");
+        // snake_case 入参不得泄漏到 wire。
+        assert!(body.get("channel_id").is_none());
+        assert!(body.get("self_id").is_none());
+    }
+
+    /// save：客户端自造 Helix 所有权字段 → Err（INV-01 fail closed）。
+    #[test]
+    fn announcement_save_rejects_client_minted_fields() {
+        let corr = Correlation::from_raw(1);
+        let payload = serde_json::to_vec(&json!({
+            "channel_id": "c1",
+            "content": "公告内容",
+            "temporary_id": "client-minted",
+        }))
+        .unwrap();
+        assert!(handle_outbound(
+            "im_announcement_save",
+            &payload,
+            "http://h/api",
+            "http://h",
+            None,
+            corr
+        )
+        .is_err());
     }
 
     /// delete：postIds + postId 两字段同值数组。

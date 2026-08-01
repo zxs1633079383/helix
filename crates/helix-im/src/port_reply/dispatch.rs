@@ -407,7 +407,7 @@ impl ImModule {
                 self.handle_optimistic_send_reply(temporary_id, outcome, out)?;
             }
 
-            // F1：posts/create HTTP 200 兜底对账（真 Go self-omit echo，见 `send_reconcile`）。
+            // posts/create HTTP 只结算 transport admission；sent 继续等待 WS/read-back。
             CorrelationContext::OutboundSendHttp {
                 channel_id,
                 temporary_id,
@@ -650,8 +650,22 @@ impl ImModule {
             // Ok → 剥 ADR-007 信封（base64 body）得裸后端响应体 → emit `im:read:result{req_id, body}`
             // （后端返回什么吐什么，零改业务数据）。信封畸形 → 当作 read error 回灌（不丢 req_id 关联，
             // 前端 reject 而非永久挂起）。Err（网络/HTTP 层）→ emit `im:read:result{req_id, error}`。
-            CorrelationContext::OutboundReadReply { req_id } => {
-                self.handle_outbound_read_reply(&req_id, outcome, out);
+            CorrelationContext::OutboundReadReply {
+                req_id,
+                command,
+                channel_id,
+            } => {
+                self.handle_outbound_read_reply(
+                    &req_id,
+                    command.as_str(),
+                    channel_id.as_deref(),
+                    outcome,
+                    out,
+                );
+            }
+
+            CorrelationContext::MessageV3DraftReadback { command } => {
+                self.handle_draft_readback_reply(command, outcome, out)?;
             }
 
             CorrelationContext::OutboundLeave { channel_id } => match outcome {

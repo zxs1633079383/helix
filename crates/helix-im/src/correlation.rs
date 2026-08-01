@@ -170,7 +170,7 @@ pub enum CorrelationContext {
 
     /// P1 乐观落库 **Persist** 回报：把对应 `PendingSend` 状态推进到 `Sending`（取代旧 `corr_to_send`）。
     OptimisticSend { temporary_id: TemporaryId },
-    /// F1 `posts/create` **HTTP** 回报：HTTP 200 兜底对账（真 Go self-omit echo → 永 spinner；逻辑见 `send_reconcile`）。
+    /// `posts/create` HTTP admission 回报；成功不结算 sent，失败进入本地失败态。
     OutboundSendHttp {
         temporary_id: TemporaryId,
         channel_id: ChannelId,
@@ -298,10 +298,19 @@ pub enum CorrelationContext {
 
     /// spec06 缺陷A：读族 outbound **HTTP** 回报（request-response 回灌）。
     ///
-    /// 读族无 WS 回声、HTTP 响应体即数据 → 注册本上下文，`handle_port_reply` 透传 emit
-    /// `im:read:result{req_id, body}`。写族不注册（fire-and-forget）。
+    /// 读族无 WS 回声、HTTP 响应体即数据 → 注册本上下文，`handle_port_reply` 按命令身份
+    /// 透传或投影 `im:read:result{req_id, body}`。写族不注册（fire-and-forget）。
     /// `req_id` 前端 bridge 注入（owned String，跨 step 存活，HX-C002；与 corr 解耦）。
-    OutboundReadReply { req_id: String },
+    OutboundReadReply {
+        req_id: String,
+        command: String,
+        channel_id: Option<String>,
+    },
+
+    /// MV3-G02e 草稿 ScopedGet 读回；命令携带账号、频道和 req_id 的完整隔离上下文。
+    MessageV3DraftReadback {
+        command: Box<crate::draft::QueryDraftCommand>,
+    },
 
     /// 自己退群写族 HTTP 回报；SUCCESS 只排队本地持久屏障，不直接发布 renderer 状态。
     OutboundLeave { channel_id: ChannelId },

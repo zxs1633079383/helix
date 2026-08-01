@@ -100,6 +100,9 @@ pub(crate) fn extract_post_fields_with_event_seq(
     let read_bits = pick_str("readBits")
         .or_else(|| pick_str("read_bits"))
         .unwrap_or_default();
+    let snapshot_id = pick_str("snapshotId")
+        .or_else(|| pick_str("snapshot_id"))
+        .unwrap_or_default();
     // viewers（A3/CAP-9 可见性受众）：post 子树或 root 顶层的字符串数组；缺省空 Vec（无堆分配）。
     // 元素非字符串项跳过（边界零信任）。
     let viewers = post
@@ -183,6 +186,7 @@ pub(crate) fn extract_post_fields_with_event_seq(
         create_at,
         update_at,
         read_bits,
+        snapshot_id,
         viewers,
         mentions,
         expedite_map,
@@ -268,5 +272,15 @@ mod tests {
 
         assert_eq!(fields.create_at, 1_000);
         assert_eq!(fields.update_at, 1_025);
+    }
+
+    /// Go post authority 的 snapshotId 必须进入 typed fields，不能在 WS parser 丢失。
+    #[test]
+    fn snapshot_id_is_extracted_from_camel_and_snake_wire() {
+        let camel = extract_post_fields(&json!({"id":"post-1","snapshotId":"snapshot-1"}));
+        let snake = extract_post_fields(&json!({"id":"post-2","snapshot_id":"snapshot-2"}));
+
+        assert_eq!(camel.snapshot_id, "snapshot-1");
+        assert_eq!(snake.snapshot_id, "snapshot-2");
     }
 }

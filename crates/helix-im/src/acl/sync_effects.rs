@@ -20,7 +20,6 @@ pub fn sync_mutation_emits_with_auth(
 ) -> Vec<Effect> {
     use crate::sync_session::EventKind;
 
-    let empty_fields = crate::sync_session::PostFields::default();
     let mut emits = Vec::new();
     for ev in events {
         let Some(msg_id) = ev.msg_id.as_deref() else {
@@ -61,7 +60,19 @@ pub fn sync_mutation_emits_with_auth(
                 }
             }
             EventKind::PostRead => {
-                let fields = messages.get(msg_id).unwrap_or(&empty_fields);
+                // 无消息快照无法证明 viewer 权限，read replay 必须 fail-closed。
+                let Some(fields) = messages.get(msg_id) else {
+                    continue;
+                };
+                if !crate::channel_write::post_updates_from_fields(
+                    ev.channel_id,
+                    fields,
+                    auth_user_id,
+                )
+                .visible
+                {
+                    continue;
+                }
                 emits.push(super::to_effect::emit_channel_read_echo_for_viewer(
                     ev.channel_id,
                     ev.seq.0,
@@ -70,8 +81,8 @@ pub fn sync_mutation_emits_with_auth(
                     auth_user_id,
                 ));
                 // UC13 离线 sender 回执必须同时由三项权威事实证明：事件锚定 post、actorId
-                // 锚定 reader、messages 快照给出持久化 readBits。缺一项仍保留 legacy
-                // channel:read_echo，但绝不猜 reader 或伪造 post:read。
+                // 锚定 reader、messages 快照给出持久化 readBits。缺一项绝不猜 reader
+                // 或伪造 post:read。
                 if !ev.actor_id.is_empty() && !fields.read_bits.is_empty() {
                     emits.push(super::to_effect::emit_sync_post_read_for_viewer(
                         ev.channel_id,

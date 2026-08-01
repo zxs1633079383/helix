@@ -289,10 +289,36 @@ impl ImModule {
             PortOutcome::Ok(_) => {
                 // P1 可能晚于 HTTP 失败回报；只允许初始 Local 推进，不能把
                 // 已终结的 UnSend/Sent 倒退回 Sending。
-                if let Some(ps) = self.state.pending_sends.get_mut(&temporary_id) {
-                    if ps.status == SendStatus::Local {
-                        ps.status = SendStatus::Sending;
-                    }
+                let optimistic_body =
+                    if let Some(ps) = self.state.pending_sends.get_mut(&temporary_id) {
+                        if ps.status == SendStatus::Local {
+                            ps.status = SendStatus::Sending;
+                            ps.body.clone()
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                if let Some(body) = optimistic_body {
+                    let channel_id = body
+                        .get("channelId")
+                        .and_then(serde_json::Value::as_str)
+                        .and_then(ChannelId::from_str)
+                        .ok_or_else(|| {
+                            ImError::Parse(
+                                "P1 optimistic send missing cached channelId".to_string(),
+                            )
+                        })?;
+                    out.push(
+                        crate::event::post::sending_from_local_body(
+                            channel_id.as_str(),
+                            temporary_id.0.as_str(),
+                            self.config.auth_user_id.as_str(),
+                            &body,
+                        )?
+                        .into_effect(),
+                    );
                 }
                 if let Some(planned) = self
                     .state
@@ -362,8 +388,8 @@ impl ImModule {
                     "P1 optimistic persist failed"
                 );
 
-                // `im:post:sending` 已在 P1 同 step 发布；若首笔 message+journal 写失败后
-                // 只停止外部 I/O，renderer 会永久停在 sending。这里立即形成失败终态。
+                // P1 未成功前不会发布 `im:post:sending`；失败终态只保留 durable retry
+                // 恢复所需事实，不允许外部 HTTP/timer 抢跑。
                 // 媒体补偿仍要把失败消息与原始 prepare journal 原子写回：进程若随后重启，
                 // retry 必须先恢复 journal 并重新走 Java prepare，绝不能直发未校验 props。
                 let terminal = self.state.pending_sends.get_mut(&temporary_id).and_then(|pending| {
@@ -482,29 +508,9 @@ impl ImModule {
             .map(|pending| pending.timeline_readback.clone())
             .unwrap_or_default();
         match outcome {
-            PortOutcome::Ok(reply) => {
-                let reconcile_corr = self.alloc_corr_internal();
-                let crate::pending_send::TimelineReadbackContext {
-                    window_token,
-                    causation_id,
-                } = timeline_readback;
-                if crate::send_reconcile::reconcile_send_http(
-                    &mut self.state,
-                    &temporary_id,
-                    reply.0.as_ref(),
-                    reconcile_corr,
-                    out,
-                ) {
-                    self.state.corr_map.insert(
-                        reconcile_corr,
-                        crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
-                            channel_id,
-                            window_token,
-                            causation_id,
-                        },
-                    );
-                }
-            }
+            // posts/create HTTP 只代表 transport admission。服务端不会在该回包提供
+            // success/post.id，终态必须继续等待 WS post 或权威 read-back。
+            PortOutcome::Ok(_) => {}
             PortOutcome::Err(e) => {
                 tracing::warn!(
                     tmp_id = ?temporary_id, error = ?e,

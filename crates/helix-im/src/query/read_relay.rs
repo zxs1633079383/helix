@@ -22,6 +22,11 @@ pub fn emit_read_result(req_id: &str, raw_body: &[u8]) -> Effect {
     let body: serde_json::Value = serde_json::from_slice(raw_body).unwrap_or_else(|_| {
         serde_json::Value::String(String::from_utf8_lossy(raw_body).into_owned())
     });
+    emit_read_body(req_id, body)
+}
+
+/// 结构化读结果已由命令专属 projector 生成时，复用统一 req_id 回灌信封。
+pub fn emit_read_body(req_id: &str, body: serde_json::Value) -> Effect {
     emit_read(serde_json::json!({ "req_id": req_id, "body": body }))
 }
 

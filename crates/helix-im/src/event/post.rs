@@ -37,6 +37,17 @@ pub fn sending_from_local_body(
     if !user_id.is_empty() {
         data["userId"] = serde_json::json!(user_id);
     }
+    for key in [
+        "simpleMessage",
+        "props",
+        "viewers",
+        "mentions",
+        "repliedMessage",
+    ] {
+        if let Some(value) = body.get(key) {
+            data[key] = value.clone();
+        }
+    }
     for key in ["replyId", "replyRootId", "replyFirstLevelId"] {
         if let Some(value) = body
             .get(key)
@@ -66,26 +77,72 @@ pub fn has_template_confirmation(props: &str) -> bool {
     template::has_confirmation(props)
 }
 
+/// `im:post:received` 参考包声明的**可选文本字段**投影表。
+///
+/// 键集权威 = `specs/003-messagev3-gate-inventory/gates/post/mv3-g01{a,b,f,h,k}/outbound-sample.json`
+/// 中 `im:post:received` 的 `data` 键并集；每一项在这里都必须能指到 `PostFields` 上的权威来源。
+///
+/// **不臆造默认值**：权威没给（空串）就不投影这个键——参考包只声明「有值时长什么样」，
+/// 没有声明缺省值，凭空补 `""` 会让前端把「服务端没说」误读成「服务端说了空」。
+///
+/// 例：回复三锚在此之前只落库不投影，`sending` 阶段带三锚的乐观引用条会被 echo 回来的
+/// `received` 覆盖掉——引用关系在对账瞬间丢失（MV3-G01k 序 2 sender/receiver 两侧均已声明）。
+const RECEIVED_DECLARED_TEXT_FIELDS: [(&str, fn(&crate::sync_session::PostFields) -> &str); 4] = [
+    ("simpleMessage", |fields| fields.simple_message.as_str()),
+    ("replyId", |fields| fields.reply_id.as_str()),
+    ("replyRootId", |fields| fields.reply_root_id.as_str()),
+    ("replyFirstLevelId", |fields| {
+        fields.reply_first_level_id.as_str()
+    }),
+];
+
+/// 参考包已声明、但当前 `PostFields` 没有权威来源、因此**无法**投影的 `im:post:received` 键。
+///
+/// - `receipt`：`{recipientCount, readCount, unreadCount, allRead}` 由 `post_receipt` /
+///   `receiver_snapshot` 聚合得出，不在单条 post authority 里。
+///
+/// 两者都需要先扩 parser + `PostFields`（本文件之外），在那之前**宁缺勿造**——
+/// 造一个 `receipt: {readCount: 0}` 会让 UI 把「未知」渲染成「确定没人读」。
+/// 漂移登记见 `tests/message_v3/post/mv3_g01h/main.rs::RECEIVED_DECLARED_DRIFT`。
+pub const RECEIVED_UNPROJECTABLE_DECLARED_FIELDS: [&str; 1] = ["receipt"];
+
 /// 从 authority 一次解析 props，并生成 post 与 channel 共用的真实结构。
 pub fn authority_projection(
     event: &crate::sync_session::EventEnvelope,
 ) -> Result<AuthorityProjection, crate::ImError> {
+    let fields = &event.fields;
     let mut received_data = serde_json::json!({
-        "id": event.fields.id,
+        "id": fields.id,
         "channelId": event.channel_id.as_str(),
-        "temporaryId": event.fields.temporary_id,
+        "temporaryId": fields.temporary_id,
         "eventSeq": event.seq.0,
-        "userId": event.fields.user_id,
-        "message": event.fields.message,
-        "type": event.fields.msg_type,
-        "createAt": event.fields.create_at,
+        "userId": fields.user_id,
+        "message": fields.message,
+        "type": fields.msg_type,
+        "createAt": fields.create_at,
         "sendStatus": "sent",
     });
+    for (key, source) in RECEIVED_DECLARED_TEXT_FIELDS {
+        let value = source(fields);
+        if !value.is_empty() {
+            received_data[key] = serde_json::json!(value);
+        }
+    }
+    if !fields.snapshot_id.is_empty() {
+        received_data["snapshotId"] = serde_json::json!(fields.snapshot_id);
+    }
+    if !fields.viewers.is_empty() {
+        received_data["viewers"] = serde_json::json!(fields.viewers);
+    }
+    if !fields.replied_message.is_empty() {
+        received_data["repliedMessage"] = serde_json::from_str(&fields.replied_message)
+            .map_err(|error| crate::ImError::Parse(format!("post replied_message: {error}")))?;
+    }
     let mut last_post = serde_json::json!({
-        "id": event.fields.id,
-        "userId": event.fields.user_id,
-        "message": event.fields.message,
-        "createAt": event.fields.create_at,
+        "id": fields.id,
+        "userId": fields.user_id,
+        "message": fields.message,
+        "createAt": fields.create_at,
     });
     if event.fields.msg_type != "TEXT" {
         last_post["type"] = serde_json::json!(event.fields.msg_type.as_str());
@@ -119,6 +176,35 @@ pub fn authority_projection(
 fn attach_shared_field(received_data: &mut Value, last_post: &mut Value, key: &str, value: Value) {
     received_data[key] = value.clone();
     last_post[key] = value;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::{ChannelId, Seq};
+    use crate::sync_session::{EventEnvelope, EventKind, PostFields};
+
+    /// received 投影只携 Go 给出的 snapshotId，receipt 继续由独立查询权威提供。
+    #[test]
+    fn authority_projection_carries_snapshot_without_fabricating_receipt() {
+        let channel_id =
+            ChannelId::from_str("a9h5hrdsy3873dmg375a6ntqiw").expect("valid test channel");
+        let event = EventEnvelope::new(
+            channel_id,
+            Seq(7),
+            EventKind::PostUpsert,
+            PostFields {
+                id: "post-1".to_string(),
+                snapshot_id: "snapshot-1".to_string(),
+                ..PostFields::default()
+            },
+        );
+
+        let projection = authority_projection(&event).expect("project authority");
+
+        assert_eq!(projection.received_data["snapshotId"], "snapshot-1");
+        assert!(projection.received_data.get("receipt").is_none());
+    }
 }
 
 /// 从 createPosts authority 构造逐 target admission 结果。

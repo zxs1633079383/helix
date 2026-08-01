@@ -169,6 +169,7 @@ fn handle_retry_send_with_window(
     Ok(())
 }
 
+/// 从 O(1) pending 索引恢复失败发送，并把重复点击收敛为同一进行中 attempt。
 fn retry_from_memory(
     module: &mut ImModule,
     temporary_id: TemporaryId,
@@ -193,6 +194,20 @@ fn retry_from_memory(
         .is_some_and(|pending| pending.upload_failed);
     if media_failed {
         return retry_failed_media(module, temporary_id, request_id, window_token, out);
+    }
+    let retry_inflight = module
+        .state
+        .pending_sends
+        .get(&temporary_id)
+        .is_some_and(|pending| matches!(pending.status, SendStatus::Local | SendStatus::Sending));
+    if retry_inflight {
+        return schedule_retry_action_terminal_readback(
+            module,
+            action_channel_id,
+            request_id,
+            window_token,
+            out,
+        );
     }
     let body = {
         let pending = module

@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 use bytes::Bytes;
 use serde_json::json;
@@ -26,6 +27,21 @@ use crate::storage::{with_storage_trace_context, StorageTraceContext};
 use crate::{execute_storage_ops, execute_storage_ops_atomic, PERSIST_QUEUE_CAP};
 
 use crate::HTTP_QUEUE_CAP;
+
+/// 只保留 HTTP URL 的 scheme/host/path，禁止 query 或 fragment 进入运行日志。
+fn safe_http_target(url: &str) -> &str {
+    url.split(['?', '#']).next().unwrap_or(url)
+}
+
+/// 从共享 HTTP 信封读取状态码；解析失败保持 None，绝不记录响应正文。
+fn http_status(outcome: &PortOutcome) -> Option<u64> {
+    let PortOutcome::Ok(reply) = outcome else {
+        return None;
+    };
+    serde_json::from_slice::<serde_json::Value>(&reply.0)
+        .ok()
+        .and_then(|value| value.get("status").and_then(serde_json::Value::as_u64))
+}
 
 pub struct PersistJobPayload {
     pub ops: Vec<StorageOp>,
@@ -155,9 +171,37 @@ where
         HTTP_QUEUE_CAP,
         overflow,
         reply_tx,
-        move |_corr, req: HttpRequest| {
+        move |corr, req: HttpRequest| {
             let http = Arc::clone(&http);
-            async move { run_http_envelope(http.as_ref(), req).await }
+            async move {
+                let started_at = Instant::now();
+                let method = req.method.clone();
+                let target = safe_http_target(&req.url).to_string();
+                tracing::info!(
+                    hop = "host.http.dispatch",
+                    corr = corr.map(Correlation::raw),
+                    method,
+                    target,
+                    "HTTP effect entered the host worker"
+                );
+                let outcome = run_http_envelope(http.as_ref(), req).await;
+                let outcome_class = if matches!(outcome, PortOutcome::Ok(_)) {
+                    "ok"
+                } else {
+                    "err"
+                };
+                tracing::info!(
+                    hop = "host.http.complete",
+                    corr = corr.map(Correlation::raw),
+                    method,
+                    target,
+                    status = http_status(&outcome),
+                    outcome = outcome_class,
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "HTTP effect completed without exposing headers or body"
+                );
+                outcome
+            }
         },
     )
 }

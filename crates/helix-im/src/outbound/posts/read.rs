@@ -85,6 +85,127 @@ read_cmd!(
     }
 );
 
+/// MV3-G04d：把 `posts/getSchedule` 的服务端响应体归一为**稳定排序的绝对 `ScheduleProjection[]`**。
+///
+/// 权威参考包 `gates/schedule/mv3-g04d/outbound-sample.json` 的 `command_results[0].rust`：
+/// `{"ok": true, "schedules": [{id, channelId, executeAt, status, post:{type, message, viewers}}]}`。
+///
+/// ## 排序（合同 `outbound-contract.json`：「查询结果按 executeAt 稳定排序」）
+///
+/// 主键 `executeAt` 升序；`executeAt` 相同再按 schedule id 升序 —— 服务端返回顺序不稳定时
+/// 也保证同一份数据永远产出同一个数组（重复到达 → Angular 内存与 DOM 不变，合同 §5 幂等）。
+///
+/// ## 公开结果
+///
+/// Phase 1 合同决议固定 Angular `ScheduleProjection` 的唯一键集：`scheduleId`、
+/// `post.text`、`post.channelId`。旧 `id` / `post.message` 不再双写，避免 WDIO 和业务调用方
+/// 在两套等价值之间产生不稳定 fixture。
+///
+/// ## 边界零信任
+///
+/// 无待发对象（`null` / `[]` / 缺字段）→ 空数组，**绝不抛错**（合同：读取失败不得拖垮切会话）。
+pub fn schedule_projections(channel_id: &str, body: &Value) -> Value {
+    let mut items: Vec<(i64, String, Value)> = schedule_items(body)
+        .iter()
+        .filter_map(|item| schedule_projection(channel_id, item))
+        .collect();
+    // Rust 的 sort_by 是稳定排序：同 (executeAt, id) 的元素保持服务端原序。
+    items.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    Value::Array(items.into_iter().map(|(_, _, item)| item).collect())
+}
+
+/// 从任意合法响应外壳里取出待发对象列表（`{data:[]}` / `{data:{}}` / `[]` / `{...}`
+/// / `{data:{schedules:[]}}`）。
+///
+/// 最后一种是 Go 常见的双层信封（业务 `{status,data}` 外壳里再包一层带列表键的 payload）。
+/// 不识别它的话，`{data:{schedules:[…]}}` 会被当成**一条**缺 `executeAt` 的脏对象整条丢掉 ——
+/// 表现为「定时设上了但切回会话提示条永远不出现」，用户以为没设上而重复设定，到点多发
+/// （contract.json `openDecisions.impact` 描述的正是这个故障）。
+fn schedule_items(body: &Value) -> Vec<Value> {
+    let payload = body
+        .get("data")
+        .or_else(|| body.get("schedules"))
+        .unwrap_or(body);
+    match payload {
+        Value::Array(items) => items.clone(),
+        Value::Object(item) => match nested_list(item) {
+            // 内层列表键命中 → 用内层列表；否则整个对象就是单条待发对象。
+            Some(items) => items.clone(),
+            None if !item.is_empty() => vec![Value::Object(item.clone())],
+            None => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
+/// 对象内层的列表键（只认数组，避免把业务对象误当列表）。
+fn nested_list(item: &serde_json::Map<String, Value>) -> Option<&Vec<Value>> {
+    ["schedules", "list", "items", "records"]
+        .iter()
+        .find_map(|key| item.get(*key).and_then(Value::as_array))
+}
+
+/// 单条待发对象 → 绝对投影；缺 `executeAt` 锚点的脏数据直接丢弃（不进不稳定排序）。
+fn schedule_projection(channel_id: &str, item: &Value) -> Option<(i64, String, Value)> {
+    let execute_at = first_i64(
+        item,
+        &[
+            "executeAt",
+            "execute_at",
+            "schedulePostAt",
+            "schedule_post_at",
+            "sendAt",
+            "send_at",
+        ],
+    )?;
+    let schedule_id = first_str(item, &["scheduleId", "schedule_id", "id"])
+        .unwrap_or_default()
+        .to_string();
+    let channel = first_str(item, &["channelId", "channel_id"])
+        .unwrap_or(channel_id)
+        .to_string();
+    let status = first_str(item, &["status"])
+        .filter(|status| !status.is_empty())
+        .unwrap_or("scheduled")
+        .to_string();
+    let message = first_str(item, &["message", "text"]).unwrap_or_default();
+    let post = json!({
+        "channelId": channel,
+        "type": first_str(item, &["type", "msgType", "msg_type"]).unwrap_or("TEXT"),
+        "text": message,
+        "viewers": item
+            .get("viewers")
+            .filter(|viewers| viewers.is_array())
+            .cloned()
+            .unwrap_or_else(|| json!(["all"])),
+        "props": item
+            .get("props")
+            .filter(|props| props.is_object())
+            .cloned()
+            .unwrap_or_else(|| json!({})),
+    });
+    let projection = json!({
+        "scheduleId": schedule_id,
+        "channelId": channel,
+        "executeAt": execute_at,
+        "status": status,
+        "post": post,
+    });
+    Some((execute_at, schedule_id, projection))
+}
+
+/// 按候选键序取第一个字符串值。
+fn first_str<'a>(item: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| item.get(*key).and_then(Value::as_str))
+}
+
+/// 按候选键序取第一个整数值（毫秒时间戳）。
+fn first_i64(item: &Value, keys: &[&str]) -> Option<i64> {
+    keys.iter()
+        .find_map(|key| item.get(*key).and_then(Value::as_i64))
+}
+
 // #2 postContext：取某 post 上下文（上拉锚点）。真源 {postId, before:int}（posts.go:564）。
 read_cmd!(
     PostContextCommand,

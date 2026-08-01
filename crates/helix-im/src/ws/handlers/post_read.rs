@@ -3,7 +3,8 @@
 //! 行为真源：现网 `handlers/post.rs:117 handle_read` → `Message::update_fields_by_message_id`
 //! 覆盖式写 `read_bits`（服务端权威单调，**非**应用层按位 OR）→ emit `im:post:read`。
 //!
-//! wire（`PostReadData` types.rs:354）：`postId` / `readMap`(→read_bits) / `createAt` / `updateAt`。
+//! wire：`postId` / `authorUserId` / `readerUserId` / `snapshotId` / `memberIds` /
+//! `readMap`(→read_bits) / `createAt` / `updateAt`。
 //!
 //! ## 为什么 post_read 绕开 channel gate（不走 event_seq 严格 +1 排序）
 //!
@@ -108,14 +109,41 @@ impl WsMessageHandler for PostReadHandler {
             }
         }
         let reader_id = data
-            .get("userId")
+            .get("readerUserId")
+            .or_else(|| data.get("reader_user_id"))
+            .or_else(|| data.get("userId"))
             .or_else(|| data.get("user_id"))
             .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let author_user_id = data
+            .get("authorUserId")
+            .or_else(|| data.get("author_user_id"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let snapshot_id = data
+            .get("snapshotId")
+            .or_else(|| data.get("snapshot_id"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let member_ids: Vec<String> = data
+            .get("memberIds")
+            .or_else(|| data.get("member_ids"))
+            .and_then(serde_json::Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
             .unwrap_or_default();
         let terminal_event = match crate::event::read::post_for_viewer(
             channel_id.as_str(),
             post_id.as_str(),
+            author_user_id,
             reader_id,
+            snapshot_id,
+            &member_ids,
             fields.read_bits.as_str(),
             receipt_revision,
             ctx.auth_user_id,

@@ -194,19 +194,38 @@ impl ImModule {
         Ok(())
     }
 
+    /// 通用 HTTP 读回按命令身份投影，并保留原始 req_id 完成 Host 调用。
     pub(super) fn handle_outbound_read_reply(
         &self,
         req_id: &String,
+        command: &str,
+        channel_id: Option<&str>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) {
         match outcome {
             PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
                 Ok(raw_body) => {
-                    out.push(crate::read_relay::emit_read_result(
-                        req_id.as_str(),
-                        raw_body.as_ref(),
-                    ));
+                    if command == "im_get_schedule" {
+                        let body = serde_json::from_slice::<serde_json::Value>(&raw_body)
+                            .unwrap_or(serde_json::Value::Null);
+                        let schedules = crate::outbound::posts::read::schedule_projections(
+                            channel_id.unwrap_or_default(),
+                            &body,
+                        );
+                        out.push(crate::read_relay::emit_read_body(
+                            req_id.as_str(),
+                            serde_json::json!({
+                                "ok": true,
+                                "schedules": schedules,
+                            }),
+                        ));
+                    } else {
+                        out.push(crate::read_relay::emit_read_result(
+                            req_id.as_str(),
+                            raw_body.as_ref(),
+                        ));
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -228,6 +247,36 @@ impl ImModule {
                 ));
             }
         }
+    }
+
+    /// MV3-G02e 本地读回只按冻结的账号/频道命令投影，并通过非领域结果通道返回。
+    pub(super) fn handle_draft_readback_reply(
+        &self,
+        command: Box<crate::draft::QueryDraftCommand>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let req_id = command.req_id.as_deref().unwrap_or_default();
+        let PortOutcome::Ok(reply) = outcome else {
+            out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "draft read failed",
+            ));
+            return Ok(());
+        };
+        let rows = match helix_core::port_codec::rows_from_reply_bytes(&reply.0) {
+            Ok(rows) => rows,
+            Err(error) => {
+                tracing::warn!(error = ?error, "draft readback decode failed");
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "draft readback decode failed",
+                ));
+                return Ok(());
+            }
+        };
+        out.push(command.result_event(&rows)?.into_effect());
+        Ok(())
     }
 
     pub(super) fn handle_todo_query_reply(&self, outcome: &PortOutcome, out: &mut EffectSink) {

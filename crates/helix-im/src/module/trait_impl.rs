@@ -13,7 +13,16 @@ impl Module for ImModule {
 
     /// 路由判定：IM 模块处理所有 IM Inbound 帧和 IM 命令。
     /// PortReply / Timer 不走此方法（通过 corr_map 定向路由）。
+    ///
+    /// MV3-G02e 草稿族（`im_save_draft` / `im_query_draft`）在此与下面的 `handle`
+    /// **同源放行**（`crate::draft::is_draft_command`）：accepts 与 handle 各写一份命令名
+    /// 正是「query 族被 accepts 闸静默丢弃」旧事故的成因，本族不重复该反模式。
     fn accepts(&self, tick: &Tick) -> bool {
+        if let Tick::Command(cmd) = tick {
+            if crate::draft::is_draft_command(cmd.name.as_ref()) {
+                return true;
+            }
+        }
         acl::from_tick::accepts_tick(tick)
     }
 
@@ -114,6 +123,16 @@ impl Module for ImModule {
                             source: Box::new(e),
                         },
                     )?;
+                }
+                // MV3-G02e 草稿域：Effect 仅 Persist、零领域事件、结构化 Command Result。
+                // 必须排在 outbound / query 两个 guard 之前认领——草稿既不是 HTTP outbound，
+                // 也不在 query 闭集内，落到 `_` 分支就会退回「unhandled command」死代码态。
+                name if crate::draft::is_draft_command(name) => {
+                    crate::draft::handle_command(self, name, cmd.payload.as_ref(), now_ms, out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
                 }
                 // Tier 1 outbound 自驱动命令（read/revoke/leave/schedule/cancel/create/makeTopic）：
                 // 纯 HTTP-fire，业务契约在 crate::commands（endpoint 锚现网真源）。
@@ -218,7 +237,21 @@ impl Module for ImModule {
                             } else if name == "im_post_read_list" {
                                 CorrelationContext::OutboundPostReaders { req_id }
                             } else {
-                                CorrelationContext::OutboundReadReply { req_id }
+                                let channel_id = serde_json::from_slice::<serde_json::Value>(
+                                    cmd.payload.as_ref(),
+                                )
+                                .ok()
+                                .and_then(|value| {
+                                    value
+                                        .get("channel_id")
+                                        .and_then(serde_json::Value::as_str)
+                                        .map(str::to_owned)
+                                });
+                                CorrelationContext::OutboundReadReply {
+                                    req_id,
+                                    command: name.to_string(),
+                                    channel_id,
+                                }
                             };
                             self.state.corr_map.insert(corr, ctx);
                         }

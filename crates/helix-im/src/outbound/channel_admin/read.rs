@@ -25,6 +25,36 @@ use crate::error::ImError;
 
 use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
+/// 把 Host 的 snake_case 条件键还原为 Go `entity.Channel` 使用的 lowerCamelCase wire 键。
+fn channel_condition_wire_key(key: &str) -> String {
+    let mut output = String::with_capacity(key.len());
+    let mut uppercase_next = false;
+    for character in key.chars() {
+        if character == '_' {
+            uppercase_next = true;
+        } else if uppercase_next {
+            output.extend(character.to_uppercase());
+            uppercase_next = false;
+        } else {
+            output.push(character);
+        }
+    }
+    output
+}
+
+/// 规范化频道查询条件的协议键；条件值保持调用方原值，不在 Helix 推导业务条件。
+fn channel_query_condition(args: &Value) -> Value {
+    let Some(condition) = args.get("condition").and_then(Value::as_object) else {
+        return json!({});
+    };
+    Value::Object(
+        condition
+            .iter()
+            .map(|(key, value)| (channel_condition_wire_key(key), value.clone()))
+            .collect(),
+    )
+}
+
 /// 取必填字符串数组（channelIds 类，非空、元素全 string）。
 fn require_str_array(args: &Value, key: &str, cmd: &str) -> Result<Value, ImError> {
     args.get(key)
@@ -118,10 +148,7 @@ read_cmd!(
     "im_channel_query",
     |args, cmd| {
         // condition：前端构造的频道查询条件（object，平铺进顶层；空则不带条件字段）。
-        let mut body = match args.get("condition") {
-            Some(Value::Object(m)) => Value::Object(m.clone()),
-            _ => json!({}),
-        };
+        let mut body = channel_query_condition(args);
         // 分页（pageNumber/pageSize/offset，缺省 0；前端 PageOpts 直传）。
         let obj = body
             .as_object_mut()

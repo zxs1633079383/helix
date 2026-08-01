@@ -93,7 +93,7 @@ fn channel_query_merges_condition_and_paging() {
     let (url, body) = dispatch(
         "im_channel_query",
         json!({
-            "condition": { "name": "测试群", "teamId": "t1" },
+            "condition": { "display_name": "测试群", "team_id": "t1" },
             "page_number": 1,
             "page_size": 20,
             "offset": 0
@@ -101,8 +101,10 @@ fn channel_query_merges_condition_and_paging() {
     );
     assert!(url.ends_with("/channel/query"), "url={url}");
     // 条件平铺 + 分页字段同层（匿名 struct embed Channel + PageOpts）。
-    assert_eq!(body["name"], "测试群");
+    assert_eq!(body["displayName"], "测试群");
     assert_eq!(body["teamId"], "t1");
+    assert!(body.get("display_name").is_none());
+    assert!(body.get("team_id").is_none());
     assert_eq!(body["pageNumber"], 1);
     assert_eq!(body["pageSize"], 20);
     assert_eq!(body["offset"], 0);

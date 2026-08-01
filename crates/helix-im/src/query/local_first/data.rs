@@ -110,6 +110,9 @@ pub(crate) fn parse_latest_posts_body(raw_body: &[u8]) -> Result<Vec<Value>, ImE
     .into_iter()
     .flatten()
     .find(|value| value.is_array());
+    if root.pointer("/data/posts").is_some_and(Value::is_null) {
+        return Ok(Vec::new());
+    }
     let rows = candidate
         .and_then(Value::as_array)
         .ok_or_else(|| ImError::Parse("getLatestPost response missing posts array".into()))?;
@@ -119,6 +122,31 @@ pub(crate) fn parse_latest_posts_body(raw_body: &[u8]) -> Result<Vec<Value>, ImE
         ));
     }
     Ok(rows.clone())
+}
+
+#[cfg(test)]
+mod latest_posts_tests {
+    use super::parse_latest_posts_body;
+
+    /// Go V3 空 Timeline 的 `posts:null` 表示合法零消息，而不是协议缺失。
+    #[test]
+    fn latest_posts_accepts_null_posts_as_empty_timeline() {
+        let rows = parse_latest_posts_body(
+            br#"{"status":"SUCCESS","data":{"posts":null,"hasOlder":false,"hasNewer":false}}"#,
+        )
+        .expect("empty V3 timeline must parse");
+        assert!(rows.is_empty());
+    }
+
+    /// SUCCESS 信封仍必须显式携带 posts 字段，不能把任意对象误判为空 Timeline。
+    #[test]
+    fn latest_posts_rejects_missing_posts_contract() {
+        let error = parse_latest_posts_body(
+            br#"{"status":"SUCCESS","data":{"hasOlder":false,"hasNewer":false}}"#,
+        )
+        .expect_err("missing posts must fail closed");
+        assert!(error.to_string().contains("missing posts array"));
+    }
 }
 
 pub(crate) fn post_event_seq(post: &Value) -> Option<u64> {

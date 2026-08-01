@@ -152,6 +152,12 @@ fn retry_http_success_without_second_echo_settles_from_authoritative_readback() 
 
     let retry_admission = posts_create_reply(retry_http, json!({ "status": "SUCCESS" }));
     let readback_effects = h.step(retry_admission, 16_202);
+    assert!(
+        !readback_effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Persist(_))),
+        "retry admission must not settle from a local message-table lookup"
+    );
     let readback_corr = readback_effects
         .iter()
         .find_map(|effect| match effect {

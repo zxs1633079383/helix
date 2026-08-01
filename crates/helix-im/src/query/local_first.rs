@@ -43,6 +43,85 @@ pub enum LocalReadCoverage {
 /// `getLatestPost` 的权威基础窗口。服务端可能为同 segment 补回更多行，但不会因此证明更早窗口。
 const REMOTE_RECENT_WINDOW: usize = 20;
 
+/// 将已附着窗口大小收敛到 Go timeline V3 接受的 1..=60 页长。
+fn authoritative_readback_page_size(visible_items: Option<usize>) -> u32 {
+    visible_items
+        .filter(|visible| *visible > 0)
+        .and_then(|visible| u32::try_from(visible).ok())
+        .map(|visible| visible.saturating_add(1))
+        .unwrap_or(super::QUERY_MESSAGES_DEFAULT)
+        .min(crate::timeline_state::MAX_TIMELINE_PAGE_SIZE)
+}
+
+#[cfg(test)]
+mod authoritative_readback_tests {
+    use super::*;
+
+    /// 空窗口沿用时间线默认页长，避免发出显式零值。
+    #[test]
+    fn authoritative_readback_defaults_for_empty_window() {
+        assert_eq!(
+            authoritative_readback_page_size(None),
+            super::super::QUERY_MESSAGES_DEFAULT
+        );
+        assert_eq!(
+            authoritative_readback_page_size(Some(0)),
+            super::super::QUERY_MESSAGES_DEFAULT
+        );
+    }
+
+    /// 大窗口必须截断到 Go timeline V3 的 60 条硬上限。
+    #[test]
+    fn authoritative_readback_caps_large_window_at_go_contract_limit() {
+        assert_eq!(authoritative_readback_page_size(Some(59)), 60);
+        assert_eq!(
+            authoritative_readback_page_size(Some(60)),
+            crate::timeline_state::MAX_TIMELINE_PAGE_SIZE
+        );
+        assert_eq!(
+            authoritative_readback_page_size(Some(500)),
+            crate::timeline_state::MAX_TIMELINE_PAGE_SIZE
+        );
+    }
+
+    /// 已提交的 optimistic corr 被消费后，durable authority 仍可独立结算 retry。
+    #[test]
+    fn authoritative_settle_does_not_require_live_optimistic_correlation() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let temporary_id = crate::state::TemporaryId("tmp-authority-no-corr".to_string());
+        let mut pending = crate::pending_send::PendingSend::new(
+            temporary_id.clone(),
+            helix_core::TimerId::from_raw(41),
+            None,
+        );
+        pending.persist_corr = None;
+        module
+            .state
+            .pending_sends
+            .insert(temporary_id.clone(), pending);
+        let continuation = CorrelationContext::AuthoritativeSendReconcilePersist {
+            temporary_id: temporary_id.clone(),
+        };
+        let mut out = EffectSink::new();
+
+        assert!(module.settle_authoritative_send(
+            &temporary_id,
+            crate::state::test_server_id(41),
+            continuation,
+            &mut out,
+        ));
+        assert!(!module.state.pending_sends.contains_key(&temporary_id));
+        assert!(out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Persist { .. })));
+        assert!(out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::CancelTimer { .. })));
+    }
+}
+
 /// 当前连接会话内、成功远端读取且成功缓存后的覆盖证明。
 ///
 /// 只记消息身份，不拿“本地有 N 行”冒充完整。hello/disconnect 会清空；cache Persist 失败不记录。
@@ -105,7 +184,7 @@ fn message_create_at(row: &Value) -> Option<i64> {
 }
 
 impl ImModule {
-    /// 显式 retry 在 HTTP admission 后绕过本地 coverage，直接读取 Go 最新消息完成幂等对账。
+    /// 显式 retry 在 HTTP admission 后强制读取 Go 最新消息完成幂等对账。
     pub(crate) fn start_authoritative_send_readback(
         &mut self,
         channel_id: ChannelId,
@@ -128,15 +207,12 @@ impl ImModule {
             channel_id: channel_id.as_str().to_string(),
             window_token: window_token.clone(),
         };
-        let limit = self
-            .state
-            .timeline_state
-            .current_view(&scope)
-            .map(|view| view.items.len())
-            .filter(|visible| *visible > 0)
-            .and_then(|visible| u32::try_from(visible).ok())
-            .map(|visible| visible.saturating_add(1))
-            .unwrap_or(super::QUERY_MESSAGES_DEFAULT);
+        let limit = authoritative_readback_page_size(
+            self.state
+                .timeline_state
+                .current_view(&scope)
+                .map(|view| view.items.len()),
+        );
         let request = MessageQueryRequest {
             channel_id,
             limit,
@@ -682,31 +758,49 @@ impl ImModule {
         let Some(server_id) = server_id else {
             return;
         };
+        let context = CorrelationContext::AuthoritativeSendReconcilePersist {
+            temporary_id: temporary_id.clone(),
+        };
+        if !self.settle_authoritative_send(temporary_id, server_id, context, out) {
+            return;
+        }
+        tracing::info!(
+            channel_id = channel_id.as_str(),
+            tmp_id = temporary_id.0.as_str(),
+            "explicit retry settled from authoritative history"
+        );
+    }
+
+    /// 将已验证 server id 持久化到同一 pending 聚合，并登记后续 continuation。
+    fn settle_authoritative_send(
+        &mut self,
+        temporary_id: &crate::state::TemporaryId,
+        server_id: crate::state::ServerId,
+        continuation: CorrelationContext,
+        out: &mut EffectSink,
+    ) -> bool {
         let Some(persist_corr) = self
             .state
             .pending_sends
             .get(temporary_id)
-            .and_then(|pending| pending.persist_corr)
+            .map(|pending| pending.persist_corr)
         else {
-            return;
+            tracing::warn!(
+                tmp_id = temporary_id.0.as_str(),
+                "authoritative retry matched durable authority without a pending aggregate"
+            );
+            return false;
         };
         let reconcile_corr = self.alloc_corr_internal();
         if let Some(pending) = self.state.pending_sends.get_mut(temporary_id) {
             pending.reconcile(server_id, reconcile_corr, out);
         }
         self.state.pending_sends.remove(temporary_id);
-        self.state.corr_map.remove(&persist_corr);
-        self.state.corr_map.insert(
-            reconcile_corr,
-            CorrelationContext::AuthoritativeSendReconcilePersist {
-                temporary_id: temporary_id.clone(),
-            },
-        );
-        tracing::info!(
-            channel_id = channel_id.as_str(),
-            tmp_id = temporary_id.0.as_str(),
-            "explicit retry settled from authoritative history"
-        );
+        if let Some(persist_corr) = persist_corr {
+            self.state.corr_map.remove(&persist_corr);
+        }
+        self.state.corr_map.insert(reconcile_corr, continuation);
+        true
     }
 
     fn emit_deferred_posts_create_after_timeline_event(

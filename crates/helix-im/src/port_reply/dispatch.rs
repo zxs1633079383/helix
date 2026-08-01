@@ -435,12 +435,13 @@ impl ImModule {
                 window_token,
                 causation_id,
             } => match outcome {
-                PortOutcome::Ok(_) => self.refresh_attached_timeline(
-                    channel_id,
-                    window_token.as_deref().unwrap_or("latest"),
-                    causation_id,
-                    out,
-                )?,
+                PortOutcome::Ok(_) => {
+                    if let Some(window_token) = window_token.as_deref() {
+                        self.refresh_attached_timeline(channel_id, window_token, causation_id, out)?
+                    } else {
+                        self.refresh_attached_latest_timeline(channel_id, causation_id, out)?
+                    }
+                }
                 PortOutcome::Err(error) => tracing::warn!(
                     channel_id = channel_id.as_str(),
                     error = ?error,

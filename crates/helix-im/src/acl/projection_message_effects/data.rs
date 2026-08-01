@@ -27,13 +27,22 @@ fn is_system_notice(msg_type: &str) -> bool {
     NOTICE_TYPES.contains(&upper.as_str())
 }
 
-/// 预解 props.quickReply 成 render-ready emoji 串（UC-1.8·data-reactions 渲染源）。
-///
-/// server post_update echo 把 quickReply 携进 props（parser merge_props_with_quickreply）：
-/// 形态 `[{emoji, userIds:[…]}]`。把命中的 emoji 聚成串（逗号连·多 emoji）。无 quickReply / 空 → None
-/// （前端绑 null 即不渲染该属性）。业务解析下沉 helix（C013·前端不再 `extractReactions(props)`）。
-fn resolve_reactions(props: &serde_json::Value) -> Option<String> {
-    let arr = props.get("quickReply")?.as_array()?;
+/// 读取独立 durable quick_reply；仅为空时兼容历史 props.quickReply 行。
+fn resolve_quick_reply(raw: &str, props: &serde_json::Value) -> Option<serde_json::Value> {
+    if !raw.is_empty() {
+        return serde_json::from_str::<serde_json::Value>(raw)
+            .ok()
+            .filter(serde_json::Value::is_array);
+    }
+    props
+        .get("quickReply")
+        .filter(|value| value.is_array())
+        .cloned()
+}
+
+/// 把 quickReply 绝对态预解成 render-ready emoji 串。
+fn resolve_reactions(quick_reply: Option<&serde_json::Value>) -> Option<String> {
+    let arr = quick_reply?.as_array()?;
     let emojis: Vec<&str> = arr
         .iter()
         .filter_map(|e| e.get("emoji").and_then(|v| v.as_str()))
@@ -46,10 +55,10 @@ fn resolve_reactions(props: &serde_json::Value) -> Option<String> {
     }
 }
 
-fn resolve_reaction_count(props: &serde_json::Value) -> usize {
-    props
-        .get("quickReply")
-        .and_then(|value| value.as_array())
+/// 汇总 quickReply 绝对态中的成员数，不对同一用户做本地推断。
+fn resolve_reaction_count(quick_reply: Option<&serde_json::Value>) -> usize {
+    quick_reply
+        .and_then(serde_json::Value::as_array)
         .map(|items| {
             items
                 .iter()
@@ -150,6 +159,7 @@ pub(super) fn message_item_data(
     } else {
         serde_json::from_str(&fields.expedite_map).unwrap_or_else(|_| json!({}))
     };
+    let quick_reply = resolve_quick_reply(fields.quick_reply.as_str(), &props);
     let is_self = !viewer_user_id.is_empty() && fields.user_id == viewer_user_id;
     let has_server_id = !msg_id.is_empty();
     let urgent =
@@ -199,8 +209,8 @@ pub(super) fn message_item_data(
         "sendStatus": "sent",
         "serverId": if has_server_id { serde_json::Value::String(msg_id.to_string()) } else { serde_json::Value::Null },
         "isSelf": is_self,
-        "reactions": resolve_reactions(&props),
-        "reactionCount": resolve_reaction_count(&props),
+        "reactions": resolve_reactions(quick_reply.as_ref()),
+        "reactionCount": resolve_reaction_count(quick_reply.as_ref()),
         "expediteMap": expedite_map,
         "templateReceived": resolve_template_received(&props),
         "templateConfirmedCount": resolve_template_confirmed_count(&props),
@@ -218,6 +228,9 @@ pub(super) fn message_item_data(
         (&mut data, urgent_fields)
     {
         data.extend(urgent_fields);
+    }
+    if let (serde_json::Value::Object(data), Some(quick_reply)) = (&mut data, quick_reply) {
+        data.insert("quickReply".to_string(), quick_reply);
     }
     data
 }

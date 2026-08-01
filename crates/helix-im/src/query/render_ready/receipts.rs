@@ -8,11 +8,12 @@ use helix_core::effect::{DomainEventBytes, Effect};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
-pub(crate) fn emit(req_id: &str, body: &Value) -> Effect {
-    let receipts = project(body);
-    emit_value(json!({ "reqId": req_id, "receipts": receipts }))
+/// 将批量 HTTP 回包拆成逐条 canonical 回执事件，避免向 Angular 泄漏查询聚合外壳。
+pub(crate) fn emit(body: &Value) -> Vec<Effect> {
+    project(body).into_iter().map(emit_value).collect()
 }
 
+/// 在线性扫描中把 Go 回执行转换为 Angular 可直接消费的绝对态。
 pub(crate) fn project(body: &Value) -> Vec<Value> {
     body.get("data")
         .and_then(Value::as_array)
@@ -23,6 +24,11 @@ pub(crate) fn project(body: &Value) -> Vec<Value> {
             if post_id.is_empty() {
                 return None;
             }
+            let channel_id = item
+                .get("channelId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim();
             let snapshot_id = item
                 .get("snapshotId")
                 .and_then(Value::as_str)
@@ -40,6 +46,7 @@ pub(crate) fn project(body: &Value) -> Vec<Value> {
                     .unwrap_or("receipt unavailable");
                 return Some(unavailable_receipt(
                     post_id,
+                    channel_id,
                     snapshot_id,
                     snapshot_version,
                     reason,
@@ -50,6 +57,7 @@ pub(crate) fn project(body: &Value) -> Vec<Value> {
             let Some(member_values) = item.get("memberIds").and_then(Value::as_array) else {
                 return Some(unavailable_receipt(
                     post_id,
+                    channel_id,
                     snapshot_id,
                     snapshot_version,
                     "member snapshot and readBits are inconsistent",
@@ -78,6 +86,7 @@ pub(crate) fn project(body: &Value) -> Vec<Value> {
             if !valid {
                 return Some(unavailable_receipt(
                     post_id,
+                    channel_id,
                     snapshot_id,
                     snapshot_version,
                     "member snapshot and readBits are inconsistent",
@@ -110,6 +119,7 @@ pub(crate) fn project(body: &Value) -> Vec<Value> {
                 .collect();
             Some(json!({
                 "postId": post_id,
+                "channelId": channel_id,
                 "state": "ready",
                 "snapshotId": snapshot_id,
                 "snapshotVersion": snapshot_version,
@@ -134,14 +144,17 @@ pub(crate) fn project(body: &Value) -> Vec<Value> {
         .collect()
 }
 
+/// 构造不泄漏 bitmap 的逐消息不可用终态，并保留窗口过滤所需频道。
 fn unavailable_receipt(
     post_id: &str,
+    channel_id: &str,
     snapshot_id: &str,
     snapshot_version: i64,
     error: &str,
 ) -> Value {
     json!({
         "postId": post_id,
+        "channelId": channel_id,
         "state": "unavailable",
         "snapshotId": snapshot_id,
         "snapshotVersion": snapshot_version,
@@ -163,10 +176,7 @@ fn unavailable_receipt(
     })
 }
 
-pub(crate) fn emit_error(req_id: &str, error: &str) -> Effect {
-    emit_value(json!({ "reqId": req_id, "receipts": [], "error": error }))
-}
-
+/// 将一条 render-ready 回执包装成冻结的 `im:post:readers` 事件。
 fn emit_value(data: Value) -> Effect {
     let payload = json!({ "event": "im:post:readers", "data": data });
     Effect::Emit {

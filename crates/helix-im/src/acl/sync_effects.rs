@@ -46,11 +46,12 @@ pub fn sync_mutation_emits_with_auth(
             }
             EventKind::PostEdit => {
                 if let Some(fields) = messages.get(msg_id) {
-                    emits.push(super::to_effect::emit_post_updated(
+                    emits.push(super::to_effect::emit_post_updated_for_viewer(
                         ev.channel_id,
                         ev.seq.0,
                         msg_id,
                         fields,
+                        auth_user_id,
                     ));
                 }
             }

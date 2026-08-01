@@ -33,6 +33,12 @@ fn upsert_ev(seq: u64) -> EventEnvelope {
         .with_msg_id(Some(MSG.to_string()))
 }
 
+/// 构造一条 sync type=2 编辑事件，复现在线 gap 回补后的投影路径。
+fn edit_ev(seq: u64) -> EventEnvelope {
+    EventEnvelope::new(ch(), Seq(seq), EventKind::PostEdit, PostFields::default())
+        .with_msg_id(Some(MSG.to_string()))
+}
+
 fn read_ev(seq: u64, reader_id: &str) -> EventEnvelope {
     EventEnvelope::new(ch(), Seq(seq), EventKind::PostRead, PostFields::default())
         .with_msg_id(Some(MSG.to_string()))
@@ -113,6 +119,32 @@ fn no_revoke_event_means_no_post_revoke() {
         find_emit(&emits, "im:post:revoke").is_none(),
         "无 PostRevoke 事件不得发出 im:post:revoke"
     );
+}
+
+/// G-06：sync gap 回补的 fat postUpdated 必须保留独立 quick_reply 绝对态。
+#[test]
+fn sync_edit_projects_durable_quick_reply_as_top_level_authority() {
+    let quick_reply = serde_json::json!([{
+        "emoji": "thumb",
+        "userIds": ["user-author-444"]
+    }]);
+    let mut messages = HashMap::new();
+    messages.insert(
+        MSG.to_string(),
+        PostFields {
+            id: MSG.to_string(),
+            user_id: "user-author-444".to_string(),
+            quick_reply: quick_reply.to_string(),
+            ..PostFields::default()
+        },
+    );
+
+    let emits = sync_mutation_emits_with_auth(&[edit_ev(5)], &messages, "user-author-444");
+    let updated =
+        find_emit(&emits, "im:post:updated").expect("sync type=2 quickReply 必须发布 postUpdated");
+    assert_eq!(updated["data"]["quickReply"], quick_reply);
+    assert_eq!(updated["data"]["reactionCount"], serde_json::json!(1));
+    assert_eq!(updated["data"]["isSelf"], serde_json::json!(true));
 }
 
 /// UC13：离线 sender 只在 sync 同时给出 post、reader 与权威 readBits 时收到可定位回执。

@@ -129,9 +129,15 @@ pub(crate) fn extract_post_fields_with_event_seq(
         .unwrap_or_default();
     let quick_reply = post
         .get("quickReply")
+        .or_else(|| post.get("quick_reply"))
         .or_else(|| root.get("quickReply"))
-        .and_then(serde_json::Value::as_array)
-        .map(|items| serde_json::to_string(items).unwrap_or_default())
+        .or_else(|| root.get("quick_reply"))
+        .or_else(|| post.get("props").and_then(|props| props.get("quickReply")))
+        .or_else(|| post.get("props").and_then(|props| props.get("quick_reply")))
+        .or_else(|| root.get("props").and_then(|props| props.get("quickReply")))
+        .or_else(|| root.get("props").and_then(|props| props.get("quick_reply")))
+        .and_then(normalize_quick_reply)
+        .map(|items| items.to_string())
         .unwrap_or_default();
     let topic = post
         .get("topic")
@@ -198,6 +204,33 @@ pub(crate) fn extract_post_fields_with_event_seq(
         replied_message,
         reply_messages,
         reply_count,
+    }
+}
+
+/// 把 Go 存储态 emoji map 与 wire 数组态统一成稳定的 reaction 绝对态数组。
+fn normalize_quick_reply(value: &serde_json::Value) -> Option<serde_json::Value> {
+    match value {
+        serde_json::Value::Array(items) => Some(serde_json::Value::Array(items.clone())),
+        serde_json::Value::Object(items) => {
+            let mut emojis = items.iter().collect::<Vec<_>>();
+            emojis.sort_by(|left, right| left.0.cmp(right.0));
+            Some(serde_json::Value::Array(
+                emojis
+                    .into_iter()
+                    .map(|(emoji, user_ids)| {
+                        serde_json::json!({
+                            "emoji": emoji,
+                            "userIds": user_ids,
+                        })
+                    })
+                    .collect(),
+            ))
+        }
+        serde_json::Value::String(raw) => serde_json::from_str::<serde_json::Value>(raw)
+            .ok()
+            .as_ref()
+            .and_then(normalize_quick_reply),
+        _ => None,
     }
 }
 
@@ -282,5 +315,62 @@ mod tests {
 
         assert_eq!(camel.snapshot_id, "snapshot-1");
         assert_eq!(snake.snapshot_id, "snapshot-2");
+    }
+
+    /// 兼容运行面把 reaction 放进 props 的旧帧，并仍提升为独立 durable quick_reply。
+    #[test]
+    fn nested_quick_reply_is_promoted_to_the_reaction_column() {
+        let fields = extract_post_fields(&json!({
+            "id": "post-reaction",
+            "props": {
+                "quickReply": [{"emoji":"thumb","userIds":["member-1"]}]
+            }
+        }));
+
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&fields.quick_reply).unwrap(),
+            json!([{"emoji":"thumb","userIds":["member-1"]}])
+        );
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&fields.props)
+                .unwrap()
+                .get("quickReply")
+                .is_none(),
+            "reaction must not remain duplicated inside props"
+        );
+    }
+
+    /// 运行面仍回传 Go jsonb map 时必须归一为 Angular 消费的稳定数组。
+    #[test]
+    fn quick_reply_map_is_normalized_to_a_sorted_array() {
+        let fields = extract_post_fields(&json!({
+            "id": "post-map-reaction",
+            "quick_reply": {
+                "wave": ["member-2"],
+                "thumb": ["member-1"]
+            }
+        }));
+
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&fields.quick_reply).unwrap(),
+            json!([
+                {"emoji":"thumb","userIds":["member-1"]},
+                {"emoji":"wave","userIds":["member-2"]}
+            ])
+        );
+    }
+
+    /// 历史 WS codec 把 RawMessage 再包成 JSON 字符串时仍须恢复 reaction 绝对态。
+    #[test]
+    fn string_encoded_quick_reply_is_decoded_once() {
+        let fields = extract_post_fields(&json!({
+            "id": "post-string-reaction",
+            "quickReply": "[{\"emoji\":\"thumb\",\"userIds\":[\"member-1\"]}]"
+        }));
+
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&fields.quick_reply).unwrap(),
+            json!([{"emoji":"thumb","userIds":["member-1"]}])
+        );
     }
 }

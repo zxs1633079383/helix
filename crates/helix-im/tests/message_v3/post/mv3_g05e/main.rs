@@ -91,8 +91,8 @@ fn read_list_body(rows: Value) -> Bytes {
     ))
 }
 
-/// 以指定 viewer 身份跑一次 `im_post_read_list`，返回 `im:post:readers` 的 data 段。
-fn run_read_list_data(viewer_user_id: &str, req_id: &str, rows: Value) -> Value {
+/// 以指定 viewer 身份跑一次 `im_post_read_list`，返回全部逐条 canonical 回执。
+fn run_read_list_events(viewer_user_id: &str, req_id: &str, rows: Value) -> Vec<Value> {
     let mut harness = Harness::new_with_identity(&[], viewer_user_id, "mv3-g05e", "", "", "");
     harness.step(
         command_json(
@@ -104,6 +104,11 @@ fn run_read_list_data(viewer_user_id: &str, req_id: &str, rows: Value) -> Value 
     let corr = http_corr(&harness);
     harness.step(port_reply_with_body(corr, read_list_body(rows)), 2);
     emits(&harness, "im:post:readers")
+}
+
+/// 以指定 viewer 身份跑一次单行查询，返回首条 canonical 回执。
+fn run_read_list_data(viewer_user_id: &str, req_id: &str, rows: Value) -> Value {
+    run_read_list_events(viewer_user_id, req_id, rows)
         .into_iter()
         .next()
         .expect("post/read/list reply must project a render-ready receipt")
@@ -111,13 +116,29 @@ fn run_read_list_data(viewer_user_id: &str, req_id: &str, rows: Value) -> Value 
 
 /// 同上，直接取第一条回执行。
 fn run_read_list(viewer_user_id: &str, req_id: &str, rows: Value) -> Value {
-    run_read_list_data(viewer_user_id, req_id, rows)["receipts"][0].clone()
+    run_read_list_data(viewer_user_id, req_id, rows)
+}
+
+/// 冻结边界要求每条 `im:post:readers.data` 直接是一条回执，禁止泄漏内部批处理外壳。
+#[test]
+fn post_readers_event_emits_one_canonical_receipt_per_row() {
+    let data = run_read_list_data(
+        READER_ID,
+        "receipt-canonical-event",
+        legacy_snapshot_row("110"),
+    );
+    assert_eq!(data["postId"], json!(POST_ID));
+    assert_eq!(data["channelId"], json!(cid(CHANNEL_IX)));
+    assert_eq!(data["snapshotId"], json!(SNAPSHOT_ID));
+    assert!(data.get("receipts").is_none());
+    assert!(data.get("reqId").is_none());
 }
 
 /// 消息创建时的成员快照：作者在首位，两名接收者按服务端顺序排列。
 fn legacy_snapshot_row(read_bits: &str) -> Value {
     json!([{
         "postId": POST_ID,
+        "channelId": cid(CHANNEL_IX),
         "authorUserId": AUTHOR_ID,
         "snapshotId": SNAPSHOT_ID,
         "snapshotVersion": 1001,
@@ -293,8 +314,7 @@ fn batch_rows_fail_closed_independently() {
             "readBits": "110",
         },
     ]);
-    let data = run_read_list_data(READER_ID, "receipt-batch", mixed);
-    let rows = data["receipts"].as_array().expect("receipt rows");
+    let rows = run_read_list_events(READER_ID, "receipt-batch", mixed);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0]["state"], json!("unavailable"));
     assert_eq!(rows[0]["readUserIds"], json!([]));
@@ -315,9 +335,9 @@ fn sender_and_receiver_personas_receive_byte_exact_receipts() {
     );
 }
 
-/// HTTP 失败必须 fail-closed 成显式错误，而不是安静地发空回执。
+/// HTTP 失败只回灌内部读错误，禁止向 Angular 发布伪造的空回执快照。
 #[test]
-fn transport_failure_emits_explicit_receipt_error() {
+fn transport_failure_emits_read_result_error_without_receipt() {
     let mut harness = Harness::new_with_identity(&[], READER_ID, "mv3-g05e", "", "", "");
     harness.step(
         command_json(
@@ -328,12 +348,11 @@ fn transport_failure_emits_explicit_receipt_error() {
     );
     let corr = http_corr(&harness);
     harness.step(common::port_reply_err(corr), 2);
-    let data = emits(&harness, "im:post:readers")
-        .into_iter()
-        .next()
-        .expect("failure must still be reported to Angular");
-    assert_eq!(data["receipts"], json!([]));
-    assert_eq!(data["error"], json!("http request failed"));
+    assert!(
+        emits(&harness, "im:post:readers").is_empty(),
+        "HTTP 失败没有权威回执，不得发布伪造空快照"
+    );
+    assert_eq!(emits(&harness, "im:read:result").len(), 1);
 }
 
 /// 权威 `post_read` 帧只在 PersistOk 后释放终态，重复帧幂等（G-14 续接不被本 Gate 破坏）。

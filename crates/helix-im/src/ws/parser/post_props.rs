@@ -11,6 +11,8 @@ pub(crate) fn props_with_event_seq(post: &Value, root: &Value, event_seq: Option
         .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
     match base {
         Value::Object(mut map) => {
+            map.remove("quickReply");
+            map.remove("quick_reply");
             if let Some(seq) = event_seq {
                 map.insert("channel_event_seq".to_string(), Value::from(seq));
             }
@@ -56,6 +58,22 @@ mod tests {
             panic!("props 应为合法 JSON");
         };
         assert!(parsed.get("quickReply").is_none());
+    }
+
+    /// 运行面旧帧把 reaction 寄生进 props 时也必须剥离，避免双权威列。
+    #[test]
+    fn nested_quickreply_is_removed_from_props() {
+        let post = json!({
+            "props": {
+                "quickReply": [{ "emoji": "thumb", "userIds": ["member-1"] }],
+                "businessKey": "kept"
+            }
+        });
+        let parsed: serde_json::Value =
+            serde_json::from_str(&props_with_event_seq(&post, &json!({}), None)).unwrap();
+
+        assert!(parsed.get("quickReply").is_none());
+        assert_eq!(parsed["businessKey"], "kept");
     }
 
     /// 非 quickReply 类 post：props 原样不动（零副作用），无 quickReply 键。

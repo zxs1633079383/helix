@@ -133,6 +133,7 @@ pub(crate) fn emit_create_posts_result(
     Ok(())
 }
 
+/// 回灌读取同步结果，并将每条回执分别发布为 canonical `im:post:readers` 事件。
 pub(crate) fn emit_post_readers(req_id: &str, outcome: &PortOutcome, out: &mut EffectSink) {
     match outcome {
         PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
@@ -143,14 +144,12 @@ pub(crate) fn emit_post_readers(req_id: &str, outcome: &PortOutcome, out: &mut E
                 ));
                 let body =
                     serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
-                out.push(crate::query::render_ready::receipts::emit(req_id, &body));
+                for event in crate::query::render_ready::receipts::emit(&body) {
+                    out.push(event);
+                }
             }
             Err(_) => {
                 out.push(crate::read_relay::emit_read_error(
-                    req_id,
-                    "response envelope decode failed",
-                ));
-                out.push(crate::query::render_ready::receipts::emit_error(
                     req_id,
                     "response envelope decode failed",
                 ));
@@ -158,10 +157,6 @@ pub(crate) fn emit_post_readers(req_id: &str, outcome: &PortOutcome, out: &mut E
         },
         PortOutcome::Err(_) => {
             out.push(crate::read_relay::emit_read_error(
-                req_id,
-                "http request failed",
-            ));
-            out.push(crate::query::render_ready::receipts::emit_error(
                 req_id,
                 "http request failed",
             ));

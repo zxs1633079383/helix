@@ -204,12 +204,16 @@ fn target_key(target: &UploadTarget) -> String {
     match target {
         UploadTarget::File => "file".to_string(),
         UploadTarget::RichImage { index } => format!("rich:{index}"),
+        UploadTarget::TemplateImage => "template:image".to_string(),
     }
 }
 
 fn parse_target(value: &str) -> Result<UploadTarget, ImError> {
     if value == "file" {
         return Ok(UploadTarget::File);
+    }
+    if value == "template:image" {
+        return Ok(UploadTarget::TemplateImage);
     }
     value
         .strip_prefix("rich:")

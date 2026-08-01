@@ -202,8 +202,12 @@ impl UploadTarget {
             total += u128::from(size);
             Ok(())
         };
-        match (props.get("files"), props.get("file")) {
-            (Some(files), _) => {
+        let template_file = props
+            .get("template")
+            .and_then(Value::as_object)
+            .and_then(|template| template.get("file"));
+        match (props.get("files"), props.get("file"), template_file) {
+            (Some(files), _, _) => {
                 let files = files
                     .as_array()
                     .ok_or_else(|| ImError::Parse("props.files must be array".to_string()))?;
@@ -211,8 +215,9 @@ impl UploadTarget {
                     accumulate(node)?;
                 }
             }
-            (None, Some(file)) => accumulate(file)?,
-            (None, None) => return Ok(0),
+            (None, Some(file), _) => accumulate(file)?,
+            (None, None, Some(file)) => accumulate(file)?,
+            (None, None, None) => return Ok(0),
         }
         if total == 0 {
             return Ok(0);
@@ -241,5 +246,10 @@ fn target_node_mut<'a>(
         UploadTarget::File => props
             .get_mut("file")
             .ok_or_else(|| ImError::Parse("missing file target".to_string())),
+        UploadTarget::TemplateImage => props
+            .get_mut("template")
+            .and_then(Value::as_object_mut)
+            .and_then(|template| template.get_mut("file"))
+            .ok_or_else(|| ImError::Parse("missing template image target".to_string())),
     }
 }

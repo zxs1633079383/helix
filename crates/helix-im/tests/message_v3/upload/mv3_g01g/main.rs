@@ -8,7 +8,9 @@
 //!
 //! 线型权威 = `specs/003-messagev3-gate-inventory/gates/upload/mv3-g01g/*.json`。
 
+use bytes::Bytes;
 use helix_core::effect::{Effect, SqlValue, StorageOp};
+use helix_core::{Correlation, Tick};
 use serde_json::{json, Map, Value};
 
 #[path = "../../../common.rs"]
@@ -16,7 +18,7 @@ mod common;
 #[path = "../../support/phase1_reference.rs"]
 mod phase1_reference;
 
-use common::{command_json, port_reply_ok, EffectKind, Harness};
+use common::{command_json, enveloped, port_reply_ok, port_reply_with_body, EffectKind, Harness};
 use helix_im::outbound::posts::props::{
     build_media_message_props, strip_host_private_media_fields, HOST_PRIVATE_MEDIA_FIELDS,
 };
@@ -97,8 +99,98 @@ fn host_resolved_command() -> Value {
     payload
 }
 
-/// 跑「命令 → optimistic Persist → PersistOk 续接」两拍。
-fn run_send(payload: Value) -> Harness {
+/// 定位当前批次写入指定 `pending_media.stage` 的持久化 correlation。
+fn media_stage_corr(harness: &Harness, stage: &str) -> u64 {
+    harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops } | Effect::PersistAtomic { corr, ops }
+                if ops.iter().any(|op| match op {
+                    StorageOp::BatchUpsert(spec) if spec.table == "pending_media" => {
+                        spec.rows.iter().flatten().any(|(column, value)| {
+                            column == "stage"
+                                && matches!(value, SqlValue::Text(text) if text == stage)
+                        })
+                    }
+                    _ => false,
+                }) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("missing pending_media stage={stage} persist"))
+}
+
+/// 读取当前批次的指定 HTTP effect correlation。
+fn http_corr(harness: &Harness, suffix: &str) -> u64 {
+    harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, req } if req.url.ends_with(suffix) => Some(corr.raw()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("missing HTTP effect ending in {suffix}"))
+}
+
+/// 读取当前批次唯一的 OSS PUT correlation。
+fn upload_corr(harness: &Harness) -> u64 {
+    harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::UploadFile { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("template image prepare must release one OSS PUT")
+}
+
+/// 构造 TEMPLATE/IMAGE 内芯可接受的 Java prepare 回包。
+fn prepare_reply_outcome() -> helix_core::tick::PortOutcome {
+    let stage = reference_stage_result();
+    let file_id = "template-001";
+    let body = json!({
+        "isSuccess": true,
+        "fileId": file_id,
+        "bucket": "picture",
+        "method": "PUT",
+        "url": format!("https://oss.test/media/{file_id}?signature=short-lived"),
+        "uri": format!("media/{file_id}"),
+        "objectKey": format!("media/{file_id}"),
+        "headers": {
+            "Content-Type": stage["content_type"],
+            "x-oss-forbid-overwrite": "true"
+        }
+    });
+    match port_reply_with_body(
+        0,
+        enveloped(Bytes::from(
+            serde_json::to_vec(&body).expect("prepare reply json"),
+        )),
+    ) {
+        Tick::PortReply { outcome, .. } => outcome,
+        _ => unreachable!(),
+    }
+}
+
+/// 回放一条明确 correlation 的 port reply，保持模板媒体阶段顺序可证伪。
+fn reply(harness: &mut Harness, corr: u64, outcome: helix_core::tick::PortOutcome, now_ms: u64) {
+    harness.step(
+        Tick::PortReply {
+            corr: Correlation::from_raw(corr),
+            outcome,
+        },
+        now_ms,
+    );
+}
+
+/// 跑完 TEMPLATE/IMAGE 的上传和 posts/create 链，并保留发送中投影供壳形态断言。
+fn run_send(payload: Value) -> (Harness, Option<Value>) {
     let mut harness = Harness::new_with_identity(&[1], AUTH_USER_ID, "company-phase1", "", "", "");
     let first = harness.step(command_json("im_send_message", payload), NOW_MS);
     let corr = match first.as_slice() {
@@ -106,7 +198,32 @@ fn run_send(payload: Value) -> Harness {
         other => panic!("expected a single optimistic persist, got {other:?}"),
     };
     harness.step(port_reply_ok(corr), NOW_MS + 1);
-    harness
+    let sending = emitted_event(&harness, "im:post:sending");
+    if harness.sink.as_slice().iter().all(|effect| {
+        !matches!(effect, Effect::Http { req, .. } if req.url.ends_with("/oss/getPresignedUrl"))
+    }) {
+        // TEMPLATE/TEXT 不含媒体内芯，P1 后直接发 posts/create，不进入上传阶段。
+        return (harness, sending);
+    }
+    let prepare = http_corr(&harness, "/oss/getPresignedUrl");
+    reply(&mut harness, prepare, prepare_reply_outcome(), NOW_MS + 2);
+    let put_stage = media_stage_corr(&harness, "put");
+    harness.step(port_reply_ok(put_stage), NOW_MS + 3);
+    let upload = upload_corr(&harness);
+    harness.step(port_reply_ok(upload), NOW_MS + 4);
+    let complete_stage = media_stage_corr(&harness, "complete");
+    harness.step(port_reply_ok(complete_stage), NOW_MS + 5);
+    let completion_commit = harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("template completion must persist atomically");
+    harness.step(port_reply_ok(completion_commit), NOW_MS + 6);
+    (harness, sending)
 }
 
 /// 解码当前 sink 中的指定 MessageV3 事件。
@@ -197,7 +314,7 @@ fn inbound_sample_command_is_accepted_by_the_send_boundary() {
         );
     }
 
-    let harness = run_send(host_resolved_command());
+    let (harness, _) = run_send(host_resolved_command());
     let body = posts_create_body(&harness);
     assert_eq!(body["channelId"], common::cid(1));
     assert!(body["temporaryId"]
@@ -222,10 +339,10 @@ fn first_effect_batch_is_only_the_optimistic_persist() {
     assert!(emitted_event(&harness, "im:post:sending").is_none());
 }
 
-/// ③ PersistOk 续接才发布 sending 并出站 posts/create + 15s echo timer。
+/// ③ TEMPLATE/IMAGE complete 持久化确认后才出站 posts/create 并 arm 15s echo timer。
 #[test]
 fn persist_ok_continuation_publishes_sending_and_posts_create() {
-    let harness = run_send(host_resolved_command());
+    let (harness, sending) = run_send(host_resolved_command());
 
     let after_ms = harness
         .sink
@@ -237,7 +354,7 @@ fn persist_ok_continuation_publishes_sending_and_posts_create() {
         })
         .expect("echo timer 只能与真正出站的 posts/create 同批");
     assert_eq!(after_ms, 15_000);
-    let sending = emitted_event(&harness, "im:post:sending").expect("sending projection");
+    let sending = sending.expect("sending projection");
     assert_eq!(sending["data"]["sendStatus"], "sending");
     assert_eq!(sending["data"]["type"], "TEMPLATE");
 }
@@ -245,9 +362,9 @@ fn persist_ok_continuation_publishes_sending_and_posts_create() {
 /// ④ TEMPLATE 壳在 wire body 与 sending 投影里同时保留，内芯 `type` 保持 `IMAGE`。
 #[test]
 fn template_shell_and_inner_image_type_are_preserved_on_the_wire() {
-    let harness = run_send(host_resolved_command());
+    let (harness, sending) = run_send(host_resolved_command());
     let body = posts_create_body(&harness);
-    let sending = emitted_event(&harness, "im:post:sending").expect("sending projection");
+    let sending = sending.expect("sending projection");
 
     assert_eq!(body["type"], "TEMPLATE");
     assert_eq!(
@@ -268,7 +385,7 @@ fn template_shell_and_inner_image_type_are_preserved_on_the_wire() {
 /// 会话摘要不得走 IMAGE 分支的 `[图片]` 前缀。
 #[test]
 fn template_must_not_fall_back_to_image_or_text_message() {
-    let harness = run_send(host_resolved_command());
+    let (harness, _) = run_send(host_resolved_command());
     let body = posts_create_body(&harness);
     let row_type = persisted_column(harness.sink.as_slice(), "type");
 
@@ -313,7 +430,7 @@ fn omitted_inner_type_defaults_to_text_not_image() {
         .as_object_mut()
         .expect("template object")
         .remove("type");
-    let harness = run_send(payload);
+    let (harness, _) = run_send(payload);
     let body = posts_create_body(&harness);
 
     assert_eq!(body["type"], "TEMPLATE", "壳不受内芯缺省影响");
@@ -330,7 +447,7 @@ fn template_siblings_survive_normalization() {
     payload["props"]["template"]["userIds"] = json!(["user-receiver-445"]);
     payload["props"]["template"]["title"] = json!("季度海报");
     payload["props"]["extra"] = json!({"campaign": "phase1"});
-    let harness = run_send(payload);
+    let (harness, _) = run_send(payload);
     let body = posts_create_body(&harness);
 
     assert_eq!(

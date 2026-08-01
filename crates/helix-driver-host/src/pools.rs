@@ -226,6 +226,14 @@ where
             let uploader = Arc::clone(&uploader);
             let progress_reply_tx = Arc::clone(&progress_reply_tx);
             async move {
+                let correlation = corr.map(Correlation::raw).unwrap_or_default();
+                tracing::info!(
+                    hop = "host.upload.dispatch",
+                    corr = correlation,
+                    object_key = req.object_key.as_str(),
+                    size = req.size.unwrap_or_default(),
+                    "OSS upload dispatched without exposing its signed URL"
+                );
                 let progress = match (corr, req.progress_policy()) {
                     (Some(corr), FileUploadProgressPolicy::PercentStep(step)) => {
                         UploadProgressTickReporter::new(corr, step, progress_reply_tx).map(
@@ -236,6 +244,13 @@ where
                 };
                 match uploader.upload_with_progress(req, progress).await {
                     Ok(resp) => {
+                        tracing::info!(
+                            hop = "host.upload.complete",
+                            corr = correlation,
+                            outcome = "ok",
+                            object_key = resp.object_key.as_str(),
+                            "OSS upload completed"
+                        );
                         let bytes = serde_json::to_vec(&json!({
                             "objectKey": resp.object_key,
                             // PortReply wire 保留兼容键 `url`，值只来自长期可读地址。
@@ -245,7 +260,15 @@ where
                         .expect("upload response JSON serialization cannot fail");
                         PortOutcome::Ok(ReplyBytes(Bytes::from(bytes)))
                     }
-                    Err(e) => PortOutcome::Err(classify_port_error(e)),
+                    Err(e) => {
+                        tracing::warn!(
+                            hop = "host.upload.complete",
+                            corr = correlation,
+                            outcome = "err",
+                            "OSS upload failed without exposing its signed URL"
+                        );
+                        PortOutcome::Err(classify_port_error(e))
+                    }
                 }
             }
         },

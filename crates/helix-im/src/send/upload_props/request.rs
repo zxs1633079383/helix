@@ -148,6 +148,7 @@ pub fn client_upload_id(temporary_id: &str, target: &UploadTarget) -> String {
     match target {
         UploadTarget::RichImage { index } => format!("{temporary_id}:rich:{index}"),
         UploadTarget::File => format!("{temporary_id}:file"),
+        UploadTarget::TemplateImage => format!("{temporary_id}:template:image"),
     }
 }
 
@@ -236,6 +237,7 @@ fn progress_policy(target: &UploadTarget) -> FileUploadProgressPolicy {
     match target {
         UploadTarget::RichImage { .. } => FileUploadProgressPolicy::Disabled,
         UploadTarget::File => FileUploadProgressPolicy::PercentStep(5),
+        UploadTarget::TemplateImage => FileUploadProgressPolicy::Disabled,
     }
 }
 
@@ -249,6 +251,11 @@ fn target_node<'a>(props: &'a Value, target: &UploadTarget) -> Result<&'a Value,
         UploadTarget::File => props
             .get("file")
             .ok_or_else(|| ImError::Parse("missing file target".to_string())),
+        UploadTarget::TemplateImage => props
+            .get("template")
+            .and_then(Value::as_object)
+            .and_then(|template| template.get("file"))
+            .ok_or_else(|| ImError::Parse("missing template image target".to_string())),
     }
 }
 

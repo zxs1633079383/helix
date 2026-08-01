@@ -8,7 +8,9 @@
 //! 涉及最终 props 的断言一律**从样本文件读取期望值**，不在测试里另抄一份常量：样本改了、
 //! 实现没跟上（或反过来）都必须红。
 
+use bytes::Bytes;
 use helix_core::effect::{Effect, SqlValue, StorageOp};
+use helix_core::{Correlation, Tick};
 use serde_json::{json, Map, Value};
 
 #[path = "../../../common.rs"]
@@ -16,7 +18,7 @@ mod common;
 #[path = "../../support/phase1_reference.rs"]
 mod phase1_reference;
 
-use common::{command_json, port_reply_ok, EffectKind, Harness};
+use common::{command_json, enveloped, port_reply_ok, port_reply_with_body, EffectKind, Harness};
 use helix_im::outbound::posts::props::{
     build_media_message_props, strip_host_private_media_fields, HOST_PRIVATE_MEDIA_FIELDS,
 };
@@ -121,8 +123,102 @@ fn host_resolved_command(variant: &str) -> Value {
     payload
 }
 
-/// 跑完「命令 → optimistic Persist → PersistOk 续接」两拍，返回 harness 与首拍 corr。
-fn run_send(variant: &str) -> (Harness, Vec<EffectKind>, Vec<EffectKind>) {
+/// 定位当前批次写入指定 `pending_media.stage` 的持久化 correlation。
+fn media_stage_corr(harness: &Harness, stage: &str) -> u64 {
+    harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops } | Effect::PersistAtomic { corr, ops }
+                if ops.iter().any(|op| match op {
+                    StorageOp::BatchUpsert(spec) if spec.table == "pending_media" => {
+                        spec.rows.iter().flatten().any(|(column, value)| {
+                            column == "stage"
+                                && matches!(value, SqlValue::Text(text) if text == stage)
+                        })
+                    }
+                    _ => false,
+                }) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("missing pending_media stage={stage} persist"))
+}
+
+/// 读取当前批次的指定 HTTP effect correlation。
+fn http_corr(harness: &Harness, suffix: &str) -> u64 {
+    harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, req } if req.url.ends_with(suffix) => Some(corr.raw()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("missing HTTP effect ending in {suffix}"))
+}
+
+/// 读取当前批次唯一的 OSS PUT correlation。
+fn upload_corr(harness: &Harness) -> u64 {
+    harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::UploadFile { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("media prepare must release one OSS PUT")
+}
+
+/// 构造 AUDIO/VIDEO 单文件上传可接受的 Java prepare 回包。
+fn prepare_reply_outcome(variant: &str) -> helix_core::tick::PortOutcome {
+    let payload = reference_command_payload(variant);
+    let media_handle = payload["props"]["file"]["mediaHandle"]
+        .as_str()
+        .expect("media send intent must carry mediaHandle");
+    let stage = reference_stage_result(media_handle);
+    let file_id = format!("{}-001", variant.to_ascii_lowercase());
+    let body = json!({
+        "isSuccess": true,
+        "fileId": file_id,
+        "bucket": "attachment",
+        "method": "PUT",
+        "url": format!("https://oss.test/media/{file_id}?signature=short-lived"),
+        "uri": format!("media/{file_id}"),
+        "objectKey": format!("media/{file_id}"),
+        "headers": {
+            "Content-Type": stage["content_type"],
+            "x-oss-forbid-overwrite": "true"
+        }
+    });
+    match port_reply_with_body(
+        0,
+        enveloped(Bytes::from(
+            serde_json::to_vec(&body).expect("prepare reply json"),
+        )),
+    ) {
+        Tick::PortReply { outcome, .. } => outcome,
+        _ => unreachable!(),
+    }
+}
+
+/// 回放一条明确 correlation 的 port reply，保持媒体阶段顺序可证伪。
+fn reply(harness: &mut Harness, corr: u64, outcome: helix_core::tick::PortOutcome, now_ms: u64) {
+    harness.step(
+        Tick::PortReply {
+            corr: Correlation::from_raw(corr),
+            outcome,
+        },
+        now_ms,
+    );
+}
+
+/// 跑完 Host 暂存后的单文件上传与 posts/create 链，保留首帧和 sending 投影供断言。
+fn run_send(variant: &str) -> (Harness, Vec<EffectKind>, Vec<EffectKind>, Option<Value>) {
     let mut harness = Harness::new_with_identity(&[1], AUTH_USER_ID, "company-phase1", "", "", "");
     let first = harness.step(
         command_json("im_send_message", host_resolved_command(variant)),
@@ -132,8 +228,32 @@ fn run_send(variant: &str) -> (Harness, Vec<EffectKind>, Vec<EffectKind>) {
         [EffectKind::Persist(corr)] | [EffectKind::PersistAtomic(corr)] => *corr,
         other => panic!("{variant}: expected a single optimistic persist, got {other:?}"),
     };
-    let second = harness.step(port_reply_ok(corr), NOW_MS + 1);
-    (harness, first, second)
+    harness.step(port_reply_ok(corr), NOW_MS + 1);
+    let sending = emitted_event(&harness, "im:post:sending");
+    let prepare = http_corr(&harness, "/oss/getPresignedUrl");
+    reply(
+        &mut harness,
+        prepare,
+        prepare_reply_outcome(variant),
+        NOW_MS + 2,
+    );
+    let put_stage = media_stage_corr(&harness, "put");
+    harness.step(port_reply_ok(put_stage), NOW_MS + 3);
+    let upload = upload_corr(&harness);
+    harness.step(port_reply_ok(upload), NOW_MS + 4);
+    let complete_stage = media_stage_corr(&harness, "complete");
+    harness.step(port_reply_ok(complete_stage), NOW_MS + 5);
+    let completion_commit = harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("media completion must persist atomically");
+    let final_effects = harness.step(port_reply_ok(completion_commit), NOW_MS + 6);
+    (harness, first, final_effects, sending)
 }
 
 /// 解码当前 sink 中的指定 MessageV3 事件。
@@ -265,7 +385,7 @@ fn audio_inbound_sample_command_is_accepted_by_the_send_boundary() {
         );
     }
 
-    let (harness, _, _) = run_send("AUDIO");
+    let (harness, _, _, _) = run_send("AUDIO");
     let body = posts_create_body(&harness);
     assert_eq!(body["type"], "AUDIO");
     assert_eq!(body["channelId"], common::cid(1));
@@ -297,10 +417,10 @@ fn audio_first_effect_batch_is_only_the_optimistic_persist() {
     assert!(emitted_event(&harness, "im:post:sending").is_none());
 }
 
-/// ③（AUDIO）PersistOk 续接才发布 sending 并真正出站 posts/create + 15s echo timer。
+/// ③（AUDIO）媒体 complete 持久化确认后才出站 posts/create 并 arm 15s echo timer。
 #[test]
 fn audio_persist_ok_continuation_publishes_sending_and_posts_create() {
-    let (harness, _, second) = run_send("AUDIO");
+    let (harness, _, second, sending) = run_send("AUDIO");
 
     assert_eq!(
         second
@@ -327,7 +447,7 @@ fn audio_persist_ok_continuation_publishes_sending_and_posts_create() {
         })
         .expect("echo timer");
     assert_eq!(after_ms, 15_000, "INV-04：echo 等待窗固定 15 秒");
-    let sending = emitted_event(&harness, "im:post:sending").expect("sending projection");
+    let sending = sending.expect("sending projection");
     assert_eq!(sending["data"]["sendStatus"], "sending");
     assert_eq!(sending["data"]["type"], "AUDIO");
 }
@@ -335,7 +455,7 @@ fn audio_persist_ok_continuation_publishes_sending_and_posts_create() {
 /// ④（AUDIO）sender 回放：wire body 的类型 / 摘要 / 身份字段全部由 Helix 权威构造。
 #[test]
 fn audio_sender_wire_body_is_helix_authoritative() {
-    let (harness, _, _) = run_send("AUDIO");
+    let (harness, _, _, _) = run_send("AUDIO");
     let body = posts_create_body(&harness);
 
     assert_eq!(body["type"], "AUDIO");
@@ -352,8 +472,8 @@ fn audio_sender_wire_body_is_helix_authoritative() {
 /// ⑤（AUDIO）sending 投影只由 Helix 侧 body 派生，不回显任何 Angular 未提交的客户端计算。
 #[test]
 fn audio_sending_projection_is_derived_from_the_helix_body() {
-    let (harness, _, _) = run_send("AUDIO");
-    let sending = emitted_event(&harness, "im:post:sending").expect("sending projection");
+    let (harness, _, _, sending) = run_send("AUDIO");
+    let sending = sending.expect("sending projection");
     let body = posts_create_body(&harness);
 
     assert_eq!(sending["data"]["temporaryId"], body["temporaryId"]);
@@ -520,7 +640,7 @@ fn video_inbound_sample_command_is_accepted_by_the_send_boundary() {
         );
     }
 
-    let (harness, _, _) = run_send("VIDEO");
+    let (harness, _, _, _) = run_send("VIDEO");
     let body = posts_create_body(&harness);
     assert_eq!(body["type"], "VIDEO");
     assert_eq!(body["channelId"], common::cid(1));
@@ -546,10 +666,10 @@ fn video_first_effect_batch_is_only_the_optimistic_persist() {
     assert!(emitted_event(&harness, "im:post:sending").is_none());
 }
 
-/// ③（VIDEO）PersistOk 续接才发布 sending 并真正出站 posts/create + 15s echo timer。
+/// ③（VIDEO）媒体 complete 持久化确认后才出站 posts/create 并 arm 15s echo timer。
 #[test]
 fn video_persist_ok_continuation_publishes_sending_and_posts_create() {
-    let (harness, _, second) = run_send("VIDEO");
+    let (harness, _, second, sending) = run_send("VIDEO");
 
     assert_eq!(
         second
@@ -575,7 +695,7 @@ fn video_persist_ok_continuation_publishes_sending_and_posts_create() {
         })
         .expect("echo timer");
     assert_eq!(after_ms, 15_000);
-    let sending = emitted_event(&harness, "im:post:sending").expect("sending projection");
+    let sending = sending.expect("sending projection");
     assert_eq!(sending["data"]["sendStatus"], "sending");
     assert_eq!(sending["data"]["type"], "VIDEO");
 }
@@ -583,7 +703,7 @@ fn video_persist_ok_continuation_publishes_sending_and_posts_create() {
 /// ④（VIDEO）sender 回放：wire body 的类型 / 摘要 / 身份字段全部由 Helix 权威构造。
 #[test]
 fn video_sender_wire_body_is_helix_authoritative() {
-    let (harness, _, _) = run_send("VIDEO");
+    let (harness, _, _, _) = run_send("VIDEO");
     let body = posts_create_body(&harness);
 
     assert_eq!(body["type"], "VIDEO");
@@ -600,8 +720,8 @@ fn video_sender_wire_body_is_helix_authoritative() {
 /// ⑤（VIDEO）sending 投影只由 Helix 侧 body 派生。
 #[test]
 fn video_sending_projection_is_derived_from_the_helix_body() {
-    let (harness, _, _) = run_send("VIDEO");
-    let sending = emitted_event(&harness, "im:post:sending").expect("sending projection");
+    let (harness, _, _, sending) = run_send("VIDEO");
+    let sending = sending.expect("sending projection");
     let body = posts_create_body(&harness);
 
     assert_eq!(sending["data"]["temporaryId"], body["temporaryId"]);

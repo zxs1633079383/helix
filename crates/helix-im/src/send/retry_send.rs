@@ -268,6 +268,7 @@ fn retry_failed_media(
     keys.sort_by_key(|(_, target)| match target {
         UploadTarget::RichImage { index } => (0u8, *index),
         UploadTarget::File => (1u8, 0usize),
+        UploadTarget::TemplateImage => (2u8, 0usize),
     });
     let failed = keys
         .iter()

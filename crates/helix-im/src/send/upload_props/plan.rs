@@ -47,7 +47,8 @@ pub fn build_upload_plan(
 ) -> Result<UploadPlan, ImError> {
     let media = match msg_type {
         "rich" | "IMAGE" => build_rich_plan(&mut props)?,
-        "file" | "FILE" => build_file_plan(message, &mut props)?,
+        "file" | "FILE" | "AUDIO" | "VIDEO" => build_file_plan(message, &mut props)?,
+        "TEMPLATE" => build_template_plan(&mut props)?,
         _ => Vec::new(),
     };
     let targets = media.iter().map(|item| item.target.clone()).collect();
@@ -132,6 +133,33 @@ fn build_file_plan(_message: &str, props: &mut Value) -> Result<Vec<PlannedMedia
     Ok(vec![PlannedMedia {
         target: UploadTarget::File,
         input,
+    }])
+}
+
+/// 构造 TEMPLATE/IMAGE 的嵌套上传计划；纯文本模板保持零媒体 Effect。
+fn build_template_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
+    let template = props
+        .get_mut("template")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| ImError::Parse("TEMPLATE requires props.template".to_string()))?;
+    match template.get("type").and_then(Value::as_str) {
+        Some("TEXT") => return Ok(Vec::new()),
+        Some("IMAGE") => {}
+        _ => {
+            return Err(ImError::Parse(
+                "TEMPLATE requires type TEXT or IMAGE".to_string(),
+            ))
+        }
+    }
+    let file = template
+        .get_mut("file")
+        .ok_or_else(|| ImError::Parse("TEMPLATE/IMAGE requires props.template.file".to_string()))?;
+    if is_stable_object_reference(file, "template image")? {
+        return Ok(Vec::new());
+    }
+    Ok(vec![PlannedMedia {
+        target: UploadTarget::TemplateImage,
+        input: extract_media(file, "template image")?,
     }])
 }
 
@@ -468,6 +496,39 @@ mod tests {
         assert!(plan.props["file"].get("localUrl").is_none());
         assert!(plan.props["file"].get("local_path").is_none());
         assert_eq!(plan.props["file"]["upload"]["status"], "preparing");
+    }
+
+    /// AUDIO 和 VIDEO 与单文件共用真实 prepare/PUT/complete 状态机。
+    #[test]
+    fn audio_and_video_build_single_file_upload_plans() {
+        for message_type in ["AUDIO", "VIDEO"] {
+            let plan = build_upload_plan(message_type, "", file_props())
+                .expect("audio/video must produce a prepare plan");
+            assert_eq!(plan.targets, vec![UploadTarget::File]);
+            assert!(plan.props["file"].get("mediaInput").is_none());
+        }
+    }
+
+    /// TEMPLATE/IMAGE 规划嵌套文件，TEMPLATE/TEXT 保持零媒体上传。
+    #[test]
+    fn template_image_builds_nested_upload_plan_but_text_does_not() {
+        let file = file_props()["file"].clone();
+        let image = build_upload_plan(
+            "TEMPLATE",
+            "template image",
+            json!({"template":{"type":"IMAGE","file":file}}),
+        )
+        .expect("template image must produce a prepare plan");
+        assert_eq!(image.targets, vec![UploadTarget::TemplateImage]);
+        assert!(image.props["template"]["file"].get("mediaInput").is_none());
+
+        let text = build_upload_plan(
+            "TEMPLATE",
+            "template text",
+            json!({"template":{"type":"TEXT","text":"hello"}}),
+        )
+        .expect("text template must remain upload-free");
+        assert!(text.media.is_empty());
     }
 
     #[test]

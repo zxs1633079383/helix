@@ -153,6 +153,7 @@ pub fn authority_projection(
         serde_json::from_str::<Value>(&event.fields.props)
             .map_err(|error| crate::ImError::Parse(format!("post props: {error}")))?
     };
+    canonicalize_media_file_names(&mut props);
     if let Some(object) = props.as_object_mut() {
         object.remove("channel_event_seq");
     }
@@ -170,6 +171,48 @@ pub fn authority_projection(
         received_data,
         last_post,
     })
+}
+
+/// 把 Go 回声中的媒体 `fileName` 兼容键收敛为 MessageV3 唯一 `name` 字段。
+fn canonicalize_media_file_names(props: &mut Value) {
+    let Some(object) = props.as_object_mut() else {
+        return;
+    };
+    if let Some(file) = object.get_mut("file") {
+        canonicalize_media_file_name(file);
+    }
+    if let Some(files) = object.get_mut("files").and_then(Value::as_array_mut) {
+        for file in files {
+            canonicalize_media_file_name(file);
+        }
+    }
+    if let Some(file) = object
+        .get_mut("template")
+        .and_then(Value::as_object_mut)
+        .and_then(|template| template.get_mut("file"))
+    {
+        canonicalize_media_file_name(file);
+    }
+}
+
+/// 单个媒体节点优先保留非空 canonical `name`，否则消费兼容 `fileName`。
+fn canonicalize_media_file_name(file: &mut Value) {
+    let Some(object) = file.as_object_mut() else {
+        return;
+    };
+    let canonical_missing = object
+        .get("name")
+        .and_then(Value::as_str)
+        .is_none_or(str::is_empty);
+    let legacy = object
+        .remove("fileName")
+        .and_then(|value| value.as_str().map(str::to_string))
+        .filter(|value| !value.is_empty());
+    if canonical_missing {
+        if let Some(name) = legacy {
+            object.insert("name".to_string(), Value::String(name));
+        }
+    }
 }
 
 /// 把同一业务值写入 post 与 lastPost，边界处只做一次必要复制。
@@ -204,6 +247,42 @@ mod tests {
 
         assert_eq!(projection.received_data["snapshotId"], "snapshot-1");
         assert!(projection.received_data.get("receipt").is_none());
+    }
+
+    /// Go 媒体回声的 `fileName` 别名必须在 Core 投影边界收敛，不能下放给平台 UI。
+    #[test]
+    fn authority_projection_canonicalizes_media_file_name() {
+        let channel_id =
+            ChannelId::from_str("a9h5hrdsy3873dmg375a6ntqiw").expect("valid test channel");
+        let event = EventEnvelope::new(
+            channel_id,
+            Seq(8),
+            EventKind::PostUpsert,
+            PostFields {
+                id: "post-audio-1".to_string(),
+                msg_type: "AUDIO".to_string(),
+                props: serde_json::json!({
+                    "file": {
+                        "fileName": "sample.m4a",
+                        "contentType": "audio/mp4",
+                        "duration": 2.0
+                    }
+                })
+                .to_string(),
+                ..PostFields::default()
+            },
+        );
+
+        let projection = authority_projection(&event).expect("project audio authority");
+
+        assert_eq!(
+            projection.received_data["props"]["file"]["name"],
+            "sample.m4a"
+        );
+        assert!(projection.received_data["props"]["file"]
+            .get("fileName")
+            .is_none());
+        assert_eq!(projection.last_post["props"]["file"]["name"], "sample.m4a");
     }
 }
 

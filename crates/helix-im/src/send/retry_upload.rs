@@ -17,6 +17,7 @@ struct RetryUploadCommand {
 enum RetryUploadTarget {
     RichImage { index: usize },
     File,
+    TemplateImage,
 }
 
 impl RetryUploadTarget {
@@ -24,6 +25,7 @@ impl RetryUploadTarget {
         match self {
             Self::RichImage { index } => UploadTarget::RichImage { index },
             Self::File => UploadTarget::File,
+            Self::TemplateImage => UploadTarget::TemplateImage,
         }
     }
 }
@@ -123,6 +125,12 @@ fn has_failed_target(props: &Value) -> bool {
         .map(|files| files.iter().any(node_failed))
         .unwrap_or(false)
         || props.get("file").map(node_failed).unwrap_or(false)
+        || props
+            .get("template")
+            .and_then(Value::as_object)
+            .and_then(|template| template.get("file"))
+            .map(node_failed)
+            .unwrap_or(false)
 }
 
 fn node_failed(node: &Value) -> bool {
@@ -163,6 +171,11 @@ fn target_node<'a>(props: &'a Value, target: &UploadTarget) -> Result<&'a Value,
         UploadTarget::File => props
             .get("file")
             .ok_or_else(|| ImError::Parse("missing file retry target".to_string())),
+        UploadTarget::TemplateImage => props
+            .get("template")
+            .and_then(Value::as_object)
+            .and_then(|template| template.get("file"))
+            .ok_or_else(|| ImError::Parse("missing template image retry target".to_string())),
     }
 }
 
@@ -179,5 +192,10 @@ fn target_node_mut<'a>(
         UploadTarget::File => props
             .get_mut("file")
             .ok_or_else(|| ImError::Parse("missing file retry target".to_string())),
+        UploadTarget::TemplateImage => props
+            .get_mut("template")
+            .and_then(Value::as_object_mut)
+            .and_then(|template| template.get_mut("file"))
+            .ok_or_else(|| ImError::Parse("missing template image retry target".to_string())),
     }
 }

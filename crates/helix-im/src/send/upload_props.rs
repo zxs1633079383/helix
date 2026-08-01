@@ -26,6 +26,7 @@ pub use state::{
 pub enum UploadTarget {
     RichImage { index: usize },
     File,
+    TemplateImage,
 }
 
 impl UploadTarget {
@@ -34,6 +35,7 @@ impl UploadTarget {
         match self {
             Self::RichImage { .. } => "picture",
             Self::File => "attachment",
+            Self::TemplateImage => "picture",
         }
     }
 }

@@ -3,9 +3,16 @@ use crate::module::ImModule;
 use crate::older_context::LoadOlderState;
 use crate::state::CorrelationContext;
 use crate::{error::ImError, query::LocalStoreMode};
-use helix_core::effect::Effect;
+use helix_core::effect::{Effect, ScanOrder, ScanSpec, SqlValue, StorageOp};
 use helix_core::tick::PortOutcome;
 use helix_core::EffectSink;
+use serde_json::Value;
+use std::collections::HashSet;
+
+const OLDER_NAVIGATION_ORDER: &[ScanOrder] = &[
+    ScanOrder::desc("create_at"),
+    ScanOrder::desc("temporary_id"),
+];
 
 impl ImModule {
     /// 发起 Timeline V3 authority HTTP，并注册唯一 correlation continuation。
@@ -65,7 +72,13 @@ impl ImModule {
             self.config.auth_user_id.as_str(),
         )?;
         state.replace_rows(rows);
-        if ops.is_empty() {
+        let is_older = matches!(
+            state.kind(),
+            crate::timeline_navigation::TimelineNavigationKind::Older { .. }
+        );
+        // Older 查询即使没有新 cache op 也必须经过一个 matching PersistOk；否则
+        // 空页会绕过 durable barrier，直接把 HTTP rows 当成成功结果。
+        if ops.is_empty() && !is_older {
             out.push(self.emit_timeline_navigation_page(&state, now_ms)?);
             return Ok(());
         }
@@ -74,6 +87,9 @@ impl ImModule {
                 channel_id = state.channel_id().as_str(),
                 "timeline navigation requires durable storage before event publication"
             );
+            if is_older {
+                self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+            }
             return Ok(());
         }
         let corr = self.alloc_corr_internal();
@@ -101,6 +117,15 @@ impl ImModule {
             crate::timeline_navigation::TimelineNavigationKind::Locate { .. } => None,
         };
         if let Some((direction, anchor_post_id)) = page_direction {
+            if direction == "older" {
+                if let Some(request_id) = state.request_id() {
+                    out.push(crate::read_relay::emit_read_error(
+                        request_id,
+                        "timeline older query failed before durable result",
+                    ));
+                    return Ok(());
+                }
+            }
             let page = state.page();
             out.push(
                 crate::event::timeline::page(
@@ -150,10 +175,21 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let corr = self.alloc_corr_internal();
-        let effect = crate::timeline_navigation::navigation_readback_effect(&state, corr)
-            .ok_or_else(|| {
-                ImError::Parse("timeline navigation cache has no readback identity".to_string())
-            })?;
+        let effect = if matches!(
+            state.kind(),
+            crate::timeline_navigation::TimelineNavigationKind::Older { .. }
+        ) {
+            // Older 页面必须回读一个有界 message Scan；单行 Get 只能证明某条消息存在，
+            // 无法证明返回页、去重、排序和 viewer 过滤都来自 durable storage。
+            Effect::Persist {
+                corr,
+                ops: vec![StorageOp::Scan(older_navigation_scan_spec(&state))],
+            }
+        } else {
+            crate::timeline_navigation::navigation_readback_effect(&state, corr).ok_or_else(
+                || ImError::Parse("timeline navigation cache has no readback identity".to_string()),
+            )?
+        };
         out.push(effect);
         self.state.corr_map.insert(
             corr,
@@ -170,6 +206,44 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if matches!(
+            state.kind(),
+            crate::timeline_navigation::TimelineNavigationKind::Older { .. }
+        ) {
+            let rows = match outcome {
+                PortOutcome::Ok(reply) => {
+                    match crate::query::local_first::parse_local_rows(reply.0.as_ref()) {
+                        Ok(rows) => {
+                            older_navigation_rows(&state, rows, self.config.auth_user_id.as_str())
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                channel_id = state.channel_id().as_str(),
+                                error = ?error,
+                                "timeline older durable read-back malformed"
+                            );
+                            Vec::new()
+                        }
+                    }
+                }
+                PortOutcome::Err(error) => {
+                    tracing::warn!(
+                        channel_id = state.channel_id().as_str(),
+                        error = ?error,
+                        "timeline older durable read-back failed"
+                    );
+                    Vec::new()
+                }
+            };
+            // HTTP 只建立“期望有页”的事实；若该页确实有可见 rows，却没有任何
+            // matching durable row，必须失败保旧，不能旁路用 HTTP rows 结算。
+            if !state.rows().is_empty() && rows.is_empty() {
+                self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+            } else {
+                out.push(self.emit_timeline_navigation_result(&state, &rows)?);
+            }
+            return Ok(());
+        }
         let expected = state.readback_message_id().ok_or_else(|| {
             ImError::Parse("timeline navigation readback missing expected id".to_string())
         })?;
@@ -192,6 +266,33 @@ impl ImModule {
             );
         }
         Ok(())
+    }
+
+    /// 将 durable older rows 投影成同 reqId 的结构化 QueryMessagesResult。
+    fn emit_timeline_navigation_result(
+        &self,
+        state: &crate::timeline_navigation::TimelineNavigationState,
+        rows: &[Value],
+    ) -> Result<Effect, ImError> {
+        let request_id = state
+            .request_id()
+            .ok_or_else(|| ImError::Parse("timeline older result missing req_id".to_string()))?;
+        let shaped = crate::render_ready::shape_message_rows_for_viewer(
+            &Value::Array(rows.to_vec()),
+            self.config.auth_user_id.as_str(),
+        );
+        let page = state.page();
+        Ok(crate::read_relay::emit_read_body(
+            request_id,
+            serde_json::json!({
+                "reqId": request_id,
+                "messages": shaped,
+                "hasOlder": page.has_older,
+                "hasNewer": page.has_newer,
+                "olderCursor": Value::Null,
+                "newerCursor": Value::Null,
+            }),
+        ))
     }
 
     /// 通用 HTTP 读回按命令身份投影，并保留原始 req_id 完成 Host 调用。
@@ -482,4 +583,89 @@ impl ImModule {
         );
         Ok(())
     }
+}
+
+/// 构造 older durable read-back 的 bounded message Scan。
+fn older_navigation_scan_spec(
+    state: &crate::timeline_navigation::TimelineNavigationState,
+) -> ScanSpec {
+    ScanSpec {
+        table: "message",
+        limit: Some(state.page_size().saturating_add(1)),
+        filter: Some((
+            "channel_id",
+            SqlValue::Text(state.channel_id().as_str().to_string()),
+        )),
+        order_by: OLDER_NAVIGATION_ORDER,
+    }
+}
+
+/// 过滤、去重、排序 durable older rows，避免 HTTP rows 成为成功结果旁路。
+fn older_navigation_rows(
+    state: &crate::timeline_navigation::TimelineNavigationState,
+    rows: Vec<Value>,
+    auth_user_id: &str,
+) -> Vec<Value> {
+    // Go 的空页/hasMore=false 是该次 older authority 的边界；不能用旧 cache
+    // 中恰好位于 anchor 前的行重新推导一页，避免 stale storage 旁路污染结果。
+    if state.rows().is_empty() {
+        return Vec::new();
+    }
+    let Some(cursor) = (match state.kind() {
+        crate::timeline_navigation::TimelineNavigationKind::Older { cursor, .. } => Some(cursor),
+        _ => None,
+    }) else {
+        return Vec::new();
+    };
+    let mut seen = HashSet::new();
+    let mut filtered = rows
+        .into_iter()
+        .filter_map(|row| {
+            let fields = crate::ws::parser::extract_post_fields(&row);
+            if fields.channel_id != state.channel_id().as_str()
+                || !crate::channel_write::post_updates_from_fields(
+                    state.channel_id(),
+                    &fields,
+                    auth_user_id,
+                )
+                .visible
+            {
+                return None;
+            }
+            let key = durable_navigation_key(&row)?;
+            if key.0 > cursor.create_at
+                || (key.0 == cursor.create_at && key.1.as_str() >= cursor.temporary_id.as_str())
+            {
+                return None;
+            }
+            let identity = if !fields.id.is_empty() {
+                format!("id:{}", fields.id)
+            } else if !fields.temporary_id.is_empty() {
+                format!("tmp:{}", fields.temporary_id)
+            } else {
+                return None;
+            };
+            seen.insert(identity).then_some((key, row))
+        })
+        .collect::<Vec<_>>();
+    filtered.sort_by(|left, right| left.0.cmp(&right.0));
+    filtered
+        .into_iter()
+        .take(state.page_size() as usize)
+        .map(|(_, row)| row)
+        .collect()
+}
+
+/// 从 snake/camel durable row 提取稳定分页键。
+fn durable_navigation_key(row: &Value) -> Option<(i64, String)> {
+    let create_at = row
+        .get("create_at")
+        .or_else(|| row.get("createAt"))
+        .and_then(Value::as_i64)?;
+    let temporary_id = row
+        .get("temporary_id")
+        .or_else(|| row.get("temporaryId"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())?;
+    Some((create_at, temporary_id.to_string()))
 }

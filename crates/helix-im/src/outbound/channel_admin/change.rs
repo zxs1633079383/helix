@@ -58,6 +58,14 @@ impl OutboundCommand for ChangeInfoCommand {
         put_opt_str(&mut b, args, "picture_type", "pictureType");
         put_opt_val(&mut b, args, "picture", "picture");
         put_opt_val(&mut b, args, "source", "source");
+        if let Some(purpose) = args.get("purpose") {
+            if !purpose.is_null() && !purpose.is_string() {
+                return Err(ImError::Parse(format!(
+                    "{}: purpose 必须为字符串",
+                    self.name()
+                )));
+            }
+        }
         if let Some(value) = args.get("expected_version") {
             let expected_version =
                 value
@@ -70,6 +78,11 @@ impl OutboundCommand for ChangeInfoCommand {
                         ))
                     })?;
             b["expectedVersion"] = json!(expected_version);
+        } else if args.get("purpose").and_then(Value::as_str).is_some() {
+            return Err(ImError::Parse(format!(
+                "{}: purpose 修改必须携带 expected_version",
+                self.name()
+            )));
         }
         Ok(("channel/change/info", b))
     }

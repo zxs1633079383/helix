@@ -3,6 +3,22 @@ use crate::module::ImModule;
 use crate::state::CorrelationContext;
 use helix_core::EffectSink;
 
+/// 以明确失败状态结束 dialog 两段式回读，避免无身份或畸形回包静默成功。
+fn emit_dialog_list_failed(
+    out: &mut EffectSink,
+    causation_id: Option<String>,
+) -> Result<(), ImError> {
+    out.push(
+        crate::event::channel::list(serde_json::json!({
+            "channels": [],
+            "requestId": causation_id,
+            "state": "failed",
+        }))?
+        .into_effect(),
+    );
+    Ok(())
+}
+
 impl ImModule {
     /// 处理 PortReply（Persist/Http 的异步结果回报）。
     ///
@@ -633,17 +649,85 @@ impl ImModule {
             // 左侧会话列表只发布 MessageV3 频道绝对态与当前 viewer 已读绝对态。
             CorrelationContext::DialogListQuery { causation_id } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    let read_events = crate::event::read::channels_from_storage_rows(
+                    let channel_rows = match crate::event::read::parse_dialog_rows(reply.0.as_ref())
+                    {
+                        Ok(rows) => rows,
+                        Err(error) => {
+                            tracing::warn!(error = ?error, "dialog channel scan readback malformed");
+                            emit_dialog_list_failed(out, causation_id)?;
+                            return Ok(());
+                        }
+                    };
+                    if channel_rows.is_empty() {
+                        out.push(
+                            crate::event::channel::list(serde_json::json!({
+                                "channels": [],
+                                "requestId": causation_id,
+                            }))?
+                            .into_effect(),
+                        );
+                        return Ok(());
+                    }
+                    let auth_user_id = self.config.auth_user_id.clone();
+                    if auth_user_id.is_empty() {
+                        tracing::warn!("dialog channel scan readback refused without auth user");
+                        emit_dialog_list_failed(out, causation_id)?;
+                        return Ok(());
+                    }
+                    let member_corr = self.alloc_corr_internal();
+                    let member_scan = crate::query::dialog_member_scan_spec(&auth_user_id);
+                    self.state.corr_map.insert(
+                        member_corr,
+                        CorrelationContext::DialogListMemberSnapshot {
+                            channel_rows: Box::new(channel_rows),
+                            causation_id,
+                            auth_user_id,
+                        },
+                    );
+                    out.push(helix_core::Effect::Persist {
+                        corr: member_corr,
+                        ops: vec![helix_core::effect::StorageOp::Scan(member_scan)],
+                    });
+                }
+                PortOutcome::Err(e) => {
+                    tracing::warn!(error = ?e, "dialog list scan failed");
+                    emit_dialog_list_failed(out, causation_id)?;
+                }
+            },
+
+            // 成员 Scan 回报只允许与首段 channel 行按当前 viewer 合并后发布绝对态。
+            CorrelationContext::DialogListMemberSnapshot {
+                channel_rows,
+                causation_id,
+                auth_user_id,
+            } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    if self.config.auth_user_id.as_str() != auth_user_id.as_str() {
+                        tracing::warn!(
+                            "dialog member readback identity changed; refusing stale snapshot"
+                        );
+                        emit_dialog_list_failed(out, causation_id)?;
+                        return Ok(());
+                    }
+                    let merged_rows = match crate::event::read::merge_dialog_rows_for_viewer(
+                        channel_rows.as_ref(),
                         reply.0.as_ref(),
-                        self.config.auth_user_id.as_str(),
+                        auth_user_id.as_str(),
+                    ) {
+                        Ok(rows) => rows,
+                        Err(error) => {
+                            tracing::warn!(error = ?error, "dialog member readback rejected");
+                            emit_dialog_list_failed(out, causation_id)?;
+                            return Ok(());
+                        }
+                    };
+                    let read_events = crate::event::read::channels_from_dialog_rows(
+                        &merged_rows,
+                        auth_user_id.as_str(),
                     )?;
-                    let channels = serde_json::from_slice::<serde_json::Value>(reply.0.as_ref())
-                        .map_err(|error| {
-                            ImError::Parse(format!("channel list readback: {error}"))
-                        })?;
                     out.push(
                         crate::event::channel::list(serde_json::json!({
-                            "channels": channels.as_array().cloned().unwrap_or_default(),
+                            "channels": merged_rows,
                             "requestId": causation_id,
                         }))?
                         .into_effect(),
@@ -652,16 +736,9 @@ impl ImModule {
                         out.push(event.into_effect());
                     }
                 }
-                PortOutcome::Err(e) => {
-                    tracing::warn!(error = ?e, "dialog list scan failed");
-                    out.push(
-                        crate::event::channel::list(serde_json::json!({
-                            "channels": [],
-                            "requestId": causation_id,
-                            "state": "failed",
-                        }))?
-                        .into_effect(),
-                    );
+                PortOutcome::Err(error) => {
+                    tracing::warn!(error = ?error, "dialog member scan failed");
+                    emit_dialog_list_failed(out, causation_id)?;
                 }
             },
 

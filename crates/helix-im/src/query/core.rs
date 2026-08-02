@@ -141,6 +141,16 @@ pub fn dialog_list_scan_spec(request: DialogListQueryRequest) -> ScanSpec {
     }
 }
 
+/// 为当前 viewer 构造 `channel_member` 全量 Scan，供 dialog 首段快照做成员置顶回读。
+pub(crate) fn dialog_member_scan_spec(auth_user_id: &str) -> ScanSpec {
+    ScanSpec {
+        table: "channel_member",
+        limit: None,
+        filter: Some(("user_id", SqlValue::Text(auth_user_id.to_string()))),
+        order_by: DIALOG_MEMBER_QUERY_ORDER,
+    }
+}
+
 const MESSAGE_QUERY_ORDER: &[ScanOrder] = &[
     ScanOrder::desc("create_at"),
     ScanOrder::desc("temporary_id"),
@@ -150,6 +160,7 @@ pub(crate) const DIALOG_QUERY_ORDER: &[ScanOrder] = &[
     ScanOrder::desc("last_post_at"),
     ScanOrder::desc("created_at"),
 ];
+const DIALOG_MEMBER_QUERY_ORDER: &[ScanOrder] = &[];
 
 /// 构造 `im_query_messages_by_channel` 的 `Scan(message WHERE channel_id ORDER BY create_at DESC)`。
 ///

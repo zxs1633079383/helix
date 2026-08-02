@@ -404,6 +404,9 @@ impl ImState {
                     | CorrelationContext::UpdateChannelDialogPersist { .. }
                     | CorrelationContext::DialogListQuery { .. }
                     | CorrelationContext::PostReadPersist { .. }
+                    | CorrelationContext::OutboundExactPosts { .. }
+                    | CorrelationContext::ExactPostsPersist { .. }
+                    | CorrelationContext::ExactPostsReadback { .. }
                     | CorrelationContext::OutboundChannelCreate { .. }
                     | CorrelationContext::ChannelCreatePersist { .. }
                     | CorrelationContext::ChannelMemberUpdatePersist { .. }

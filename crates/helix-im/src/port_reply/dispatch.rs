@@ -700,6 +700,36 @@ impl ImModule {
                 );
             }
 
+            CorrelationContext::OutboundExactPosts {
+                req_id,
+                requested_ids,
+            } => {
+                self.handle_exact_posts_http_reply(&req_id, requested_ids, outcome, out);
+            }
+
+            CorrelationContext::ExactPostsPersist {
+                req_id,
+                accepted_keys,
+            } => {
+                self.handle_exact_posts_persist_reply(req_id, accepted_keys, outcome, out);
+            }
+
+            CorrelationContext::ExactPostsReadback {
+                req_id,
+                accepted_keys,
+                next_index,
+                rows,
+            } => {
+                self.handle_exact_posts_readback_reply(
+                    req_id,
+                    accepted_keys,
+                    next_index,
+                    rows,
+                    outcome,
+                    out,
+                );
+            }
+
             CorrelationContext::MessageV3DraftReadback { command } => {
                 self.handle_draft_readback_reply(command, outcome, out)?;
             }

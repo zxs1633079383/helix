@@ -11,6 +11,7 @@
 //!   getUpdatedPosts → `timeStamp` **大写 S**（posts.go:体 CursorTs tag）；时间 `createAt`。
 
 use serde_json::{json, Value};
+use std::collections::HashSet;
 
 use crate::error::ImError;
 
@@ -26,6 +27,26 @@ pub(super) fn require_str_array(args: &Value, key: &str, cmd: &str) -> Result<Va
         .cloned()
         .map(Value::Array)
         .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空 {key}（非空字符串数组）")))
+}
+
+/// 解析 G11g exact-by-id 请求；空数组合法，并按首次出现顺序去重保证幂等。
+pub(crate) fn exact_post_ids(args: &Value, cmd: &str) -> Result<Vec<String>, ImError> {
+    let values = args
+        .get("post_ids")
+        .and_then(Value::as_array)
+        .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺 post_ids（字符串数组）")))?;
+    let mut seen = HashSet::new();
+    let mut ids = Vec::with_capacity(values.len());
+    for value in values {
+        let id = value
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| ImError::Parse(format!("{cmd}: post_ids 必须为非空字符串数组")))?;
+        if seen.insert(id.to_string()) {
+            ids.push(id.to_string());
+        }
+    }
+    Ok(ids)
 }
 
 /// 把入参 `in_key`（snake_case）原样透传成 wire 字段 `wire_key`（camelCase），仅当存在且非 null。
@@ -233,7 +254,7 @@ read_cmd!(
     GET_POSTS_REG,
     "im_get_posts",
     |args, cmd| {
-        let post_ids = require_str_array(args, "post_ids", cmd)?;
+        let post_ids = exact_post_ids(args, cmd)?;
         Ok(("posts/get", json!({ "postIds": post_ids })))
     }
 );
@@ -346,7 +367,7 @@ fn page_body(args: &Value, id_key: &'static str, id_val: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::page_body;
+    use super::{exact_post_ids, page_body};
     use serde_json::json;
 
     #[test]
@@ -374,6 +395,19 @@ mod tests {
         );
         assert_eq!(explicit["pageNumber"], 2);
         assert_eq!(explicit["pageSize"], 50);
+    }
+
+    /// G11g 空请求是合法零结果；重复 id 只保留首次出现以保证重放幂等。
+    #[test]
+    fn exact_post_ids_accepts_empty_and_deduplicates() {
+        assert_eq!(
+            exact_post_ids(&json!({"post_ids": []}), "im_get_posts").unwrap(),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            exact_post_ids(&json!({"post_ids": ["p1", "p1", "p2"]}), "im_get_posts").unwrap(),
+            vec!["p1", "p2"]
+        );
     }
 }
 

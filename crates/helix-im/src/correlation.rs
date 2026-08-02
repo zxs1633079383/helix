@@ -322,6 +322,26 @@ pub enum CorrelationContext {
         channel_id: Option<String>,
     },
 
+    /// MV3-G11g exact-by-id HTTP 回报；locate 标志不改变此独立查询语义。
+    OutboundExactPosts {
+        req_id: String,
+        requested_ids: Vec<String>,
+    },
+
+    /// MV3-G11g HTTP 可见命中已写入本地 message，等待按临时主键逐项读回。
+    ExactPostsPersist {
+        req_id: String,
+        accepted_keys: Vec<String>,
+    },
+
+    /// MV3-G11g exact read-back continuation；结果只在最后一个 key 读回后结算一次。
+    ExactPostsReadback {
+        req_id: String,
+        accepted_keys: Vec<String>,
+        next_index: usize,
+        rows: Vec<serde_json::Value>,
+    },
+
     /// MV3-G02e 草稿 ScopedGet 读回；命令携带账号、频道和 req_id 的完整隔离上下文。
     MessageV3DraftReadback {
         command: Box<crate::draft::QueryDraftCommand>,

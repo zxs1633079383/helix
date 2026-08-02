@@ -185,6 +185,20 @@ impl Module for ImModule {
                                 CorrelationContext::OutboundMembersByIds { req_id }
                             } else if name == "im_user_candidates" {
                                 CorrelationContext::OutboundContactCandidates { req_id }
+                            } else if name == "im_get_posts" {
+                                // G11g exact 查询独立于旧 locate 终态；locate 只保留兼容入参，不改变按 id 读回。
+                                let requested_ids = serde_json::from_slice::<serde_json::Value>(
+                                    cmd.payload.as_ref(),
+                                )
+                                .ok()
+                                .and_then(|value| {
+                                    crate::outbound::posts::read::exact_post_ids(&value, name).ok()
+                                })
+                                .unwrap_or_default();
+                                CorrelationContext::OutboundExactPosts {
+                                    req_id,
+                                    requested_ids,
+                                }
                             } else if name == "im_get_replies" || name == "im_get_reply_branch" {
                                 // G12 回复族冻结请求语义，PortReply 只生成 typed thread event。
                                 let request =
@@ -210,30 +224,6 @@ impl Module for ImModule {
                                         .insert(request.root_hint.clone(), request.revision);
                                 }
                                 CorrelationContext::OutboundReplies { request }
-                            } else if name == "im_get_posts"
-                                && serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
-                                    .ok()
-                                    .and_then(|value| {
-                                        value.get("locate").and_then(|flag| flag.as_bool())
-                                    })
-                                    .unwrap_or(false)
-                            {
-                                let post_id = serde_json::from_slice::<serde_json::Value>(
-                                    cmd.payload.as_ref(),
-                                )
-                                .ok()
-                                .and_then(|value| {
-                                    value
-                                        .get("post_ids")
-                                        .and_then(serde_json::Value::as_array)
-                                        .cloned()
-                                })
-                                .and_then(|ids| {
-                                    ids.into_iter()
-                                        .find_map(|id| id.as_str().map(str::to_owned))
-                                })
-                                .unwrap_or_default();
-                                CorrelationContext::OutboundLocatePost { req_id, post_id }
                             } else if name == "im_post_read_list" {
                                 CorrelationContext::OutboundPostReaders { req_id }
                             } else {

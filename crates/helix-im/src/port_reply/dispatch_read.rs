@@ -575,6 +575,224 @@ impl ImModule {
         }
     }
 
+    /// 校验 exact HTTP 回报、按 viewer 过滤并建立唯一 durable Persist barrier。
+    pub(super) fn handle_exact_posts_http_reply(
+        &mut self,
+        req_id: &str,
+        requested_ids: Vec<String>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) {
+        let raw_body = match outcome {
+            PortOutcome::Ok(reply) => {
+                match crate::http_envelope::unwrap_success_envelope(reply.0.as_ref(), "posts/get") {
+                    Ok(raw) => raw,
+                    Err(error) => {
+                        tracing::warn!(req_id, error = ?error, "exact posts HTTP envelope invalid");
+                        out.push(crate::read_relay::emit_read_error(
+                            req_id,
+                            "exact posts response envelope invalid",
+                        ));
+                        return;
+                    }
+                }
+            }
+            PortOutcome::Err(error) => {
+                tracing::warn!(req_id, error = ?error, "exact posts HTTP request failed");
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "exact posts http failed",
+                ));
+                return;
+            }
+        };
+        let posts = match parse_exact_posts_body(&raw_body) {
+            Ok(posts) => posts,
+            Err(error) => {
+                tracing::warn!(req_id, error = ?error, "exact posts response body invalid");
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "exact posts response body invalid",
+                ));
+                return;
+            }
+        };
+        let (accepted_keys, ops) = self.collect_exact_posts_cache_ops(&requested_ids, posts);
+        if !ops.is_empty() && self.local_store_mode == LocalStoreMode::Disabled {
+            tracing::warn!(req_id, "exact posts requires durable local storage");
+            out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "exact posts durable storage unavailable",
+            ));
+            return;
+        }
+        // 即使是 zero-hit，也走一次带 correlation 的空 Persist，确保 terminal 只由同一链路结算。
+        let corr = self.alloc_corr_internal();
+        out.push(Effect::Persist { corr, ops });
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::ExactPostsPersist {
+                req_id: req_id.to_string(),
+                accepted_keys,
+            },
+        );
+    }
+
+    /// 将 HTTP 可见行转成 message upsert；只接受请求 id 命中且每个请求键一次。
+    fn collect_exact_posts_cache_ops(
+        &self,
+        requested_ids: &[String],
+        posts: Vec<Value>,
+    ) -> (Vec<String>, Vec<StorageOp>) {
+        let requested = requested_ids.iter().cloned().collect::<HashSet<_>>();
+        let mut matched = HashSet::new();
+        let mut accepted_keys = Vec::new();
+        let mut accepted_storage = HashSet::new();
+        let mut ops = Vec::new();
+        for post in posts {
+            let fields = crate::ws::parser::extract_post_fields(&post);
+            let candidates = [fields.id.as_str(), fields.temporary_id.as_str()]
+                .into_iter()
+                .filter(|id| !id.is_empty() && requested.contains(*id))
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            if candidates.is_empty() || candidates.iter().all(|id| matched.contains(id)) {
+                continue;
+            }
+            let Some(channel_id) = crate::state::ChannelId::from_str(fields.channel_id.as_str())
+            else {
+                tracing::warn!("exact posts row has invalid channel id; ignoring row");
+                continue;
+            };
+            let (visible_rows, mut row_ops) =
+                match crate::query::local_first::visible_remote_rows_and_cache_ops(
+                    channel_id,
+                    vec![post],
+                    &[],
+                    self.config.auth_user_id.as_str(),
+                ) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        tracing::warn!(error = ?error, "exact posts row failed closed");
+                        continue;
+                    }
+                };
+            let Some(normalized) = visible_rows.into_iter().next() else {
+                continue;
+            };
+            let normalized_fields = crate::ws::parser::extract_post_fields(&normalized);
+            let Some(storage_key) = exact_storage_key(&normalized_fields) else {
+                continue;
+            };
+            if !accepted_storage.insert(storage_key.clone()) {
+                continue;
+            }
+            for id in candidates {
+                matched.insert(id);
+            }
+            accepted_keys.push(storage_key);
+            protect_exact_read_only_columns(&mut row_ops);
+            ops.extend(row_ops);
+        }
+        (accepted_keys, ops)
+    }
+
+    /// PersistOk 后按 temporary_id 逐条 Scan，保证成功结果来自 durable read-back。
+    pub(super) fn handle_exact_posts_persist_reply(
+        &mut self,
+        req_id: String,
+        accepted_keys: Vec<String>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) {
+        if let PortOutcome::Err(error) = outcome {
+            tracing::warn!(%req_id, error = ?error, "exact posts persist failed");
+            out.push(crate::read_relay::emit_read_error(
+                req_id.as_str(),
+                "exact posts persist failed",
+            ));
+            return;
+        }
+        if accepted_keys.is_empty() {
+            out.push(crate::read_relay::emit_read_body(
+                req_id.as_str(),
+                serde_json::json!({"reqId": req_id, "posts": []}),
+            ));
+            return;
+        }
+        self.schedule_exact_posts_readback(req_id, accepted_keys, 1, Vec::new(), out);
+    }
+
+    /// 继续 exact read-back 链；只有最后一条 durable row 回报后才发唯一 terminal。
+    pub(super) fn handle_exact_posts_readback_reply(
+        &mut self,
+        req_id: String,
+        accepted_keys: Vec<String>,
+        next_index: usize,
+        mut rows: Vec<Value>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) {
+        let row = match outcome {
+            PortOutcome::Ok(reply) => {
+                match crate::query::local_first::parse_local_rows(reply.0.as_ref()) {
+                    Ok(rows) => rows.into_iter().next(),
+                    Err(error) => {
+                        tracing::warn!(%req_id, error = ?error, "exact posts durable readback malformed");
+                        None
+                    }
+                }
+            }
+            PortOutcome::Err(error) => {
+                tracing::warn!(%req_id, error = ?error, "exact posts durable readback failed");
+                None
+            }
+        };
+        let Some(row) = row else {
+            out.push(crate::read_relay::emit_read_error(
+                req_id.as_str(),
+                "exact posts durable readback failed",
+            ));
+            return;
+        };
+        rows.push(row);
+        if next_index < accepted_keys.len() {
+            self.schedule_exact_posts_readback(req_id, accepted_keys, next_index + 1, rows, out);
+            return;
+        }
+        let projected = project_exact_posts(&accepted_keys, rows);
+        out.push(crate::read_relay::emit_read_body(
+            req_id.as_str(),
+            serde_json::json!({"reqId": req_id, "posts": projected}),
+        ));
+    }
+
+    /// 为 exact read-back 发出单行 Scan，并把续接状态绑定到新 correlation。
+    fn schedule_exact_posts_readback(
+        &mut self,
+        req_id: String,
+        accepted_keys: Vec<String>,
+        next_index: usize,
+        rows: Vec<Value>,
+        out: &mut EffectSink,
+    ) {
+        let key = accepted_keys[next_index - 1].clone();
+        let corr = self.alloc_corr_internal();
+        out.push(Effect::Persist {
+            corr,
+            ops: vec![StorageOp::Scan(exact_posts_scan_spec(&key))],
+        });
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::ExactPostsReadback {
+                req_id,
+                accepted_keys,
+                next_index,
+                rows,
+            },
+        );
+    }
+
     /// MV3-G02e 本地读回只按冻结的账号/频道命令投影，并通过非领域结果通道返回。
     pub(super) fn handle_draft_readback_reply(
         &self,
@@ -1014,4 +1232,109 @@ fn durable_navigation_key(row: &Value) -> Option<(i64, String)> {
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())?;
     Some((create_at, temporary_id.to_string()))
+}
+
+/// 解析 Go `posts/get` 的 SUCCESS 信封业务体；只接受数组，空数组表示合法零命中。
+fn parse_exact_posts_body(raw: &[u8]) -> Result<Vec<Value>, ImError> {
+    let root: Value = serde_json::from_slice(raw)
+        .map_err(|error| ImError::Parse(format!("posts/get body: {error}")))?;
+    let status = root
+        .get("status")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ImError::Parse("posts/get body missing string status".to_string()))?;
+    if !status.eq_ignore_ascii_case("SUCCESS") {
+        return Err(ImError::Parse(format!("posts/get backend status {status}")));
+    }
+    let rows = root
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| ImError::Parse("posts/get response missing data array".to_string()))?;
+    if rows.iter().any(|row| !row.is_object()) {
+        return Err(ImError::Parse(
+            "posts/get data rows must be objects".to_string(),
+        ));
+    }
+    Ok(rows.clone())
+}
+
+/// 取 durable message 的实际冲突主键；与 event_to_upsert_op 的三级回退保持一致。
+fn exact_storage_key(fields: &crate::sync_session::PostFields) -> Option<String> {
+    if !fields.temporary_id.is_empty() {
+        Some(fields.temporary_id.clone())
+    } else if !fields.id.is_empty() {
+        Some(fields.id.clone())
+    } else {
+        None
+    }
+}
+
+/// exact 查询只缓存内容，不得借回填改写已有消息的 create_at/read_bits/event_seq 本地事实。
+fn protect_exact_read_only_columns(ops: &mut Vec<StorageOp>) {
+    for op in ops {
+        if let StorageOp::BatchUpsert(spec) = op {
+            for column in ["create_at", "read_bits", "event_seq"] {
+                if !spec.exclude_from_update.contains(&column) {
+                    spec.exclude_from_update.push(column);
+                }
+            }
+        }
+    }
+}
+
+/// 为单个 exact identity 构造有界 message Scan，禁止退化成频道全表扫描。
+fn exact_posts_scan_spec(key: &str) -> ScanSpec {
+    ScanSpec {
+        table: "message",
+        limit: Some(1),
+        filter: Some(("temporary_id", SqlValue::Text(key.to_string()))),
+        order_by: &[],
+    }
+}
+
+/// 把落库字符串字段恢复为对象；畸形扩展字段收敛为空对象，不暴露原始编码。
+fn exact_json_object(raw: &str) -> Value {
+    serde_json::from_str::<Value>(raw)
+        .ok()
+        .filter(Value::is_object)
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// 生成 G11g 严格消息投影；排除 readBits、eventSeq、cursor 与 expedite 原始位图。
+fn project_exact_posts(accepted_keys: &[String], rows: Vec<Value>) -> Vec<Value> {
+    let accepted = accepted_keys.iter().collect::<HashSet<_>>();
+    let mut seen = HashSet::new();
+    let mut projected = Vec::new();
+    for row in rows {
+        let fields = crate::ws::parser::extract_post_fields(&row);
+        let Some(key) = exact_storage_key(&fields) else {
+            continue;
+        };
+        if !accepted.contains(&key) || !seen.insert(key) {
+            continue;
+        }
+        projected.push(serde_json::json!({
+            "id": if fields.id.is_empty() { fields.temporary_id.clone() } else { fields.id.clone() },
+            "temporaryId": fields.temporary_id,
+            "channelId": fields.channel_id,
+            "userId": fields.user_id,
+            "userSnapshot": exact_json_object(&fields.user_snapshot),
+            "type": fields.msg_type,
+            "message": fields.message,
+            "simpleMessage": fields.simple_message,
+            "createAt": fields.create_at,
+            "updateAt": fields.update_at,
+            "sendStatus": "sent",
+            "viewers": fields.viewers,
+            "mentions": fields.mentions,
+            "props": exact_json_object(&fields.props),
+            "topic": exact_json_object(&fields.topic),
+            "replyId": fields.reply_id,
+            "replyRootId": fields.reply_root_id,
+            "replyFirstLevelId": fields.reply_first_level_id,
+            "replyCount": fields.reply_count,
+            "repliedMessage": exact_json_object(&fields.replied_message),
+            "replyMessages": exact_json_object(&fields.reply_messages),
+        }));
+    }
+    projected
 }

@@ -39,6 +39,70 @@ name = "message_v3_phase1_registry"
 path = "tests/message_v3/contracts/phase1_registry/main.rs"
 
 [[test]]
+name = "message_v3_contracts_phase3_registry"
+path = "tests/message_v3/contracts/phase3_registry/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g08b"
+path = "tests/message_v3/channel/mv3_g08b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g08c"
+path = "tests/message_v3/channel/mv3_g08c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g08d"
+path = "tests/message_v3/channel/mv3_g08d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10a"
+path = "tests/message_v3/channel/mv3_g10a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10b"
+path = "tests/message_v3/channel/mv3_g10b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10c"
+path = "tests/message_v3/channel/mv3_g10c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10d"
+path = "tests/message_v3/channel/mv3_g10d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10e"
+path = "tests/message_v3/channel/mv3_g10e/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10f"
+path = "tests/message_v3/channel/mv3_g10f/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10g"
+path = "tests/message_v3/channel/mv3_g10g/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g09a"
+path = "tests/message_v3/channel_member/mv3_g09a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g09b"
+path = "tests/message_v3/channel_member/mv3_g09b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g09c"
+path = "tests/message_v3/channel_member/mv3_g09c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g09d"
+path = "tests/message_v3/channel_member/mv3_g09d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g09e"
+path = "tests/message_v3/channel_member/mv3_g09e/main.rs"
+
+[[test]]
 name = "message_v3_mv3_g08a"
 path = "tests/message_v3/channel/mv3_g08a/main.rs"
 

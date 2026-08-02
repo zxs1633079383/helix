@@ -1,9 +1,10 @@
-//! `update_channel_notice` action handler（群公告变更，WS 全量 19 事件补齐，P4）。
+//! `update_channel_notice` 历史 action handler（仅兼容既有入站漂移，不是 MV3-G10b 成功出口）。
 //!
-//! 后端 `cses_channel.go:1190 publishChangeChannelNotice` 推 `WebsocketEventUpdateChannelNotice`，
+//! 旧后端 `cses_channel.go:1190 publishChangeChannelNotice` 推 `WebsocketEventUpdateChannelNotice`，
 //! wire `data` 含 `{channelId, content}`（见 full-map partials/5 §2.15）。
 //!
-//! 移动端契约要求该帧转为 `im:channel:update` thin 信号，通知 UI 重查 dialog projection。
+//! 旧帧仍转为 `im:channel:update` thin 信号，通知 UI 重查 dialog projection；G10b 的新成功
+//! 回包不进入本 handler，也不新增 `update_channel_notice` 发送。
 //! 公告正文仍以后端 / SQLite 投影为准，本 handler 不伪造 channel 行，只发领域更新信号。
 
 use helix_core::EffectSink;

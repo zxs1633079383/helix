@@ -2,7 +2,7 @@
 //!
 //! 五条群信息修改命令，各独立 endpoint + body + inventory 注册（C4 收口，与 P3a/其他
 //! channel_*.rs 零交集）。除 #15 change/props（故意不广播，见文末注释）外，本族 4 条触发
-//! `update_channel`、notice 触发 `update_channel_notice`（WS 推送侧属 P4，本 Phase 只产 outbound）。
+//! `update_channel`；notice 复用 settings CAS authority，成功后也只走 `update_channel`。
 //!
 //! ## endpoint / body 真源（mattermost csesapi 逐字，不自造 fixture，C5）
 //! 子路由前缀 `channel/change`（BaseRoutes.Channel = `/api/cses/channel`，api.go）。
@@ -10,7 +10,7 @@
 //!   header?, purpose?, orient?, module?, source?}`，UserId 由后端 session 覆盖（json:"-" 不读 body）。
 //! - source #12 `command.ChangeChannelSource`：`{id, title}`（**id**=channelId，非 channelId 键）。
 //! - picture#14 解码到 `*ent.Channel`：读 `{id, pictureType, picture}`（id=channelId）。
-//! - notice #10 `command.ChangeChannelNotice`：`{id, notice}`（**id**=channelId，notice=map）。
+//! - notice #10 `command.ChangeChannelNotice`：`{id, notice:{text}, expectedVersion}`（**id**=channelId）。
 //! - top    #18 `command.UpdateChannelTopCommand`：`{channelId, top:bool}`（per-member 置顶）。
 //!
 //! **casing/键名陷阱**：source/picture/notice 用 **`id`** 作 channelId 键（command json tag `json:"id"`），
@@ -137,8 +137,8 @@ inventory::submit! {
     }
 }
 
-/// #10 POST /api/cses/channel/change/notice — 改群公告 → update_channel_notice（可伴 post 系统消息）。
-/// 真源 `command.ChangeChannelNotice`：`{id, notice}`（**id**=channelId，notice=map 指针）。
+/// #10 POST /api/cses/channel/change/notice — 公告 CAS → update_channel（不发旧 notice 事件）。
+/// 真源 `command.ChangeChannelNotice`：`{id, notice:{text}, expectedVersion}`。
 struct ChangeNoticeCommand;
 impl OutboundCommand for ChangeNoticeCommand {
     fn name(&self) -> &'static str {
@@ -146,15 +146,31 @@ impl OutboundCommand for ChangeNoticeCommand {
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         let channel_id = require_str(args, "channel_id", self.name())?;
-        // notice 是 map（*map[string]any）必填非 null（公告内容）。
         let notice = args
             .get("notice")
-            .filter(|v| !v.is_null())
-            .ok_or_else(|| ImError::Parse(format!("{}: 缺 notice（map 非 null）", self.name())))?
-            .clone();
+            .filter(|value| value.is_object())
+            .ok_or_else(|| ImError::Parse(format!("{}: 缺 notice 对象", self.name())))?;
+        let text = notice
+            .get("text")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ImError::Parse(format!("{}: notice.text 必须为字符串", self.name())))?;
+        let expected_version = args
+            .get("expected_version")
+            .and_then(Value::as_i64)
+            .filter(|version| *version >= 0)
+            .ok_or_else(|| {
+                ImError::Parse(format!(
+                    "{}: expected_version 必须为非负 int64",
+                    self.name()
+                ))
+            })?;
         Ok((
             "channel/change/notice",
-            json!({ "id": channel_id, "notice": notice }),
+            json!({
+                "id": channel_id,
+                "notice": {"text": text},
+                "expectedVersion": expected_version,
+            }),
         ))
     }
 }
@@ -297,5 +313,57 @@ mod tests {
             corr,
         )
         .is_err());
+    }
+
+    /// 公告命令只允许 `{text}` notice 与非负 expected_version，旧 map 形状一律拒绝。
+    #[test]
+    fn change_notice_requires_text_and_expected_version() {
+        let corr = Correlation::from_raw(3);
+        let payload = serde_json::to_vec(&json!({
+            "channel_id": "c1",
+            "notice": {"text": "公告"},
+            "expected_version": 7,
+        }))
+        .unwrap();
+        let effects = handle_outbound(
+            "im_channel_change_notice",
+            &payload,
+            "http://h/api",
+            "http://h",
+            None,
+            corr,
+        )
+        .expect("notice CAS should dispatch");
+        let Effect::Http { req, .. } = &effects[0] else {
+            panic!("expected HTTP effect")
+        };
+        let body: serde_json::Value = serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
+        assert_eq!(
+            body,
+            json!({
+                "id": "c1",
+                "notice": {"text": "公告"},
+                "expectedVersion": 7,
+            })
+        );
+
+        for invalid in [
+            json!({"channel_id": "c1", "notice": {"message": "公告"}, "expected_version": 7}),
+            json!({"channel_id": "c1", "notice": {"text": "公告"}}),
+            json!({"channel_id": "c1", "notice": {"text": "公告"}, "expected_version": -1}),
+        ] {
+            assert!(
+                handle_outbound(
+                    "im_channel_change_notice",
+                    serde_json::to_vec(&invalid).unwrap().as_slice(),
+                    "http://h/api",
+                    "http://h",
+                    None,
+                    corr,
+                )
+                .is_err(),
+                "invalid notice intent unexpectedly dispatched: {invalid}"
+            );
+        }
     }
 }

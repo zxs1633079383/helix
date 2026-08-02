@@ -152,6 +152,12 @@ fn run_success() -> TestResult<PersonaTrace> {
         serde_json::to_vec(&vec![dialog_row(3, 1, 1)]).map_err(|error| error.to_string())?,
         CREATED_AT as u64 + 1,
     )?;
+    let member_corr = replay.only_corr()?;
+    replay.reply(
+        member_corr,
+        serde_json::to_vec(&vec![dialog_member_row(false)]).map_err(|error| error.to_string())?,
+        CREATED_AT as u64 + 2,
+    )?;
     let initial = replay.events()?;
 
     let view_corr = replay.command_corr(
@@ -170,6 +176,12 @@ fn run_success() -> TestResult<PersonaTrace> {
         serde_json::to_vec(&vec![dialog_row(0, 0, 0)]).map_err(|error| error.to_string())?,
         CREATED_AT as u64 + 4,
     )?;
+    let recovery_member_corr = recovered.only_corr()?;
+    recovered.reply(
+        recovery_member_corr,
+        serde_json::to_vec(&vec![dialog_member_row(false)]).map_err(|error| error.to_string())?,
+        CREATED_AT as u64 + 5,
+    )?;
     let recovery = recovered.events()?;
     let mut events = initial;
     events.extend(terminal);
@@ -179,11 +191,13 @@ fn run_success() -> TestResult<PersonaTrace> {
         ticks: vec![
             json!({"kind":"Command","value":{"name":"im_query_dialog_list"},"now_ms":CREATED_AT}),
             json!({"kind":"PortReply","value":{"correlation":query_corr.raw(),"outcome":{"variant":"Ok"}},"now_ms":CREATED_AT + 1}),
+            json!({"kind":"PortReply","value":{"correlation":member_corr.raw(),"outcome":{"variant":"Ok"}},"now_ms":CREATED_AT + 2}),
             json!({"kind":"Command","value":{"name":"im_channels_view","payload":{"channels":[{"id":CHANNEL_ID,"isRoot":true}]}},"now_ms":CREATED_AT + 1}),
             json!({"kind":"Inbound","value":{"action":"update_channel","event_seq":42},"now_ms":CREATED_AT + 2}),
             json!({"kind":"PortReply","value":{"correlation":persist_corr.raw(),"outcome":{"variant":"Ok"}},"now_ms":CREATED_AT + 3}),
             json!({"kind":"Command","value":{"name":"im_query_dialog_list","recovery":true},"now_ms":CREATED_AT + 3}),
             json!({"kind":"PortReply","value":{"correlation":recovery_corr.raw(),"outcome":{"variant":"Ok"}},"now_ms":CREATED_AT + 4}),
+            json!({"kind":"PortReply","value":{"correlation":recovery_member_corr.raw(),"outcome":{"variant":"Ok"}},"now_ms":CREATED_AT + 5}),
         ],
     })
 }
@@ -201,6 +215,15 @@ fn dialog_row(unread: i64, mention: i64, urgent: i64) -> Value {
         "last_read_seq": if unread == 0 { 41 } else { 38 },
         "projection_revision": 9,
         "last_post_at": CREATED_AT - 10
+    })
+}
+
+/// 构造当前认证用户的唯一 channel_member 回读行，避免跨账号泄漏。
+fn dialog_member_row(channel_is_top: bool) -> Value {
+    json!({
+        "channel_id": CHANNEL_ID,
+        "user_id": ACTOR_ID,
+        "channel_is_top": channel_is_top
     })
 }
 

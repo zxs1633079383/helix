@@ -70,6 +70,23 @@ pub struct DialogListQueryRequest {
     pub limit: u32,
 }
 
+/// 当前 RuntimeAuth 的会话列表作用域；caller payload 不得覆盖这两个字段。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DialogListScope {
+    pub viewer_user_id: String,
+    pub company_id: String,
+}
+
+impl DialogListScope {
+    /// 从 Host 注入的身份构造不可变查询作用域。
+    pub fn new(viewer_user_id: &str, company_id: &str) -> Self {
+        Self {
+            viewer_user_id: viewer_user_id.to_string(),
+            company_id: company_id.to_string(),
+        }
+    }
+}
+
 /// 解析 latest Timeline 请求，并在任何 I/O Effect 产生前验证 pageSize。
 pub fn parse_message_query(payload: &[u8]) -> Result<MessageQueryRequest, ImError> {
     let value: serde_json::Value = serde_json::from_slice(payload)
@@ -124,13 +141,40 @@ pub fn message_scan_spec(request: &MessageQueryRequest) -> ScanSpec {
     }
 }
 
-pub fn parse_dialog_list_query(payload: &[u8]) -> DialogListQueryRequest {
-    let limit = serde_json::from_slice::<serde_json::Value>(payload)
-        .ok()
-        .and_then(|value| value.get("limit").and_then(serde_json::Value::as_u64))
-        .map(|value| value.clamp(1, u64::from(QUERY_DIALOGS_MAX)) as u32)
-        .unwrap_or(QUERY_DIALOGS_DEFAULT);
-    DialogListQueryRequest { limit }
+/// 解析会话列表最小意图，并拒绝由 caller 伪造的 account/team/user scope。
+pub fn parse_dialog_list_query(payload: &[u8]) -> Result<DialogListQueryRequest, ImError> {
+    let value = serde_json::from_slice::<serde_json::Value>(payload)
+        .map_err(|error| ImError::Parse(format!("im_query_dialog_list payload: {error}")))?;
+    let object = value.as_object().ok_or_else(|| {
+        ImError::Parse("im_query_dialog_list payload must be an object".to_string())
+    })?;
+    for key in object.keys() {
+        if !matches!(key.as_str(), "limit" | "req_id") {
+            return Err(ImError::Parse(format!(
+                "im_query_dialog_list field is not caller-owned: {key}"
+            )));
+        }
+    }
+    let limit = match object.get("limit") {
+        None => QUERY_DIALOGS_DEFAULT,
+        Some(serde_json::Value::Number(value)) => value
+            .as_u64()
+            .map(|value| value.clamp(1, u64::from(QUERY_DIALOGS_MAX)) as u32)
+            .ok_or_else(|| ImError::Parse("im_query_dialog_list limit must be integer".into()))?,
+        Some(_) => {
+            return Err(ImError::Parse(
+                "im_query_dialog_list limit must be integer".into(),
+            ));
+        }
+    };
+    if let Some(req_id) = object.get("req_id") {
+        if !req_id.is_null() && !req_id.is_string() {
+            return Err(ImError::Parse(
+                "im_query_dialog_list req_id must be string".into(),
+            ));
+        }
+    }
+    Ok(DialogListQueryRequest { limit })
 }
 
 pub fn dialog_list_scan_spec(request: DialogListQueryRequest) -> ScanSpec {
@@ -140,6 +184,24 @@ pub fn dialog_list_scan_spec(request: DialogListQueryRequest) -> ScanSpec {
         filter: None,
         order_by: DIALOG_QUERY_ORDER,
     }
+}
+
+/// 构造带 RuntimeAuth 租户过滤的本地 channel Scan。
+pub fn dialog_list_scan_spec_for_scope(
+    request: DialogListQueryRequest,
+    scope: &DialogListScope,
+) -> Result<ScanSpec, ImError> {
+    if scope.company_id.is_empty() || scope.viewer_user_id.is_empty() {
+        return Err(ImError::Parse(
+            "im_query_dialog_list requires RuntimeAuth user and company".into(),
+        ));
+    }
+    Ok(ScanSpec {
+        table: "channel",
+        limit: Some(request.limit),
+        filter: Some(("team_id", SqlValue::Text(scope.company_id.clone()))),
+        order_by: DIALOG_QUERY_ORDER,
+    })
 }
 
 const MESSAGE_QUERY_ORDER: &[ScanOrder] = &[
@@ -231,23 +293,164 @@ pub(crate) fn message_query_result_bytes(
     serde_json::to_vec(&payload).expect("message query static JSON shape must serialize")
 }
 
-/// 构造 `im_query_dialog_list` 的 `Scan(channel ORDER BY is_top,last_post_at,created_at DESC LIMIT)`。
+/// 构造兼容旧内部 caller 的无 scope `Scan(channel ORDER BY is_top,last_post_at,created_at DESC LIMIT)`。
 ///
 /// 返回 `Effect::Persist{Scan}`——调用方（module.rs）alloc corr + 注册
-/// `CorrelationContext::DialogListQuery`，PortReply 回报后把整份 channel 行投影为完整
-/// `message.left-dialog-list` snapshot frame。`limit` 取 payload `limit`（缺省 500，clamp ≤2000）。
+/// `CorrelationContext::DialogListQuery`，PortReply 回报由 runtime wrapper 过滤并封装 typed
+/// Result。生产入口必须使用 `build_dialog_list_query_for_scope`，避免无租户 Scan。
 ///
 /// **无 channel_id 过滤**（会话列表是全量，非按群）：scan 整张 channel 表。置顶优先；同组按
 /// `last_post_at DESC, create_at DESC`，所以新建且尚无消息的会话也能稳定进入 LIMIT 窗口。
 ///
 /// **HX-C005**：低频按需调用（off hot-path），整表 scan 合规——见模块头注与 spec06 §2 边界。
 pub fn build_dialog_list_query(payload: &[u8], corr: Correlation) -> Result<Effect, ImError> {
-    let request = parse_dialog_list_query(payload);
+    let request = parse_dialog_list_query(payload)?;
 
     Ok(Effect::Persist {
         corr,
         ops: vec![StorageOp::Scan(dialog_list_scan_spec(request))],
     })
+}
+
+/// 构造当前 RuntimeAuth 的 account-local dialog Scan，禁止从 payload 取租户。
+pub fn build_dialog_list_query_for_scope(
+    payload: &[u8],
+    corr: Correlation,
+    scope: &DialogListScope,
+) -> Result<Effect, ImError> {
+    let request = parse_dialog_list_query(payload)?;
+    let scan = dialog_list_scan_spec_for_scope(request, scope)?;
+    Ok(Effect::Persist {
+        corr,
+        ops: vec![StorageOp::Scan(scan)],
+    })
+}
+
+/// 将本地 channel rows 过滤为当前 account 的 typed `items` 结果。
+pub fn project_dialog_list_items(
+    reply_bytes: &[u8],
+    scope: &DialogListScope,
+) -> Vec<serde_json::Value> {
+    let Ok(serde_json::Value::Array(rows)) = serde_json::from_slice(reply_bytes) else {
+        return Vec::new();
+    };
+    let mut seen = std::collections::HashSet::new();
+    rows.into_iter()
+        .filter(|row| dialog_row_visible(row, scope))
+        .filter_map(|row| {
+            let id = row
+                .get("id")
+                .or_else(|| row.get("channel_id"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.is_empty())?;
+            seen.insert(id.to_string()).then(|| render_dialog_row(row))
+        })
+        .collect()
+}
+
+/// 把单次 local Scan 包成唯一的 `im:read:result` command Result。
+pub fn emit_dialog_list_result(
+    req_id: &str,
+    reply_bytes: &[u8],
+    scope: &DialogListScope,
+) -> Effect {
+    crate::read_relay::emit_read_body(
+        req_id,
+        serde_json::json!({
+            "items": project_dialog_list_items(reply_bytes, scope),
+        }),
+    )
+}
+
+/// 仅允许租户内、当前 viewer 所属的 channel 行进入结果。
+fn dialog_row_visible(row: &serde_json::Value, scope: &DialogListScope) -> bool {
+    let Some(object) = row.as_object() else {
+        return false;
+    };
+    let team_id = object
+        .get("team_id")
+        .or_else(|| object.get("teamId"))
+        .and_then(serde_json::Value::as_str);
+    if team_id != Some(scope.company_id.as_str()) {
+        return false;
+    }
+    let owner_id = object
+        .get("user_id")
+        .or_else(|| object.get("userId"))
+        .and_then(serde_json::Value::as_str);
+    if owner_id == Some(scope.viewer_user_id.as_str()) {
+        return true;
+    }
+    ["members", "target_users", "targetUsers"]
+        .iter()
+        .filter_map(|key| object.get(*key))
+        .map(parse_json_column)
+        .any(|members| member_list_contains(&members, scope.viewer_user_id.as_str()))
+}
+
+/// 读取 channel JSON text 列；driver 已结构化时保持原值。
+fn parse_json_column(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(raw) => {
+            serde_json::from_str(raw).unwrap_or_else(|_| value.clone())
+        }
+        _ => value.clone(),
+    }
+}
+
+/// 检查成员数组中是否包含当前 RuntimeAuth viewer。
+fn member_list_contains(value: &serde_json::Value, viewer_user_id: &str) -> bool {
+    value.as_array().is_some_and(|members| {
+        members.iter().any(|member| {
+            member
+                .get("userId")
+                .or_else(|| member.get("user_id"))
+                .or_else(|| member.get("id"))
+                .and_then(serde_json::Value::as_str)
+                == Some(viewer_user_id)
+        })
+    })
+}
+
+/// 将 channel storage 行补齐最小 camelCase command-result 字段。
+fn render_dialog_row(row: serde_json::Value) -> serde_json::Value {
+    let serde_json::Value::Object(mut object) = row else {
+        return serde_json::Value::Null;
+    };
+    const ALIASES: &[(&str, &str)] = &[
+        ("display_name", "displayName"),
+        ("user_id", "userId"),
+        ("team_id", "teamId"),
+        ("root_id", "rootId"),
+        ("member_count", "memberCount"),
+        ("unread_count", "unreadCount"),
+        ("mention_count", "mentionCount"),
+        ("mention_count_root", "mentionCountRoot"),
+        ("last_post", "lastPost"),
+        ("last_post_at", "lastPostAt"),
+        ("created_at", "createdAt"),
+        ("is_top", "isTop"),
+        ("admin_users", "adminUsers"),
+        ("target_users", "targetUsers"),
+    ];
+    for (source, target) in ALIASES {
+        if let Some(value) = object.get(*source).cloned() {
+            object.insert((*target).to_string(), parse_json_column(&value));
+        }
+    }
+    for key in [
+        "members",
+        "admin_users",
+        "adminUsers",
+        "boss",
+        "owner",
+        "target_users",
+    ] {
+        if let Some(value) = object.get(key).cloned() {
+            object.insert(key.to_string(), parse_json_column(&value));
+        }
+    }
+    serde_json::Value::Object(object)
 }
 
 /// `im_delete_all_dialogs`（测试用）：emit `im:channels:loaded` 刷新信号。

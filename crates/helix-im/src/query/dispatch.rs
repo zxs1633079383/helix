@@ -34,9 +34,9 @@ impl ImModule {
             }
             "im_query_dialog_list" => {
                 // UC-3：低频按需拉全量会话列表（off hot-path）→ Scan channel + 注册 DialogListQuery；
-                // PortReply 回报后 emit `message.left-dialog-list` 完整 snapshot（前端零计算）。
+                // PortReply 回报后只 emit 一次 `im:read:result` typed Result（前端零计算）。
                 let corr = self.alloc_corr_internal();
-                let effect = crate::query::build_dialog_list_query(payload, corr)?;
+                let effect = self.build_dialog_list_query_for_runtime(payload, corr)?;
                 self.state.corr_map.insert(
                     corr,
                     CorrelationContext::DialogListQuery {

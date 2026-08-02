@@ -647,37 +647,18 @@ impl ImModule {
                 }
             }
 
-            // 左侧会话列表只发布 MessageV3 频道绝对态与当前 viewer 已读绝对态。
+            // 本地 dialog Scan 只发布一次 typed command Result，不广播旧频道/已读事件。
             CorrelationContext::DialogListQuery { causation_id } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    let read_events = crate::event::read::channels_from_storage_rows(
+                    out.push(self.emit_dialog_list_result_for_runtime(
+                        causation_id.as_deref(),
                         reply.0.as_ref(),
-                        self.config.auth_user_id.as_str(),
-                    )?;
-                    let channels = serde_json::from_slice::<serde_json::Value>(reply.0.as_ref())
-                        .map_err(|error| {
-                            ImError::Parse(format!("channel list readback: {error}"))
-                        })?;
-                    out.push(
-                        crate::event::channel::list(serde_json::json!({
-                            "channels": channels.as_array().cloned().unwrap_or_default(),
-                            "requestId": causation_id,
-                        }))?
-                        .into_effect(),
-                    );
-                    for event in read_events {
-                        out.push(event.into_effect());
-                    }
+                    ));
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(error = ?e, "dialog list scan failed");
                     out.push(
-                        crate::event::channel::list(serde_json::json!({
-                            "channels": [],
-                            "requestId": causation_id,
-                            "state": "failed",
-                        }))?
-                        .into_effect(),
+                        self.emit_dialog_list_result_for_runtime(causation_id.as_deref(), b"[]"),
                     );
                 }
             },

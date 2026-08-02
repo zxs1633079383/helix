@@ -237,6 +237,32 @@ fn message_create_at(row: &Value) -> Option<i64> {
 }
 
 impl ImModule {
+    /// 用当前 RuntimeAuth 构造本地 dialog Scan，不把 company/user 接受为 payload 意图。
+    pub(crate) fn build_dialog_list_query_for_runtime(
+        &self,
+        payload: &[u8],
+        corr: helix_core::Correlation,
+    ) -> Result<Effect, ImError> {
+        let scope = super::DialogListScope::new(
+            self.config.auth_user_id.as_str(),
+            self.config.company_id.as_str(),
+        );
+        super::build_dialog_list_query_for_scope(payload, corr, &scope)
+    }
+
+    /// 将 dialog Scan 回报交给唯一 typed Result 通道，失败仍返回空 items。
+    pub(crate) fn emit_dialog_list_result_for_runtime(
+        &self,
+        req_id: Option<&str>,
+        reply_bytes: &[u8],
+    ) -> Effect {
+        let scope = super::DialogListScope::new(
+            self.config.auth_user_id.as_str(),
+            self.config.company_id.as_str(),
+        );
+        super::emit_dialog_list_result(req_id.unwrap_or_default(), reply_bytes, &scope)
+    }
+
     /// 显式 retry 在 HTTP admission 后强制读取 Go 最新消息完成幂等对账。
     pub(crate) fn start_authoritative_send_readback(
         &mut self,

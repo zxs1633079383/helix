@@ -352,10 +352,12 @@ impl ImModule {
                         &messages,
                         auth_user_id,
                     );
-                for pending in &channel_updates {
-                    persist_ops.push(crate::acl::to_effect::bump_channel_unread_op(
-                        &pending.update,
-                    ));
+                if trigger != SyncTrigger::Hydration {
+                    for pending in &channel_updates {
+                        persist_ops.push(crate::acl::to_effect::bump_channel_unread_op(
+                            &pending.update,
+                        ));
+                    }
                 }
                 // A recovery batch is write-only and atomic: facts, per-event evidence, the
                 // range receipt, then cursor. A driver must never report a read result as the
@@ -436,8 +438,14 @@ impl ImModule {
                         channel_id,
                         trigger,
                         wants_continuation: needs_continuation,
-                        channel_updates,
-                        pending_domain_events:
+                        channel_updates: if trigger == SyncTrigger::Hydration {
+                            Vec::new()
+                        } else {
+                            channel_updates
+                        },
+                        pending_domain_events: if trigger == SyncTrigger::Hydration {
+                            Vec::new()
+                        } else {
                             crate::acl::to_effect::sync_mutation_emits_with_auth(
                                 &events,
                                 &messages,
@@ -448,7 +456,8 @@ impl ImModule {
                                 Effect::Emit { event } => Some(event.0.as_ref().to_vec()),
                                 _ => None,
                             })
-                            .collect(),
+                            .collect()
+                        },
                     },
                 );
             }
@@ -463,6 +472,14 @@ impl ImModule {
                     reset_to = reset_to.0,
                     "sync/notify response requires snapshot recovery"
                 );
+                if trigger == SyncTrigger::Hydration {
+                    self.fail_hydration_for_channel(
+                        channel_id,
+                        "hydration sync requires TooLong recovery",
+                        out,
+                    );
+                    return Ok(());
+                }
                 // 覆盖式恢复不先删除本地 message：若 getLatestPost 失败，旧历史仍可读；
                 // 成功回包沿既有 BatchUpsert 链按主键覆盖消息最终态。
                 let reset_cursor = Seq(reset_to.0.saturating_sub(1));

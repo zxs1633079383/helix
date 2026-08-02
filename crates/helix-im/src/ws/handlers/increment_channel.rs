@@ -26,8 +26,8 @@ pub(crate) fn apply_increment(
 }
 
 /// UC-4.5 HTTP 单频道 hydration：复用与 WS `increment_channel` 完全相同的解析后应用规则，
-/// 仅把其中幂等 `PersistFire` 写合并提升为带 corr 的 `Persist`。调用方据此等待
-/// channel/channel_member 确认落库后再启动 sync，避免 HTTP 与本地写并发导致投影读回竞态。
+/// 仅把其中幂等 `PersistFire` 写合并提升为带 corr 的 `PersistAtomic`。调用方据此等待
+/// channel/channel_member 同一原子屏障确认落库后再启动 sync，避免 HTTP 与本地写并发导致投影读回竞态。
 pub(crate) fn apply_increment_hydration(
     ctx: &mut ImWsContext<'_>,
     inc: &IncrementChannel,
@@ -43,7 +43,7 @@ pub(crate) fn apply_increment_hydration(
     }
     let has_persist = !persist_ops.is_empty();
     if has_persist {
-        out.push(Effect::Persist {
+        out.push(Effect::PersistAtomic {
             corr,
             ops: persist_ops,
         });

@@ -275,14 +275,46 @@ impl ImModule {
 
             CorrelationContext::IncrementHydrationPersist {
                 channel_id,
+                req_id,
                 need_sync,
                 raw_increment,
+                snapshot,
             } => self.handle_increment_hydration_persist(
                 channel_id,
+                req_id,
                 need_sync,
                 raw_increment,
+                snapshot,
                 outcome,
                 out,
+            )?,
+
+            CorrelationContext::HydrationChannelReadback { req_id, channel_id } => {
+                self.handle_hydration_channel_readback(req_id, channel_id, outcome, out)?
+            }
+            CorrelationContext::HydrationMemberReadback {
+                req_id,
+                channel_id,
+                channel,
+            } => {
+                self.handle_hydration_member_readback(req_id, channel_id, channel, outcome, out)?
+            }
+            CorrelationContext::HydrationMessagesReadback {
+                req_id,
+                channel_id,
+                channel,
+                member,
+            } => self.handle_hydration_messages_readback(
+                req_id, channel_id, channel, member, outcome, out,
+            )?,
+            CorrelationContext::HydrationCursorReadback {
+                req_id,
+                channel_id,
+                channel,
+                member,
+                messages,
+            } => self.handle_hydration_cursor_readback(
+                req_id, channel_id, channel, member, messages, outcome, out,
             )?,
 
             CorrelationContext::ChannelUpdateByPost { pending } => match outcome {

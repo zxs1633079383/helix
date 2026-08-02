@@ -178,7 +178,30 @@ impl Module for ImModule {
                     // spec06 缺陷A：读族注册回灌上下文（PortReply 透传 `im:read:result{req_id,body}`；写族
                     // fire-and-forget 不注册）。S7：byIds 成员快照走 OutboundMembersByIds（额外 emit im:channel:members）。
                     if crate::commands::is_read(name) {
-                        if let Some(req_id) = crate::read_relay::read_req_id(cmd.payload.as_ref()) {
+                        if name == "im_channel_load_increment_by_channel_id"
+                            && (self.config.auth_user_id.is_empty()
+                                || self.config.company_id.is_empty())
+                        {
+                            return Err(CoreError::ModuleError {
+                                module: self.name(),
+                                source: Box::new(crate::ImError::Parse(
+                                    "increment hydration requires RuntimeAuth account and tenant"
+                                        .to_string(),
+                                )),
+                            });
+                        }
+                        // G13b：Angular 只提交 channelId；Helix 用内部 corr 生成 req_id，
+                        // 不把 caller request identity 写入 HTTP body。
+                        let req_id = if name == "im_channel_load_increment_by_channel_id" {
+                            format!("increment-hydration-{}", corr.raw())
+                        } else if let Some(req_id) =
+                            crate::read_relay::read_req_id(cmd.payload.as_ref())
+                        {
+                            req_id
+                        } else {
+                            return Ok(());
+                        };
+                        {
                             let ctx = if name == "im_channel_load_increment_by_channel_id" {
                                 CorrelationContext::OutboundIncrementHydration { req_id }
                             } else if name == "im_channels_members_by_ids" {

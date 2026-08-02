@@ -19,8 +19,8 @@ pub use values::{
 #[path = "correlation.rs"]
 mod correlation;
 pub use correlation::{
-    ChannelLifecycleTransition, ChannelSettingsProjection, CorrelationContext, MakeTopicProjection,
-    SyncTrigger,
+    ChannelLifecycleTransition, ChannelSettingsProjection, CorrelationContext,
+    HydrationPersistSnapshot, MakeTopicProjection, SyncTrigger,
 };
 
 pub(crate) struct FileUploadProgressState {
@@ -198,6 +198,9 @@ pub struct ImState {
     /// terminal sync commit/no_change 后移除并触发本地 dialog/messages 读回投影。
     pub hydration_pending: HashSet<ChannelId>,
 
+    /// G13b hydration request identity，贯穿 sync 与 durable read-back 的唯一终态。
+    pub hydration_req_ids: HashMap<ChannelId, String>,
+
     /// 当前物理会话中已成功缓存的最近消息窗口；不替代同步 cursor。
     pub(crate) recent_message_coverage:
         HashMap<ChannelId, crate::query::local_first::RecentMessageCoverage>,
@@ -291,6 +294,7 @@ impl ImState {
             pending_increment_ops: Vec::new(),
             pending_increment_projections: Vec::new(),
             hydration_pending: HashSet::new(),
+            hydration_req_ids: HashMap::new(),
             recent_message_coverage: HashMap::new(),
             message_query_generations: HashMap::new(),
             timeline_state: crate::timeline_state::TimelineState::default(),
@@ -323,6 +327,7 @@ impl ImState {
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
         self.hydration_pending.clear();
+        self.hydration_req_ids.clear();
         self.reply_projection_revisions.clear();
         self.reply_projection_seen_ids.clear();
         self.reset_transport_query_session();
@@ -387,6 +392,7 @@ impl ImState {
         self.committed_post_reads.clear();
         self.sync_scheduler.reset();
         self.hydration_pending.clear();
+        self.hydration_req_ids.clear();
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
         self.reset_recent_query_coverage();
@@ -400,6 +406,10 @@ impl ImState {
                     | CorrelationContext::SyncPull { .. }
                     | CorrelationContext::IncrementBatchPersist { .. }
                     | CorrelationContext::IncrementHydrationPersist { .. }
+                    | CorrelationContext::HydrationChannelReadback { .. }
+                    | CorrelationContext::HydrationMemberReadback { .. }
+                    | CorrelationContext::HydrationMessagesReadback { .. }
+                    | CorrelationContext::HydrationCursorReadback { .. }
                     | CorrelationContext::OutboundIncrementHydration { .. }
                     | CorrelationContext::UpdateChannelDialogPersist { .. }
                     | CorrelationContext::DialogListQuery { .. }

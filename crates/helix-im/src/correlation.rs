@@ -36,6 +36,8 @@ pub enum SyncTrigger {
     #[default]
     Routine,
     PongGap,
+    /// G13b hydration sync; terminal projection is emitted only after durable read-back.
+    Hydration,
 }
 
 impl SyncTrigger {
@@ -43,8 +45,19 @@ impl SyncTrigger {
         match self {
             Self::Routine => None,
             Self::PongGap => Some("pong_gap"),
+            Self::Hydration => None,
         }
     }
+}
+
+/// Hydration 的 channel/member 预写内存快照；失败时回滚本地临时壳。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HydrationPersistSnapshot {
+    pub had_channel: bool,
+    pub previous_target: Option<crate::state::Seq>,
+    pub was_increment_fetched: bool,
+    pub was_need_sync_skip: bool,
+    pub previous_about_me_len: usize,
 }
 
 /// 单一 corr 路由表的 value——一条在途异步操作（Persist / Http / Scan）回报时
@@ -441,8 +454,40 @@ pub enum CorrelationContext {
     /// 两侧均确认无需拉取时才直接读回本地投影。
     IncrementHydrationPersist {
         channel_id: ChannelId,
+        req_id: String,
         need_sync: bool,
         raw_increment: Vec<u8>,
+        snapshot: HydrationPersistSnapshot,
+    },
+
+    /// G13b channel durable read-back stage 1: tenant/viewer-scoped channel row.
+    HydrationChannelReadback {
+        req_id: String,
+        channel_id: ChannelId,
+    },
+
+    /// G13b durable read-back stage 2: current viewer member row.
+    HydrationMemberReadback {
+        req_id: String,
+        channel_id: ChannelId,
+        channel: Box<serde_json::Value>,
+    },
+
+    /// G13b durable read-back stage 3: bounded message window.
+    HydrationMessagesReadback {
+        req_id: String,
+        channel_id: ChannelId,
+        channel: Box<serde_json::Value>,
+        member: Box<serde_json::Value>,
+    },
+
+    /// G13b durable read-back stage 4: persisted cursor, then one terminal Result.
+    HydrationCursorReadback {
+        req_id: String,
+        channel_id: ChannelId,
+        channel: Box<serde_json::Value>,
+        member: Box<serde_json::Value>,
+        messages: Box<serde_json::Value>,
     },
 
     /// S7（issue #56）：byIds 成员快照读族 **HTTP** 回报。回报时**双 emit**——

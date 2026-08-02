@@ -16,6 +16,34 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if trigger == SyncTrigger::Hydration {
+            match outcome {
+                PortOutcome::Ok(_) => {
+                    let committed = self
+                        .state
+                        .channels
+                        .get_mut(&channel_id)
+                        .is_some_and(|channel| channel.commit_terminal_after_atomic(terminal_seq));
+                    if committed {
+                        self.finish_increment_hydration(channel_id, out)?;
+                    } else {
+                        self.fail_hydration_for_channel(
+                            channel_id,
+                            "hydration terminal cursor mismatch",
+                            out,
+                        );
+                    }
+                }
+                PortOutcome::Err(_) => {
+                    self.fail_hydration_for_channel(
+                        channel_id,
+                        "hydration terminal persist failed",
+                        out,
+                    );
+                }
+            }
+            return Ok(());
+        }
         match outcome {
             PortOutcome::Ok(_) => {
                 let has_durable_message_changes = !pending_domain_events.is_empty();
@@ -182,11 +210,13 @@ impl ImModule {
                     .get(&channel_id)
                     .map(|channel| channel.cursor.value())
                     .unwrap_or(crate::state::Seq(0));
-                out.push(crate::acl::to_effect::emit_sync_state_with_trigger(
-                    channel_id,
-                    committed_seq,
-                    trigger,
-                ));
+                if trigger != SyncTrigger::Hydration {
+                    out.push(crate::acl::to_effect::emit_sync_state_with_trigger(
+                        channel_id,
+                        committed_seq,
+                        trigger,
+                    ));
+                }
                 if recovery_active
                     && self
                         .state
@@ -224,6 +254,13 @@ impl ImModule {
                     error = ?e,
                     "persist failed, cursor not advanced, will re-sync"
                 );
+                if trigger == SyncTrigger::Hydration {
+                    self.fail_hydration_for_channel(
+                        channel_id,
+                        "hydration history persist failed",
+                        out,
+                    );
+                }
                 // persist 失败：清除 last_sync_from_seq 避免遗留脏状态
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.last_sync_from_seq = None;
@@ -573,9 +610,22 @@ impl ImModule {
         self.state.sync_scheduler.release_window();
         match outcome {
             PortOutcome::Ok(reply) => {
-                self.handle_sync_reply(corr, channel_id, trigger, reply, out)?
+                if let Err(error) = self.handle_sync_reply(corr, channel_id, trigger, reply, out) {
+                    if trigger == SyncTrigger::Hydration {
+                        self.fail_hydration_for_channel(
+                            channel_id,
+                            "hydration sync response invalid",
+                            out,
+                        );
+                        return Ok(());
+                    }
+                    return Err(error);
+                }
             }
             PortOutcome::Err(e) => {
+                if trigger == SyncTrigger::Hydration {
+                    self.fail_hydration_for_channel(channel_id, "hydration sync failed", out);
+                }
                 if self
                     .state
                     .recovery_session

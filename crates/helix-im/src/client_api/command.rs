@@ -226,31 +226,19 @@ fn normalize_public_semantics(public: &str, obj: &mut Map<String, Value>) -> Res
             }
         }
         "im_post_read" => {
-            if !obj.contains_key("posts") {
-                if let Some(post_ids) = obj.remove("post_ids") {
-                    let post_ids = post_ids.as_array().ok_or_else(|| {
-                        ImError::Parse("im_post_read: post_ids 必须是数组".to_string())
-                    })?;
-                    if post_ids.is_empty()
-                        || post_ids.iter().any(|post_id| {
-                            post_id
-                                .as_str()
-                                .is_none_or(|post_id| post_id.trim().is_empty())
-                        })
-                    {
-                        return Err(ImError::Parse(
-                            "im_post_read: post_ids 必须是非空字符串数组".to_string(),
-                        ));
-                    }
-                    obj.insert("posts".to_string(), Value::Array(post_ids.clone()));
-                } else if let Some(post_id) = obj
-                    .get("post_id")
-                    .and_then(Value::as_str)
-                    .filter(|post_id| !post_id.trim().is_empty())
-                {
-                    obj.insert("posts".to_string(), json!([post_id]));
-                }
+            let post_ids = obj.remove("post_ids");
+            if obj.contains_key("posts") && post_ids.is_some() {
+                return Err(ImError::Parse(
+                    "im_post_read: post_ids 与 posts 不得同时存在".to_string(),
+                ));
             }
+            if let Some(post_ids) = post_ids {
+                let post_ids = post_ids.as_array().ok_or_else(|| {
+                    ImError::Parse("im_post_read: post_ids 必须是数组".to_string())
+                })?;
+                obj.insert("posts".to_string(), Value::Array(post_ids.clone()));
+            }
+            validate_canonical_post_read(obj)?;
         }
         "im_channels_view" => {
             let channel_ids = obj.remove("channel_ids");
@@ -389,6 +377,41 @@ fn normalize_public_semantics(public: &str, obj: &mut Map<String, Value>) -> Res
     Ok(())
 }
 
+/// 校验 G06b 公开已读命令的唯一 canonical 形状，拒绝区间、临时 ID 与未知字段。
+fn validate_canonical_post_read(obj: &Map<String, Value>) -> Result<(), ImError> {
+    const ALLOWED: [&str; 2] = ["channel_id", "posts"];
+    if let Some(unknown) = obj.keys().find(|key| !ALLOWED.contains(&key.as_str())) {
+        return Err(ImError::Parse(format!("im_post_read: 未知字段 {unknown}")));
+    }
+
+    let channel_id = obj
+        .get("channel_id")
+        .and_then(Value::as_str)
+        .filter(|value| value.trim() == *value)
+        .and_then(crate::state::ChannelId::from_str)
+        .ok_or_else(|| ImError::Parse("im_post_read: 非 canonical channel_id".to_string()))?;
+    let _ = channel_id;
+
+    let posts = obj
+        .get("posts")
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty())
+        .ok_or_else(|| {
+            ImError::Parse("im_post_read: posts 必须是非空 canonical 字符串数组".to_string())
+        })?;
+    if posts.iter().any(|post| {
+        post.as_str()
+            .filter(|value| value.trim() == *value)
+            .and_then(crate::state::ServerId::from_str)
+            .is_none()
+    }) {
+        return Err(ImError::Parse(
+            "im_post_read: posts 只能包含 canonical post id".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// 校验已归一化的 root channel 对象，阻止第二次字段映射和伪造频道 id。
 fn validate_canonical_root_channels(value: &Value, command: &str) -> Result<(), ImError> {
     let channels = value
@@ -469,18 +492,32 @@ mod tests {
     use helix_core::effect::Effect;
     use helix_core::Correlation;
 
+    /// 生成测试用 canonical channel id，避免公开 G06b 命令混入临时频道键。
+    fn test_channel_id(index: u64) -> String {
+        format!("chfixx{index:020x}")
+    }
+
+    /// 生成测试用 canonical post id，避免公开 G06b 命令混入临时消息键。
+    fn test_post_id(index: u64) -> String {
+        format!("srvfix{index:020x}")
+    }
+
     /// MessageV3 批量已读公开意图必须收敛成 outbound builder 唯一识别的 `posts`。
     #[test]
     fn post_read_public_intent_normalizes_post_ids_to_posts() {
+        let channel_id = test_channel_id(1);
+        let post_ids = json!([test_post_id(1), test_post_id(2)]);
         let normalized = normalize_command_payload(
             "im_post_read",
-            br#"{"channelId":"ch1","postIds":["p1","p2"]}"#,
+            serde_json::to_vec(&json!({"channelId": channel_id, "postIds": post_ids}))
+                .unwrap()
+                .as_slice(),
         )
         .expect("normalize post read");
         let value: Value = serde_json::from_slice(&normalized).expect("decode post read");
 
-        assert_eq!(value["channel_id"], "ch1");
-        assert_eq!(value["posts"], json!(["p1", "p2"]));
+        assert_eq!(value["channel_id"], test_channel_id(1));
+        assert_eq!(value["posts"], json!([test_post_id(1), test_post_id(2)]));
         assert!(value.get("post_ids").is_none());
     }
 
@@ -507,9 +544,13 @@ mod tests {
     /// 从公开 postRead 意图贯穿到 Go `/post/read` body，防止字段在 builder 前静默丢失。
     #[test]
     fn post_read_public_intent_reaches_go_posts_wire() {
+        let channel_id = test_channel_id(1);
+        let post_ids = json!([test_post_id(1), test_post_id(2)]);
         let command = build_command(
             "im_post_read",
-            br#"{"channelId":"ch1","postIds":["p1","p2"]}"#,
+            serde_json::to_vec(&json!({"channelId": channel_id, "postIds": post_ids}))
+                .unwrap()
+                .as_slice(),
         )
         .expect("build post read command");
         let effects = crate::outbound::handle_outbound(
@@ -528,9 +569,32 @@ mod tests {
                     serde_json::from_slice(req.body.as_ref().expect("post read body").as_ref())
                         .expect("decode post read body");
                 assert_eq!(req.url, "http://im/api/cses/post/read");
-                assert_eq!(body, json!({"channelId":"ch1","posts":["p1","p2"]}));
+                assert_eq!(
+                    body,
+                    json!({"channelId":test_channel_id(1),"posts":[test_post_id(1),test_post_id(2)]})
+                );
             }
             other => panic!("expected Http, got {other:?}"),
+        }
+    }
+
+    /// G06b 公开边界拒绝空、临时、非字符串与区间模式，避免读意图漂移。
+    #[test]
+    fn post_read_public_intent_rejects_noncanonical_or_interval_payloads() {
+        let channel_id = test_channel_id(1);
+        let cases = [
+            json!({"channelId": channel_id.clone(), "postIds": []}),
+            json!({"channelId": channel_id.clone(), "postIds": ["helix_tmp_1"]}),
+            json!({"channelId": channel_id.clone(), "postIds": [1]}),
+            json!({"channelId": "temporary-channel", "postIds": [test_post_id(1)]}),
+            json!({"channelId": channel_id, "startTime": 1, "endTime": 2}),
+        ];
+        for payload in cases {
+            let encoded = serde_json::to_vec(&payload).expect("encode case");
+            assert!(
+                build_command("im_post_read", &encoded).is_err(),
+                "invalid public payload must fail: {payload}"
+            );
         }
     }
 

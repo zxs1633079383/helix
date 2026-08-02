@@ -234,6 +234,9 @@ pub struct ImState {
     /// 已经通过持久屏障的 G14 authority 版本；用于 O(1) 丢弃重复或倒退的 WS 回执。
     pub(crate) committed_post_reads: BTreeMap<String, (i64, String)>,
 
+    /// 当前 transport 会话已发布的 G06b `(channel, post, snapshot, reader)` 增量去重键。
+    pub(crate) seen_post_read_deltas: HashSet<(ChannelId, String, String, String)>,
+
     /// coverage 会话代号；hello/disconnect 递增，旧回包不得污染新会话。
     pub(crate) query_session_epoch: u64,
 }
@@ -301,6 +304,7 @@ impl ImState {
             inflight_member_update_seqs: HashSet::new(),
             committed_member_update_seqs: HashSet::new(),
             committed_post_reads: BTreeMap::new(),
+            seen_post_read_deltas: HashSet::new(),
             query_session_epoch: 0,
         }
     }
@@ -335,6 +339,7 @@ impl ImState {
     /// next V2 patch against the revision that is still mounted in the UI.
     pub(crate) fn reset_transport_query_session(&mut self) {
         self.drop_query_session_correlations();
+        self.seen_post_read_deltas.clear();
     }
 
     /// 完整 query/session reset 同时撤销旧查询回包。

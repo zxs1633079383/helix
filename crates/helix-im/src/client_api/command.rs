@@ -253,8 +253,16 @@ fn normalize_public_semantics(public: &str, obj: &mut Map<String, Value>) -> Res
             }
         }
         "im_channels_view" => {
-            if !obj.contains_key("channels") {
-                let channel_ids = obj.remove("channel_ids").ok_or_else(|| {
+            let channel_ids = obj.remove("channel_ids");
+            if obj.contains_key("channels") && channel_ids.is_some() {
+                return Err(ImError::Parse(
+                    "im_channels_view: channel_ids 与 channels 不得同时存在".to_string(),
+                ));
+            }
+            if let Some(channels) = obj.get("channels") {
+                validate_canonical_root_channels(channels, "im_channels_view")?;
+            } else {
+                let channel_ids = channel_ids.ok_or_else(|| {
                     ImError::Parse("im_channels_view: 缺 channel_ids".to_string())
                 })?;
                 let channel_ids = channel_ids.as_array().ok_or_else(|| {
@@ -272,6 +280,11 @@ fn normalize_public_semantics(public: &str, obj: &mut Map<String, Value>) -> Res
                                 "im_channels_view: channel_ids 必须是非空字符串数组".to_string(),
                             )
                         })?;
+                    if crate::state::ChannelId::from_str(channel_id).is_none() {
+                        return Err(ImError::Parse(format!(
+                            "im_channels_view: 非 canonical channel id: {channel_id}"
+                        )));
+                    }
                     if seen.insert(channel_id.to_string()) {
                         channels.push(json!({"id": channel_id, "isRoot": true}));
                     }
@@ -376,6 +389,46 @@ fn normalize_public_semantics(public: &str, obj: &mut Map<String, Value>) -> Res
     Ok(())
 }
 
+/// 校验已归一化的 root channel 对象，阻止第二次字段映射和伪造频道 id。
+fn validate_canonical_root_channels(value: &Value, command: &str) -> Result<(), ImError> {
+    let channels = value
+        .as_array()
+        .filter(|items| !items.is_empty())
+        .ok_or_else(|| {
+            ImError::Parse(format!(
+                "{command}: channels 必须是非空 canonical object 数组"
+            ))
+        })?;
+    let mut seen = std::collections::HashSet::with_capacity(channels.len());
+    for channel in channels {
+        let object = channel
+            .as_object()
+            .ok_or_else(|| ImError::Parse(format!("{command}: channel 必须是 object")))?;
+        if object.len() != 2 || !object.contains_key("id") || !object.contains_key("isRoot") {
+            return Err(ImError::Parse(format!(
+                "{command}: channel 只能包含 id/isRoot canonical 字段"
+            )));
+        }
+        let id = object
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty() && id.trim() == *id)
+            .ok_or_else(|| ImError::Parse(format!("{command}: id 必须是非空 canonical 字符串")))?;
+        if crate::state::ChannelId::from_str(id).is_none() {
+            return Err(ImError::Parse(format!(
+                "{command}: 非 canonical channel id: {id}"
+            )));
+        }
+        if object.get("isRoot").and_then(Value::as_bool) != Some(true) {
+            return Err(ImError::Parse(format!("{command}: isRoot 必须为 true")));
+        }
+        if !seen.insert(id) {
+            return Err(ImError::Parse(format!("{command}: channel id 重复: {id}")));
+        }
+    }
+    Ok(())
+}
+
 fn copy_setting(
     settings: &Map<String, Value>,
     target: &mut Map<String, Value>,
@@ -434,16 +487,18 @@ mod tests {
     /// MessageV3 会话已读公开意图必须把频道 ID 变为 Go `/channels/view` 的对象数组。
     #[test]
     fn channels_view_public_intent_normalizes_channel_ids_to_objects() {
-        let normalized =
-            normalize_command_payload("im_channels_view", br#"{"channelIds":["ch1","ch2"]}"#)
-                .expect("normalize channels view");
+        let normalized = normalize_command_payload(
+            "im_channels_view",
+            br#"{"channelIds":["chfixx0000000000000000001d"," chfixx0000000000000000001d ","chfixx0000000000000000001e"]}"#,
+        )
+        .expect("normalize channels view");
         let value: Value = serde_json::from_slice(&normalized).expect("decode channels view");
 
         assert_eq!(
             value["channels"],
             json!([
-                {"id":"ch1","isRoot":true},
-                {"id":"ch2","isRoot":true}
+                {"id":"chfixx0000000000000000001d","isRoot":true},
+                {"id":"chfixx0000000000000000001e","isRoot":true}
             ])
         );
         assert!(value.get("channel_ids").is_none());
@@ -482,8 +537,11 @@ mod tests {
     /// 从公开 channelsView 意图贯穿到 Go `/channels/view` body，并冻结 `isRoot=true`。
     #[test]
     fn channels_view_public_intent_reaches_go_channels_wire() {
-        let command = build_command("im_channels_view", br#"{"channelIds":["ch1","ch2"]}"#)
-            .expect("build channels view command");
+        let command = build_command(
+            "im_channels_view",
+            br#"{"channelIds":["chfixx0000000000000000001d","chfixx0000000000000000001e"]}"#,
+        )
+        .expect("build channels view command");
         let effects = crate::outbound::handle_outbound(
             command.name.as_ref(),
             command.payload.as_ref(),
@@ -503,12 +561,35 @@ mod tests {
                 assert_eq!(
                     body,
                     json!({"channels":[
-                        {"id":"ch1","isRoot":true},
-                        {"id":"ch2","isRoot":true}
+                        {"id":"chfixx0000000000000000001d","isRoot":true},
+                        {"id":"chfixx0000000000000000001e","isRoot":true}
                     ]})
                 );
             }
             other => panic!("expected Http, got {other:?}"),
         }
+    }
+
+    /// 公开 channelsView 不接受临时/非 canonical channel id，避免把伪 id 写入 Go CAS。
+    #[test]
+    fn channels_view_public_intent_rejects_noncanonical_channel_ids() {
+        assert!(normalize_command_payload(
+            "im_channels_view",
+            br#"{"channelIds":["temporary-channel"]}"#,
+        )
+        .is_err());
+    }
+
+    /// 公开边界只生成一次 root 映射，调用方不能绕过归一化携带重复或不完整对象。
+    #[test]
+    fn channels_view_public_intent_rejects_duplicate_or_incomplete_channel_objects() {
+        let duplicate = br#"{"channels":[{"id":"chfixx0000000000000000001d","isRoot":true},{"id":"chfixx0000000000000000001d","isRoot":true}]}"#;
+        assert!(normalize_command_payload("im_channels_view", duplicate).is_err());
+
+        let incomplete = br#"{"channels":[{"id":"chfixx0000000000000000001d"}]}"#;
+        assert!(normalize_command_payload("im_channels_view", incomplete).is_err());
+
+        let mixed = br#"{"channelIds":["chfixx0000000000000000001d"],"channels":[{"id":"chfixx0000000000000000001e","isRoot":true}]}"#;
+        assert!(normalize_command_payload("im_channels_view", mixed).is_err());
     }
 }

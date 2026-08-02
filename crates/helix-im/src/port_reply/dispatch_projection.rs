@@ -47,8 +47,30 @@ impl ImModule {
             false,
         ));
         let persist_corr = self.alloc_corr_internal();
+        let authority = response_data(outcome).unwrap_or_else(|| serde_json::json!({}));
+        let member_ids = authority
+            .get("memberIds")
+            .or_else(|| authority.get("member_ids"))
+            .and_then(serde_json::Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .filter(|value| !value.is_empty())
+                    .map(serde_json::Value::from)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let participant_count = authority
+            .get("participantCount")
+            .or_else(|| authority.get("participant_count"))
+            .and_then(serde_json::Value::as_i64)
+            .filter(|value| *value >= 0)
+            .unwrap_or(member_ids.len() as i64);
         let topic_json = serde_json::json!({
             "channelId": projection.topic_channel_id.as_str(),
+            "members": member_ids,
+            "participantCount": participant_count,
         })
         .to_string();
         let channel_row: Row = vec![
@@ -159,17 +181,69 @@ impl ImModule {
                     "make-topic root row omitted parent channel".to_string(),
                 )
             })?;
+        let channel_id = ChannelId::from_str(parent_channel_id).ok_or_else(|| {
+            crate::error::ImError::Parse(
+                "make-topic root row has invalid parent channel".to_string(),
+            )
+        })?;
+        let mut topic = root_row
+            .get("topic")
+            .and_then(|value| match value {
+                serde_json::Value::Object(_) => Some(value.clone()),
+                serde_json::Value::String(encoded) => serde_json::from_str(encoded)
+                    .ok()
+                    .filter(serde_json::Value::is_object),
+                _ => None,
+            })
+            .unwrap_or_else(|| serde_json::json!({}));
+        let members = topic
+            .get("members")
+            .and_then(serde_json::Value::as_array)
+            .filter(|values| !values.is_empty())
+            .map(|values| serde_json::Value::Array(values.clone()))
+            .unwrap_or_else(|| {
+                root_row
+                    .get("user_id")
+                    .or_else(|| root_row.get("userId"))
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| serde_json::json!([value]))
+                    .unwrap_or_else(|| serde_json::json!([]))
+            });
+        // 话题创建沿用既有频道绝对态，父频道与源消息锚点只从 durable root 读回确定。
         out.push(
-            crate::event::channel::topic_created(serde_json::json!({
-                "channelId": projection.topic_channel_id.as_str(),
-                "parentChannelId": parent_channel_id,
-                "rootMessageId": projection.root_message_id,
+            crate::event::channel::created(serde_json::json!({
+                "id": projection.topic_channel_id.as_str(),
+                "type": "T",
                 "displayName": projection.display_name,
-                "rootPost": root_row,
-                "state": "created",
+                "rootId": parent_channel_id,
+                "parentPostId": projection.root_message_id,
+                "members": members,
+                "memberCount": members.as_array().map_or(0, Vec::len),
+                "unreadCount": 0,
+                "mentionCount": 0,
             }))?
             .into_effect(),
         );
+
+        let mut fields = crate::ws::parser::extract_post_fields(root_row);
+        if let Some(topic_object) = topic.as_object_mut() {
+            topic_object
+                .entry("channelId".to_string())
+                .or_insert_with(|| serde_json::json!(projection.topic_channel_id.as_str()));
+            topic_object
+                .entry("participantCount".to_string())
+                .or_insert_with(|| serde_json::json!(members.as_array().map_or(0, Vec::len)));
+        }
+        fields.topic = topic.to_string();
+        // 根消息的 postUpdated 必须排在 channelCreated 之后，且只投影 durable root 的字段。
+        out.push(crate::acl::to_effect::emit_post_updated_for_viewer(
+            channel_id,
+            projection.revision,
+            projection.root_message_id.as_str(),
+            &fields,
+            "",
+        ));
         Ok(())
     }
 

@@ -263,6 +263,10 @@ name = "message_v3_mv3_g06b"
 path = "tests/message_v3/read/mv3_g06b/main.rs"
 
 [[test]]
+name = "message_v3_mv3_g06d"
+path = "tests/message_v3/read/mv3_g06d/main.rs"
+
+[[test]]
 name = "message_v3_g16"
 path = "tests/message_v3/channel/g16/main.rs"
 

@@ -281,7 +281,13 @@ impl TimelineNavigationState {
 pub fn parse_newer_request(
     payload: &[u8],
 ) -> Result<(ChannelId, String, u32, Option<String>), ImError> {
-    parse_request(payload, LOAD_NEWER_CONTEXT, "anchor_post_id")
+    let parsed = parse_request(payload, LOAD_NEWER_CONTEXT, "anchor_post_id")?;
+    if parsed.3.is_none() {
+        return Err(ImError::Parse(format!(
+            "{LOAD_NEWER_CONTEXT} req_id is required"
+        )));
+    }
+    Ok(parsed)
 }
 
 /// 解析上拉请求，并拒绝 renderer 注入复合游标。
@@ -396,11 +402,14 @@ pub fn locate_probe_effect(target_message_id: &str, corr: Correlation) -> Effect
     }
 }
 
-/// 构造持久化后的单行读回；PersistOk 之前不会产生该 Effect。
+/// 构造定位专用的单行读回；分页 newer/older 必须由 dispatch 生成 bounded Scan。
 pub fn navigation_readback_effect(
     state: &TimelineNavigationState,
     corr: Correlation,
 ) -> Option<Effect> {
+    if !matches!(state.kind(), TimelineNavigationKind::Locate { .. }) {
+        return None;
+    }
     state
         .readback_message_id()
         .map(|message_id| locate_probe_effect(message_id, corr))

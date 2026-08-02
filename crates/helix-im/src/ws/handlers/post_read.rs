@@ -209,13 +209,13 @@ fn has_legacy_projection_fields(data: &Value) -> bool {
 
 /// 判断帧是否包含 G14 成员快照字段；这些字段优先进入旧持久化链。
 fn has_legacy_member_fields(data: &Value) -> bool {
-    let has_read_map = ["readMap", "read_map"]
+    let has_read_projection = ["readMap", "read_map", "readBits", "read_bits"]
         .iter()
         .any(|key| data.get(*key).is_some());
     let has_member_ids = ["memberIds", "member_ids"]
         .iter()
         .any(|key| data.get(*key).is_some());
-    has_read_map && has_member_ids
+    has_read_projection && has_member_ids
 }
 
 /// 判断帧是否出现 G06b 的 snapshot/reader 身份字段。

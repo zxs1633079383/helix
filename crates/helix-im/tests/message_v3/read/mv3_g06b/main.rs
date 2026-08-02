@@ -69,6 +69,21 @@ fn legacy_authority(channel_id: &str, post_id: &str) -> Value {
     })
 }
 
+/// 构造旧兼容形态的 `readBits + memberIds` authority，覆盖 G14 位图别名路径。
+fn legacy_read_bits_authority(channel_id: &str, post_id: &str) -> Value {
+    json!({
+        "channelId": channel_id,
+        "postId": post_id,
+        "authorUserId": "g14-author",
+        "readerUserId": "g14-reader",
+        "snapshotId": "g14-snapshot",
+        "memberIds": ["g14-reader", "g14-other"],
+        "readBits": "01",
+        "createAt": 1_700_001_400_000_i64,
+        "updateAt": 1_700_001_400_020_i64
+    })
+}
+
 /// public client_api 只把 `postIds` 一次归一到 `{channel_id,posts}`，并写出唯一 Go body。
 #[test]
 fn g06b_public_command_normalizes_once_and_writes_posts_wire() {
@@ -250,5 +265,27 @@ fn g14_legacy_post_read_still_persists_read_bits() {
                         && matches!(value, helix_core::effect::SqlValue::Text(bits) if bits == "10")
                 })
     ));
+    assert!(emitted_events(&harness).is_empty());
+}
+
+/// G14 的 `readBits/memberIds` 旧 authority 仍须独立进入同一 Persist 链。
+#[test]
+fn g14_legacy_read_bits_alias_still_persists_read_bits() {
+    let mut harness = Harness::new_with_identity(&[14], "g14-reader", "g14-company", "", "", "");
+    harness.step(
+        inbound_post_read(legacy_read_bits_authority(&cid(14), &sid(14))),
+        1_700_001_414_001,
+    );
+    let ops = persist_ops(&harness).expect("legacy readBits authority must persist");
+    assert!(ops.iter().any(|op| {
+        matches!(
+            op,
+            StorageOp::BatchUpdate(spec)
+                if spec.patch.iter().any(|(column, value)| {
+                    column == "read_bits"
+                        && matches!(value, helix_core::effect::SqlValue::Text(bits) if bits == "01")
+                })
+        )
+    }));
     assert!(emitted_events(&harness).is_empty());
 }

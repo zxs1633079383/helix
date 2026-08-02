@@ -358,6 +358,7 @@ impl ImState {
                 CorrelationContext::MessageQueryLocal { .. }
                     | CorrelationContext::MessageQueryRemote { .. }
                     | CorrelationContext::MessageQueryCache { .. }
+                    | CorrelationContext::MessageQueryReadback { .. }
             )
         });
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);

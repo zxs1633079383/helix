@@ -595,7 +595,6 @@ impl ImModule {
 
             CorrelationContext::MessageQueryCache {
                 request,
-                merged_rows_desc,
                 coverage,
                 query_session_epoch,
                 query_generation,
@@ -603,7 +602,25 @@ impl ImModule {
                 deferred_send_http,
             } => self.handle_message_query_cache_reply(
                 *request,
-                *merged_rows_desc,
+                coverage,
+                query_session_epoch,
+                query_generation,
+                causation_id,
+                deferred_send_http,
+                now_ms,
+                outcome,
+                out,
+            )?,
+
+            CorrelationContext::MessageQueryReadback {
+                request,
+                coverage,
+                query_session_epoch,
+                query_generation,
+                causation_id,
+                deferred_send_http,
+            } => self.handle_message_query_readback_reply(
+                *request,
                 coverage,
                 query_session_epoch,
                 query_generation,

@@ -234,7 +234,7 @@ pub enum CorrelationContext {
         deferred_send_http: Option<TemporaryId>,
     },
 
-    /// 最近消息 local-first 第 2 段：`getLatestPost` HTTP 回报后合并并按能力缓存。
+    /// 最近消息 local-first 第 2 段：`getLatestPost` HTTP 回报后仅写入 durable message。
     MessageQueryRemote {
         request: Box<crate::query::MessageQueryRequest>,
         local_rows_desc: Box<Vec<serde_json::Value>>,
@@ -246,10 +246,19 @@ pub enum CorrelationContext {
         authoritative_send_readback: Option<TemporaryId>,
     },
 
-    /// 最近消息 local-first 第 3 段：cache Persist 回报后才记录当前会话 coverage 并 emit。
+    /// 最近消息 local-first 第 3 段：cache Persist 回报后发起同一 Scan read-back。
     MessageQueryCache {
         request: Box<crate::query::MessageQueryRequest>,
-        merged_rows_desc: Box<Vec<serde_json::Value>>,
+        coverage: Option<crate::query::local_first::RecentMessageCoverage>,
+        query_session_epoch: u64,
+        query_generation: u64,
+        causation_id: Option<String>,
+        deferred_send_http: Option<TemporaryId>,
+    },
+
+    /// 最近消息 local-first 第 4 段：durable Scan 回报才允许发布唯一 timeline 终态。
+    MessageQueryReadback {
+        request: Box<crate::query::MessageQueryRequest>,
         coverage: Option<crate::query::local_first::RecentMessageCoverage>,
         query_session_epoch: u64,
         query_generation: u64,

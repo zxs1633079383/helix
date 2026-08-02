@@ -136,3 +136,74 @@ impl ImModule {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod phase2_contract_tests {
+    use super::*;
+    use helix_core::effect::Effect;
+    use helix_core::EffectSink;
+
+    const CHANNEL_ID: &str = "chfixx0000000000000000002a";
+
+    /// 冻结查询入口的单 corr 注册、20 页长和当前窗口代际。
+    #[test]
+    fn message_query_registers_one_correlated_generation() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "channel_id": CHANNEL_ID,
+            "pageSize": 20,
+            "req_id": "phase2-query-1",
+        }))
+        .expect("query payload serializes");
+        let mut out = EffectSink::new();
+
+        module
+            .handle_query_command("im_query_messages_by_channel", &payload, &mut out)
+            .expect("query command is accepted");
+
+        let Some(Effect::Persist { corr, .. }) = out.as_slice().first() else {
+            panic!("query command must start one local Scan persist");
+        };
+        assert_eq!(module.state.corr_map.len(), 1);
+        assert!(matches!(
+            module.state.corr_map.get(corr),
+            Some(CorrelationContext::MessageQueryLocal {
+                request,
+                query_generation: 1,
+                ..
+            }) if request.limit == 20 && request.channel_id.as_str() == CHANNEL_ID
+        ));
+    }
+
+    /// 账号/会话边界必须使旧窗口代际失效，避免迟到回包污染新身份。
+    #[test]
+    fn identity_reset_restarts_message_query_generation() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let channel_id =
+            crate::state::ChannelId::from_str(CHANNEL_ID).expect("test channel id is valid");
+        assert_eq!(
+            module
+                .state
+                .begin_message_query_generation(channel_id, "latest"),
+            1
+        );
+        assert_eq!(
+            module
+                .state
+                .begin_message_query_generation(channel_id, "latest"),
+            2
+        );
+        let old_epoch = module.state.query_session_epoch;
+        module.state.reset_message_v3_identity();
+        assert!(module.state.query_session_epoch > old_epoch);
+        assert_eq!(
+            module
+                .state
+                .begin_message_query_generation(channel_id, "latest"),
+            1
+        );
+        assert!(!module
+            .state
+            .is_current_message_query_generation(channel_id, "latest", 2));
+    }
+}

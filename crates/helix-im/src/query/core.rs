@@ -271,3 +271,25 @@ pub fn emit_dialogs_cleared() -> Effect {
 #[cfg(test)]
 #[path = "core_message_tests.rs"]
 mod message_tests;
+
+#[cfg(test)]
+mod phase2_contract_tests {
+    /// 冻结 Phase 2 时间线页长边界，确保默认 20 与最大 60 在 I/O 前可验证。
+    #[test]
+    fn timeline_page_size_contract_accepts_twenty_and_sixty() {
+        assert_eq!(
+            crate::timeline_state::TimelinePageSize::new(20)
+                .expect("default page size is valid")
+                .get(),
+            20
+        );
+        assert_eq!(
+            crate::timeline_state::TimelinePageSize::new(60)
+                .expect("maximum page size is valid")
+                .get(),
+            60
+        );
+        assert!(crate::timeline_state::TimelinePageSize::new(0).is_err());
+        assert!(crate::timeline_state::TimelinePageSize::new(61).is_err());
+    }
+}

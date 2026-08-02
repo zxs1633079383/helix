@@ -1166,3 +1166,100 @@ fn lifecycle_http_succeeded(outcome: &helix_core::tick::PortOutcome) -> bool {
         .and_then(serde_json::Value::as_str)
         .is_some_and(|status| status.eq_ignore_ascii_case("SUCCESS"))
 }
+
+#[cfg(test)]
+mod phase2_contract_tests {
+    use super::*;
+    use bytes::Bytes;
+    use helix_core::effect::Effect;
+    use helix_core::tick::{PortOutcome, ReplyBytes};
+    use helix_core::EffectSink;
+
+    const CHANNEL_ID: &str = "chfixx0000000000000000002b";
+
+    /// Persist read-back 只在匹配 correlation 下释放一次成功事件。
+    #[test]
+    fn timeline_readback_requires_matching_rows() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let channel_id =
+            crate::state::ChannelId::from_str(CHANNEL_ID).expect("test channel id is valid");
+        let page = crate::timeline_state::WindowPage {
+            window_token: "latest".to_string(),
+            ..Default::default()
+        };
+        let mut state = crate::timeline_navigation::TimelineNavigationState::older(
+            channel_id,
+            page,
+            20,
+            Some("phase2-readback-1".to_string()),
+            "anchor-1".to_string(),
+            crate::timeline_state::TimelineEntityKey {
+                create_at: 1,
+                temporary_id: "tmp-1".to_string(),
+            },
+        );
+        state.replace_rows(vec![serde_json::json!({
+            "id": "target-1",
+            "channelId": CHANNEL_ID,
+            "createAt": 2,
+            "temporaryId": "tmp-2"
+        })]);
+        let corr = module.alloc_corr();
+        module.state.corr_map.insert(
+            corr,
+            CorrelationContext::TimelineNavigationReadback {
+                state: Box::new(state),
+            },
+        );
+        let outcome = PortOutcome::Ok(ReplyBytes(Bytes::from_static(br#"[{"id":"target-1"}]"#)));
+        let mut out = EffectSink::new();
+
+        module
+            .handle_port_reply(corr, &outcome, 1, &mut out)
+            .expect("matching read-back is handled");
+        assert_eq!(
+            out.as_slice()
+                .iter()
+                .filter(|effect| matches!(effect, Effect::Emit { .. }))
+                .count(),
+            1
+        );
+    }
+
+    /// 同一 correlation 的迟到 terminal 必须被单表 remove 闸门丢弃。
+    #[test]
+    fn duplicate_terminal_correlation_is_ignored() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let corr = module.alloc_corr();
+        let event = crate::event::MessageV3Event::new(
+            "im:phase2:test",
+            serde_json::json!({ "reqId": "phase2-terminal-1" }),
+        )
+        .expect("test event is valid")
+        .into_bytes();
+        module.state.corr_map.insert(
+            corr,
+            CorrelationContext::MessageV3Commit {
+                terminal_events: vec![event],
+            },
+        );
+        let outcome = PortOutcome::Ok(ReplyBytes::default());
+        let mut out = EffectSink::new();
+
+        module
+            .handle_port_reply(corr, &outcome, 1, &mut out)
+            .expect("first terminal is handled");
+        assert_eq!(
+            out.as_slice()
+                .iter()
+                .filter(|effect| matches!(effect, Effect::Emit { .. }))
+                .count(),
+            1
+        );
+        out.clear();
+        module
+            .handle_port_reply(corr, &outcome, 2, &mut out)
+            .expect("late terminal is ignored");
+        assert!(out.as_slice().is_empty());
+    }
+}

@@ -46,9 +46,20 @@ impl OutboundCommand for ChangeDisplayNameCommand {
         let channel_id = require_str(args, "channel_id", self.name())?;
         // displayName 必填（改名语义需非空；Go ChangeChannelDisPlayName.DisPlayName string 非指针）。
         let display_name = require_str(args, "display_name", self.name())?;
+        // CAS 版本只能由服务端投影带回；缺失、负数或浮点都不能进入 I/O。
+        let expected_version = args
+            .get("expected_version")
+            .and_then(Value::as_i64)
+            .filter(|version| *version >= 0)
+            .ok_or_else(|| {
+                ImError::Parse(format!(
+                    "{}: expected_version must be a non-negative integer",
+                    self.name()
+                ))
+            })?;
         Ok((
             "channel/change/displayName",
-            json!({ "id": channel_id, "displayName": display_name }),
+            json!({ "id": channel_id, "displayName": display_name, "expectedVersion": expected_version }),
         ))
     }
 }

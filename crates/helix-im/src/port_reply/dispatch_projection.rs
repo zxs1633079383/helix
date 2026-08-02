@@ -311,30 +311,21 @@ impl ImModule {
         if !matches!(outcome, PortOutcome::Ok(_)) {
             return Ok(());
         }
-        let mut channel = serde_json::json!({
-            "purpose": projection.purpose.clone(),
-            "header": projection.header.clone(),
-        });
-        if let (Some(settings), Some(display_name)) =
-            (channel.as_object_mut(), projection.display_name.clone())
-        {
-            settings.insert(
-                "displayName".to_string(),
-                serde_json::Value::String(display_name),
-            );
-        }
-        if let Some(settings) = channel.as_object_mut() {
-            settings.insert(
-                "channelId".to_string(),
-                serde_json::Value::String(projection.channel_id.as_str().to_string()),
-            );
-        }
-        if let Some(effect) = crate::acl::to_effect_s1::emit_channel_settings_updated(
-            projection.channel_id,
-            &channel,
-            projection.setting_version,
-        ) {
-            out.push(effect);
+        let mut channel = projection.channel;
+        let Some(channel_map) = channel.as_object_mut() else {
+            return Ok(());
+        };
+        // 只补齐已由 Go authority 确认的标识和版本，其他字段原样保留，避免构造伪 DialogItem。
+        channel_map.insert(
+            "id".to_string(),
+            serde_json::Value::String(projection.channel_id.as_str().to_string()),
+        );
+        channel_map.insert(
+            "settingVersion".to_string(),
+            serde_json::Value::from(projection.setting_version),
+        );
+        if let Ok(event) = crate::event::channel::update(channel) {
+            out.push(event.into_effect());
         }
         Ok(())
     }
@@ -396,6 +387,7 @@ fn decode_settings_projection(
     let data = response_data(outcome)?;
     let channel_id = data
         .get("channelId")
+        .or_else(|| data.get("id"))
         .and_then(serde_json::Value::as_str)
         .and_then(ChannelId::from_str)?;
     if channel_id != expected_channel_id {
@@ -418,6 +410,7 @@ fn decode_settings_projection(
         .filter(|version| *version <= i64::MAX as u64)?;
     Some(ChannelSettingsProjection {
         channel_id,
+        channel: data.clone(),
         display_name,
         purpose,
         header,

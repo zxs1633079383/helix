@@ -768,16 +768,8 @@ impl ImModule {
                             })
                         })
                         .collect::<Vec<_>>();
-                    let leave_events = leaves
-                        .iter()
-                        .map(|user_id| {
-                            crate::event::channel_member::left(serde_json::json!({
-                                "channelId": channel_id.as_str(),
-                                "userId": user_id,
-                                "state": "left",
-                            }))
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
+                    // A roster is the receiver's sole absolute member projection; per-user
+                    // leave events would create a second, divergent membership event family.
                     out.push(
                         crate::event::channel_member::updated(serde_json::json!({
                             "channelId": channel_id.as_str(),
@@ -788,9 +780,6 @@ impl ImModule {
                         }))?
                         .into_effect(),
                     );
-                    for event in leave_events {
-                        out.push(event.into_effect());
-                    }
                     let _legacy_projection_context = causation_id;
                 }
                 PortOutcome::Err(error) => {

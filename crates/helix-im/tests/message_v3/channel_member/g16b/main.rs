@@ -15,8 +15,9 @@ const CHANNEL_ID: &str = "chfixx0000000000000000001b";
 const LEAVER_ID: &str = "g16b-leaver";
 type TestResult<T> = Result<T, String>;
 
-/// 用给定 viewer 回放同一成员离场 authority。
-fn run_persona(viewer: &str) -> TestResult<(Vec<Value>, u64)> {
+/// 只为仍在册的 receiver 回放 Go 单播的成员变更 authority。
+fn run_remaining_receiver() -> TestResult<(Vec<Value>, u64)> {
+    let viewer = "g16b-remaining";
     let mut harness = common::Harness::new_with_identity(&[], viewer, "g16b-company", "", "", "");
     let inbound = serde_json::to_vec(&json!({
         "action":"channel_member_update",
@@ -60,25 +61,20 @@ fn run_persona(viewer: &str) -> TestResult<(Vec<Value>, u64)> {
     Ok((events, corr.raw()))
 }
 
-/// G-16b leaver 与 remaining member 都收到 roster 更新和离场事实。
+/// G-16b 只向 Go 仍在册的 receiver 交付唯一 canonical 成员 roster。
 #[test]
-fn g16b_emits_roster_and_leave_for_both_personas() -> TestResult<()> {
-    for viewer in [LEAVER_ID, "g16b-remaining"] {
-        let (events, _) = run_persona(viewer)?;
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[0]["event"], "im:channel-member:updated");
-        assert_eq!(events[0]["data"]["leaves"][0], LEAVER_ID);
-        assert_eq!(events[1]["event"], "im:channel-member:left");
-        assert_eq!(events[1]["data"]["userId"], LEAVER_ID);
-    }
+fn g16b_emits_one_canonical_roster_for_remaining_receiver() -> TestResult<()> {
+    let (events, _) = run_remaining_receiver()?;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["event"], "im:channel:member-updated");
+    assert_eq!(events[0]["data"]["leaves"][0], LEAVER_ID);
     Ok(())
 }
 
 /// Rust producer 在生成模式下写出 G-16b 双视角 canonical artifact。
 #[test]
 fn artifact_test() -> TestResult<()> {
-    let (sender, corr) = run_persona(LEAVER_ID)?;
-    let (receiver, _) = run_persona("g16b-remaining")?;
+    let (receiver, corr) = run_remaining_receiver()?;
     let Some(output) = std::env::var_os("HELIX_GATE_ARTIFACT_DIR") else {
         return Ok(());
     };
@@ -91,7 +87,8 @@ fn artifact_test() -> TestResult<()> {
             json!({"kind":"Inbound","value":{"action":"channel_member_update","data":{"id":CHANNEL_ID,"event_seq":51,"memberChange":{"leave":[{"id":LEAVER_ID}]}}},"now_ms":1_700_001_610_000_i64}),
             json!({"kind":"PortReply","value":{"correlation":corr,"outcome":{"variant":"Ok"}},"now_ms":1_700_001_610_001_i64}),
         ],
-        sender,
+        // Go 在 soft-delete 后只把该 WS frame 单播给 remaining members；离开者走 G08d lifecycle。
+        vec![],
         receiver,
         storage.clone(),
         storage.clone(),

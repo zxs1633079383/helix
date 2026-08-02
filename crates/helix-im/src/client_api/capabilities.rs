@@ -34,7 +34,6 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:channel:schedule-canceled",
     "im:channel:member-updated",
     "im:channel:settings-updated",
-    "im:channel:left",
     "im:channel:memberNickname",
     "im:channel:members",
     "im:channel:replies",
@@ -111,6 +110,8 @@ mod tests {
         assert!(events.iter().any(|e| e == "im:post:send-failed"));
         assert!(events.iter().any(|e| e == "im:timeline:window"));
         assert!(events.iter().any(|e| e == "im:operation:status"));
+        assert!(events.iter().any(|e| e == "im:channel:member-updated"));
+        assert!(!events.iter().any(|e| e == "im:channel:left"));
     }
 
     /// 证明 Phase 1 Post 词表包含单条撤回和批量绝对态 Upsert。

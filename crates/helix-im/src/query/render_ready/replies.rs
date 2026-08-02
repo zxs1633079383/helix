@@ -50,6 +50,7 @@ pub struct ReplyProjectionRequest {
 }
 
 impl ReplyProjectionRequest {
+    /// 从 command payload 冻结 reqId、主锚点和页界，供 PortReply 乱序隔离使用。
     pub fn from_command(name: &str, payload: &[u8], revision: u64, viewer: &str) -> Option<Self> {
         let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
         let req_id = value
@@ -62,6 +63,18 @@ impl ReplyProjectionRequest {
             "im_get_reply_branch" => (ReplyProjectionMode::Append, "reply_first_level_id"),
             _ => return None,
         };
+        let root_hint = match mode {
+            // Branch state is keyed by the first-level reply, not the enclosing thread root.
+            ReplyProjectionMode::Append => {
+                value.get(root_key).or_else(|| value.get("root_message_id"))
+            }
+            ReplyProjectionMode::Snapshot => {
+                value.get("root_message_id").or_else(|| value.get(root_key))
+            }
+        }
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())?
+        .to_string();
         let page_number = parse_page_number(value.get("page_number")).ok()?;
         let page_size = crate::timeline_state::TimelinePageSize::parse(value.get("page_size"))
             .ok()?
@@ -73,12 +86,7 @@ impl ReplyProjectionRequest {
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("")
                 .to_string(),
-            root_hint: value
-                .get("root_message_id")
-                .or_else(|| value.get(root_key))
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("")
-                .to_string(),
+            root_hint,
             mode,
             revision,
             viewer_user_id: viewer.to_string(),
@@ -147,26 +155,46 @@ pub fn project_replies_page(
         .get("hasMore")
         .and_then(serde_json::Value::as_bool)
         .ok_or_else(|| ImError::Parse("reply result missing boolean hasMore".to_string()))?;
-    let page = payload
-        .get("page")
-        .and_then(serde_json::Value::as_object)
-        .ok_or_else(|| ImError::Parse("reply result missing page".to_string()))?;
-    let page_number = parse_page_number(page.get("pageNumber"))?;
-    let page_size = crate::timeline_state::TimelinePageSize::parse(page.get("pageSize"))
-        .map_err(|error| ImError::Parse(format!("reply result pageSize: {error}")))?
-        .get();
-    if page_number != request.page_number || page_size != request.page_size {
-        return Err(ImError::Parse(
-            "reply result page does not match request".to_string(),
-        ));
-    }
+    let (page_number, page_size) = match payload.get("page") {
+        Some(page) => {
+            let page = page
+                .as_object()
+                .ok_or_else(|| ImError::Parse("reply result page must be an object".to_string()))?;
+            let page_number = parse_page_number(page.get("pageNumber"))?;
+            let page_size = crate::timeline_state::TimelinePageSize::parse(page.get("pageSize"))
+                .map_err(|error| ImError::Parse(format!("reply result pageSize: {error}")))?
+                .get();
+            if page_number != request.page_number || page_size != request.page_size {
+                return Err(ImError::Parse(
+                    "reply result page does not match request".to_string(),
+                ));
+            }
+            (page_number, page_size)
+        }
+        None if request.mode == ReplyProjectionMode::Append => {
+            // Go getReplyBranch returns HasMorePage{data,hasMore}; page state stays in request.
+            (request.page_number, request.page_size)
+        }
+        None => return Err(ImError::Parse("reply result missing page".to_string())),
+    };
     let replies = payload
-        .get("replies")
+        .get(if request.mode == ReplyProjectionMode::Append {
+            "data"
+        } else {
+            "replies"
+        })
         .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| ImError::Parse("reply result missing replies array".to_string()))?;
+        .or_else(|| {
+            // Accept an adapter that has already renamed HasMorePage.data to `replies`.
+            (request.mode == ReplyProjectionMode::Append)
+                .then(|| payload.get("replies").and_then(serde_json::Value::as_array))
+                .flatten()
+        })
+        .ok_or_else(|| ImError::Parse("reply result missing reply data array".to_string()))?;
 
     let root_post = payload
         .get("rootPost")
+        .filter(|_| request.mode == ReplyProjectionMode::Snapshot)
         .filter(|post| {
             is_visible_to_viewer(post, viewer_user_id)
                 && post_identity_matches(post, request.root_hint.as_str())
@@ -179,7 +207,7 @@ pub fn project_replies_page(
     let mut projected_replies = Vec::with_capacity(replies.len());
     for reply in replies {
         if !is_visible_to_viewer(reply, viewer_user_id)
-            || !reply_belongs_to_root(reply, request.root_hint.as_str())
+            || !reply_belongs_to_root_for_mode(reply, request.root_hint.as_str(), request.mode)
         {
             continue;
         }
@@ -266,21 +294,33 @@ fn post_identity_matches(post: &serde_json::Value, root_hint: &str) -> bool {
         .is_some_and(|(id, temporary_id)| id == root_hint || temporary_id == root_hint)
 }
 
-/// 只接受带 root 关系且关系值命中请求根的回复，避免跨 root 泄漏。
-fn reply_belongs_to_root(post: &serde_json::Value, root_hint: &str) -> bool {
-    [
-        "rootId",
-        "root_id",
-        "replyRootId",
-        "reply_root_id",
-        "replyId",
-        "reply_id",
-        "parentId",
-        "parent_id",
-    ]
-    .iter()
-    .filter_map(|key| post.get(*key).and_then(serde_json::Value::as_str))
-    .any(|relation| relation == root_hint)
+/// 只接受当前 endpoint 的主锚关系，避免根线程与一级分支互相污染。
+fn reply_belongs_to_root_for_mode(
+    post: &serde_json::Value,
+    root_hint: &str,
+    mode: ReplyProjectionMode,
+) -> bool {
+    let keys: &[&str] = match mode {
+        ReplyProjectionMode::Snapshot => &[
+            "rootId",
+            "root_id",
+            "replyRootId",
+            "reply_root_id",
+            "replyId",
+            "reply_id",
+            "parentId",
+            "parent_id",
+        ],
+        ReplyProjectionMode::Append => &[
+            "replyFirstLevelId",
+            "reply_first_level_id",
+            "parentId",
+            "parent_id",
+        ],
+    };
+    keys.iter()
+        .find_map(|key| post.get(*key).and_then(serde_json::Value::as_str))
+        .is_some_and(|relation| relation == root_hint)
 }
 
 /// 将一次成功的回复页以唯一 `im:read:result` terminal 交给 Host/Adapter。
@@ -326,13 +366,17 @@ impl FlatReplyProjection {
 pub fn extract_flat_replies(body: &serde_json::Value, viewer_user_id: &str) -> FlatReplyProjection {
     // Go HTTP 统一 CommonRes 会把业务结果包在 `data`；先剥一层信封，再按两类业务结果抽取。
     // getReplyBranch 的业务结果自身仍有 `data:[Post]`，下方循环继续处理该数组。
-    let body = body
+    let raw_body = body;
+    let body = raw_body
         .get("data")
         .filter(|value| value.is_object() || value.is_array())
-        .unwrap_or(body);
+        .unwrap_or(raw_body);
     let mut projection = FlatReplyProjection::empty();
     let mut seen: HashSet<String> = HashSet::new();
     let mut push = |post: &serde_json::Value, is_root: bool| {
+        if !is_visible_to_viewer(post, viewer_user_id) {
+            return;
+        }
         let id = post
             .get("id")
             .or_else(|| post.get("msgId"))
@@ -398,9 +442,10 @@ pub fn extract_flat_replies(body: &serde_json::Value, viewer_user_id: &str) -> F
         })
         .unwrap_or("")
         .to_string();
-    projection.has_more = body
+    projection.has_more = raw_body
         .get("hasMore")
         .and_then(serde_json::Value::as_bool)
+        .or_else(|| body.get("hasMore").and_then(serde_json::Value::as_bool))
         .unwrap_or(false);
     projection
 }
@@ -415,7 +460,22 @@ pub fn finalize_projection(
     if projection.channel_id.is_empty() {
         projection.channel_id.clone_from(&request.channel_id);
     }
-    if projection.root_message_id.is_empty() {
+    if request.mode == ReplyProjectionMode::Append && !request.root_hint.is_empty() {
+        // Branch replies are keyed by first-level id even though every row also carries root id.
+        projection.root_message_id.clone_from(&request.root_hint);
+        projection.nodes.retain(|node| {
+            reply_belongs_to_root_for_mode(node, request.root_hint.as_str(), request.mode)
+        });
+        let mut seen = HashSet::with_capacity(projection.nodes.len());
+        projection.reply_ids = projection
+            .nodes
+            .iter()
+            .filter_map(reply_identity)
+            .map(|(id, _)| id)
+            .filter(|id| seen.insert(id.clone()))
+            .collect();
+        projection.reply_count = projection.reply_ids.len();
+    } else if projection.root_message_id.is_empty() {
         projection.root_message_id.clone_from(&request.root_hint);
     }
     if !projection_matches_request(request, &projection) {
@@ -464,16 +524,28 @@ pub fn projection_matches_request(
         if id == projection.root_message_id {
             return true;
         }
-        let relation = node
-            .get("replyRootId")
-            .or_else(|| node.get("replyId"))
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
+        let relation = reply_relation(node, request.mode).unwrap_or("");
         relation.is_empty()
             || relation == projection.root_message_id.as_str()
             || (request.mode == ReplyProjectionMode::Append
                 && relation == request.root_hint.as_str())
     })
+}
+
+/// 读取当前投影模式的主关联字段；数组首命中规则拒绝两个锚点的模糊混用。
+fn reply_relation(post: &serde_json::Value, mode: ReplyProjectionMode) -> Option<&str> {
+    let keys: &[&str] = match mode {
+        ReplyProjectionMode::Snapshot => &["replyRootId", "reply_root_id", "replyId", "reply_id"],
+        ReplyProjectionMode::Append => &[
+            "replyFirstLevelId",
+            "reply_first_level_id",
+            "parentId",
+            "parent_id",
+        ],
+    };
+    keys.iter()
+        .find_map(|key| post.get(*key).and_then(serde_json::Value::as_str))
+        .filter(|value| !value.is_empty())
 }
 
 /// 在 Helix 内完成乱序抑制和 append 跨页去重，Angular 不解释 revision/模式。

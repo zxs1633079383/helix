@@ -22,6 +22,59 @@ use data::{
 };
 pub(crate) use data::{parse_local_rows, sort_recent_rows_desc, visible_remote_rows_and_cache_ops};
 
+/// 解析 Go G11h initial-window 业务体，并保证非空窗口的首条就是请求目标。
+pub(crate) fn parse_initial_window_posts(
+    raw_body: &[u8],
+    target_post_id: &str,
+) -> Result<Vec<Value>, ImError> {
+    let root: Value = serde_json::from_slice(raw_body)
+        .map_err(|error| ImError::Parse(format!("getPostsAfterIndex body: {error}")))?;
+    let status = root
+        .get("status")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ImError::Parse("getPostsAfterIndex body missing string status".into()))?;
+    if !status.eq_ignore_ascii_case("SUCCESS") {
+        return Err(ImError::Parse(format!(
+            "getPostsAfterIndex backend status {status}"
+        )));
+    }
+    let payload = root
+        .pointer("/data/posts")
+        .or_else(|| root.get("data"))
+        .ok_or_else(|| {
+            ImError::Parse("getPostsAfterIndex response missing posts array".to_string())
+        })?;
+    if payload.is_null() {
+        return Ok(Vec::new());
+    }
+    let rows = payload.as_array().ok_or_else(|| {
+        ImError::Parse("getPostsAfterIndex response posts must be array".to_string())
+    })?;
+    if rows.iter().any(|row| !row.is_object()) {
+        return Err(ImError::Parse(
+            "getPostsAfterIndex posts must be objects".to_string(),
+        ));
+    }
+    let rows = rows.clone();
+    if rows.is_empty() {
+        return Ok(rows);
+    }
+    if !post_matches_identity(&rows[0], target_post_id) {
+        return Err(ImError::Parse(
+            "getPostsAfterIndex target must be first row".to_string(),
+        ));
+    }
+    Ok(rows)
+}
+
+/// 比较 canonical server id 与 temporaryId，兼容只知任一 post identity 的 caller。
+pub(crate) fn post_matches_identity(row: &Value, target_post_id: &str) -> bool {
+    ["id", "postId", "temporaryId", "temporary_id"]
+        .iter()
+        .filter_map(|key| row.get(*key).and_then(Value::as_str))
+        .any(|value| value == target_post_id)
+}
+
 /// 平台提供的本地数据能力。它描述物理数据寿命，不承诺某次查询已经完整。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LocalStoreMode {

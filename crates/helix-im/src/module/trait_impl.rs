@@ -185,6 +185,44 @@ impl Module for ImModule {
                                 CorrelationContext::OutboundMembersByIds { req_id }
                             } else if name == "im_user_candidates" {
                                 CorrelationContext::OutboundContactCandidates { req_id }
+                            } else if name == "im_get_posts_after_index" {
+                                // G11h initial-window 独立于 locate/exact：HTTP 成功必须先过 durable read-back。
+                                let args = serde_json::from_slice::<serde_json::Value>(
+                                    cmd.payload.as_ref(),
+                                )
+                                .map_err(|error| {
+                                    CoreError::ModuleError {
+                                        module: self.name(),
+                                        source: Box::new(crate::ImError::Parse(error.to_string())),
+                                    }
+                                })?;
+                                if let Some(request) =
+                                    crate::outbound::posts::read::initial_window_request(
+                                        &args, name,
+                                    )
+                                    .map_err(|error| {
+                                        CoreError::ModuleError {
+                                            module: self.name(),
+                                            source: Box::new(error),
+                                        }
+                                    })?
+                                {
+                                    CorrelationContext::OutboundInitialWindow {
+                                        req_id: request.req_id,
+                                        post_id: request.post_id,
+                                        page_size: request.page_size,
+                                    }
+                                } else {
+                                    let channel_id = args
+                                        .get("channel_id")
+                                        .and_then(serde_json::Value::as_str)
+                                        .map(str::to_owned);
+                                    CorrelationContext::OutboundReadReply {
+                                        req_id,
+                                        command: name.to_string(),
+                                        channel_id,
+                                    }
+                                }
                             } else if name == "im_get_posts" {
                                 // G11g exact 查询独立于旧 locate 终态；locate 只保留兼容入参，不改变按 id 读回。
                                 let requested_ids = serde_json::from_slice::<serde_json::Value>(

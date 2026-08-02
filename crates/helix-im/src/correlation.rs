@@ -342,6 +342,29 @@ pub enum CorrelationContext {
         rows: Vec<serde_json::Value>,
     },
 
+    /// MV3-G11h initial-window HTTP 回报；只知 postId 的结果独立于 locate/exact。
+    OutboundInitialWindow {
+        req_id: String,
+        post_id: String,
+        page_size: u32,
+    },
+
+    /// MV3-G11h HTTP rows 已写入本地 message，等待有界 durable identity read-back。
+    InitialWindowPersist {
+        req_id: String,
+        post_id: String,
+        accepted_keys: Vec<String>,
+    },
+
+    /// MV3-G11h initial-window read-back continuation，最终只结算一次 Result。
+    InitialWindowReadback {
+        req_id: String,
+        post_id: String,
+        accepted_keys: Vec<String>,
+        next_index: usize,
+        rows: Vec<serde_json::Value>,
+    },
+
     /// MV3-G02e 草稿 ScopedGet 读回；命令携带账号、频道和 req_id 的完整隔离上下文。
     MessageV3DraftReadback {
         command: Box<crate::draft::QueryDraftCommand>,

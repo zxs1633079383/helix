@@ -49,6 +49,54 @@ pub(crate) fn exact_post_ids(args: &Value, cmd: &str) -> Result<Vec<String>, ImE
     Ok(ids)
 }
 
+/// G11h initial-window 请求的已校验最小参数；显式 initial 或带关联键的最小查询均构造。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InitialWindowRequest {
+    pub(crate) post_id: String,
+    pub(crate) req_id: String,
+    pub(crate) page_size: u32,
+}
+
+/// 解析 G11h initial-window 参数，拒绝缺 correlation、非法页长和伪造 cursor。
+pub(crate) fn initial_window_request(
+    args: &Value,
+    cmd: &str,
+) -> Result<Option<InitialWindowRequest>, ImError> {
+    let direction = args.get("direction").and_then(Value::as_str);
+    let explicit_initial =
+        direction.is_some_and(|direction| direction.eq_ignore_ascii_case("initial"));
+    let implicit_initial = direction.is_none_or(str::is_empty)
+        && args
+            .get("req_id")
+            .and_then(Value::as_str)
+            .is_some_and(|req_id| !req_id.is_empty());
+    if !explicit_initial && !implicit_initial {
+        return Ok(None);
+    }
+    if args
+        .get("cursor")
+        .or_else(|| args.get("cursor_version"))
+        .or_else(|| args.get("cursorVersion"))
+        .is_some_and(|value| !value.is_null())
+    {
+        return Err(ImError::Parse(format!(
+            "{cmd}: initial window must not carry cursor"
+        )));
+    }
+    let post_id = require_str(args, "post_id", cmd)?.to_string();
+    let req_id = require_str(args, "req_id", cmd)?.to_string();
+    let page_size = crate::timeline_state::TimelinePageSize::parse(
+        args.get("page_size").or_else(|| args.get("limit")),
+    )
+    .map_err(|error| ImError::Parse(format!("{cmd}: initial pageSize: {error}")))?
+    .get();
+    Ok(Some(InitialWindowRequest {
+        post_id,
+        req_id,
+        page_size,
+    }))
+}
+
 /// 把入参 `in_key`（snake_case）原样透传成 wire 字段 `wire_key`（camelCase），仅当存在且非 null。
 /// 不强转类型——边界零信任只校验「存在」，数值/字符串原值由前端 bridge 保证（对齐 vote_score::carry_optional）。
 pub(super) fn carry_into(
@@ -266,6 +314,17 @@ read_cmd!(
     "im_get_posts_after_index",
     |args, cmd| {
         let post_id = require_str(args, "post_id", cmd)?;
+        if let Some(initial) = initial_window_request(args, cmd)? {
+            return Ok((
+                "posts/getPostsAfterIndex",
+                json!({
+                    "postId": initial.post_id,
+                    "direction": "initial",
+                    "pageSize": initial.page_size,
+                    "reqId": initial.req_id,
+                }),
+            ));
+        }
         Ok(("posts/getPostsAfterIndex", json!({ "postIds": post_id })))
     }
 );
@@ -367,7 +426,7 @@ fn page_body(args: &Value, id_key: &'static str, id_val: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{exact_post_ids, page_body};
+    use super::{exact_post_ids, initial_window_request, page_body};
     use serde_json::json;
 
     #[test]
@@ -408,6 +467,47 @@ mod tests {
             exact_post_ids(&json!({"post_ids": ["p1", "p1", "p2"]}), "im_get_posts").unwrap(),
             vec!["p1", "p2"]
         );
+    }
+
+    /// G11h 使用独立的 singular postId/reqId/pageSize wire，不能退回 legacy postIds。
+    #[test]
+    fn initial_window_request_requires_correlation_and_valid_page_size() {
+        let request = initial_window_request(
+            &json!({
+                "direction": "initial",
+                "post_id": "post-1",
+                "req_id": "req-1",
+                "page_size": 60
+            }),
+            "im_get_posts_after_index",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(request.post_id, "post-1");
+        assert_eq!(request.req_id, "req-1");
+        assert_eq!(request.page_size, 60);
+        assert!(initial_window_request(
+            &json!({
+                "direction": "initial",
+                "post_id": "post-1",
+                "req_id": "req-1",
+                "page_size": 61
+            }),
+            "im_get_posts_after_index"
+        )
+        .is_err());
+
+        let implicit = initial_window_request(
+            &json!({
+                "post_id": "post-1",
+                "req_id": "req-1",
+                "limit": 20
+            }),
+            "im_get_posts_after_index",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(implicit.page_size, 20);
     }
 }
 

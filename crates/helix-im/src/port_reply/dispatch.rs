@@ -730,6 +730,46 @@ impl ImModule {
                 );
             }
 
+            CorrelationContext::OutboundInitialWindow {
+                req_id,
+                post_id,
+                page_size,
+            } => {
+                self.handle_initial_window_http_reply(req_id, post_id, page_size, outcome, out);
+            }
+
+            CorrelationContext::InitialWindowPersist {
+                req_id,
+                post_id,
+                accepted_keys,
+            } => {
+                self.handle_initial_window_persist_reply(
+                    req_id,
+                    post_id,
+                    accepted_keys,
+                    outcome,
+                    out,
+                );
+            }
+
+            CorrelationContext::InitialWindowReadback {
+                req_id,
+                post_id,
+                accepted_keys,
+                next_index,
+                rows,
+            } => {
+                self.handle_initial_window_readback_reply(
+                    req_id,
+                    post_id,
+                    accepted_keys,
+                    next_index,
+                    rows,
+                    outcome,
+                    out,
+                );
+            }
+
             CorrelationContext::MessageV3DraftReadback { command } => {
                 self.handle_draft_readback_reply(command, outcome, out)?;
             }

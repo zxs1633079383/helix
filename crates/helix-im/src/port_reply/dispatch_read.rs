@@ -767,6 +767,248 @@ impl ImModule {
         ));
     }
 
+    /// 校验 G11h initial-window HTTP，并把目标首条窗口送入唯一 Persist barrier。
+    pub(super) fn handle_initial_window_http_reply(
+        &mut self,
+        req_id: String,
+        post_id: String,
+        page_size: u32,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) {
+        let raw_body = match outcome {
+            PortOutcome::Ok(reply) => match crate::http_envelope::unwrap_success_envelope(
+                reply.0.as_ref(),
+                "posts/getPostsAfterIndex",
+            ) {
+                Ok(raw) => raw,
+                Err(error) => {
+                    tracing::warn!(%req_id, error = ?error, "initial window HTTP envelope invalid");
+                    out.push(crate::read_relay::emit_read_error(
+                        req_id.as_str(),
+                        "initial window response envelope invalid",
+                    ));
+                    return;
+                }
+            },
+            PortOutcome::Err(error) => {
+                tracing::warn!(%req_id, error = ?error, "initial window HTTP request failed");
+                out.push(crate::read_relay::emit_read_error(
+                    req_id.as_str(),
+                    "initial window http failed",
+                ));
+                return;
+            }
+        };
+        let mut posts =
+            match crate::query::local_first::parse_initial_window_posts(&raw_body, &post_id) {
+                Ok(posts) => posts,
+                Err(error) => {
+                    tracing::warn!(%req_id, error = ?error, "initial window response body invalid");
+                    out.push(crate::read_relay::emit_read_error(
+                        req_id.as_str(),
+                        "initial window target must be first",
+                    ));
+                    return;
+                }
+            };
+        posts.truncate(page_size as usize);
+        let (accepted_keys, ops) = match self.collect_initial_window_cache_ops(&post_id, posts) {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::warn!(%req_id, error = ?error, "initial window rows failed closed");
+                out.push(crate::read_relay::emit_read_error(
+                    req_id.as_str(),
+                    "initial window rows invalid",
+                ));
+                return;
+            }
+        };
+        if !ops.is_empty() && self.local_store_mode == LocalStoreMode::Disabled {
+            tracing::warn!(%req_id, "initial window requires durable local storage");
+            out.push(crate::read_relay::emit_read_error(
+                req_id.as_str(),
+                "initial window durable storage unavailable",
+            ));
+            return;
+        }
+        // Zero-hit (missing or invisible target) still crosses one empty Persist barrier.
+        let corr = self.alloc_corr_internal();
+        out.push(Effect::Persist { corr, ops });
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::InitialWindowPersist {
+                req_id,
+                post_id,
+                accepted_keys,
+            },
+        );
+    }
+
+    /// 将 initial-window 可见 rows 转成按首条顺序排列的 durable message upsert keys。
+    fn collect_initial_window_cache_ops(
+        &self,
+        post_id: &str,
+        posts: Vec<Value>,
+    ) -> Result<(Vec<String>, Vec<StorageOp>), ImError> {
+        if posts.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+        let first_fields = crate::ws::parser::extract_post_fields(&posts[0]);
+        let channel_id = crate::state::ChannelId::from_str(first_fields.channel_id.as_str())
+            .ok_or_else(|| ImError::Parse("initial window row missing channelId".to_string()))?;
+        let (rows, mut ops) = crate::query::local_first::visible_remote_rows_and_cache_ops(
+            channel_id,
+            posts,
+            &[],
+            self.config.auth_user_id.as_str(),
+        )?;
+        // Target invisibility is a typed empty result; never cache the trailing rows alone.
+        if rows.is_empty() || !crate::query::local_first::post_matches_identity(&rows[0], post_id) {
+            return Ok((Vec::new(), Vec::new()));
+        }
+        let mut accepted_keys = Vec::with_capacity(rows.len());
+        let mut seen = HashSet::new();
+        for row in rows {
+            let fields = crate::ws::parser::extract_post_fields(&row);
+            let Some(key) = exact_storage_key(&fields) else {
+                continue;
+            };
+            if seen.insert(key.clone()) {
+                accepted_keys.push(key);
+            }
+        }
+        protect_exact_read_only_columns(&mut ops);
+        Ok((accepted_keys, ops))
+    }
+
+    /// PersistOk 后逐条回读 initial-window identities，空命中也只结算一次 terminal。
+    pub(super) fn handle_initial_window_persist_reply(
+        &mut self,
+        req_id: String,
+        post_id: String,
+        accepted_keys: Vec<String>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) {
+        if let PortOutcome::Err(error) = outcome {
+            tracing::warn!(%req_id, error = ?error, "initial window persist failed");
+            out.push(crate::read_relay::emit_read_error(
+                req_id.as_str(),
+                "initial window persist failed",
+            ));
+            return;
+        }
+        if accepted_keys.is_empty() {
+            out.push(crate::read_relay::emit_read_body(
+                req_id.as_str(),
+                serde_json::json!({"reqId": req_id, "posts": []}),
+            ));
+            return;
+        }
+        self.schedule_initial_window_readback(req_id, post_id, accepted_keys, 1, Vec::new(), out);
+    }
+
+    /// 继续 initial-window durable read-back，最终验证 target 首条后释放唯一 Result。
+    pub(super) fn handle_initial_window_readback_reply(
+        &mut self,
+        req_id: String,
+        post_id: String,
+        accepted_keys: Vec<String>,
+        next_index: usize,
+        mut rows: Vec<Value>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) {
+        let row = match outcome {
+            PortOutcome::Ok(reply) => {
+                match crate::query::local_first::parse_local_rows(reply.0.as_ref()) {
+                    Ok(rows) => rows.into_iter().next(),
+                    Err(error) => {
+                        tracing::warn!(%req_id, error = ?error, "initial window durable readback malformed");
+                        None
+                    }
+                }
+            }
+            PortOutcome::Err(error) => {
+                tracing::warn!(%req_id, error = ?error, "initial window durable readback failed");
+                None
+            }
+        };
+        let Some(row) = row else {
+            out.push(crate::read_relay::emit_read_error(
+                req_id.as_str(),
+                "initial window durable readback failed",
+            ));
+            return;
+        };
+        rows.push(row);
+        if next_index < accepted_keys.len() {
+            self.schedule_initial_window_readback(
+                req_id,
+                post_id,
+                accepted_keys,
+                next_index + 1,
+                rows,
+                out,
+            );
+            return;
+        }
+        if rows
+            .first()
+            .is_none_or(|row| !crate::query::local_first::post_matches_identity(row, &post_id))
+        {
+            out.push(crate::read_relay::emit_read_error(
+                req_id.as_str(),
+                "initial window target missing from durable readback",
+            ));
+            return;
+        }
+        let projected = project_exact_posts(&accepted_keys, rows);
+        if projected
+            .first()
+            .is_none_or(|row| !crate::query::local_first::post_matches_identity(row, &post_id))
+        {
+            out.push(crate::read_relay::emit_read_error(
+                req_id.as_str(),
+                "initial window target is not first in durable result",
+            ));
+            return;
+        }
+        out.push(crate::read_relay::emit_read_body(
+            req_id.as_str(),
+            serde_json::json!({"reqId": req_id, "posts": projected}),
+        ));
+    }
+
+    /// 为 initial-window 的下一个 identity 发出 bounded Scan，并绑定 continuation correlation。
+    fn schedule_initial_window_readback(
+        &mut self,
+        req_id: String,
+        post_id: String,
+        accepted_keys: Vec<String>,
+        next_index: usize,
+        rows: Vec<Value>,
+        out: &mut EffectSink,
+    ) {
+        let key = accepted_keys[next_index - 1].clone();
+        let corr = self.alloc_corr_internal();
+        out.push(Effect::Persist {
+            corr,
+            ops: vec![StorageOp::Scan(exact_posts_scan_spec(&key))],
+        });
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::InitialWindowReadback {
+                req_id,
+                post_id,
+                accepted_keys,
+                next_index,
+                rows,
+            },
+        );
+    }
+
     /// 为 exact read-back 发出单行 Scan，并把续接状态绑定到新 correlation。
     fn schedule_exact_posts_readback(
         &mut self,

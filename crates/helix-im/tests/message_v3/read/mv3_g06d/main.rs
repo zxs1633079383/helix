@@ -42,8 +42,8 @@ fn http_url(harness: &Harness) -> &str {
         .expect("im_post_read_list must emit HTTP")
 }
 
-/// 从当前 step 提取 `im:post:readers` 的 data，不重建生产事件。
-fn emitted_receipts(harness: &Harness) -> Vec<Value> {
+/// 从当前 step 提取所有 renderer-visible event envelope，供泄露反证复用。
+fn emitted_events(harness: &Harness) -> Vec<Value> {
     harness
         .sink
         .as_slice()
@@ -52,6 +52,13 @@ fn emitted_receipts(harness: &Harness) -> Vec<Value> {
             Effect::Emit { event } => serde_json::from_slice::<Value>(event.0.as_ref()).ok(),
             _ => None,
         })
+        .collect()
+}
+
+/// 从当前 step 提取 `im:post:readers` 的 data，不重建生产事件。
+fn emitted_receipts(harness: &Harness) -> Vec<Value> {
+    emitted_events(harness)
+        .into_iter()
         .filter(|payload| payload["event"] == "im:post:readers")
         .map(|payload| payload["data"].clone())
         .collect()
@@ -79,7 +86,7 @@ fn read_list_reply(rows: Value) -> Bytes {
 }
 
 /// 在 ImModule 回放一次 `im_post_read_list` 命令并回灌指定 Go rows。
-fn run_rows(rows: Value) -> Vec<Value> {
+fn run_rows_harness(rows: Value) -> Harness {
     let mut harness = Harness::new_with_identity(&[], AUTHOR_ID, "mv3-g06d", "", "", "");
     harness.step(
         command_json(
@@ -90,11 +97,17 @@ fn run_rows(rows: Value) -> Vec<Value> {
     );
     let corr = http_corr(&harness);
     harness.step(port_reply_with_body(corr, read_list_reply(rows)), 2);
+    harness
+}
+
+/// 取一次 G06d 回放的 canonical receipt data，隐藏 harness 细节。
+fn run_rows(rows: Value) -> Vec<Value> {
+    let harness = run_rows_harness(rows);
     emitted_receipts(&harness)
 }
 
-/// 检查外发回执不含 Go 内部 bitmap、成员快照或旧 reader 别名。
-fn assert_no_internal_receipt_fields(receipt: &Value) {
+/// 递归检查外发事件不含 Go 内部 bitmap、成员快照或旧 reader 别名。
+fn assert_no_internal_receipt_fields(value: &Value) {
     for field in [
         "readBits",
         "memberIds",
@@ -107,9 +120,14 @@ fn assert_no_internal_receipt_fields(receipt: &Value) {
         "receiptKey",
     ] {
         assert!(
-            receipt.get(field).is_none(),
-            "MV3-G06d receipt must not expose {field}: {receipt}"
+            value.get(field).is_none(),
+            "MV3-G06d receipt must not expose {field}: {value}"
         );
+    }
+    match value {
+        Value::Object(object) => object.values().for_each(assert_no_internal_receipt_fields),
+        Value::Array(values) => values.iter().for_each(assert_no_internal_receipt_fields),
+        _ => {}
     }
 }
 
@@ -283,4 +301,33 @@ fn malformed_envelope_is_empty_and_replay_is_idempotent() {
         serde_json::to_vec(&first).expect("first receipt bytes"),
         serde_json::to_vec(&second).expect("second receipt bytes")
     );
+}
+
+/// 通过真实 `ImModule::handle`→`handle_port_reply` 回放证明成功 raw body 不可达 UI。
+#[test]
+fn successful_post_read_list_never_relays_raw_authority_body() {
+    let rows = json!([{
+        "postId": POST_ID,
+        "channelId": CHANNEL_ID,
+        "authorUserId": AUTHOR_ID,
+        "snapshotId": SNAPSHOT_ID,
+        "memberIds": [READER_ID, UNREAD_ID],
+        "readBits": "10",
+        "readerIds": [READER_ID],
+        "readers": [{ "userId": READER_ID }],
+    }]);
+    let harness = run_rows_harness(rows);
+    let events = emitted_events(&harness);
+
+    assert_eq!(events.len(), 1, "成功回执只允许一个 UI 可达事件");
+    assert_eq!(events[0]["event"], "im:post:readers");
+    assert!(
+        events
+            .iter()
+            .all(|event| event["event"] != "im:read:result"),
+        "G06d 成功回执不得经通用 raw relay 触达 UI: {events:?}"
+    );
+    for event in &events {
+        assert_no_internal_receipt_fields(event);
+    }
 }

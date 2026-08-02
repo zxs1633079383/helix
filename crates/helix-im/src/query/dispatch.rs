@@ -99,23 +99,34 @@ impl ImModule {
                 );
                 self.start_timeline_navigation_http(state, out);
             }
-            // G11a 定位直接进入 Go context authority；本地缓存不能替代居中窗口的权威上下文。
-            n if n == crate::timeline_navigation::LOCATE_MESSAGE => {
+            // G11d 定位直接进入 Go context authority；两条命令名共享严格的持久读回链。
+            n if n == crate::timeline_navigation::LOCATE_MESSAGE
+                || n == crate::timeline_navigation::LOCATE_CONTEXT =>
+            {
                 let (channel_id, target_message_id, page_size, request_id, navigation_token) =
-                    crate::timeline_navigation::parse_locate_request(payload)?;
+                    crate::timeline_navigation::parse_locate_request_for_command(payload, n)?;
                 let (window_token, _) = self
                     .state
                     .timeline_state
                     .unique_attached_window_for_channel(channel_id.as_str())
                     .ok_or_else(|| {
-                        ImError::Parse(
-                            "im_locate_message requires one attached timeline for channel"
-                                .to_string(),
-                        )
+                        ImError::Parse(format!("{n} requires one attached timeline for channel"))
                     })?;
                 let navigation_token = navigation_token
                     .or_else(|| request_id.clone())
                     .unwrap_or_else(|| format!("locate:{target_message_id}"));
+                if self.state.timeline_state.is_current_locate_navigation(
+                    channel_id.as_str(),
+                    window_token.as_str(),
+                    navigation_token.as_str(),
+                ) {
+                    tracing::debug!(
+                        channel_id = channel_id.as_str(),
+                        navigation_token,
+                        "ignoring duplicate locate navigation"
+                    );
+                    return Ok(());
+                }
                 self.state.timeline_state.begin_locate_navigation(
                     channel_id.as_str(),
                     window_token.as_str(),

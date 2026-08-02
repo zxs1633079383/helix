@@ -14,6 +14,8 @@ use crate::timeline_state::{TimelineEntityKey, WindowPage};
 pub const LOAD_NEWER_CONTEXT: &str = "im_load_newer_context";
 /// 未缓存消息定位的正式命令。
 pub const LOCATE_MESSAGE: &str = "im_locate_message";
+/// 未缓存消息定位的上下文查询别名；与旧定位命令共享同一 sans-IO 链路。
+pub const LOCATE_CONTEXT: &str = "im_locate_context";
 
 /// Timeline V3 导航方向，决定 HTTP endpoint 和 Delta 合并语义。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +44,8 @@ pub struct TimelineNavigationState {
     kind: TimelineNavigationKind,
     rows: Vec<Value>,
     page: WindowPage,
+    older_cursor: Option<Value>,
+    newer_cursor: Option<Value>,
 }
 
 impl TimelineNavigationState {
@@ -65,6 +69,8 @@ impl TimelineNavigationState {
                 cursor,
             },
             rows: Vec::new(),
+            older_cursor: None,
+            newer_cursor: None,
         }
     }
 
@@ -88,6 +94,8 @@ impl TimelineNavigationState {
                 cursor,
             },
             rows: Vec::new(),
+            older_cursor: None,
+            newer_cursor: None,
         }
     }
 
@@ -116,6 +124,8 @@ impl TimelineNavigationState {
                 navigation_token,
             },
             rows: Vec::new(),
+            older_cursor: None,
+            newer_cursor: None,
         }
     }
 
@@ -168,6 +178,16 @@ impl TimelineNavigationState {
     /// 用权限过滤且补齐 wire 字段的同源行替换原始 HTTP 页。
     pub fn replace_rows(&mut self, rows: Vec<Value>) {
         self.rows = rows;
+    }
+
+    /// 返回 authority 提供的向前游标；缺省时以 null 结算，不在 Helix 侧合成。
+    pub fn older_cursor(&self) -> Option<&Value> {
+        self.older_cursor.as_ref()
+    }
+
+    /// 返回 authority 提供的向后游标；缺省时以 null 结算，不在 Helix 侧合成。
+    pub fn newer_cursor(&self) -> Option<&Value> {
+        self.newer_cursor.as_ref()
     }
 
     /// 返回用于持久化后单行 readback 的权威 server id。
@@ -270,6 +290,16 @@ impl TimelineNavigationState {
                             )
                         })?;
                 self.page.has_more = self.page.has_older || self.page.has_newer;
+                self.older_cursor = data
+                    .get("olderCursor")
+                    .or_else(|| data.get("older_cursor"))
+                    .cloned()
+                    .filter(|value| !value.is_null());
+                self.newer_cursor = data
+                    .get("newerCursor")
+                    .or_else(|| data.get("newer_cursor"))
+                    .cloned()
+                    .filter(|value| !value.is_null());
             }
         }
         self.rows = rows;
@@ -305,15 +335,26 @@ pub fn parse_older_request(
 pub fn parse_locate_request(
     payload: &[u8],
 ) -> Result<(ChannelId, String, u32, Option<String>, Option<String>), ImError> {
+    parse_locate_request_for_command(payload, LOCATE_MESSAGE)
+}
+
+/// 解析定位别名请求，并把命令名带入错误，避免两条入口产生不同校验。
+pub fn parse_locate_request_for_command(
+    payload: &[u8],
+    command: &str,
+) -> Result<(ChannelId, String, u32, Option<String>, Option<String>), ImError> {
     let (channel_id, message_id, page_size, request_id) =
-        parse_request(payload, LOCATE_MESSAGE, "message_id")?;
+        parse_request(payload, command, "message_id")?;
+    if request_id.is_none() {
+        return Err(ImError::Parse(format!("{command} req_id is required")));
+    }
     let value: Value = serde_json::from_slice(payload)
-        .map_err(|error| ImError::Parse(format!("{LOCATE_MESSAGE} payload: {error}")))?;
+        .map_err(|error| ImError::Parse(format!("{command} payload: {error}")))?;
     let navigation_token = match value.get("navigationToken") {
         Some(Value::String(value)) if !value.is_empty() => Some(value.clone()),
         Some(_) => {
             return Err(ImError::Parse(format!(
-                "{LOCATE_MESSAGE} navigationToken must be non-empty string"
+                "{command} navigationToken must be non-empty string"
             )))
         }
         None => None,

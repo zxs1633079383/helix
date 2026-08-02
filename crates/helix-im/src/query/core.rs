@@ -37,6 +37,7 @@ pub const QUERY_COMMAND_NAMES: &[&str] = &[
     crate::older_context::LOAD_OLDER_CONTEXT,
     crate::timeline_navigation::LOAD_NEWER_CONTEXT,
     crate::timeline_navigation::LOCATE_MESSAGE,
+    crate::timeline_navigation::LOCATE_CONTEXT,
 ];
 
 pub fn query_command_names() -> &'static [&'static str] {

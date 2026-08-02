@@ -15,6 +15,8 @@ const OLDER_NAVIGATION_ORDER: &[ScanOrder] = &[
 ];
 const NEWER_NAVIGATION_ORDER: &[ScanOrder] =
     &[ScanOrder::asc("create_at"), ScanOrder::asc("temporary_id")];
+const LOCATE_NAVIGATION_ORDER: &[ScanOrder] =
+    &[ScanOrder::asc("create_at"), ScanOrder::asc("temporary_id")];
 
 impl ImModule {
     /// 发起 Timeline V3 authority HTTP，并注册唯一 correlation continuation。
@@ -46,6 +48,13 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if locate_navigation_is_stale(&self.state.timeline_state, &state) {
+            tracing::debug!(
+                channel_id = state.channel_id().as_str(),
+                "ignoring stale timeline locate HTTP correlation"
+            );
+            return Ok(());
+        }
         let reply = match outcome {
             PortOutcome::Ok(reply) => reply,
             PortOutcome::Err(error) => {
@@ -67,6 +76,29 @@ impl ImModule {
             self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
             return Ok(());
         }
+        if matches!(
+            state.kind(),
+            crate::timeline_navigation::TimelineNavigationKind::Locate { .. }
+        ) {
+            let rows = match crate::query::render_ready::locate::filter_visible_remote_rows(
+                state.rows(),
+                state.channel_id().as_str(),
+                state.anchor_message_id(),
+                self.config.auth_user_id.as_str(),
+            ) {
+                Ok(rows) => rows,
+                Err(error) => {
+                    tracing::warn!(
+                        channel_id = state.channel_id().as_str(),
+                        error = ?error,
+                        "timeline locate target is not visible in HTTP authority"
+                    );
+                    self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+                    return Ok(());
+                }
+            };
+            state.replace_rows(rows);
+        }
         let (rows, ops) = match crate::query::local_first::visible_remote_rows_and_cache_ops(
             state.channel_id(),
             state.rows().to_vec(),
@@ -85,28 +117,12 @@ impl ImModule {
             }
         };
         state.replace_rows(rows);
-        let is_older = matches!(
-            state.kind(),
-            crate::timeline_navigation::TimelineNavigationKind::Older { .. }
-        );
-        let is_newer = matches!(
-            state.kind(),
-            crate::timeline_navigation::TimelineNavigationKind::Newer { .. }
-        );
-        // Older 查询即使没有新 cache op 也必须经过一个 matching PersistOk；否则
-        // 空页会绕过 durable barrier，直接把 HTTP rows 当成成功结果。
-        if ops.is_empty() && !is_older && !is_newer {
-            out.push(self.emit_timeline_navigation_page(&state, now_ms)?);
-            return Ok(());
-        }
         if self.local_store_mode == LocalStoreMode::Disabled {
             tracing::warn!(
                 channel_id = state.channel_id().as_str(),
                 "timeline navigation requires durable storage before event publication"
             );
-            if is_older || is_newer {
-                self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
-            }
+            self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
             return Ok(());
         }
         let corr = self.alloc_corr_internal();
@@ -160,28 +176,24 @@ impl ImModule {
             return Ok(());
         }
         let crate::timeline_navigation::TimelineNavigationKind::Locate {
-            target_message_id,
-            navigation_token,
+            navigation_token, ..
         } = state.kind()
         else {
             return Ok(());
         };
-        let page = state.page();
-        out.push(
-            crate::event::timeline::located(serde_json::json!({
-                "channelId": state.channel_id().as_str(),
-                "windowToken": state.window_token(),
-                "state": "failed",
-                "messages": [],
-                "hasOlder": page.has_older,
-                "hasNewer": page.has_newer,
-                "targetMessageId": target_message_id,
-                "anchorPostId": target_message_id,
-                "revealPostId": target_message_id,
-                "navigationToken": navigation_token,
-            }))?
-            .into_effect(),
-        );
+        if !self.state.timeline_state.is_current_locate_navigation(
+            state.channel_id().as_str(),
+            state.window_token(),
+            navigation_token,
+        ) {
+            return Ok(());
+        }
+        if let Some(request_id) = state.request_id() {
+            out.push(crate::read_relay::emit_read_error(
+                request_id,
+                "timeline locate query failed before durable result",
+            ));
+        }
         Ok(())
     }
 
@@ -208,15 +220,10 @@ impl ImModule {
                     ops: vec![StorageOp::Scan(newer_navigation_scan_spec(&state))],
                 }
             }
-            crate::timeline_navigation::TimelineNavigationKind::Locate { .. } => {
-                crate::timeline_navigation::navigation_readback_effect(&state, corr).ok_or_else(
-                    || {
-                        ImError::Parse(
-                            "timeline navigation cache has no readback identity".to_string(),
-                        )
-                    },
-                )?
-            }
+            crate::timeline_navigation::TimelineNavigationKind::Locate { .. } => Effect::Persist {
+                corr,
+                ops: vec![StorageOp::Scan(locate_navigation_scan_spec(&state))],
+            },
         };
         out.push(effect);
         self.state.corr_map.insert(
@@ -234,6 +241,13 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if locate_navigation_is_stale(&self.state.timeline_state, &state) {
+            tracing::debug!(
+                channel_id = state.channel_id().as_str(),
+                "ignoring stale timeline locate readback correlation"
+            );
+            return Ok(());
+        }
         if matches!(
             state.kind(),
             crate::timeline_navigation::TimelineNavigationKind::Newer { .. }
@@ -320,27 +334,57 @@ impl ImModule {
             }
             return Ok(());
         }
-        let expected = state.readback_message_id().ok_or_else(|| {
-            ImError::Parse("timeline navigation readback missing expected id".to_string())
-        })?;
-        let matched = match outcome {
-            PortOutcome::Ok(reply) => crate::query::local_first::parse_local_rows(reply.0.as_ref())
-                .map(|rows| {
-                    rows.iter().any(|row| {
-                        row.get("id").and_then(serde_json::Value::as_str) == Some(expected)
-                    })
-                })
-                .unwrap_or(false),
-            PortOutcome::Err(_) => false,
+        let rows = match outcome {
+            PortOutcome::Ok(reply) => {
+                match crate::query::local_first::parse_local_rows(reply.0.as_ref()) {
+                    Ok(rows) => rows,
+                    Err(error) => {
+                        tracing::warn!(
+                            channel_id = state.channel_id().as_str(),
+                            error = ?error,
+                            "timeline locate durable readback malformed"
+                        );
+                        self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+                        return Ok(());
+                    }
+                }
+            }
+            PortOutcome::Err(error) => {
+                tracing::warn!(
+                    channel_id = state.channel_id().as_str(),
+                    error = ?error,
+                    "timeline locate durable readback failed"
+                );
+                self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+                return Ok(());
+            }
         };
-        if matched {
-            out.push(self.emit_timeline_navigation_page(&state, now_ms)?);
-        } else {
-            tracing::warn!(
-                expected,
-                "timeline navigation readback did not confirm the persisted page"
-            );
-        }
+        let (target_message_id, _) = match state.kind() {
+            crate::timeline_navigation::TimelineNavigationKind::Locate {
+                target_message_id,
+                navigation_token,
+            } => (target_message_id.as_str(), navigation_token.as_str()),
+            _ => return Ok(()),
+        };
+        let rows = match crate::query::render_ready::locate::normalize_durable_located_window(
+            rows,
+            state.channel_id().as_str(),
+            target_message_id,
+            self.config.auth_user_id.as_str(),
+            state.page_size(),
+        ) {
+            Ok(rows) => rows,
+            Err(error) => {
+                tracing::warn!(
+                    channel_id = state.channel_id().as_str(),
+                    error = ?error,
+                    "timeline locate durable rows failed closed"
+                );
+                self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+                return Ok(());
+            }
+        };
+        out.push(self.emit_timeline_locate_result(&state, &rows)?);
         Ok(())
     }
 
@@ -412,6 +456,66 @@ impl ImModule {
                 "hasNewer": page.has_newer,
                 "olderCursor": Value::Null,
                 "newerCursor": Value::Null,
+            }),
+        ))
+    }
+
+    /// 应用已读回的 locate 窗口并返回唯一 QueryMessagesResult，不发布领域广播。
+    fn emit_timeline_locate_result(
+        &mut self,
+        state: &crate::timeline_navigation::TimelineNavigationState,
+        rows: &[Value],
+    ) -> Result<Effect, ImError> {
+        let request_id = state
+            .request_id()
+            .ok_or_else(|| ImError::Parse("timeline locate result missing req_id".to_string()))?;
+        let crate::timeline_navigation::TimelineNavigationKind::Locate {
+            target_message_id,
+            navigation_token,
+        } = state.kind()
+        else {
+            return Err(ImError::Parse(
+                "timeline locate result requires locate state".to_string(),
+            ));
+        };
+        if !self.state.timeline_state.is_current_locate_navigation(
+            state.channel_id().as_str(),
+            state.window_token(),
+            navigation_token,
+        ) {
+            return Err(ImError::Parse(
+                "timeline locate result is stale".to_string(),
+            ));
+        }
+        let mut request = crate::timeline_state::TimelineWindowRequest::latest_with_window_token(
+            state.channel_id().as_str(),
+            state.window_token(),
+        );
+        request.page_size = state.page_size();
+        request.page = state.page();
+        self.state
+            .timeline_state
+            .patch_page_from_render_ready(
+                request,
+                rows,
+                crate::timeline_state::TimelinePageMutation::Locate {
+                    target_message_id: target_message_id.to_string(),
+                    navigation_token: navigation_token.to_string(),
+                    activate: true,
+                },
+                Some(request_id.to_string()),
+            )
+            .map_err(|error| ImError::Parse(format!("timeline locate projection: {error}")))?;
+        let page = state.page();
+        Ok(crate::read_relay::emit_read_body(
+            request_id,
+            serde_json::json!({
+                "reqId": request_id,
+                "messages": rows,
+                "hasOlder": page.has_older,
+                "hasNewer": page.has_newer,
+                "olderCursor": state.older_cursor().cloned().unwrap_or(Value::Null),
+                "newerCursor": state.newer_cursor().cloned().unwrap_or(Value::Null),
             }),
         ))
     }
@@ -733,6 +837,38 @@ fn newer_navigation_scan_spec(
             SqlValue::Text(state.channel_id().as_str().to_string()),
         )),
         order_by: NEWER_NAVIGATION_ORDER,
+    }
+}
+
+/// 构造 locate durable read-back 的 bounded channel Scan，目标和 viewer 由投影层复核。
+fn locate_navigation_scan_spec(
+    state: &crate::timeline_navigation::TimelineNavigationState,
+) -> ScanSpec {
+    ScanSpec {
+        table: "message",
+        limit: Some(state.page_size().saturating_add(1)),
+        filter: Some((
+            "channel_id",
+            SqlValue::Text(state.channel_id().as_str().to_string()),
+        )),
+        order_by: LOCATE_NAVIGATION_ORDER,
+    }
+}
+
+/// 判断 locate correlation 是否已被同窗口更新的 navigation token 淘汰。
+fn locate_navigation_is_stale(
+    timeline_state: &crate::timeline_state::TimelineState,
+    state: &crate::timeline_navigation::TimelineNavigationState,
+) -> bool {
+    match state.kind() {
+        crate::timeline_navigation::TimelineNavigationKind::Locate {
+            navigation_token, ..
+        } => !timeline_state.is_current_locate_navigation(
+            state.channel_id().as_str(),
+            state.window_token(),
+            navigation_token,
+        ),
+        _ => false,
     }
 }
 

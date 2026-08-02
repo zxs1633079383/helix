@@ -337,7 +337,10 @@ read_cmd!(
     "im_get_replies",
     |args, cmd| {
         let reply_id = require_str(args, "reply_id", cmd)?;
-        Ok(("posts/getReplies", page_body(args, "replyId", reply_id)))
+        Ok((
+            "posts/getReplies",
+            page_body(args, "replyId", reply_id, cmd)?,
+        ))
     }
 );
 
@@ -350,7 +353,7 @@ read_cmd!(
         let id = require_str(args, "reply_first_level_id", cmd)?;
         Ok((
             "posts/getReplyBranch",
-            page_body(args, "replyFirstLevelId", id),
+            page_body(args, "replyFirstLevelId", id, cmd)?,
         ))
     }
 );
@@ -403,25 +406,38 @@ read_cmd!(
     }
 );
 
-/// 组装分页 body：`{<id_key>: <id_val>, pageNumber, pageSize}`，可选 `revoke`（GetPostOpts.Revoke）。
-/// pageNumber/pageSize 缺省 1/20（与 Go PageOpts.Init 一致）。Go 的 reply branch handler 不主动
-/// Init；若传 0，会在“多取一条判 hasMore”后截断为 0 条，因此默认值必须由 Helix 业务层补齐。
-fn page_body(args: &Value, id_key: &'static str, id_val: &str) -> Value {
-    let page_number = args
-        .get("page_number")
-        .and_then(Value::as_i64)
-        .filter(|value| *value > 0)
-        .unwrap_or(1);
-    let page_size = args
-        .get("page_size")
-        .and_then(Value::as_i64)
-        .filter(|value| *value > 0)
-        .unwrap_or(20);
+/// 组装回复分页 body，并在产生 HTTP effect 前拒绝非法显式页值。
+fn page_body(
+    args: &Value,
+    id_key: &'static str,
+    id_val: &str,
+    cmd: &str,
+) -> Result<Value, ImError> {
+    let page_number = positive_page_number(args.get("page_number"), cmd)?;
+    let page_size = crate::timeline_state::TimelinePageSize::parse(args.get("page_size"))
+        .map_err(|error| ImError::Parse(format!("{cmd}: pageSize: {error}")))?
+        .get();
     let mut b = json!({ id_key: id_val, "pageNumber": page_number, "pageSize": page_size });
     if let Some(revoke) = args.get("revoke").and_then(Value::as_bool) {
         b["revoke"] = json!(revoke);
     }
-    b
+    Ok(b)
+}
+
+/// 解析缺省为 1、显式必须为正整数的页码，避免把坏值静默改成另一页。
+fn positive_page_number(value: Option<&Value>, cmd: &str) -> Result<u32, ImError> {
+    let Some(value) = value else {
+        return Ok(1);
+    };
+    let raw = value
+        .as_u64()
+        .ok_or_else(|| ImError::Parse(format!("{cmd}: pageNumber 必须是正整数")))?;
+    let page =
+        u32::try_from(raw).map_err(|_| ImError::Parse(format!("{cmd}: pageNumber 超出范围")))?;
+    if page == 0 {
+        return Err(ImError::Parse(format!("{cmd}: pageNumber 必须是正整数")));
+    }
+    Ok(page)
 }
 
 #[cfg(test)]
@@ -431,7 +447,7 @@ mod tests {
 
     #[test]
     fn reply_page_defaults_match_go_page_opts() {
-        let body = page_body(&json!({}), "replyFirstLevelId", "first-1");
+        let body = page_body(&json!({}), "replyFirstLevelId", "first-1", "test").unwrap();
         assert_eq!(body["replyFirstLevelId"], "first-1");
         assert_eq!(body["pageNumber"], 1);
         assert_eq!(body["pageSize"], 20);
@@ -443,15 +459,17 @@ mod tests {
             &json!({"page_number": 0, "page_size": -1}),
             "replyId",
             "root-1",
+            "test",
         );
-        assert_eq!(defaults["pageNumber"], 1);
-        assert_eq!(defaults["pageSize"], 20);
+        assert!(defaults.is_err());
 
         let explicit = page_body(
             &json!({"page_number": 2, "page_size": 50}),
             "replyId",
             "root-1",
-        );
+            "test",
+        )
+        .unwrap();
         assert_eq!(explicit["pageNumber"], 2);
         assert_eq!(explicit["pageSize"], 50);
     }

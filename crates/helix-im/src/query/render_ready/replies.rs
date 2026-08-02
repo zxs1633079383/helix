@@ -16,6 +16,7 @@
 //! **不计入** 21 投影冻结集——前端直绑、后端响应体权威）。冻结的 `im:read:result`（`{req_id, body}`）
 //! 投影**保持原样**额外 emit（UC-2.4 ② 契约面照旧裁定 verbatim body）——本投影**额外** emit，不改既有键集。
 
+use crate::error::ImError;
 use bytes::Bytes;
 use helix_core::effect::{DomainEventBytes, Effect};
 use std::collections::{HashMap, HashSet};
@@ -44,6 +45,8 @@ pub struct ReplyProjectionRequest {
     pub mode: ReplyProjectionMode,
     pub revision: u64,
     pub viewer_user_id: String,
+    pub page_number: u32,
+    pub page_size: u32,
 }
 
 impl ReplyProjectionRequest {
@@ -59,6 +62,10 @@ impl ReplyProjectionRequest {
             "im_get_reply_branch" => (ReplyProjectionMode::Append, "reply_first_level_id"),
             _ => return None,
         };
+        let page_number = parse_page_number(value.get("page_number")).ok()?;
+        let page_size = crate::timeline_state::TimelinePageSize::parse(value.get("page_size"))
+            .ok()?
+            .get();
         Some(Self {
             req_id,
             channel_id: value
@@ -75,8 +82,210 @@ impl ReplyProjectionRequest {
             mode,
             revision,
             viewer_user_id: viewer.to_string(),
+            page_number,
+            page_size,
         })
     }
+}
+
+/// G12a/G12b 一次回复页的结构化终态，保留请求关联、根消息和 Go 页界。
+#[derive(Debug, Clone, PartialEq)]
+pub struct RepliesPageResult {
+    pub req_id: String,
+    pub root_post: serde_json::Value,
+    pub replies: Vec<serde_json::Value>,
+    pub has_more: bool,
+    pub page_number: u32,
+    pub page_size: u32,
+}
+
+impl RepliesPageResult {
+    /// 转为 Tauri adapter 消费的 camelCase Command Result body。
+    pub fn to_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "reqId": self.req_id,
+            "rootPost": self.root_post,
+            "replies": self.replies,
+            "hasMore": self.has_more,
+            "page": {
+                "pageNumber": self.page_number,
+                "pageSize": self.page_size,
+            },
+        })
+    }
+}
+
+/// 从 command payload 解析缺省为 1、显式必须为正整数的页码。
+fn parse_page_number(value: Option<&serde_json::Value>) -> Result<u32, ImError> {
+    let Some(value) = value else {
+        return Ok(1);
+    };
+    let raw = value
+        .as_u64()
+        .ok_or_else(|| ImError::Parse("reply pageNumber must be a positive integer".to_string()))?;
+    let page = u32::try_from(raw)
+        .map_err(|_| ImError::Parse("reply pageNumber is out of range".to_string()))?;
+    if page == 0 {
+        return Err(ImError::Parse(
+            "reply pageNumber must be a positive integer".to_string(),
+        ));
+    }
+    Ok(page)
+}
+
+/// 将 Go getReplies authority body转换为 root-isolated、viewer-filtered 的单页结果。
+///
+/// 该转换只遍历一次根与当前页（O(pageSize)），绝不发起额外 `getPosts`；缺失
+/// `hasMore`、页界或回复数组均 fail-closed，避免把未知分页误当成 `false`。
+pub fn project_replies_page(
+    request: &ReplyProjectionRequest,
+    body: &serde_json::Value,
+    viewer_user_id: &str,
+) -> Result<RepliesPageResult, ImError> {
+    let payload = reply_payload(body)?;
+    let has_more = payload
+        .get("hasMore")
+        .and_then(serde_json::Value::as_bool)
+        .ok_or_else(|| ImError::Parse("reply result missing boolean hasMore".to_string()))?;
+    let page = payload
+        .get("page")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| ImError::Parse("reply result missing page".to_string()))?;
+    let page_number = parse_page_number(page.get("pageNumber"))?;
+    let page_size = crate::timeline_state::TimelinePageSize::parse(page.get("pageSize"))
+        .map_err(|error| ImError::Parse(format!("reply result pageSize: {error}")))?
+        .get();
+    if page_number != request.page_number || page_size != request.page_size {
+        return Err(ImError::Parse(
+            "reply result page does not match request".to_string(),
+        ));
+    }
+    let replies = payload
+        .get("replies")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| ImError::Parse("reply result missing replies array".to_string()))?;
+
+    let root_post = payload
+        .get("rootPost")
+        .filter(|post| {
+            is_visible_to_viewer(post, viewer_user_id)
+                && post_identity_matches(post, request.root_hint.as_str())
+        })
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+
+    let mut seen_ids = HashSet::with_capacity(replies.len());
+    let mut seen_temporary_ids = HashSet::with_capacity(replies.len());
+    let mut projected_replies = Vec::with_capacity(replies.len());
+    for reply in replies {
+        if !is_visible_to_viewer(reply, viewer_user_id)
+            || !reply_belongs_to_root(reply, request.root_hint.as_str())
+        {
+            continue;
+        }
+        let Some((id, temporary_id)) = reply_identity(reply) else {
+            continue;
+        };
+        if seen_ids.contains(&id) || seen_temporary_ids.contains(&temporary_id) {
+            continue;
+        }
+        seen_ids.insert(id);
+        seen_temporary_ids.insert(temporary_id);
+        projected_replies.push(reply.clone());
+    }
+
+    Ok(RepliesPageResult {
+        req_id: request.req_id.clone(),
+        root_post,
+        replies: projected_replies,
+        has_more,
+        page_number,
+        page_size,
+    })
+}
+
+/// 解开 Go CommonRes data 外壳，保留缺失字段的显式错误语义。
+fn reply_payload(body: &serde_json::Value) -> Result<&serde_json::Value, ImError> {
+    let payload = body
+        .get("data")
+        .filter(|value| value.is_object())
+        .unwrap_or(body);
+    if !payload.is_object() {
+        return Err(ImError::Parse("reply result must be an object".to_string()));
+    }
+    Ok(payload)
+}
+
+/// 判定消息是否属于当前 viewer；空受众沿用 Helix 的未绑定 viewer 宽容语义。
+fn is_visible_to_viewer(post: &serde_json::Value, viewer_user_id: &str) -> bool {
+    if post.get("type").and_then(serde_json::Value::as_str) == Some("NOTICE")
+        || viewer_user_id.is_empty()
+    {
+        return true;
+    }
+    let Some(viewers) = post.get("viewers") else {
+        return true;
+    };
+    if let Some(items) = viewers.as_array() {
+        return items
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .any(|id| id == "all" || id == viewer_user_id);
+    }
+    viewers
+        .as_str()
+        .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
+        .is_some_and(|items| items.iter().any(|id| id == "all" || id == viewer_user_id))
+}
+
+/// 读取消息的 server/temporary 双锚，供 root 校验与页内幂等去重共用。
+fn reply_identity(post: &serde_json::Value) -> Option<(String, String)> {
+    let id = post
+        .get("id")
+        .or_else(|| post.get("msgId"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let temporary_id = post
+        .get("temporaryId")
+        .or_else(|| post.get("temporary_id"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    match (id, temporary_id) {
+        (Some(id), Some(temporary_id)) => Some((id, temporary_id)),
+        (Some(id), None) => Some((id.clone(), id)),
+        (None, Some(temporary_id)) => Some((temporary_id.clone(), temporary_id)),
+        (None, None) => None,
+    }
+}
+
+/// 判断 rootPost 是否与请求根同一 server/temporary 锚。
+fn post_identity_matches(post: &serde_json::Value, root_hint: &str) -> bool {
+    reply_identity(post)
+        .is_some_and(|(id, temporary_id)| id == root_hint || temporary_id == root_hint)
+}
+
+/// 只接受带 root 关系且关系值命中请求根的回复，避免跨 root 泄漏。
+fn reply_belongs_to_root(post: &serde_json::Value, root_hint: &str) -> bool {
+    [
+        "rootId",
+        "root_id",
+        "replyRootId",
+        "reply_root_id",
+        "replyId",
+        "reply_id",
+        "parentId",
+        "parent_id",
+    ]
+    .iter()
+    .filter_map(|key| post.get(*key).and_then(serde_json::Value::as_str))
+    .any(|relation| relation == root_hint)
+}
+
+/// 将一次成功的回复页以唯一 `im:read:result` terminal 交给 Host/Adapter。
+pub fn emit_replies_page_result(result: &RepliesPageResult) -> Effect {
+    crate::read_relay::emit_read_body(&result.req_id, result.to_value())
 }
 
 #[derive(Debug, Clone, PartialEq)]

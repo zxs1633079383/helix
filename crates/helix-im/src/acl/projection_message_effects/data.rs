@@ -171,6 +171,12 @@ pub(super) fn message_item_data(
         fields.msg_type.as_str()
     };
     let forward_detail = crate::query::render_ready::forward::detail(msg_type, &props);
+    let user_snapshot = crate::query::render_ready::core::normalize_user_snapshot(
+        &parse_json_field(&fields.user_snapshot, json!({})),
+    );
+    let replied_message = crate::query::render_ready::core::normalize_replied_message(
+        &parse_json_field(&fields.replied_message, serde_json::Value::Null),
+    );
     let urgent_fields = json!({
         "urgent": urgent.required_count > 0,
         "urgentTargetCount": urgent.required_count,
@@ -193,6 +199,7 @@ pub(super) fn message_item_data(
         "channelId": channel_id.as_str(),
         "eventSeq": event_seq,
         "userId": fields.user_id.as_str(),
+        "userSnapshot": user_snapshot,
         "type": msg_type,
         "message": fields.message.as_str(),
         "simpleMessage": fields.simple_message.as_str(),
@@ -205,6 +212,7 @@ pub(super) fn message_item_data(
         "updateAt": if fields.update_at > 0 { fields.update_at } else { fields.create_at },
         "readBits": fields.read_bits.as_str(),
         "viewers": fields.viewers,
+        "mentions": fields.mentions,
         // —— render-ready 终态字段（issue #53·C013 业务规则下沉 helix·前端纯绑定）——
         "sendStatus": "sent",
         "serverId": if has_server_id { serde_json::Value::String(msg_id.to_string()) } else { serde_json::Value::Null },
@@ -220,7 +228,7 @@ pub(super) fn message_item_data(
         "replyId": fields.reply_id.as_str(),
         "replyRootId": fields.reply_root_id.as_str(),
         "replyFirstLevelId": fields.reply_first_level_id.as_str(),
-        "repliedMessage": parse_json_field(&fields.replied_message, serde_json::Value::Null),
+        "repliedMessage": replied_message,
         "replyMessages": parse_json_field(&fields.reply_messages, json!([])),
         "replyCount": fields.reply_count,
     });

@@ -198,7 +198,14 @@ fn real_go_increment_channel_registers_and_seeds_cursor() {
     // increment_channel.json 真帧 data.id = bi643wys7fgy9pbai9wjfusnfa，lastEventSeq = 151。
     let channel = ChannelId::from_str("bi643wys7fgy9pbai9wjfusnfa").expect("真帧 id 合法 26 字符");
 
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(
+        &[],
+        "444",
+        "64118eebd2b665246b7880eb",
+        "破坏者",
+        "战士",
+        "狂派事业部",
+    );
     h.start(0);
 
     let effects = h.step(inbound(INCREMENT_JSON), 1000);

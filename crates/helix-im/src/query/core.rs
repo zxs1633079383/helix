@@ -427,7 +427,8 @@ pub fn project_dialog_list_items(
                 .or_else(|| row.get("channel_id"))
                 .and_then(serde_json::Value::as_str)
                 .filter(|id| !id.is_empty())?;
-            seen.insert(id.to_string()).then(|| render_dialog_row(row))
+            seen.insert(id.to_string())
+                .then(|| super::render_ready::channel::shape_channel_row(&row))
         })
         .collect()
 }

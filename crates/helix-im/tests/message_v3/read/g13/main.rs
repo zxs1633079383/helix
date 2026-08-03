@@ -222,6 +222,7 @@ fn dialog_row(unread: i64, mention: i64, urgent: i64) -> Value {
         "display_name": "G13",
         "type": "P",
         "team_id": "g13-company",
+        "user_id": ACTOR_ID,
         "unread_count": unread,
         "mention_count": mention,
         "urgent_count": urgent,
@@ -268,34 +269,56 @@ fn base64_std(bytes: &[u8]) -> String {
     output
 }
 
-/// G-13 初始未读、已读终态与恢复都使用同一绝对事件。
+/// G-13 初始未读与冷恢复走单一 typed Result，在线已读仍发布权威绝对事件。
 #[test]
 fn g13_emits_initial_terminal_and_recovery_states() -> TestResult<()> {
     let trace = run_success()?;
-    assert_eq!(trace.events.len(), 6);
-    assert_eq!(trace.events[0]["event"], "im:channel:list");
-    assert_eq!(trace.events[1]["event"], "im:read:channel");
-    assert_eq!(trace.events[1]["data"]["state"], "unread");
-    assert_eq!(trace.events[1]["data"]["unreadCount"], 3);
-    assert_eq!(trace.events[2]["event"], "im:channel:update");
-    assert_eq!(trace.events[2]["data"]["channelId"], CHANNEL_ID);
-    assert_eq!(trace.events[2]["data"]["unreadCount"], 0);
-    assert_eq!(trace.events[2]["data"]["mentionCount"], 0);
-    assert_eq!(trace.events[2]["data"]["mentionCountRoot"], 0);
-    assert_eq!(trace.events[2]["data"]["lastReadSeq"], 41);
-    assert_eq!(trace.events[2]["data"]["lastPostAt"], CREATED_AT - 10);
+    assert_eq!(trace.events.len(), 4);
+    assert_eq!(trace.events[0]["event"], "im:read:result");
     assert_eq!(
-        trace.events[2]["data"]["projectionAuthority"],
+        trace.events[0]["data"]["body"]["items"][0]["unreadCount"],
+        3
+    );
+    assert_eq!(
+        trace.events[0]["data"]["body"]["items"][0]["mentionCount"],
+        1
+    );
+    assert_eq!(
+        trace.events[0]["data"]["body"]["items"][0]["urgentCount"],
+        1
+    );
+    assert_eq!(
+        trace.events[0]["data"]["body"]["items"][0]["lastReadSeq"],
+        38
+    );
+    assert_eq!(
+        trace.events[0]["data"]["body"]["items"][0]["projectionRevision"],
+        9
+    );
+    assert_eq!(trace.events[1]["event"], "im:channel:update");
+    assert_eq!(trace.events[1]["data"]["channelId"], CHANNEL_ID);
+    assert_eq!(trace.events[1]["data"]["unreadCount"], 0);
+    assert_eq!(trace.events[1]["data"]["mentionCount"], 0);
+    assert_eq!(trace.events[1]["data"]["mentionCountRoot"], 0);
+    assert_eq!(trace.events[1]["data"]["lastReadSeq"], 41);
+    assert_eq!(trace.events[1]["data"]["lastPostAt"], CREATED_AT - 10);
+    assert_eq!(
+        trace.events[1]["data"]["projectionAuthority"],
         "server-member-absolute"
     );
-    assert_eq!(trace.events[3]["event"], "im:read:channel");
-    assert_eq!(trace.events[3]["data"]["state"], "read");
-    assert_eq!(trace.events[3]["data"]["unreadCount"], 0);
-    assert_eq!(trace.events[3]["data"]["lastReadSeq"], 41);
-    assert_eq!(trace.events[4]["event"], "im:channel:list");
-    assert_eq!(trace.events[5]["event"], "im:read:channel");
-    assert_eq!(trace.events[5]["data"]["state"], "read");
-    assert_eq!(trace.events[5]["data"]["unreadCount"], 0);
+    assert_eq!(trace.events[2]["event"], "im:read:channel");
+    assert_eq!(trace.events[2]["data"]["state"], "read");
+    assert_eq!(trace.events[2]["data"]["unreadCount"], 0);
+    assert_eq!(trace.events[2]["data"]["lastReadSeq"], 41);
+    assert_eq!(trace.events[3]["event"], "im:read:result");
+    assert_eq!(
+        trace.events[3]["data"]["body"]["items"][0]["unreadCount"],
+        0
+    );
+    assert_eq!(
+        trace.events[3]["data"]["body"]["items"][0]["lastReadSeq"],
+        41
+    );
     Ok(())
 }
 
@@ -310,8 +333,9 @@ fn g13_persist_failure_preserves_old_projection() -> TestResult<()> {
         CREATED_AT as u64 + 1,
     )?;
     let initial = replay.events()?;
-    assert_eq!(initial[1]["data"]["state"], "unread");
-    assert_eq!(initial[1]["data"]["unreadCount"], 3);
+    assert_eq!(initial.len(), 1);
+    assert_eq!(initial[0]["event"], "im:read:result");
+    assert_eq!(initial[0]["data"]["body"]["items"][0]["unreadCount"], 3);
 
     let view_corr = replay.command_corr(
         "im_channels_view",

@@ -1,4 +1,5 @@
 pub mod candidates;
+pub(crate) mod channel;
 pub mod core;
 pub(crate) mod forward;
 pub mod locate;

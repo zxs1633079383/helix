@@ -414,14 +414,27 @@ fn page_body(
     cmd: &str,
 ) -> Result<Value, ImError> {
     let page_number = positive_page_number(args.get("page_number"), cmd)?;
-    let page_size = crate::timeline_state::TimelinePageSize::parse(args.get("page_size"))
-        .map_err(|error| ImError::Parse(format!("{cmd}: pageSize: {error}")))?
-        .get();
+    let page_size = reply_page_size(args.get("page_size"), cmd)?;
     let mut b = json!({ id_key: id_val, "pageNumber": page_number, "pageSize": page_size });
     if let Some(revoke) = args.get("revoke").and_then(Value::as_bool) {
         b["revoke"] = json!(revoke);
     }
     Ok(b)
+}
+
+/// 解析回复独立页长：缺省 20，显式值继续受时间线共享上限 60 约束。
+fn reply_page_size(value: Option<&Value>, cmd: &str) -> Result<u32, ImError> {
+    let Some(value) = value else {
+        return Ok(20);
+    };
+    let raw = value
+        .as_u64()
+        .ok_or_else(|| ImError::Parse(format!("{cmd}: pageSize 必须是正整数")))?;
+    let raw =
+        u32::try_from(raw).map_err(|_| ImError::Parse(format!("{cmd}: pageSize 超出范围")))?;
+    crate::timeline_state::TimelinePageSize::new(raw)
+        .map(crate::timeline_state::TimelinePageSize::get)
+        .map_err(|error| ImError::Parse(format!("{cmd}: pageSize: {error}")))
 }
 
 /// 解析缺省为 1、显式必须为正整数的页码，避免把坏值静默改成另一页。

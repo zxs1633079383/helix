@@ -71,7 +71,7 @@ fn increment_channel_real_frame_dispatches_through_registry() {
         "seq": 9
     });
     let bytes = serde_json::to_vec(&frame).unwrap();
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[], "viewer-1", "team_x", "", "", "");
 
     h.module
         .handle(&Tick::Inbound(InboundBytes(bytes.into())), 100, &mut h.sink)
@@ -216,7 +216,7 @@ fn increment_channel_no_last_event_seq_still_dispatches() {
         "seq": 1
     });
     let bytes = serde_json::to_vec(&frame).unwrap();
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[], "viewer-1", "team_x", "", "", "");
 
     h.module
         .handle(&Tick::Inbound(InboundBytes(bytes.into())), 100, &mut h.sink)

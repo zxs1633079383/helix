@@ -681,7 +681,7 @@ mod message_tests;
 
 #[cfg(test)]
 mod phase2_contract_tests {
-    /// 冻结 Phase 2 时间线页长边界，确保默认 20 与最大 60 在 I/O 前可验证。
+    /// 冻结 Phase 2 时间线页长边界，确保默认 40 与最大 60 在 I/O 前可验证。
     #[test]
     fn timeline_page_size_contract_accepts_twenty_and_sixty() {
         assert_eq!(

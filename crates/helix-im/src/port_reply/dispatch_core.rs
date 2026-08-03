@@ -301,9 +301,9 @@ impl ImModule {
                 // PersistOk 是唯一 ready 屏障；事件只携带 session 元数据，不重放频道数组。
                 let generation = self.state.channel_sync_generation.wrapping_add(1);
                 self.state.channel_sync_generation = generation;
-                let session_id = format!("channel-sync-{generation}");
+                let channel_sync_session_id = format!("channel-sync-{generation}");
                 let session = crate::channel_sync::ChannelSyncSession::new(
-                    session_id,
+                    channel_sync_session_id,
                     generation,
                     self.config.auth_user_id.as_str(),
                     self.config.company_id.as_str(),
@@ -328,7 +328,7 @@ impl ImModule {
     /// 将本地 channel Scan 回包投影成不超过 20 行的 typed page；失败不发 page 事件。
     pub(super) fn handle_channel_sync_page_reply(
         &mut self,
-        session_id: String,
+        channel_sync_session_id: String,
         generation: u64,
         offset: usize,
         req_id: Option<String>,
@@ -344,7 +344,7 @@ impl ImModule {
             }
             return Ok(());
         };
-        if session.channel_sync_session_id != session_id
+        if session.channel_sync_session_id != channel_sync_session_id
             || session.generation != generation
             || session.completed
             || session.account_id != self.config.auth_user_id

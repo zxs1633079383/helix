@@ -278,7 +278,7 @@ impl ImModule {
         self.state.corr_map.insert(
             corr,
             CorrelationContext::ChannelSyncPage {
-                session_id: session.channel_sync_session_id,
+                channel_sync_session_id: session.channel_sync_session_id,
                 generation: session.generation,
                 offset,
                 req_id: request.req_id,
@@ -340,7 +340,7 @@ impl ImModule {
                 !matches!(
                     context,
                     CorrelationContext::ChannelSyncPage {
-                        session_id: pending_session_id,
+                        channel_sync_session_id: pending_session_id,
                         generation: pending_generation,
                         ..
                     } if pending_session_id == &session_id && *pending_generation == generation
@@ -483,11 +483,11 @@ mod phase2_contract_tests {
         assert!(matches!(
             module.state.corr_map.get(corr),
             Some(CorrelationContext::ChannelSyncPage {
-                session_id,
+                channel_sync_session_id,
                 generation: 4,
                 offset: 0,
                 req_id: Some(req_id),
-            }) if session_id == "session-a" && req_id == "page-1"
+            }) if channel_sync_session_id == "session-a" && req_id == "page-1"
         ));
 
         let session = module.state.channel_sync_session.as_ref().unwrap();

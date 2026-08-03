@@ -156,7 +156,7 @@ pub enum CorrelationContext {
 
     /// MessageV3 本地频道分页 Scan；session/generation/cursor offset 均在回包时再次校验。
     ChannelSyncPage {
-        session_id: String,
+        channel_sync_session_id: String,
         generation: u64,
         offset: usize,
         req_id: Option<String>,

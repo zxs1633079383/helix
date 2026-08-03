@@ -274,12 +274,17 @@ impl ImModule {
             }
 
             CorrelationContext::ChannelSyncPage {
-                session_id,
+                channel_sync_session_id,
                 generation,
                 offset,
                 req_id,
             } => self.handle_channel_sync_page_reply(
-                session_id, generation, offset, req_id, outcome, out,
+                channel_sync_session_id,
+                generation,
+                offset,
+                req_id,
+                outcome,
+                out,
             )?,
 
             CorrelationContext::IncrementHydrationPersist {

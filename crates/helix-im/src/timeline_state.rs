@@ -11,7 +11,7 @@ use thiserror::Error;
 /// 单个时间线窗口最多保留的消息数。
 pub const MAX_TIMELINE_WINDOW_ITEMS: usize = 60;
 /// 时间线查询默认页长。
-pub const DEFAULT_TIMELINE_PAGE_SIZE: u32 = 20;
+pub const DEFAULT_TIMELINE_PAGE_SIZE: u32 = 40;
 /// 时间线查询最大页长。
 pub const MAX_TIMELINE_PAGE_SIZE: u32 = MAX_TIMELINE_WINDOW_ITEMS as u32;
 

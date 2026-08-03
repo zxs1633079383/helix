@@ -136,9 +136,15 @@ impl WsMessageHandler for IncrementChannelHandler {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let Ok(data) = frame.data_required() else {
+            tracing::warn!(
+                "channel-sync-ready 未触发：increment_channel 帧缺少 data，未进入批次缓冲"
+            );
             return Ok(());
         };
         let Some(inc) = crate::ws::parser::parse_increment_channel(data) else {
+            tracing::warn!(
+                "channel-sync-ready 未触发：increment_channel 帧解析失败，未进入批次缓冲"
+            );
             return Ok(());
         };
 

@@ -294,7 +294,9 @@ impl ImModule {
         match outcome {
             PortOutcome::Ok(_) => {
                 if !self.state.channel_sync_batch_pending {
-                    tracing::debug!("channel sync ready already emitted for this increment batch");
+                    tracing::info!(
+                        "channel-sync-ready 未触发：当前 increment 批次已经处理过 ready"
+                    );
                     return Ok(());
                 }
                 self.state.channel_sync_batch_pending = false;
@@ -308,6 +310,11 @@ impl ImModule {
                     self.config.auth_user_id.as_str(),
                     self.config.company_id.as_str(),
                 );
+                tracing::info!(
+                    session_id = %session.channel_sync_session_id,
+                    generation,
+                    "channel-sync-ready 已触发：increment 批次 PersistOk"
+                );
                 out.push(
                     crate::event::channel_sync::ready(
                         session.channel_sync_session_id.as_str(),
@@ -319,7 +326,10 @@ impl ImModule {
             }
             PortOutcome::Err(error) => {
                 self.state.channel_sync_batch_pending = false;
-                tracing::warn!(error = ?error, "increment batch persist failed; final projections suppressed");
+                tracing::warn!(
+                    error = ?error,
+                    "channel-sync-ready 未触发：increment 批次持久化失败，保留旧会话"
+                );
             }
         }
         Ok(())

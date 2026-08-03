@@ -14,6 +14,10 @@ pub(crate) fn apply_increment_end(
 ) {
     match channel_id {
         Some(channel_id) => {
+            tracing::info!(
+                channel_id = %channel_id.as_str(),
+                "channel-sync-ready 未触发：收到带 channelId 的单频道结束帧"
+            );
             out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         }
         None => {
@@ -73,8 +77,16 @@ pub(crate) fn apply_increment_end(
                 }
             }
             if ops.is_empty() && projections.is_empty() {
+                tracing::info!(
+                    "channel-sync-ready 未触发：global increment_channel_end 没有可持久化的批次内容"
+                );
                 return;
             }
+            tracing::info!(
+                pending_ops = ops.len(),
+                projections = projections.len(),
+                "channel-sync-ready 等待 increment 批次 Persist 回执"
+            );
             let corr = ctx.alloc_corr();
             out.push(Effect::Persist { corr, ops });
             ctx.state.corr_map.insert(

@@ -11,6 +11,24 @@ use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistrati
 // helpers 经 pub(super) 从 posts_read 引入
 use super::read::{carry_into, require_str_array};
 
+/// 校验批量回执查询的公开边界，只允许 `post_ids` 与宿主追踪键 `req_id`。
+fn require_post_read_list_args(args: &Value, cmd: &str) -> Result<Value, ImError> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| ImError::Parse(format!("{cmd}: payload 必须是 JSON 对象")))?;
+    for key in object.keys() {
+        if !matches!(key.as_str(), "post_ids" | "req_id") {
+            return Err(ImError::Parse(format!("{cmd}: 未知或内部字段 '{key}'")));
+        }
+    }
+    if let Some(req_id) = object.get("req_id") {
+        if !req_id.is_string() {
+            return Err(ImError::Parse(format!("{cmd}: req_id 必须是字符串")));
+        }
+    }
+    require_str_array(args, "post_ids", cmd)
+}
+
 /// 注册读命令样板（与 posts_read.rs 的 read_cmd! 同构，is_read=true）。
 macro_rules! read_cmd {
     ($cmd_struct:ident, $reg:ident, $name:literal, $build:expr) => {
@@ -127,16 +145,17 @@ read_cmd!(
     }
 );
 
-// ── post/read/list 已读位历史读（B1：非 bitmap，走 post/ 单数）───────────────────────
+// ── post/read/list receipt snapshot 读（走 post/ 单数）──────────────────────────────
 
-// #17 post/read/list：批量取 post 已读位历史。真源 entity.PostReadListParam{postIds:[]string}
-// （post.go:554，postReadList → post/read/list 路由 posts.go:31）。
+// #17 post/read/list：批量取 post receipt snapshot。真源 entity.PostReadListParam{postIds:[]string}
+// （post.go:554，postReadList → post/read/list 路由 posts.go:31）；Helix 后续只投影有序 ID、
+// 绝对计数和 snapshotId，Go 内部 bitmap 不进入公开事件。
 read_cmd!(
     PostReadListCommand,
     POST_READ_LIST_REG,
     "im_post_read_list",
     |args, cmd| {
-        let post_ids = require_str_array(args, "post_ids", cmd)?;
+        let post_ids = require_post_read_list_args(args, cmd)?;
         Ok(("post/read/list", json!({ "postIds": post_ids })))
     }
 );

@@ -289,16 +289,62 @@ impl ImModule {
                 self.handle_increment_batch_persist_reply(projections, outcome, out)?
             }
 
-            CorrelationContext::IncrementHydrationPersist {
-                channel_id,
-                need_sync,
-                raw_increment,
-            } => self.handle_increment_hydration_persist(
-                channel_id,
-                need_sync,
-                raw_increment,
+            CorrelationContext::ChannelSyncPage {
+                channel_sync_session_id,
+                generation,
+                offset,
+                req_id,
+            } => self.handle_channel_sync_page_reply(
+                channel_sync_session_id,
+                generation,
+                offset,
+                req_id,
                 outcome,
                 out,
+            )?,
+
+            CorrelationContext::IncrementHydrationPersist {
+                channel_id,
+                req_id,
+                need_sync,
+                raw_increment,
+                snapshot,
+            } => self.handle_increment_hydration_persist(
+                channel_id,
+                req_id,
+                need_sync,
+                raw_increment,
+                snapshot,
+                outcome,
+                out,
+            )?,
+
+            CorrelationContext::HydrationChannelReadback { req_id, channel_id } => {
+                self.handle_hydration_channel_readback(req_id, channel_id, outcome, out)?
+            }
+            CorrelationContext::HydrationMemberReadback {
+                req_id,
+                channel_id,
+                channel,
+            } => {
+                self.handle_hydration_member_readback(req_id, channel_id, channel, outcome, out)?
+            }
+            CorrelationContext::HydrationMessagesReadback {
+                req_id,
+                channel_id,
+                channel,
+                member,
+            } => self.handle_hydration_messages_readback(
+                req_id, channel_id, channel, member, outcome, out,
+            )?,
+            CorrelationContext::HydrationCursorReadback {
+                req_id,
+                channel_id,
+                channel,
+                member,
+                messages,
+            } => self.handle_hydration_cursor_readback(
+                req_id, channel_id, channel, member, messages, outcome, out,
             )?,
 
             CorrelationContext::ChannelUpdateByPost { pending } => match outcome {
@@ -398,16 +444,31 @@ impl ImModule {
 
             CorrelationContext::TooLongReloadPersist {
                 channel_id,
+                reset_to,
                 channel_updates,
             } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    for pending in channel_updates {
-                        if let Some(data) = pending.event_data_from_channel_reply(reply.0.as_ref())
-                        {
-                            out.push(crate::event::channel::update(data)?.into_effect());
+                    let committed = self
+                        .state
+                        .channels
+                        .get_mut(&channel_id)
+                        .is_some_and(|channel| channel.commit_too_long_after_atomic(reset_to));
+                    if committed {
+                        for pending in channel_updates {
+                            if let Some(data) =
+                                pending.event_data_from_channel_reply(reply.0.as_ref())
+                            {
+                                out.push(crate::event::channel::update(data)?.into_effect());
+                            }
                         }
+                        self.finish_increment_hydration(channel_id, out)?;
+                    } else {
+                        tracing::warn!(
+                            channel_id = channel_id.as_str(),
+                            reset_to = reset_to.0,
+                            "too_long reload receipt no longer matches channel generation"
+                        );
                     }
-                    self.finish_increment_hydration(channel_id, out)?;
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(
@@ -611,7 +672,6 @@ impl ImModule {
 
             CorrelationContext::MessageQueryCache {
                 request,
-                merged_rows_desc,
                 coverage,
                 query_session_epoch,
                 query_generation,
@@ -619,7 +679,25 @@ impl ImModule {
                 deferred_send_http,
             } => self.handle_message_query_cache_reply(
                 *request,
-                *merged_rows_desc,
+                coverage,
+                query_session_epoch,
+                query_generation,
+                causation_id,
+                deferred_send_http,
+                now_ms,
+                outcome,
+                out,
+            )?,
+
+            CorrelationContext::MessageQueryReadback {
+                request,
+                coverage,
+                query_session_epoch,
+                query_generation,
+                causation_id,
+                deferred_send_http,
+            } => self.handle_message_query_readback_reply(
+                *request,
                 coverage,
                 query_session_epoch,
                 query_generation,
@@ -646,56 +724,23 @@ impl ImModule {
                 }
             }
 
-            // 左侧会话列表只发布 MessageV3 频道绝对态与当前 viewer 已读绝对态。
+            // 本地 dialog Scan 只发布一次 typed command Result，不广播旧频道/已读事件。
             CorrelationContext::DialogListQuery { causation_id } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    let channel_rows = match crate::event::read::parse_dialog_rows(reply.0.as_ref())
-                    {
-                        Ok(rows) => rows,
-                        Err(error) => {
-                            tracing::warn!(error = ?error, "dialog channel scan readback malformed");
-                            emit_dialog_list_failed(out, causation_id)?;
-                            return Ok(());
-                        }
-                    };
-                    if channel_rows.is_empty() {
-                        out.push(
-                            crate::event::channel::list(serde_json::json!({
-                                "channels": [],
-                                "requestId": causation_id,
-                            }))?
-                            .into_effect(),
-                        );
-                        return Ok(());
-                    }
-                    let auth_user_id = self.config.auth_user_id.clone();
-                    if auth_user_id.is_empty() {
-                        tracing::warn!("dialog channel scan readback refused without auth user");
-                        emit_dialog_list_failed(out, causation_id)?;
-                        return Ok(());
-                    }
-                    let member_corr = self.alloc_corr_internal();
-                    let member_scan = crate::query::dialog_member_scan_spec(&auth_user_id);
-                    self.state.corr_map.insert(
-                        member_corr,
-                        CorrelationContext::DialogListMemberSnapshot {
-                            channel_rows: Box::new(channel_rows),
-                            causation_id,
-                            auth_user_id,
-                        },
-                    );
-                    out.push(helix_core::Effect::Persist {
-                        corr: member_corr,
-                        ops: vec![helix_core::effect::StorageOp::Scan(member_scan)],
-                    });
+                    out.push(self.emit_dialog_list_result_for_runtime(
+                        causation_id.as_deref(),
+                        reply.0.as_ref(),
+                    ));
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(error = ?e, "dialog list scan failed");
-                    emit_dialog_list_failed(out, causation_id)?;
+                    out.push(
+                        self.emit_dialog_list_result_for_runtime(causation_id.as_deref(), b"[]"),
+                    );
                 }
             },
 
-            // 成员 Scan 回报只允许与首段 channel 行按当前 viewer 合并后发布绝对态。
+            // 兼容仍在迁移中的旧两段 dialog/member 绝对投影回读；生产入口已统一走 typed Result。
             CorrelationContext::DialogListMemberSnapshot {
                 channel_rows,
                 causation_id,
@@ -742,6 +787,28 @@ impl ImModule {
                 }
             },
 
+            // G13d 本地 topic Scan 只发布一次 parent-scoped typed Result，不广播业务事件。
+            CorrelationContext::SubtopicsQuery {
+                parent_channel_id,
+                causation_id,
+            } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    out.push(self.emit_subtopics_result_for_runtime(
+                        causation_id.as_deref(),
+                        Some(parent_channel_id.as_str()),
+                        reply.0.as_ref(),
+                    ));
+                }
+                PortOutcome::Err(error) => {
+                    tracing::warn!(error = ?error, "subtopic scan failed");
+                    out.push(self.emit_subtopics_result_for_runtime(
+                        causation_id.as_deref(),
+                        Some(parent_channel_id.as_str()),
+                        b"[]",
+                    ));
+                }
+            },
+
             // spec06 缺陷A：读族 outbound HTTP 回报 → 透传响应体回灌前端（杀 fire-and-forget 丢响应）。
             // Ok → 剥 ADR-007 信封（base64 body）得裸后端响应体 → emit `im:read:result{req_id, body}`
             // （后端返回什么吐什么，零改业务数据）。信封畸形 → 当作 read error 回灌（不丢 req_id 关联，
@@ -755,6 +822,76 @@ impl ImModule {
                     &req_id,
                     command.as_str(),
                     channel_id.as_deref(),
+                    outcome,
+                    out,
+                );
+            }
+
+            CorrelationContext::OutboundExactPosts {
+                req_id,
+                requested_ids,
+            } => {
+                self.handle_exact_posts_http_reply(&req_id, requested_ids, outcome, out);
+            }
+
+            CorrelationContext::ExactPostsPersist {
+                req_id,
+                accepted_keys,
+            } => {
+                self.handle_exact_posts_persist_reply(req_id, accepted_keys, outcome, out);
+            }
+
+            CorrelationContext::ExactPostsReadback {
+                req_id,
+                accepted_keys,
+                next_index,
+                rows,
+            } => {
+                self.handle_exact_posts_readback_reply(
+                    req_id,
+                    accepted_keys,
+                    next_index,
+                    rows,
+                    outcome,
+                    out,
+                );
+            }
+
+            CorrelationContext::OutboundInitialWindow {
+                req_id,
+                post_id,
+                page_size,
+            } => {
+                self.handle_initial_window_http_reply(req_id, post_id, page_size, outcome, out);
+            }
+
+            CorrelationContext::InitialWindowPersist {
+                req_id,
+                post_id,
+                accepted_keys,
+            } => {
+                self.handle_initial_window_persist_reply(
+                    req_id,
+                    post_id,
+                    accepted_keys,
+                    outcome,
+                    out,
+                );
+            }
+
+            CorrelationContext::InitialWindowReadback {
+                req_id,
+                post_id,
+                accepted_keys,
+                next_index,
+                rows,
+            } => {
+                self.handle_initial_window_readback_reply(
+                    req_id,
+                    post_id,
+                    accepted_keys,
+                    next_index,
+                    rows,
                     outcome,
                     out,
                 );
@@ -1231,4 +1368,101 @@ fn lifecycle_http_succeeded(outcome: &helix_core::tick::PortOutcome) -> bool {
         .get("status")
         .and_then(serde_json::Value::as_str)
         .is_some_and(|status| status.eq_ignore_ascii_case("SUCCESS"))
+}
+
+#[cfg(test)]
+mod phase2_contract_tests {
+    use super::*;
+    use bytes::Bytes;
+    use helix_core::effect::Effect;
+    use helix_core::tick::{PortOutcome, ReplyBytes};
+    use helix_core::EffectSink;
+
+    const CHANNEL_ID: &str = "chfixx0000000000000000002b";
+
+    /// Persist read-back 只在匹配 correlation 下释放一次成功事件。
+    #[test]
+    fn timeline_readback_requires_matching_rows() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let channel_id =
+            crate::state::ChannelId::from_str(CHANNEL_ID).expect("test channel id is valid");
+        let page = crate::timeline_state::WindowPage {
+            window_token: "latest".to_string(),
+            ..Default::default()
+        };
+        let mut state = crate::timeline_navigation::TimelineNavigationState::older(
+            channel_id,
+            page,
+            20,
+            Some("phase2-readback-1".to_string()),
+            "anchor-1".to_string(),
+            crate::timeline_state::TimelineEntityKey {
+                create_at: 1,
+                temporary_id: "tmp-1".to_string(),
+            },
+        );
+        state.replace_rows(vec![serde_json::json!({
+            "id": "target-1",
+            "channelId": CHANNEL_ID,
+            "createAt": 2,
+            "temporaryId": "tmp-2"
+        })]);
+        let corr = module.alloc_corr();
+        module.state.corr_map.insert(
+            corr,
+            CorrelationContext::TimelineNavigationReadback {
+                state: Box::new(state),
+            },
+        );
+        let outcome = PortOutcome::Ok(ReplyBytes(Bytes::from_static(br#"[{"id":"target-1"}]"#)));
+        let mut out = EffectSink::new();
+
+        module
+            .handle_port_reply(corr, &outcome, 1, &mut out)
+            .expect("matching read-back is handled");
+        assert_eq!(
+            out.as_slice()
+                .iter()
+                .filter(|effect| matches!(effect, Effect::Emit { .. }))
+                .count(),
+            1
+        );
+    }
+
+    /// 同一 correlation 的迟到 terminal 必须被单表 remove 闸门丢弃。
+    #[test]
+    fn duplicate_terminal_correlation_is_ignored() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let corr = module.alloc_corr();
+        let event = crate::event::MessageV3Event::new(
+            "im:phase2:test",
+            serde_json::json!({ "reqId": "phase2-terminal-1" }),
+        )
+        .expect("test event is valid")
+        .into_bytes();
+        module.state.corr_map.insert(
+            corr,
+            CorrelationContext::MessageV3Commit {
+                terminal_events: vec![event],
+            },
+        );
+        let outcome = PortOutcome::Ok(ReplyBytes::default());
+        let mut out = EffectSink::new();
+
+        module
+            .handle_port_reply(corr, &outcome, 1, &mut out)
+            .expect("first terminal is handled");
+        assert_eq!(
+            out.as_slice()
+                .iter()
+                .filter(|effect| matches!(effect, Effect::Emit { .. }))
+                .count(),
+            1
+        );
+        out.clear();
+        module
+            .handle_port_reply(corr, &outcome, 2, &mut out)
+            .expect("late terminal is ignored");
+        assert!(out.as_slice().is_empty());
+    }
 }

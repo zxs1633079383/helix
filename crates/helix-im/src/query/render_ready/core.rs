@@ -96,6 +96,71 @@ fn json_value(row: &Value, keys: &[&str], fallback: Value) -> Value {
         .unwrap_or(fallback)
 }
 
+/// Normalize identity snapshot aliases without inventing a display name.
+pub(crate) fn normalize_user_snapshot(value: &Value) -> Value {
+    normalize_object_aliases(
+        value,
+        &[
+            ("user_id", "userId"),
+            ("user_name", "userName"),
+            ("nick_name", "nickName"),
+            ("dept_name", "deptName"),
+            ("org_name", "orgName"),
+            ("team_id", "teamId"),
+            ("company_id", "companyId"),
+            ("company_name", "companyName"),
+            ("dept_id", "deptId"),
+            ("org_id", "orgId"),
+        ],
+    )
+}
+
+/// Normalize reply snapshot aliases while preserving the stored identity values.
+pub(crate) fn normalize_replied_message(value: &Value) -> Value {
+    let normalized = normalize_object_aliases(
+        value,
+        &[
+            ("replied_user_id", "repliedUserId"),
+            ("replied_user_name", "repliedUserName"),
+            ("is_revoke", "isRevoke"),
+            ("simple_message", "simpleMessage"),
+            ("reply_id", "replyId"),
+            ("reply_root_id", "replyRootId"),
+            ("reply_first_level_id", "replyFirstLevelId"),
+        ],
+    );
+    let Value::Object(mut object) = normalized else {
+        return normalized;
+    };
+    if !object.contains_key("message") {
+        if let Some(message) = object
+            .get("text")
+            .or_else(|| object.get("simpleMessage"))
+            .cloned()
+        {
+            object.insert("message".to_string(), message);
+        }
+    }
+    Value::Object(object)
+}
+
+/// Convert selected snake_case object keys to their render-ready camelCase aliases.
+fn normalize_object_aliases(value: &Value, aliases: &[(&str, &str)]) -> Value {
+    let Value::Object(mut object) = value.clone() else {
+        return value.clone();
+    };
+    for (snake, camel) in aliases {
+        if !object.contains_key(*camel) {
+            if let Some(value) = object.remove(*snake) {
+                object.insert((*camel).to_string(), value);
+            }
+        } else {
+            object.remove(*snake);
+        }
+    }
+    Value::Object(object)
+}
+
 fn json_container_len(value: &Value) -> i64 {
     match value {
         Value::Array(items) => items.len() as i64,
@@ -174,7 +239,13 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
     let temporary_id = get_str(row, &["temporary_id", "temporaryId"]);
     let server_id = get_str(row, &["id"]);
     let channel_id = get_str(row, &["channel_id", "channelId"]);
-    let text = get_str(row, &["message"]);
+    let text = get_str(row, &["message", "text"]);
+    let simple_message_raw = get_str(row, &["simple_message", "simpleMessage"]);
+    let simple_message = if simple_message_raw.is_empty() {
+        text
+    } else {
+        simple_message_raw
+    };
     let msg_type_raw = get_str(row, &["type"]);
     let msg_type = if msg_type_raw.is_empty() {
         "TEXT"
@@ -182,7 +253,11 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         msg_type_raw
     };
     let direct_user_id = get_str(row, &["user_id", "userId"]);
-    let user_snapshot = json_value(row, &["user_snapshot", "userSnapshot"], json!({}));
+    let user_snapshot = normalize_user_snapshot(&json_value(
+        row,
+        &["user_snapshot", "userSnapshot"],
+        json!({}),
+    ));
     let snapshot_user_id = get_str(&user_snapshot, &["user_id", "userId"]);
     let creator_user_id = get_str(row, &["create_by", "createBy"]);
     let user_id = if !direct_user_id.is_empty() {
@@ -234,6 +309,13 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "urgentState": urgent.state,
         "canConfirmUrgent": urgent.can_confirm,
     });
+    let viewers = json_value(row, &["viewers"], json!([]));
+    let mentions = json_value(row, &["mentions"], json!([]));
+    let replied_message = normalize_replied_message(&json_value(
+        row,
+        &["replied_message", "repliedMessage"],
+        Value::Null,
+    ));
     let reply_messages = json_value(row, &["reply_messages", "replyMessages"], json!([]));
     let reply_count = row
         .get("reply_count")
@@ -257,7 +339,9 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "sendStatus": send_status,
         "progressPercent": upload_progress_percent(row),
         "readBits": read_bits_str(row),
+        "message": text,
         "text": text,
+        "simpleMessage": simple_message,
         "type": msg_type,
         "props": props,
         "forwardDetail": forward_detail,
@@ -276,12 +360,17 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "replyId": get_str(row, &["reply_id", "replyId"]),
         "replyRootId": get_str(row, &["reply_root_id", "replyRootId"]),
         "replyFirstLevelId": get_str(row, &["reply_first_level_id", "replyFirstLevelId"]),
-        "repliedMessage": json_value(row, &["replied_message", "repliedMessage"], Value::Null),
+        "repliedMessage": replied_message,
         "replyMessages": reply_messages,
         "replyCount": reply_count,
         "createAt": create_at,
         "createdAt": create_at,
         "userId": user_id,
+        "userSnapshot": user_snapshot,
+        "viewers": viewers,
+        "mentions": mentions,
+        "teamId": get_str(row, &["team_id", "teamId"]),
+        "snapshotId": get_str(row, &["snapshot_id", "snapshotId"]),
     });
     if let (Value::Object(data), Value::Object(urgent_fields)) = (&mut data, urgent_fields) {
         data.extend(urgent_fields);
@@ -316,4 +405,43 @@ pub fn shape_message_rows_for_viewer(rows: &Value, viewer_user_id: &str) -> Valu
         out.push(shaped);
     }
     Value::Array(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A persisted snake row keeps its sender identity and reply payload in the render contract.
+    #[test]
+    fn shape_row_preserves_message_identity_and_reply_fields() {
+        let row = json!({
+            "id": "w7qox39odbydp8arbfdo4e756r",
+            "temporary_id": "helix_tmp_0000016",
+            "channel_id": "nzwwqjqskjd43drywr1gc6cw7c",
+            "event_seq": 29,
+            "user_id": "444",
+            "user_snapshot": "{\"user_id\":\"444\",\"user_name\":\"破坏者\",\"dept_name\":\"生产部\",\"org_name\":\"科研人员\"}",
+            "type": "TEXT",
+            "message": "回复消息",
+            "simple_message": "回复消息",
+            "props": "{}",
+            "viewers": "[\"all\"]",
+            "mentions": "[]",
+            "replied_message": "{\"replied_user_id\":\"444\",\"replied_user_name\":\"破坏者\",\"message\":\"被回复消息\",\"is_revoke\":false,\"type\":\"TEXT\",\"props\":{},\"viewers\":[\"all\"]}",
+            "create_at": 1785720540703i64
+        });
+
+        let shaped = shape_row(&row, "viewer");
+        assert_eq!(shaped["message"], "回复消息");
+        assert_eq!(shaped["text"], "回复消息");
+        assert_eq!(shaped["simpleMessage"], "回复消息");
+        assert_eq!(shaped["userId"], "444");
+        assert_eq!(shaped["userSnapshot"]["userId"], "444");
+        assert_eq!(shaped["userSnapshot"]["userName"], "破坏者");
+        assert_eq!(shaped["viewers"][0], "all");
+        assert_eq!(shaped["mentions"], json!([]));
+        assert_eq!(shaped["repliedMessage"]["repliedUserId"], "444");
+        assert_eq!(shaped["repliedMessage"]["repliedUserName"], "破坏者");
+        assert_eq!(shaped["repliedMessage"]["message"], "被回复消息");
+    }
 }

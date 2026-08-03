@@ -117,43 +117,6 @@ pub fn emit_connection_established(connection_id: &str) -> Effect {
     }
 }
 
-/// B-rest：发送 im:channels:loaded 事件（hello 冷启动补齐信号）。
-pub fn emit_channels_loaded() -> Effect {
-    use serde_json::json;
-    let payload = json!({
-        "event": "im:channels:loaded",
-        "data": { "items": [] }
-    });
-    let bytes = Bytes::from(
-        serde_json::to_vec(&payload)
-            .expect("emit_channels_loaded: static JSON shape must not fail to serialize"),
-    );
-    Effect::Emit {
-        event: DomainEventBytes(bytes),
-    }
-}
-
-/// B-rest：发送 im:channel:increment 事件（透传 increment_channel 帧 data）。
-pub fn emit_channel_increment(channel_id: ChannelId, raw: &[u8]) -> Effect {
-    use serde_json::json;
-    let inc_data: serde_json::Value =
-        serde_json::from_slice(raw).unwrap_or(serde_json::Value::Null);
-    let payload = json!({
-        "event": "im:channel:increment",
-        "data": {
-            "channel_id": channel_id.as_str(),
-            "increment": inc_data,
-        }
-    });
-    let bytes = Bytes::from(
-        serde_json::to_vec(&payload)
-            .expect("emit_channel_increment: static JSON shape must not fail to serialize"),
-    );
-    Effect::Emit {
-        event: DomainEventBytes(bytes),
-    }
-}
-
 /// B-rest：发送 im:channel:update 事件（子 topic 批次结束）。
 pub fn emit_channel_update(channel_id: ChannelId) -> Effect {
     use serde_json::json;

@@ -163,7 +163,7 @@ fn locate_post_without_attached_timeline_emits_no_raw_projection() {
     );
     let corr = http_corr(&h.sink).expect("locate dispatch must emit Http");
     let raw = bytes::Bytes::from(
-        br#"{"data":[{"id":"p1","channelId":"ch00000000000000000000000a","userId":"u1","type":"TEXT","message":"target"}]}"#
+        br#"{"status":"SUCCESS","data":[{"id":"p1","temporaryId":"tmp-p1","channelId":"ch00000000000000000000000a","userId":"u1","type":"TEXT","message":"target","viewers":["all"]}]}"#
             .to_vec(),
     );
     h.step(port_reply_with_body(corr, enveloped(raw)), 1001);

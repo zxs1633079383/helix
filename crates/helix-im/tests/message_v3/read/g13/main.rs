@@ -2,7 +2,7 @@
 
 use bytes::Bytes;
 use helix_core::effect::Effect;
-use helix_core::tick::{AppCommand, InboundBytes, PortOutcome, ReplyBytes};
+use helix_core::tick::{AppCommand, InboundBytes, PortError, PortOutcome, ReplyBytes};
 use helix_core::{Correlation, EffectSink, Module, Tick};
 use helix_im::{ImConfig, ImModule};
 use serde_json::{json, Value};
@@ -103,6 +103,17 @@ impl Replay {
         )
     }
 
+    /// 回灌失败结果，验证失败不释放旧绝对投影。
+    fn reply_error(&mut self, corr: Correlation, error: PortError, now_ms: u64) -> TestResult<()> {
+        self.step(
+            Tick::PortReply {
+                corr,
+                outcome: PortOutcome::Err(error),
+            },
+            now_ms,
+        )
+    }
+
     /// 返回当前 batch 唯一相关 I/O correlation。
     fn only_corr(&self) -> TestResult<Correlation> {
         let correlations = self
@@ -165,9 +176,25 @@ fn run_success() -> TestResult<PersonaTrace> {
         json!({"channels":[{"id":CHANNEL_ID,"isRoot":true}]}),
     )?;
     replay.reply(view_corr, http_success()?, CREATED_AT as u64 + 2)?;
+    if !replay.events()?.is_empty() {
+        return Err("channels/view HTTP admission 不得直接发布业务终态".to_string());
+    }
     let persist_corr = replay.ingest_read()?;
     replay.reply(persist_corr, Vec::new(), CREATED_AT as u64 + 3)?;
     let terminal = replay.events()?;
+    let terminal_count = terminal
+        .iter()
+        .filter(|event| event["event"] == "im:channel:update")
+        .count();
+    if terminal_count != 1 {
+        return Err(format!(
+            "update_channel 应恰好发布一次 absolute terminal，实际 {terminal_count}"
+        ));
+    }
+    replay.reply(persist_corr, Vec::new(), CREATED_AT as u64 + 4)?;
+    if !replay.events()?.is_empty() {
+        return Err("迟到/重复 PersistReply 不得重复发布 terminal".to_string());
+    }
 
     let mut recovered = Replay::new();
     let recovery_corr = recovered.command_corr("im_query_dialog_list", json!({}))?;
@@ -209,6 +236,7 @@ fn dialog_row(unread: i64, mention: i64, urgent: i64) -> Value {
         "display_name": "G13",
         "type": "P",
         "team_id": "g13-company",
+        "user_id": ACTOR_ID,
         "unread_count": unread,
         "mention_count": mention,
         "urgent_count": urgent,
@@ -264,24 +292,88 @@ fn base64_std(bytes: &[u8]) -> String {
     output
 }
 
-/// G-13 初始未读、已读终态与恢复都使用同一绝对事件。
+/// G-13 初始未读与冷恢复走单一 typed Result，在线已读仍发布权威绝对事件。
 #[test]
 fn g13_emits_initial_terminal_and_recovery_states() -> TestResult<()> {
     let trace = run_success()?;
-    assert_eq!(trace.events.len(), 6);
-    assert_eq!(trace.events[0]["event"], "im:channel:list");
-    assert_eq!(trace.events[1]["event"], "im:read:channel");
-    assert_eq!(trace.events[1]["data"]["state"], "unread");
-    assert_eq!(trace.events[1]["data"]["unreadCount"], 3);
-    assert_eq!(trace.events[2]["event"], "im:channel:update");
-    assert_eq!(trace.events[3]["event"], "im:read:channel");
-    assert_eq!(trace.events[3]["data"]["state"], "read");
-    assert_eq!(trace.events[3]["data"]["unreadCount"], 0);
-    assert_eq!(trace.events[3]["data"]["lastReadSeq"], 41);
-    assert_eq!(trace.events[4]["event"], "im:channel:list");
-    assert_eq!(trace.events[5]["event"], "im:read:channel");
-    assert_eq!(trace.events[5]["data"]["state"], "read");
-    assert_eq!(trace.events[5]["data"]["unreadCount"], 0);
+    assert_eq!(trace.events.len(), 4);
+    assert_eq!(trace.events[0]["event"], "im:read:result");
+    assert_eq!(
+        trace.events[0]["data"]["body"]["items"][0]["unreadCount"],
+        3
+    );
+    assert_eq!(
+        trace.events[0]["data"]["body"]["items"][0]["mentionCount"],
+        1
+    );
+    assert_eq!(
+        trace.events[0]["data"]["body"]["items"][0]["urgentCount"],
+        1
+    );
+    assert_eq!(
+        trace.events[0]["data"]["body"]["items"][0]["lastReadSeq"],
+        38
+    );
+    assert_eq!(
+        trace.events[0]["data"]["body"]["items"][0]["projectionRevision"],
+        9
+    );
+    assert_eq!(trace.events[1]["event"], "im:channel:update");
+    assert_eq!(trace.events[1]["data"]["channelId"], CHANNEL_ID);
+    assert_eq!(trace.events[1]["data"]["unreadCount"], 0);
+    assert_eq!(trace.events[1]["data"]["mentionCount"], 0);
+    assert_eq!(trace.events[1]["data"]["mentionCountRoot"], 0);
+    assert_eq!(trace.events[1]["data"]["lastReadSeq"], 41);
+    assert_eq!(trace.events[1]["data"]["lastPostAt"], CREATED_AT - 10);
+    assert_eq!(
+        trace.events[1]["data"]["projectionAuthority"],
+        "server-member-absolute"
+    );
+    assert_eq!(trace.events[2]["event"], "im:read:channel");
+    assert_eq!(trace.events[2]["data"]["state"], "read");
+    assert_eq!(trace.events[2]["data"]["unreadCount"], 0);
+    assert_eq!(trace.events[2]["data"]["lastReadSeq"], 41);
+    assert_eq!(trace.events[3]["event"], "im:read:result");
+    assert_eq!(
+        trace.events[3]["data"]["body"]["items"][0]["unreadCount"],
+        0
+    );
+    assert_eq!(
+        trace.events[3]["data"]["body"]["items"][0]["lastReadSeq"],
+        41
+    );
+    Ok(())
+}
+
+/// Persist 失败时保留旧未读投影，不发布猜测出的 read 终态。
+#[test]
+fn g13_persist_failure_preserves_old_projection() -> TestResult<()> {
+    let mut replay = Replay::new();
+    let query_corr = replay.command_corr("im_query_dialog_list", json!({}))?;
+    replay.reply(
+        query_corr,
+        serde_json::to_vec(&vec![dialog_row(3, 1, 1)]).map_err(|error| error.to_string())?,
+        CREATED_AT as u64 + 1,
+    )?;
+    let initial = replay.events()?;
+    assert_eq!(initial.len(), 1);
+    assert_eq!(initial[0]["event"], "im:read:result");
+    assert_eq!(initial[0]["data"]["body"]["items"][0]["unreadCount"], 3);
+
+    let view_corr = replay.command_corr(
+        "im_channels_view",
+        json!({"channels":[{"id":CHANNEL_ID,"isRoot":true}]}),
+    )?;
+    replay.reply(view_corr, http_success()?, CREATED_AT as u64 + 2)?;
+    assert!(replay.events()?.is_empty());
+
+    let persist_corr = replay.ingest_read()?;
+    replay.reply_error(persist_corr, PortError::Storage(500), CREATED_AT as u64 + 3)?;
+    let failed = replay.events()?;
+    assert!(
+        failed.is_empty(),
+        "failure must preserve old projection and emit no guessed terminal: {failed:?}"
+    );
     Ok(())
 }
 

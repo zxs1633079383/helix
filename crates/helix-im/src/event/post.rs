@@ -43,6 +43,7 @@ pub fn sending_from_local_body(
         "viewers",
         "mentions",
         "repliedMessage",
+        "userSnapshot",
     ] {
         if let Some(value) = body.get(key) {
             data[key] = value.clone();
@@ -122,6 +123,10 @@ pub fn authority_projection(
         "createAt": fields.create_at,
         "sendStatus": "sent",
     });
+    if !fields.user_snapshot.trim().is_empty() {
+        received_data["userSnapshot"] = serde_json::from_str(&fields.user_snapshot)
+            .map_err(|error| crate::ImError::Parse(format!("post user_snapshot: {error}")))?;
+    }
     for (key, source) in RECEIVED_DECLARED_TEXT_FIELDS {
         let value = source(fields);
         if !value.is_empty() {
@@ -144,6 +149,9 @@ pub fn authority_projection(
         "message": fields.message,
         "createAt": fields.create_at,
     });
+    if let Some(snapshot) = received_data.get("userSnapshot").cloned() {
+        last_post["userSnapshot"] = snapshot;
+    }
     if event.fields.msg_type != "TEXT" {
         last_post["type"] = serde_json::json!(event.fields.msg_type.as_str());
     }
@@ -239,6 +247,8 @@ mod tests {
             PostFields {
                 id: "post-1".to_string(),
                 snapshot_id: "snapshot-1".to_string(),
+                user_id: "444".to_string(),
+                user_snapshot: r#"{"userId":"444","userName":"破坏者"}"#.to_string(),
                 ..PostFields::default()
             },
         );
@@ -246,7 +256,35 @@ mod tests {
         let projection = authority_projection(&event).expect("project authority");
 
         assert_eq!(projection.received_data["snapshotId"], "snapshot-1");
+        assert_eq!(projection.received_data["userId"], "444");
+        assert_eq!(
+            projection.received_data["userSnapshot"]["userName"],
+            "破坏者"
+        );
+        assert_eq!(projection.last_post["userSnapshot"]["userId"], "444");
         assert!(projection.received_data.get("receipt").is_none());
+    }
+
+    /// sending 投影必须沿用本地发送 body 的权威用户快照，避免首帧显示为空用户。
+    #[test]
+    fn sending_projection_carries_authoritative_user_snapshot() {
+        let event = sending_from_local_body(
+            "a9h5hrdsy3873dmg375a6ntqiw",
+            "tmp-1",
+            "444",
+            &serde_json::json!({
+                "message": "1",
+                "type": "TEXT",
+                "createAt": 7,
+                "userSnapshot": {"userId":"444","userName":"破坏者"}
+            }),
+        )
+        .expect("sending projection");
+        let envelope: serde_json::Value =
+            serde_json::from_slice(&event.into_bytes()).expect("event json");
+
+        assert_eq!(envelope["data"]["userId"], "444");
+        assert_eq!(envelope["data"]["userSnapshot"]["userName"], "破坏者");
     }
 
     /// Go 媒体回声的 `fileName` 别名必须在 Core 投影边界收敛，不能下放给平台 UI。

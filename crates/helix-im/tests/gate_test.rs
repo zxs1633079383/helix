@@ -257,7 +257,7 @@ fn sync_cursor_anchors_to_next_seq_not_max_event() {
     );
 }
 
-// ─── too_long → cursor 复位 + Emit ─────────────────────────────────────────────
+// ─── too_long → 覆盖窗口原子提交 + Emit ─────────────────────────────────────────
 
 #[test]
 fn sync_too_long_resets_cursor_and_emits() {
@@ -289,12 +289,87 @@ fn sync_too_long_resets_cursor_and_emits() {
         "too_long should emit domain event, got: {:?}",
         effects
     );
-    // cursor 应已复位（reset_to-1 = 99）
-    let cursor = h.module.cursor_for(channel_id(1)).unwrap_or(0);
+    // terminal control event 只能提交一次；旧 cursor 与本地窗口必须在成功前保留。
+    let too_long_emits = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter(|effect| {
+            matches!(effect, helix_core::Effect::Emit { event }
+                if String::from_utf8_lossy(event.0.as_ref()).contains("im:sync:too_long"))
+        })
+        .count();
     assert_eq!(
-        cursor, 99,
-        "cursor should be reset to reset_to-1 = 99, got: {}",
-        cursor
+        too_long_emits, 1,
+        "too_long terminal emit must be single-shot"
+    );
+    let reload_corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            helix_core::Effect::Http { corr, req } if req.url.ends_with("/posts/getLatestPost") => {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("too_long should start authoritative latest-post reload");
+    h.step(port_reply_err(reload_corr), 2200);
+    assert_eq!(
+        h.module.cursor_for(channel_id(1)),
+        Some(0),
+        "reload failure must preserve the old cursor and local message window"
+    );
+
+    // 重拉成功后才由 PersistAtomic 的 receipt 一次性提交 resetTo；空权威窗口也要推进 cursor。
+    let mut success = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    let sync_corr = success
+        .step(inbound_event(1, 3, 1), 3000)
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Http(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("large gap must trigger sync Http");
+    success.step(
+        Tick::PortReply {
+            corr: Correlation::from_raw(sync_corr),
+            outcome: PortOutcome::Ok(ReplyBytes(enveloped(sync_reply_too_long(1, 100)))),
+        },
+        3100,
+    );
+    let reload_corr = success
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            helix_core::Effect::Http { corr, req } if req.url.ends_with("/posts/getLatestPost") => {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("too_long should start authoritative latest-post reload");
+    let persist_corr = success
+        .step(
+            port_reply_with_body(
+                reload_corr,
+                enveloped(bytes::Bytes::from_static(
+                    br#"{"status":"SUCCESS","data":{"posts":[]}}"#,
+                )),
+            ),
+            3200,
+        )
+        .into_iter()
+        .find_map(|effect| match effect {
+            EffectKind::PersistAtomic(corr) => Some(corr),
+            _ => None,
+        })
+        .expect("successful reload must emit PersistAtomic");
+    success.step(port_reply_ok(persist_corr), 3300);
+    assert_eq!(
+        success.module.cursor_for(channel_id(1)),
+        Some(100),
+        "successful authoritative window must commit resetTo atomically"
     );
 }
 

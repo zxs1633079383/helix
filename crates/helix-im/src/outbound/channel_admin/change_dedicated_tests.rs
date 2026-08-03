@@ -129,10 +129,41 @@ fn enable_approval_bool_and_channel_id() {
 
 #[test]
 fn view_channels_passthrough_channels_array() {
-    let channels = json!([{ "id": "c1", "isRoot": true }, { "id": "c2", "isRoot": false }]);
+    let channels = json!([
+        { "id": "chfixx0000000000000000001d", "isRoot": true },
+        { "id": "chfixx0000000000000000001e", "isRoot": true }
+    ]);
     let (url, body) = dispatch("im_channels_view", json!({ "channels": channels.clone() }));
     assert!(url.ends_with("/channels/view"), "url={url}");
     assert_eq!(body["channels"], channels);
+}
+
+#[test]
+fn view_channels_rejects_noncanonical_entries_and_duplicate_ids() {
+    let corr = Correlation::from_raw(4);
+    for channels in [
+        json!([{ "id": "chfixx0000000000000000001d" }]),
+        json!([{ "id": "chfixx0000000000000000001d", "isRoot": false }]),
+        json!([
+            { "id": "chfixx0000000000000000001d", "isRoot": true },
+            { "id": "chfixx0000000000000000001d", "isRoot": true }
+        ]),
+        json!([{ "id": "chfixx0000000000000000001d", "isRoot": true, "extra": 1 }]),
+    ] {
+        let payload = serde_json::to_vec(&json!({ "channels": channels })).unwrap();
+        assert!(
+            handle_outbound(
+                "im_channels_view",
+                &payload,
+                "http://h/api",
+                "http://h",
+                None,
+                corr
+            )
+            .is_err(),
+            "非 canonical channels 应拒绝"
+        );
+    }
 }
 
 #[test]

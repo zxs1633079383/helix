@@ -544,6 +544,20 @@ fn render_subtopic_row(row: serde_json::Value) -> serde_json::Value {
     }
     if let Some(object) = rendered.as_object_mut() {
         object.insert("members".to_string(), serde_json::Value::Array(members));
+        let member_count = object
+            .get("members")
+            .and_then(serde_json::Value::as_array)
+            .map_or(0, Vec::len);
+        object.insert(
+            "memberCount".to_string(),
+            serde_json::Value::from(member_count as u64),
+        );
+        if object.contains_key("member_count") {
+            object.insert(
+                "member_count".to_string(),
+                serde_json::Value::from(member_count as u64),
+            );
+        }
     }
     rendered
 }

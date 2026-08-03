@@ -247,6 +247,7 @@ fn query_subtopics_filters_parent_type_root_and_account_visibility() -> Result<(
             .iter()
             .any(|member| member["userId"] == "topic-owner")
     }));
+    assert_eq!(item["memberCount"], 2);
     Ok(())
 }
 

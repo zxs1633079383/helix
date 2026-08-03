@@ -480,18 +480,9 @@ impl ImModule {
                     );
                     return Ok(());
                 }
-                // 覆盖式恢复不先删除本地 message：若 getLatestPost 失败，旧历史仍可读；
-                // 成功回包沿既有 BatchUpsert 链按主键覆盖消息最终态。
-                let reset_cursor = Seq(reset_to.0.saturating_sub(1));
-                if let Some(ch) = self.state.channels.get_mut(&channel_id) {
-                    ch.buffer.clear();
-                    ch.gate = None;
-                    ch.cursor = crate::state::Cursor::new(reset_cursor);
-                    ch.last_sync_from_seq = None;
-                }
-                out.push(Effect::PersistFire {
-                    ops: vec![crate::acl::to_effect::reset_channel_dialog_op(channel_id)],
-                });
+                // 覆盖式恢复不先修改内存 cursor、清 buffer 或清 dialog：若窗口拉取/持久化
+                // 失败，旧历史与旧 cursor 必须仍可读；成功回包由 TooLongReloadPersist
+                // 在同一 PersistAtomic 回执后一次提交。
                 out.push(crate::acl::to_effect::emit_sync_too_long(
                     channel_id, reset_to,
                 ));
@@ -542,15 +533,12 @@ impl ImModule {
                     channel_id, reset_to,
                 ));
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
-                    ch.buffer.clear();
-                    ch.gate = None;
                     ch.pending_commits.insert(persist_corr, reset_to);
-                    ch.last_sync_from_seq = None;
                 }
                 if trigger == SyncTrigger::PongGap {
                     self.state.pong_gap_batch.register_persist(persist_corr);
                 }
-                out.push(Effect::Persist {
+                out.push(Effect::PersistAtomic {
                     corr: persist_corr,
                     ops: persist_ops,
                 });

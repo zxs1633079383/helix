@@ -404,6 +404,8 @@ impl ImState {
                     | CorrelationContext::MessageV3RevokeChannelPersist { .. }
                     | CorrelationContext::MessageV3RevokeChannelReadback
                     | CorrelationContext::SyncPull { .. }
+                    | CorrelationContext::TooLongReload { .. }
+                    | CorrelationContext::TooLongReloadPersist { .. }
                     | CorrelationContext::IncrementBatchPersist { .. }
                     | CorrelationContext::IncrementHydrationPersist { .. }
                     | CorrelationContext::HydrationChannelReadback { .. }

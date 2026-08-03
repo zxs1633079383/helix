@@ -178,6 +178,8 @@ pub enum CorrelationContext {
     /// too_long 首屏重拉落库 + channel 写后读回。
     TooLongReloadPersist {
         channel_id: ChannelId,
+        /// 权威窗口对应的游标；只在同批 PersistAtomic 成功后应用。
+        reset_to: crate::state::Seq,
         channel_updates: Vec<crate::channel_update::PendingChannelUpdate>,
     },
 

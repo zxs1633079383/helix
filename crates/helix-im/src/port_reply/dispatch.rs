@@ -414,16 +414,31 @@ impl ImModule {
 
             CorrelationContext::TooLongReloadPersist {
                 channel_id,
+                reset_to,
                 channel_updates,
             } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    for pending in channel_updates {
-                        if let Some(data) = pending.event_data_from_channel_reply(reply.0.as_ref())
-                        {
-                            out.push(crate::event::channel::update(data)?.into_effect());
+                    let committed = self
+                        .state
+                        .channels
+                        .get_mut(&channel_id)
+                        .is_some_and(|channel| channel.commit_too_long_after_atomic(reset_to));
+                    if committed {
+                        for pending in channel_updates {
+                            if let Some(data) =
+                                pending.event_data_from_channel_reply(reply.0.as_ref())
+                            {
+                                out.push(crate::event::channel::update(data)?.into_effect());
+                            }
                         }
+                        self.finish_increment_hydration(channel_id, out)?;
+                    } else {
+                        tracing::warn!(
+                            channel_id = channel_id.as_str(),
+                            reset_to = reset_to.0,
+                            "too_long reload receipt no longer matches channel generation"
+                        );
                     }
-                    self.finish_increment_hydration(channel_id, out)?;
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(

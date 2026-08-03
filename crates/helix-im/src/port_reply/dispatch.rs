@@ -641,6 +641,8 @@ impl ImModule {
                         .map_err(|error| {
                             ImError::Parse(format!("channel list readback: {error}"))
                         })?;
+                    let channels =
+                        crate::query::render_ready::channel::shape_channel_rows(&channels);
                     out.push(
                         crate::event::channel::list(serde_json::json!({
                             "channels": channels.as_array().cloned().unwrap_or_default(),

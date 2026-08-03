@@ -947,7 +947,8 @@ impl ImModule {
                 .snapshot_from_render_ready_with_causation(timeline_request, rows, causation_id)
         }
         .map_err(|error| ImError::Parse(format!("timeline state: {error}")))?;
-        let event_rows = rows_asc.as_array().cloned().unwrap_or_default();
+        // Timeline events must carry the same render-ready rows as the attached state.
+        let event_rows = rows.to_vec();
         let anchor_post_id = self
             .state
             .timeline_state
@@ -966,16 +967,27 @@ impl ImModule {
         } else if anchored_window {
             let anchor_create_at = event_rows
                 .iter()
-                .find(|row| row.get("id").and_then(Value::as_str) == anchor_post_id)
-                .and_then(|row| row.get("create_at").or_else(|| row.get("createAt")))
+                .find(|row| {
+                    row.get("id")
+                        .or_else(|| row.get("msgId"))
+                        .or_else(|| row.get("temporaryId"))
+                        .and_then(Value::as_str)
+                        == anchor_post_id
+                })
+                .and_then(|row| {
+                    row.get("createAt")
+                        .or_else(|| row.get("createdAt"))
+                        .or_else(|| row.get("create_at"))
+                })
                 .and_then(Value::as_i64)
                 .or(anchored_create_at);
             let newer_count = event_rows
                 .iter()
                 .filter(|row| {
                     let create_at = row
-                        .get("create_at")
-                        .or_else(|| row.get("createAt"))
+                        .get("createAt")
+                        .or_else(|| row.get("createdAt"))
+                        .or_else(|| row.get("create_at"))
                         .and_then(Value::as_i64);
                     create_at.zip(anchor_create_at).is_some_and(
                         |(message_create_at, anchor_create_at)| {
@@ -1029,6 +1041,8 @@ impl ImModule {
         let rows = shaped.as_array().ok_or_else(|| {
             ImError::Parse("timeline navigation rows must shape to array".to_string())
         })?;
+        // Navigation effects use the shaped copy; `state.rows()` is the storage-facing input.
+        let render_rows = rows.to_vec();
         let mut request = crate::timeline_state::TimelineWindowRequest::latest_with_window_token(
             state.channel_id().as_str(),
             state.window_token(),
@@ -1081,10 +1095,15 @@ impl ImModule {
         };
         if let Some((direction, anchor_post_id)) = page_direction {
             let page = state.page();
-            let messages = state
-                .rows()
+            let messages = render_rows
                 .iter()
-                .filter(|row| row.get("id").and_then(Value::as_str) != Some(anchor_post_id))
+                .filter(|row| {
+                    row.get("id")
+                        .or_else(|| row.get("msgId"))
+                        .or_else(|| row.get("temporaryId"))
+                        .and_then(Value::as_str)
+                        != Some(anchor_post_id)
+                })
                 .cloned()
                 .collect();
             return Ok(crate::event::timeline::page(
@@ -1115,7 +1134,7 @@ impl ImModule {
                 state.window_token(),
                 "merge",
                 "stale",
-                state.rows().to_vec(),
+                render_rows,
                 page.has_older,
                 page.has_newer,
                 Some(target_message_id),
@@ -1126,7 +1145,7 @@ impl ImModule {
             "channelId": state.channel_id().as_str(),
             "windowToken": state.window_token(),
             "state": "ready",
-            "messages": state.rows(),
+            "messages": render_rows,
             "hasOlder": page.has_older,
             "hasNewer": page.has_newer,
             "targetMessageId": target_message_id,

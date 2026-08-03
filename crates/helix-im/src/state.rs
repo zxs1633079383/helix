@@ -194,6 +194,15 @@ pub struct ImState {
     /// 与 `pending_increment_ops` 同批提交后才允许发布的逐频道投影原始数据。
     pub(crate) pending_increment_projections: Vec<(ChannelId, Vec<u8>)>,
 
+    /// 最近一次 hello increment 原子落库后建立的频道分页会话；身份/transport 边界会清空。
+    pub(crate) channel_sync_session: Option<crate::channel_sync::ChannelSyncSession>,
+
+    /// 频道分页会话代际；每次 ready 递增，旧 cursor 跨代 fail-closed。
+    pub(crate) channel_sync_generation: u64,
+
+    /// 当前 hello increment 批次是否仍等待唯一 Persist 回执；失败时保留旧 session。
+    pub(crate) channel_sync_batch_pending: bool,
+
     /// UC-4.5 单频道 hydration 已完成 channel/member 落库、正在等待 sync 终态的 channel。
     /// terminal sync commit/no_change 后移除并触发本地 dialog/messages 读回投影。
     pub hydration_pending: HashSet<ChannelId>,
@@ -293,6 +302,9 @@ impl ImState {
             pending_increment_bootstrap_after_scan: false,
             pending_increment_ops: Vec::new(),
             pending_increment_projections: Vec::new(),
+            channel_sync_session: None,
+            channel_sync_generation: 0,
+            channel_sync_batch_pending: true,
             hydration_pending: HashSet::new(),
             hydration_req_ids: HashMap::new(),
             recent_message_coverage: HashMap::new(),
@@ -326,6 +338,7 @@ impl ImState {
         self.pending_increment_bootstrap_after_scan = false;
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
+        self.channel_sync_batch_pending = true;
         self.hydration_pending.clear();
         self.hydration_req_ids.clear();
         self.reply_projection_revisions.clear();
@@ -395,6 +408,9 @@ impl ImState {
         self.hydration_req_ids.clear();
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
+        self.channel_sync_session = None;
+        self.channel_sync_generation = self.channel_sync_generation.wrapping_add(1);
+        self.channel_sync_batch_pending = false;
         self.reset_recent_query_coverage();
         self.corr_map.retain(|_, context| {
             !matches!(
@@ -407,6 +423,7 @@ impl ImState {
                     | CorrelationContext::TooLongReload { .. }
                     | CorrelationContext::TooLongReloadPersist { .. }
                     | CorrelationContext::IncrementBatchPersist { .. }
+                    | CorrelationContext::ChannelSyncPage { .. }
                     | CorrelationContext::IncrementHydrationPersist { .. }
                     | CorrelationContext::HydrationChannelReadback { .. }
                     | CorrelationContext::HydrationMemberReadback { .. }

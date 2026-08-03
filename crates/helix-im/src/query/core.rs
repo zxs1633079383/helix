@@ -34,6 +34,8 @@ pub const QUERY_COMMAND_NAMES: &[&str] = &[
     "im_query_messages_by_channel",
     "im_delete_all_dialogs",
     "im_query_dialog_list",
+    "im_query_channel_sync_page",
+    "im_complete_channel_sync",
     "im_query_subtopics",
     crate::older_context::LOAD_OLDER_CONTEXT,
     crate::timeline_navigation::LOAD_NEWER_CONTEXT,

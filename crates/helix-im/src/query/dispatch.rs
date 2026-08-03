@@ -32,6 +32,12 @@ impl ImModule {
             "im_query_messages_by_channel" => {
                 self.dispatch_message_query(payload, out)?;
             }
+            "im_query_channel_sync_page" => {
+                self.start_channel_sync_page(payload, out)?;
+            }
+            "im_complete_channel_sync" => {
+                self.complete_channel_sync(payload, out)?;
+            }
             "im_query_dialog_list" => {
                 // UC-3：低频按需拉全量会话列表（off hot-path）→ Scan channel + 注册 DialogListQuery；
                 // PortReply 回报后只 emit 一次 `im:read:result` typed Result（前端零计算）。
@@ -191,6 +197,173 @@ impl ImModule {
         }
         Ok(())
     }
+
+    /// 校验当前 RuntimeAuth 下的 channel-sync session，并发起有界本地 Scan。
+    fn start_channel_sync_page(
+        &mut self,
+        payload: &[u8],
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let request = match crate::channel_sync::parse_page_request(payload) {
+            Ok(request) => request,
+            Err(error) => {
+                tracing::warn!(error = ?error, "channel sync page request rejected");
+                if let Some(req_id) = crate::query::read_relay::read_req_id(payload) {
+                    out.push(crate::read_relay::emit_read_error(
+                        req_id.as_str(),
+                        error.to_string().as_str(),
+                    ));
+                }
+                return Ok(());
+            }
+        };
+        let Some(session) = self.state.channel_sync_session.clone() else {
+            tracing::debug!("channel sync page ignored before ready");
+            if let Some(req_id) = request.req_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "channel sync session is not ready",
+                ));
+            }
+            return Ok(());
+        };
+        if !session.matches_scope(
+            request.channel_sync_session_id.as_str(),
+            self.config.auth_user_id.as_str(),
+            self.config.company_id.as_str(),
+        ) {
+            tracing::warn!("channel sync page scope mismatch");
+            if let Some(req_id) = request.req_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "channel sync page scope mismatch",
+                ));
+            }
+            return Ok(());
+        }
+        let offset = match request.next_cursor.as_deref() {
+            None => 0,
+            Some(cursor) => match crate::channel_sync::decode_cursor(cursor, &session) {
+                Ok(offset) => offset,
+                Err(error) => {
+                    tracing::warn!(error = ?error, "channel sync cursor rejected");
+                    if let Some(req_id) = request.req_id.as_deref() {
+                        out.push(crate::read_relay::emit_read_error(
+                            req_id,
+                            error.to_string().as_str(),
+                        ));
+                    }
+                    return Ok(());
+                }
+            },
+        };
+        let corr = self.alloc_corr_internal();
+        let effect = match crate::channel_sync::page_scan_effect(
+            corr,
+            session.company_id.as_str(),
+            offset,
+        ) {
+            Ok(effect) => effect,
+            Err(error) => {
+                tracing::warn!(error = ?error, "channel sync page scan rejected");
+                if let Some(req_id) = request.req_id.as_deref() {
+                    out.push(crate::read_relay::emit_read_error(
+                        req_id,
+                        error.to_string().as_str(),
+                    ));
+                }
+                return Ok(());
+            }
+        };
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::ChannelSyncPage {
+                session_id: session.channel_sync_session_id,
+                generation: session.generation,
+                offset,
+                req_id: request.req_id,
+            },
+        );
+        out.push(effect);
+        Ok(())
+    }
+
+    /// 关闭当前身份绑定的频道分页 session；重复 complete 是幂等 no-op。
+    fn complete_channel_sync(
+        &mut self,
+        payload: &[u8],
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let request = match crate::channel_sync::parse_complete_request(payload) {
+            Ok(request) => request,
+            Err(error) => {
+                tracing::warn!(error = ?error, "channel sync complete request rejected");
+                if let Some(req_id) = crate::query::read_relay::read_req_id(payload) {
+                    out.push(crate::read_relay::emit_read_error(
+                        req_id.as_str(),
+                        error.to_string().as_str(),
+                    ));
+                }
+                return Ok(());
+            }
+        };
+        let Some(session) = self.state.channel_sync_session.as_mut() else {
+            tracing::debug!("channel sync complete ignored before ready");
+            if let Some(req_id) = request.req_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "channel sync session is not ready",
+                ));
+            }
+            return Ok(());
+        };
+        if session.channel_sync_session_id != request.channel_sync_session_id
+            || session.account_id != self.config.auth_user_id
+            || session.company_id != self.config.company_id
+        {
+            tracing::warn!("channel sync complete scope mismatch or already completed");
+            if let Some(req_id) = request.req_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "channel sync complete scope mismatch",
+                ));
+            }
+            return Ok(());
+        }
+        let first_complete = !session.completed;
+        session.completed = true;
+        let session_id = session.channel_sync_session_id.clone();
+        let generation = session.generation;
+        if first_complete {
+            // 关闭仅撤销当前 session 的在途 page；其他业务 correlation 不受影响。
+            self.state.corr_map.retain(|_, context| {
+                !matches!(
+                    context,
+                    CorrelationContext::ChannelSyncPage {
+                        session_id: pending_session_id,
+                        generation: pending_generation,
+                        ..
+                    } if pending_session_id == &session_id && *pending_generation == generation
+                )
+            });
+            // 保留一次 typed complete，供非 query waiter 的客户端消费。
+            out.push(
+                crate::event::channel_sync::complete(session_id.as_str(), generation)?
+                    .into_effect(),
+            );
+        }
+        if let Some(req_id) = request.req_id.as_deref() {
+            out.push(crate::read_relay::emit_read_body(
+                req_id,
+                serde_json::json!({
+                    "completed": true,
+                    "channelSyncSessionId": session_id,
+                    "generation": generation,
+                }),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -261,5 +434,168 @@ mod phase2_contract_tests {
         assert!(!module
             .state
             .is_current_message_query_generation(channel_id, "latest", 2));
+
+        module.state.channel_sync_session = Some(crate::channel_sync::ChannelSyncSession::new(
+            "session-a".to_string(),
+            1,
+            "user-a",
+            "company-a",
+        ));
+        module.state.reset_message_v3_identity();
+        assert!(module.state.channel_sync_session.is_none());
+    }
+
+    /// ready 后 page 只注册当前 session 的 account-local Scan，未知 session fail-closed。
+    #[test]
+    fn channel_sync_page_registers_scoped_scan() {
+        let mut config = crate::module::ImConfig::default();
+        config.auth_user_id = "user-a".to_string();
+        config.company_id = "company-a".to_string();
+        let mut module = ImModule::new(config);
+        module.state.channel_sync_session = Some(crate::channel_sync::ChannelSyncSession::new(
+            "session-a".to_string(),
+            4,
+            "user-a",
+            "company-a",
+        ));
+        let mut out = EffectSink::new();
+        module
+            .handle_query_command(
+                "im_query_channel_sync_page",
+                br#"{"channel_sync_session_id":"session-a","next_cursor":null,"page_size":20,"req_id":"page-1"}"#,
+                &mut out,
+            )
+            .expect("page query accepted");
+        let Some(Effect::Persist { corr, ops }) = out.as_slice().first() else {
+            panic!("page query must emit local scan");
+        };
+        assert!(matches!(
+            ops.first(),
+            Some(helix_core::effect::StorageOp::Scan(scan))
+                if scan.table == "channel"
+                    && scan.limit == Some(21)
+                    && matches!(
+                        scan.filter,
+                        Some(("team_id", helix_core::effect::SqlValue::Text(ref value)))
+                            if value == "company-a"
+                    )
+        ));
+        assert!(matches!(
+            module.state.corr_map.get(corr),
+            Some(CorrelationContext::ChannelSyncPage {
+                session_id,
+                generation: 4,
+                offset: 0,
+                req_id: Some(req_id),
+            }) if session_id == "session-a" && req_id == "page-1"
+        ));
+
+        let session = module.state.channel_sync_session.as_ref().unwrap();
+        let cursor = crate::channel_sync::encode_cursor(session, 20);
+        module
+            .handle_query_command(
+                "im_query_channel_sync_page",
+                &serde_json::to_vec(&serde_json::json!({
+                    "channel_sync_session_id": "session-a",
+                    "next_cursor": cursor,
+                    "page_size": 20,
+                    "req_id": "page-2",
+                }))
+                .unwrap(),
+                &mut out,
+            )
+            .expect("second page query accepted");
+        let Some(Effect::Persist { ops, .. }) = out.as_slice().last() else {
+            panic!("second page query must emit local scan");
+        };
+        assert!(matches!(
+            ops.first(),
+            Some(helix_core::effect::StorageOp::Scan(scan)) if scan.limit == Some(41)
+        ));
+
+        let before = out.as_slice().len();
+        module
+            .handle_query_command(
+                "im_query_channel_sync_page",
+                br#"{"channel_sync_session_id":"other-session","page_size":20}"#,
+                &mut out,
+            )
+            .expect("unknown session is handled");
+        assert_eq!(out.as_slice().len(), before);
+    }
+
+    /// complete 只关闭同一身份的会话，并为 Host waiter 提供成功/失败回灌。
+    #[test]
+    fn channel_sync_complete_is_scoped_and_idempotent() {
+        let mut config = crate::module::ImConfig::default();
+        config.auth_user_id = "user-a".to_string();
+        config.company_id = "company-a".to_string();
+        let mut module = ImModule::new(config);
+        module.state.channel_sync_session = Some(crate::channel_sync::ChannelSyncSession::new(
+            "session-a".to_string(),
+            4,
+            "user-a",
+            "company-a",
+        ));
+        let mut out = EffectSink::new();
+        module
+            .handle_query_command(
+                "im_complete_channel_sync",
+                br#"{"channel_sync_session_id":"other-session","req_id":"bad-complete"}"#,
+                &mut out,
+            )
+            .expect("wrong scope is handled");
+        assert_eq!(out.as_slice().len(), 1);
+        let error: serde_json::Value = match &out.as_slice()[0] {
+            Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).unwrap(),
+            _ => panic!("scope failure must resolve query waiter"),
+        };
+        assert_eq!(error["event"], "im:read:result");
+        assert_eq!(error["data"]["req_id"], "bad-complete");
+        assert!(error["data"].get("error").is_some());
+        out.clear();
+        module
+            .handle_query_command(
+                "im_complete_channel_sync",
+                br#"{"channel_sync_session_id":"session-a","req_id":"done-complete"}"#,
+                &mut out,
+            )
+            .expect("complete emits event");
+        assert_eq!(out.as_slice().len(), 2);
+        let read_result = out
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Emit { event } => {
+                    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).ok()?;
+                    (value["event"] == "im:read:result").then_some(value)
+                }
+                _ => None,
+            })
+            .expect("complete waiter result");
+        assert_eq!(read_result["data"]["req_id"], "done-complete");
+        assert_eq!(read_result["data"]["body"]["completed"], true);
+        assert!(
+            module
+                .state
+                .channel_sync_session
+                .as_ref()
+                .unwrap()
+                .completed
+        );
+        out.clear();
+        module
+            .handle_query_command(
+                "im_complete_channel_sync",
+                br#"{"channel_sync_session_id":"session-a","req_id":"done-again"}"#,
+                &mut out,
+            )
+            .expect("duplicate complete is handled");
+        assert_eq!(out.as_slice().len(), 1);
+        let duplicate: serde_json::Value = match &out.as_slice()[0] {
+            Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).unwrap(),
+            _ => panic!("duplicate complete must resolve waiter"),
+        };
+        assert_eq!(duplicate["event"], "im:read:result");
     }
 }

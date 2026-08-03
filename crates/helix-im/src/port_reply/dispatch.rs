@@ -273,6 +273,15 @@ impl ImModule {
                 self.handle_increment_batch_persist_reply(projections, outcome, out)?
             }
 
+            CorrelationContext::ChannelSyncPage {
+                session_id,
+                generation,
+                offset,
+                req_id,
+            } => self.handle_channel_sync_page_reply(
+                session_id, generation, offset, req_id, outcome, out,
+            )?,
+
             CorrelationContext::IncrementHydrationPersist {
                 channel_id,
                 req_id,

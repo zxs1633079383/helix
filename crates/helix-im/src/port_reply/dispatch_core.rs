@@ -284,34 +284,142 @@ impl ImModule {
         Ok(())
     }
 
-    /// 在 GS1 批次持久成功后发布兼容事件，并从 durable channel 表刷新已 attach dialog。
+    /// 在 hello increment 全批持久成功后建立分页 session，仅发布轻量 ready 元数据。
     pub(super) fn handle_increment_batch_persist_reply(
         &mut self,
-        projections: Vec<(ChannelId, Vec<u8>)>,
+        _projections: Vec<(ChannelId, Vec<u8>)>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         match outcome {
             PortOutcome::Ok(_) => {
-                crate::ws::handlers::increment_channel_end::after_increment_batch_persist(
-                    projections,
-                    out,
+                if !self.state.channel_sync_batch_pending {
+                    tracing::debug!("channel sync ready already emitted for this increment batch");
+                    return Ok(());
+                }
+                self.state.channel_sync_batch_pending = false;
+                // PersistOk 是唯一 ready 屏障；事件只携带 session 元数据，不重放频道数组。
+                let generation = self.state.channel_sync_generation.wrapping_add(1);
+                self.state.channel_sync_generation = generation;
+                let session_id = format!("channel-sync-{generation}");
+                let session = crate::channel_sync::ChannelSyncSession::new(
+                    session_id,
+                    generation,
+                    self.config.auth_user_id.as_str(),
+                    self.config.company_id.as_str(),
                 );
                 out.push(
-                    crate::event::sync::loaded(serde_json::json!({
-                        "state": "loaded",
-                        "source": "hello-increment",
-                    }))?
+                    crate::event::channel_sync::ready(
+                        session.channel_sync_session_id.as_str(),
+                        session.generation,
+                    )?
                     .into_effect(),
                 );
-                // Increment input only proves the batch was queued for persistence. Re-read the
-                // committed rows before composing the renderer snapshot so PC/Mobile never fill
-                // fields from the raw WS payload.
-                self.refresh_channel_list(None, out)?;
+                self.state.channel_sync_session = Some(session);
             }
             PortOutcome::Err(error) => {
+                self.state.channel_sync_batch_pending = false;
                 tracing::warn!(error = ?error, "increment batch persist failed; final projections suppressed");
             }
+        }
+        Ok(())
+    }
+
+    /// 将本地 channel Scan 回包投影成不超过 20 行的 typed page；失败不发 page 事件。
+    pub(super) fn handle_channel_sync_page_reply(
+        &mut self,
+        session_id: String,
+        generation: u64,
+        offset: usize,
+        req_id: Option<String>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let Some(session) = self.state.channel_sync_session.as_ref() else {
+            if let Some(req_id) = req_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "channel sync session is not ready",
+                ));
+            }
+            return Ok(());
+        };
+        if session.channel_sync_session_id != session_id
+            || session.generation != generation
+            || session.completed
+            || session.account_id != self.config.auth_user_id
+            || session.company_id != self.config.company_id
+        {
+            tracing::warn!("channel sync page reply scope mismatch");
+            if let Some(req_id) = req_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "channel sync page reply scope mismatch",
+                ));
+            }
+            return Ok(());
+        }
+        let PortOutcome::Ok(reply) = outcome else {
+            tracing::warn!("channel sync page scan failed; preserving previous page");
+            if let Some(req_id) = req_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "channel sync page scan failed",
+                ));
+            }
+            return Ok(());
+        };
+        if !matches!(
+            serde_json::from_slice::<serde_json::Value>(reply.0.as_ref()),
+            Ok(serde_json::Value::Array(_))
+        ) {
+            tracing::warn!(
+                "channel sync page scan returned invalid rows; preserving previous page"
+            );
+            if let Some(req_id) = req_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "channel sync page rows are invalid",
+                ));
+            }
+            return Ok(());
+        }
+        let scope = crate::query::DialogListScope::new(
+            self.config.auth_user_id.as_str(),
+            self.config.company_id.as_str(),
+        );
+        let (items, has_more) = crate::channel_sync::project_page(reply.0.as_ref(), &scope, offset);
+        let next_cursor = has_more.then(|| {
+            crate::channel_sync::encode_cursor(
+                session,
+                offset + crate::channel_sync::PAGE_SIZE as usize,
+            )
+        });
+        if let Some(req_id) = req_id.as_deref() {
+            // query bridge 统一等待 `im:read:result`; body 仍是 Helix 生成的 typed page，
+            // Host 不需要恢复旧 raw channel/increment 事件。
+            out.push(crate::read_relay::emit_read_body(
+                req_id,
+                serde_json::json!({
+                    "channelSyncSessionId": session.channel_sync_session_id,
+                    "generation": session.generation,
+                    "items": items,
+                    "hasMore": has_more,
+                    "nextCursor": next_cursor,
+                }),
+            ));
+        } else {
+            // 无 transport waiter 的内部调用仍保留 typed page 事件。
+            out.push(
+                crate::event::channel_sync::page(
+                    session.channel_sync_session_id.as_str(),
+                    session.generation,
+                    items,
+                    has_more,
+                    next_cursor.as_deref(),
+                )?
+                .into_effect(),
+            );
         }
         Ok(())
     }
@@ -649,5 +757,193 @@ impl ImModule {
         self.try_finalize_recovery(None, out)?;
         self.try_finalize_pong_gap(None, out)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod channel_sync_contract_tests {
+    use super::*;
+    use bytes::Bytes;
+    use helix_core::tick::{PortOutcome, ReplyBytes};
+    use helix_core::EffectSink;
+
+    fn module() -> ImModule {
+        let mut config = crate::module::ImConfig::default();
+        config.auth_user_id = "user-a".to_string();
+        config.company_id = "company-a".to_string();
+        ImModule::new(config)
+    }
+
+    fn event(effect: &helix_core::Effect) -> serde_json::Value {
+        let helix_core::Effect::Emit { event } = effect else {
+            panic!("expected typed event");
+        };
+        serde_json::from_slice(event.0.as_ref()).expect("event JSON")
+    }
+
+    #[test]
+    fn ready_requires_persist_ok_and_is_emitted_once_without_channel_array() {
+        let mut module = module();
+        let mut out = EffectSink::new();
+        module.state.channel_sync_session = Some(crate::channel_sync::ChannelSyncSession::new(
+            "old-session".to_string(),
+            1,
+            "user-a",
+            "company-a",
+        ));
+        module.state.reset_increment_batch();
+        module
+            .handle_increment_batch_persist_reply(
+                Vec::new(),
+                &PortOutcome::Err(helix_core::tick::PortError::Storage(1)),
+                &mut out,
+            )
+            .expect("failed persist is handled");
+        assert!(out.as_slice().is_empty());
+        assert_eq!(
+            module
+                .state
+                .channel_sync_session
+                .as_ref()
+                .map(|session| session.channel_sync_session_id.as_str()),
+            Some("old-session")
+        );
+
+        module.state.reset_increment_batch();
+        module
+            .handle_increment_batch_persist_reply(
+                Vec::new(),
+                &PortOutcome::Ok(ReplyBytes(Bytes::new())),
+                &mut out,
+            )
+            .expect("successful persist emits ready");
+        assert_eq!(out.as_slice().len(), 1);
+        let ready = event(&out.as_slice()[0]);
+        assert_eq!(ready["event"], "im:channel-sync-ready");
+        assert!(ready["data"].get("items").is_none());
+        assert!(ready["data"].get("channels").is_none());
+        assert!(ready["data"].get("accountId").is_none());
+        assert!(ready["data"].get("companyId").is_none());
+        assert_eq!(ready["data"]["defaultPageSize"], 20);
+
+        module.state.reset_increment_batch();
+        out.clear();
+        module
+            .handle_increment_batch_persist_reply(
+                Vec::new(),
+                &PortOutcome::Ok(ReplyBytes(Bytes::new())),
+                &mut out,
+            )
+            .expect("next batch success emits ready");
+        assert_eq!(out.as_slice().len(), 1);
+        module
+            .handle_increment_batch_persist_reply(
+                Vec::new(),
+                &PortOutcome::Ok(ReplyBytes(Bytes::new())),
+                &mut out,
+            )
+            .expect("duplicate success is idempotent");
+        assert_eq!(out.as_slice().len(), 1);
+    }
+
+    #[test]
+    fn page_results_are_continuous_and_bounded() {
+        let mut module = module();
+        let session = crate::channel_sync::ChannelSyncSession::new(
+            "session-a".to_string(),
+            3,
+            "user-a",
+            "company-a",
+        );
+        module.state.channel_sync_session = Some(session.clone());
+        let rows = (0..41)
+            .map(|index| {
+                serde_json::json!({
+                    "id": format!("channel-{index}"),
+                    "team_id": "company-a",
+                    "user_id": "user-a",
+                    "type": "D",
+                })
+            })
+            .collect::<Vec<_>>();
+        let outcome = PortOutcome::Ok(ReplyBytes(Bytes::from(serde_json::to_vec(&rows).unwrap())));
+        let mut out = EffectSink::new();
+        module
+            .handle_channel_sync_page_reply(
+                session.channel_sync_session_id.clone(),
+                session.generation,
+                0,
+                None,
+                &outcome,
+                &mut out,
+            )
+            .expect("first page emits");
+        let first = event(&out.as_slice()[0]);
+        assert_eq!(first["data"]["items"].as_array().unwrap().len(), 20);
+        assert_eq!(first["data"]["hasMore"], true);
+
+        let mut query_out = EffectSink::new();
+        module
+            .handle_channel_sync_page_reply(
+                "session-a".to_string(),
+                3,
+                0,
+                Some("page-1".to_string()),
+                &outcome,
+                &mut query_out,
+            )
+            .expect("query waiter page emits");
+        let query_result = event(&query_out.as_slice()[0]);
+        assert_eq!(query_result["event"], "im:read:result");
+        assert_eq!(query_result["data"]["req_id"], "page-1");
+        assert_eq!(
+            query_result["data"]["body"]["items"]
+                .as_array()
+                .unwrap()
+                .len(),
+            20
+        );
+        let mut second_out = EffectSink::new();
+        module
+            .handle_channel_sync_page_reply(
+                session.channel_sync_session_id,
+                session.generation,
+                20,
+                None,
+                &outcome,
+                &mut second_out,
+            )
+            .expect("second page emits");
+        let second = event(&second_out.as_slice()[0]);
+        assert_eq!(second["data"]["items"].as_array().unwrap().len(), 20);
+        assert_eq!(second["data"]["hasMore"], true);
+
+        let mut third_out = EffectSink::new();
+        module
+            .handle_channel_sync_page_reply(
+                "session-a".to_string(),
+                3,
+                40,
+                None,
+                &outcome,
+                &mut third_out,
+            )
+            .expect("third page emits");
+        let third = event(&third_out.as_slice()[0]);
+        assert_eq!(third["data"]["items"].as_array().unwrap().len(), 1);
+        assert_eq!(third["data"]["hasMore"], false);
+
+        let mut failed_out = EffectSink::new();
+        module
+            .handle_channel_sync_page_reply(
+                "session-a".to_string(),
+                3,
+                0,
+                None,
+                &PortOutcome::Ok(ReplyBytes(Bytes::from_static(b"not-json"))),
+                &mut failed_out,
+            )
+            .expect("invalid page rows are handled");
+        assert!(failed_out.as_slice().is_empty());
     }
 }

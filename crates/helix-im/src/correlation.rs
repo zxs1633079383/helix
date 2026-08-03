@@ -154,6 +154,14 @@ pub enum CorrelationContext {
         projections: Vec<(ChannelId, Vec<u8>)>,
     },
 
+    /// MessageV3 本地频道分页 Scan；session/generation/cursor offset 均在回包时再次校验。
+    ChannelSyncPage {
+        session_id: String,
+        generation: u64,
+        offset: usize,
+        req_id: Option<String>,
+    },
+
     /// 在线 post/gate 路径：channel GuardedBump + Get(channel) 的 PortReply 回来后发布
     /// `message.left-dialog-list` 属性 frame。该变体承载“写后累计终值”链路，避免前端按事件 delta 自增。
     ChannelUpdateByPost {

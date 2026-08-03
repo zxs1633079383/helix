@@ -6,7 +6,6 @@ use crate::state::ChannelId;
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const INCREMENT_CHANNEL_END_ACTION: &str = "increment_channel_end";
-const INITIAL_CHANNEL_PROJECTION_LIMIT: usize = 500;
 
 pub(crate) fn apply_increment_end(
     ctx: &mut ImWsContext<'_>,
@@ -118,27 +117,6 @@ fn trigger_todo_query(ctx: &mut ImWsContext<'_>, post_ids: &[String], out: &mut 
         .corr_map
         .insert(corr, crate::state::CorrelationContext::TodoQuery);
     tracing::info!("helix-im UC-10: hello 收尾触发 queryTodoList（待办内容拉取）");
-}
-
-/// G-S1 事务成功后的续步：发布最终投影。调用者只能是
-/// `IncrementBatchPersist` 的成功回执分支。
-pub(crate) fn after_increment_batch_persist(
-    projections: Vec<(ChannelId, Vec<u8>)>,
-    out: &mut EffectSink,
-) {
-    // Go delivers the batch in recent-activity order. Persist contains the
-    // complete batch, while the UI boundary publishes only the maintained
-    // dialog window; older rows remain queryable from local storage.
-    for (channel_id, raw) in projections
-        .into_iter()
-        .take(INITIAL_CHANNEL_PROJECTION_LIMIT)
-    {
-        out.push(crate::acl::to_effect::emit_channel_increment(
-            channel_id,
-            raw.as_ref(),
-        ));
-    }
-    out.push(crate::acl::to_effect::emit_channels_loaded());
 }
 
 /// B4：proactive resync 入口——不再逐 channel 直发，改为入 SyncScheduler 全局并发窗口

@@ -13,8 +13,9 @@ Persist 失败不发布 ready。
 ready 后 Host 通过 `im_query_channel_sync_page` 请求本地 `channel` Scan。业务请求只允许
 `channel_sync_session_id`、`next_cursor`、`page_size`（`req_id` 仅为 Host transport 关联），
 页长固定 20；opaque cursor 绑定 session/generation/offset。回包使用统一
-`im:read:result` waiter，body 为最多 20 条 render-ready absolute channel 行，并带
-`hasMore`、`nextCursor`、`channelSyncSessionId`、`generation`。
+`im:read:result` waiter，body 为最多 20 条 render-ready absolute channel 行（含
+`lastEventSeq` 等 camelCase 游标字段），并带 `hasMore`、`nextCursor`、
+`channelSyncSessionId`、`generation`。
 
 `im_complete_channel_sync` 只接受当前 account/company 的 session，使用统一
 `im:read:result` 回传 `completed=true`；重复 complete 可重复得到同一成功 body，错误

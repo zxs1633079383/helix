@@ -122,6 +122,12 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
     insert_alias(
         &mut output,
         row,
+        "lastEventSeq",
+        &["last_event_seq", "lastEventSeq"],
+    );
+    insert_alias(
+        &mut output,
+        row,
         "lastReadSeq",
         &["last_read_seq", "lastReadSeq"],
     );
@@ -348,6 +354,7 @@ mod tests {
                 "unread_count": 2,
                 "mention_count": 1,
                 "urgent_count": 3,
+                "last_event_seq": 151,
                 "last_read_seq": 9,
                 "projection_revision": 12,
                 "is_top": 1,
@@ -364,6 +371,7 @@ mod tests {
         assert_eq!(shaped[0]["displayName"], "测试群");
         assert_eq!(shaped[0]["unreadCount"], 2);
         assert_eq!(shaped[0]["urgentCount"], 3);
+        assert_eq!(shaped[0]["lastEventSeq"], 151);
         assert_eq!(shaped[0]["lastReadSeq"], 9);
         assert_eq!(shaped[0]["projectionRevision"], 12);
         assert_eq!(shaped[0]["channelIsTop"], 1);

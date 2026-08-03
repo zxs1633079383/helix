@@ -710,6 +710,28 @@ impl ImModule {
                 }
             },
 
+            // G13d 本地 topic Scan 只发布一次 parent-scoped typed Result，不广播业务事件。
+            CorrelationContext::SubtopicsQuery {
+                parent_channel_id,
+                causation_id,
+            } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    out.push(self.emit_subtopics_result_for_runtime(
+                        causation_id.as_deref(),
+                        Some(parent_channel_id.as_str()),
+                        reply.0.as_ref(),
+                    ));
+                }
+                PortOutcome::Err(error) => {
+                    tracing::warn!(error = ?error, "subtopic scan failed");
+                    out.push(self.emit_subtopics_result_for_runtime(
+                        causation_id.as_deref(),
+                        Some(parent_channel_id.as_str()),
+                        b"[]",
+                    ));
+                }
+            },
+
             // spec06 缺陷A：读族 outbound HTTP 回报 → 透传响应体回灌前端（杀 fire-and-forget 丢响应）。
             // Ok → 剥 ADR-007 信封（base64 body）得裸后端响应体 → emit `im:read:result{req_id, body}`
             // （后端返回什么吐什么，零改业务数据）。信封畸形 → 当作 read error 回灌（不丢 req_id 关联，

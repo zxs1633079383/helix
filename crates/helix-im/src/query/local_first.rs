@@ -12,7 +12,7 @@ use crate::error::ImError;
 use crate::module::ImModule;
 use crate::state::{ChannelId, CorrelationContext};
 
-use super::MessageQueryRequest;
+use super::{MessageQueryRequest, SubtopicsQueryRequest};
 
 mod data;
 
@@ -261,6 +261,38 @@ impl ImModule {
             self.config.company_id.as_str(),
         );
         super::emit_dialog_list_result(req_id.unwrap_or_default(), reply_bytes, &scope)
+    }
+
+    /// 用当前 RuntimeAuth 构造本地 topic Scan，不把 parent 作用域交给 caller。
+    pub(crate) fn build_subtopics_query_for_runtime(
+        &self,
+        request: &SubtopicsQueryRequest,
+        corr: helix_core::Correlation,
+    ) -> Result<Effect, ImError> {
+        let scope = super::DialogListScope::new(
+            self.config.auth_user_id.as_str(),
+            self.config.company_id.as_str(),
+        );
+        super::build_subtopics_query_for_scope(request, corr, &scope)
+    }
+
+    /// 将 topic Scan 回报交给唯一 typed Result，失败与空 parent 都返回空 items。
+    pub(crate) fn emit_subtopics_result_for_runtime(
+        &self,
+        req_id: Option<&str>,
+        parent_channel_id: Option<&str>,
+        reply_bytes: &[u8],
+    ) -> Effect {
+        let scope = super::DialogListScope::new(
+            self.config.auth_user_id.as_str(),
+            self.config.company_id.as_str(),
+        );
+        super::emit_subtopics_result(
+            req_id.unwrap_or_default(),
+            reply_bytes,
+            &scope,
+            parent_channel_id,
+        )
     }
 
     /// 显式 retry 在 HTTP admission 后强制读取 Go 最新消息完成幂等对账。

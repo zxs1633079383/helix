@@ -415,6 +415,7 @@ impl ImState {
                     | CorrelationContext::OutboundIncrementHydration { .. }
                     | CorrelationContext::UpdateChannelDialogPersist { .. }
                     | CorrelationContext::DialogListQuery { .. }
+                    | CorrelationContext::SubtopicsQuery { .. }
                     | CorrelationContext::PostReadPersist { .. }
                     | CorrelationContext::OutboundExactPosts { .. }
                     | CorrelationContext::ExactPostsPersist { .. }

@@ -295,6 +295,10 @@ name = "message_v3_mv3_g13c"
 path = "tests/message_v3/sync/mv3_g13c/main.rs"
 
 [[test]]
+name = "message_v3_mv3_g13d"
+path = "tests/message_v3/sync/mv3_g13d/main.rs"
+
+[[test]]
 name = "message_v3_g12"
 path = "tests/message_v3/timeline/g12/main.rs"
 

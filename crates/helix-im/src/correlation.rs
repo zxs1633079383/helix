@@ -326,6 +326,12 @@ pub enum CorrelationContext {
     /// UC-3 `im_query_dialog_list` Scan 回报 → emit channel list 与 viewer read 绝对态。
     DialogListQuery { causation_id: Option<String> },
 
+    /// G13d `im_query_subtopics` Scan 回报；父频道随 correlation 一起隔离。
+    SubtopicsQuery {
+        parent_channel_id: ChannelId,
+        causation_id: Option<String>,
+    },
+
     /// spec06 缺陷A：读族 outbound **HTTP** 回报（request-response 回灌）。
     ///
     /// 读族无 WS 回声、HTTP 响应体即数据 → 注册本上下文，`handle_port_reply` 按命令身份

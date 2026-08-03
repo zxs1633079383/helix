@@ -34,6 +34,7 @@ pub const QUERY_COMMAND_NAMES: &[&str] = &[
     "im_query_messages_by_channel",
     "im_delete_all_dialogs",
     "im_query_dialog_list",
+    "im_query_subtopics",
     crate::older_context::LOAD_OLDER_CONTEXT,
     crate::timeline_navigation::LOAD_NEWER_CONTEXT,
     crate::timeline_navigation::LOCATE_MESSAGE,
@@ -68,6 +69,12 @@ pub struct MessageQueryRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DialogListQueryRequest {
     pub limit: u32,
+}
+
+/// 当前账号下按父频道读取 topic 的最小意图；身份只能来自 RuntimeAuth。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubtopicsQueryRequest {
+    pub parent_channel_id: Option<ChannelId>,
 }
 
 /// 当前 RuntimeAuth 的会话列表作用域；caller payload 不得覆盖这两个字段。
@@ -177,6 +184,50 @@ pub fn parse_dialog_list_query(payload: &[u8]) -> Result<DialogListQueryRequest,
     Ok(DialogListQueryRequest { limit })
 }
 
+/// 解析 `querySubtopics` 意图；空 parent 作为本地 typed-empty，不触发 I/O。
+pub fn parse_subtopics_query(payload: &[u8]) -> Result<SubtopicsQueryRequest, ImError> {
+    let value = serde_json::from_slice::<serde_json::Value>(payload)
+        .map_err(|error| ImError::Parse(format!("im_query_subtopics payload: {error}")))?;
+    let object = value.as_object().ok_or_else(|| {
+        ImError::Parse("im_query_subtopics payload must be an object".to_string())
+    })?;
+    for key in object.keys() {
+        if !matches!(
+            key.as_str(),
+            "parentChannelId" | "parent_channel_id" | "req_id"
+        ) {
+            return Err(ImError::Parse(format!(
+                "im_query_subtopics field is not caller-owned: {key}"
+            )));
+        }
+    }
+    let parent = object
+        .get("parentChannelId")
+        .or_else(|| object.get("parent_channel_id"));
+    let parent_channel_id = match parent {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(value)) if value.is_empty() => None,
+        Some(serde_json::Value::String(value)) => {
+            ChannelId::from_str(value).map(Some).ok_or_else(|| {
+                ImError::Parse("im_query_subtopics parentChannelId is invalid".into())
+            })?
+        }
+        Some(_) => {
+            return Err(ImError::Parse(
+                "im_query_subtopics parentChannelId must be string".into(),
+            ));
+        }
+    };
+    if let Some(req_id) = object.get("req_id") {
+        if !req_id.is_null() && !req_id.is_string() {
+            return Err(ImError::Parse(
+                "im_query_subtopics req_id must be string".into(),
+            ));
+        }
+    }
+    Ok(SubtopicsQueryRequest { parent_channel_id })
+}
+
 pub fn dialog_list_scan_spec(request: DialogListQueryRequest) -> ScanSpec {
     ScanSpec {
         table: "channel",
@@ -199,6 +250,21 @@ pub fn dialog_list_scan_spec_for_scope(
     Ok(ScanSpec {
         table: "channel",
         limit: Some(request.limit),
+        filter: Some(("team_id", SqlValue::Text(scope.company_id.clone()))),
+        order_by: DIALOG_QUERY_ORDER,
+    })
+}
+
+/// 构造当前 RuntimeAuth 租户的本地 topic Scan；父频道可见性在同一回包中验证。
+pub fn subtopics_scan_spec_for_scope(scope: &DialogListScope) -> Result<ScanSpec, ImError> {
+    if scope.company_id.is_empty() || scope.viewer_user_id.is_empty() {
+        return Err(ImError::Parse(
+            "im_query_subtopics requires RuntimeAuth user and company".into(),
+        ));
+    }
+    Ok(ScanSpec {
+        table: "channel",
+        limit: Some(QUERY_DIALOGS_MAX),
         filter: Some(("team_id", SqlValue::Text(scope.company_id.clone()))),
         order_by: DIALOG_QUERY_ORDER,
     })
@@ -326,6 +392,24 @@ pub fn build_dialog_list_query_for_scope(
     })
 }
 
+/// 构造 `im_query_subtopics` 的单次租户内 channel Scan。
+pub fn build_subtopics_query_for_scope(
+    request: &SubtopicsQueryRequest,
+    corr: Correlation,
+    scope: &DialogListScope,
+) -> Result<Effect, ImError> {
+    if request.parent_channel_id.is_none() {
+        return Err(ImError::Parse(
+            "im_query_subtopics requires parentChannelId".into(),
+        ));
+    }
+    let scan = subtopics_scan_spec_for_scope(scope)?;
+    Ok(Effect::Persist {
+        corr,
+        ops: vec![StorageOp::Scan(scan)],
+    })
+}
+
 /// 将本地 channel rows 过滤为当前 account 的 typed `items` 结果。
 pub fn project_dialog_list_items(
     reply_bytes: &[u8],
@@ -360,6 +444,108 @@ pub fn emit_dialog_list_result(
             "items": project_dialog_list_items(reply_bytes, scope),
         }),
     )
+}
+
+/// 将 local channel rows 投影为指定可见父频道下的 topic typed items。
+pub fn project_subtopic_items(
+    reply_bytes: &[u8],
+    scope: &DialogListScope,
+    parent_channel_id: Option<&str>,
+) -> Vec<serde_json::Value> {
+    let Some(parent_channel_id) = parent_channel_id.filter(|value| !value.is_empty()) else {
+        return Vec::new();
+    };
+    let Ok(serde_json::Value::Array(rows)) = serde_json::from_slice(reply_bytes) else {
+        return Vec::new();
+    };
+    let parent_visible = rows.iter().any(|row| {
+        channel_row_id(row) == Some(parent_channel_id) && dialog_row_visible(row, scope)
+    });
+    if !parent_visible {
+        return Vec::new();
+    }
+    let mut seen = std::collections::HashSet::new();
+    rows.into_iter()
+        .filter(|row| dialog_row_visible(row, scope))
+        .filter(|row| channel_row_type(row) == Some("T"))
+        .filter(|row| channel_row_root_id(row) == Some(parent_channel_id))
+        .filter_map(|row| {
+            let id = channel_row_id(&row)?;
+            seen.insert(id.to_string())
+                .then(|| render_subtopic_row(row))
+        })
+        .collect()
+}
+
+/// 把 topic Scan 回报封装为唯一 `im:read:result` command Result。
+pub fn emit_subtopics_result(
+    req_id: &str,
+    reply_bytes: &[u8],
+    scope: &DialogListScope,
+    parent_channel_id: Option<&str>,
+) -> Effect {
+    crate::read_relay::emit_read_body(
+        req_id,
+        serde_json::json!({
+            "items": project_subtopic_items(reply_bytes, scope, parent_channel_id),
+        }),
+    )
+}
+
+/// 读取 channel row 的稳定 id，兼容本地 snake_case 与 render-ready camelCase。
+fn channel_row_id(row: &serde_json::Value) -> Option<&str> {
+    row.get("id")
+        .or_else(|| row.get("channel_id"))
+        .or_else(|| row.get("channelId"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+}
+
+/// 读取 topic 类型标记，严格要求服务端的 `T` 类型。
+fn channel_row_type(row: &serde_json::Value) -> Option<&str> {
+    row.get("type")
+        .or_else(|| row.get("channel_type"))
+        .or_else(|| row.get("channelType"))
+        .and_then(serde_json::Value::as_str)
+}
+
+/// 读取 topic 的 rootId 关联，兼容 snake_case 与 camelCase。
+fn channel_row_root_id(row: &serde_json::Value) -> Option<&str> {
+    row.get("root_id")
+        .or_else(|| row.get("rootId"))
+        .and_then(serde_json::Value::as_str)
+}
+
+/// 将 topic 行转换为 render-ready row，并补齐 creator 到 participants 集合。
+fn render_subtopic_row(row: serde_json::Value) -> serde_json::Value {
+    let owner_id = row
+        .get("user_id")
+        .or_else(|| row.get("userId"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let mut rendered = render_dialog_row(row);
+    let Some(owner_id) = owner_id else {
+        return rendered;
+    };
+    let mut members = rendered
+        .get("members")
+        .map(parse_json_column)
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default();
+    if !members.iter().any(|member| {
+        member
+            .get("userId")
+            .or_else(|| member.get("user_id"))
+            .or_else(|| member.get("id"))
+            .and_then(serde_json::Value::as_str)
+            == Some(owner_id.as_str())
+    }) {
+        members.push(serde_json::json!({ "userId": owner_id }));
+    }
+    if let Some(object) = rendered.as_object_mut() {
+        object.insert("members".to_string(), serde_json::Value::Array(members));
+    }
+    rendered
 }
 
 /// 仅允许租户内、当前 viewer 所属的 channel 行进入结果。

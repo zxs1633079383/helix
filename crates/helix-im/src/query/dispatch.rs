@@ -45,6 +45,51 @@ impl ImModule {
                 );
                 out.push(effect);
             }
+            "im_query_subtopics" => {
+                // G13d：只按 RuntimeAuth 查询本地 parent/topic 关系；空 parent 直接 typed-empty。
+                let req_id = crate::query::read_relay::read_req_id(payload);
+                let request = match crate::query::parse_subtopics_query(payload) {
+                    Ok(request) => request,
+                    Err(error) => {
+                        tracing::warn!(error = ?error, "subtopic query rejected");
+                        out.push(self.emit_subtopics_result_for_runtime(
+                            req_id.as_deref(),
+                            None,
+                            b"[]",
+                        ));
+                        return Ok(());
+                    }
+                };
+                let Some(parent_channel_id) = request.parent_channel_id.clone() else {
+                    out.push(self.emit_subtopics_result_for_runtime(
+                        req_id.as_deref(),
+                        None,
+                        b"[]",
+                    ));
+                    return Ok(());
+                };
+                let corr = self.alloc_corr_internal();
+                let effect = match self.build_subtopics_query_for_runtime(&request, corr) {
+                    Ok(effect) => effect,
+                    Err(error) => {
+                        tracing::warn!(error = ?error, "subtopic query scope rejected");
+                        out.push(self.emit_subtopics_result_for_runtime(
+                            req_id.as_deref(),
+                            Some(parent_channel_id.as_str()),
+                            b"[]",
+                        ));
+                        return Ok(());
+                    }
+                };
+                self.state.corr_map.insert(
+                    corr,
+                    CorrelationContext::SubtopicsQuery {
+                        parent_channel_id,
+                        causation_id: req_id,
+                    },
+                );
+                out.push(effect);
+            }
             "im_delete_all_dialogs" => {
                 // 内存 channel gate 清空（core 拥有的状态；物理 DELETE 留待 truncate 原语，query.rs）。
                 self.state.channels.clear();

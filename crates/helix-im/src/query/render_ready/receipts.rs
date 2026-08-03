@@ -1,7 +1,8 @@
-//! 单条消息回执人员投影。
+//! 批量消息回执人员投影。
 //!
-//! Go 只提供消息发送时的成员快照顺序与 readBits；这里按相同下标生成已读/未读人员，
-//! 并排除消息发送者。Angular 只消费下面的 render-ready 结果，不解释 bitmap。
+//! Go 只提供消息创建时的 receiver snapshot 顺序与内部 readBits；这里在 Helix 内部完成
+//! O(n) 对齐后，向 Angular 只交付 snapshotId、有序用户 ID 与绝对计数。原始 bitmap、成员
+//! 快照和兼容字段不跨越 `im:post:readers` 边界。
 
 use bytes::Bytes;
 use helix_core::effect::{DomainEventBytes, Effect};
@@ -15,164 +16,144 @@ pub(crate) fn emit(body: &Value) -> Vec<Effect> {
 
 /// 在线性扫描中把 Go 回执行转换为 Angular 可直接消费的绝对态。
 pub(crate) fn project(body: &Value) -> Vec<Value> {
-    body.get("data")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|item| {
-            let post_id = item.get("postId")?.as_str()?.trim();
-            if post_id.is_empty() {
-                return None;
-            }
-            let channel_id = item
-                .get("channelId")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .trim();
-            let snapshot_id = item
-                .get("snapshotId")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .trim();
-            let snapshot_version = item
-                .get("snapshotVersion")
-                .and_then(Value::as_i64)
-                .unwrap_or_default();
-            if item.get("status").and_then(Value::as_str) == Some("unavailable") {
-                let reason = item
-                    .get("unavailableReason")
-                    .and_then(Value::as_str)
-                    .filter(|reason| !reason.trim().is_empty())
-                    .unwrap_or("receipt unavailable");
-                return Some(unavailable_receipt(
-                    post_id,
-                    channel_id,
-                    snapshot_id,
-                    snapshot_version,
-                    reason,
-                ));
-            }
-            let author_user_id = item.get("authorUserId")?.as_str()?.trim();
-            let read_bits = item.get("readBits")?.as_str()?;
-            let Some(member_values) = item.get("memberIds").and_then(Value::as_array) else {
-                return Some(unavailable_receipt(
-                    post_id,
-                    channel_id,
-                    snapshot_id,
-                    snapshot_version,
-                    "member snapshot and readBits are inconsistent",
-                ));
-            };
-            let member_ids: Vec<&str> = member_values
-                .iter()
-                .filter_map(Value::as_str)
-                .filter(|id| !id.is_empty())
-                .collect();
-            let member_shape_valid = member_ids.len() == member_values.len();
-            let mut seen = HashSet::with_capacity(member_ids.len());
-            let unique = member_ids.iter().all(|id| seen.insert(*id));
-            let author_count = member_ids
-                .iter()
-                .filter(|user_id| **user_id == author_user_id)
-                .count();
-            let valid = !author_user_id.is_empty()
-                && !snapshot_id.is_empty()
-                && snapshot_version > 0
-                && member_shape_valid
-                && unique
-                && author_count <= 1
-                && read_bits.len() == member_ids.len()
-                && read_bits.bytes().all(|bit| bit == b'0' || bit == b'1');
-            if !valid {
-                return Some(unavailable_receipt(
-                    post_id,
-                    channel_id,
-                    snapshot_id,
-                    snapshot_version,
-                    "member snapshot and readBits are inconsistent",
-                ));
-            }
-            let mut reader_ids = Vec::with_capacity(member_ids.len());
-            let mut unread_ids = Vec::with_capacity(member_ids.len());
-            let mut recipient_user_ids = Vec::with_capacity(member_ids.len());
-            // canonical: memberIds 已排作者；legacy: 作者恰好出现一次且 bitmap 与原序列等长。
-            // 两者都在同一线性扫描中归一为纯接收者序列，保持服务端快照顺序。
-            for (index, user_id) in member_ids.into_iter().enumerate() {
-                if user_id == author_user_id {
-                    continue;
-                }
-                let bit = read_bits.as_bytes()[index];
-                recipient_user_ids.push(user_id);
-                if bit == b'1' {
-                    reader_ids.push(user_id);
-                } else {
-                    unread_ids.push(user_id);
-                }
-            }
-            let readers: Vec<Value> = reader_ids
-                .iter()
-                .map(|user_id| json!({ "userId": user_id }))
-                .collect();
-            let unreaders: Vec<Value> = unread_ids
-                .iter()
-                .map(|user_id| json!({ "userId": user_id }))
-                .collect();
-            Some(json!({
-                "postId": post_id,
-                "channelId": channel_id,
-                "state": "ready",
-                "snapshotId": snapshot_id,
-                "snapshotVersion": snapshot_version,
-                // INV-06：snapshotId 是权威键，channelId + createAt 仅在缺快照时兜底。
-                "receiptKey": "snapshotId",
-                "readerCount": reader_ids.len(),
-                "unreadCount": unread_ids.len(),
-                "recipientUserIds": recipient_user_ids,
-                "authorExcluded": true,
-                "contractVersion": 2,
-                "readerIds": reader_ids.clone(),
-                "unreadIds": unread_ids.clone(),
-                // INV-07 canonical：Angular 只消费有序 readUserIds/unreadUserIds 与绝对计数。
-                "readCount": reader_ids.len(),
-                "allRead": unread_ids.is_empty(),
-                "readUserIds": reader_ids,
-                "unreadUserIds": unread_ids,
-                "readers": readers,
-                "unreaders": unreaders,
-            }))
-        })
-        .collect()
+    let Some(rows) = body.get("data").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    rows.iter().filter_map(project_row).collect()
 }
 
-/// 构造不泄漏 bitmap 的逐消息不可用终态，并保留窗口过滤所需频道。
-fn unavailable_receipt(
-    post_id: &str,
-    channel_id: &str,
-    snapshot_id: &str,
-    snapshot_version: i64,
-    error: &str,
-) -> Value {
+/// 将一行 Go DTO 投影成严格 allowlist，损坏行只生成不可用终态。
+fn project_row(item: &Value) -> Option<Value> {
+    let post_id = item.get("postId")?.as_str()?.trim();
+    if post_id.is_empty() {
+        return None;
+    }
+    let channel_id = item
+        .get("channelId")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    let snapshot_id = item
+        .get("snapshotId")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if item.get("status").and_then(Value::as_str) == Some("unavailable") {
+        let reason = item
+            .get("unavailableReason")
+            .and_then(Value::as_str)
+            .filter(|reason| !reason.trim().is_empty())
+            .unwrap_or("receipt unavailable");
+        return Some(unavailable_receipt(
+            post_id,
+            channel_id,
+            snapshot_id,
+            reason,
+        ));
+    }
+
+    let Some(author_user_id) = item.get("authorUserId").and_then(Value::as_str) else {
+        return Some(unavailable_receipt(
+            post_id,
+            channel_id,
+            snapshot_id,
+            "receipt author is missing",
+        ));
+    };
+    let Some(read_bits) = item.get("readBits").and_then(Value::as_str) else {
+        return Some(unavailable_receipt(
+            post_id,
+            channel_id,
+            snapshot_id,
+            "member snapshot and readBits are inconsistent",
+        ));
+    };
+    let Some(member_values) = item.get("memberIds").and_then(Value::as_array) else {
+        return Some(unavailable_receipt(
+            post_id,
+            channel_id,
+            snapshot_id,
+            "member snapshot and readBits are inconsistent",
+        ));
+    };
+    let member_ids: Option<Vec<&str>> = member_values
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|id| !id.is_empty() && id.trim() == *id)
+        })
+        .collect();
+    let Some(member_ids) = member_ids else {
+        return Some(unavailable_receipt(
+            post_id,
+            channel_id,
+            snapshot_id,
+            "member snapshot and readBits are inconsistent",
+        ));
+    };
+    let mut seen = HashSet::with_capacity(member_ids.len());
+    let unique = member_ids.iter().all(|id| seen.insert(*id));
+    let author_user_id = author_user_id.trim();
+    let author_count = member_ids
+        .iter()
+        .filter(|user_id| **user_id == author_user_id)
+        .count();
+    let valid = !channel_id.is_empty()
+        && !snapshot_id.is_empty()
+        && !author_user_id.is_empty()
+        && unique
+        && author_count <= 1
+        && read_bits.len() == member_ids.len()
+        && read_bits.bytes().all(|bit| bit == b'0' || bit == b'1');
+    if !valid {
+        return Some(unavailable_receipt(
+            post_id,
+            channel_id,
+            snapshot_id,
+            "member snapshot and readBits are inconsistent",
+        ));
+    }
+
+    let mut read_user_ids = Vec::with_capacity(member_ids.len());
+    let mut unread_user_ids = Vec::with_capacity(member_ids.len());
+    // canonical: Go 已排作者；legacy 行若仍含作者，也在同一快照顺序中剔除。
+    for (index, user_id) in member_ids.into_iter().enumerate() {
+        if user_id == author_user_id {
+            continue;
+        }
+        if read_bits.as_bytes()[index] == b'1' {
+            read_user_ids.push(user_id);
+        } else {
+            unread_user_ids.push(user_id);
+        }
+    }
+    // 只允许公开合同字段；任何内部 DTO 字段都不能从输入对象复制到事件。
+    Some(json!({
+        "postId": post_id,
+        "channelId": channel_id,
+        "snapshotId": snapshot_id,
+        "readUserIds": read_user_ids,
+        "unreadUserIds": unread_user_ids,
+        "readCount": read_user_ids.len(),
+        "unreadCount": unread_user_ids.len(),
+        "allRead": unread_user_ids.is_empty(),
+    }))
+}
+
+/// 构造不泄漏 bitmap 的逐消息不可用终态，并保留诊断原因。
+fn unavailable_receipt(post_id: &str, channel_id: &str, snapshot_id: &str, error: &str) -> Value {
     json!({
         "postId": post_id,
         "channelId": channel_id,
-        "state": "unavailable",
         "snapshotId": snapshot_id,
-        "snapshotVersion": snapshot_version,
-        "receiptKey": if snapshot_id.is_empty() { "channelIdCreateAtFallback" } else { "snapshotId" },
-        "readerCount": 0,
-        "unreadCount": 0,
-        "recipientUserIds": [],
-        "authorExcluded": true,
-        "contractVersion": 2,
-        "readCount": 0,
-        "allRead": false,
+        "state": "unavailable",
+        "error": error,
         "readUserIds": [],
         "unreadUserIds": [],
-        "readerIds": [],
-        "unreadIds": [],
-        "readers": [],
-        "unreaders": [],
-        "error": error,
+        "readCount": 0,
+        "unreadCount": 0,
+        "allRead": false,
     })
 }
 

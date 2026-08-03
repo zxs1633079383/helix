@@ -4,10 +4,9 @@
 //! sibling module，避免单文件重新聚合 transport/storage/sync/projection 多类变更理由。
 
 pub use super::projection_control_effects::{
-    emit_channel_increment, emit_channel_update, emit_channels_loaded, emit_connection_established,
-    emit_post_batch_updated, emit_reconnect_requested, emit_sync_state,
-    emit_sync_state_with_trigger, emit_sync_too_long, emit_topic_operation_status,
-    member_channel_update_data, post_channel_update_data,
+    emit_channel_update, emit_connection_established, emit_post_batch_updated,
+    emit_reconnect_requested, emit_sync_state, emit_sync_state_with_trigger, emit_sync_too_long,
+    emit_topic_operation_status, member_channel_update_data, post_channel_update_data,
 };
 pub use super::projection_message_effects::{
     emit_channel_read_echo, emit_channel_read_echo_for_viewer, emit_post_deleted,

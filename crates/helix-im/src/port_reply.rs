@@ -38,10 +38,6 @@ impl ImModule {
             }
         };
         let mut posts = extract_latest_posts(raw_body.as_ref());
-        if posts.is_empty() {
-            self.finish_increment_hydration(channel_id, out)?;
-            return Ok(());
-        }
         posts.sort_by_key(|post| {
             post_event_seq(post).unwrap_or_else(|| {
                 post.get("createAt")
@@ -99,10 +95,10 @@ impl ImModule {
         if !channel_updates.is_empty() {
             ops.push(crate::acl::to_effect::get_channel_row_op(channel_id));
         }
-        if ops.is_empty() {
-            self.finish_increment_hydration(channel_id, out)?;
-            return Ok(());
-        }
+        // 权威窗口与 cursor 共用同一个写屏障，空窗口也必须如此；重拉失败时旧行与旧 cursor 均不变。
+        ops.push(crate::acl::to_effect::advance_cursor_op(
+            channel_id, reset_to,
+        ));
 
         let persist_corr = self.alloc_corr_internal();
         let emit_channel_updates = channel_updates
@@ -110,7 +106,7 @@ impl ImModule {
             .cloned()
             .into_iter()
             .collect::<Vec<_>>();
-        out.push(helix_core::Effect::Persist {
+        out.push(helix_core::Effect::PersistAtomic {
             corr: persist_corr,
             ops,
         });
@@ -118,6 +114,7 @@ impl ImModule {
             persist_corr,
             CorrelationContext::TooLongReloadPersist {
                 channel_id,
+                reset_to,
                 channel_updates: emit_channel_updates,
             },
         );

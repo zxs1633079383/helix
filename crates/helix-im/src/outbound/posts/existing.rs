@@ -22,23 +22,45 @@ impl OutboundCommand for PostReadCommand {
     fn name(&self) -> &'static str {
         "im_post_read"
     }
+    /// 将已归一化的 canonical 已读意图冻结为唯一 Go `/post/read` body。
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        require_exact_keys(args, &["channel_id", "posts"], self.name())?;
         let channel_id = require_str(args, "channel_id", self.name())?;
-        let mut b = json!({ "channelId": channel_id });
-        if let Some(end_time) = args.get("end_time").and_then(Value::as_i64) {
-            b["endTime"] = json!(end_time);
+        if crate::state::ChannelId::from_str(channel_id).is_none() {
+            return Err(ImError::Parse(format!(
+                "{}: 非 canonical channel_id",
+                self.name()
+            )));
         }
-        if let Some(start_time) = args.get("start_time").and_then(Value::as_i64) {
-            b["startTime"] = json!(start_time);
-        }
-        // posts 列表模式：仅在非空字符串数组时注入（空/非数组 → 走区间模式，不发坏 wire）。
-        if let Some(arr) = args.get("posts").and_then(Value::as_array) {
-            let posts: Vec<&str> = arr.iter().filter_map(Value::as_str).collect();
-            if !posts.is_empty() && posts.len() == arr.len() {
-                b["posts"] = json!(posts);
-            }
-        }
-        Ok(("post/read", b))
+        let posts = args
+            .get("posts")
+            .and_then(Value::as_array)
+            .filter(|items| !items.is_empty())
+            .ok_or_else(|| {
+                ImError::Parse(format!(
+                    "{}: posts 必须是非空 canonical 字符串数组",
+                    self.name()
+                ))
+            })?;
+        let posts: Vec<&str> = posts
+            .iter()
+            .map(|post| {
+                let post = post.as_str().ok_or_else(|| {
+                    ImError::Parse(format!("{}: posts 只能包含字符串", self.name()))
+                })?;
+                if crate::state::ServerId::from_str(post).is_none() {
+                    return Err(ImError::Parse(format!(
+                        "{}: posts 只能包含 canonical post id",
+                        self.name()
+                    )));
+                }
+                Ok(post)
+            })
+            .collect::<Result<_, ImError>>()?;
+        Ok((
+            "post/read",
+            json!({ "channelId": channel_id, "posts": posts }),
+        ))
     }
 }
 static POST_READ: PostReadCommand = PostReadCommand;

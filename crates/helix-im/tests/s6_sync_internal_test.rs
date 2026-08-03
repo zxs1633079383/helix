@@ -142,11 +142,11 @@ fn s6_too_long_preserves_messages_and_emits_reload() {
         h.sink.as_slice()
     );
 
-    // 3. cursor 复位 reset_to-1 = 99。
+    // 3. authoritative window 成功前，旧 cursor 必须保持不变。
     assert_eq!(
         h.module.cursor_for(channel_id(1)),
-        Some(99),
-        "too_long 须复位 cursor 到 reset_to-1=99"
+        Some(0),
+        "too_long 不得在窗口成功前提前 reset cursor"
     );
 
     // 4. 首屏回包后必须可落库，并在 channel 写后读回后 emit 覆盖 Dialog 投影。
@@ -162,7 +162,7 @@ fn s6_too_long_preserves_messages_and_emits_reload() {
         .as_slice()
         .iter()
         .find_map(|e| match e {
-            Effect::Persist { corr, ops }
+            Effect::PersistAtomic { corr, ops }
                 if ops.iter().any(
                     |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"),
                 ) && ops.iter().any(|op| matches!(op, StorageOp::GuardedBump(_)))
@@ -179,6 +179,11 @@ fn s6_too_long_preserves_messages_and_emits_reload() {
     h.step(
         port_reply_with_body(reload_persist, channel_row_reply(1, 1, "reload-msg")),
         2300,
+    );
+    assert_eq!(
+        h.module.cursor_for(channel_id(1)),
+        Some(100),
+        "successful authoritative window must commit reset_to atomically"
     );
     let raw_dialog_patch = h.sink.as_slice().iter().any(|e| {
         matches!(e, Effect::Emit { event } if {
@@ -232,8 +237,8 @@ fn s6_too_long_reload_failure_keeps_message_history() {
     );
     assert_eq!(
         h.module.cursor_for(channel_id(1)),
-        Some(99),
-        "reload 失败不撤销 too_long 的 cursor reset"
+        Some(0),
+        "reload 失败必须保留旧 cursor"
     );
 }
 

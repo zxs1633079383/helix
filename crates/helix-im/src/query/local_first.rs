@@ -12,15 +12,68 @@ use crate::error::ImError;
 use crate::module::ImModule;
 use crate::state::{ChannelId, CorrelationContext};
 
-use super::MessageQueryRequest;
+use super::{MessageQueryRequest, SubtopicsQueryRequest};
 
 mod data;
 
 use data::{
-    classify_local_read, dedup_recent_rows, merge_recent_rows, message_key,
-    parse_latest_posts_reply, server_id, stale_local_server_rows_delete_op,
+    classify_local_read, dedup_recent_rows, message_key, parse_latest_posts_reply, server_id,
+    stale_local_server_rows_delete_op,
 };
 pub(crate) use data::{parse_local_rows, sort_recent_rows_desc, visible_remote_rows_and_cache_ops};
+
+/// 解析 Go G11h initial-window 业务体，并保证非空窗口的首条就是请求目标。
+pub(crate) fn parse_initial_window_posts(
+    raw_body: &[u8],
+    target_post_id: &str,
+) -> Result<Vec<Value>, ImError> {
+    let root: Value = serde_json::from_slice(raw_body)
+        .map_err(|error| ImError::Parse(format!("getPostsAfterIndex body: {error}")))?;
+    let status = root
+        .get("status")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ImError::Parse("getPostsAfterIndex body missing string status".into()))?;
+    if !status.eq_ignore_ascii_case("SUCCESS") {
+        return Err(ImError::Parse(format!(
+            "getPostsAfterIndex backend status {status}"
+        )));
+    }
+    let payload = root
+        .pointer("/data/posts")
+        .or_else(|| root.get("data"))
+        .ok_or_else(|| {
+            ImError::Parse("getPostsAfterIndex response missing posts array".to_string())
+        })?;
+    if payload.is_null() {
+        return Ok(Vec::new());
+    }
+    let rows = payload.as_array().ok_or_else(|| {
+        ImError::Parse("getPostsAfterIndex response posts must be array".to_string())
+    })?;
+    if rows.iter().any(|row| !row.is_object()) {
+        return Err(ImError::Parse(
+            "getPostsAfterIndex posts must be objects".to_string(),
+        ));
+    }
+    let rows = rows.clone();
+    if rows.is_empty() {
+        return Ok(rows);
+    }
+    if !post_matches_identity(&rows[0], target_post_id) {
+        return Err(ImError::Parse(
+            "getPostsAfterIndex target must be first row".to_string(),
+        ));
+    }
+    Ok(rows)
+}
+
+/// 比较 canonical server id 与 temporaryId，兼容只知任一 post identity 的 caller。
+pub(crate) fn post_matches_identity(row: &Value, target_post_id: &str) -> bool {
+    ["id", "postId", "temporaryId", "temporary_id"]
+        .iter()
+        .filter_map(|key| row.get(*key).and_then(Value::as_str))
+        .any(|value| value == target_post_id)
+}
 
 /// 平台提供的本地数据能力。它描述物理数据寿命，不承诺某次查询已经完整。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -184,6 +237,64 @@ fn message_create_at(row: &Value) -> Option<i64> {
 }
 
 impl ImModule {
+    /// 用当前 RuntimeAuth 构造本地 dialog Scan，不把 company/user 接受为 payload 意图。
+    pub(crate) fn build_dialog_list_query_for_runtime(
+        &self,
+        payload: &[u8],
+        corr: helix_core::Correlation,
+    ) -> Result<Effect, ImError> {
+        let scope = super::DialogListScope::new(
+            self.config.auth_user_id.as_str(),
+            self.config.company_id.as_str(),
+        );
+        super::build_dialog_list_query_for_scope(payload, corr, &scope)
+    }
+
+    /// 将 dialog Scan 回报交给唯一 typed Result 通道，失败仍返回空 items。
+    pub(crate) fn emit_dialog_list_result_for_runtime(
+        &self,
+        req_id: Option<&str>,
+        reply_bytes: &[u8],
+    ) -> Effect {
+        let scope = super::DialogListScope::new(
+            self.config.auth_user_id.as_str(),
+            self.config.company_id.as_str(),
+        );
+        super::emit_dialog_list_result(req_id.unwrap_or_default(), reply_bytes, &scope)
+    }
+
+    /// 用当前 RuntimeAuth 构造本地 topic Scan，不把 parent 作用域交给 caller。
+    pub(crate) fn build_subtopics_query_for_runtime(
+        &self,
+        request: &SubtopicsQueryRequest,
+        corr: helix_core::Correlation,
+    ) -> Result<Effect, ImError> {
+        let scope = super::DialogListScope::new(
+            self.config.auth_user_id.as_str(),
+            self.config.company_id.as_str(),
+        );
+        super::build_subtopics_query_for_scope(request, corr, &scope)
+    }
+
+    /// 将 topic Scan 回报交给唯一 typed Result，失败与空 parent 都返回空 items。
+    pub(crate) fn emit_subtopics_result_for_runtime(
+        &self,
+        req_id: Option<&str>,
+        parent_channel_id: Option<&str>,
+        reply_bytes: &[u8],
+    ) -> Effect {
+        let scope = super::DialogListScope::new(
+            self.config.auth_user_id.as_str(),
+            self.config.company_id.as_str(),
+        );
+        super::emit_subtopics_result(
+            req_id.unwrap_or_default(),
+            reply_bytes,
+            &scope,
+            parent_channel_id,
+        )
+    }
+
     /// 显式 retry 在 HTTP admission 后强制读取 Go 最新消息完成幂等对账。
     pub(crate) fn start_authoritative_send_readback(
         &mut self,
@@ -364,18 +475,6 @@ impl ImModule {
         let query_generation = self
             .state
             .begin_message_query_generation(request.channel_id, request.window_token.as_str());
-        if self.local_store_mode == LocalStoreMode::Disabled {
-            return self.start_remote_message_query(
-                request,
-                Vec::new(),
-                query_generation,
-                causation_id,
-                deferred_send_http,
-                None,
-                out,
-            );
-        }
-
         let corr = self.alloc_corr_internal();
         out.push(super::build_message_query_from_request(&request, corr));
         self.state.corr_map.insert(
@@ -498,7 +597,7 @@ impl ImModule {
         )
     }
 
-    /// 合并 Go 权威最近消息，并在显式 retry 命中时同步落定发送聚合。
+    /// 解析 Go 权威最近消息并落 durable cache；最终窗口必须等待后续 Scan read-back。
     pub(crate) fn handle_message_query_remote_reply(
         &mut self,
         request: MessageQueryRequest,
@@ -592,25 +691,6 @@ impl ImModule {
                 cache_ops.push(delete);
             }
         }
-        let merged_rows_desc = merge_recent_rows(
-            local_rows_desc,
-            remote_rows_desc,
-            remote_exhausted,
-            request.limit as usize,
-        );
-
-        if self.local_store_mode == LocalStoreMode::Disabled || cache_ops.is_empty() {
-            out.push(self.emit_timeline_snapshot_with_causation(
-                &request,
-                &merged_rows_desc,
-                now_ms,
-                causation_id,
-                None,
-            )?);
-            self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
-            return Ok(());
-        }
-
         let corr = self.alloc_corr_internal();
         out.push(Effect::Persist {
             corr,
@@ -620,7 +700,6 @@ impl ImModule {
             corr,
             CorrelationContext::MessageQueryCache {
                 request: Box::new(request),
-                merged_rows_desc: Box::new(merged_rows_desc),
                 coverage,
                 query_session_epoch,
                 query_generation,
@@ -631,10 +710,10 @@ impl ImModule {
         Ok(())
     }
 
+    /// cache Persist 成功后只发起 durable message Scan，失败则不触碰已附着窗口。
     pub(crate) fn handle_message_query_cache_reply(
         &mut self,
         request: MessageQueryRequest,
-        merged_rows_desc: Vec<Value>,
         coverage: Option<RecentMessageCoverage>,
         query_session_epoch: u64,
         query_generation: u64,
@@ -652,30 +731,94 @@ impl ImModule {
         ) {
             return Ok(());
         }
-        match outcome {
-            PortOutcome::Ok(_) => {
-                if self.is_current_message_query(
-                    request.channel_id,
-                    &request.window_token,
-                    query_session_epoch,
-                    query_generation,
-                ) {
-                    if let Some(coverage) = coverage {
-                        self.state
-                            .recent_message_coverage
-                            .insert(request.channel_id, coverage);
-                    }
-                }
-            }
-            PortOutcome::Err(error) => tracing::warn!(
+        if let PortOutcome::Err(error) = outcome {
+            tracing::warn!(
                 channel_id = request.channel_id.as_str(),
                 error = ?error,
-                "message query remote cache failed; returning remote result without coverage"
-            ),
+                "message query remote cache failed; preserving previous timeline"
+            );
+            out.push(self.emit_timeline_failed(&request, now_ms, causation_id)?);
+            self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
+            return Ok(());
+        }
+
+        // Cache success is only a barrier; the next Scan is the sole source of render rows.
+        let corr = self.alloc_corr_internal();
+        out.push(Effect::Persist {
+            corr,
+            ops: vec![helix_core::effect::StorageOp::Scan(
+                super::message_scan_spec(&request),
+            )],
+        });
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::MessageQueryReadback {
+                request: Box::new(request),
+                coverage,
+                query_session_epoch,
+                query_generation,
+                causation_id,
+                deferred_send_http,
+            },
+        );
+        Ok(())
+    }
+
+    /// 读取 cache Persist 后的 durable message rows，并发布唯一 timeline 终态。
+    pub(crate) fn handle_message_query_readback_reply(
+        &mut self,
+        request: MessageQueryRequest,
+        coverage: Option<RecentMessageCoverage>,
+        query_session_epoch: u64,
+        query_generation: u64,
+        causation_id: Option<String>,
+        deferred_send_http: Option<crate::state::TemporaryId>,
+        now_ms: u64,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if !self.is_current_message_query(
+            request.channel_id,
+            &request.window_token,
+            query_session_epoch,
+            query_generation,
+        ) {
+            return Ok(());
+        }
+        let mut rows_desc = match outcome {
+            PortOutcome::Ok(reply) => match parse_local_rows(reply.0.as_ref()) {
+                Ok(rows) => rows,
+                Err(error) => {
+                    tracing::warn!(
+                        channel_id = request.channel_id.as_str(),
+                        error = ?error,
+                        "message query durable read-back malformed"
+                    );
+                    out.push(self.emit_timeline_failed(&request, now_ms, causation_id)?);
+                    self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
+                    return Ok(());
+                }
+            },
+            PortOutcome::Err(error) => {
+                tracing::warn!(
+                    channel_id = request.channel_id.as_str(),
+                    error = ?error,
+                    "message query durable read-back failed; preserving previous timeline"
+                );
+                out.push(self.emit_timeline_failed(&request, now_ms, causation_id)?);
+                self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
+                return Ok(());
+            }
+        };
+        sort_recent_rows_desc(&mut rows_desc);
+        if let Some(coverage) = coverage {
+            self.state
+                .recent_message_coverage
+                .insert(request.channel_id, coverage);
         }
         out.push(self.emit_timeline_snapshot_with_causation(
             &request,
-            &merged_rows_desc,
+            &rows_desc,
             now_ms,
             causation_id,
             None,

@@ -141,8 +141,10 @@ fn get_posts_builds_postids_array() {
 }
 
 #[test]
-fn get_posts_requires_nonempty_string_array() {
-    assert!(err("im_get_posts", json!({ "post_ids": [] }))); // 空
+fn get_posts_accepts_empty_and_rejects_non_string_arrays() {
+    let (url, body) = one_http(run("im_get_posts", json!({ "post_ids": [] })));
+    assert_eq!(url, "http://x/api/cses/posts/get");
+    assert_eq!(body["postIds"], json!([])); // G11g 合法零结果
     assert!(err("im_get_posts", json!({ "post_ids": [1, 2] }))); // 非 string
     assert!(err("im_get_posts", json!({}))); // 缺
 }

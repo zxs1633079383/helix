@@ -53,6 +53,18 @@ fn insert_alias(output: &mut Map<String, Value>, row: &Value, name: &str, keys: 
     }
 }
 
+/// Convert persisted SQLite boolean integers into the render-ready JSON boolean contract.
+fn insert_bool_alias(output: &mut Map<String, Value>, row: &Value, name: &str, keys: &[&str]) {
+    let value = match pick(row, keys) {
+        Value::Bool(value) => Some(value),
+        Value::Number(value) => value.as_i64().map(|value| value != 0),
+        _ => None,
+    };
+    if let Some(value) = value {
+        output.insert(name.to_string(), Value::Bool(value));
+    }
+}
+
 /// Project one storage channel row into the MessageV3 channel-list contract.
 pub(crate) fn shape_channel_row(row: &Value) -> Value {
     let Some(object) = row.as_object() else {
@@ -119,6 +131,24 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
         "lastRootPostAt",
         &["last_root_post_at", "lastRootPostAt"],
     );
+    insert_alias(
+        &mut output,
+        row,
+        "lastEventSeq",
+        &["last_event_seq", "lastEventSeq"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "lastReadSeq",
+        &["last_read_seq", "lastReadSeq"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "projectionRevision",
+        &["projection_revision", "projectionRevision"],
+    );
     insert_alias(&mut output, row, "topCount", &["top_count", "topCount"]);
     insert_alias(&mut output, row, "isRemove", &["is_remove", "isRemove"]);
     insert_alias(&mut output, row, "deleteAt", &["delete_at", "deleteAt"]);
@@ -156,7 +186,7 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
         "adminMaxCount",
         &["admin_max_count", "adminMaxCount"],
     );
-    insert_alias(
+    insert_bool_alias(
         &mut output,
         row,
         "hasUrgentPost",
@@ -254,7 +284,7 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
         "scheduleRevision",
         &["schedule_revision", "scheduleRevision"],
     );
-    insert_alias(
+    insert_bool_alias(
         &mut output,
         row,
         "channelIsTop",
@@ -335,6 +365,11 @@ mod tests {
                 "type": "P",
                 "unread_count": 2,
                 "mention_count": 1,
+                "urgent_count": 3,
+                "has_urgent_post": 1,
+                "last_event_seq": 151,
+                "last_read_seq": 9,
+                "projection_revision": 12,
                 "is_top": 1,
                 "picture_type": "USER",
                 "picture": "{\"userIds\":[\"444\"]}",
@@ -348,7 +383,12 @@ mod tests {
         let shaped = shape_channel_rows(&rows);
         assert_eq!(shaped[0]["displayName"], "测试群");
         assert_eq!(shaped[0]["unreadCount"], 2);
-        assert_eq!(shaped[0]["channelIsTop"], 1);
+        assert_eq!(shaped[0]["urgentCount"], 3);
+        assert_eq!(shaped[0]["hasUrgentPost"], true);
+        assert_eq!(shaped[0]["lastEventSeq"], 151);
+        assert_eq!(shaped[0]["lastReadSeq"], 9);
+        assert_eq!(shaped[0]["projectionRevision"], 12);
+        assert_eq!(shaped[0]["channelIsTop"], true);
         assert_eq!(shaped[0]["picture"]["userIds"][0], "444");
         assert_eq!(shaped[0]["notifyProps"], "IGNORE");
         assert_eq!(shaped[0]["source"], "sync_events");

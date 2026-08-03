@@ -19,8 +19,8 @@ pub use values::{
 #[path = "correlation.rs"]
 mod correlation;
 pub use correlation::{
-    ChannelLifecycleTransition, ChannelSettingsProjection, CorrelationContext, MakeTopicProjection,
-    SyncTrigger,
+    ChannelLifecycleTransition, ChannelSettingsProjection, CorrelationContext,
+    HydrationPersistSnapshot, MakeTopicProjection, SyncTrigger,
 };
 
 pub(crate) struct FileUploadProgressState {
@@ -194,9 +194,21 @@ pub struct ImState {
     /// 与 `pending_increment_ops` 同批提交后才允许发布的逐频道投影原始数据。
     pub(crate) pending_increment_projections: Vec<(ChannelId, Vec<u8>)>,
 
+    /// 最近一次 hello increment 原子落库后建立的频道分页会话；身份/transport 边界会清空。
+    pub(crate) channel_sync_session: Option<crate::channel_sync::ChannelSyncSession>,
+
+    /// 频道分页会话代际；每次 ready 递增，旧 cursor 跨代 fail-closed。
+    pub(crate) channel_sync_generation: u64,
+
+    /// 当前 hello increment 批次是否仍等待唯一 Persist 回执；失败时保留旧 session。
+    pub(crate) channel_sync_batch_pending: bool,
+
     /// UC-4.5 单频道 hydration 已完成 channel/member 落库、正在等待 sync 终态的 channel。
     /// terminal sync commit/no_change 后移除并触发本地 dialog/messages 读回投影。
     pub hydration_pending: HashSet<ChannelId>,
+
+    /// G13b hydration request identity，贯穿 sync 与 durable read-back 的唯一终态。
+    pub hydration_req_ids: HashMap<ChannelId, String>,
 
     /// 当前物理会话中已成功缓存的最近消息窗口；不替代同步 cursor。
     pub(crate) recent_message_coverage:
@@ -233,6 +245,9 @@ pub struct ImState {
 
     /// 已经通过持久屏障的 G14 authority 版本；用于 O(1) 丢弃重复或倒退的 WS 回执。
     pub(crate) committed_post_reads: BTreeMap<String, (i64, String)>,
+
+    /// 当前 transport 会话已发布的 G06b `(channel, post, snapshot, reader)` 增量去重键。
+    pub(crate) seen_post_read_deltas: HashSet<(ChannelId, String, String, String)>,
 
     /// coverage 会话代号；hello/disconnect 递增，旧回包不得污染新会话。
     pub(crate) query_session_epoch: u64,
@@ -287,7 +302,11 @@ impl ImState {
             pending_increment_bootstrap_after_scan: false,
             pending_increment_ops: Vec::new(),
             pending_increment_projections: Vec::new(),
+            channel_sync_session: None,
+            channel_sync_generation: 0,
+            channel_sync_batch_pending: true,
             hydration_pending: HashSet::new(),
+            hydration_req_ids: HashMap::new(),
             recent_message_coverage: HashMap::new(),
             message_query_generations: HashMap::new(),
             timeline_state: crate::timeline_state::TimelineState::default(),
@@ -301,6 +320,7 @@ impl ImState {
             inflight_member_update_seqs: HashSet::new(),
             committed_member_update_seqs: HashSet::new(),
             committed_post_reads: BTreeMap::new(),
+            seen_post_read_deltas: HashSet::new(),
             query_session_epoch: 0,
         }
     }
@@ -318,7 +338,9 @@ impl ImState {
         self.pending_increment_bootstrap_after_scan = false;
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
+        self.channel_sync_batch_pending = true;
         self.hydration_pending.clear();
+        self.hydration_req_ids.clear();
         self.reply_projection_revisions.clear();
         self.reply_projection_seen_ids.clear();
         self.reset_transport_query_session();
@@ -335,6 +357,7 @@ impl ImState {
     /// next V2 patch against the revision that is still mounted in the UI.
     pub(crate) fn reset_transport_query_session(&mut self) {
         self.drop_query_session_correlations();
+        self.seen_post_read_deltas.clear();
     }
 
     /// 完整 query/session reset 同时撤销旧查询回包。
@@ -353,6 +376,7 @@ impl ImState {
                 CorrelationContext::MessageQueryLocal { .. }
                     | CorrelationContext::MessageQueryRemote { .. }
                     | CorrelationContext::MessageQueryCache { .. }
+                    | CorrelationContext::MessageQueryReadback { .. }
             )
         });
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
@@ -381,8 +405,12 @@ impl ImState {
         self.committed_post_reads.clear();
         self.sync_scheduler.reset();
         self.hydration_pending.clear();
+        self.hydration_req_ids.clear();
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
+        self.channel_sync_session = None;
+        self.channel_sync_generation = self.channel_sync_generation.wrapping_add(1);
+        self.channel_sync_batch_pending = false;
         self.reset_recent_query_coverage();
         self.corr_map.retain(|_, context| {
             !matches!(
@@ -392,12 +420,23 @@ impl ImState {
                     | CorrelationContext::MessageV3RevokeChannelPersist { .. }
                     | CorrelationContext::MessageV3RevokeChannelReadback
                     | CorrelationContext::SyncPull { .. }
+                    | CorrelationContext::TooLongReload { .. }
+                    | CorrelationContext::TooLongReloadPersist { .. }
                     | CorrelationContext::IncrementBatchPersist { .. }
+                    | CorrelationContext::ChannelSyncPage { .. }
                     | CorrelationContext::IncrementHydrationPersist { .. }
+                    | CorrelationContext::HydrationChannelReadback { .. }
+                    | CorrelationContext::HydrationMemberReadback { .. }
+                    | CorrelationContext::HydrationMessagesReadback { .. }
+                    | CorrelationContext::HydrationCursorReadback { .. }
                     | CorrelationContext::OutboundIncrementHydration { .. }
                     | CorrelationContext::UpdateChannelDialogPersist { .. }
                     | CorrelationContext::DialogListQuery { .. }
+                    | CorrelationContext::SubtopicsQuery { .. }
                     | CorrelationContext::PostReadPersist { .. }
+                    | CorrelationContext::OutboundExactPosts { .. }
+                    | CorrelationContext::ExactPostsPersist { .. }
+                    | CorrelationContext::ExactPostsReadback { .. }
                     | CorrelationContext::OutboundChannelCreate { .. }
                     | CorrelationContext::ChannelCreatePersist { .. }
                     | CorrelationContext::ChannelMemberUpdatePersist { .. }

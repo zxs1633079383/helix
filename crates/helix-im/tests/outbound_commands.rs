@@ -9,6 +9,9 @@ use helix_im::commands::{handle_outbound, is_outbound};
 use serde_json::{json, Value};
 
 const BASE: &str = "http://x/api/cses";
+const CANONICAL_CHANNEL: &str = "chfixx00000000000000000001";
+const CANONICAL_POST_1: &str = "srvfix00000000000000000001";
+const CANONICAL_POST_2: &str = "srvfix00000000000000000002";
 
 fn corr() -> Correlation {
     Correlation::from_raw(7)
@@ -55,17 +58,17 @@ fn fails(name: &str, payload: Value) -> bool {
     .is_err()
 }
 
+/// interval 字段不属于严格 `{channel_id,posts}` 合同，必须在 HTTP 前拒绝。
 #[test]
-fn read_maps_to_post_read_with_channel_and_endtime() {
-    let (url, body) = one_http(run(
+fn read_rejects_interval_only_payload_before_http() {
+    assert!(fails(
         "im_post_read",
-        json!({ "channel_id": "ch1", "end_time": 123 }),
+        json!({
+            "channel_id": CANONICAL_CHANNEL,
+            "start_time": 100,
+            "end_time": 123
+        }),
     ));
-    assert_eq!(url, "http://x/api/cses/post/read");
-    assert_eq!(body["channelId"], "ch1");
-    assert_eq!(body["endTime"], 123);
-    // 区间模式：不带 posts → body 无 posts 键（entity.PostRead.Posts omitempty）
-    assert!(body.get("posts").is_none());
 }
 
 /// UC-3.2 单条/列表已读：前端 onPostRead 发 `{channel_id, posts:[postId]}`（按 posts 列表标记单条已读）。
@@ -75,31 +78,42 @@ fn read_maps_to_post_read_with_channel_and_endtime() {
 fn read_carries_posts_list_for_single_post_read() {
     let (url, body) = one_http(run(
         "im_post_read",
-        json!({ "channel_id": "ch1", "posts": ["p-1", "p-2"] }),
+        json!({
+            "channel_id": CANONICAL_CHANNEL,
+            "posts": [CANONICAL_POST_1, CANONICAL_POST_2]
+        }),
     ));
     assert_eq!(url, "http://x/api/cses/post/read");
-    assert_eq!(body["channelId"], "ch1");
-    assert_eq!(body["posts"][0], "p-1");
-    assert_eq!(body["posts"][1], "p-2");
-    // posts 为 wire key（非 snake post_ids），且不带空 endTime
-    assert!(body.get("post_ids").is_none());
-    assert!(body.get("endTime").is_none());
+    assert_eq!(
+        body,
+        json!({
+            "channelId": CANONICAL_CHANNEL,
+            "posts": [CANONICAL_POST_1, CANONICAL_POST_2]
+        })
+    );
 }
 
-/// posts 为空数组 / 非字符串数组 → 不注入 posts 键（区间模式兜底，不发坏 wire）。
+/// 空、非字符串及非 canonical ID 均须在 HTTP 前拒绝，禁止静默降级为区间读取。
 #[test]
-fn read_omits_posts_when_empty_or_invalid() {
-    let (_url, body) = one_http(run(
+fn read_rejects_empty_invalid_or_noncanonical_payload_before_http() {
+    assert!(fails(
         "im_post_read",
-        json!({ "channel_id": "ch1", "posts": [] }),
+        json!({ "channel_id": CANONICAL_CHANNEL, "posts": [] }),
     ));
-    assert!(body.get("posts").is_none(), "空 posts 数组不进 body");
 
-    let (_url, body) = one_http(run(
+    assert!(fails(
         "im_post_read",
-        json!({ "channel_id": "ch1", "posts": "x" }),
+        json!({ "channel_id": CANONICAL_CHANNEL, "posts": "x" }),
     ));
-    assert!(body.get("posts").is_none(), "非数组 posts 不进 body");
+
+    assert!(fails(
+        "im_post_read",
+        json!({ "channel_id": "ch1", "posts": [CANONICAL_POST_1] }),
+    ));
+    assert!(fails(
+        "im_post_read",
+        json!({ "channel_id": CANONICAL_CHANNEL, "posts": ["p-1"] }),
+    ));
 }
 
 #[test]

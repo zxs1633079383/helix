@@ -284,6 +284,11 @@ impl ImModule {
                 req_id: request.req_id,
             },
         );
+        tracing::info!(
+            corr = corr.raw(),
+            offset,
+            "channel sync page local scan scheduled"
+        );
         out.push(effect);
         Ok(())
     }

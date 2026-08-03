@@ -53,6 +53,18 @@ fn insert_alias(output: &mut Map<String, Value>, row: &Value, name: &str, keys: 
     }
 }
 
+/// Convert persisted SQLite boolean integers into the render-ready JSON boolean contract.
+fn insert_bool_alias(output: &mut Map<String, Value>, row: &Value, name: &str, keys: &[&str]) {
+    let value = match pick(row, keys) {
+        Value::Bool(value) => Some(value),
+        Value::Number(value) => value.as_i64().map(|value| value != 0),
+        _ => None,
+    };
+    if let Some(value) = value {
+        output.insert(name.to_string(), Value::Bool(value));
+    }
+}
+
 /// Project one storage channel row into the MessageV3 channel-list contract.
 pub(crate) fn shape_channel_row(row: &Value) -> Value {
     let Some(object) = row.as_object() else {
@@ -174,7 +186,7 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
         "adminMaxCount",
         &["admin_max_count", "adminMaxCount"],
     );
-    insert_alias(
+    insert_bool_alias(
         &mut output,
         row,
         "hasUrgentPost",
@@ -272,7 +284,7 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
         "scheduleRevision",
         &["schedule_revision", "scheduleRevision"],
     );
-    insert_alias(
+    insert_bool_alias(
         &mut output,
         row,
         "channelIsTop",
@@ -354,6 +366,7 @@ mod tests {
                 "unread_count": 2,
                 "mention_count": 1,
                 "urgent_count": 3,
+                "has_urgent_post": 1,
                 "last_event_seq": 151,
                 "last_read_seq": 9,
                 "projection_revision": 12,
@@ -371,10 +384,11 @@ mod tests {
         assert_eq!(shaped[0]["displayName"], "测试群");
         assert_eq!(shaped[0]["unreadCount"], 2);
         assert_eq!(shaped[0]["urgentCount"], 3);
+        assert_eq!(shaped[0]["hasUrgentPost"], true);
         assert_eq!(shaped[0]["lastEventSeq"], 151);
         assert_eq!(shaped[0]["lastReadSeq"], 9);
         assert_eq!(shaped[0]["projectionRevision"], 12);
-        assert_eq!(shaped[0]["channelIsTop"], 1);
+        assert_eq!(shaped[0]["channelIsTop"], true);
         assert_eq!(shaped[0]["picture"]["userIds"][0], "444");
         assert_eq!(shaped[0]["notifyProps"], "IGNORE");
         assert_eq!(shaped[0]["source"], "sync_events");

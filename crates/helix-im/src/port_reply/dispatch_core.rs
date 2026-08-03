@@ -399,6 +399,13 @@ impl ImModule {
             self.config.company_id.as_str(),
         );
         let (items, has_more) = crate::channel_sync::project_page(reply.0.as_ref(), &scope, offset);
+        tracing::info!(
+            offset,
+            items = items.len(),
+            has_more,
+            has_req_id = req_id.is_some(),
+            "channel sync page local scan projected"
+        );
         let next_cursor = has_more.then(|| {
             crate::channel_sync::encode_cursor(
                 session,

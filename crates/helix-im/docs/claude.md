@@ -33,3 +33,14 @@ session、旧 generation 和迟到 page 都 fail-closed 并回传 waiter error�
 
 `cargo test -p helix-im channel_sync --lib` 覆盖固定页长、0/1/20/21 行、有界连续页、
 cursor 绑定、Persist 成功/失败与 ready 一次性、complete scope/idempotency。
+
+## Phase 3 频道治理命令维护
+
+`im_channel_change_orient` 使用 `id/orient/expectedVersion`，允许空导向但限制 30 个字符；
+`im_channel_change_permission` 使用非负 `expectedVersion` 的 partial patch，权限值仅允许
+`BOSS/CREATOR/MANAGER/MEMBER`，Helix 不根据频道类型重算 `BOSS` 能力。成员变更与昵称命令
+的 canonical 输入分别固定为五键和三键，空数组/空昵称仍可表达清空语义。
+
+增量读取在没有 `req_id` 时保留内部 hydration 上下文；显式 `req_id` 时复用统一
+`OutboundReadReply`/`im:read:result` 纯读回灌路径，不增加 Storage、WS 或第二结果事件。
+`channelIncrement` 专用事件生产者尚未在本仓发现，不能据此宣称 G09d canonical 事件完成。

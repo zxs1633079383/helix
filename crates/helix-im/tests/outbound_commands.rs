@@ -289,6 +289,7 @@ fn member_change_build_body_with_real_endpoint() {
             "team_id": "t1",
             "self_id": "me",
             "join_user_ids": ["u9", "me"],
+            "leave_user_ids": [],
         }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/member/change");

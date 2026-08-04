@@ -42,11 +42,12 @@ fn display_name_endpoint_and_id_key() {
 fn orient_and_purpose_use_id_key() {
     let (url, body) = dispatch(
         "im_channel_change_orient",
-        json!({ "channel_id": "c1", "orient": "left" }),
+        json!({ "channel_id": "c1", "orient": "left", "expected_version": 7 }),
     );
     assert!(url.ends_with("/channel/change/orient"), "url={url}");
     assert_eq!(body["id"], "c1");
     assert_eq!(body["orient"], "left");
+    assert_eq!(body["expectedVersion"], 7);
 
     let (url2, body2) = dispatch(
         "im_channel_change_purpose",

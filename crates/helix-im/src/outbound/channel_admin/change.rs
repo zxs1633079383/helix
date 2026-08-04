@@ -224,8 +224,8 @@ inventory::submit! {
 }
 
 /// #?? POST /api/cses/channel/change/permission — 改群权限（@提醒/公告/置顶权限）→ update_channel。
-/// body = `{channelId, mentionPermission, noticePermission, topPermission}`（均 string，passthrough camelCase）。
-/// 三权限字段必填非空（边界零信任，HX-C 不变量 4）。
+/// body = `{channelId, mentionPermission?, noticePermission?, topPermission?, expectedVersion}`。
+/// 权限是 partial patch；每个显式值必须属于 Go authority 的四值 allowlist。
 struct ChangePermissionCommand;
 impl OutboundCommand for ChangePermissionCommand {
     fn name(&self) -> &'static str {
@@ -233,18 +233,45 @@ impl OutboundCommand for ChangePermissionCommand {
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         let channel_id = require_str(args, "channel_id", self.name())?;
-        let mention_permission = require_str(args, "mention_permission", self.name())?;
-        let notice_permission = require_str(args, "notice_permission", self.name())?;
-        let top_permission = require_str(args, "top_permission", self.name())?;
-        Ok((
-            "channel/change/permission",
-            json!({
-                "channelId": channel_id,
-                "mentionPermission": mention_permission,
-                "noticePermission": notice_permission,
-                "topPermission": top_permission,
-            }),
-        ))
+        let mut body = json!({ "channelId": channel_id });
+        let mut patch_count = 0;
+        for (arg_key, wire_key) in [
+            ("mention_permission", "mentionPermission"),
+            ("notice_permission", "noticePermission"),
+            ("top_permission", "topPermission"),
+        ] {
+            if let Some(value) = args.get(arg_key) {
+                let permission = value
+                    .as_str()
+                    .filter(|value| matches!(*value, "BOSS" | "CREATOR" | "MANAGER" | "MEMBER"))
+                    .ok_or_else(|| {
+                        ImError::Parse(format!(
+                            "{}: {arg_key} 必须是 BOSS/CREATOR/MANAGER/MEMBER",
+                            self.name()
+                        ))
+                    })?;
+                body[wire_key] = json!(permission);
+                patch_count += 1;
+            }
+        }
+        if patch_count == 0 {
+            return Err(ImError::Parse(format!(
+                "{}: 至少提供一个权限字段",
+                self.name()
+            )));
+        }
+        let expected_version = args
+            .get("expected_version")
+            .and_then(Value::as_i64)
+            .filter(|version| *version >= 0)
+            .ok_or_else(|| {
+                ImError::Parse(format!(
+                    "{}: expected_version 必须为非负 int64",
+                    self.name()
+                ))
+            })?;
+        body["expectedVersion"] = json!(expected_version);
+        Ok(("channel/change/permission", body))
     }
 }
 static CHANGE_PERMISSION: ChangePermissionCommand = ChangePermissionCommand;
@@ -268,17 +295,16 @@ mod tests {
 
     use crate::outbound::registry::{handle_outbound, is_outbound};
 
-    /// im_channel_change_permission 正常路径：endpoint = channel/change/permission，
-    /// body 四字段 camelCase 透传（channelId/mentionPermission/noticePermission/topPermission）。
+    /// im_channel_change_permission 正常路径：partial patch + expectedVersion 透传。
     #[test]
     fn change_permission_dispatch_and_body() {
         assert!(is_outbound("im_channel_change_permission"));
         let corr = Correlation::from_raw(1);
         let payload = serde_json::to_vec(&json!({
             "channel_id": "c1",
-            "mention_permission": "all",
-            "notice_permission": "owner",
-            "top_permission": "admin",
+            "mention_permission": "CREATOR",
+            "top_permission": "MEMBER",
+            "expected_version": 7,
         }))
         .unwrap();
         let effects = handle_outbound(
@@ -300,21 +326,21 @@ mod tests {
                 let body: serde_json::Value =
                     serde_json::from_slice(req.body.as_ref().expect("body")).unwrap();
                 assert_eq!(body["channelId"], "c1");
-                assert_eq!(body["mentionPermission"], "all");
-                assert_eq!(body["noticePermission"], "owner");
-                assert_eq!(body["topPermission"], "admin");
+                assert_eq!(body["mentionPermission"], "CREATOR");
+                assert!(body.get("noticePermission").is_none());
+                assert_eq!(body["topPermission"], "MEMBER");
+                assert_eq!(body["expectedVersion"], 7);
             }
             other => panic!("expected Http, got {other:?}"),
         }
     }
 
-    /// 缺任一必填权限字段 → Err（边界零信任，不 panic）。
+    /// 缺全部权限、缺 CAS 或使用未知枚举 → Err（边界零信任，不 panic）。
     #[test]
     fn change_permission_missing_field_errors() {
         let corr = Correlation::from_raw(2);
         let payload = serde_json::to_vec(&json!({
             "channel_id": "c1",
-            "mention_permission": "all",
         }))
         .unwrap();
         assert!(handle_outbound(
@@ -326,6 +352,22 @@ mod tests {
             corr,
         )
         .is_err());
+
+        for invalid in [
+            json!({"channel_id": "c1", "mention_permission": "BOSS"}),
+            json!({"channel_id": "c1", "mention_permission": "OWNER", "expected_version": 1}),
+            json!({"channel_id": "c1", "mention_permission": "BOSS", "expected_version": -1}),
+        ] {
+            assert!(handle_outbound(
+                "im_channel_change_permission",
+                &serde_json::to_vec(&invalid).unwrap(),
+                "http://h/api",
+                "http://h",
+                None,
+                corr,
+            )
+            .is_err());
+        }
     }
 
     /// 公告命令只允许 `{text}` notice 与非负 expected_version，旧 map 形状一律拒绝。

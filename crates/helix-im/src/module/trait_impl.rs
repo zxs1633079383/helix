@@ -178,7 +178,10 @@ impl Module for ImModule {
                     // spec06 缺陷A：读族注册回灌上下文（PortReply 透传 `im:read:result{req_id,body}`；写族
                     // fire-and-forget 不注册）。S7：byIds 成员快照走 OutboundMembersByIds（额外 emit im:channel:members）。
                     if crate::commands::is_read(name) {
-                        if name == "im_channel_load_increment_by_channel_id"
+                        let explicit_req_id = crate::read_relay::read_req_id(cmd.payload.as_ref());
+                        let increment_hydration = name == "im_channel_load_increment_by_channel_id"
+                            && explicit_req_id.is_none();
+                        if increment_hydration
                             && (self.config.auth_user_id.is_empty()
                                 || self.config.company_id.is_empty())
                         {
@@ -190,19 +193,16 @@ impl Module for ImModule {
                                 )),
                             });
                         }
-                        // G13b：Angular 只提交 channelId；Helix 用内部 corr 生成 req_id，
-                        // 不把 caller request identity 写入 HTTP body。
-                        let req_id = if name == "im_channel_load_increment_by_channel_id" {
-                            format!("increment-hydration-{}", corr.raw())
-                        } else if let Some(req_id) =
-                            crate::read_relay::read_req_id(cmd.payload.as_ref())
-                        {
-                            req_id
-                        } else {
-                            return Ok(());
+                        // G13b：无 req_id 的内部 hydration 保持旧副作用；显式 req_id 走纯读回灌。
+                        let req_id = match explicit_req_id {
+                            Some(req_id) => req_id,
+                            None if increment_hydration => {
+                                format!("increment-hydration-{}", corr.raw())
+                            }
+                            None => return Ok(()),
                         };
                         {
-                            let ctx = if name == "im_channel_load_increment_by_channel_id" {
+                            let ctx = if increment_hydration {
                                 CorrelationContext::OutboundIncrementHydration { req_id }
                             } else if name == "im_channels_members_by_ids" {
                                 CorrelationContext::OutboundMembersByIds { req_id }
@@ -420,6 +420,8 @@ impl Module for ImModule {
                     } else if name == "im_channel_change_info"
                         || name == "im_channel_change_notice"
                         || name == "im_channel_change_display_name"
+                        || name == "im_channel_change_orient"
+                        || name == "im_channel_change_permission"
                     {
                         if let Ok(value) =
                             serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())

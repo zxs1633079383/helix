@@ -42,9 +42,9 @@ impl OutboundCommand for MemberRoleCommand {
                 ImError::Parse(format!("{}: 缺/空 user_ids（非空字符串数组）", self.name()))
             })?;
         let role = require_str(args, "role", self.name())?;
-        if !matches!(role, "CREATOR" | "ADMIN" | "MEMBER") {
+        if !matches!(role, "ADMIN" | "MEMBER") {
             return Err(ImError::Parse(format!(
-                "{}: role 必须是 CREATOR/ADMIN/MEMBER",
+                "{}: role 必须是 ADMIN/MEMBER",
                 self.name()
             )));
         }
@@ -69,14 +69,20 @@ impl OutboundCommand for MemberNotifyCommand {
     fn name(&self) -> &'static str {
         "im_channel_member_notify"
     }
+    // 仅接受 Go NotifyType 的三个稳定字符串，避免非法枚举透传到 HTTP/持久化边界。
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         let channel_id = require_str(args, "channel_id", self.name())?;
-        // notify 必填（NotifyType，免打扰枚举值）。允许字符串或整数枚举透传（零信任：存在非 null）。
+        // notify 必填且严格属于 NORMAL/STRONG/IGNORE（Go NotifyType.Values()）。
         let notify = args
             .get("notify")
-            .filter(|v| !v.is_null())
-            .ok_or_else(|| ImError::Parse(format!("{}: 缺 notify（枚举值）", self.name())))?
-            .clone();
+            .and_then(Value::as_str)
+            .filter(|value| matches!(*value, "NORMAL" | "STRONG" | "IGNORE"))
+            .ok_or_else(|| {
+                ImError::Parse(format!(
+                    "{}: notify 必须是 NORMAL/STRONG/IGNORE",
+                    self.name()
+                ))
+            })?;
         Ok((
             "channel/member/change/notify",
             json!({ "channelId": channel_id, "notify": notify }),

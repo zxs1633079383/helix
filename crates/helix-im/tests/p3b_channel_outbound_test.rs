@@ -252,7 +252,7 @@ fn change_picture_requires_type_and_picture() {
 fn change_notice_builds_id_notice() {
     let (url, body) = one_http(run(
         "im_channel_change_notice",
-        json!({ "channel_id": "cN", "notice": { "text": "公告内容" } }),
+        json!({ "channel_id": "cN", "notice": { "text": "公告内容" }, "expected_version": 7 }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/change/notice");
     assert_eq!(
@@ -261,6 +261,7 @@ fn change_notice_builds_id_notice() {
     );
     assert!(body.get("channelId").is_none());
     assert_eq!(body["notice"]["text"], "公告内容");
+    assert_eq!(body["expectedVersion"], 7);
 }
 
 #[test]
@@ -352,7 +353,7 @@ fn member_notify_request_uses_channel_id_not_response_id_key() {
     // UpdateChannelNotifyVo.ToMap() 变 `id` 键——那是 P4 WS 事件解析侧，**不混进** request body。
     let (url, body) = one_http(run(
         "im_channel_member_notify",
-        json!({ "channel_id": "cNo", "notify": "MENTION" }),
+        json!({ "channel_id": "cNo", "notify": "NORMAL" }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/member/change/notify");
     assert_eq!(body["channelId"], "cNo", "notify request 用 channelId 键");
@@ -360,17 +361,31 @@ fn member_notify_request_uses_channel_id_not_response_id_key() {
         body.get("id").is_none(),
         "notify request body 禁 id 键（id 是 WS 响应 payload 键，非 request）"
     );
-    assert_eq!(body["notify"], "MENTION");
+    assert_eq!(body["notify"], "NORMAL");
 }
 
+/// NotifyType 只允许 Go 真源的三个大写字符串，并拒绝未知/整数值及缺失字段。
 #[test]
-fn member_notify_accepts_int_enum_and_requires_fields() {
-    // notify 可为整数枚举（NotifyType）——零信任只验存在非 null。
-    let (_u, body) = one_http(run(
+fn member_notify_accepts_only_strict_enum_and_requires_fields() {
+    for notify in ["NORMAL", "STRONG", "IGNORE"] {
+        let (_u, body) = one_http(run(
+            "im_channel_member_notify",
+            json!({ "channel_id": "c", "notify": notify }),
+        ));
+        assert_eq!(body["notify"], notify);
+    }
+    assert!(err(
         "im_channel_member_notify",
-        json!({ "channel_id": "c", "notify": 2 }),
-    ));
-    assert_eq!(body["notify"], 2);
+        json!({ "channel_id": "c", "notify": 2 })
+    )); // 禁止整数枚举
+    assert!(err(
+        "im_channel_member_notify",
+        json!({ "channel_id": "c", "notify": "MENTION" })
+    )); // 禁止未知字符串
+    assert!(err(
+        "im_channel_member_notify",
+        json!({ "channel_id": "c", "notify": "" })
+    )); // 禁止空字符串
     assert!(err(
         "im_channel_member_notify",
         json!({ "channel_id": "c" })
@@ -670,7 +685,7 @@ const ALL_P3B_CHANNEL: &[(&str, fn() -> Value)] = &[
     ),
     (
         "im_channel_change_notice",
-        || json!({ "channel_id": "c", "notice": { "t": "x" } }),
+        || json!({ "channel_id": "c", "notice": { "text": "x" }, "expected_version": 1 }),
     ),
     (
         "im_channel_change_top",
@@ -682,7 +697,7 @@ const ALL_P3B_CHANNEL: &[(&str, fn() -> Value)] = &[
     ),
     (
         "im_channel_member_notify",
-        || json!({ "channel_id": "c", "notify": "MENTION" }),
+        || json!({ "channel_id": "c", "notify": "NORMAL" }),
     ),
 ];
 

@@ -47,11 +47,18 @@ impl WsMessageHandler for PostPinHandler {
         else {
             return Ok(());
         };
-        let pinned = data
+        let Some(pinned) = data
             .get("operation")
             .and_then(serde_json::Value::as_str)
-            .map(|op| op != "remove")
-            .unwrap_or(true);
+            .and_then(|operation| match operation {
+                "add" => Some(true),
+                "remove" => Some(false),
+                _ => None,
+            })
+        else {
+            // Go 只发布 add/remove；未知操作不能默认为 add，避免错误帧篡改 pinned 事实。
+            return Ok(());
+        };
 
         out.push(helix_core::Effect::PersistFire {
             ops: vec![crate::channel::pin_state_op(post_id, pinned)],

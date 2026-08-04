@@ -1,3 +1,4 @@
+pub(crate) mod announcement_changed;
 pub(crate) mod change_channel_approval;
 pub(crate) mod channel_close;
 pub(crate) mod channel_created;
@@ -27,6 +28,7 @@ pub(crate) mod update_channel_notice;
 /// 模块，避免 wasm-ld 把“仅靠 ctor 可达”的注册项静默裁掉。
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn force_link_inventory() {
+    announcement_changed::inventory_link_anchor();
     change_channel_approval::inventory_link_anchor();
     channel_close::inventory_link_anchor();
     channel_created::inventory_link_anchor();

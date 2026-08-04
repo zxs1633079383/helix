@@ -21,6 +21,22 @@ use crate::error::ImError;
 
 use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
+/// 拒绝置顶意图携带 user/temporary 等客户端伪造字段，冻结最小 channel/post 边界。
+fn require_pin_keys(args: &Value, cmd: &str) -> Result<(), ImError> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| ImError::Parse(format!("{cmd}: payload 必须是 object")))?;
+    if let Some(unknown) = object
+        .keys()
+        .find(|key| !matches!(key.as_str(), "channel_id" | "post_id"))
+    {
+        return Err(ImError::Parse(format!(
+            "{cmd}: 未知或非 canonical 字段 '{unknown}'"
+        )));
+    }
+    Ok(())
+}
+
 /// POST /api/cses/channel/add/postPinned — 置顶一条消息。
 /// body = `{channelId, postId}`（两者必填非空，边界零信任 HX-C 不变量 4）。
 struct SetMessageTopCommand;
@@ -29,6 +45,7 @@ impl OutboundCommand for SetMessageTopCommand {
         "im_set_message_top"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        require_pin_keys(args, self.name())?;
         let channel_id = require_str(args, "channel_id", self.name())?;
         let post_id = require_str(args, "post_id", self.name())?;
         Ok((
@@ -53,6 +70,7 @@ impl OutboundCommand for SetMessageUntopCommand {
         "im_set_message_untop"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        require_pin_keys(args, self.name())?;
         let channel_id = require_str(args, "channel_id", self.name())?;
         let post_id = require_str(args, "post_id", self.name())?;
         Ok((
@@ -146,6 +164,27 @@ mod tests {
     fn set_message_top_missing_post_id_errors() {
         let corr = Correlation::from_raw(3);
         let payload = serde_json::to_vec(&json!({ "channel_id": "c1" })).unwrap();
+        assert!(handle_outbound(
+            "im_set_message_top",
+            &payload,
+            "http://h/api",
+            "http://h",
+            None,
+            corr
+        )
+        .is_err());
+    }
+
+    /// 置顶命令携带 userId 等越权字段时必须 fail closed。
+    #[test]
+    fn set_message_top_rejects_unknown_fields() {
+        let corr = Correlation::from_raw(4);
+        let payload = serde_json::to_vec(&json!({
+            "channel_id": "c1",
+            "post_id": "p1",
+            "user_id": "u1"
+        }))
+        .unwrap();
         assert!(handle_outbound(
             "im_set_message_top",
             &payload,

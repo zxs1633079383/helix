@@ -3,7 +3,7 @@
 //! 回归锚：spec06「06-读族回灌+完整投影」缺陷A。
 //!
 //! ## 被测不变量
-//! 1. 读命令（`is_read=true`，posts_read 17 + user-misc 读 7）dispatch 后注册
+//! 1. 读命令（`is_read=true`，posts_read 17 + announcement delete 1 + user-misc 读 7）dispatch 后注册
 //!    `CorrelationContext::OutboundReadReply{req_id}` → HTTP 回报时 emit `im:read:result{req_id,body}`
 //!    **透传后端响应体**（后端返回什么吐什么）。
 //! 2. 写命令（`is_read=false`）**不**注册回灌上下文 → HTTP 回报无 corr 命中 → 静默 no-op（数据走 WS 回声）。
@@ -102,6 +102,142 @@ fn read_command_registers_relay_and_emits_result() {
     assert_eq!(v["data"]["body"]["data"][1]["message"], "yo");
     // 无 error 字段（成功路径）。
     assert!(v["data"].get("error").is_none(), "成功路径不带 error");
+}
+
+#[test]
+fn announcement_delete_replies_and_reloads_same_version_list() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        outbound_cmd(
+            "im_announcement_delete",
+            serde_json::json!({
+                "channel_id": "ch00000000000000000000000a",
+                "announcement_id": "ann-1",
+                "req_id": "ann-delete-1"
+            }),
+        ),
+        1000,
+    );
+    let delete_corr = http_corr(&h.sink).expect("announcement delete must produce HTTP");
+    h.step(
+        port_reply_with_body(
+            delete_corr,
+            enveloped(bytes::Bytes::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "status": "SUCCESS",
+                    "data": {
+                        "channelId": "ch00000000000000000000000a",
+                        "deletedAnnouncementId": "ann-1",
+                        "version": 7
+                    }
+                }))
+                .unwrap(),
+            )),
+        ),
+        1001,
+    );
+    let delete_result = emit_json(&h.sink).expect("delete HTTP must resolve req_id");
+    assert_eq!(delete_result["data"]["req_id"], "ann-delete-1");
+    assert_eq!(
+        delete_result["data"]["body"],
+        serde_json::json!({
+            "channelId": "ch00000000000000000000000a",
+            "deletedAnnouncementId": "ann-1",
+            "version": 7
+        })
+    );
+    let reload_corr = http_corr(&h.sink).expect("delete must trigger same-version list reload");
+    let reload_body = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, req } if corr.raw() == reload_corr => req
+                .body
+                .as_ref()
+                .and_then(|body| serde_json::from_slice::<serde_json::Value>(body).ok()),
+            _ => None,
+        })
+        .expect("reload body JSON");
+    assert_eq!(
+        reload_body,
+        serde_json::json!({ "channelId": "ch00000000000000000000000a" })
+    );
+
+    h.step(
+        port_reply_with_body(
+            reload_corr,
+            enveloped(bytes::Bytes::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "status": "SUCCESS",
+                    "data": {
+                        "channelId": "ch00000000000000000000000a",
+                        "version": 7,
+                        "announcements": []
+                    }
+                }))
+                .unwrap(),
+            )),
+        ),
+        1002,
+    );
+    let events = emit_jsons(&h.sink);
+    assert!(events.iter().any(|event| {
+        event["event"] == "im:announcement:list-updated" && event["data"]["version"] == 7
+    }));
+}
+
+#[test]
+fn announcement_delete_noop_version_zero_replies_without_list_reload() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        outbound_cmd(
+            "im_announcement_delete",
+            serde_json::json!({
+                "channel_id": "ch00000000000000000000000a",
+                "announcement_id": "ann-missing",
+                "req_id": "ann-delete-noop"
+            }),
+        ),
+        1000,
+    );
+    let delete_corr = http_corr(&h.sink).expect("announcement delete must produce HTTP");
+    h.step(
+        port_reply_with_body(
+            delete_corr,
+            enveloped(bytes::Bytes::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "status": "SUCCESS",
+                    "data": {
+                        "channelId": "ch00000000000000000000000a",
+                        "deletedAnnouncementId": "ann-missing",
+                        "version": 0
+                    }
+                }))
+                .unwrap(),
+            )),
+        ),
+        1001,
+    );
+
+    let result = emit_json(&h.sink).expect("no-op delete must resolve req_id");
+    assert_eq!(result["data"]["req_id"], "ann-delete-noop");
+    assert_eq!(
+        result["data"]["body"],
+        serde_json::json!({
+            "channelId": "ch00000000000000000000000a",
+            "deletedAnnouncementId": "ann-missing",
+            "version": 0,
+            "noOp": true
+        })
+    );
+    assert!(
+        h.sink
+            .as_slice()
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Http { .. })),
+        "version=0/no-op delete must not enqueue announcement list reload"
+    );
 }
 
 #[test]
@@ -444,6 +580,7 @@ fn is_read_marks_read_family_only() {
         "im_bookmark_load",
         "im_announcement_accept_list",
         "im_announcement_list",
+        "im_announcement_delete",
         "im_announcement_detail",
         "im_post_read_list",
     ] {

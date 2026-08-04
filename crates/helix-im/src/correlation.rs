@@ -205,9 +205,9 @@ pub enum CorrelationContext {
     AuthoritativeSendReconcilePersist { temporary_id: TemporaryId },
     /// 发送事实已由本地存储确认后，重新读取已 attach 的 timeline。
     ///
-    /// 这把 P1、HTTP 对账、WS echo 和失败终态统一收敛为同一条
-    /// “durable fact -> local-first readback -> MessageV3 event”路径；consumer 不消费
-    /// `im:post:*` 补业务状态。`causation_id` 只来自调用方 request id，缺失时保持 None。
+    /// P1、HTTP 对账和失败终态使用“durable fact -> local-first readback -> MessageV3 event”
+    /// 路径；普通 WS echo 不使用此变体，而由 `post` handler 的权威投影直接更新 timeline。
+    /// consumer 不消费 `im:post:*` 补业务状态。`causation_id` 只来自调用方 request id，缺失时保持 None。
     TimelineRefreshAfterSendPersist {
         channel_id: ChannelId,
         /// Action retry 保留授权 binding 的原 window；legacy send/retry 为 None，按 latest 处理。

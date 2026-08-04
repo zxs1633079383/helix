@@ -167,3 +167,21 @@ new_tasks: 0
 
 - Convergence 未发现现有 T4-001..T4-030 之外的确定性 Helix 实现缺口，未修改 tasks/Spec/Plan，未追加任务。
 - 真实跨仓 round-trip、受控 PostgreSQL、双用户/多设备、Native/DOM 和 canonical 证据尚未采集；下一 owner 为真实证据环境 owner 与 Phase4 Supervisor。Search/Todo、Phase1、Phase2 共享范围保持只读。
+
+## 未来 Roadmap：Search 与 Todo
+
+Helix 本轮交付范围仅为 Pin、Bookmark、Announcement；Search 与 Todo 继续作为后续独立领域，
+当前保持 `BLOCKED`，不因本轮 focused 测试或事件接线而提前解锁。
+
+| 领域 | Gate | 后续 Helix 工作 | 当前禁止事项 |
+|---|---|---|---|
+| Search | `MV3-G14a..c` | 在 Go 正式搜索端点确定后，新增最小 Gateway/Command 编排、统一错误和三段结果协议，并与 Angular 查询投影对账 | 不得假设当前 Go Router 已有正式搜索端点；不得把现有普通查询当全文搜索 PASS |
+| Todo | `MV3-G15a..d` | 复用 `im_query_todo_list`、`im:todo:updated` 和既有 Tauri ingress，补 production Gateway 调用、`helixImEvent.adapter` 映射和 persona 过滤 | 不得重建 Todo Core、Runtime、Port 或总线；不得把现有 Core/Host 命中写成端到端完成 |
+
+进入 Roadmap 时必须先完成独立调查、Gate 合同和 Open Decision 收口，再生成 reference，之后按
+Spec → Plan → Tasks → Review → Implement → Converge 推进。证据必须分层记录，不能用 Pin/Bookmark/
+Announcement 的 relay、Mock、unit 或 TARGET_REFERENCE 代替 Search/Todo 的真实 HTTP/WS/Storage、
+双用户、Native/DOM 或 canonical 证据。
+
+若 Search/Todo 任务要求改变 Phase 1/2 的 read relay、PostProjection、readBits、Command Result
+或本轮三域事件协议，立即停止并回报跨 Phase 依赖，不得在该领域 handoff 内旁路修改。

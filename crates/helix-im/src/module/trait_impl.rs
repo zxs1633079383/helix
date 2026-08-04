@@ -199,6 +199,12 @@ impl Module for ImModule {
                         {
                             req_id
                         } else {
+                            // 缺少 transport req_id 只关闭结果回灌关联，仍执行纯读取 HTTP。
+                            // 读请求不能因调用方没有等待槽而被静默吞掉；回包没有 corr context
+                            // 时由 PortReply fail-closed 丢弃，不会产生无关联 UI 投影。
+                            for effect in effects {
+                                out.push(effect);
+                            }
                             return Ok(());
                         };
                         {

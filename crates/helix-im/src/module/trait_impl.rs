@@ -179,8 +179,8 @@ impl Module for ImModule {
                     // fire-and-forget 不注册）。S7：byIds 成员快照走 OutboundMembersByIds（额外 emit im:channel:members）。
                     if crate::commands::is_read(name) {
                         let explicit_req_id = crate::read_relay::read_req_id(cmd.payload.as_ref());
-                        let increment_hydration = name == "im_channel_load_increment_by_channel_id"
-                            && explicit_req_id.is_none();
+                        let increment_hydration = name == "im_channel_load_increment_by_channel_id";
+                        let emit_channel_increment = explicit_req_id.is_some();
                         if increment_hydration
                             && (self.config.auth_user_id.is_empty()
                                 || self.config.company_id.is_empty())
@@ -193,7 +193,7 @@ impl Module for ImModule {
                                 )),
                             });
                         }
-                        // G13b：无 req_id 的内部 hydration 保持旧副作用；显式 req_id 走纯读回灌。
+                        // G09d：显式 req_id 是 Host structured Result 入口；无 req_id 仅保留旧 driver 行为。
                         let req_id = match explicit_req_id {
                             Some(req_id) => req_id,
                             None if increment_hydration => {
@@ -203,7 +203,10 @@ impl Module for ImModule {
                         };
                         {
                             let ctx = if increment_hydration {
-                                CorrelationContext::OutboundIncrementHydration { req_id }
+                                CorrelationContext::OutboundIncrementHydration {
+                                    req_id,
+                                    emit_channel_increment,
+                                }
                             } else if name == "im_channels_members_by_ids" {
                                 CorrelationContext::OutboundMembersByIds { req_id }
                             } else if name == "im_user_candidates" {

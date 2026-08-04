@@ -471,7 +471,10 @@ pub enum CorrelationContext {
     ///
     /// 仍保留 `im:read:result` 通用回灌；额外把 `data=*IncrementChannel` 送入既有 increment
     /// parser/application 规则，并把 channel/member 写提升为有回报的 Persist，避免未落稳即拉 sync。
-    OutboundIncrementHydration { req_id: String },
+    OutboundIncrementHydration {
+        req_id: String,
+        emit_channel_increment: bool,
+    },
 
     /// UC-4.5 IncrementChannel 的 channel/channel_member 相关 Persist 回报。
     /// `need_sync` 已合并服务端提示与本地 cursor 落后事实；成功后才启动单频道 sync，
@@ -482,6 +485,7 @@ pub enum CorrelationContext {
         need_sync: bool,
         raw_increment: Vec<u8>,
         snapshot: HydrationPersistSnapshot,
+        emit_channel_increment: bool,
     },
 
     /// G13b channel durable read-back stage 1: tenant/viewer-scoped channel row.

@@ -90,3 +90,17 @@ persona、多设备和 canonical 仍 `NOT_RUN/PARTIAL`。G09d 的 canonical `cha
 尚未存在，不得为了填补它新增事件或第二套总线。
 
 `PHASE3_HELIX_T012_T019_DETERMINISTIC_PARTIAL`
+
+## 10. T025 增量读回收敛（2026-08-04）
+
+- 当前 worktree：`/System/Volumes/Data/workspace/worktrees/messagev3-phase3-impl-20260804/helix`，
+  branch=`codex/phase3-channel-member-20260804`。
+- 显式 `req_id` 仅作为既有 Result correlation；`increment_hydration` 在 PersistOk/readback 后
+  只发一次裸 `im:channel:increment`，再结算一次 `im:read:result`，未命中为 null/零领域事件。
+- `mv3_g09d` replay 3/3、`mv3_g13b` replay 9/9，`cargo fmt --all -- --check` PASS。该证据仍是
+  deterministic/contract，不替代 HTTP、WS、Storage、Native、双 persona、多设备或 canonical。
+- T027 的真实 provider、认证、receiver、DB、独立 persona/设备、cleanup 与 producer provenance
+  尚未具备，保持 `BLOCKED/NOT_RUN`；不得新建第二 Result registry、Command、Runtime、Port、Adapter、
+  EventSink 或总线。
+
+`PHASE3_HELIX_T025_DETERMINISTIC_PARTIAL`

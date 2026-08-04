@@ -309,12 +309,14 @@ impl ImModule {
                 need_sync,
                 raw_increment,
                 snapshot,
+                emit_channel_increment,
             } => self.handle_increment_hydration_persist(
                 channel_id,
                 req_id,
                 need_sync,
                 raw_increment,
                 snapshot,
+                emit_channel_increment,
                 outcome,
                 out,
             )?,
@@ -1070,8 +1072,17 @@ impl ImModule {
 
             // UC-4.5：仍保留通用 read result，同时把 HTTP data=*IncrementChannel 送入既有
             // increment 应用规则，相关落 channel/member 后再进入单频道 sync hydration。
-            CorrelationContext::OutboundIncrementHydration { req_id } => {
-                self.handle_increment_hydration_reply(&req_id, outcome, now_ms, out)?;
+            CorrelationContext::OutboundIncrementHydration {
+                req_id,
+                emit_channel_increment,
+            } => {
+                self.handle_increment_hydration_reply(
+                    &req_id,
+                    emit_channel_increment,
+                    outcome,
+                    now_ms,
+                    out,
+                )?;
             }
 
             // S7（issue #56）：byIds 成员快照读族回报 → 双 emit。

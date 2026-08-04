@@ -273,6 +273,18 @@ impl ImModule {
                 self.handle_increment_batch_persist_reply(projections, outcome, out)?
             }
 
+            CorrelationContext::SubtopicIncrementBatchPersist {
+                parent_channel_id,
+                batch_key,
+                projections,
+            } => self.handle_subtopic_increment_batch_persist_reply(
+                parent_channel_id,
+                batch_key,
+                projections,
+                outcome,
+                out,
+            )?,
+
             CorrelationContext::ChannelSyncPage {
                 channel_sync_session_id,
                 generation,

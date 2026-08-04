@@ -51,3 +51,13 @@ pub(crate) fn complete(
         }),
     )
 }
+
+/// 构造话题增量落库成功后的轻量 ready，不晋升普通频道列表会话。
+pub(crate) fn subtopics_ready(parent_channel_id: &str) -> Result<MessageV3Event, crate::ImError> {
+    super::encode(
+        "im:subtopics-sync-ready",
+        serde_json::json!({
+            "channelId": parent_channel_id,
+        }),
+    )
+}

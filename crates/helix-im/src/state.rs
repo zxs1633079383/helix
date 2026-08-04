@@ -194,6 +194,15 @@ pub struct ImState {
     /// 与 `pending_increment_ops` 同批提交后才允许发布的逐频道投影原始数据。
     pub(crate) pending_increment_projections: Vec<(ChannelId, Vec<u8>)>,
 
+    /// 话题增量批次的活动身份；与普通频道 ready 分开，避免 scoped end 晋升全局列表。
+    pub(crate) subtopic_sync_active: Option<String>,
+
+    /// 已完成的话题批次键，重复 end 只读丢弃，不重复发布 ready。
+    pub(crate) subtopic_sync_completed: std::collections::HashSet<String>,
+
+    /// 当前缓冲 increment 帧携带的内部 batchId；收尾帧不匹配时 fail-closed。
+    pub(crate) pending_increment_batch_id: Option<String>,
+
     /// 最近一次 hello increment 原子落库后建立的频道分页会话；身份/transport 边界会清空。
     pub(crate) channel_sync_session: Option<crate::channel_sync::ChannelSyncSession>,
 
@@ -302,6 +311,9 @@ impl ImState {
             pending_increment_bootstrap_after_scan: false,
             pending_increment_ops: Vec::new(),
             pending_increment_projections: Vec::new(),
+            subtopic_sync_active: None,
+            subtopic_sync_completed: HashSet::new(),
+            pending_increment_batch_id: None,
             channel_sync_session: None,
             channel_sync_generation: 0,
             channel_sync_batch_pending: true,
@@ -338,6 +350,9 @@ impl ImState {
         self.pending_increment_bootstrap_after_scan = false;
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
+        self.subtopic_sync_active = None;
+        self.subtopic_sync_completed.clear();
+        self.pending_increment_batch_id = None;
         self.channel_sync_batch_pending = true;
         self.hydration_pending.clear();
         self.hydration_req_ids.clear();
@@ -408,6 +423,9 @@ impl ImState {
         self.hydration_req_ids.clear();
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
+        self.subtopic_sync_active = None;
+        self.subtopic_sync_completed.clear();
+        self.pending_increment_batch_id = None;
         self.channel_sync_session = None;
         self.channel_sync_generation = self.channel_sync_generation.wrapping_add(1);
         self.channel_sync_batch_pending = false;

@@ -592,6 +592,135 @@ mod tests {
         );
     }
 
+    // 验证话题收尾只接受同一批次，并在成功时进入统一 Persist 屏障。
+    #[test]
+    fn dispatch_ws_scoped_subtopic_end_requires_matching_batch_and_persists_marker() {
+        let mut state = ImState::new();
+        let mut next_corr = 1;
+        let mut alloc_corr = || {
+            let corr = helix_core::Correlation::from_raw(next_corr);
+            next_corr += 1;
+            corr
+        };
+        let channel_id = channel_id(101);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
+
+        let increment = frame_from_json(serde_json::json!({
+            "action": "increment_channel",
+            "data": {
+                "id": channel_id.as_str(),
+                "batchId": "batch-a",
+                "lastEventSeq": 3,
+                "mentionList": [],
+                "urgentPostList": []
+            }
+        }));
+        let mut increment_out = EffectSink::new();
+        dispatch_ws(&mut ctx, &increment, &mut increment_out).unwrap();
+        assert!(increment_out.as_slice().is_empty());
+        assert_eq!(
+            ctx.state.pending_increment_batch_id.as_deref(),
+            Some("batch-a")
+        );
+
+        let stale_end = frame_from_json(serde_json::json!({
+            "action": "increment_channel_end",
+            "data": {
+                "scope": "subtopics",
+                "channelId": channel_id.as_str(),
+                "batchId": "batch-old"
+            }
+        }));
+        let mut stale_out = EffectSink::new();
+        dispatch_ws(&mut ctx, &stale_end, &mut stale_out).unwrap();
+        assert!(stale_out.as_slice().is_empty());
+        assert_eq!(
+            ctx.state.pending_increment_batch_id.as_deref(),
+            Some("batch-a")
+        );
+
+        let matching_end = frame_from_json(serde_json::json!({
+            "action": "increment_channel_end",
+            "data": {
+                "scope": "subtopics",
+                "channelId": channel_id.as_str(),
+                "batchId": "batch-a"
+            }
+        }));
+        let mut matching_out = EffectSink::new();
+        dispatch_ws(&mut ctx, &matching_end, &mut matching_out).unwrap();
+        assert!(matching_out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Persist { .. })));
+        assert!(matching_out
+            .as_slice()
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Http { .. })));
+        assert!(ctx.state.subtopic_sync_active.is_some());
+    }
+
+    // 验证声明为普通频道的收尾帧携带父频道时 fail-closed，不误触发话题或列表同步。
+    #[test]
+    fn dispatch_ws_declared_channels_scope_rejects_parent_channel_id() {
+        let mut state = ImState::new();
+        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
+        let frame = frame_from_json(serde_json::json!({
+            "action": "increment_channel_end",
+            "data": {
+                "scope": "channels",
+                "channelId": channel_id_string(102),
+                "batchId": "batch-a"
+            }
+        }));
+        let mut out = EffectSink::new();
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+        assert!(out.as_slice().is_empty());
+    }
+
+    // 验证普通频道收尾也必须匹配 increment 批次，旧 end 不得提前推进持久化屏障。
+    #[test]
+    fn dispatch_ws_declared_channels_scope_rejects_stale_batch_id() {
+        let mut state = ImState::new();
+        let mut next_corr = 1;
+        let mut alloc_corr = || {
+            let corr = helix_core::Correlation::from_raw(next_corr);
+            next_corr += 1;
+            corr
+        };
+        let channel_id = channel_id(103);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
+
+        let increment = frame_from_json(serde_json::json!({
+            "action": "increment_channel",
+            "data": {
+                "id": channel_id.as_str(),
+                "batchId": "batch-current",
+                "lastEventSeq": 4,
+                "mentionList": [],
+                "urgentPostList": []
+            }
+        }));
+        let mut increment_out = EffectSink::new();
+        dispatch_ws(&mut ctx, &increment, &mut increment_out).unwrap();
+
+        let stale_end = frame_from_json(serde_json::json!({
+            "action": "increment_channel_end",
+            "data": {
+                "scope": "channels",
+                "batchId": "batch-stale"
+            }
+        }));
+        let mut stale_out = EffectSink::new();
+        dispatch_ws(&mut ctx, &stale_end, &mut stale_out).unwrap();
+        assert!(stale_out.as_slice().is_empty());
+        assert_eq!(
+            ctx.state.pending_increment_batch_id.as_deref(),
+            Some("batch-current")
+        );
+    }
+
     #[test]
     fn dispatch_ws_invalid_increment_channel_is_silent_noop() {
         let mut state = ImState::new();

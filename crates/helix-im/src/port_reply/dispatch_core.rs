@@ -335,6 +335,45 @@ impl ImModule {
         Ok(())
     }
 
+    /// 处理话题增量原子落库回执；成功只通知该父群继续读取本地话题。
+    pub(super) fn handle_subtopic_increment_batch_persist_reply(
+        &mut self,
+        parent_channel_id: crate::state::ChannelId,
+        batch_key: String,
+        _projections: Vec<(crate::state::ChannelId, Vec<u8>)>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        self.state.subtopic_sync_active = None;
+        match outcome {
+            PortOutcome::Ok(_) => {
+                if !self.state.subtopic_sync_completed.insert(batch_key) {
+                    tracing::info!(
+                        channel_id = %parent_channel_id.as_str(),
+                        "subtopics-sync-ready 未触发：批次已完成"
+                    );
+                    return Ok(());
+                }
+                tracing::info!(
+                    channel_id = %parent_channel_id.as_str(),
+                    "subtopics-sync-ready 已触发：话题 increment 批次 PersistOk"
+                );
+                out.push(
+                    crate::event::channel_sync::subtopics_ready(parent_channel_id.as_str())?
+                        .into_effect(),
+                );
+            }
+            PortOutcome::Err(error) => {
+                tracing::warn!(
+                    channel_id = %parent_channel_id.as_str(),
+                    error = ?error,
+                    "subtopics-sync-ready 未触发：话题 increment 持久化失败"
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// 将本地 channel Scan 回包投影成不超过 20 行的 typed page；失败不发 page 事件。
     pub(super) fn handle_channel_sync_page_reply(
         &mut self,

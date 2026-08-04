@@ -631,6 +631,7 @@ fn render_dialog_row(row: serde_json::Value) -> serde_json::Value {
         ("mention_count_root", "mentionCountRoot"),
         ("last_post", "lastPost"),
         ("last_post_at", "lastPostAt"),
+        ("subtopics_loaded_at", "subtopicsLoadedAt"),
         ("created_at", "createdAt"),
         ("is_top", "isTop"),
         ("admin_users", "adminUsers"),

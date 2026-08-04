@@ -14,6 +14,15 @@ pub(crate) fn apply_increment(
     inc: &IncrementChannel,
     out: &mut EffectSink,
 ) {
+    if let Ok(data) = serde_json::from_slice::<serde_json::Value>(inc.raw.as_ref()) {
+        if let Some(batch_id) = data
+            .get("batchId")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            ctx.state.pending_increment_batch_id = Some(batch_id.to_string());
+        }
+    }
     for effect in apply_increment_effects(ctx, inc) {
         match effect {
             Effect::PersistFire { ops } => ctx.state.pending_increment_ops.extend(ops),

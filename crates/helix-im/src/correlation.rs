@@ -154,6 +154,13 @@ pub enum CorrelationContext {
         projections: Vec<(ChannelId, Vec<u8>)>,
     },
 
+    /// 话题增量批次的原子落库回执；成功只发布 subtopics-sync-ready。
+    SubtopicIncrementBatchPersist {
+        parent_channel_id: ChannelId,
+        batch_key: String,
+        projections: Vec<(ChannelId, Vec<u8>)>,
+    },
+
     /// MessageV3 本地频道分页 Scan；session/generation/cursor offset 均在回包时再次校验。
     ChannelSyncPage {
         channel_sync_session_id: String,

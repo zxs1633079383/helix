@@ -28,6 +28,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:channel-sync-ready",
     "im:channel-sync-page",
     "im:channel-sync-complete",
+    "im:subtopics-sync-ready",
     "im:channel:update",
     "im:sync:state",
     "im:channel:created",

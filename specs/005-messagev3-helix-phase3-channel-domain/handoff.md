@@ -61,3 +61,32 @@ receiver、真实 DB、Native、独立 persona、第二设备或 runtime provena
 `BLOCKED/NOT_RUN`。
 
 `PHASE3_HELIX_HANDOFF_PHASE2_FOUNDATION_MERGED_PARTIAL`
+
+## 7. 独立实施 worktree T012-T019（2026-08-04）
+
+- 当前 worktree：`/System/Volumes/Data/workspace/worktrees/messagev3-phase3-impl-20260804/helix`，
+  branch=`codex/phase3-channel-member-20260804`，production commit=`47ec9ee0`。
+- `member_admin` 只接受 `NORMAL|STRONG|IGNORE` notify 与 `ADMIN|MEMBER` role；不新增 command、event
+  或 storage 表。
+- `change_dedicated`/`change` 沿既有 command/correlation/PortReply 链加入 orient 0-30 字符、
+  `expected_version` CAS、权限部分补丁和 `BOSS/type=O` 边界。
+- `trait_impl` 对显式 `req_id` 的 increment 保持既有 `OutboundReadReply`/`im:read:result` 纯读路径；
+  无 req_id 的历史 hydration 兼容路径不改变，未新建第二 Result registry。
+- `member_admin` 的昵称、成员变更和 role wire 复用既有事件映射；presence 仍为 zero-event Result，
+  缺失/失败归一由 Host/Client 处理为 `unknown`。
+
+确定性验证：
+
+- `cargo fmt --all -- --check`：PASS。
+- `cargo check -p helix-im`：PASS（仅既有 dead-code warning）。
+- `cargo test -p helix-im --lib outbound::channel_admin -- --nocapture`：21/21 PASS。
+- `cargo test -p helix-im --test p2_posts_outbound_test`：18/18 PASS。
+- `cargo test -p helix-im --test outbound_commands`：13/13 PASS。
+- `cargo test -p helix-im --test p3b_channel_outbound_test`：27/27 PASS。
+- G09a-G09e、G10f、G10g manifest targets：各自 Reference contract PASS。
+
+这些结果只证明 Helix deterministic/contract；真实 Go HTTP、WS receiver、Storage、Native、双
+persona、多设备和 canonical 仍 `NOT_RUN/PARTIAL`。G09d 的 canonical `channelIncrement` producer
+尚未存在，不得为了填补它新增事件或第二套总线。
+
+`PHASE3_HELIX_T012_T019_DETERMINISTIC_PARTIAL`

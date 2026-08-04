@@ -68,7 +68,7 @@ fn parse_request_enforces_before_range_and_default() {
         "channel_id": CH, "anchor_post_id": "p"
     }))
     .unwrap();
-    assert_eq!(parse_request(&missing).unwrap().target(), 20);
+    assert_eq!(parse_request(&missing).unwrap().target(), 40);
 }
 
 #[test]

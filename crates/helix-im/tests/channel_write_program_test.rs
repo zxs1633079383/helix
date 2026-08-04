@@ -75,6 +75,27 @@ fn program_full_emits_54_cols_with_guards_omitted_s3() {
     ));
 }
 
+/// 回归锚: S3 path1 —— increment 负 urgentCount 不得持久化为负值。
+#[test]
+fn program_full_clamps_negative_urgent_count_s3() {
+    let data = serde_json::json!({
+        "id": "00000000000000000000000014",
+        "type": "P",
+        "urgentCount": -7,
+        "urgentPostList": ["post-14"],
+    });
+    let (row, _) = program_full(&data, "", 0).expect("valid id");
+
+    assert!(matches!(
+        get(&row, "urgent_count"),
+        Some(SqlValue::Integer(0))
+    ));
+    assert!(matches!(
+        get(&row, "urgent_post_list"),
+        Some(SqlValue::Text(value)) if value == "[\"post-14\"]"
+    ));
+}
+
 /// 回归锚: 真帧缺 lastPostAt 时以 lastRootPostAt 恢复 lastPost 的目录排序时间。
 #[test]
 fn program_full_uses_last_root_post_at_for_real_frame_last_post() {

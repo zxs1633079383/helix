@@ -53,6 +53,36 @@ fn insert_alias(output: &mut Map<String, Value>, row: &Value, name: &str, keys: 
     }
 }
 
+/// Keep persisted urgent counters non-negative while preserving ordinary JSON values.
+fn non_negative_count(value: Value) -> Value {
+    match &value {
+        Value::Number(number) if number.as_f64().is_some_and(|value| value < 0.0) => Value::from(0),
+        Value::String(raw) if raw.trim().parse::<f64>().is_ok_and(|value| value < 0.0) => {
+            Value::from(0)
+        }
+        _ => value,
+    }
+}
+
+/// Write the urgent counter under every existing alias so legacy rows cannot leak a negative value.
+fn insert_non_negative_count_alias(
+    output: &mut Map<String, Value>,
+    row: &Value,
+    name: &str,
+    keys: &[&str],
+) {
+    let value = non_negative_count(pick(row, keys));
+    if value.is_null() {
+        return;
+    }
+    output.insert(name.to_string(), value.clone());
+    for key in keys {
+        if output.contains_key(*key) {
+            output.insert((*key).to_string(), value.clone());
+        }
+    }
+}
+
 /// Convert persisted SQLite boolean integers into the render-ready JSON boolean contract.
 fn insert_bool_alias(output: &mut Map<String, Value>, row: &Value, name: &str, keys: &[&str]) {
     let value = match pick(row, keys) {
@@ -113,7 +143,7 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
         "mentionUser",
         &["mention_user", "mentionUser"],
     );
-    insert_alias(
+    insert_non_negative_count_alias(
         &mut output,
         row,
         "urgentCount",
@@ -395,5 +425,50 @@ mod tests {
         assert_eq!(shaped[0]["lastPost"]["message"], "回复消息");
         assert_eq!(shaped[1]["displayName"], "空群");
         assert_eq!(shaped.as_array().map(Vec::len), Some(2));
+    }
+
+    /// Legacy negative urgent counters become zero without changing the urgent post list.
+    #[test]
+    fn clamps_negative_urgent_count_for_snake_and_camel_rows() {
+        let rows = json!([
+            {
+                "id": "channel-negative-snake",
+                "urgent_count": -2,
+                "urgent_post_list": "[\"post-1\"]"
+            },
+            {
+                "id": "channel-negative-camel",
+                "urgentCount": -3,
+                "urgentPostList": ["post-2"]
+            }
+        ]);
+
+        let shaped = shape_channel_rows(&rows);
+        assert_eq!(shaped[0]["urgentCount"], 0);
+        assert_eq!(shaped[0]["urgent_count"], 0);
+        assert_eq!(shaped[0]["urgentPostList"], json!(["post-1"]));
+        assert_eq!(shaped[1]["urgentCount"], 0);
+        assert_eq!(shaped[1]["urgentPostList"], json!(["post-2"]));
+    }
+
+    /// A single legacy negative row must not invalidate a twenty-row channel page.
+    #[test]
+    fn keeps_twenty_row_page_renderable_with_one_negative_urgent_count() {
+        let rows = Value::Array(
+            (0..20)
+                .map(|index| {
+                    json!({
+                        "id": format!("channel-{index}"),
+                        "urgent_count": if index == 7 { -1 } else { index },
+                    })
+                })
+                .collect(),
+        );
+
+        let shaped = shape_channel_rows(&rows);
+        assert_eq!(shaped.as_array().map(Vec::len), Some(20));
+        assert_eq!(shaped[7]["urgentCount"], 0);
+        assert_eq!(shaped[6]["urgentCount"], 6);
+        assert_eq!(shaped[19]["urgentCount"], 19);
     }
 }

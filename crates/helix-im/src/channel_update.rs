@@ -88,7 +88,8 @@ impl PendingChannelUpdate {
 
     /// 从已持久化频道行构造 `im:channel:update` 的绝对态数据。
     pub fn event_data_from_channel_reply(&self, reply: &[u8]) -> Option<Value> {
-        let projection = projection_from_channel_reply(reply)?;
+        let mut projection = projection_from_channel_reply(reply)?;
+        projection.urgent_count = projection.urgent_count.max(0);
         Some(crate::acl::to_effect::post_channel_update_data(
             self.channel_id,
             self.event_seq,
@@ -195,6 +196,7 @@ pub fn member_channel_from_update_channel(
             "urgent_mention_count",
         ],
     ) {
+        let v = v.max(0);
         row.push(("urgent_mention_count".to_string(), SqlValue::Integer(v)));
         projection.urgent_count = Some(v);
     }
@@ -317,5 +319,69 @@ fn json_list_value(value: &Value) -> Vec<String> {
             }
         }
         _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Construct the smallest post update needed to exercise channel read-back projection.
+    fn pending_update() -> PendingChannelUpdate {
+        let channel_id = crate::state::test_channel_id(91);
+        let update = crate::channel_write::post_updates(
+            channel_id,
+            &serde_json::json!({"id":"post-91", "type":"NOTICE"}),
+            "viewer-91",
+            1,
+        );
+        PendingChannelUpdate::new(
+            channel_id,
+            1,
+            "post-91",
+            &PostFields::default(),
+            &update,
+            "test",
+        )
+    }
+
+    /// A negative member urgent count is clamped before channel_member persistence and projection.
+    #[test]
+    fn clamps_negative_member_urgent_count_before_persist() {
+        let channel_id = crate::state::test_channel_id(90);
+        let data = serde_json::json!({
+            "channel": {
+                "userId": "viewer-90",
+                "urgentCount": -4,
+                "urgentPostList": ["post-90"]
+            }
+        });
+
+        let (row, projection) = member_channel_from_update_channel(&data, channel_id, "")
+            .expect("member update should contain a user and urgent projection");
+        assert!(row.iter().any(|(column, value)| {
+            column == "urgent_mention_count" && matches!(value, SqlValue::Integer(0))
+        }));
+        assert_eq!(projection.urgent_count, Some(0));
+        assert_eq!(
+            projection.urgent_post_list,
+            Some(vec!["post-90".to_string()])
+        );
+    }
+
+    /// A negative persisted urgent count is clamped before the channel update event is emitted.
+    #[test]
+    fn clamps_negative_readback_urgent_count_in_channel_event() {
+        let pending = pending_update();
+        let reply = br#"[{"unread_count":1,"mention_count":2,"urgent_count":-5,"urgent_post_list":"[\"post-91\"]","last_root_post_at":10}]"#;
+
+        let data = pending
+            .event_data_from_channel_reply(reply)
+            .expect("valid channel readback should produce event data");
+        assert_eq!(data["dialogPatch"]["urgentCount"], 0);
+        assert_eq!(
+            data["dialogPatch"]["urgentPostList"],
+            serde_json::json!(["post-91"])
+        );
     }
 }

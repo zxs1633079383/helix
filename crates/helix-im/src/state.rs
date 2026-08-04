@@ -219,6 +219,9 @@ pub struct ImState {
     /// G13b hydration request identity，贯穿 sync 与 durable read-back 的唯一终态。
     pub hydration_req_ids: HashMap<ChannelId, String>,
 
+    /// G09d canonical increment is released only after the same durable read-back as the Result.
+    pub hydration_emit_channel_increment: HashSet<ChannelId>,
+
     /// 当前物理会话中已成功缓存的最近消息窗口；不替代同步 cursor。
     pub(crate) recent_message_coverage:
         HashMap<ChannelId, crate::query::local_first::RecentMessageCoverage>,
@@ -319,6 +322,7 @@ impl ImState {
             channel_sync_batch_pending: true,
             hydration_pending: HashSet::new(),
             hydration_req_ids: HashMap::new(),
+            hydration_emit_channel_increment: HashSet::new(),
             recent_message_coverage: HashMap::new(),
             message_query_generations: HashMap::new(),
             timeline_state: crate::timeline_state::TimelineState::default(),
@@ -356,6 +360,7 @@ impl ImState {
         self.channel_sync_batch_pending = true;
         self.hydration_pending.clear();
         self.hydration_req_ids.clear();
+        self.hydration_emit_channel_increment.clear();
         self.reply_projection_revisions.clear();
         self.reply_projection_seen_ids.clear();
         self.reset_transport_query_session();
@@ -421,6 +426,7 @@ impl ImState {
         self.sync_scheduler.reset();
         self.hydration_pending.clear();
         self.hydration_req_ids.clear();
+        self.hydration_emit_channel_increment.clear();
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
         self.subtopic_sync_active = None;

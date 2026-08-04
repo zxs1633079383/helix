@@ -178,7 +178,9 @@ impl Module for ImModule {
                     // spec06 缺陷A：读族注册回灌上下文（PortReply 透传 `im:read:result{req_id,body}`；写族
                     // fire-and-forget 不注册）。S7：byIds 成员快照走 OutboundMembersByIds（额外 emit im:channel:members）。
                     if crate::commands::is_read(name) {
-                        if name == "im_channel_load_increment_by_channel_id"
+                        let explicit_req_id = crate::read_relay::read_req_id(cmd.payload.as_ref());
+                        let increment_hydration = name == "im_channel_load_increment_by_channel_id";
+                        if increment_hydration
                             && (self.config.auth_user_id.is_empty()
                                 || self.config.company_id.is_empty())
                         {
@@ -190,26 +192,28 @@ impl Module for ImModule {
                                 )),
                             });
                         }
-                        // G13b：Angular 只提交 channelId；Helix 用内部 corr 生成 req_id，
-                        // 不把 caller request identity 写入 HTTP body。
-                        let req_id = if name == "im_channel_load_increment_by_channel_id" {
-                            format!("increment-hydration-{}", corr.raw())
-                        } else if let Some(req_id) =
-                            crate::read_relay::read_req_id(cmd.payload.as_ref())
-                        {
-                            req_id
-                        } else {
-                            // 缺少 transport req_id 只关闭结果回灌关联，仍执行纯读取 HTTP。
-                            // 读请求不能因调用方没有等待槽而被静默吞掉；回包没有 corr context
-                            // 时由 PortReply fail-closed 丢弃，不会产生无关联 UI 投影。
-                            for effect in effects {
-                                out.push(effect);
+                        // 读族只有明确 correlation 才允许回灌；hydration 兼容旧 driver 的同时，
+                        // 由显式 transport req_id 决定是否发布 sender-only channelIncrement。
+                        let emit_channel_increment = increment_hydration && explicit_req_id.is_some();
+                        let req_id = match explicit_req_id {
+                            Some(req_id) => req_id,
+                            None if increment_hydration => {
+                                format!("increment-hydration-{}", corr.raw())
                             }
-                            return Ok(());
+                            None => {
+                                // 无 correlation 的旧读请求仍执行 HTTP，但回包不得进入任何 UI 投影。
+                                for effect in effects {
+                                    out.push(effect);
+                                }
+                                return Ok(());
+                            }
                         };
                         {
-                            let ctx = if name == "im_channel_load_increment_by_channel_id" {
-                                CorrelationContext::OutboundIncrementHydration { req_id }
+                            let ctx = if increment_hydration {
+                                CorrelationContext::OutboundIncrementHydration {
+                                    req_id,
+                                    emit_channel_increment,
+                                }
                             } else if name == "im_channels_members_by_ids" {
                                 CorrelationContext::OutboundMembersByIds { req_id }
                             } else if name == "im_user_candidates" {
@@ -426,6 +430,8 @@ impl Module for ImModule {
                     } else if name == "im_channel_change_info"
                         || name == "im_channel_change_notice"
                         || name == "im_channel_change_display_name"
+                        || name == "im_channel_change_orient"
+                        || name == "im_channel_change_permission"
                     {
                         if let Ok(value) =
                             serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())

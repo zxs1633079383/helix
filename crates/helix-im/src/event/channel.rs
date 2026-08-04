@@ -28,11 +28,6 @@ pub fn closed(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:channel:closed", data)
 }
 
-/// 构造当前 viewer 已离开频道终态。
-pub fn left(data: Value) -> Result<MessageV3Event, crate::ImError> {
-    super::encode("im:channel:left", data)
-}
-
 /// 构造话题频道创建事实。
 pub fn topic_created(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:channel:topic-created", data)

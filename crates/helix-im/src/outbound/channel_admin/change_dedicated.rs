@@ -46,9 +46,20 @@ impl OutboundCommand for ChangeDisplayNameCommand {
         let channel_id = require_str(args, "channel_id", self.name())?;
         // displayName 必填（改名语义需非空；Go ChangeChannelDisPlayName.DisPlayName string 非指针）。
         let display_name = require_str(args, "display_name", self.name())?;
+        // CAS 版本只能由服务端投影带回；缺失、负数或浮点都不能进入 I/O。
+        let expected_version = args
+            .get("expected_version")
+            .and_then(Value::as_i64)
+            .filter(|version| *version >= 0)
+            .ok_or_else(|| {
+                ImError::Parse(format!(
+                    "{}: expected_version must be a non-negative integer",
+                    self.name()
+                ))
+            })?;
         Ok((
             "channel/change/displayName",
-            json!({ "id": channel_id, "displayName": display_name }),
+            json!({ "id": channel_id, "displayName": display_name, "expectedVersion": expected_version }),
         ))
     }
 }
@@ -67,11 +78,30 @@ impl OutboundCommand for ChangeOrientCommand {
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         let channel_id = require_str(args, "channel_id", self.name())?;
-        // orient 必填（Go UpdateChannelGuidePurposeCommand.Orient *string，本端点改导向语义需有值）。
-        let orient = require_str(args, "orient", self.name())?;
+        // orient 允许空串清空，但长度必须符合 Go 的 30 字符上限。
+        let orient = args
+            .get("orient")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ImError::Parse(format!("{}: 缺 orient（string）", self.name())))?;
+        if orient.chars().count() > 30 {
+            return Err(ImError::Parse(format!(
+                "{}: orient 最多 30 个字符",
+                self.name()
+            )));
+        }
+        let expected_version = args
+            .get("expected_version")
+            .and_then(Value::as_i64)
+            .filter(|version| *version >= 0)
+            .ok_or_else(|| {
+                ImError::Parse(format!(
+                    "{}: expected_version must be a non-negative integer",
+                    self.name()
+                ))
+            })?;
         Ok((
             "channel/change/orient",
-            json!({ "id": channel_id, "orient": orient }),
+            json!({ "id": channel_id, "orient": orient, "expectedVersion": expected_version }),
         ))
     }
 }

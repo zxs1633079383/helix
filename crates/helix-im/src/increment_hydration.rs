@@ -163,6 +163,7 @@ impl ImModule {
             );
             return Ok(());
         };
+        let channel = crate::query::render_ready::channel::shape_channel_row(&channel);
         let corr = self.alloc_corr_internal();
         out.push(Effect::Persist {
             corr,
@@ -326,7 +327,17 @@ impl ImModule {
                 return Ok(());
             }
         };
+        let emit_channel_increment = self
+            .state
+            .hydration_emit_channel_increment
+            .remove(&channel_id);
         self.state.hydration_req_ids.remove(&channel_id);
+        if emit_channel_increment {
+            out.push(
+                crate::event::MessageV3Event::new("im:channel:increment", (*channel).clone())?
+                    .into_effect(),
+            );
+        }
         out.push(crate::read_relay::emit_read_body(
             &req_id,
             serde_json::json!({
@@ -351,6 +362,9 @@ impl ImModule {
     ) {
         self.state.hydration_pending.remove(&channel_id);
         self.state.hydration_req_ids.remove(&channel_id);
+        self.state
+            .hydration_emit_channel_increment
+            .remove(&channel_id);
         out.push(crate::read_relay::emit_read_error(req_id, reason));
     }
 
@@ -370,6 +384,7 @@ impl ImModule {
     pub(crate) fn handle_increment_hydration_reply(
         &mut self,
         req_id: &str,
+        emit_channel_increment: bool,
         outcome: &PortOutcome,
         now_ms: u64,
         out: &mut EffectSink,
@@ -452,6 +467,7 @@ impl ImModule {
                                 need_sync: requires_sync,
                                 raw_increment: increment.raw.as_ref().to_vec(),
                                 snapshot,
+                                emit_channel_increment,
                             },
                         );
                     } else {
@@ -491,13 +507,20 @@ impl ImModule {
         need_sync: bool,
         raw_increment: Vec<u8>,
         snapshot: HydrationPersistSnapshot,
+        emit_channel_increment: bool,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         match outcome {
             PortOutcome::Ok(_) => {
                 let _ = raw_increment;
-                self.after_increment_persist(channel_id, req_id, need_sync, out)?;
+                self.after_increment_persist(
+                    channel_id,
+                    req_id,
+                    need_sync,
+                    emit_channel_increment,
+                    out,
+                )?;
             }
             PortOutcome::Err(e) => {
                 self.restore_hydration_snapshot(channel_id, &snapshot);
@@ -522,9 +545,15 @@ impl ImModule {
         channel_id: ChannelId,
         req_id: String,
         need_sync: bool,
+        emit_channel_increment: bool,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         self.state.hydration_pending.insert(channel_id);
+        if emit_channel_increment {
+            self.state
+                .hydration_emit_channel_increment
+                .insert(channel_id);
+        }
         self.state
             .hydration_req_ids
             .insert(channel_id, req_id.clone());

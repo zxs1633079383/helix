@@ -17,6 +17,7 @@ pub struct MakeTopicProjection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChannelSettingsProjection {
     pub channel_id: ChannelId,
+    pub channel: serde_json::Value,
     pub display_name: Option<String>,
     pub purpose: String,
     pub header: String,
@@ -342,6 +343,13 @@ pub enum CorrelationContext {
     /// UC-3 `im_query_dialog_list` Scan 回报 → emit channel list 与 viewer read 绝对态。
     DialogListQuery { causation_id: Option<String> },
 
+    /// UC-3 首段 channel 行快照，等待当前 viewer 的 channel_member 置顶回读后合并发布。
+    DialogListMemberSnapshot {
+        channel_rows: Box<Vec<serde_json::Value>>,
+        causation_id: Option<String>,
+        auth_user_id: String,
+    },
+
     /// G13d `im_query_subtopics` Scan 回报；父频道随 correlation 一起隔离。
     SubtopicsQuery {
         parent_channel_id: ChannelId,
@@ -471,7 +479,10 @@ pub enum CorrelationContext {
     ///
     /// 仍保留 `im:read:result` 通用回灌；额外把 `data=*IncrementChannel` 送入既有 increment
     /// parser/application 规则，并把 channel/member 写提升为有回报的 Persist，避免未落稳即拉 sync。
-    OutboundIncrementHydration { req_id: String },
+    OutboundIncrementHydration {
+        req_id: String,
+        emit_channel_increment: bool,
+    },
 
     /// UC-4.5 IncrementChannel 的 channel/channel_member 相关 Persist 回报。
     /// `need_sync` 已合并服务端提示与本地 cursor 落后事实；成功后才启动单频道 sync，
@@ -482,6 +493,7 @@ pub enum CorrelationContext {
         need_sync: bool,
         raw_increment: Vec<u8>,
         snapshot: HydrationPersistSnapshot,
+        emit_channel_increment: bool,
     },
 
     /// G13b channel durable read-back stage 1: tenant/viewer-scoped channel row.

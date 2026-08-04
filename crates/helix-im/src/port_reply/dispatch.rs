@@ -3,6 +3,22 @@ use crate::module::ImModule;
 use crate::state::CorrelationContext;
 use helix_core::EffectSink;
 
+/// 以明确失败状态结束 dialog 两段式回读，避免无身份或畸形回包静默成功。
+fn emit_dialog_list_failed(
+    out: &mut EffectSink,
+    causation_id: Option<String>,
+) -> Result<(), ImError> {
+    out.push(
+        crate::event::channel::list(serde_json::json!({
+            "channels": [],
+            "requestId": causation_id,
+            "state": "failed",
+        }))?
+        .into_effect(),
+    );
+    Ok(())
+}
+
 impl ImModule {
     /// 处理 PortReply（Persist/Http 的异步结果回报）。
     ///
@@ -305,12 +321,14 @@ impl ImModule {
                 need_sync,
                 raw_increment,
                 snapshot,
+                emit_channel_increment,
             } => self.handle_increment_hydration_persist(
                 channel_id,
                 req_id,
                 need_sync,
                 raw_increment,
                 snapshot,
+                emit_channel_increment,
                 outcome,
                 out,
             )?,
@@ -736,6 +754,53 @@ impl ImModule {
                 }
             },
 
+            // 兼容仍在迁移中的旧两段 dialog/member 绝对投影回读；生产入口已统一走 typed Result。
+            CorrelationContext::DialogListMemberSnapshot {
+                channel_rows,
+                causation_id,
+                auth_user_id,
+            } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    if self.config.auth_user_id.as_str() != auth_user_id.as_str() {
+                        tracing::warn!(
+                            "dialog member readback identity changed; refusing stale snapshot"
+                        );
+                        emit_dialog_list_failed(out, causation_id)?;
+                        return Ok(());
+                    }
+                    let merged_rows = match crate::event::read::merge_dialog_rows_for_viewer(
+                        channel_rows.as_ref(),
+                        reply.0.as_ref(),
+                        auth_user_id.as_str(),
+                    ) {
+                        Ok(rows) => rows,
+                        Err(error) => {
+                            tracing::warn!(error = ?error, "dialog member readback rejected");
+                            emit_dialog_list_failed(out, causation_id)?;
+                            return Ok(());
+                        }
+                    };
+                    let read_events = crate::event::read::channels_from_dialog_rows(
+                        &merged_rows,
+                        auth_user_id.as_str(),
+                    )?;
+                    out.push(
+                        crate::event::channel::list(serde_json::json!({
+                            "channels": merged_rows,
+                            "requestId": causation_id,
+                        }))?
+                        .into_effect(),
+                    );
+                    for event in read_events {
+                        out.push(event.into_effect());
+                    }
+                }
+                PortOutcome::Err(error) => {
+                    tracing::warn!(error = ?error, "dialog member scan failed");
+                    emit_dialog_list_failed(out, causation_id)?;
+                }
+            },
+
             // G13d 本地 topic Scan 只发布一次 parent-scoped typed Result，不广播业务事件。
             CorrelationContext::SubtopicsQuery {
                 parent_channel_id,
@@ -931,16 +996,8 @@ impl ImModule {
                             })
                         })
                         .collect::<Vec<_>>();
-                    let leave_events = leaves
-                        .iter()
-                        .map(|user_id| {
-                            crate::event::channel_member::left(serde_json::json!({
-                                "channelId": channel_id.as_str(),
-                                "userId": user_id,
-                                "state": "left",
-                            }))
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
+                    // A roster is the receiver's sole absolute member projection; per-user
+                    // leave events would create a second, divergent membership event family.
                     out.push(
                         crate::event::channel_member::updated(serde_json::json!({
                             "channelId": channel_id.as_str(),
@@ -951,9 +1008,6 @@ impl ImModule {
                         }))?
                         .into_effect(),
                     );
-                    for event in leave_events {
-                        out.push(event.into_effect());
-                    }
                     let _legacy_projection_context = causation_id;
                 }
                 PortOutcome::Err(error) => {
@@ -1030,8 +1084,17 @@ impl ImModule {
 
             // UC-4.5：仍保留通用 read result，同时把 HTTP data=*IncrementChannel 送入既有
             // increment 应用规则，相关落 channel/member 后再进入单频道 sync hydration。
-            CorrelationContext::OutboundIncrementHydration { req_id } => {
-                self.handle_increment_hydration_reply(&req_id, outcome, now_ms, out)?;
+            CorrelationContext::OutboundIncrementHydration {
+                req_id,
+                emit_channel_increment,
+            } => {
+                self.handle_increment_hydration_reply(
+                    &req_id,
+                    emit_channel_increment,
+                    outcome,
+                    now_ms,
+                    out,
+                )?;
             }
 
             // S7（issue #56）：byIds 成员快照读族回报 → 双 emit。

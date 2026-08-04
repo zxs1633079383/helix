@@ -105,14 +105,14 @@ pub fn emit_channel_closed(channel_id: ChannelId, delete_at: i64) -> Effect {
     )
 }
 
-/// 自己退群成功的 render-ready 终态；与 channel closed 严格区分。
+/// 自己退群成功复用 channelClosed 事件，以 terminalReason 保留 left 的唯一终态语义。
 pub fn emit_channel_left(channel_id: ChannelId) -> Effect {
     emit(
-        "im:channel:left",
+        "im:channel:closed",
         serde_json::json!({
             "id": channel_id.as_str(),
             "channelId": channel_id.as_str(),
-            "left": true,
+            "terminalReason": "left",
         }),
     )
 }

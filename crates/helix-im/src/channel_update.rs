@@ -32,6 +32,7 @@ pub struct ChannelUpdateProjection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemberChannelUpdate {
     pub user_id: String,
+    pub channel_is_top: Option<bool>,
     pub projection_revision: Option<u64>,
     pub unread_count: Option<i64>,
     pub unread_post_id: Option<String>,
@@ -125,6 +126,7 @@ pub fn member_channel_from_update_channel(
 
     let mut projection = MemberChannelUpdate {
         user_id,
+        channel_is_top: None,
         projection_revision: projection_revision(channel, data),
         unread_count: None,
         unread_post_id: None,
@@ -143,6 +145,11 @@ pub fn member_channel_from_update_channel(
         msg_count_private: None,
         last_read_seq: None,
     };
+
+    if let Some(v) = pick_bool(channel, data, &["channelIsTop", "channel_is_top", "top"]) {
+        row.push(("channel_is_top".to_string(), SqlValue::Integer(v as i64)));
+        projection.channel_is_top = Some(v);
+    }
 
     if let Some(v) = pick_int(channel, data, &["unreadCount", "unread_count"]) {
         row.push(("unread_count".to_string(), SqlValue::Integer(v)));
@@ -271,6 +278,11 @@ fn pick_text(primary: &Value, fallback: &Value, keys: &[&str]) -> Option<String>
         Value::Number(_) | Value::Bool(_) => Some(v.to_string()),
         _ => None,
     })
+}
+
+/// 只读取后端绝对态的布尔值；字符串等宽松形态交给上层 intent gate 拒绝。
+fn pick_bool(primary: &Value, fallback: &Value, keys: &[&str]) -> Option<bool> {
+    pick_value(primary, fallback, keys).and_then(Value::as_bool)
 }
 
 fn projection_revision(primary: &Value, fallback: &Value) -> Option<u64> {

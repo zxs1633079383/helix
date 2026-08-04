@@ -1,7 +1,9 @@
 //! Read 领域 MessageV3 事件。
 
 use super::MessageV3Event;
+use crate::error::ImError;
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 
 /// 构造 viewer 的频道已读绝对态。
 pub fn channel(data: Value) -> Result<MessageV3Event, crate::ImError> {
@@ -41,9 +43,22 @@ pub fn channels_from_storage_rows(
     reply_bytes: &[u8],
     viewer_user_id: &str,
 ) -> Result<Vec<MessageV3Event>, crate::ImError> {
-    let rows: Vec<Value> = serde_json::from_slice(reply_bytes)
-        .map_err(|error| crate::ImError::Parse(format!("dialog read rows: {error}")))?;
-    rows.into_iter()
+    let rows = parse_dialog_rows(reply_bytes)?;
+    channels_from_dialog_rows(&rows, viewer_user_id)
+}
+
+/// 将 dialog storage 回包解析为对象数组，供频道列表与成员回读共享严格边界。
+pub(crate) fn parse_dialog_rows(reply_bytes: &[u8]) -> Result<Vec<Value>, crate::ImError> {
+    serde_json::from_slice(reply_bytes)
+        .map_err(|error| crate::ImError::Parse(format!("dialog read rows: {error}")))
+}
+
+/// 从已经验证的 dialog 行生成当前 viewer 的频道未读绝对态事件。
+pub(crate) fn channels_from_dialog_rows(
+    rows: &[Value],
+    viewer_user_id: &str,
+) -> Result<Vec<MessageV3Event>, crate::ImError> {
+    rows.iter()
         .filter(|row| {
             row.get("id")
                 .or_else(|| row.get("channel_id"))
@@ -69,6 +84,111 @@ pub fn channels_from_storage_rows(
             }))
         })
         .collect()
+}
+
+/// 合并首段 channel 行与当前 viewer 的 member 置顶回读，缺行或越权行一律失败闭合。
+pub(crate) fn merge_dialog_rows_for_viewer(
+    channel_rows: &[Value],
+    member_reply_bytes: &[u8],
+    auth_user_id: &str,
+) -> Result<Vec<Value>, crate::ImError> {
+    if auth_user_id.is_empty() {
+        return Err(ImError::Parse(
+            "dialog member readback missing auth_user_id".into(),
+        ));
+    }
+
+    let mut channel_ids = HashSet::with_capacity(channel_rows.len());
+    for row in channel_rows {
+        let channel_id = dialog_row_channel_id(row, "channel")?;
+        if !channel_ids.insert(channel_id) {
+            return Err(ImError::Parse(format!(
+                "dialog channel readback duplicate channel_id: {channel_id}"
+            )));
+        }
+    }
+
+    let member_rows = parse_dialog_rows(member_reply_bytes)?;
+    let mut member_tops = HashMap::with_capacity(member_rows.len());
+    for row in &member_rows {
+        let user_id = dialog_row_text(row, "user_id", "userId", "member user_id")?;
+        if user_id != auth_user_id {
+            return Err(ImError::Parse(format!(
+                "dialog member readback user scope mismatch: {user_id}"
+            )));
+        }
+        let channel_id = dialog_row_channel_id(row, "member")?;
+        let top = dialog_row_bool(row, "channel_is_top", "channelIsTop")?;
+        if member_tops.insert(channel_id.to_string(), top).is_some() {
+            return Err(ImError::Parse(format!(
+                "dialog member readback duplicate channel_id: {channel_id}"
+            )));
+        }
+    }
+
+    let mut merged = Vec::with_capacity(channel_rows.len());
+    for row in channel_rows {
+        let channel_id = dialog_row_channel_id(row, "channel")?;
+        let top = member_tops.get(channel_id).copied().ok_or_else(|| {
+            ImError::Parse(format!(
+                "dialog member readback missing channel_id: {channel_id}"
+            ))
+        })?;
+        let mut row = row.clone();
+        row.as_object_mut()
+            .ok_or_else(|| ImError::Parse("dialog channel row must be object".into()))?
+            .insert("channelIsTop".into(), Value::Bool(top));
+        merged.push(row);
+    }
+    Ok(merged)
+}
+
+/// 提取 channel 或 channel_member 行的非空频道标识，并拒绝双字段不一致。
+fn dialog_row_channel_id<'a>(row: &'a Value, scope: &str) -> Result<&'a str, ImError> {
+    let id = row.get("id").and_then(Value::as_str);
+    let channel_id = row.get("channel_id").and_then(Value::as_str);
+    if let (Some(id), Some(channel_id)) = (id, channel_id) {
+        if id != channel_id {
+            return Err(ImError::Parse(format!(
+                "dialog {scope} row channel id mismatch"
+            )));
+        }
+    }
+    id.or(channel_id)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ImError::Parse(format!("dialog {scope} row missing channel_id")))
+}
+
+/// 提取成员身份字段，兼容 storage snake_case 与协议 camelCase。
+fn dialog_row_text<'a>(
+    row: &'a Value,
+    snake: &str,
+    camel: &str,
+    scope: &str,
+) -> Result<&'a str, ImError> {
+    row.get(snake)
+        .or_else(|| row.get(camel))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ImError::Parse(format!("dialog {scope} missing text")))
+}
+
+/// 将成员置顶列解析为严格的布尔值，只接受 bool 或 SQLite 0/1。
+fn dialog_row_bool(row: &Value, snake: &str, camel: &str) -> Result<bool, ImError> {
+    let value = row
+        .get(snake)
+        .or_else(|| row.get(camel))
+        .ok_or_else(|| ImError::Parse("dialog member row missing channel_is_top".into()))?;
+    if let Some(value) = value.as_bool() {
+        return Ok(value);
+    }
+    match value.as_i64() {
+        Some(0) => Ok(false),
+        Some(1) => Ok(true),
+        _ => Err(ImError::Parse(
+            "dialog member channel_is_top must be bool or 0/1".into(),
+        )),
+    }
 }
 
 /// 读取 storage snake_case 或 wire camelCase 的整数字段。

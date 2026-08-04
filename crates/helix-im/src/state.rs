@@ -258,6 +258,12 @@ pub struct ImState {
     /// 已经通过持久屏障的 G14 authority 版本；用于 O(1) 丢弃重复或倒退的 WS 回执。
     pub(crate) committed_post_reads: BTreeMap<String, (i64, String)>,
 
+    /// 当前账号/租户下每频道已投影的公告绝对版本；只接受单调递增快照。
+    pub(crate) announcement_versions: BTreeMap<ChannelId, u64>,
+
+    /// 已发起但尚未收到绝对列表的公告重拉版本；抑制重复/旧 changed 通知。
+    pub(crate) announcement_reload_versions: BTreeMap<ChannelId, u64>,
+
     /// 当前 transport 会话已发布的 G06b `(channel, post, snapshot, reader)` 增量去重键。
     pub(crate) seen_post_read_deltas: HashSet<(ChannelId, String, String, String)>,
 
@@ -336,6 +342,8 @@ impl ImState {
             inflight_member_update_seqs: HashSet::new(),
             committed_member_update_seqs: HashSet::new(),
             committed_post_reads: BTreeMap::new(),
+            announcement_versions: BTreeMap::new(),
+            announcement_reload_versions: BTreeMap::new(),
             seen_post_read_deltas: HashSet::new(),
             query_session_epoch: 0,
         }
@@ -377,6 +385,7 @@ impl ImState {
     /// next V2 patch against the revision that is still mounted in the UI.
     pub(crate) fn reset_transport_query_session(&mut self) {
         self.drop_query_session_correlations();
+        self.announcement_reload_versions.clear();
         self.seen_post_read_deltas.clear();
     }
 
@@ -423,6 +432,8 @@ impl ImState {
         self.inflight_member_update_seqs.clear();
         self.committed_member_update_seqs.clear();
         self.committed_post_reads.clear();
+        self.announcement_versions.clear();
+        self.announcement_reload_versions.clear();
         self.sync_scheduler.reset();
         self.hydration_pending.clear();
         self.hydration_req_ids.clear();

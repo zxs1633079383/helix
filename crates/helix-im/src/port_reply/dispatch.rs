@@ -838,7 +838,7 @@ impl ImModule {
                     channel_id.as_deref(),
                     outcome,
                     out,
-                );
+                )?;
             }
 
             CorrelationContext::OutboundExactPosts {

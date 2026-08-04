@@ -6,7 +6,7 @@
 //!
 //! ## endpoint / body 真源
 //! - save：MessageV3 Gate `MV3-G07b`（`im_save_announcement`）的唯一出站入口，见下节。
-//! - delete：`{postIds:[], postId:[]}`（两字段同值数组，兼容后端单/复数命名差异）。
+//! - delete：`{channelId, announcementId}`，回包由 Announcement Core 触发版本化列表重拉。
 //! - read：`{postId, channelId}`（标记某公告已读）。
 //!
 //! ## MV3-G07b｜发布 / 修改群公告（`im_save_announcement` → 内核名 `im_announcement_save`）
@@ -38,18 +38,6 @@ use serde_json::{json, Map, Value};
 use crate::error::ImError;
 
 use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
-
-// ── 本文件局部 helper（边界零信任：缺/类型错 → Err，不 panic）──────────────────────
-
-/// 取必填字符串数组（非空、元素全 string）。供 delete 的 postIds 复用。
-fn require_str_array(args: &Value, key: &str, cmd: &str) -> Result<Value, ImError> {
-    args.get(key)
-        .and_then(Value::as_array)
-        .filter(|a| !a.is_empty() && a.iter().all(Value::is_string))
-        .cloned()
-        .map(Value::Array)
-        .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空 {key}（非空字符串数组）")))
-}
 
 // ── MV3-G07b：im_save_announcement ─────────────────────────────────────────────
 
@@ -207,6 +195,27 @@ fn optional_str(obj: &Map<String, Value>, key: &str, cmd: &str) -> Result<String
     }
 }
 
+/// 公告删除只接受频道与公告身份；请求关联键不进入 Go body。
+fn require_delete_keys(args: &Value, cmd: &str) -> Result<(), ImError> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| ImError::Parse(format!("{cmd}: payload 必须是 object")))?;
+    if let Some(unknown) = object
+        .keys()
+        .find(|key| !matches!(key.as_str(), "channel_id" | "announcement_id" | "req_id"))
+    {
+        return Err(ImError::Parse(format!(
+            "{cmd}: 未知或非 canonical 字段 '{unknown}'"
+        )));
+    }
+    if let Some(req_id) = object.get("req_id") {
+        if req_id.as_str().is_none_or(str::is_empty) {
+            return Err(ImError::Parse(format!("{cmd}: req_id 必须是非空字符串")));
+        }
+    }
+    Ok(())
+}
+
 /// POST .../post/announcement/save — 发布 / 修改群公告（Gate `MV3-G07b`）。
 ///
 /// 见模块文档；body 由 [`SaveAnnouncementCommand::wire_body`] 组装，**不**透传 args。
@@ -229,18 +238,24 @@ inventory::submit! {
 }
 
 /// POST .../post/announcement/delete — 删除公告。
-/// body `{postIds:[...], postId:[...]}` 两字段同值数组（兼容后端单/复数命名差异）。
+/// body `{channelId, announcementId}`；`req_id` 只用于读回关联，不进入 Go body。
 struct AnnouncementDeleteCommand;
 impl OutboundCommand for AnnouncementDeleteCommand {
     fn name(&self) -> &'static str {
         "im_announcement_delete"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
-        let post_ids = require_str_array(args, "post_ids", self.name())?;
+        require_delete_keys(args, self.name())?;
+        let channel_id = require_str(args, "channel_id", self.name())?;
+        let announcement_id = require_str(args, "announcement_id", self.name())?;
         Ok((
             "post/announcement/delete",
-            json!({ "postIds": post_ids, "postId": post_ids }),
+            json!({ "channelId": channel_id, "announcementId": announcement_id }),
         ))
+    }
+    fn is_read(&self) -> bool {
+        // G07c 的 HTTP 回包是结构化删除结果，后续由 Helix 触发同版本列表重拉。
+        true
     }
 }
 static ANNOUNCEMENT_DELETE: AnnouncementDeleteCommand = AnnouncementDeleteCommand;
@@ -348,30 +363,43 @@ mod tests {
         .is_err());
     }
 
-    /// delete：postIds + postId 两字段同值数组。
+    /// delete：频道与公告身份进入 wire，req_id 不泄漏到 Go body。
     #[test]
-    fn announcement_delete_dual_field() {
-        let args = json!({ "post_ids": ["p1", "p2"] });
+    fn announcement_delete_builds_channel_announcement_body() {
+        let args = json!({
+            "channel_id": "c1",
+            "announcement_id": "a1",
+            "req_id": "rq-delete"
+        });
         let (url, body) = dispatch("im_announcement_delete", &args);
         assert_eq!(url, "http://h/api/post/announcement/delete");
-        assert_eq!(body["postIds"], json!(["p1", "p2"]));
-        assert_eq!(body["postId"], json!(["p1", "p2"]));
+        assert_eq!(body, json!({ "channelId": "c1", "announcementId": "a1" }));
     }
 
-    /// delete：缺/空 post_ids → Err（不 panic）。
+    /// delete：缺身份、旧字段或未知字段 → Err（不 panic）。
     #[test]
-    fn announcement_delete_rejects_empty() {
+    fn announcement_delete_rejects_legacy_or_invalid_fields() {
         let corr = Correlation::from_raw(1);
-        let payload = serde_json::to_vec(&json!({ "post_ids": [] })).unwrap();
-        assert!(handle_outbound(
-            "im_announcement_delete",
-            &payload,
-            "http://h/api",
-            "http://h",
-            None,
-            corr
-        )
-        .is_err());
+        for args in [
+            json!({ "post_ids": ["p1"] }),
+            json!({ "channel_id": "c1" }),
+            json!({ "channel_id": "c1", "announcement_id": "a1", "user_id": "u1" }),
+            json!({ "channel_id": "c1", "announcement_id": "a1", "req_id": "" }),
+        ] {
+            let payload = serde_json::to_vec(&args).unwrap();
+            assert!(
+                handle_outbound(
+                    "im_announcement_delete",
+                    &payload,
+                    "http://h/api",
+                    "http://h",
+                    None,
+                    corr
+                )
+                .is_err(),
+                "args={args}"
+            );
+        }
     }
 
     /// read：{postId, channelId}。

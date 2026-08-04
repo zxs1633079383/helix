@@ -261,10 +261,10 @@ fn get_latest_post_builds_channel_timestamp_body() {
 
 #[test]
 fn bookmark_create_builds_body_and_post_singular_prefix() {
-    // {channelId, userId, postIds:[]string}（post_bookmark.go:54）
+    // actor 由 Go session.currentUserId 派生；Helix wire 只携 channelId/postIds。
     let (url, body) = one_http(run(
         "im_bookmark_create",
-        json!({ "channel_id": "cB", "user_id": "uB", "post_ids": ["b1"] }),
+        json!({ "channel_id": "cB", "post_ids": ["b1"] }),
     ));
     assert_eq!(url, "http://x/api/cses/post/bookmark/create");
     // endpoint 前缀陷阱：必须 /post/bookmark（单数 post）而非 /posts/
@@ -273,94 +273,102 @@ fn bookmark_create_builds_body_and_post_singular_prefix() {
         "bookmark 必须落 /post（单数）前缀: {url}"
     );
     assert_eq!(body["channelId"], "cB");
-    assert_eq!(body["userId"], "uB");
     assert_eq!(body["postIds"][0], "b1");
+    assert!(body.get("userId").is_none());
 }
 
 #[test]
-fn bookmark_create_requires_all_three() {
+fn bookmark_create_requires_channel_and_posts_and_rejects_user() {
+    assert!(err("im_bookmark_create", json!({ "post_ids": ["x"] }))); // 缺 channel
+    assert!(err("im_bookmark_create", json!({ "channel_id": "c" }))); // 缺 post_ids
     assert!(err(
         "im_bookmark_create",
-        json!({ "user_id": "u", "post_ids": ["x"] })
-    )); // 缺 channel
-    assert!(err(
-        "im_bookmark_create",
-        json!({ "channel_id": "c", "post_ids": ["x"] })
-    )); // 缺 user
-    assert!(err(
-        "im_bookmark_create",
-        json!({ "channel_id": "c", "user_id": "u" })
-    )); // 缺 post_ids
-    assert!(err(
-        "im_bookmark_create",
-        json!({ "channel_id": "c", "user_id": "u", "post_ids": [] })
+        json!({ "channel_id": "c", "post_ids": [] })
     )); // 空数组
+    assert!(err(
+        "im_bookmark_create",
+        json!({ "channel_id": "c", "post_ids": ["x"], "user_id": "u" })
+    )); // 禁止调用方伪造 actor
 }
 
 #[test]
-fn bookmark_delete_builds_user_post_body() {
-    // {userId, postId}（post_bookmark.go:36）
+fn bookmark_delete_builds_channel_post_body() {
+    // 删除必须带 channelId，避免依赖全局 postId 扫描。
     let (url, body) = one_http(run(
         "im_bookmark_delete",
-        json!({ "user_id": "uD", "post_id": "pD" }),
+        json!({ "channel_id": "cD", "post_id": "pD" }),
     ));
     assert_eq!(url, "http://x/api/cses/post/bookmark/delete");
-    assert_eq!(body["userId"], "uD");
+    assert_eq!(body["channelId"], "cD");
     assert_eq!(body["postId"], "pD");
-    assert!(err("im_bookmark_delete", json!({ "user_id": "u" }))); // 缺 post_id
-    assert!(err("im_bookmark_delete", json!({ "post_id": "p" }))); // 缺 user_id
+    assert!(body.get("userId").is_none());
+    assert!(err("im_bookmark_delete", json!({ "post_id": "p" }))); // 缺 channel_id
+    assert!(err("im_bookmark_delete", json!({ "channel_id": "c" }))); // 缺 post_id
+    assert!(err(
+        "im_bookmark_delete",
+        json!({ "channel_id": "c", "post_id": "p", "user_id": "u" })
+    )); // 禁止调用方伪造 actor
 }
 
 #[test]
-fn bookmark_load_builds_channel_user_body() {
-    // {channelId, userId}（post_bookmark.go:17）+ 内嵌 entity.PageOpts 扁平分页字段。
+fn bookmark_load_builds_private_paged_body() {
+    // Go 以 session.currentUserId 限定私有集合；公开请求只携 1-based page 参数。
     let (url, body) = one_http(run(
         "im_bookmark_load",
-        json!({ "channel_id": "cLd", "user_id": "uLd" }),
+        json!({ "channel_id": "cLd", "page_number": 1, "page_size": 20 }),
     ));
     assert_eq!(url, "http://x/api/cses/post/bookmark/load");
     assert_eq!(body["channelId"], "cLd");
-    assert_eq!(body["userId"], "uLd");
-    // 分页缺省时不注入键（边界零信任：仅透传存在的入参，缺省由后端 PageOpts 零值兜底）
-    assert!(body.get("pageSize").is_none());
-    assert!(body.get("pageNumber").is_none());
+    assert_eq!(body["pageNumber"], 1);
+    assert_eq!(body["pageSize"], 20);
+    assert!(body.get("userId").is_none());
     assert!(body.get("offset").is_none());
-    assert!(err("im_bookmark_load", json!({ "channel_id": "c" }))); // 缺 user_id
-    assert!(err("im_bookmark_load", json!({ "user_id": "u" }))); // 缺 channel_id（覆盖 channel_id `?` 早退）
+    assert!(err(
+        "im_bookmark_load",
+        json!({ "channel_id": "c", "page_size": 20 })
+    )); // 缺 page_number
+    assert!(err(
+        "im_bookmark_load",
+        json!({ "channel_id": "c", "page_number": 1 })
+    )); // 缺 page_size
 }
 
 #[test]
-fn bookmark_load_carries_pagination_flat_camel() {
-    // full-map partials/1:543-553：loadPostBookmark 内嵌 entity.PageOpts（embedded struct
-    // → 扁平序列化），前端 queryBookMarks(:763) 透传 {channelId,userId,pageSize,pageNumber?,offset?}。
-    // 01-接口可达性清单.md:333 证 post_bookmark JOIN post raw SQL Limit N+1 主动消费分页 →
-    // pageSize 缺失 = SQL LIMIT≈0/1 = 书签面板最多回 1 条 + hasMore 失真 + 无限滚动断。
-    // 入参 snake_case（Tauri bridge 约定），出 wire 扁平 camelCase（对齐 PageOpts json tag）。
+fn bookmark_load_rejects_user_and_offset_fields() {
+    // actor 与 offset 都是后端内部权威，不能通过 Helix/HTTP wire 进入。
+    assert!(err(
+        "im_bookmark_load",
+        json!({
+            "channel_id": "cP",
+            "page_number": 2,
+            "page_size": 20,
+            "user_id": "uP"
+        })
+    ));
+    assert!(err(
+        "im_bookmark_load",
+        json!({
+            "channel_id": "cP",
+            "page_number": 2,
+            "page_size": 20,
+            "offset": 40
+        })
+    ));
+
     let (url, body) = one_http(run(
         "im_bookmark_load",
         json!({
             "channel_id": "cP",
-            "user_id": "uP",
             "page_size": 20,
-            "page_number": 2,
-            "offset": 40
+            "page_number": 2
         }),
     ));
     assert_eq!(url, "http://x/api/cses/post/bookmark/load");
     assert_eq!(body["channelId"], "cP");
-    assert_eq!(body["userId"], "uP");
-    // 扁平（非嵌套）+ camelCase + 数值原值（不强转字符串）
+    // 扁平 + camelCase；pageNumber/pageSize 由 Go 计算 offset。
     assert_eq!(body["pageSize"], 20);
     assert_eq!(body["pageNumber"], 2);
-    assert_eq!(body["offset"], 40);
-    // 部分分页：只给 pageSize（pageNumber/offset 缺省）→ 只透传存在的
-    let (_, body2) = one_http(run(
-        "im_bookmark_load",
-        json!({ "channel_id": "c", "user_id": "u", "page_size": 50 }),
-    ));
-    assert_eq!(body2["pageSize"], 50);
-    assert!(body2.get("pageNumber").is_none());
-    assert!(body2.get("offset").is_none());
+    assert!(body.get("offset").is_none());
 }
 
 // ── post/announcement/* 读族（endpoint 走 `post/`（单数））────────────────────────────
@@ -444,15 +452,15 @@ const ALL_P3A_READ: &[(&str, fn() -> Value)] = &[
     ("im_get_latest_post", || json!({ "channel_id": "c" })),
     (
         "im_bookmark_create",
-        || json!({ "channel_id": "c", "user_id": "u", "post_ids": ["p"] }),
+        || json!({ "channel_id": "c", "post_ids": ["p"] }),
     ),
     (
         "im_bookmark_delete",
-        || json!({ "user_id": "u", "post_id": "p" }),
+        || json!({ "channel_id": "c", "post_id": "p" }),
     ),
     (
         "im_bookmark_load",
-        || json!({ "channel_id": "c", "user_id": "u" }),
+        || json!({ "channel_id": "c", "page_number": 1, "page_size": 20 }),
     ),
     ("im_announcement_accept_list", || json!({ "post_id": "p" })),
     ("im_announcement_list", || json!({ "channel_id": "c" })),

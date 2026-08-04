@@ -522,13 +522,13 @@ impl ImModule {
 
     /// 通用 HTTP 读回按命令身份投影，并保留原始 req_id 完成 Host 调用。
     pub(super) fn handle_outbound_read_reply(
-        &self,
+        &mut self,
         req_id: &String,
         command: &str,
         channel_id: Option<&str>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
-    ) {
+    ) -> Result<(), ImError> {
         match outcome {
             PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
                 Ok(raw_body) => {
@@ -546,6 +546,20 @@ impl ImModule {
                                 "schedules": schedules,
                             }),
                         ));
+                    } else if command == "im_announcement_list" {
+                        self.emit_announcement_list_reply(
+                            req_id,
+                            channel_id.unwrap_or_default(),
+                            &raw_body,
+                            out,
+                        )?;
+                    } else if command == "im_announcement_delete" {
+                        self.emit_announcement_delete_reply(
+                            req_id,
+                            channel_id.unwrap_or_default(),
+                            &raw_body,
+                            out,
+                        )?;
                     } else {
                         out.push(crate::read_relay::emit_read_result(
                             req_id.as_str(),
@@ -573,6 +587,202 @@ impl ImModule {
                 ));
             }
         }
+        Ok(())
+    }
+
+    /// 把公告 list 回包按频道版本做单调收敛，并同时回灌 typed command result。
+    fn emit_announcement_list_reply(
+        &mut self,
+        req_id: &str,
+        channel_id: &str,
+        raw_body: &[u8],
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let body = match serde_json::from_slice::<serde_json::Value>(raw_body) {
+            Ok(body) => body,
+            Err(error) => {
+                tracing::warn!(req_id, error = ?error, "announcement list response JSON invalid");
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "announcement list response JSON invalid",
+                ));
+                return Ok(());
+            }
+        };
+        let Some(snapshot) =
+            crate::outbound::posts::read_ext::announcement_list_projection(channel_id, &body)
+        else {
+            out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "announcement list response missing canonical versioned snapshot",
+            ));
+            return Ok(());
+        };
+        let version = snapshot
+            .get("version")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or_default();
+        let Some(channel) = crate::state::ChannelId::from_str(channel_id) else {
+            out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "announcement list response has invalid channel",
+            ));
+            return Ok(());
+        };
+        let committed = self
+            .state
+            .announcement_versions
+            .get(&channel)
+            .copied()
+            .unwrap_or_default();
+        let pending = self
+            .state
+            .announcement_reload_versions
+            .get(&channel)
+            .copied();
+        if version < committed || pending.is_some_and(|expected| version < expected) {
+            out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "stale announcement version",
+            ));
+            return Ok(());
+        }
+        let should_emit = version > committed || pending == Some(version);
+        self.state
+            .announcement_versions
+            .insert(channel, committed.max(version));
+        if pending.is_some_and(|expected| expected <= version) {
+            self.state.announcement_reload_versions.remove(&channel);
+        }
+        if should_emit {
+            out.push(crate::event::announcement::list_updated(snapshot.clone())?.into_effect());
+        }
+        out.push(crate::read_relay::emit_read_body(req_id, snapshot));
+        Ok(())
+    }
+
+    /// 把公告删除回包投影成 typed result；幂等未命中只回灌，不启动列表回读。
+    fn emit_announcement_delete_reply(
+        &mut self,
+        req_id: &str,
+        channel_id: &str,
+        raw_body: &[u8],
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let body = match serde_json::from_slice::<serde_json::Value>(raw_body) {
+            Ok(body) => body,
+            Err(error) => {
+                tracing::warn!(req_id, error = ?error, "announcement delete response JSON invalid");
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "announcement delete response JSON invalid",
+                ));
+                return Ok(());
+            }
+        };
+        let Some(result) =
+            crate::outbound::posts::read_ext::announcement_delete_projection(channel_id, &body)
+        else {
+            out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "announcement delete response missing canonical version",
+            ));
+            return Ok(());
+        };
+        let Some(channel) = crate::state::ChannelId::from_str(channel_id) else {
+            out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "announcement delete response has invalid channel",
+            ));
+            return Ok(());
+        };
+        let version = result
+            .get("version")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or_default();
+        let committed = self
+            .state
+            .announcement_versions
+            .get(&channel)
+            .copied()
+            .unwrap_or_default();
+        let pending = self
+            .state
+            .announcement_reload_versions
+            .get(&channel)
+            .copied();
+        let no_op = result
+            .get("noOp")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(version == 0);
+        if no_op {
+            // no-op 不携带新的列表事实：保留在途 list continuation，且只做版本 max，绝不回滚。
+            if version > committed {
+                self.state.announcement_versions.insert(channel, version);
+            }
+            out.push(crate::read_relay::emit_read_body(req_id, result));
+            return Ok(());
+        }
+        if version < committed || pending.is_some_and(|expected| expected > version) {
+            out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "stale announcement delete version",
+            ));
+            return Ok(());
+        }
+        self.state
+            .announcement_versions
+            .insert(channel, committed.max(version));
+        out.push(crate::read_relay::emit_read_body(req_id, result));
+        self.enqueue_announcement_reload(channel, version, out)
+    }
+
+    /// 为公告变更建立去重的 list HTTP continuation；pending 版本是本频道唯一在途期望。
+    fn enqueue_announcement_reload(
+        &mut self,
+        channel: crate::state::ChannelId,
+        expected_version: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let pending = self
+            .state
+            .announcement_reload_versions
+            .get(&channel)
+            .copied()
+            .unwrap_or_default();
+        if pending >= expected_version {
+            return Ok(());
+        }
+        let corr = self.alloc_corr_internal();
+        let req_id = format!("announcement-refresh-{}", corr.raw());
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "channel_id": channel.as_str(),
+            "req_id": req_id,
+        }))
+        .map_err(|error| ImError::Parse(format!("announcement refresh payload: {error}")))?;
+        let effects = crate::commands::handle_outbound(
+            "im_announcement_list",
+            &payload,
+            self.config.api_base_url.as_str(),
+            self.config.default_api_base_url.as_str(),
+            self.state.connection_id.as_deref(),
+            corr,
+        )?;
+        self.state
+            .announcement_reload_versions
+            .insert(channel, expected_version);
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::OutboundReadReply {
+                req_id,
+                command: "im_announcement_list".to_string(),
+                channel_id: Some(channel.as_str().to_string()),
+            },
+        );
+        for effect in effects {
+            out.push(effect);
+        }
+        Ok(())
     }
 
     /// 校验 exact HTTP 回报、按 viewer 过滤并建立唯一 durable Persist barrier。

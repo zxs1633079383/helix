@@ -200,7 +200,8 @@ pub enum CorrelationContext {
         /// 仅显式 retry 为 true；admission 成功后强制从 Go 权威历史按 temporaryId 对账。
         authoritative_readback: bool,
     },
-    /// 权威历史已命中 retry 消息后的终态持久化回报；timeline 已由同一远端查询发布。
+    /// 发送对账终态持久化回报；retry 的 timeline 已由同一远端查询发布，普通 WS echo
+    /// 则由 `post` handler 的 MessageV3 权威投影发布，因此两者都不再触发额外 latest 回读。
     AuthoritativeSendReconcilePersist { temporary_id: TemporaryId },
     /// 发送事实已由本地存储确认后，重新读取已 attach 的 timeline。
     ///

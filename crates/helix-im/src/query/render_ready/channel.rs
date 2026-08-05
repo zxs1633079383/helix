@@ -97,38 +97,125 @@ fn insert_bool_alias(output: &mut Map<String, Value>, row: &Value, name: &str, k
 
 /// Read a persisted capability without accepting stringly-typed authority values.
 fn persisted_bool(row: &Value, keys: &[&str]) -> Option<bool> {
-    keys.iter().find_map(|key| match row.get(*key) {
-        Some(Value::Bool(value)) => Some(*value),
-        Some(Value::Number(value)) => match value.as_i64() {
-            Some(0) => Some(false),
-            Some(1) => Some(true),
+    let mut parsed = None;
+    for key in keys {
+        let Some(value) = row.get(*key) else {
+            continue;
+        };
+        let Some(current) = (match value {
+            Value::Bool(value) => Some(*value),
+            Value::Number(value) => match value.as_i64() {
+                Some(0) => Some(false),
+                Some(1) => Some(true),
+                _ => None,
+            },
             _ => None,
-        },
-        _ => None,
-    })
+        }) else {
+            // An invalid alias is an authority conflict, never a reason to trust another alias.
+            return None;
+        };
+        if parsed.is_some_and(|previous| previous != current) {
+            return None;
+        }
+        parsed = Some(current);
+    }
+    parsed
 }
 
-/// Derive the Go-equivalent viewer capability only from the persisted viewer role.
-fn role_capability(row: &Value) -> bool {
+/// Read a persisted role without accepting unknown role strings as authority.
+fn persisted_role(row: &Value) -> Option<String> {
     row.get("role")
         .and_then(Value::as_str)
         .map(str::trim)
-        .map(|role| role.to_ascii_uppercase())
-        .is_some_and(|role| {
-            matches!(
-                role.as_str(),
-                "CREATOR" | "OWNER" | "MANAGER" | "ADMIN" | "BOSS"
-            )
-        })
+        .map(str::to_ascii_uppercase)
+        .filter(|role| matches!(role.as_str(), "CREATOR" | "MANAGER" | "MEMBER" | "BOSS"))
+}
+
+/// Read a persisted permission threshold and fail closed for invalid values.
+fn persisted_role_value(row: &Value, keys: &[&str]) -> Option<String> {
+    let mut parsed = None;
+    for key in keys {
+        let Some(value) = row.get(*key).and_then(Value::as_str) else {
+            if row.get(*key).is_some() {
+                return None;
+            }
+            continue;
+        };
+        let normalized = value.trim().to_ascii_uppercase();
+        if !matches!(
+            normalized.as_str(),
+            "CREATOR" | "MANAGER" | "MEMBER" | "BOSS"
+        ) {
+            return None;
+        }
+        if parsed
+            .as_deref()
+            .is_some_and(|previous| previous != normalized)
+        {
+            return None;
+        }
+        parsed = Some(normalized);
+    }
+    parsed
+}
+
+/// Compare role thresholds using the Go ordering: BOSS, CREATOR, MANAGER, MEMBER.
+fn role_at_or_above(role: Option<&str>, required: Option<&str>) -> bool {
+    let role_level = match role {
+        Some("BOSS") => 0,
+        Some("CREATOR") => 1,
+        Some("MANAGER") => 2,
+        Some("MEMBER") => 3,
+        _ => return false,
+    };
+    let required_level = match required {
+        Some("BOSS") => 0,
+        Some("CREATOR") => 1,
+        Some("MANAGER") => 2,
+        Some("MEMBER") => 3,
+        _ => return false,
+    };
+    role_level <= required_level
 }
 
 /// Project absolute settings/member capabilities, preserving persisted Go fields when present.
 fn insert_viewer_capabilities(output: &mut Map<String, Value>, row: &Value) {
-    let derived = role_capability(row);
+    let role = persisted_role(row);
+    let is_open = matches!(
+        pick(row, &["type"]),
+        Value::String(ref value) if value.eq_ignore_ascii_case("O")
+    );
+    let admin_role = matches!(role.as_deref(), Some("CREATOR" | "MANAGER"))
+        || (is_open && matches!(role.as_deref(), Some("BOSS")));
+    let change_role = matches!(role.as_deref(), Some("CREATOR"))
+        || (is_open && matches!(role.as_deref(), Some("BOSS")));
+    let derived_settings = admin_role;
+    let derived_members = admin_role;
+    let derived_notice = role_at_or_above(
+        role.as_deref(),
+        persisted_role_value(row, &["notice_permission", "noticePermission"]).as_deref(),
+    );
+    let derived_top = role_at_or_above(
+        role.as_deref(),
+        persisted_role_value(row, &["top_permission", "topPermission"]).as_deref(),
+    );
+    let can_edit = persisted_bool(
+        row,
+        &["can_edit_channel_settings", "canEditChannelSettings"],
+    )
+    .unwrap_or(derived_settings);
     let can_manage_settings =
-        persisted_bool(row, &["can_manage_settings", "canManageSettings"]).unwrap_or(derived);
+        persisted_bool(row, &["can_manage_settings", "canManageSettings"]).unwrap_or(can_edit);
     let can_manage_members =
-        persisted_bool(row, &["can_manage_members", "canManageMembers"]).unwrap_or(derived);
+        persisted_bool(row, &["can_manage_members", "canManageMembers"]).unwrap_or(derived_members);
+    let can_publish_notice =
+        persisted_bool(row, &["can_publish_notice", "canPublishNotice"]).unwrap_or(derived_notice);
+    let can_change_permissions =
+        persisted_bool(row, &["can_change_permissions", "canChangePermissions"])
+            .unwrap_or(change_role);
+    let can_pin_message =
+        persisted_bool(row, &["can_pin_message", "canPinMessage"]).unwrap_or(derived_top);
+    output.insert("canEditChannelSettings".to_string(), Value::Bool(can_edit));
     output.insert(
         "canManageSettings".to_string(),
         Value::Bool(can_manage_settings),
@@ -137,6 +224,15 @@ fn insert_viewer_capabilities(output: &mut Map<String, Value>, row: &Value) {
         "canManageMembers".to_string(),
         Value::Bool(can_manage_members),
     );
+    output.insert(
+        "canPublishNotice".to_string(),
+        Value::Bool(can_publish_notice),
+    );
+    output.insert(
+        "canChangePermissions".to_string(),
+        Value::Bool(can_change_permissions),
+    );
+    output.insert("canPinMessage".to_string(), Value::Bool(can_pin_message));
 }
 
 /// Project one storage channel row into the MessageV3 channel-list contract.
@@ -150,11 +246,23 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
     insert_alias(
         &mut output,
         row,
+        "channelId",
+        &["channel_id", "channelId", "id"],
+    );
+    insert_alias(
+        &mut output,
+        row,
         "displayName",
         &["display_name", "displayName"],
     );
     insert_alias(&mut output, row, "type", &["type"]);
     insert_alias(&mut output, row, "teamId", &["team_id", "teamId"]);
+    insert_alias(
+        &mut output,
+        row,
+        "companyId",
+        &["company_id", "companyId", "team_id", "teamId"],
+    );
     insert_alias(&mut output, row, "userId", &["user_id", "userId"]);
     insert_alias(&mut output, row, "isActive", &["is_active", "isActive"]);
     insert_alias(
@@ -521,12 +629,12 @@ mod tests {
     #[test]
     fn projects_viewer_capabilities_from_authoritative_role() {
         let rows = json!([
-            { "id": "creator", "role": "CREATOR" },
-            { "id": "manager", "role": "MANAGER" },
-            { "id": "boss", "role": "BOSS" },
-            { "id": "member", "role": "MEMBER" },
-            { "id": "invalid", "role": "UNKNOWN" },
-            { "id": "missing" }
+            { "id": "creator", "type": "P", "role": "CREATOR", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
+            { "id": "manager", "type": "P", "role": "MANAGER", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
+            { "id": "boss", "type": "O", "role": "BOSS", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
+            { "id": "member", "type": "P", "role": "MEMBER", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
+            { "id": "invalid", "type": "P", "role": "UNKNOWN", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
+            { "id": "missing", "type": "P" }
         ]);
 
         let shaped = shape_channel_rows(&rows);
@@ -539,6 +647,10 @@ mod tests {
                 .unwrap();
             assert_eq!(row["canManageSettings"], true, "{id}");
             assert_eq!(row["canManageMembers"], true, "{id}");
+            assert_eq!(row["canEditChannelSettings"], true, "{id}");
+            assert_eq!(row["canChangePermissions"], id != "manager", "{id}");
+            assert_eq!(row["canPublishNotice"], true, "{id}");
+            assert_eq!(row["canPinMessage"], true, "{id}");
         }
         for id in ["member", "invalid", "missing"] {
             let row = shaped
@@ -549,7 +661,28 @@ mod tests {
                 .unwrap();
             assert_eq!(row["canManageSettings"], false, "{id}");
             assert_eq!(row["canManageMembers"], false, "{id}");
+            assert_eq!(row["canEditChannelSettings"], false, "{id}");
+            assert_eq!(row["canPublishNotice"], false, "{id}");
+            assert_eq!(row["canChangePermissions"], false, "{id}");
+            assert_eq!(row["canPinMessage"], false, "{id}");
         }
+    }
+
+    /// Invalid policy values and stringly-typed booleans never grant a capability.
+    #[test]
+    fn fails_closed_for_invalid_policy_and_boolean_values() {
+        let shaped = shape_channel_row(&json!({
+            "id": "invalid-policy",
+            "type": "O",
+            "role": "BOSS",
+            "noticePermission": "UNKNOWN",
+            "topPermission": "UNKNOWN",
+            "can_publish_notice": "true",
+            "can_pin_message": 2
+        }));
+        assert_eq!(shaped["canPublishNotice"], false);
+        assert_eq!(shaped["canPinMessage"], false);
+        assert_eq!(shaped["canManageMembers"], true);
     }
 
     /// Persisted absolute fields win over role fallback and remain JSON booleans.

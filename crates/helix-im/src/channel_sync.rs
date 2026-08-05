@@ -216,6 +216,27 @@ pub(crate) fn page_scan_effect(
     })
 }
 
+/// 构造租户内成员快照 Scan；一次回读服务当前频道页，避免逐频道 N+1 查询。
+pub(crate) fn member_scan_effect(
+    corr: Correlation,
+    company_id: &str,
+) -> Result<Effect, crate::ImError> {
+    if company_id.is_empty() {
+        return Err(crate::ImError::Parse(
+            "im_query_channel_sync_page requires RuntimeAuth company".to_string(),
+        ));
+    }
+    Ok(Effect::Persist {
+        corr,
+        ops: vec![StorageOp::Scan(ScanSpec {
+            table: "channel_member",
+            limit: None,
+            filter: Some(("team_id", SqlValue::Text(company_id.to_string()))),
+            order_by: &[],
+        })],
+    })
+}
+
 /// 将 opaque cursor 绑定到 session/generation，拒绝跨会话伪造或越界 offset。
 pub(crate) fn encode_cursor(session: &ChannelSyncSession, offset: usize) -> String {
     let body = CursorBody {
@@ -275,6 +296,159 @@ pub(crate) fn project_page(
         .take(PAGE_SIZE as usize)
         .collect();
     (page, has_more)
+}
+
+/// 把 channel 页和一次租户成员快照合成为绝对频道分页投影。
+///
+/// `channel_member` 是成员权威表；成功读回的成员快照缺少频道行时直接 fail-closed，
+/// 绝不从 channel 行旧占位字段恢复可见性。返回 `None` 表示任一回包不是严格数组，
+/// 调用方必须保留上一页而不能发布伪造空成员投影。
+pub(crate) fn project_page_with_members(
+    channel_bytes: &[u8],
+    member_bytes: &[u8],
+    scope: &crate::query::DialogListScope,
+    offset: usize,
+) -> Option<(Vec<Value>, bool)> {
+    let Value::Array(channel_rows) = serde_json::from_slice(channel_bytes).ok()? else {
+        return None;
+    };
+    let Value::Array(member_rows) = serde_json::from_slice(member_bytes).ok()? else {
+        return None;
+    };
+    let mut by_channel: std::collections::HashMap<String, Vec<Value>> =
+        std::collections::HashMap::new();
+    for row in member_rows {
+        let Some(object) = row.as_object() else {
+            continue;
+        };
+        let Some(channel_id) = text_field(object, &["channel_id", "channelId"]) else {
+            continue;
+        };
+        let Some(user_id) = text_field(object, &["user_id", "userId", "id"]) else {
+            continue;
+        };
+        let Some(team_id) = text_field(object, &["team_id", "teamId"]) else {
+            continue;
+        };
+        if team_id != scope.company_id {
+            continue;
+        }
+        let role = normalize_projection_role(text_field(object, &["role"]).unwrap_or("MEMBER"));
+        let nickname = text_field(object, &["nick_name", "nickName", "nickname"]).unwrap_or("");
+        by_channel
+            .entry(channel_id.to_string())
+            .or_default()
+            .push(serde_json::json!({
+                "id": user_id,
+                "userId": user_id,
+                "teamId": team_id,
+                "nickName": nickname,
+                "nickname": nickname,
+                "role": role,
+            }));
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    let visible = channel_rows
+        .into_iter()
+        .filter_map(|row| {
+            let channel_id = row
+                .get("id")
+                .or_else(|| row.get("channel_id"))
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())?
+                .to_string();
+            if row
+                .get("team_id")
+                .or_else(|| row.get("teamId"))
+                .and_then(Value::as_str)
+                != Some(scope.company_id.as_str())
+            {
+                return None;
+            }
+            // 成功读回的租户快照是成员权威；缺少该频道成员行时必须 fail-closed，不能回退到
+            // channel.members 旧占位字段把已离群用户重新显示出来。
+            let (row, visible) = attach_member_projection(row, by_channel.get(&channel_id), scope);
+            if visible && seen.insert(channel_id) {
+                Some(crate::query::render_ready::channel::shape_channel_row(&row))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    let has_more = visible.len() > offset.saturating_add(PAGE_SIZE as usize);
+    let page = visible
+        .into_iter()
+        .skip(offset)
+        .take(PAGE_SIZE as usize)
+        .collect();
+    Some((page, has_more))
+}
+
+/// 将成员权威行分桶并覆盖频道的四组成员投影；没有该频道成员行时拒绝可见性。
+fn attach_member_projection(
+    mut row: Value,
+    members: Option<&Vec<Value>>,
+    scope: &crate::query::DialogListScope,
+) -> (Value, bool) {
+    let Some(members) = members else {
+        return (row, false);
+    };
+    if members.is_empty() {
+        return (row, false);
+    }
+    let mut regular = Vec::new();
+    let mut admins = Vec::new();
+    let mut bosses = Vec::new();
+    let mut owner = Value::Null;
+    let mut visible = false;
+    for member in members {
+        let Some(role) = member.get("role").and_then(Value::as_str) else {
+            continue;
+        };
+        visible |= member
+            .get("userId")
+            .and_then(Value::as_str)
+            .is_some_and(|id| id == scope.viewer_user_id);
+        match role {
+            "OWNER" if owner.is_null() => owner = member.clone(),
+            "ADMIN" => admins.push(member.clone()),
+            "BOSS" => bosses.push(member.clone()),
+            _ => regular.push(member.clone()),
+        }
+    }
+    let Some(object) = row.as_object_mut() else {
+        return (row, false);
+    };
+    object.insert("members".to_string(), Value::Array(regular));
+    object.insert("adminUsers".to_string(), Value::Array(admins));
+    object.insert("boss".to_string(), Value::Array(bosses));
+    object.insert("owner".to_string(), owner);
+    object.insert("memberCount".to_string(), Value::from(members.len() as u64));
+    if object.contains_key("member_count") {
+        object.insert(
+            "member_count".to_string(),
+            Value::from(members.len() as u64),
+        );
+    }
+    (row, visible)
+}
+
+/// 读取 storage row 的非空文本列。
+fn text_field<'a>(object: &'a serde_json::Map<String, Value>, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| object.get(*key).and_then(Value::as_str))
+        .filter(|value| !value.is_empty())
+}
+
+/// 对齐 Go/成员写路径的四种持久角色。
+fn normalize_projection_role(role: &str) -> &'static str {
+    match role {
+        "OWNER" | "CREATOR" => "OWNER",
+        "ADMIN" | "MANAGER" | "MANGER" => "ADMIN",
+        "BOSS" => "BOSS",
+        _ => "MEMBER",
+    }
 }
 
 /// 从 JSON object 读取非空字符串字段。
@@ -373,5 +547,83 @@ mod tests {
         assert!(!last_more);
         assert_ne!(first[0]["id"], second[0]["id"]);
         assert_ne!(second[0]["id"], last[0]["id"]);
+    }
+
+    #[test]
+    fn member_projection_reads_authoritative_roles_and_stays_bounded() {
+        let channels = (0..21)
+            .map(|index| {
+                serde_json::json!({
+                    "id": format!("channel-{index}"),
+                    "team_id": "company-a",
+                    "display_name": format!("群 {index}"),
+                    "type": "P",
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut members = Vec::new();
+        for index in 0..21 {
+            members.push(serde_json::json!({
+                "channel_id": format!("channel-{index}"),
+                "user_id": "user-a",
+                "team_id": "company-a",
+                "role": if index == 0 { "OWNER" } else { "MEMBER" },
+                "nick_name": format!("成员 {index}"),
+            }));
+        }
+        let scope = crate::query::DialogListScope::new("user-a", "company-a");
+        let (page, has_more) = project_page_with_members(
+            &serde_json::to_vec(&channels).unwrap(),
+            &serde_json::to_vec(&members).unwrap(),
+            &scope,
+            0,
+        )
+        .expect("valid channel/member snapshots");
+        assert_eq!(page.len(), 20);
+        assert!(has_more);
+        assert_eq!(page[0]["owner"]["userId"], "user-a");
+        assert_eq!(page[0]["memberCount"], 1);
+        assert_eq!(page[0]["owner"]["nickName"], "成员 0");
+    }
+
+    #[test]
+    fn member_projection_does_not_make_wrong_tenant_rows_visible() {
+        let channels = serde_json::json!([{
+            "id": "channel-1",
+            "team_id": "company-a",
+            "type": "P",
+        }]);
+        let members = serde_json::json!([{
+            "channel_id": "channel-1",
+            "user_id": "user-a",
+            "team_id": "company-b",
+            "role": "OWNER",
+        }]);
+        let scope = crate::query::DialogListScope::new("user-a", "company-a");
+        let (page, has_more) = project_page_with_members(
+            &serde_json::to_vec(&channels).unwrap(),
+            &serde_json::to_vec(&members).unwrap(),
+            &scope,
+            0,
+        )
+        .expect("valid snapshots");
+        assert!(page.is_empty());
+        assert!(!has_more);
+    }
+
+    #[test]
+    fn successful_empty_member_snapshot_does_not_fallback_to_channel_placeholder() {
+        let channels = serde_json::json!([{
+            "id": "channel-1",
+            "team_id": "company-a",
+            "members": [{"userId": "user-a"}],
+            "type": "P",
+        }]);
+        let scope = crate::query::DialogListScope::new("user-a", "company-a");
+        let (page, has_more) =
+            project_page_with_members(&serde_json::to_vec(&channels).unwrap(), b"[]", &scope, 0)
+                .expect("valid snapshots");
+        assert!(page.is_empty());
+        assert!(!has_more);
     }
 }

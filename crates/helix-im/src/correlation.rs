@@ -170,6 +170,18 @@ pub enum CorrelationContext {
         req_id: Option<String>,
     },
 
+    /// 频道页首段 channel Scan 成功后的单次 channel_member 快照回读。
+    ///
+    /// channel 与 channel_member 必须分两次 Scan：Host 只回传最后一个 Scan 的 bytes，
+    /// 因此把首段 channel rows 固定在 correlation 中，成员回读成功后才发布最终页。
+    ChannelSyncPageMemberSnapshot {
+        channel_sync_session_id: String,
+        generation: u64,
+        offset: usize,
+        req_id: Option<String>,
+        channel_rows: Box<Vec<serde_json::Value>>,
+    },
+
     /// 在线 post/gate 路径：channel GuardedBump + Get(channel) 的 PortReply 回来后发布
     /// `message.left-dialog-list` 属性 frame。该变体承载“写后累计终值”链路，避免前端按事件 delta 自增。
     ChannelUpdateByPost {
@@ -434,6 +446,19 @@ pub enum CorrelationContext {
         leaves: Vec<String>,
         causation_id: Option<String>,
     },
+
+    /// 在线角色变更首段成员表快照；只有已存在的成员行允许被更新。
+    ChannelMemberRoleScan {
+        channel_id: ChannelId,
+        user_ids: Vec<String>,
+        role: String,
+    },
+
+    /// 在线角色变更的成员表原子写屏障；成功后必须重新读回完整 roster。
+    ChannelMemberRolePersist { channel_id: ChannelId },
+
+    /// 在线角色变更最终成员表读回；只发布绝对 roster，不透传 role delta。
+    ChannelMemberRoleReadback { channel_id: ChannelId },
 
     /// 建群写族 HTTP 回报。服务端可能在 WebSocket 断线期间成功创建 channel，此时不会有
     /// `channel_created` 实时回声；保留已规范化成员，让 HTTP 权威回包也能落当前 channel/member

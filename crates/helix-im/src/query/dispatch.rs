@@ -348,6 +348,11 @@ impl ImModule {
                         channel_sync_session_id: pending_session_id,
                         generation: pending_generation,
                         ..
+                    }
+                    | CorrelationContext::ChannelSyncPageMemberSnapshot {
+                        channel_sync_session_id: pending_session_id,
+                        generation: pending_generation,
+                        ..
                     } if pending_session_id == &session_id && *pending_generation == generation
                 )
             });

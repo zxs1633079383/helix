@@ -315,6 +315,22 @@ impl ImModule {
                 out,
             )?,
 
+            CorrelationContext::ChannelSyncPageMemberSnapshot {
+                channel_sync_session_id,
+                generation,
+                offset,
+                req_id,
+                channel_rows,
+            } => self.handle_channel_sync_page_member_reply(
+                channel_sync_session_id,
+                generation,
+                offset,
+                req_id,
+                channel_rows,
+                outcome,
+                out,
+            )?,
+
             CorrelationContext::IncrementHydrationPersist {
                 channel_id,
                 req_id,
@@ -1023,6 +1039,19 @@ impl ImModule {
                     );
                 }
             },
+
+            CorrelationContext::ChannelMemberRoleScan {
+                channel_id,
+                user_ids,
+                role,
+            } => self
+                .handle_channel_member_role_scan_reply(channel_id, user_ids, role, outcome, out)?,
+            CorrelationContext::ChannelMemberRolePersist { channel_id } => {
+                self.handle_channel_member_role_persist_reply(channel_id, outcome, out)?;
+            }
+            CorrelationContext::ChannelMemberRoleReadback { channel_id } => {
+                self.handle_channel_member_role_readback_reply(channel_id, outcome, out)?;
+            }
 
             CorrelationContext::OutboundChannelCreate {
                 members,

@@ -55,3 +55,18 @@ cursor 绑定、Persist 成功/失败与 ready 一次性、complete scope/idempo
 增量读取在没有 `req_id` 时保留内部 hydration 上下文；显式 `req_id` 时复用统一
 `OutboundReadReply`/`im:read:result` 纯读回灌路径，不增加 Storage、WS 或第二结果事件。
 `channelIncrement` 专用事件生产者尚未在本仓发现，不能据此宣称 G09d canonical 事件完成。
+
+## Phase 2 时间线单活动窗口修复
+
+`TimelineState` 以 `active_window_by_channel` 维护每个频道唯一活动窗口。latest/locate
+`replace` 先校验 rows，再淘汰同频道旧 slots、attachments 和 navigation token；旧异步 page
+回包不能通过 `entry(...).or_insert` 复活已淘汰窗口。`paging_context_for_anchor` 与
+`unique_attached_window_for_channel` 只查询活动窗口，缺失或过期 anchor 以结构化 read error
+结束，不再抛出裸 `im_load_older_context requires...` engine-step parse error。
+
+Timeline HTTP、Persist、SQLite read-back 及最终 Emit 均在继续前重检 active window；窗口已替换时
+只记录脱敏 stale 诊断并失败安全。transport reconnect 仍按既有规则保留 viewer-local attachment，
+身份/generation reset 由 `ImState::reset_recent_query_coverage` 清除全部时间线状态。
+
+`timeline_state` 单测覆盖同频道换窗、旧 merge、当前 older、同 token 导航、跨频道隔离和 reset；
+真实群聊切换、上拉与 SQLite read-back 仍需用户在人工验收阶段确认。

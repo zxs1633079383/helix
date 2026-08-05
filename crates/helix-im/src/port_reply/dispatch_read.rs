@@ -48,6 +48,21 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if !self
+            .state
+            .timeline_state
+            .is_active_window(state.channel_id().as_str(), state.window_token())
+        {
+            tracing::debug!(
+                channel_id = state.channel_id().as_str(),
+                stale_window_token = state.window_token(),
+                request_id = state.request_id().unwrap_or_default(),
+                direction = timeline_navigation_direction(&state),
+                "timeline HTTP reply ignored for stale window"
+            );
+            self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+            return Ok(());
+        }
         if locate_navigation_is_stale(&self.state.timeline_state, &state) {
             tracing::debug!(
                 channel_id = state.channel_id().as_str(),
@@ -241,6 +256,21 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if !self
+            .state
+            .timeline_state
+            .is_active_window(state.channel_id().as_str(), state.window_token())
+        {
+            tracing::debug!(
+                channel_id = state.channel_id().as_str(),
+                stale_window_token = state.window_token(),
+                request_id = state.request_id().unwrap_or_default(),
+                direction = timeline_navigation_direction(&state),
+                "timeline read-back ignored for stale window"
+            );
+            self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+            return Ok(());
+        }
         if locate_navigation_is_stale(&self.state.timeline_state, &state) {
             tracing::debug!(
                 channel_id = state.channel_id().as_str(),
@@ -1539,6 +1569,17 @@ fn locate_navigation_is_stale(
             navigation_token,
         ),
         _ => false,
+    }
+}
+
+/// 返回日志使用的导航方向，不把完整 payload 写入日志。
+fn timeline_navigation_direction(
+    state: &crate::timeline_navigation::TimelineNavigationState,
+) -> &'static str {
+    match state.kind() {
+        crate::timeline_navigation::TimelineNavigationKind::Older { .. } => "older",
+        crate::timeline_navigation::TimelineNavigationKind::Newer { .. } => "newer",
+        crate::timeline_navigation::TimelineNavigationKind::Locate { .. } => "locate",
     }
 }
 

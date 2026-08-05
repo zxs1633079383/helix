@@ -106,16 +106,20 @@ impl ImModule {
             n if n == crate::older_context::LOAD_OLDER_CONTEXT => {
                 let (channel_id, anchor_post_id, page_size, request_id) =
                     crate::timeline_navigation::parse_older_request(payload)?;
-                let (page, _, cursor) = self
+                let Some((page, _, cursor)) = self
                     .state
                     .timeline_state
                     .paging_context_for_anchor(channel_id.as_str(), &anchor_post_id)
-                    .ok_or_else(|| {
-                        ImError::Parse(
-                            "im_load_older_context requires one attached timeline containing anchor"
-                                .to_string(),
-                        )
-                    })?;
+                else {
+                    self.emit_timeline_navigation_request_failure(
+                        channel_id.as_str(),
+                        "older",
+                        anchor_post_id.as_str(),
+                        request_id.as_deref(),
+                        out,
+                    )?;
+                    return Ok(());
+                };
                 let state = crate::timeline_navigation::TimelineNavigationState::older(
                     channel_id,
                     page,
@@ -130,16 +134,20 @@ impl ImModule {
             n if n == crate::timeline_navigation::LOAD_NEWER_CONTEXT => {
                 let (channel_id, anchor_post_id, page_size, request_id) =
                     crate::timeline_navigation::parse_newer_request(payload)?;
-                let (page, _, cursor) = self
+                let Some((page, _, cursor)) = self
                     .state
                     .timeline_state
                     .paging_context_for_anchor(channel_id.as_str(), &anchor_post_id)
-                    .ok_or_else(|| {
-                        ImError::Parse(
-                            "im_load_newer_context requires one attached timeline containing anchor"
-                                .to_string(),
-                        )
-                    })?;
+                else {
+                    self.emit_timeline_navigation_request_failure(
+                        channel_id.as_str(),
+                        "newer",
+                        anchor_post_id.as_str(),
+                        request_id.as_deref(),
+                        out,
+                    )?;
+                    return Ok(());
+                };
                 let state = crate::timeline_navigation::TimelineNavigationState::newer(
                     channel_id,
                     page,
@@ -156,13 +164,20 @@ impl ImModule {
             {
                 let (channel_id, target_message_id, page_size, request_id, navigation_token) =
                     crate::timeline_navigation::parse_locate_request_for_command(payload, n)?;
-                let (window_token, _) = self
+                let Some((window_token, _)) = self
                     .state
                     .timeline_state
                     .unique_attached_window_for_channel(channel_id.as_str())
-                    .ok_or_else(|| {
-                        ImError::Parse(format!("{n} requires one attached timeline for channel"))
-                    })?;
+                else {
+                    self.emit_timeline_navigation_request_failure(
+                        channel_id.as_str(),
+                        "locate",
+                        target_message_id.as_str(),
+                        request_id.as_deref(),
+                        out,
+                    )?;
+                    return Ok(());
+                };
                 let navigation_token = navigation_token
                     .or_else(|| request_id.clone())
                     .unwrap_or_else(|| format!("locate:{target_message_id}"));
@@ -194,6 +209,47 @@ impl ImModule {
                 self.start_timeline_navigation_http(state, out);
             }
             _ => tracing::debug!("im: query dispatch miss '{}'", name),
+        }
+        Ok(())
+    }
+
+    /// 把未附着或已淘汰的时间线请求结算为可关联失败，避免引擎步骤抛出裸解析错误。
+    fn emit_timeline_navigation_request_failure(
+        &self,
+        channel_id: &str,
+        direction: &str,
+        anchor_post_id: &str,
+        request_id: Option<&str>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let active_window_token = self
+            .state
+            .timeline_state
+            .unique_attached_window_for_channel(channel_id)
+            .map(|(token, _)| token)
+            .unwrap_or_default();
+        let (slot_count, attachment_count) = self.state.timeline_state.window_counts();
+        tracing::warn!(
+            channel_id,
+            active_window_token = active_window_token.as_str(),
+            direction,
+            anchor_present = !anchor_post_id.is_empty(),
+            slot_count,
+            attachment_count,
+            "timeline navigation rejected before HTTP: active window missing or anchor is stale"
+        );
+        if let Some(request_id) = request_id {
+            out.push(crate::read_relay::emit_read_error(
+                request_id,
+                "timeline window is stale or unattached",
+            ));
+        } else {
+            tracing::debug!(
+                channel_id,
+                direction,
+                anchor_post_id,
+                "timeline failure has no request id"
+            );
         }
         Ok(())
     }
@@ -453,6 +509,34 @@ mod phase2_contract_tests {
         ));
         module.state.reset_message_v3_identity();
         assert!(module.state.channel_sync_session.is_none());
+    }
+
+    /// 未附着窗口的 older 请求通过 req_id 回灌结构化失败，不再抛出 engine step parse error。
+    #[test]
+    fn older_without_attached_window_returns_structured_failure() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let mut out = EffectSink::new();
+        module
+            .handle_query_command(
+                crate::older_context::LOAD_OLDER_CONTEXT,
+                &serde_json::to_vec(&serde_json::json!({
+                    "channel_id": CHANNEL_ID,
+                    "anchor_post_id": "anchor-not-attached",
+                    "pageSize": 40,
+                    "req_id": "older-failure-1",
+                }))
+                .expect("older payload serializes"),
+                &mut out,
+            )
+            .expect("missing attachment is a structured failure");
+
+        let Effect::Emit { event } = out.as_slice().first().expect("failure event emitted") else {
+            panic!("missing attachment must emit read result");
+        };
+        let event: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+        assert_eq!(event["event"], "im:read:result");
+        assert_eq!(event["data"]["req_id"], "older-failure-1");
+        assert!(event["data"].get("error").is_some());
     }
 
     /// ready 后 page 只注册当前 session 的 account-local Scan，未知 session fail-closed。

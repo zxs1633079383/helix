@@ -1378,19 +1378,35 @@ impl ImModule {
             }
 
             // matching PersistOk 后才允许启动页内 readback。
-            CorrelationContext::TimelineNavigationCache { state } => match outcome {
-                PortOutcome::Ok(_) => {
-                    self.schedule_timeline_navigation_readback(state, out)?;
-                }
-                PortOutcome::Err(error) => {
-                    tracing::warn!(
+            CorrelationContext::TimelineNavigationCache { state } => {
+                if !self
+                    .state
+                    .timeline_state
+                    .is_active_window(state.channel_id().as_str(), state.window_token())
+                {
+                    tracing::debug!(
                         channel_id = state.channel_id().as_str(),
-                        error = ?error,
-                        "timeline navigation persist failed"
+                        stale_window_token = state.window_token(),
+                        request_id = state.request_id().unwrap_or_default(),
+                        "timeline persist reply ignored for stale window"
                     );
                     self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+                } else {
+                    match outcome {
+                        PortOutcome::Ok(_) => {
+                            self.schedule_timeline_navigation_readback(state, out)?;
+                        }
+                        PortOutcome::Err(error) => {
+                            tracing::warn!(
+                                channel_id = state.channel_id().as_str(),
+                                error = ?error,
+                                "timeline navigation persist failed"
+                            );
+                            self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+                        }
+                    }
                 }
-            },
+            }
 
             // readback 是成功事件的最后一道本地事实屏障。
             CorrelationContext::TimelineNavigationReadback { state } => {

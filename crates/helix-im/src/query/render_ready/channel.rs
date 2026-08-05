@@ -95,6 +95,50 @@ fn insert_bool_alias(output: &mut Map<String, Value>, row: &Value, name: &str, k
     }
 }
 
+/// Read a persisted capability without accepting stringly-typed authority values.
+fn persisted_bool(row: &Value, keys: &[&str]) -> Option<bool> {
+    keys.iter().find_map(|key| match row.get(*key) {
+        Some(Value::Bool(value)) => Some(*value),
+        Some(Value::Number(value)) => match value.as_i64() {
+            Some(0) => Some(false),
+            Some(1) => Some(true),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+/// Derive the Go-equivalent viewer capability only from the persisted viewer role.
+fn role_capability(row: &Value) -> bool {
+    row.get("role")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .map(|role| role.to_ascii_uppercase())
+        .is_some_and(|role| {
+            matches!(
+                role.as_str(),
+                "CREATOR" | "OWNER" | "MANAGER" | "ADMIN" | "BOSS"
+            )
+        })
+}
+
+/// Project absolute settings/member capabilities, preserving persisted Go fields when present.
+fn insert_viewer_capabilities(output: &mut Map<String, Value>, row: &Value) {
+    let derived = role_capability(row);
+    let can_manage_settings =
+        persisted_bool(row, &["can_manage_settings", "canManageSettings"]).unwrap_or(derived);
+    let can_manage_members =
+        persisted_bool(row, &["can_manage_members", "canManageMembers"]).unwrap_or(derived);
+    output.insert(
+        "canManageSettings".to_string(),
+        Value::Bool(can_manage_settings),
+    );
+    output.insert(
+        "canManageMembers".to_string(),
+        Value::Bool(can_manage_members),
+    );
+}
+
 /// Project one storage channel row into the MessageV3 channel-list contract.
 pub(crate) fn shape_channel_row(row: &Value) -> Value {
     let Some(object) = row.as_object() else {
@@ -183,6 +227,7 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
     insert_alias(&mut output, row, "isRemove", &["is_remove", "isRemove"]);
     insert_alias(&mut output, row, "deleteAt", &["delete_at", "deleteAt"]);
     insert_alias(&mut output, row, "role", &["role"]);
+    insert_viewer_capabilities(&mut output, row);
     insert_alias(&mut output, row, "orient", &["orient"]);
     insert_alias(&mut output, row, "purpose", &["purpose"]);
     insert_alias(
@@ -470,5 +515,54 @@ mod tests {
         assert_eq!(shaped[7]["urgentCount"], 0);
         assert_eq!(shaped[6]["urgentCount"], 6);
         assert_eq!(shaped[19]["urgentCount"], 19);
+    }
+
+    /// Channel pages expose the Go-equivalent absolute capabilities for every persisted viewer role.
+    #[test]
+    fn projects_viewer_capabilities_from_authoritative_role() {
+        let rows = json!([
+            { "id": "creator", "role": "CREATOR" },
+            { "id": "manager", "role": "MANAGER" },
+            { "id": "boss", "role": "BOSS" },
+            { "id": "member", "role": "MEMBER" },
+            { "id": "invalid", "role": "UNKNOWN" },
+            { "id": "missing" }
+        ]);
+
+        let shaped = shape_channel_rows(&rows);
+        for id in ["creator", "manager", "boss"] {
+            let row = shaped
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == id)
+                .unwrap();
+            assert_eq!(row["canManageSettings"], true, "{id}");
+            assert_eq!(row["canManageMembers"], true, "{id}");
+        }
+        for id in ["member", "invalid", "missing"] {
+            let row = shaped
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == id)
+                .unwrap();
+            assert_eq!(row["canManageSettings"], false, "{id}");
+            assert_eq!(row["canManageMembers"], false, "{id}");
+        }
+    }
+
+    /// Persisted absolute fields win over role fallback and remain JSON booleans.
+    #[test]
+    fn preserves_persisted_viewer_capabilities_without_role_inference() {
+        let shaped = shape_channel_row(&json!({
+            "id": "channel-1",
+            "role": "MEMBER",
+            "can_manage_settings": 1,
+            "canManageMembers": false,
+        }));
+
+        assert_eq!(shaped["canManageSettings"], true);
+        assert_eq!(shaped["canManageMembers"], false);
     }
 }

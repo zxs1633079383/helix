@@ -1002,4 +1002,78 @@ mod channel_sync_contract_tests {
             .expect("invalid page rows are handled");
         assert!(failed_out.as_slice().is_empty());
     }
+
+    /// Channel sync pages retain absolute viewer capabilities and reject another company.
+    #[test]
+    fn channel_sync_page_projects_capabilities_with_tenant_scope() {
+        let mut module = module();
+        let session = crate::channel_sync::ChannelSyncSession::new(
+            "session-capabilities".to_string(),
+            7,
+            "user-a",
+            "company-a",
+        );
+        module.state.channel_sync_session = Some(session.clone());
+        let rows = vec![
+            serde_json::json!({
+                "id": "creator-channel",
+                "team_id": "company-a",
+                "user_id": "user-a",
+                "role": "CREATOR",
+                "create_by": "user-a",
+                "owner": "{\"id\":\"user-a\"}",
+                "notice_permission": "MANAGER",
+            }),
+            serde_json::json!({
+                "id": "member-channel",
+                "team_id": "company-a",
+                "user_id": "user-a",
+                "role": "MEMBER",
+                "create_by": "owner-b",
+                "notice_permission": "MANAGER",
+            }),
+            serde_json::json!({
+                "id": "other-company",
+                "team_id": "company-b",
+                "user_id": "user-a",
+                "role": "CREATOR",
+            }),
+        ];
+        let outcome = PortOutcome::Ok(ReplyBytes(Bytes::from(
+            serde_json::to_vec(&rows).expect("rows JSON"),
+        )));
+        let mut out = EffectSink::new();
+
+        module
+            .handle_channel_sync_page_reply(
+                session.channel_sync_session_id,
+                session.generation,
+                0,
+                None,
+                &outcome,
+                &mut out,
+            )
+            .expect("channel page emits");
+
+        let page = event(&out.as_slice()[0]);
+        let items = page["data"]["items"].as_array().expect("items array");
+        assert_eq!(items.len(), 2, "cross-company rows must be fail-closed");
+        let creator = items
+            .iter()
+            .find(|item| item["id"] == "creator-channel")
+            .expect("creator item");
+        assert_eq!(creator["role"], "CREATOR");
+        assert_eq!(creator["createBy"], "user-a");
+        assert_eq!(creator["owner"]["id"], "user-a");
+        assert_eq!(creator["noticePermission"], "MANAGER");
+        assert_eq!(creator["canManageSettings"], true);
+        assert_eq!(creator["canManageMembers"], true);
+
+        let member = items
+            .iter()
+            .find(|item| item["id"] == "member-channel")
+            .expect("member item");
+        assert_eq!(member["canManageSettings"], false);
+        assert_eq!(member["canManageMembers"], false);
+    }
 }

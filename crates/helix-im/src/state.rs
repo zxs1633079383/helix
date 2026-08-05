@@ -255,6 +255,10 @@ pub struct ImState {
     pub(crate) inflight_member_update_seqs: HashSet<(ChannelId, Seq)>,
     pub(crate) committed_member_update_seqs: HashSet<(ChannelId, Seq)>,
 
+    /// 同一频道在线角色变更只允许一条成员表读写链在途；重复 authority 等首链完成后由后续
+    /// increment/member snapshot 收敛，避免并发读改写覆盖新角色。
+    pub(crate) inflight_member_role_updates: HashSet<ChannelId>,
+
     /// 已经通过持久屏障的 G14 authority 版本；用于 O(1) 丢弃重复或倒退的 WS 回执。
     pub(crate) committed_post_reads: BTreeMap<String, (i64, String)>,
 
@@ -341,6 +345,7 @@ impl ImState {
             committed_channel_creates: HashSet::new(),
             inflight_member_update_seqs: HashSet::new(),
             committed_member_update_seqs: HashSet::new(),
+            inflight_member_role_updates: HashSet::new(),
             committed_post_reads: BTreeMap::new(),
             announcement_versions: BTreeMap::new(),
             announcement_reload_versions: BTreeMap::new(),
@@ -362,6 +367,7 @@ impl ImState {
         self.pending_increment_bootstrap_after_scan = false;
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
+        self.inflight_member_role_updates.clear();
         self.subtopic_sync_active = None;
         self.subtopic_sync_completed.clear();
         self.pending_increment_batch_id = None;
@@ -431,6 +437,7 @@ impl ImState {
         self.committed_channel_creates.clear();
         self.inflight_member_update_seqs.clear();
         self.committed_member_update_seqs.clear();
+        self.inflight_member_role_updates.clear();
         self.committed_post_reads.clear();
         self.announcement_versions.clear();
         self.announcement_reload_versions.clear();
@@ -459,6 +466,7 @@ impl ImState {
                     | CorrelationContext::TooLongReloadPersist { .. }
                     | CorrelationContext::IncrementBatchPersist { .. }
                     | CorrelationContext::ChannelSyncPage { .. }
+                    | CorrelationContext::ChannelSyncPageMemberSnapshot { .. }
                     | CorrelationContext::IncrementHydrationPersist { .. }
                     | CorrelationContext::HydrationChannelReadback { .. }
                     | CorrelationContext::HydrationMemberReadback { .. }
@@ -475,6 +483,9 @@ impl ImState {
                     | CorrelationContext::OutboundChannelCreate { .. }
                     | CorrelationContext::ChannelCreatePersist { .. }
                     | CorrelationContext::ChannelMemberUpdatePersist { .. }
+                    | CorrelationContext::ChannelMemberRoleScan { .. }
+                    | CorrelationContext::ChannelMemberRolePersist { .. }
+                    | CorrelationContext::ChannelMemberRoleReadback { .. }
             )
         });
     }

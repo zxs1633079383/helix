@@ -433,24 +433,113 @@ impl ImModule {
             }
             return Ok(());
         }
+        tracing::info!(
+            channel_rows = serde_json::from_slice::<serde_json::Value>(reply.0.as_ref())
+                .ok()
+                .and_then(|value| value.as_array().map(Vec::len))
+                .unwrap_or(0),
+            offset,
+            has_req_id = req_id.is_some(),
+            "channel sync page channel scan accepted; scheduling member snapshot"
+        );
+        let channel_rows = serde_json::from_slice::<serde_json::Value>(reply.0.as_ref())
+            .ok()
+            .and_then(|value| value.as_array().cloned())
+            .ok_or_else(|| ImError::Parse("channel sync page rows are invalid".to_string()))?;
+        let member_corr = self.alloc_corr_internal();
+        let member_effect =
+            crate::channel_sync::member_scan_effect(member_corr, self.config.company_id.as_str())?;
+        self.state.corr_map.insert(
+            member_corr,
+            crate::state::CorrelationContext::ChannelSyncPageMemberSnapshot {
+                channel_sync_session_id,
+                generation,
+                offset,
+                req_id,
+                channel_rows: Box::new(channel_rows),
+            },
+        );
+        out.push(member_effect);
+        Ok(())
+    }
+
+    /// 成员快照持久读回后组装并发布单一绝对频道页；任一 scope/回包失败都不发空投影。
+    pub(super) fn handle_channel_sync_page_member_reply(
+        &mut self,
+        channel_sync_session_id: String,
+        generation: u64,
+        offset: usize,
+        req_id: Option<String>,
+        channel_rows: Box<Vec<serde_json::Value>>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let Some(session) = self.state.channel_sync_session.as_ref() else {
+            if let Some(req_id) = req_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "channel sync session is not ready",
+                ));
+            }
+            return Ok(());
+        };
+        if session.channel_sync_session_id != channel_sync_session_id
+            || session.generation != generation
+            || session.completed
+            || session.account_id != self.config.auth_user_id
+            || session.company_id != self.config.company_id
+        {
+            tracing::warn!("channel sync member snapshot scope mismatch");
+            if let Some(req_id) = req_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "channel sync member snapshot scope mismatch",
+                ));
+            }
+            return Ok(());
+        }
+        let PortOutcome::Ok(member_reply) = outcome else {
+            tracing::warn!("channel sync member snapshot failed; preserving previous page");
+            if let Some(req_id) = req_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "channel sync member snapshot failed",
+                ));
+            }
+            return Ok(());
+        };
         let scope = crate::query::DialogListScope::new(
             self.config.auth_user_id.as_str(),
             self.config.company_id.as_str(),
         );
-        let (items, has_more) = crate::channel_sync::project_page(reply.0.as_ref(), &scope, offset);
-        tracing::info!(
+        let Some((items, has_more)) = crate::channel_sync::project_page_with_members(
+            &serde_json::to_vec(channel_rows.as_ref()).unwrap_or_default(),
+            member_reply.0.as_ref(),
+            &scope,
             offset,
-            items = items.len(),
-            has_more,
-            has_req_id = req_id.is_some(),
-            "channel sync page local scan projected"
-        );
+        ) else {
+            tracing::warn!("channel sync member snapshot returned invalid rows; preserving page");
+            if let Some(req_id) = req_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "channel sync member snapshot rows are invalid",
+                ));
+            }
+            return Ok(());
+        };
         let next_cursor = has_more.then(|| {
             crate::channel_sync::encode_cursor(
                 session,
                 offset + crate::channel_sync::PAGE_SIZE as usize,
             )
         });
+        tracing::info!(
+            offset,
+            items = items.len(),
+            has_more,
+            has_req_id = req_id.is_some(),
+            "channel sync page member snapshot projected"
+        );
         if let Some(req_id) = req_id.as_deref() {
             // query bridge 统一等待 `im:read:result`; body 仍是 Helix 生成的 typed page，
             // Host 不需要恢复旧 raw channel/increment 事件。
@@ -477,6 +566,231 @@ impl ImModule {
                 .into_effect(),
             );
         }
+        Ok(())
+    }
+
+    /// 将角色变更首段成员快照编译为只更新既有成员行的原子 upsert。
+    pub(super) fn handle_channel_member_role_scan_reply(
+        &mut self,
+        channel_id: crate::state::ChannelId,
+        user_ids: Vec<String>,
+        role: String,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let PortOutcome::Ok(reply) = outcome else {
+            self.state.inflight_member_role_updates.remove(&channel_id);
+            tracing::warn!(channel_id = %channel_id.as_str(), "channel member role snapshot failed; preserving roster");
+            return Ok(());
+        };
+        let rows = serde_json::from_slice::<serde_json::Value>(reply.0.as_ref())
+            .ok()
+            .and_then(|value| value.as_array().cloned());
+        let Some(rows) = rows else {
+            self.state.inflight_member_role_updates.remove(&channel_id);
+            tracing::warn!(channel_id = %channel_id.as_str(), "channel member role snapshot invalid; preserving roster");
+            return Ok(());
+        };
+        let mut upsert_rows = Vec::with_capacity(user_ids.len());
+        for user_id in &user_ids {
+            let Some(row) = rows.iter().find(|row| {
+                row.get("channel_id")
+                    .or_else(|| row.get("channelId"))
+                    .and_then(serde_json::Value::as_str)
+                    == Some(channel_id.as_str())
+                    && row
+                        .get("user_id")
+                        .or_else(|| row.get("userId"))
+                        .and_then(serde_json::Value::as_str)
+                        == Some(user_id.as_str())
+            }) else {
+                self.state.inflight_member_role_updates.remove(&channel_id);
+                tracing::warn!(channel_id = %channel_id.as_str(), user_id, "channel member role update rejected: member row missing");
+                return Ok(());
+            };
+            let Some(team_id) = row
+                .get("team_id")
+                .or_else(|| row.get("teamId"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.is_empty())
+            else {
+                self.state.inflight_member_role_updates.remove(&channel_id);
+                tracing::warn!(channel_id = %channel_id.as_str(), user_id, "channel member role update rejected: member tenant missing");
+                return Ok(());
+            };
+            let nick_name = row
+                .get("nick_name")
+                .or_else(|| row.get("nickName"))
+                .or_else(|| row.get("nickname"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            upsert_rows.push(vec![
+                (
+                    "channel_id".to_string(),
+                    helix_core::effect::SqlValue::Text(channel_id.as_str().to_string()),
+                ),
+                (
+                    "user_id".to_string(),
+                    helix_core::effect::SqlValue::Text(user_id.clone()),
+                ),
+                (
+                    "team_id".to_string(),
+                    helix_core::effect::SqlValue::Text(team_id.to_string()),
+                ),
+                (
+                    "role".to_string(),
+                    helix_core::effect::SqlValue::Text(role.clone()),
+                ),
+                (
+                    "nick_name".to_string(),
+                    helix_core::effect::SqlValue::Text(nick_name.to_string()),
+                ),
+            ]);
+        }
+        let corr = self.alloc_corr_internal();
+        self.state.corr_map.insert(
+            corr,
+            crate::state::CorrelationContext::ChannelMemberRolePersist { channel_id },
+        );
+        out.push(helix_core::Effect::PersistAtomic {
+            corr,
+            ops: vec![helix_core::effect::StorageOp::BatchUpsert(
+                helix_core::effect::UpsertSpec {
+                    table: "channel_member",
+                    rows: upsert_rows,
+                    conflict_key: Some("channel_id,user_id"),
+                    exclude_from_update: vec!["team_id", "nick_name"],
+                },
+            )],
+        });
+        Ok(())
+    }
+
+    /// 角色成员表写成功后发起同频道 roster 读回，确保 UI 只收到持久化终态。
+    pub(super) fn handle_channel_member_role_persist_reply(
+        &mut self,
+        channel_id: crate::state::ChannelId,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if !matches!(outcome, PortOutcome::Ok(_)) {
+            self.state.inflight_member_role_updates.remove(&channel_id);
+            tracing::warn!(channel_id = %channel_id.as_str(), "channel member role persist failed; suppressing roster");
+            return Ok(());
+        }
+        let corr = self.alloc_corr_internal();
+        self.state.corr_map.insert(
+            corr,
+            crate::state::CorrelationContext::ChannelMemberRoleReadback { channel_id },
+        );
+        out.push(helix_core::Effect::Persist {
+            corr,
+            ops: vec![helix_core::effect::StorageOp::Scan(
+                helix_core::effect::ScanSpec {
+                    table: "channel_member",
+                    limit: None,
+                    filter: Some((
+                        "channel_id",
+                        helix_core::effect::SqlValue::Text(channel_id.as_str().to_string()),
+                    )),
+                    order_by: &[],
+                },
+            )],
+        });
+        Ok(())
+    }
+
+    /// 角色写后读回成员绝对 roster，并通过既有 channelMemberUpdated consumer 刷新 Angular。
+    pub(super) fn handle_channel_member_role_readback_reply(
+        &mut self,
+        channel_id: crate::state::ChannelId,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        self.state.inflight_member_role_updates.remove(&channel_id);
+        let PortOutcome::Ok(reply) = outcome else {
+            tracing::warn!(channel_id = %channel_id.as_str(), "channel member role readback failed; preserving roster");
+            return Ok(());
+        };
+        let Some(rows) = serde_json::from_slice::<serde_json::Value>(reply.0.as_ref())
+            .ok()
+            .and_then(|value| value.as_array().cloned())
+        else {
+            tracing::warn!(channel_id = %channel_id.as_str(), "channel member role readback invalid; preserving roster");
+            return Ok(());
+        };
+        let mut members = Vec::new();
+        let mut admins = Vec::new();
+        let mut bosses = Vec::new();
+        let mut owner = serde_json::Value::Null;
+        for row in rows {
+            let Some(object) = row.as_object() else {
+                continue;
+            };
+            let Some(user_id) = object
+                .get("user_id")
+                .or_else(|| object.get("userId"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            let Some(team_id) = object
+                .get("team_id")
+                .or_else(|| object.get("teamId"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            let role = normalize_member_projection_role(
+                object
+                    .get("role")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("MEMBER"),
+            );
+            let nick_name = object
+                .get("nick_name")
+                .or_else(|| object.get("nickName"))
+                .or_else(|| object.get("nickname"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let member = serde_json::json!({
+                "id": user_id,
+                "userId": user_id,
+                "teamId": team_id,
+                "nickName": nick_name,
+                "nickname": nick_name,
+                "role": role,
+            });
+            match role {
+                "OWNER" if owner.is_null() => owner = member,
+                "ADMIN" => admins.push(member),
+                "BOSS" => bosses.push(member),
+                _ => members.push(member),
+            }
+        }
+        let member_count =
+            members.len() + admins.len() + bosses.len() + usize::from(!owner.is_null());
+        let channel = crate::query::render_ready::channel::shape_channel_row(&serde_json::json!({
+            "id": channel_id.as_str(),
+            "channelId": channel_id.as_str(),
+            "members": members,
+            "adminUsers": admins,
+            "boss": bosses,
+            "owner": owner,
+            "memberCount": member_count,
+            "isMemberChange": true,
+        }));
+        out.push(
+            crate::event::channel_member::updated(serde_json::json!({
+                "channelId": channel_id.as_str(),
+                "channel": channel,
+                "isMemberChange": true,
+                "projectionSource": "channel_member_role_updated",
+            }))?
+            .into_effect(),
+        );
         Ok(())
     }
 
@@ -816,6 +1130,16 @@ impl ImModule {
     }
 }
 
+/// 将成员表中的 raw role 收敛为频道 roster 的四种绝对角色。
+fn normalize_member_projection_role(role: &str) -> &'static str {
+    match role.trim().to_ascii_uppercase().as_str() {
+        "OWNER" | "CREATOR" => "OWNER",
+        "BOSS" => "BOSS",
+        "ADMIN" | "MANAGER" | "MANGER" => "ADMIN",
+        _ => "MEMBER",
+    }
+}
+
 #[cfg(test)]
 mod channel_sync_contract_tests {
     use super::*;
@@ -923,32 +1247,61 @@ mod channel_sync_contract_tests {
             })
             .collect::<Vec<_>>();
         let outcome = PortOutcome::Ok(ReplyBytes(Bytes::from(serde_json::to_vec(&rows).unwrap())));
-        let mut out = EffectSink::new();
-        module
-            .handle_channel_sync_page_reply(
-                session.channel_sync_session_id.clone(),
-                session.generation,
-                0,
-                None,
-                &outcome,
-                &mut out,
-            )
-            .expect("first page emits");
+        let member_rows = rows
+            .iter()
+            .map(|row| {
+                serde_json::json!({
+                    "channel_id": row["id"],
+                    "user_id": "user-a",
+                    "team_id": "company-a",
+                    "role": "MEMBER",
+                    "nick_name": "viewer"
+                })
+            })
+            .collect::<Vec<_>>();
+        let member_outcome = PortOutcome::Ok(ReplyBytes(Bytes::from(
+            serde_json::to_vec(&member_rows).unwrap(),
+        )));
+        let finish_page = |module: &mut ImModule,
+                           channel_rows: Vec<serde_json::Value>,
+                           offset: usize,
+                           req_id: Option<String>| {
+            let mut first_out = EffectSink::new();
+            module
+                .handle_channel_sync_page_reply(
+                    session.channel_sync_session_id.clone(),
+                    session.generation,
+                    offset,
+                    req_id.clone(),
+                    &outcome,
+                    &mut first_out,
+                )
+                .expect("channel scan schedules member snapshot");
+            let member_corr = first_out.as_slice().iter().find_map(|effect| match effect {
+                helix_core::Effect::Persist { corr, .. } => Some(*corr),
+                _ => None,
+            });
+            assert!(member_corr.is_some());
+            let mut page_out = EffectSink::new();
+            module
+                .handle_channel_sync_page_member_reply(
+                    session.channel_sync_session_id.clone(),
+                    session.generation,
+                    offset,
+                    req_id,
+                    Box::new(channel_rows),
+                    &member_outcome,
+                    &mut page_out,
+                )
+                .expect("member snapshot emits page");
+            page_out
+        };
+        let out = finish_page(&mut module, rows.clone(), 0, None);
         let first = event(&out.as_slice()[0]);
         assert_eq!(first["data"]["items"].as_array().unwrap().len(), 20);
         assert_eq!(first["data"]["hasMore"], true);
 
-        let mut query_out = EffectSink::new();
-        module
-            .handle_channel_sync_page_reply(
-                "session-a".to_string(),
-                3,
-                0,
-                Some("page-1".to_string()),
-                &outcome,
-                &mut query_out,
-            )
-            .expect("query waiter page emits");
+        let query_out = finish_page(&mut module, rows.clone(), 0, Some("page-1".to_string()));
         let query_result = event(&query_out.as_slice()[0]);
         assert_eq!(query_result["event"], "im:read:result");
         assert_eq!(query_result["data"]["req_id"], "page-1");
@@ -959,32 +1312,12 @@ mod channel_sync_contract_tests {
                 .len(),
             20
         );
-        let mut second_out = EffectSink::new();
-        module
-            .handle_channel_sync_page_reply(
-                session.channel_sync_session_id,
-                session.generation,
-                20,
-                None,
-                &outcome,
-                &mut second_out,
-            )
-            .expect("second page emits");
+        let second_out = finish_page(&mut module, rows.clone(), 20, None);
         let second = event(&second_out.as_slice()[0]);
         assert_eq!(second["data"]["items"].as_array().unwrap().len(), 20);
         assert_eq!(second["data"]["hasMore"], true);
 
-        let mut third_out = EffectSink::new();
-        module
-            .handle_channel_sync_page_reply(
-                "session-a".to_string(),
-                3,
-                40,
-                None,
-                &outcome,
-                &mut third_out,
-            )
-            .expect("third page emits");
+        let third_out = finish_page(&mut module, rows.clone(), 40, None);
         let third = event(&third_out.as_slice()[0]);
         assert_eq!(third["data"]["items"].as_array().unwrap().len(), 1);
         assert_eq!(third["data"]["hasMore"], false);

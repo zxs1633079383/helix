@@ -259,11 +259,144 @@ fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
         &mut h,
         json!({
             "v": 1, "action": "channel_member_role_updated",
+            "data": { "channelId": cid1, "userIds": ["u1"], "role": "REMOVE" }
+        }),
+        1_004,
+    )
+    .expect("role removal must route Ok");
+    let remove_scan_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { corr, .. } => Some(corr.raw()),
+        _ => None,
+    });
+    let Some(remove_scan_corr) = remove_scan_corr else {
+        panic!("role removal must read the existing member row");
+    };
+    h.step(
+        port_reply_with_body(
+            remove_scan_corr,
+            bytes::Bytes::from(
+                serde_json::to_vec(&[json!({
+                    "channel_id": cid1,
+                    "user_id": "u1",
+                    "team_id": "team-a",
+                    "role": "ADMIN",
+                    "nick_name": "成员一"
+                })])
+                .unwrap(),
+            ),
+        ),
+        1_005,
+    );
+    let remove_role = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::PersistAtomic { ops, .. } => ops.iter().find_map(|op| match op {
+            helix_core::effect::StorageOp::BatchUpsert(spec) => spec.rows[0]
+                .iter()
+                .find(|(key, _)| key == "role")
+                .map(|(_, value)| value),
+            _ => None,
+        }),
+        _ => None,
+    });
+    assert!(
+        matches!(remove_role, Some(helix_core::effect::SqlValue::Text(role)) if role == "MEMBER"),
+        "role removal must persist MEMBER, got {remove_role:?}"
+    );
+    let remove_persist_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
+        _ => None,
+    });
+    if let Some(remove_persist_corr) = remove_persist_corr {
+        h.step(port_reply_ok(remove_persist_corr), 1_006);
+        let remove_readback_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
+            _ => None,
+        });
+        if let Some(remove_readback_corr) = remove_readback_corr {
+            h.step(
+                port_reply_with_body(
+                    remove_readback_corr,
+                    bytes::Bytes::from(
+                        serde_json::to_vec(&[json!({
+                            "channel_id": cid1,
+                            "user_id": "u1",
+                            "team_id": "team-a",
+                            "role": "MEMBER",
+                            "nick_name": "成员一"
+                        })])
+                        .unwrap(),
+                    ),
+                ),
+                1_007,
+            );
+        }
+    }
+
+    dispatch(
+        &mut h,
+        json!({
+            "v": 1, "action": "channel_member_role_updated",
             "data": { "channelId": cid1, "userIds": ["u1"], "role": "ADMIN" }
         }),
         1_000,
     )
     .expect("channel_member_role_updated must route Ok");
+    let role_scan_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { corr, .. } => Some(corr.raw()),
+        _ => None,
+    });
+    let Some(role_scan_corr) = role_scan_corr else {
+        panic!("role update must read the authoritative channel_member snapshot first");
+    };
+    assert!(!emit_names(&h.sink)
+        .iter()
+        .any(|n| n == "im:channel:member-updated"));
+    h.step(
+        port_reply_with_body(
+            role_scan_corr,
+            bytes::Bytes::from(
+                serde_json::to_vec(&[json!({
+                    "channel_id": cid1,
+                    "user_id": "u1",
+                    "team_id": "team-a",
+                    "role": "MEMBER",
+                    "nick_name": "成员一"
+                })])
+                .unwrap(),
+            ),
+        ),
+        1_001,
+    );
+    let role_persist_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
+        _ => None,
+    });
+    let Some(role_persist_corr) = role_persist_corr else {
+        panic!("role update must persist the role change atomically");
+    };
+    h.step(port_reply_ok(role_persist_corr), 1_002);
+    let role_readback_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { corr, .. } => Some(corr.raw()),
+        _ => None,
+    });
+    let Some(role_readback_corr) = role_readback_corr else {
+        panic!("role update must read back the complete roster after PersistOk");
+    };
+    h.step(
+        port_reply_with_body(
+            role_readback_corr,
+            bytes::Bytes::from(
+                serde_json::to_vec(&[json!({
+                    "channel_id": cid1,
+                    "user_id": "u1",
+                    "team_id": "team-a",
+                    "role": "ADMIN",
+                    "nick_name": "成员一"
+                })])
+                .unwrap(),
+            ),
+        ),
+        1_003,
+    );
     assert!(emit_names(&h.sink)
         .iter()
         .any(|n| n == "im:channel:member-updated"));

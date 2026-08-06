@@ -13,11 +13,14 @@
 
 use helix_core::effect::{BatchUpdateSpec, GetSpec, ScanSpec, SqlValue, StorageOp, UpsertSpec};
 use helix_core::ports::Storage;
+use helix_core::tick::PortOutcome;
 use helix_driver_host::{execute_storage_ops_atomic, HostStorage};
+use helix_im::acl::sync_effects::batch_upsert_events_with_messages_and_auth;
 use helix_im::acl::to_effect::terminal_tombstone_and_cursor_op;
-use helix_im::channel::event_to_upsert_op;
+use helix_im::channel::{apply_read_op, edit_content_op, event_to_upsert_op, revoke_op};
+use helix_im::parser::parse_sync_response;
 use helix_im::state::{ChannelId, Seq};
-use helix_im::sync_session::{EventEnvelope, EventKind, PostFields};
+use helix_im::sync_session::{EventEnvelope, EventKind, PostFields, SyncResponse};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static DB_SEQ: AtomicUsize = AtomicUsize::new(0);
@@ -183,6 +186,17 @@ fn col_text(row: &helix_core::effect::Row, name: &str) -> String {
     }
 }
 
+/// 执行 type=1 产出的真实 upsert，避免测试只比较 StorageOp 而绕过 SQLite 驱动。
+async fn apply_upsert(storage: &HostStorage, op: StorageOp) {
+    storage
+        .batch_upsert(match op {
+            StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected BatchUpsert, got {other:?}"),
+        })
+        .await
+        .expect("type=1 must persist the complete message row");
+}
+
 /// 核心回归：WS 推送路径用的 `event_to_upsert_op` 落到真 `message` 表（PK=temporary_id）。
 ///
 /// 若回退成写 `messages` 影子表 → execute IM_SCHEMA 不建该表 → batch_upsert 抛
@@ -277,6 +291,93 @@ async fn ws_event_conflict_preserves_local_send_status_until_reconcile() {
     );
 }
 
+/// 在线 WS 稀疏 echo 冲突时，不得把 sync 已落地的加急/回复/已读字段擦空。
+///
+/// 该测试直接执行 `event_to_online_upsert_op` 产出的真 SQLite upsert，锁住
+/// `message_v3_commit_ops -> PersistAtomic` 的第一项写集语义；sync type=1 仍由
+/// `event_to_upsert_op` 保持全量覆盖。
+#[tokio::test]
+async fn sparse_ws_upsert_preserves_sync_rich_fields() {
+    let storage = storage_with_im_schema().await;
+    let mut seeded = post_event(42, 20, "tmp-sparse", "post-sparse", "sync rich");
+    seeded.fields.expedite_map = "{\"recipients\":{\"444\":{\"status\":0}}}".to_string();
+    seeded.fields.reply_id = "reply-parent".to_string();
+    seeded.fields.reply_root_id = "reply-root".to_string();
+    seeded.fields.reply_first_level_id = "reply-first".to_string();
+    seeded.fields.replied_message = "{\"message\":\"parent\"}".to_string();
+    seeded.fields.reply_messages = "{\"reply-child\":{\"message\":\"child\"}}".to_string();
+    seeded.fields.reply_count = 1;
+    seeded.fields.read_bits = "0010".to_string();
+    seeded.fields.snapshot_id = "snapshot-rich".to_string();
+    seeded.fields.update_at = 1_700_000_000_100;
+    apply_upsert(&storage, event_to_upsert_op(&seeded)).await;
+    storage
+        .batch_update(BatchUpdateSpec {
+            table: "message",
+            key_col: "id",
+            key_vals: vec![SqlValue::Text("post-sparse".to_string())],
+            patch: vec![(
+                "send_status".to_string(),
+                SqlValue::Text("failed".to_string()),
+            )],
+        })
+        .await
+        .expect("seed local send status");
+
+    let mut sparse = post_event(42, 21, "tmp-sparse", "post-sparse", "online body");
+    sparse.fields.user_id.clear();
+    sparse.fields.user_snapshot.clear();
+    sparse.fields.expedite_map = "{}".to_string();
+    sparse.fields.reply_id.clear();
+    sparse.fields.reply_root_id.clear();
+    sparse.fields.reply_first_level_id.clear();
+    sparse.fields.replied_message = "{}".to_string();
+    sparse.fields.reply_messages = "{}".to_string();
+    sparse.fields.reply_count = 0;
+    sparse.fields.read_bits.clear();
+    sparse.fields.snapshot_id.clear();
+    sparse.fields.viewers.clear();
+    sparse.fields.mentions.clear();
+    sparse.fields.create_at = 0;
+    sparse.fields.update_at = 0;
+
+    let online_ops = helix_im::channel_write::message_v3_commit_ops(
+        &sparse,
+        "user-zhang",
+        &serde_json::json!({}),
+    );
+    let online_message_op = online_ops
+        .into_iter()
+        .next()
+        .expect("online PersistAtomic must start with a message upsert");
+    apply_upsert(&storage, online_message_op).await;
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(col_text(row, "message"), "online body");
+    assert_eq!(col_text(row, "expedite_map"), seeded.fields.expedite_map);
+    assert_eq!(col_text(row, "reply_id"), "reply-parent");
+    assert_eq!(col_text(row, "reply_root_id"), "reply-root");
+    assert_eq!(col_text(row, "reply_first_level_id"), "reply-first");
+    assert_eq!(
+        col_text(row, "replied_message"),
+        seeded.fields.replied_message
+    );
+    assert_eq!(
+        col_text(row, "reply_messages"),
+        seeded.fields.reply_messages
+    );
+    assert!(matches!(
+        col(row, "reply_count"),
+        Some(SqlValue::Integer(1))
+    ));
+    assert_eq!(col_text(row, "read_bits"), "0010");
+    assert_eq!(col_text(row, "snapshot_id"), "snapshot-rich");
+    assert_eq!(col_text(row, "send_status"), "failed");
+    assert!(matches!(col(row, "event_seq"), Some(SqlValue::Integer(21))));
+}
+
 /// sync 路径 `batch_upsert_events` 同样真落 message 表（与 WS 路径同表同 PK）。
 #[tokio::test]
 async fn sync_events_persist_into_678_message_table() {
@@ -299,6 +400,266 @@ async fn sync_events_persist_into_678_message_table() {
 
     let rows = scan_message_rows(&storage).await;
     assert_eq!(rows.len(), 3, "sync 三条事件全部真落 message 表");
+}
+
+/// sync type=1/2/3/6 在真 SQLite 上保留加急、回复和已读字段，并保持幂等。
+#[tokio::test]
+async fn sync_events_persist_expedite_reply_read_and_revoke_fields() {
+    let storage = storage_with_im_schema().await;
+    let mut upsert = post_event(42, 11, "tmp-rich", "post-rich", "加急消息");
+    upsert.fields.expedite_map = serde_json::json!({
+        "sender": {"id": "678", "name": "擎天柱", "teamId": ""},
+        "recipients": {
+            "444": {"name": "破坏者", "status": 0, "teamId": ""}
+        }
+    })
+    .to_string();
+    upsert.fields.reply_id = "reply-parent".to_string();
+    upsert.fields.reply_root_id = "reply-root".to_string();
+    upsert.fields.reply_first_level_id = "reply-first".to_string();
+    upsert.fields.replied_message = serde_json::json!({
+        "type": "TEXT",
+        "message": "被回复的消息",
+        "repliedUserId": "444",
+        "viewers": ["all"]
+    })
+    .to_string();
+    upsert.fields.reply_messages = serde_json::json!({
+        "reply-child": {
+            "type": "TEXT",
+            "message": "回复1",
+            "replyUserId": "444"
+        }
+    })
+    .to_string();
+    upsert.fields.reply_count = 1;
+    upsert.fields.read_bits = "0010".to_string();
+
+    apply_upsert(&storage, event_to_upsert_op(&upsert)).await;
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1, "type=1 只能落一行");
+    let row = &rows[0];
+    assert_eq!(col_text(row, "expedite_map"), upsert.fields.expedite_map);
+    assert_eq!(col_text(row, "reply_id"), "reply-parent");
+    assert_eq!(col_text(row, "reply_root_id"), "reply-root");
+    assert_eq!(col_text(row, "reply_first_level_id"), "reply-first");
+    assert_eq!(
+        col_text(row, "replied_message"),
+        upsert.fields.replied_message
+    );
+    assert_eq!(
+        col_text(row, "reply_messages"),
+        upsert.fields.reply_messages
+    );
+    assert!(matches!(
+        col(row, "reply_count"),
+        Some(SqlValue::Integer(1))
+    ));
+    assert_eq!(col_text(row, "read_bits"), "0010");
+
+    // 本地发送态是客户端权威列；type=2 不得把它改成 sent 或清空。
+    storage
+        .batch_update(BatchUpdateSpec {
+            table: "message",
+            key_col: "id",
+            key_vals: vec![SqlValue::Text("post-rich".to_string())],
+            patch: vec![(
+                "send_status".to_string(),
+                SqlValue::Text("failed".to_string()),
+            )],
+        })
+        .await
+        .expect("seed local send status");
+
+    let mut edit = upsert.clone();
+    edit.kind = EventKind::PostEdit;
+    edit.seq = Seq(12);
+    edit.fields.message = "加急消息-编辑后".to_string();
+    edit.fields.expedite_map = serde_json::json!({
+        "sender": {"id": "678", "name": "擎天柱", "teamId": ""},
+        "recipients": {
+            "444": {"name": "破坏者", "status": 1, "teamId": ""}
+        }
+    })
+    .to_string();
+    edit.fields.reply_messages = serde_json::json!({
+        "reply-child": {
+            "type": "TEXT",
+            "message": "回复1-更新",
+            "replyUserId": "444"
+        }
+    })
+    .to_string();
+    edit.fields.reply_count = 1;
+    edit.fields.read_bits = "should-stay-0010".to_string();
+    storage
+        .batch_update(match edit_content_op("post-rich", &edit.fields) {
+            StorageOp::BatchUpdate(spec) => spec,
+            other => panic!("expected BatchUpdate, got {other:?}"),
+        })
+        .await
+        .expect("type=2 must update existing message fields");
+
+    let rows = scan_message_rows(&storage).await;
+    let row = &rows[0];
+    assert_eq!(col_text(row, "message"), "加急消息-编辑后");
+    assert_eq!(col_text(row, "expedite_map"), edit.fields.expedite_map);
+    assert_eq!(col_text(row, "reply_id"), "reply-parent");
+    assert_eq!(col_text(row, "reply_messages"), edit.fields.reply_messages);
+    assert!(matches!(
+        col(row, "reply_count"),
+        Some(SqlValue::Integer(1))
+    ));
+    assert_eq!(
+        col_text(row, "read_bits"),
+        "0010",
+        "type=2 不得擦除 read_bits"
+    );
+    assert_eq!(
+        col_text(row, "send_status"),
+        "failed",
+        "type=2 不得覆盖 send_status"
+    );
+
+    // type=6 只覆盖 read_bits，其余消息字段保持 type=2 的结果。
+    storage
+        .batch_update(match apply_read_op("post-rich", "0110") {
+            StorageOp::BatchUpdate(spec) => spec,
+            other => panic!("expected BatchUpdate, got {other:?}"),
+        })
+        .await
+        .expect("type=6 must update read_bits");
+    let rows = scan_message_rows(&storage).await;
+    let row = &rows[0];
+    assert_eq!(col_text(row, "read_bits"), "0110");
+    assert_eq!(col_text(row, "expedite_map"), edit.fields.expedite_map);
+    assert_eq!(col_text(row, "reply_messages"), edit.fields.reply_messages);
+
+    // type=3 只置撤回标记，不删除加急和回复字段。
+    storage
+        .batch_update(match revoke_op("post-rich") {
+            StorageOp::BatchUpdate(spec) => spec,
+            other => panic!("expected BatchUpdate, got {other:?}"),
+        })
+        .await
+        .expect("type=3 must mark revoke");
+    let rows = scan_message_rows(&storage).await;
+    let row = &rows[0];
+    assert!(matches!(col(row, "revoke"), Some(SqlValue::Integer(1))));
+    assert_eq!(col_text(row, "expedite_map"), edit.fields.expedite_map);
+    assert_eq!(col_text(row, "reply_messages"), edit.fields.reply_messages);
+
+    // 重放同一 type=1 必须覆盖同一 temporary_id，而不是产生重复行。
+    apply_upsert(&storage, event_to_upsert_op(&upsert)).await;
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1, "重复同步必须保持单行幂等");
+}
+
+/// 真 `/sync/notify` wire 经 parser、sync effects 和 HostStorage 后仍保留 rich 字段。
+#[tokio::test]
+async fn sync_notify_wire_round_trips_rich_fields_into_sqlite() {
+    let wire = serde_json::json!({
+        "status": "SUCCESS",
+        "data": {
+            "entries": [{
+                "channelId": cid(43),
+                "kind": "events",
+                "events": [
+                    {"eventSeq": 1, "eventType": 1, "msgId": "wire-rich"},
+                    {"eventSeq": 2, "eventType": 2, "msgId": "wire-rich"},
+                    {"eventSeq": 3, "eventType": 6, "msgId": "wire-rich"}
+                ],
+                "nextSeq": 3,
+                "messages": {
+                    "wire-rich": {
+                        "id": "wire-rich",
+                        "temporaryId": "wire-rich-tmp",
+                        "channelId": cid(43),
+                        "userId": "678",
+                        "type": "TEXT",
+                        "message": "加急消息",
+                        "simpleMessage": "加急消息",
+                        "readBits": "0010",
+                        "snapshotId": "wire-snapshot",
+                        "createAt": 1700000000001_i64,
+                        "updateAt": 1700000000002_i64,
+                        "viewers": ["all"],
+                        "mentions": [],
+                        "expediteMap": {
+                            "sender": {"id": "678", "name": "擎天柱", "teamId": ""},
+                            "recipients": {
+                                "444": {"name": "破坏者", "status": 0, "teamId": ""}
+                            }
+                        },
+                        "replyId": "reply-parent",
+                        "replyRootId": "reply-root",
+                        "replyFirstLevelId": "reply-first",
+                        "repliedMessage": {
+                            "type": "TEXT",
+                            "message": "被回复的消息",
+                            "repliedUserId": "444",
+                            "viewers": ["all"]
+                        },
+                        "replyMessages": {
+                            "reply-child": {
+                                "type": "TEXT",
+                                "message": "回复1",
+                                "replyUserId": "444"
+                            }
+                        },
+                        "replyCount": 1
+                    }
+                }
+            }]
+        }
+    });
+    let parsed = parse_sync_response(
+        &serde_json::to_vec(&wire).expect("serialize wire fixture"),
+        channel_id(43),
+    )
+    .expect("真实 sync wire 应可解析");
+    let SyncResponse::Events {
+        events,
+        messages,
+        next_seq,
+        ..
+    } = parsed
+    else {
+        panic!("rich sync wire 必须解析为 Events");
+    };
+    assert_eq!(next_seq.0, 3);
+    assert_eq!(events.len(), 3);
+    assert_eq!(messages.len(), 1);
+
+    let storage = storage_with_im_schema().await;
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "678");
+    assert_eq!(ops.len(), 3, "type1/type2/type6 都必须生成落库操作");
+    for op in &ops {
+        assert!(
+            matches!(
+                execute_storage_ops_atomic(&storage, std::slice::from_ref(op)).await,
+                PortOutcome::Ok(_)
+            ),
+            "sync storage op 必须真实执行成功: {op:?}"
+        );
+    }
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(col_text(row, "temporary_id"), "wire-rich-tmp");
+    assert_eq!(col_text(row, "expedite_map").contains("\"444\""), true);
+    assert_eq!(col_text(row, "reply_id"), "reply-parent");
+    assert_eq!(col_text(row, "reply_root_id"), "reply-root");
+    assert_eq!(col_text(row, "reply_first_level_id"), "reply-first");
+    assert!(col_text(row, "replied_message").contains("被回复的消息"));
+    assert!(col_text(row, "reply_messages").contains("回复1"));
+    assert!(matches!(
+        col(row, "reply_count"),
+        Some(SqlValue::Integer(1))
+    ));
+    assert_eq!(col_text(row, "read_bits"), "0010");
 }
 
 /// 同一事件 re-sync（续拉重叠批）幂等：conflict_key=temporary_id → 覆盖同行，不产生重复。

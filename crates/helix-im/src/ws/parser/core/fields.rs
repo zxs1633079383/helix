@@ -1,4 +1,12 @@
-use crate::sync_session::PostFields;
+use crate::sync_session::{
+    PostFields, POST_FIELD_CHANNEL_ID, POST_FIELD_CREATE_AT, POST_FIELD_EXPEDITE_MAP,
+    POST_FIELD_ID, POST_FIELD_MENTIONS, POST_FIELD_MESSAGE, POST_FIELD_PROPS,
+    POST_FIELD_QUICK_REPLY, POST_FIELD_READ_BITS, POST_FIELD_REPLIED_MESSAGE,
+    POST_FIELD_REPLY_COUNT, POST_FIELD_REPLY_FIRST_LEVEL_ID, POST_FIELD_REPLY_ID,
+    POST_FIELD_REPLY_MESSAGES, POST_FIELD_REPLY_ROOT_ID, POST_FIELD_SIMPLE_MESSAGE,
+    POST_FIELD_SNAPSHOT_ID, POST_FIELD_TOPIC, POST_FIELD_TYPE, POST_FIELD_UPDATE_AT,
+    POST_FIELD_USER_ID, POST_FIELD_USER_SNAPSHOT, POST_FIELD_VIEWERS,
+};
 
 /// 从已在手的 `Value`（root + post 视图）一次性提取落库 owned 字段（HX-C005）。
 ///
@@ -178,6 +186,57 @@ pub(crate) fn extract_post_fields_with_event_seq(
     // replyMessages 非空而 replyCount 缺失/为 0 是服务端旧表 NULL 默认值造成的矛盾行。
     // 预览容器长度是权威总数的下界，parser 在数据已在手时 O(1) 归一，避免前端补算。
     let reply_count = wire_reply_count.max(json_container_len(reply_messages_value));
+    let mut present_fields = 0;
+    for (field, keys) in [
+        (POST_FIELD_ID, &["id"][..]),
+        (POST_FIELD_CHANNEL_ID, &["channelId", "channel_id"]),
+        (POST_FIELD_USER_ID, &["userId", "user_id"]),
+        (POST_FIELD_TYPE, &["type", "post_type"]),
+        (POST_FIELD_MESSAGE, &["message"]),
+        (
+            POST_FIELD_SIMPLE_MESSAGE,
+            &["simpleMessage", "simple_message"],
+        ),
+        (POST_FIELD_PROPS, &["props"]),
+        (POST_FIELD_USER_SNAPSHOT, &["userSnapshot", "user_snapshot"]),
+        (POST_FIELD_CREATE_AT, &["createAt", "create_at"]),
+        (POST_FIELD_UPDATE_AT, &["updateAt", "update_at"]),
+        (POST_FIELD_READ_BITS, &["readBits", "read_bits"]),
+        (POST_FIELD_SNAPSHOT_ID, &["snapshotId", "snapshot_id"]),
+        (POST_FIELD_VIEWERS, &["viewers"]),
+        (POST_FIELD_MENTIONS, &["mentions"]),
+        (POST_FIELD_EXPEDITE_MAP, &["expediteMap", "expedite_map"]),
+        (POST_FIELD_QUICK_REPLY, &["quickReply", "quick_reply"]),
+        (POST_FIELD_TOPIC, &["topic"]),
+        (POST_FIELD_REPLY_ID, &["replyId", "reply_id"]),
+        (POST_FIELD_REPLY_ROOT_ID, &["replyRootId", "reply_root_id"]),
+        (
+            POST_FIELD_REPLY_FIRST_LEVEL_ID,
+            &["replyFirstLevelId", "reply_first_level_id"],
+        ),
+        (
+            POST_FIELD_REPLIED_MESSAGE,
+            &["repliedMessage", "replied_message"],
+        ),
+        (
+            POST_FIELD_REPLY_MESSAGES,
+            &["replyMessages", "reply_messages"],
+        ),
+        (POST_FIELD_REPLY_COUNT, &["replyCount", "reply_count"]),
+    ] {
+        if source_has_any(post, root, keys) {
+            present_fields |= field;
+        }
+    }
+    if !present_fields_has(present_fields, POST_FIELD_QUICK_REPLY)
+        && (post
+            .get("props")
+            .or_else(|| root.get("props"))
+            .and_then(|props| props.get("quickReply").or_else(|| props.get("quick_reply")))
+            .is_some())
+    {
+        present_fields |= POST_FIELD_QUICK_REPLY;
+    }
 
     PostFields {
         temporary_id,
@@ -204,7 +263,19 @@ pub(crate) fn extract_post_fields_with_event_seq(
         replied_message,
         reply_messages,
         reply_count,
+        present_fields,
     }
+}
+
+/// Checks camelCase/snake_case keys in both the nested post and envelope views.
+fn source_has_any(post: &serde_json::Value, root: &serde_json::Value, keys: &[&str]) -> bool {
+    keys.iter()
+        .any(|key| post.get(*key).is_some() || root.get(*key).is_some())
+}
+
+/// Tests one field bit without exposing the presence representation to callers.
+fn present_fields_has(mask: u64, field: u64) -> bool {
+    mask & field != 0
 }
 
 /// 把 Go 存储态 emoji map 与 wire 数组态统一成稳定的 reaction 绝对态数组。
@@ -256,6 +327,11 @@ fn collect_string_values(value: &serde_json::Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::extract_post_fields;
+    use crate::sync_session::{
+        POST_FIELD_EXPEDITE_MAP, POST_FIELD_READ_BITS, POST_FIELD_REPLIED_MESSAGE,
+        POST_FIELD_REPLY_COUNT, POST_FIELD_REPLY_FIRST_LEVEL_ID, POST_FIELD_REPLY_ID,
+        POST_FIELD_REPLY_MESSAGES, POST_FIELD_REPLY_ROOT_ID, POST_FIELD_SNAPSHOT_ID,
+    };
     use serde_json::json;
 
     #[test]
@@ -372,5 +448,58 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&fields.quick_reply).unwrap(),
             json!([{"emoji":"thumb","userIds":["member-1"]}])
         );
+    }
+
+    /// 缺 key 与显式空值必须落在不同 presence 状态，供 readback upsert 选择覆盖列。
+    #[test]
+    fn presence_distinguishes_missing_rich_fields_from_explicit_empty_values() {
+        let sparse = extract_post_fields(&json!({"id": "sparse"}));
+        for field in [
+            POST_FIELD_EXPEDITE_MAP,
+            POST_FIELD_REPLY_ID,
+            POST_FIELD_REPLY_ROOT_ID,
+            POST_FIELD_REPLY_FIRST_LEVEL_ID,
+            POST_FIELD_REPLIED_MESSAGE,
+            POST_FIELD_REPLY_MESSAGES,
+            POST_FIELD_REPLY_COUNT,
+            POST_FIELD_READ_BITS,
+            POST_FIELD_SNAPSHOT_ID,
+        ] {
+            assert!(
+                !sparse.has_field(field),
+                "sparse field mask contains {field:#x}"
+            );
+        }
+
+        let explicit = extract_post_fields(&json!({
+            "id": "explicit",
+            "expediteMap": {},
+            "replyId": "",
+            "replyRootId": "",
+            "replyFirstLevelId": "",
+            "repliedMessage": null,
+            "replyMessages": {},
+            "replyCount": 0,
+            "readBits": "",
+            "snapshotId": ""
+        }));
+        for field in [
+            POST_FIELD_EXPEDITE_MAP,
+            POST_FIELD_REPLY_ID,
+            POST_FIELD_REPLY_ROOT_ID,
+            POST_FIELD_REPLY_FIRST_LEVEL_ID,
+            POST_FIELD_REPLIED_MESSAGE,
+            POST_FIELD_REPLY_MESSAGES,
+            POST_FIELD_REPLY_COUNT,
+            POST_FIELD_READ_BITS,
+            POST_FIELD_SNAPSHOT_ID,
+        ] {
+            assert!(
+                explicit.has_field(field),
+                "explicit field mask misses {field:#x}"
+            );
+        }
+        assert_eq!(explicit.reply_count, 0);
+        assert_eq!(explicit.reply_messages, "{}");
     }
 }

@@ -190,11 +190,12 @@ fn array_len_at(value: &Value, first: &str, second: &str) -> usize {
         .unwrap_or(0)
 }
 
-fn interaction_summary(props: &Value) -> (Option<String>, usize, usize) {
+/// 从 durable quick_reply 或旧版 props 计算反应摘要，保证首屏与增量投影一致。
+fn interaction_summary(props: &Value, quick_reply: &Value) -> (Option<String>, usize, usize) {
     let mut emojis = Vec::new();
     let mut reaction_count = 0;
-    match props.get("quickReply") {
-        Some(Value::Array(items)) => {
+    match quick_reply {
+        Value::Array(items) => {
             for item in items {
                 if let Some(emoji) = item.get("emoji").and_then(Value::as_str) {
                     if !emoji.is_empty() {
@@ -204,7 +205,7 @@ fn interaction_summary(props: &Value) -> (Option<String>, usize, usize) {
                 reaction_count += array_len_at(item, "userIds", "user_ids");
             }
         }
-        Some(Value::Object(items)) => {
+        Value::Object(items) => {
             for (emoji, user_ids) in items {
                 if !emoji.is_empty() {
                     emojis.push(emoji.as_str());
@@ -220,6 +221,18 @@ fn interaction_summary(props: &Value) -> (Option<String>, usize, usize) {
         .map(|template| array_len_at(template, "userIds", "user_ids"))
         .unwrap_or(0);
     (reactions, reaction_count, template_count)
+}
+
+/// 读取独立 quick_reply 列；空列时兼容历史 props.quickReply 数据。
+fn quick_reply_value(row: &Value, props: &Value) -> Value {
+    let durable = json_value(row, &["quick_reply", "quickReply"], Value::Null);
+    if !durable.is_null() {
+        return durable;
+    }
+    props
+        .get("quickReply")
+        .cloned()
+        .unwrap_or_else(|| json!([]))
 }
 
 fn template_reader_ids(props: &Value) -> Vec<&str> {
@@ -285,6 +298,7 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
     let props = props_value(row);
     let event_seq = event_seq_value(row, &props);
     let forward_detail = super::forward::detail(msg_type, &props);
+    let quick_reply = quick_reply_value(row, &props);
     let expedite_map = row
         .get("expedite_map")
         .or_else(|| row.get("expediteMap"))
@@ -296,7 +310,8 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         .unwrap_or_else(|| json!({}));
     let is_self = !viewer_user_id.is_empty() && user_id == viewer_user_id;
     let has_server_id = !server_id.is_empty();
-    let (reactions, reaction_count, template_confirmed_count) = interaction_summary(&props);
+    let (reactions, reaction_count, template_confirmed_count) =
+        interaction_summary(&props, &quick_reply);
     let urgent = super::urgent::project(&expedite_map, viewer_user_id, has_server_id);
     let urgent_fields = json!({
         "urgent": urgent.required_count > 0,
@@ -344,6 +359,7 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "simpleMessage": simple_message,
         "type": msg_type,
         "props": props,
+        "quickReply": quick_reply,
         "forwardDetail": forward_detail,
         "topic": topic_value(row),
         "revoke": revoke_bool(row),
@@ -443,5 +459,23 @@ mod tests {
         assert_eq!(shaped["repliedMessage"]["repliedUserId"], "444");
         assert_eq!(shaped["repliedMessage"]["repliedUserName"], "破坏者");
         assert_eq!(shaped["repliedMessage"]["message"], "被回复消息");
+    }
+
+    /// The dedicated durable quick_reply column wins over stale props and reaches the UI row.
+    #[test]
+    fn shape_row_projects_durable_quick_reply() {
+        let row = json!({
+            "id": "post-quick-reply",
+            "temporary_id": "tmp-quick-reply",
+            "channel_id": "channel-quick-reply",
+            "message": "带反应消息",
+            "props": "{\"quickReply\":[{\"emoji\":\"stale\",\"userIds\":[\"old\"]}]}",
+            "quick_reply": "[{\"emoji\":\"thumb\",\"userIds\":[\"u1\",\"u2\"]}]"
+        });
+
+        let shaped = shape_row(&row, "viewer");
+        assert_eq!(shaped["quickReply"][0]["emoji"], "thumb");
+        assert_eq!(shaped["reactions"], "thumb");
+        assert_eq!(shaped["reactionCount"], 2);
     }
 }

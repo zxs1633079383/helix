@@ -38,7 +38,7 @@ use helix_core::effect::StorageOp;
 ///   codec——超本 drift 修复白名单，见 MAJ-5 仅 table/conflict_key 静态化的同因取舍）。
 /// 将 sync EventEnvelope 编译为完整 upsert；冲突时按服务端全量字段覆盖。
 pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
-    event_to_upsert_op_with_policy(ev, false)
+    event_to_upsert_op_with_policy(ev, false, false)
 }
 
 /// 将在线 WS post 编译为“缺省富字段保留”的幂等 upsert。
@@ -47,13 +47,19 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
 /// `/sync/notify` 写入 `expedite_map`、reply*、`read_bits` 等富字段，但回声只携带正文。
 /// 冲突更新时排除这些缺省列，插入新行仍使用完整字段默认值；sync type=1 继续走上面的全量函数。
 pub fn event_to_online_upsert_op(ev: &EventEnvelope) -> StorageOp {
-    event_to_upsert_op_with_policy(ev, true)
+    event_to_upsert_op_with_policy(ev, true, false)
+}
+
+/// 将 HTTP readback 编译为 presence-aware upsert，避免缺失字段擦除本地富字段。
+pub fn event_to_readback_upsert_op(ev: &EventEnvelope) -> StorageOp {
+    event_to_upsert_op_with_policy(ev, false, true)
 }
 
 /// 按来源策略拼装 message upsert，保证 sync 全量与在线稀疏回声共享同一列映射。
 fn event_to_upsert_op_with_policy(
     ev: &EventEnvelope,
     preserve_empty_online_fields: bool,
+    preserve_missing_readback_fields: bool,
 ) -> StorageOp {
     use helix_core::effect::{SqlValue, UpsertSpec};
 
@@ -108,6 +114,97 @@ fn event_to_upsert_op_with_policy(
             ("snapshot_id", f.snapshot_id.is_empty()),
             ("create_at", f.create_at == 0),
             ("update_at", f.update_at == 0),
+        ];
+        exclude_from_update.extend(
+            preserve
+                .into_iter()
+                .filter_map(|(column, should_preserve)| should_preserve.then_some(column)),
+        );
+    }
+    if preserve_missing_readback_fields {
+        // HTTP readback 与在线回声不同：只有 JSON 明确提供的字段才能覆盖已有行。
+        // parser 的默认空值不代表服务端明确清空，presence mask 保留该语义差异。
+        let preserve = [
+            ("id", !f.has_field(crate::sync_session::POST_FIELD_ID)),
+            (
+                "channel_id",
+                !f.has_field(crate::sync_session::POST_FIELD_CHANNEL_ID),
+            ),
+            (
+                "user_id",
+                !f.has_field(crate::sync_session::POST_FIELD_USER_ID),
+            ),
+            ("type", !f.has_field(crate::sync_session::POST_FIELD_TYPE)),
+            (
+                "message",
+                !f.has_field(crate::sync_session::POST_FIELD_MESSAGE),
+            ),
+            (
+                "simple_message",
+                !f.has_field(crate::sync_session::POST_FIELD_SIMPLE_MESSAGE),
+            ),
+            ("props", !f.has_field(crate::sync_session::POST_FIELD_PROPS)),
+            (
+                "user_snapshot",
+                !f.has_field(crate::sync_session::POST_FIELD_USER_SNAPSHOT),
+            ),
+            (
+                "viewers",
+                !f.has_field(crate::sync_session::POST_FIELD_VIEWERS),
+            ),
+            (
+                "mentions",
+                !f.has_field(crate::sync_session::POST_FIELD_MENTIONS),
+            ),
+            (
+                "expedite_map",
+                !f.has_field(crate::sync_session::POST_FIELD_EXPEDITE_MAP),
+            ),
+            ("topic", !f.has_field(crate::sync_session::POST_FIELD_TOPIC)),
+            (
+                "quick_reply",
+                !f.has_field(crate::sync_session::POST_FIELD_QUICK_REPLY),
+            ),
+            (
+                "reply_id",
+                !f.has_field(crate::sync_session::POST_FIELD_REPLY_ID),
+            ),
+            (
+                "reply_root_id",
+                !f.has_field(crate::sync_session::POST_FIELD_REPLY_ROOT_ID),
+            ),
+            (
+                "reply_first_level_id",
+                !f.has_field(crate::sync_session::POST_FIELD_REPLY_FIRST_LEVEL_ID),
+            ),
+            (
+                "replied_message",
+                !f.has_field(crate::sync_session::POST_FIELD_REPLIED_MESSAGE),
+            ),
+            (
+                "reply_messages",
+                !f.has_field(crate::sync_session::POST_FIELD_REPLY_MESSAGES),
+            ),
+            (
+                "reply_count",
+                !f.has_field(crate::sync_session::POST_FIELD_REPLY_COUNT),
+            ),
+            (
+                "read_bits",
+                !f.has_field(crate::sync_session::POST_FIELD_READ_BITS),
+            ),
+            (
+                "snapshot_id",
+                !f.has_field(crate::sync_session::POST_FIELD_SNAPSHOT_ID),
+            ),
+            (
+                "create_at",
+                !f.has_field(crate::sync_session::POST_FIELD_CREATE_AT),
+            ),
+            (
+                "update_at",
+                !f.has_field(crate::sync_session::POST_FIELD_UPDATE_AT),
+            ),
         ];
         exclude_from_update.extend(
             preserve

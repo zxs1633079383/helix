@@ -9,6 +9,30 @@
 
 use crate::state::{ChannelId, Seq};
 
+pub(crate) const POST_FIELD_ID: u64 = 1 << 0;
+pub(crate) const POST_FIELD_CHANNEL_ID: u64 = 1 << 1;
+pub(crate) const POST_FIELD_USER_ID: u64 = 1 << 2;
+pub(crate) const POST_FIELD_TYPE: u64 = 1 << 3;
+pub(crate) const POST_FIELD_MESSAGE: u64 = 1 << 4;
+pub(crate) const POST_FIELD_SIMPLE_MESSAGE: u64 = 1 << 5;
+pub(crate) const POST_FIELD_PROPS: u64 = 1 << 6;
+pub(crate) const POST_FIELD_USER_SNAPSHOT: u64 = 1 << 7;
+pub(crate) const POST_FIELD_CREATE_AT: u64 = 1 << 8;
+pub(crate) const POST_FIELD_UPDATE_AT: u64 = 1 << 9;
+pub(crate) const POST_FIELD_READ_BITS: u64 = 1 << 10;
+pub(crate) const POST_FIELD_SNAPSHOT_ID: u64 = 1 << 11;
+pub(crate) const POST_FIELD_VIEWERS: u64 = 1 << 12;
+pub(crate) const POST_FIELD_MENTIONS: u64 = 1 << 13;
+pub(crate) const POST_FIELD_EXPEDITE_MAP: u64 = 1 << 14;
+pub(crate) const POST_FIELD_QUICK_REPLY: u64 = 1 << 15;
+pub(crate) const POST_FIELD_TOPIC: u64 = 1 << 16;
+pub(crate) const POST_FIELD_REPLY_ID: u64 = 1 << 17;
+pub(crate) const POST_FIELD_REPLY_ROOT_ID: u64 = 1 << 18;
+pub(crate) const POST_FIELD_REPLY_FIRST_LEVEL_ID: u64 = 1 << 19;
+pub(crate) const POST_FIELD_REPLIED_MESSAGE: u64 = 1 << 20;
+pub(crate) const POST_FIELD_REPLY_MESSAGES: u64 = 1 << 21;
+pub(crate) const POST_FIELD_REPLY_COUNT: u64 = 1 << 22;
+
 /// 落库所需的 owned typed 视图（HX-C005：字段提取上移 parser，热路径零再解析）。
 ///
 /// parser（`parse_inbound` / `parse_channel_events`，`Value` 已在手）一次解析填充此结构；
@@ -65,6 +89,16 @@ pub struct PostFields {
     pub replied_message: String,
     pub reply_messages: String,
     pub reply_count: i64,
+    /// JSON key presence mask; missing fields must not overwrite an existing readback row.
+    #[serde(skip)]
+    pub(crate) present_fields: u64,
+}
+
+impl PostFields {
+    /// Reports whether the source payload explicitly contained the given field.
+    pub(crate) fn has_field(&self, field: u64) -> bool {
+        self.present_fields & field != 0
+    }
 }
 
 /// 解析后的强类型入站事件（14 类 WS type 的产物）

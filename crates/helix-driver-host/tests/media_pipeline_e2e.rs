@@ -802,6 +802,7 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
         dept_name: "test-dept".to_string(),
         ping_interval_ms: 60_000,
         send_timeout_ms: 60_000,
+        offline_sync_diagnostics: Default::default(),
     });
     module.register_channel(channel_id, 0);
     let mut shell = ExecutionShell::new();

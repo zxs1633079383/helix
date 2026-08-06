@@ -23,6 +23,7 @@ pub use super::storage_effects::{
     upsert_channel_member_channel, upsert_channel_member_channel_op, upsert_message,
     RecoveryCoverage, RecoveryLedgerEntry,
 };
+pub(crate) use super::sync_effects::batch_upsert_events_with_messages_and_auth_observed;
 pub use super::sync_effects::{
     batch_upsert_events, batch_upsert_events_with_messages,
     batch_upsert_events_with_messages_and_auth, sync_channel_update_plans, sync_mutation_emits,

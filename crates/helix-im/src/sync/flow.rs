@@ -18,6 +18,7 @@ impl ImModule {
         trigger: SyncTrigger,
         out: &mut EffectSink,
     ) {
+        let trace_enabled = self.config.offline_sync_diagnostics.trace;
         // A3b：connectionId 身份头（clone 一次，避免后续 &mut self.state 借用冲突）。
         let conn_id = self.state.connection_id.clone();
         // 读取 cursor 和 last_sync_from_seq（不可变借用）
@@ -38,7 +39,8 @@ impl ImModule {
 
         // B1：若已有在途 sync（意外情况），跳过
         if has_inflight {
-            tracing::warn!(
+            crate::offline_sync_warn!(
+                trace_enabled,
                 channel_id = channel_id.as_str(),
                 "maybe_continue_sync: inflight_sync already set, skipping continuation"
             );
@@ -49,7 +51,7 @@ impl ImModule {
         // 若相等，说明服务端返回的事件均低于上次 fromSeq（全部幂等丢弃，cursor 未前进）
         if let Some(prev_from) = prev_from_seq {
             if cursor_seq.0 <= prev_from.0 {
-                tracing::warn!(
+                crate::offline_sync_warn!(trace_enabled,
                     channel_id = channel_id.as_str(),
                     cursor = cursor_seq.0,
                     prev_from_seq = prev_from.0,
@@ -87,7 +89,7 @@ impl ImModule {
             sync_corr,
             conn_id.as_deref(),
         ));
-        tracing::info!(
+        crate::offline_sync_info!(trace_enabled,
             hop = "sync.dispatch",
             corr = sync_corr.raw(),
             track_id = crate::acl::sync_http_effects::sync_track_id(sync_corr),
@@ -117,12 +119,13 @@ impl ImModule {
         reply: &helix_core::tick::ReplyBytes,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        let trace_enabled = self.config.offline_sync_diagnostics.trace;
         use crate::parser::parse_sync_response;
         use crate::sync_session::{
             CommittedRecoveryHead, EventKind, RecoveryComparison, SyncBatchFacts, SyncResponse,
         };
 
-        tracing::info!(
+        crate::offline_sync_info!(trace_enabled,
             hop = "sync.reply_received",
             corr = corr.raw(),
             track_id = crate::acl::sync_http_effects::sync_track_id(corr),
@@ -138,7 +141,8 @@ impl ImModule {
             .get(&channel_id)
             .is_some_and(|channel| channel.is_terminal())
         {
-            tracing::info!(
+            crate::offline_sync_info!(
+                trace_enabled,
                 channel_id = channel_id.as_str(),
                 "ignoring sync reply for terminal channel"
             );
@@ -160,7 +164,7 @@ impl ImModule {
                     .get(&channel_id)
                     .map(|channel| channel.cursor.value().0)
                     .unwrap_or(0);
-                tracing::info!(
+                crate::offline_sync_info!(trace_enabled,
                     hop = "sync.response",
                     corr = corr.raw(),
                     track_id = crate::acl::sync_http_effects::sync_track_id(corr),
@@ -192,7 +196,7 @@ impl ImModule {
                         },
                         crate::sync_session::AuthorityHead { event_seq: cursor },
                     );
-                    tracing::info!(
+                    crate::offline_sync_info!(trace_enabled,
                         hop = "recovery.compare",
                         corr = corr.raw(),
                         channel_id = channel_id.as_str(),
@@ -210,7 +214,87 @@ impl ImModule {
                 next_seq,
                 needs_continuation,
             } => {
-                tracing::info!(
+                let track_id = crate::acl::sync_http_effects::sync_track_id(corr);
+                let type_counts = crate::sync::observability::event_type_counts(&events);
+                crate::offline_sync_info!(trace_enabled,
+                    hop = "sync.batch.input",
+                    corr = corr.raw(),
+                    track_id = track_id.as_str(),
+                    channel_id = channel_id.as_str(),
+                    event_seq = next_seq.0,
+                    event_type = "batch",
+                    msg_id = "",
+                    source = "sync_notify",
+                    operation_id = format!("sync-batch:{}", corr.raw()),
+                    from_seq = self
+                        .state
+                        .channels
+                        .get(&channel_id)
+                        .map(|channel| channel.cursor.value().0)
+                        .unwrap_or(0),
+                    next_seq = next_seq.0,
+                    event_count = events.len(),
+                    message_count = messages.len(),
+                    type_counts = %type_counts,
+                    "同步批次已解析"
+                );
+                for event in &events {
+                    let fields = event.msg_id.as_deref().and_then(|id| messages.get(id));
+                    if let Some(fields) = fields {
+                        let metadata = crate::sync::observability::post_fields_metadata(fields);
+                        crate::offline_sync_info!(
+                            trace_enabled
+                                && self.config.offline_sync_diagnostics.target_matches(
+                                    event.msg_id.as_deref(),
+                                    Some(fields),
+                                ),
+                            hop = "sync.event.parsed",
+                            corr = corr.raw(),
+                            track_id = track_id.as_str(),
+                            channel_id = event.channel_id.as_str(),
+                            event_seq = event.seq.0,
+                            event_type = event.kind.type_num(),
+                            msg_id = event.msg_id.as_deref().unwrap_or_default(),
+                            source = "sync_notify",
+                            operation_id = format!("sync:{}:{}:{}", corr.raw(), event.seq.0, event.kind.type_num()),
+                            message_map_hit = true,
+                            message_map_key = event.msg_id.as_deref().unwrap_or_default(),
+                            field_presence = %metadata["field_presence"],
+                            field_lengths = %metadata["field_lengths"],
+                            field_hashes = %metadata["field_hashes"],
+                            "同步事件已解析"
+                        );
+                    } else {
+                        crate::offline_sync_info!(
+                            trace_enabled
+                                && self
+                                    .config
+                                    .offline_sync_diagnostics
+                                    .target_matches(event.msg_id.as_deref(), None,),
+                            hop = "sync.event.parsed",
+                            corr = corr.raw(),
+                            track_id = track_id.as_str(),
+                            channel_id = event.channel_id.as_str(),
+                            event_seq = event.seq.0,
+                            event_type = event.kind.type_num(),
+                            msg_id = event.msg_id.as_deref().unwrap_or_default(),
+                            source = "sync_notify",
+                            operation_id = format!(
+                                "sync:{}:{}:{}",
+                                corr.raw(),
+                                event.seq.0,
+                                event.kind.type_num()
+                            ),
+                            message_map_hit = false,
+                            message_map_key = event.msg_id.as_deref().unwrap_or_default(),
+                            field_presence = "{}",
+                            field_lengths = "{}",
+                            field_hashes = "{}",
+                            "同步事件已解析"
+                        );
+                    }
+                }
+                crate::offline_sync_info!(trace_enabled,
                     hop = "sync.response",
                     corr = corr.raw(),
                     track_id = crate::acl::sync_http_effects::sync_track_id(corr),
@@ -259,7 +343,7 @@ impl ImModule {
                 }
                 if events.is_empty() {
                     if needs_continuation {
-                        tracing::warn!(
+                        crate::offline_sync_warn!(trace_enabled,
                             channel_id = channel_id.as_str(),
                             "needs_continuation=true but events is empty, stopping continuation to prevent infinite loop"
                         );
@@ -293,7 +377,7 @@ impl ImModule {
                         facts.authority_head,
                     );
                     if !matches!(comparison, RecoveryComparison::Pull { .. }) {
-                        tracing::warn!(
+                        crate::offline_sync_warn!(trace_enabled,
                             hop = "recovery.compare_rejected",
                             corr = corr.raw(),
                             channel_id = channel_id.as_str(),
@@ -308,7 +392,8 @@ impl ImModule {
                 }
                 let commit_target = facts.authority_head.event_seq;
                 let events = facts.events;
-                tracing::info!(
+                crate::offline_sync_info!(
+                    trace_enabled,
                     hop = "recovery.compare",
                     corr = corr.raw(),
                     channel_id = channel_id.as_str(),
@@ -346,11 +431,18 @@ impl ImModule {
                     &messages,
                     auth_user_id,
                 );
+                let observation = crate::sync::observability::SyncObservation::new(
+                    corr.raw(),
+                    track_id.clone(),
+                    "sync_notify",
+                    self.config.offline_sync_diagnostics.clone(),
+                );
                 let mut persist_ops =
-                    crate::acl::to_effect::batch_upsert_events_with_messages_and_auth(
+                    crate::acl::to_effect::batch_upsert_events_with_messages_and_auth_observed(
                         &events,
                         &messages,
                         auth_user_id,
+                        Some(&observation),
                     );
                 if trigger != SyncTrigger::Hydration {
                     for pending in &channel_updates {
@@ -400,6 +492,25 @@ impl ImModule {
                     channel_id,
                     commit_target,
                 ));
+                let persist_type_counts =
+                    crate::sync::observability::storage_op_type_counts(&persist_ops);
+                crate::offline_sync_info!(trace_enabled,
+                    hop = "sync.persist.summary",
+                    phase = "before_commit",
+                    upstream_corr = corr.raw(),
+                    corr = persist_corr.raw(),
+                    track_id = crate::acl::sync_http_effects::sync_track_id(persist_corr),
+                    channel_id = channel_id.as_str(),
+                    event_seq = commit_target.0,
+                    event_type = "batch",
+                    msg_id = "",
+                    source = "sync_notify",
+                    operation_id = format!("sync-persist:{}", persist_corr.raw()),
+                    operation_count = persist_ops.len(),
+                    type_counts = %persist_type_counts,
+                    cursor_target = commit_target.0,
+                    "同步批次事务准备提交"
+                );
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.pending_commits.insert(persist_corr, commit_target);
                 }
@@ -419,7 +530,8 @@ impl ImModule {
                     corr: persist_corr,
                     ops: persist_ops,
                 });
-                tracing::info!(
+                crate::offline_sync_info!(
+                    trace_enabled,
                     hop = "recovery.persist_dispatched",
                     upstream_corr = corr.raw(),
                     track_id = crate::acl::sync_http_effects::sync_track_id(corr),
@@ -462,7 +574,7 @@ impl ImModule {
                 );
             }
             SyncResponse::TooLong { reset_to } => {
-                tracing::warn!(
+                crate::offline_sync_warn!(trace_enabled,
                     hop = "sync.response",
                     corr = corr.raw(),
                     track_id = crate::acl::sync_http_effects::sync_track_id(corr),
@@ -513,7 +625,7 @@ impl ImModule {
                 }
             }
             SyncResponse::Snapshot(snap) => {
-                tracing::info!(
+                crate::offline_sync_info!(trace_enabled,
                     hop = "sync.response",
                     corr = corr.raw(),
                     track_id = crate::acl::sync_http_effects::sync_track_id(corr),
@@ -579,6 +691,7 @@ impl ImModule {
         needs_continuation: bool,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        let trace_enabled = self.config.offline_sync_diagnostics.trace;
         let terminal_count = events
             .iter()
             .filter(|event| {
@@ -599,7 +712,8 @@ impl ImModule {
             || next_seq != terminal_seq
             || needs_continuation
         {
-            tracing::warn!(
+            crate::offline_sync_warn!(
+                trace_enabled,
                 channel_id = channel_id.as_str(),
                 event_count = events.len(),
                 terminal_count,
@@ -619,7 +733,7 @@ impl ImModule {
         ) {
             Ok(facts) => facts.events,
             Err(reason) => {
-                tracing::warn!(
+                crate::offline_sync_warn!(trace_enabled,
                     channel_id = channel_id.as_str(),
                     terminal_seq = terminal_seq.0,
                     reason,
@@ -630,7 +744,8 @@ impl ImModule {
         };
 
         let Some(channel) = self.state.channels.get(&channel_id) else {
-            tracing::warn!(
+            crate::offline_sync_warn!(
+                trace_enabled,
                 channel_id = channel_id.as_str(),
                 "terminal sync for unknown channel ignored"
             );
@@ -644,10 +759,17 @@ impl ImModule {
         let persist_corr = self.alloc_corr_internal();
         let prefix = &events[..events.len().saturating_sub(1)];
         let auth_user_id = self.config.auth_user_id.as_str();
-        let mut ops = crate::acl::to_effect::batch_upsert_events_with_messages_and_auth(
+        let observation = crate::sync::observability::SyncObservation::new(
+            upstream_corr.raw(),
+            crate::acl::sync_http_effects::sync_track_id(upstream_corr),
+            "sync_notify",
+            self.config.offline_sync_diagnostics.clone(),
+        );
+        let mut ops = crate::acl::to_effect::batch_upsert_events_with_messages_and_auth_observed(
             prefix,
             &messages,
             auth_user_id,
+            Some(&observation),
         );
         for pending in
             crate::acl::to_effect::sync_channel_update_plans(prefix, &messages, auth_user_id)
@@ -660,6 +782,24 @@ impl ImModule {
             channel_id,
             terminal_seq,
         ));
+        let persist_type_counts = crate::sync::observability::storage_op_type_counts(&ops);
+        crate::offline_sync_info!(trace_enabled,
+            hop = "sync.persist.summary",
+            phase = "before_commit",
+            upstream_corr = upstream_corr.raw(),
+            corr = persist_corr.raw(),
+            track_id = crate::acl::sync_http_effects::sync_track_id(persist_corr),
+            channel_id = channel_id.as_str(),
+            event_seq = terminal_seq.0,
+            event_type = "batch",
+            msg_id = "",
+            source = "sync_notify",
+            operation_id = format!("sync-persist:{}", persist_corr.raw()),
+            operation_count = ops.len(),
+            type_counts = %persist_type_counts,
+            cursor_target = terminal_seq.0,
+            "终态同步批次事务准备提交"
+        );
         let pending_domain_events =
             crate::acl::to_effect::sync_mutation_emits_with_auth(prefix, &messages, auth_user_id)
                 .into_iter()
@@ -672,7 +812,7 @@ impl ImModule {
             corr: persist_corr,
             ops,
         });
-        tracing::info!(
+        crate::offline_sync_info!(trace_enabled,
             hop = "sync.terminal_persist_dispatched",
             upstream_corr = upstream_corr.raw(),
             track_id = crate::acl::sync_http_effects::sync_track_id(upstream_corr),

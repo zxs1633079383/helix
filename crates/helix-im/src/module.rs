@@ -44,6 +44,8 @@ pub struct ImConfig {
     pub dept_name: String,
     pub ping_interval_ms: u64,
     pub send_timeout_ms: u64,
+    /// 由 host 注入的纯离线 sync 诊断配置，默认关闭。
+    pub offline_sync_diagnostics: crate::sync::SyncDiagnosticsConfig,
 }
 
 impl ImConfig {
@@ -72,6 +74,7 @@ impl Default for ImConfig {
             dept_name: String::new(),
             ping_interval_ms: 8_000,
             send_timeout_ms: 15_000,
+            offline_sync_diagnostics: crate::sync::SyncDiagnosticsConfig::disabled(),
         }
     }
 }

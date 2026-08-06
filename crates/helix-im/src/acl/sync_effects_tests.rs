@@ -10,9 +10,12 @@
 //!   - 撤回事件 → 必有 `im:post:revoke`（按 id/channelId/eventSeq 锚）；
 //!   - 去掉撤回事件 → 必无 `im:post:revoke`（不会凭空发出）。
 
-use super::{sync_mutation_emits, sync_mutation_emits_with_auth};
+use super::{
+    batch_upsert_events_with_messages_and_auth, sync_mutation_emits, sync_mutation_emits_with_auth,
+};
 use crate::state::{ChannelId, Seq};
 use crate::sync_session::{EventEnvelope, EventKind, PostFields};
+use helix_core::effect::StorageOp;
 use helix_core::Effect;
 use std::collections::HashMap;
 
@@ -258,4 +261,118 @@ fn sync_read_without_authoritative_identity_or_bits_does_not_replay_post_read() 
     );
     let missing_actor = sync_mutation_emits(&[read_ev(4, "")], &messages);
     assert!(find_emit(&missing_actor, "im:post:read").is_none());
+}
+
+/// type=2 的 patch 只能包含真实输入中出现的可选列，不能把加急或回复字段写死为必选。
+#[test]
+fn sync_type2_patch_columns_follow_actual_optional_fields() {
+    fn columns(fields: PostFields) -> Vec<String> {
+        let mut messages = HashMap::new();
+        messages.insert(MSG.to_string(), fields);
+        let ops = batch_upsert_events_with_messages_and_auth(&[edit_ev(5)], &messages, "");
+        match ops.as_slice() {
+            [StorageOp::BatchUpdate(spec)] => spec
+                .patch
+                .iter()
+                .map(|(column, _)| column.clone())
+                .collect(),
+            other => panic!("expected one type=2 BatchUpdate, got {other:?}"),
+        }
+    }
+
+    let base = PostFields {
+        id: MSG.to_string(),
+        msg_type: "TEXT".to_string(),
+        message: "edited".to_string(),
+        props: "{}".to_string(),
+        ..PostFields::default()
+    };
+    assert_eq!(
+        columns(PostFields {
+            expedite_map: "{\"678\":true}".to_string(),
+            ..base.clone()
+        }),
+        vec!["type", "message", "props", "expedite_map"]
+    );
+    assert_eq!(
+        columns(PostFields {
+            reply_id: "reply-1".to_string(),
+            reply_root_id: "root-1".to_string(),
+            reply_messages: "[{\"id\":\"reply-1\"}]".to_string(),
+            reply_count: 1,
+            ..base.clone()
+        }),
+        vec![
+            "type",
+            "message",
+            "props",
+            "reply_id",
+            "reply_root_id",
+            "reply_messages",
+            "reply_count"
+        ]
+    );
+    assert_eq!(
+        columns(PostFields {
+            expedite_map: "{\"678\":true}".to_string(),
+            reply_messages: "[{\"id\":\"reply-1\"}]".to_string(),
+            reply_count: 1,
+            ..base.clone()
+        }),
+        vec![
+            "type",
+            "message",
+            "props",
+            "expedite_map",
+            "reply_messages",
+            "reply_count"
+        ]
+    );
+    assert_eq!(columns(base), vec!["type", "message", "props"]);
+}
+
+/// type=3/type=6 的 StorageOp 必须保持单列 patch，不能夹带正文、回复或加急字段。
+#[test]
+fn sync_type3_and_type6_storage_ops_are_single_column_patches() {
+    let mut messages = HashMap::new();
+    messages.insert(
+        MSG.to_string(),
+        PostFields {
+            id: MSG.to_string(),
+            read_bits: "0101".to_string(),
+            expedite_map: "{\"678\":true}".to_string(),
+            reply_messages: "[{\"id\":\"reply-1\"}]".to_string(),
+            ..PostFields::default()
+        },
+    );
+    let ops = batch_upsert_events_with_messages_and_auth(
+        &[revoke_ev(6), read_ev(7, "reader-678")],
+        &messages,
+        "",
+    );
+    assert_eq!(ops.len(), 2);
+    match &ops[0] {
+        StorageOp::BatchUpdate(spec) => {
+            assert_eq!(
+                spec.patch
+                    .iter()
+                    .map(|(column, _)| column.as_str())
+                    .collect::<Vec<_>>(),
+                ["revoke"]
+            );
+        }
+        other => panic!("expected type=3 BatchUpdate, got {other:?}"),
+    }
+    match &ops[1] {
+        StorageOp::BatchUpdate(spec) => {
+            assert_eq!(
+                spec.patch
+                    .iter()
+                    .map(|(column, _)| column.as_str())
+                    .collect::<Vec<_>>(),
+                ["read_bits"]
+            );
+        }
+        other => panic!("expected type=6 BatchUpdate, got {other:?}"),
+    }
 }

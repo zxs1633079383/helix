@@ -73,6 +73,7 @@ impl WebConfig {
             dept_name: self.dept_name.clone(),
             ping_interval_ms: self.ping_interval_ms,
             send_timeout_ms: self.send_timeout_ms,
+            offline_sync_diagnostics: Default::default(),
         }
     }
 }

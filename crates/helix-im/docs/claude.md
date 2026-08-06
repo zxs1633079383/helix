@@ -5,8 +5,10 @@ Host、Angular、Go 或双用户真实链路已经验收。
 
 ## 生产调用链
 
-`increment_channel_end` 聚合频道/member/cursor 写集 → `IncrementBatchPersist` →
-`PersistOk` → `im:channel-sync-ready`。ready 只发布
+每个新的 global `increment_channel` 批次在 `increment_channel_end` 聚合频道/member/cursor 写集 →
+`IncrementBatchPersist` → `PersistOk` → `im:channel-sync-ready`。同一批次的重复 end 会被忽略；
+后续收到新 increment 会重新打开批次并再次走同一屏障。每个成功持久化的非空批次只发布一次 ready，
+ready 只发布
 `channelSyncSessionId`、`generation`、`defaultPageSize=20`，不携带身份或频道数组；
 Persist 失败不发布 ready。
 
@@ -42,7 +44,7 @@ session、旧 generation 和迟到 page 都 fail-closed 并回传 waiter error�
 ## 当前验证
 
 `cargo test -p helix-im --lib` 覆盖固定页长、0/1/20/21 行、有界连续页、成员租户过滤与角色分桶、
-cursor 绑定、Persist 成功/失败与 ready 一次性、complete scope/idempotency；
+cursor 绑定、Persist 成功/失败与 ready 一次性、跨批次重新 ready、complete scope/idempotency；
 `cargo test -p helix-im --test p4_ws_events_test` 覆盖在线角色变更的读快照→原子写→读回 roster 链。
 
 ## Phase 3 频道治理命令维护
@@ -70,3 +72,22 @@ Timeline HTTP、Persist、SQLite read-back 及最终 Emit 均在继续前重检 
 
 `timeline_state` 单测覆盖同频道换窗、旧 merge、当前 older、同 token 导航、跨频道隔离和 reset；
 真实群聊切换、上拉与 SQLite read-back 仍需用户在人工验收阶段确认。
+
+## 纯离线 sync/notify 字段消失诊断
+
+诊断默认关闭，运行时由 Host 环境变量注入 `ImConfig.offline_sync_diagnostics`，不改变同步
+业务语义。三项开关分别是：`HELIX_OFFLINE_SYNC_TRACE`（sync/notify、StorageOp、提交后
+readback 的脱敏字段 presence/length/hash）、`HELIX_OFFLINE_SYNC_WAL`（SQLite WAL/SHM
+只读元数据）和 `HELIX_OFFLINE_SYNC_TARGETS`（目标过滤，支持 `qem,bzj,sjx` 或精确
+`temporary_id`）。目标别名映射固定在 `sync/observability.rs`；日志不输出正文、cookie、token
+或用户快照。
+
+Host 侧在 SQLite atomic write 的 `before_write`、`after_commit`、`after_readback` 三个点
+采集 WAL header、frame 数、commit frame、page number 尾部和 DB/WAL/SHM 文件大小/mtime；
+readback 同时记录 `msg_id`、`temporary_id`、`channel_id`、`event_seq`、`operation_id` 及目标
+字段摘要；即使后续补丁只改正文，也会固定回读 `expedite_map`、`reply_messages`、
+`reply_count`、`reply_id`、`reply_root_id`、`reply_first_level_id`、`replied_message`。
+该采样只读文件字节，不执行 checkpoint、VACUUM、REINDEX 或 journal_mode 变更。
+
+当前验证仅覆盖 Rust 编译和确定性单测；真实登录、离线同步、SQLite/PG/WAL 读回分析仍须在
+用户明确报告“离线同步已完成”后进行，不能把本地测试当作真实链路结论。

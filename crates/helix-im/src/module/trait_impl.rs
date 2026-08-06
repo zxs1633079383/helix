@@ -194,7 +194,8 @@ impl Module for ImModule {
                         }
                         // 读族只有明确 correlation 才允许回灌；hydration 兼容旧 driver 的同时，
                         // 由显式 transport req_id 决定是否发布 sender-only channelIncrement。
-                        let emit_channel_increment = increment_hydration && explicit_req_id.is_some();
+                        let emit_channel_increment =
+                            increment_hydration && explicit_req_id.is_some();
                         let req_id = match explicit_req_id {
                             Some(req_id) => req_id,
                             None if increment_hydration => {

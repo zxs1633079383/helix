@@ -124,11 +124,23 @@ pub fn batch_upsert_events_with_messages_and_auth(
     messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
     auth_user_id: &str,
 ) -> Vec<StorageOp> {
+    batch_upsert_events_with_messages_and_auth_observed(events, messages, auth_user_id, None)
+}
+
+/// C2 sync 落库编译器；可选观测上下文只影响诊断日志，不改变 StorageOp 语义。
+pub(crate) fn batch_upsert_events_with_messages_and_auth_observed(
+    events: &[EventEnvelope],
+    messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
+    auth_user_id: &str,
+    observation: Option<&crate::sync::observability::SyncObservation>,
+) -> Vec<StorageOp> {
     use crate::sync_session::EventKind;
 
     let mut ops = Vec::with_capacity(events.len());
     for ev in events {
         let msg_id = ev.msg_id.as_deref();
+        let operation_id = observation
+            .map(|context| format!("sync:{}:{}:{}", context.corr, ev.seq.0, ev.kind.type_num()));
         match ev.kind {
             EventKind::PostUpsert => {
                 if let Some(fields) = msg_id.and_then(|id| messages.get(id)) {
@@ -138,6 +150,23 @@ pub fn batch_upsert_events_with_messages_and_auth(
                         auth_user_id,
                     );
                     if !update.visible {
+                        if let Some(context) = observation
+                            .filter(|context| context.target_matches(msg_id, Some(fields)))
+                        {
+                            tracing::info!(
+                                hop = "sync.event.skipped",
+                                corr = context.corr,
+                                track_id = context.track_id.as_str(),
+                                channel_id = ev.channel_id.as_str(),
+                                event_seq = ev.seq.0,
+                                event_type = ev.kind.type_num(),
+                                msg_id = msg_id.unwrap_or_default(),
+                                source = context.source,
+                                operation_id = operation_id.as_deref().unwrap_or_default(),
+                                reason = "invisible",
+                                "type=1 消息因 viewer 可见性未准备落库"
+                            );
+                        }
                         continue;
                     }
                     let ev_with_body = crate::sync_session::EventEnvelope::new(
@@ -146,27 +175,200 @@ pub fn batch_upsert_events_with_messages_and_auth(
                         ev.kind.clone(),
                         fields.clone(),
                     );
-                    ops.push(crate::channel::event_to_upsert_op(&ev_with_body));
+                    let op = crate::channel::event_to_upsert_op(&ev_with_body);
+                    if let Some(context) =
+                        observation.filter(|context| context.target_matches(msg_id, Some(fields)))
+                    {
+                        let meta = crate::sync::observability::storage_op_metadata(&op);
+                        let input_meta = crate::sync::observability::post_fields_metadata(fields);
+                        tracing::info!(
+                            hop = "sync.type1.upsert",
+                            corr = context.corr,
+                            track_id = context.track_id.as_str(),
+                            channel_id = ev.channel_id.as_str(),
+                            event_seq = ev.seq.0,
+                            event_type = ev.kind.type_num(),
+                            msg_id = msg_id.unwrap_or_default(),
+                            source = context.source,
+                            operation_id = operation_id.as_deref().unwrap_or_default(),
+                            message_map_hit = true,
+                            temporary_id = fields.temporary_id.as_str(),
+                            post_id = fields.id.as_str(),
+                            operation = "BatchUpsert",
+                            conflict_key = "temporary_id",
+                            field_presence = %input_meta["field_presence"],
+                            field_lengths = %input_meta["field_lengths"],
+                            field_hashes = %input_meta["field_hashes"],
+                            field_meta = %meta["patch_field_meta"],
+                            "type=1 完整消息输入已准备落库"
+                        );
+                    }
+                    ops.push(op);
+                } else if let Some(context) =
+                    observation.filter(|context| context.target_matches(msg_id, None))
+                {
+                    tracing::info!(
+                        hop = "sync.event.skipped",
+                        corr = context.corr,
+                        track_id = context.track_id.as_str(),
+                        channel_id = ev.channel_id.as_str(),
+                        event_seq = ev.seq.0,
+                        event_type = ev.kind.type_num(),
+                        msg_id = msg_id.unwrap_or_default(),
+                        source = context.source,
+                        operation_id = operation_id.as_deref().unwrap_or_default(),
+                        message_map_hit = false,
+                        reason = "message_map_miss",
+                        "type=1 消息未命中 messages map，保留 phantom 语义"
+                    );
                 }
             }
             EventKind::PostEdit => {
                 if let Some(id) = msg_id {
                     if let Some(fields) = messages.get(id) {
-                        ops.push(crate::channel::edit_content_op(id, fields));
+                        let op = crate::channel::edit_content_op(id, fields);
+                        if let Some(context) = observation
+                            .filter(|context| context.target_matches(Some(id), Some(fields)))
+                        {
+                            let meta = crate::sync::observability::storage_op_metadata(&op);
+                            let input_meta =
+                                crate::sync::observability::post_fields_metadata(fields);
+                            tracing::info!(
+                                hop = "sync.type2.patch",
+                                corr = context.corr,
+                                track_id = context.track_id.as_str(),
+                                channel_id = ev.channel_id.as_str(),
+                                event_seq = ev.seq.0,
+                                event_type = ev.kind.type_num(),
+                                msg_id = id,
+                                source = context.source,
+                                operation_id = operation_id.as_deref().unwrap_or_default(),
+                                message_map_hit = true,
+                                operation = %meta["operation"],
+                                key_col = %meta["key_col"],
+                                patch_columns = %meta["patch_columns"],
+                                patch_field_meta = %meta["patch_field_meta"],
+                                field_presence = %input_meta["field_presence"],
+                                field_lengths = %input_meta["field_lengths"],
+                                field_hashes = %input_meta["field_hashes"],
+                                "type=2 消息更新输入已准备落库"
+                            );
+                        }
+                        ops.push(op);
+                    } else if let Some(context) =
+                        observation.filter(|context| context.target_matches(Some(id), None))
+                    {
+                        tracing::warn!(
+                            hop = "sync.event.skipped",
+                            corr = context.corr,
+                            track_id = context.track_id.as_str(),
+                            channel_id = ev.channel_id.as_str(),
+                            event_seq = ev.seq.0,
+                            event_type = ev.kind.type_num(),
+                            msg_id = id,
+                            source = context.source,
+                            operation_id = operation_id.as_deref().unwrap_or_default(),
+                            message_map_hit = false,
+                            reason = "message_map_miss",
+                            "type=2 消息更新缺少 messages map，未生成补丁"
+                        );
                     }
                 }
             }
             EventKind::PostRevoke => {
                 if let Some(id) = msg_id {
-                    ops.push(crate::channel::revoke_op(id));
+                    let op = crate::channel::revoke_op(id);
+                    if let Some(context) =
+                        observation.filter(|context| context.target_matches(Some(id), None))
+                    {
+                        let meta = crate::sync::observability::storage_op_metadata(&op);
+                        tracing::info!(
+                            hop = "sync.type3.revoke",
+                            corr = context.corr,
+                            track_id = context.track_id.as_str(),
+                            channel_id = ev.channel_id.as_str(),
+                            event_seq = ev.seq.0,
+                            event_type = ev.kind.type_num(),
+                            msg_id = id,
+                            source = context.source,
+                            operation_id = operation_id.as_deref().unwrap_or_default(),
+                            message_map_hit = messages.contains_key(id),
+                            operation = %meta["operation"],
+                            key_col = %meta["key_col"],
+                            patch_columns = %meta["patch_columns"],
+                            "type=3 撤回操作已准备落库"
+                        );
+                    }
+                    ops.push(op);
                 }
             }
             EventKind::PostRead => {
                 if let Some(id) = msg_id {
                     if let Some(fields) = messages.get(id) {
                         if !fields.read_bits.is_empty() {
-                            ops.push(crate::channel::apply_read_op(id, &fields.read_bits));
+                            let op = crate::channel::apply_read_op(id, &fields.read_bits);
+                            if let Some(context) = observation
+                                .filter(|context| context.target_matches(Some(id), Some(fields)))
+                            {
+                                let meta = crate::sync::observability::storage_op_metadata(&op);
+                                tracing::info!(
+                                    hop = "sync.type6.read_bits",
+                                    corr = context.corr,
+                                    track_id = context.track_id.as_str(),
+                                    channel_id = ev.channel_id.as_str(),
+                                    event_seq = ev.seq.0,
+                                    event_type = ev.kind.type_num(),
+                                    msg_id = id,
+                                    source = context.source,
+                                    operation_id = operation_id.as_deref().unwrap_or_default(),
+                                    message_map_hit = true,
+                                    operation = %meta["operation"],
+                                    key_col = %meta["key_col"],
+                                    read_bits_present = true,
+                                    read_bits_hash = %meta["patch_field_meta"]["read_bits"]["hash"],
+                                    reader_id = ev.actor_id.as_str(),
+                                    patch_columns = %meta["patch_columns"],
+                                    patch_field_meta = %meta["patch_field_meta"],
+                                    read_bits_length = fields.read_bits.len(),
+                                    "type=6 已读位更新操作已准备落库"
+                                );
+                            }
+                            ops.push(op);
+                        } else if let Some(context) = observation
+                            .filter(|context| context.target_matches(Some(id), Some(fields)))
+                        {
+                            tracing::info!(
+                                hop = "sync.event.skipped",
+                                corr = context.corr,
+                                track_id = context.track_id.as_str(),
+                                channel_id = ev.channel_id.as_str(),
+                                event_seq = ev.seq.0,
+                                event_type = ev.kind.type_num(),
+                                msg_id = id,
+                                source = context.source,
+                                operation_id = operation_id.as_deref().unwrap_or_default(),
+                                message_map_hit = true,
+                                reason = "read_bits_empty",
+                                "type=6 缺少 read_bits，未生成已读补丁"
+                            );
                         }
+                    } else if let Some(context) =
+                        observation.filter(|context| context.target_matches(Some(id), None))
+                    {
+                        tracing::warn!(
+                            hop = "sync.event.skipped",
+                            corr = context.corr,
+                            track_id = context.track_id.as_str(),
+                            channel_id = ev.channel_id.as_str(),
+                            event_seq = ev.seq.0,
+                            event_type = ev.kind.type_num(),
+                            msg_id = id,
+                            source = context.source,
+                            operation_id = operation_id.as_deref().unwrap_or_default(),
+                            message_map_hit = false,
+                            reason = "message_map_miss",
+                            "type=6 已读位未命中 messages map，未生成补丁"
+                        );
                     }
                 }
             }

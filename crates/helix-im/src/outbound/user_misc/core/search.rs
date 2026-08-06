@@ -1,4 +1,4 @@
-//! search 四件套；body 由共享 helper 对齐 Go 的 DoSearchRequest。
+//! Search Gate 四件套；共享 helper 负责 public snake_case 到 Go camelCase 的零信任转换。
 
 use super::*;
 
@@ -26,11 +26,11 @@ misc_cmd!(
     |args, cmd| { Ok(("search/channel", do_search_body(args, cmd)?)) }
 );
 
-// Go 尚未实现聚合搜索，保留 fire-and-forget 标记，待服务端补齐后再切读回灌。
+// 聚合搜索与其他读族共用 req_id 回灌；Go 返回三段权威 JSON，Helix 不重建 reducer。
 misc_cmd!(
     SearchDoCommand,
     SEARCH_DO_REG,
     "im_search_do",
-    false,
+    true,
     |args, cmd| { Ok(("search/do", do_search_body(args, cmd)?)) }
 );

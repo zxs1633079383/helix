@@ -14,6 +14,11 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 以独立 Search Gate 合同接通现有四个搜索命令；可证伪断言：① 仅修改 `helix-im` 现有 search outbound、三份聚焦测试、独立 Search 合同与本活账，不改冻结 Spec047、core 或任一 driver；② `im_search_post/user/channel/do` 均要求非空 `req_id`，拒绝 `user_id/team_id/company_id/sort`，并把 public snake_case 精确转换为 Go camelCase；③ post 支持有界筛选与 cursor，channel scope 缺 channel_id、无 keyword 且无筛选、非法时间或 page_size 均 fail-closed，另外三命令 keyword 必填；④ `im_search_do` 改为 read 并继续只通过既有 `im:read:result` 回灌，不新增事件、ABI、reducer 或缓存；⑤ focused test、`cargo check -p helix-im` 与 `git diff --check` 通过后独立提交且不 push | 赌注 高 | 可逆 是 | @2026-08-06T19:11:07+0800
+
+✅ DONE 独立 Search Gate 最小实现已完成：四个既有 `/search/{post,user,channel,do}` 命令统一要求本地 `req_id`，拒绝客户端身份/租户/排序字段；post 支持 channel/global scope、发送人、内容类型、时间与有界 opaque cursor/page，目录与聚合搜索使用必填 keyword 和同一分页边界。`im_search_do` 已切为读族，Go 三段权威 JSON 继续经既有 `im:read:result` 原样回灌，未新增事件、ABI、driver、reducer、缓存或 SQLite。聚焦单元 15/15、P5a 18/18、read-relay 14/14 与 `cargo check -p helix-im` PASS；真实 Go/ES、PC/Flutter/Web runtime 与性能证据仍为 NOT_RUN。额外全量 lib 探测为 285/286，唯一失败是未改动的 `channel_sync_page_projects_capabilities_with_tenant_scope`，不冒充全量 Green且未越界修复 | @2026-08-06T19:20:40+0800
+⚡ DRIFT-PRED 首次聚合测试先暴露 P5a 未导入公开 `is_read`，修正后全量 lib 又命中与 Search 无关的 channel-sync 既有失败；因此收口验证改为精确 Search 单元和两份集成 target，并保留全量失败原文 → 候选教训：小域提交应先跑聚焦 target，全量探测只能作为额外基线证据，不能因无关失败扩大文件租约 | @2026-08-06T19:20:40+0800
+
 🎯 EXPECT 修复 Phase 1 显式失败重试在 Go 幂等 admission 后缺少第二次 WS echo 的真实链；可证伪断言：① 初次 posts/create HTTP 200 仍保持 Sending 并可在 15 秒后失败；② 只有 im_retry_send 的 HTTP 200 强制触发 getLatestPost 权威回读；③ 回读命中同 temporaryId 后以服务端 id 落定 sent、撤销 timer 且清理 pending；④ 只修改 helix-im send/query/correlation 与 focused F1 测试，不修改 Go 幂等合同 | 赌注 高 | 可逆 是 | @2026-08-01T04:30:00-0700
 
 🎯 EXPECT 完成 MessageV3 Phase 1 发送域 33 Gate 的 producer-first 迁移；可证伪断言：① 首批只新增 `message-v3-phase1-send.registry.json`、`tests/message_v3/{support,contracts,post,upload,schedule,draft,announcement,channel}` 与 Phase 1 所需现役模块，不触碰既有 `UC04-16-EXECUTION-INDEX.md` 删除；② 33 个 target 可发现且三个 Gap 保持 fail-closed；③ Core 不新增 Tauri/tokio/sqlx/reqwest 依赖，Rust Cargo 调用总计控制在模块完成与 Phase 验收两处；④ 未取得真实 HTTP/WS/Storage、dual-user 和 Native 证据的 Gate 不标 PASS | 赌注 高 | 可逆 是 | @2026-07-30T00:00:00-0700

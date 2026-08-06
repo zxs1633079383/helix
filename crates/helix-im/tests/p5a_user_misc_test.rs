@@ -9,7 +9,7 @@
 //!   · users/status/ids → `userIds:[]`（user.go:43，presence 接管 D2）
 //!   · teams/member/quit → `{userId,teamId}`（quit_team.go:3-6）
 //!   · notification/loadSend → `{page,size,state?}`（NotificationReq + Page）
-//!   · search 四件套 body=DoSearchRequest camelCase（keyword/searchType/channelId/teamId/isAll）
+//!   · Search Gate 四件套：有界筛选/游标、req_id 本地 correlation、Go camelCase wire
 //! - endpoint 前缀：users/teams/modules/notification/search 各自子路由
 //! - 源 bug 移植纪律：4 处源 bug 属服务端响应/handler 态，outbound 只 build 请求体，不绕过/不预修
 //!   （本测试断言 outbound endpoint+body 与现网 decode 结构一致，不在 build 层裁决响应 bug）
@@ -17,7 +17,7 @@
 //!   → 文档断言侧记录（见 personal_user_forbidden_is_response_side 注释断言）
 //! - health 裸 {"status":"OK"}：响应态特例（health.go ReturnStatusOK），非 outbound build 关切
 //! - search channelDetails 第四 key：do=searchAll 响应含 channels/users/channelDetails（cses_search.go），响应态
-//! - userId json:"-" 防漏：search body 禁前端下发 user_id（DoSearchRequest.UserId 服务端注入）
+//! - 搜索权限防漏：userId/teamId/companyId 与 sort 由服务端权威决定，前端下发即拒绝
 //! - 边界零信任：缺必填 → Err 不 panic（require_str / require_str_array）
 //! - registry 性质：11 命令全 is_outbound 命中 + 全可 dispatch（注册数==命令数，无重复/漏）
 //!
@@ -27,7 +27,7 @@
 
 use helix_core::effect::{Effect, HttpRequest};
 use helix_core::{AuthKind, Correlation, AUTH_KIND_HEADER};
-use helix_im::commands::{handle_outbound, is_outbound};
+use helix_im::commands::{handle_outbound, is_outbound, is_read};
 use serde_json::{json, Value};
 
 const BASE: &str = "http://x/api/cses";
@@ -224,75 +224,112 @@ fn load_send_notifications_state_optional_and_page_size_required() {
     )); // page 非 int
 }
 
-// ── search 四件套（body = DoSearchRequest camelCase）───────────────────────────────
+// ── Search Gate 四件套（public snake_case → Go camelCase）─────────────────────────
 
+/// post 搜索把可组合筛选精确转换为 Go wire，并保留 req_id 仅作本地 correlation。
 #[test]
-fn search_post_builds_do_search_request_camel_body() {
-    // DoSearchRequest（post_search_param.go:25-34）camelCase tag
+fn search_post_builds_bounded_camel_body() {
     let (url, body) = one_http(run(
         "im_search_post",
-        json!({ "keyword": "hi", "search_type": 1, "channel_id": "cS", "team_id": "tS", "is_all": true }),
+        json!({
+            "req_id": "search-post-1",
+            "scope": "channel",
+            "keyword": "hi",
+            "channel_id": "cS",
+            "sender_ids": ["u1"],
+            "content_types": ["FILE"],
+            "start_at": 10,
+            "end_at": 20,
+            "cursor": "next",
+            "page_size": 20
+        }),
     ));
     assert_eq!(url, "http://x/api/cses/search/post");
-    assert_eq!(body["keyword"], "hi");
     assert_eq!(
-        body["searchType"], 1,
-        "searchType camelCase（DoSearchRequest）"
+        body,
+        json!({
+            "scope": "channel",
+            "keyword": "hi",
+            "channelId": "cS",
+            "senderIds": ["u1"],
+            "contentTypes": ["FILE"],
+            "startAt": 10,
+            "endAt": 20,
+            "cursor": "next",
+            "pageSize": 20
+        })
     );
-    assert_eq!(body["channelId"], "cS");
-    assert_eq!(body["teamId"], "tS");
-    assert_eq!(body["isAll"], true);
-    // casing 陷阱：禁 snake
-    assert!(body.get("search_type").is_none());
-    assert!(body.get("channel_id").is_none());
-    assert!(body.get("team_id").is_none());
-    assert!(body.get("is_all").is_none());
 }
 
+/// user/channel/do 共用必填 keyword 与有界分页合同，聚合搜索也必须是读族。
 #[test]
-fn search_user_channel_do_share_do_search_body() {
+fn search_user_channel_do_share_keyword_search_body() {
     for (name, ep) in [
         ("im_search_user", "search/user"),
         ("im_search_channel", "search/channel"),
         ("im_search_do", "search/do"),
     ] {
-        let (url, body) = one_http(run(name, json!({ "keyword": "q", "channel_id": "c" })));
+        let (url, body) = one_http(run(
+            name,
+            json!({ "req_id": "rq-1", "keyword": "q", "cursor": "c", "page_size": 10 }),
+        ));
         assert_eq!(url, format!("http://x/api/cses/{ep}"));
-        assert_eq!(body["keyword"], "q");
-        assert_eq!(body["channelId"], "c");
+        assert_eq!(
+            body,
+            json!({ "keyword": "q", "cursor": "c", "pageSize": 10 })
+        );
+        assert!(is_read(name), "{name} 必须注册为读族");
     }
 }
 
+/// 搜索边界拒绝缺 req_id、空 keyword、空筛选、非法 scope/时间和越界页长。
 #[test]
-fn search_channel_id_defaults_empty_and_optionals_omitted() {
-    // channelId 非指针（DoSearchRequest.ChannelId string）→ 缺则空串下发，不报错。
-    let (_url, body) = one_http(run("im_search_do", json!({ "keyword": "k" })));
-    assert_eq!(
-        body["channelId"], "",
-        "channelId 缺省空串（Go string 零值）"
-    );
-    assert!(body.get("teamId").is_none(), "teamId 仅显式给出时下发");
-    assert!(body.get("searchType").is_none());
-    assert!(body.get("isAll").is_none());
-}
-
-#[test]
-fn search_rejects_frontend_user_id_json_dash() {
-    // DoSearchRequest.UserId `json:"-"`（服务端 session 注入）→ 前端下发 user_id = 契约漂移，拒绝。
-    // 四件套各自走 do_search_body 的 `?` 错误传播分支（覆盖每个 misc_cmd! 闭包的 Err 早退 region）。
+fn search_boundaries_fail_closed() {
     assert!(err(
         "im_search_post",
-        json!({ "channel_id": "c", "user_id": "leak" })
+        json!({ "req_id": "r", "scope": "channel", "keyword": "x" })
     ));
     assert!(err(
-        "im_search_user",
-        json!({ "channel_id": "c", "user_id": "leak" })
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "global" })
     ));
     assert!(err(
-        "im_search_channel",
-        json!({ "channel_id": "c", "user_id": "leak" })
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "global", "keyword": "x", "start_at": 2, "end_at": 1 })
     ));
-    assert!(err("im_search_do", json!({ "user_id": "leak" })));
+    assert!(err(
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "global", "keyword": "x", "page_size": 51 })
+    ));
+    assert!(err("im_search_user", json!({ "req_id": "r" })));
+    assert!(err("im_search_channel", json!({ "keyword": "x" })));
+    assert!(err(
+        "im_search_do",
+        json!({ "req_id": "r", "keyword": "x", "cursor": "" })
+    ));
+}
+
+/// 服务端 session 权威字段和排序策略禁止从任何搜索命令透传。
+#[test]
+fn search_rejects_frontend_authority_fields() {
+    for (name, base) in [
+        (
+            "im_search_post",
+            json!({ "req_id": "r", "scope": "global", "keyword": "x" }),
+        ),
+        ("im_search_user", json!({ "req_id": "r", "keyword": "x" })),
+        (
+            "im_search_channel",
+            json!({ "req_id": "r", "keyword": "x" }),
+        ),
+        ("im_search_do", json!({ "req_id": "r", "keyword": "x" })),
+    ] {
+        for field in ["user_id", "team_id", "company_id", "sort"] {
+            let mut body = base.clone();
+            body[field] = json!("leak");
+            assert!(err(name, body), "{name} 必须拒绝 {field}");
+        }
+    }
 }
 
 // ── 源 bug / 响应态特例：文档化断言（outbound build 不裁决响应态，此处锚边界）──────────────
@@ -322,7 +359,10 @@ fn health_and_channel_details_are_response_side_not_outbound_commands() {
         "health 裸信封是 GET 响应态，非 outbound build 命令"
     );
     // search/do 是 outbound 命令；channelDetails 第四 key 在其**响应**里（searchAll），非请求体。
-    let (_url, body) = one_http(run("im_search_do", json!({ "channel_id": "c" })));
+    let (_url, body) = one_http(run(
+        "im_search_do",
+        json!({ "req_id": "rq-response", "keyword": "c" }),
+    ));
     assert!(
         !body.to_string().contains("channelDetails"),
         "channelDetails 是 searchAll 响应第四 key，不在 outbound 请求体"
@@ -350,10 +390,19 @@ const ALL_P5A_MISC: &[(&str, fn() -> Value)] = &[
         "im_load_send_notifications",
         || json!({ "page": 1, "size": 10 }),
     ),
-    ("im_search_post", || json!({ "channel_id": "c" })),
-    ("im_search_user", || json!({ "channel_id": "c" })),
-    ("im_search_channel", || json!({ "channel_id": "c" })),
-    ("im_search_do", || json!({ "channel_id": "c" })),
+    (
+        "im_search_post",
+        || json!({ "req_id": "r", "scope": "channel", "channel_id": "c", "keyword": "x" }),
+    ),
+    (
+        "im_search_user",
+        || json!({ "req_id": "r", "keyword": "x" }),
+    ),
+    (
+        "im_search_channel",
+        || json!({ "req_id": "r", "keyword": "x" }),
+    ),
+    ("im_search_do", || json!({ "req_id": "r", "keyword": "x" })),
 ];
 
 #[test]

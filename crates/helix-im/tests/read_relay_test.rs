@@ -3,7 +3,7 @@
 //! 回归锚：spec06「06-读族回灌+完整投影」缺陷A。
 //!
 //! ## 被测不变量
-//! 1. 读命令（`is_read=true`，posts_read 17 + announcement delete 1 + user-misc 读 7）dispatch 后注册
+//! 1. 读命令（`is_read=true`，含 Search Gate 四件套）dispatch 后注册
 //!    `CorrelationContext::OutboundReadReply{req_id}` → HTTP 回报时 emit `im:read:result{req_id,body}`
 //!    **透传后端响应体**（后端返回什么吐什么）。
 //! 2. 写命令（`is_read=false`）**不**注册回灌上下文 → HTTP 回报无 corr 命中 → 静默 no-op（数据走 WS 回声）。
@@ -102,6 +102,67 @@ fn read_command_registers_relay_and_emits_result() {
     assert_eq!(v["data"]["body"]["data"][1]["message"], "yo");
     // 无 error 字段（成功路径）。
     assert!(v["data"].get("error").is_none(), "成功路径不带 error");
+}
+
+/// 聚合搜索必须走读回 correlation，并把 Go 三段结果作为权威 JSON 原样交付。
+#[test]
+fn search_do_registers_relay_and_passes_three_sections_through() {
+    assert!(commands::is_read("im_search_do"), "聚合搜索必须为读族");
+    let mut h = Harness::new(&[]);
+    h.step(
+        outbound_cmd(
+            "im_search_do",
+            serde_json::json!({
+                "req_id": "search-do-1",
+                "keyword": "项目",
+                "cursor": "opaque-1",
+                "page_size": 20
+            }),
+        ),
+        1000,
+    );
+    let (corr, wire_body) = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, req } => Some((
+                corr.raw(),
+                serde_json::from_slice::<serde_json::Value>(
+                    req.body.as_ref().expect("search/do 必须有 JSON body"),
+                )
+                .expect("search/do wire body 必须是合法 JSON"),
+            )),
+            _ => None,
+        })
+        .expect("search/do 必须产生 HTTP");
+    assert_eq!(
+        wire_body,
+        serde_json::json!({ "keyword": "项目", "cursor": "opaque-1", "pageSize": 20 })
+    );
+
+    let authority = serde_json::json!({
+        "users": { "items": [{ "id": "u1" }], "nextCursor": null, "hasMore": false },
+        "channels": { "items": [{ "id": "c1" }], "nextCursor": null, "hasMore": false },
+        "posts": {
+            "groups": [{ "channel": { "id": "c1" }, "items": [{ "id": "p1" }] }],
+            "nextCursor": "post-next",
+            "hasMore": true
+        }
+    });
+    h.step(
+        port_reply_with_body(
+            corr,
+            enveloped(bytes::Bytes::from(
+                serde_json::to_vec(&authority).expect("静态三段结果必须可序列化"),
+            )),
+        ),
+        1001,
+    );
+    let result = emit_json(&h.sink).expect("search/do HTTP Ok 必须回灌");
+    assert_eq!(result["event"], "im:read:result");
+    assert_eq!(result["data"]["req_id"], "search-do-1");
+    assert_eq!(result["data"]["body"], authority);
 }
 
 #[test]
@@ -561,6 +622,7 @@ fn stale_reply_snapshot_is_suppressed_after_latest_frame() {
 
 // ─── is_read 注册表覆盖（读族标注正确性，防漂移）──────────────────────────────────
 
+/// 注册表必须把所有 request-response 命令标为读族，并排除 WS authority 写族。
 #[test]
 fn is_read_marks_read_family_only() {
     // posts_read 17 全读。
@@ -586,7 +648,7 @@ fn is_read_marks_read_family_only() {
     ] {
         assert!(commands::is_read(name), "{name} 必为读族（posts_read）");
     }
-    // user-misc 读族 7（不含 search_do）。
+    // user-misc 读族包含 Search Gate 四件套。
     for name in [
         "im_list_users",
         "im_get_user_statuses",
@@ -595,6 +657,7 @@ fn is_read_marks_read_family_only() {
         "im_search_post",
         "im_search_user",
         "im_search_channel",
+        "im_search_do",
     ] {
         assert!(commands::is_read(name), "{name} 必为读族（user-misc 读）");
     }
@@ -605,7 +668,6 @@ fn is_read_marks_read_family_only() {
         "im_team_upsert",
         "im_team_member_add",
         "im_team_quit",
-        "im_search_do", // spec06 §4：Go 未实现，唯一合法暂不切，标 false 不回灌
     ] {
         assert!(!commands::is_read(name), "{name} 必非读族");
     }

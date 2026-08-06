@@ -3,7 +3,7 @@
   "lifecycle": "RETIRED_HISTORICAL",
   "retired_by": "specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json",
   "retired_reason": "InteractionFrame V2 合同已物理下线；本文件只保留迁移前 50 Gate 历史快照。",
-  "contract_epoch": 12,
+  "contract_epoch": 13,
   "source_documents": [
     "docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md",
     "docs/uc-automation/uc-command-set-spec.md",
@@ -101,6 +101,9 @@
   "render_protocol": {
     "name": "InteractionFrame",
     "version": 2,
+    "surface_versions": {
+      "message.timeline": 3
+    },
     "envelope_fields": [
       "schemaVersion",
       "transactionId",
@@ -519,7 +522,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -589,7 +592,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -656,7 +659,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -722,7 +725,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -778,7 +781,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [],
@@ -837,7 +840,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [],
@@ -894,7 +897,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -956,7 +959,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -1028,7 +1031,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         },
         {
           "event": "im:interaction:frame",
@@ -1213,7 +1216,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -1275,7 +1278,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -1310,7 +1313,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "remote_store": {
@@ -1369,7 +1372,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "remote_store": {
@@ -1424,7 +1427,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "remote_store": {
@@ -1481,7 +1484,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "remote_store": {
@@ -1566,7 +1569,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -1836,7 +1839,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -2320,7 +2323,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -2407,7 +2410,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -2521,7 +2524,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -2836,7 +2839,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -2906,7 +2909,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -2975,7 +2978,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -3041,7 +3044,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -3099,7 +3102,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -3157,7 +3160,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -3212,7 +3215,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [
@@ -3389,7 +3392,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
+          "schema": "InteractionFrame/v3"
         }
       ],
       "allowed_actions": [

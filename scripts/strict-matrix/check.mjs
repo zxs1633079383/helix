@@ -100,7 +100,12 @@ function validateMatrix(matrix, schema, sourceDocumentExists) {
     unique(aliases, 'forbidden_aliases');
     const forbiddenAliases = new Set(aliases);
     const renderProtocol = matrix.render_protocol;
-    if (!isObject(renderProtocol) || renderProtocol.name !== 'InteractionFrame' || renderProtocol.version !== 2) fail('InteractionFrame/v2 未冻结');
+    if (!isObject(renderProtocol) || renderProtocol.name !== 'InteractionFrame' || renderProtocol.version !== 2) fail('InteractionFrame 默认版本必须为 v2');
+    if (!isObject(renderProtocol.surface_versions)
+        || renderProtocol.surface_versions['message.timeline'] !== 3
+        || Object.keys(renderProtocol.surface_versions).length !== 1) {
+        fail('message.timeline 必须显式绑定 InteractionFrame/v3');
+    }
     const envelopeFields = requireArray(renderProtocol.envelope_fields, 'render_protocol.envelope_fields');
     for (const field of ['schemaVersion', 'transactionId', 'causationId', 'runtime', 'mutations', 'directives']) {
         if (!envelopeFields.includes(field)) fail(`InteractionFrame 缺字段 ${field}`);
@@ -165,10 +170,13 @@ function validateMatrix(matrix, schema, sourceDocumentExists) {
         unique(projections.map(stableJson), `${label}.projections`);
         for (const projection of projections) {
             if (!isObject(projection) || !/^im:[a-z0-9:._-]+$/.test(projection.event ?? '')) fail(`${label}: projection event 错误`);
-            if (projection.schema !== 'InteractionFrame/v2'
+            const expectedSchema = projection.render_kind === 'message.timeline'
+                ? 'InteractionFrame/v3'
+                : 'InteractionFrame/v2';
+            if (projection.schema !== expectedSchema
                 || projection.event !== 'im:interaction:frame'
                 || !renderKindSet.has(projection.render_kind)) {
-                fail(`${label}: projection 必须绑定已登记的 InteractionFrame/v2 surface`);
+                fail(`${label}: ${projection.render_kind} 必须绑定 ${expectedSchema}`);
             }
             if (projection.required_data_fields !== undefined) {
                 unique(requireArray(projection.required_data_fields, `${label}.required_data_fields`), `${label}.required_data_fields`);
@@ -194,10 +202,21 @@ function stableJson(value) {
     return JSON.stringify(value);
 }
 
+// Keeps retired wrapper metadata outside the hash of the frozen historical snapshot.
 function matrixHashes(matrixBytes, matrix) {
+    const snapshot = cloneJson(matrix);
+    const retired = snapshot.lifecycle === 'RETIRED_HISTORICAL';
+    if (retired) {
+        delete snapshot.lifecycle;
+        delete snapshot.retired_by;
+        delete snapshot.retired_reason;
+    }
+    const snapshotBytes = retired
+        ? Buffer.from(`${JSON.stringify(snapshot, null, 2)}\n`)
+        : matrixBytes;
     return {
-        raw: createHash('sha256').update(matrixBytes).digest('hex'),
-        semantic: createHash('sha256').update(stableJson(matrix)).digest('hex')
+        raw: createHash('sha256').update(snapshotBytes).digest('hex'),
+        semantic: createHash('sha256').update(stableJson(snapshot)).digest('hex')
     };
 }
 
@@ -243,6 +262,7 @@ function sourceDocumentExists(source, revision) {
     }
 }
 
+// Renders the human-readable matrix from the canonical mixed-version contract.
 function renderMarkdown(matrix, cases, hashes) {
     const rows = cases.map(entry => {
         const commands = entry.commands.map(step => `${step.name}(${[...step.input.required, ...step.input.optional].join(', ') || '∅'})`).join('<br>');
@@ -263,7 +283,7 @@ function renderMarkdown(matrix, cases, hashes) {
     }, {});
     return `# Helix IM Strict Matrix v1
 
-> 由 \`contracts/strict-matrix.v1.json\` 生成；禁止手工修改。\n> contract epoch: ${matrix.contract_epoch}; raw matrix sha256: \`${hashes.raw}\`; semantic matrix sha256: \`${hashes.semantic}\`。\n> raw hash 绑定正式 commit blob 与下游 pin；semantic hash 仅用于内容诊断，二者不可混用。\n> \`declared\` 与 \`blocked\` 均不可被运行证据晋升为 Green；只有实现 InteractionFrame/v2、直接 core command 与八面证据均完整的 \`implemented\` UC 才可晋升。
+> 由 \`contracts/strict-matrix.v1.json\` 生成；禁止手工修改。\n> contract epoch: ${matrix.contract_epoch}; raw matrix sha256: \`${hashes.raw}\`; semantic matrix sha256: \`${hashes.semantic}\`。\n> raw hash 绑定正式 commit blob 与下游 pin；semantic hash 仅用于内容诊断，二者不可混用。\n> \`declared\` 与 \`blocked\` 均不可被运行证据晋升为 Green；只有实现 Surface 对应 InteractionFrame 版本、直接 core command 与八面证据均完整的 \`implemented\` UC 才可晋升。
 
 > 这张表不是“功能清单”，而是 \`UC × UI × Helix × HTTP × WS × Storage × Native\` 发布闸门。任一证据平面缺失、过期、无法关联或仅由 mock 产生，该 UC 整行即为 Red。
 
@@ -284,7 +304,10 @@ function renderMarkdown(matrix, cases, hashes) {
 - **Native**：必须由真实 Tauri/FFI 进程执行，并将本行所有证据绑定到同一组关联键；browser-only 或旧 run 证据不可顶替。
 - **N/A 不是空值**：只允许“带理由、带反向证据的 not-applicable”。任何空单元格、未知状态或无法关联的证据均按 Red 处理。
 
-## InteractionFrame/v2
+## InteractionFrame 版本
+
+- 默认非 Timeline Surface：v${matrix.render_protocol.version}
+- message.timeline：v${matrix.render_protocol.surface_versions['message.timeline']}
 
 | render_kind | 必须 props |
 | --- | --- |
@@ -304,6 +327,7 @@ ${rows.join('\n')}
 `;
 }
 
+// Preserves retirement provenance when deriving the historical Command API snapshot.
 function buildCommandApi(matrix, cases, hashes) {
     const commands = new Map();
     for (const entry of cases) {
@@ -332,6 +356,11 @@ function buildCommandApi(matrix, cases, hashes) {
     }
     return {
         schema_version: 'helix-im-command-api/v1',
+        ...(matrix.lifecycle === 'RETIRED_HISTORICAL' ? {
+            lifecycle: matrix.lifecycle,
+            retired_by: matrix.retired_by,
+            retired_reason: '该下游 API 由已退役的 InteractionFrame V2 Matrix 生成，只作历史审计。'
+        } : {}),
         source: {
             matrix_path: 'crates/helix-im/contracts/strict-matrix.v1.json',
             contract_epoch: matrix.contract_epoch,
@@ -379,6 +408,7 @@ ${api.forbidden_aliases.map(alias => `- \`${alias}\``).join('\n')}
 `;
 }
 
+// Emits downstream metadata and rows without flattening per-surface versions.
 function renderConsumerTypeScript(matrix, cases, hashes, revision) {
     const payload = cases.map(entry => ({
         gateId: entry.gate_id,
@@ -406,7 +436,7 @@ function renderConsumerTypeScript(matrix, cases, hashes, revision) {
         matrixSha256: hashes.raw,
         matrixSemanticSha256: hashes.semantic,
         helixRevision: revision ?? null,
-        renderProtocol: 'InteractionFrame/v2',
+        renderProtocol: 'InteractionFrame/v2 + message.timeline/v3',
         forbiddenAliases: matrix.forbidden_aliases,
         source: 'helix-im/contracts/strict-matrix.v1.json'
     };

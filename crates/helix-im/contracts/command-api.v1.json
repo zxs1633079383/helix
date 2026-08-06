@@ -5,9 +5,9 @@
   "retired_reason": "该下游 API 由已退役的 InteractionFrame V2 Matrix 生成，只作历史审计。",
   "source": {
     "matrix_path": "crates/helix-im/contracts/strict-matrix.v1.json",
-    "contract_epoch": 12,
-    "matrix_sha256": "a4120b83b61a62cb31c42a7d6700e3093ea1b7ccf522714169b723372b534820",
-    "matrix_semantic_sha256": "67d9817c5bcf9aba97d59c2b41f48336d5aeae2b1cb3de1e6c23c21ad6be06bb",
+    "contract_epoch": 13,
+    "matrix_sha256": "c1cba18fb58de68474c6abc297b4af4316e0d25a663f477f6f4e9388cd9c93d0",
+    "matrix_semantic_sha256": "377f8e8dac01c5e999535cf1da774ea2576eb717ec800341a8566c7fbf22c946",
     "gate_count": 50,
     "command_count": 54
   },
@@ -230,7 +230,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -344,7 +344,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -399,7 +399,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -451,7 +451,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -504,7 +504,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -557,7 +557,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -608,7 +608,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -662,7 +662,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -718,7 +718,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -768,7 +768,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             },
             {
               "event": "im:interaction:frame",
@@ -825,7 +825,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             },
             {
               "event": "im:interaction:frame",
@@ -993,7 +993,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -1039,7 +1039,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -1084,7 +1084,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -1136,7 +1136,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -1188,7 +1188,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -1241,7 +1241,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -1293,7 +1293,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -1588,7 +1588,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -2122,7 +2122,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -2173,7 +2173,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -2224,7 +2224,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -2276,7 +2276,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -2327,7 +2327,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -2431,7 +2431,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -2753,7 +2753,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -2802,7 +2802,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -2849,7 +2849,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -2897,7 +2897,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -2944,7 +2944,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -2990,7 +2990,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -3039,7 +3039,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -3090,7 +3090,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -3141,7 +3141,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [
@@ -3190,7 +3190,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
+              "schema": "InteractionFrame/v3"
             }
           ],
           "persistence": [

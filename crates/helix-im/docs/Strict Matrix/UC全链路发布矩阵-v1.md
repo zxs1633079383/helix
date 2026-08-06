@@ -1,9 +1,9 @@
 # Helix IM Strict Matrix v1
 
 > 由 `contracts/strict-matrix.v1.json` 生成；禁止手工修改。
-> contract epoch: 12; raw matrix sha256: `a4120b83b61a62cb31c42a7d6700e3093ea1b7ccf522714169b723372b534820`; semantic matrix sha256: `67d9817c5bcf9aba97d59c2b41f48336d5aeae2b1cb3de1e6c23c21ad6be06bb`。
+> contract epoch: 13; raw matrix sha256: `c1cba18fb58de68474c6abc297b4af4316e0d25a663f477f6f4e9388cd9c93d0`; semantic matrix sha256: `377f8e8dac01c5e999535cf1da774ea2576eb717ec800341a8566c7fbf22c946`。
 > raw hash 绑定正式 commit blob 与下游 pin；semantic hash 仅用于内容诊断，二者不可混用。
-> `declared` 与 `blocked` 均不可被运行证据晋升为 Green；只有实现 InteractionFrame/v2、直接 core command 与八面证据均完整的 `implemented` UC 才可晋升。
+> `declared` 与 `blocked` 均不可被运行证据晋升为 Green；只有实现 Surface 对应 InteractionFrame 版本、直接 core command 与八面证据均完整的 `implemented` UC 才可晋升。
 
 > 这张表不是“功能清单”，而是 `UC × UI × Helix × HTTP × WS × Storage × Native` 发布闸门。任一证据平面缺失、过期、无法关联或仅由 mock 产生，该 UC 整行即为 Red。
 
@@ -24,7 +24,10 @@
 - **Native**：必须由真实 Tauri/FFI 进程执行，并将本行所有证据绑定到同一组关联键；browser-only 或旧 run 证据不可顶替。
 - **N/A 不是空值**：只允许“带理由、带反向证据的 not-applicable”。任何空单元格、未知状态或无法关联的证据均按 Red 处理。
 
-## InteractionFrame/v2
+## InteractionFrame 版本
+
+- 默认非 Timeline Surface：v2
+- message.timeline：v3
 
 | render_kind | 必须 props |
 | --- | --- |

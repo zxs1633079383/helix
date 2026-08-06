@@ -1,7 +1,7 @@
 # Helix IM Command API v1
 
 > 由 `contracts/strict-matrix.v1.json` 生成；禁止手工修改。
-> contract epoch: 12; raw matrix sha256: `a4120b83b61a62cb31c42a7d6700e3093ea1b7ccf522714169b723372b534820`; semantic matrix sha256: `67d9817c5bcf9aba97d59c2b41f48336d5aeae2b1cb3de1e6c23c21ad6be06bb`。
+> contract epoch: 13; raw matrix sha256: `c1cba18fb58de68474c6abc297b4af4316e0d25a663f477f6f4e9388cd9c93d0`; semantic matrix sha256: `377f8e8dac01c5e999535cf1da774ea2576eb717ec800341a8566c7fbf22c946`。
 > raw hash 是正式 Helix commit blob、PC/Mobile pin 与生成物的唯一绑定值；semantic hash 仅用于诊断。
 
 ## 边界

@@ -1,4 +1,4 @@
-//! Event-to-storage mappings shared by WS and sync paths.
+//! Event-to-storage mappings for sync and online WS paths.
 
 use crate::sync_session::EventEnvelope;
 use helix_core::effect::StorageOp;
@@ -7,11 +7,11 @@ use helix_core::effect::StorageOp;
 
 /// 将 EventEnvelope 转为落库 StorageOp（批量 upsert，ON CONFLICT(temporary_id) DO UPDATE）。
 ///
-/// ## 唯一落库映射（sync 路径与 WS 推送路径共用此函数）
+/// ## sync 全量落库映射
 ///
 /// 写向 678 真库 `message` 表（PK=temporary_id），与发送态完全同表同主键语义——
-/// 不再有 "messages" 影子表。两条 live 写路径（WS 推送 / B-rest 增量）经此函数收口，
-/// 收到的事件真正落到磁盘 message 表。
+/// 不再有 "messages" 影子表。sync/B-rest 增量经此函数收口，在线 WS 稀疏 echo 通过
+/// [`event_to_online_upsert_op`] 复用本函数的列映射，但使用“缺省富字段保留”策略。
 ///
 /// ## 字段映射（真源 = cses-client `From<types::Post> for Message`）
 ///
@@ -37,6 +37,23 @@ use helix_core::effect::StorageOp;
 ///   从 rusqlite 读运行时列名同样是 String；改 `&'static str` 需 core 级动核且破坏 driver
 ///   codec——超本 drift 修复白名单，见 MAJ-5 仅 table/conflict_key 静态化的同因取舍）。
 pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
+    event_to_upsert_op_with_policy(ev, false)
+}
+
+/// 将在线 WS post 编译为“缺省富字段保留”的幂等 upsert。
+///
+/// 在线 `post` 广播可能是发送确认的稀疏 payload：同一 `temporary_id` 的旧行已经由
+/// `/sync/notify` 写入 `expedite_map`、reply*、`read_bits` 等富字段，但回声只携带正文。
+/// 冲突更新时排除这些缺省列，插入新行仍使用完整字段默认值；sync type=1 继续走上面的全量函数。
+pub fn event_to_online_upsert_op(ev: &EventEnvelope) -> StorageOp {
+    event_to_upsert_op_with_policy(ev, true)
+}
+
+/// 按来源策略拼装 message upsert，保证 sync 全量与在线稀疏回声共享同一列映射。
+fn event_to_upsert_op_with_policy(
+    ev: &EventEnvelope,
+    preserve_empty_online_fields: bool,
+) -> StorageOp {
     use helix_core::effect::{SqlValue, UpsertSpec};
 
     let f = &ev.fields;
@@ -61,6 +78,41 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
     let mut exclude_from_update = vec!["send_status"];
     if ev.seq.0 == 0 {
         exclude_from_update.push("event_seq");
+    }
+    if preserve_empty_online_fields {
+        // parser 对缺失 JSON 字段使用空值/0；在线冲突更新必须把它们当作“未提供”，
+        // 否则稀疏 WS echo 会覆盖 sync 已落地的加急、回复、已读和身份快照。
+        let reply_messages_missing = online_json_field_missing(&f.reply_messages);
+        let preserve = [
+            ("id", f.id.is_empty()),
+            ("user_id", f.user_id.is_empty()),
+            ("type", f.msg_type.is_empty()),
+            ("message", f.message.is_empty()),
+            ("viewers", f.viewers.is_empty()),
+            ("user_snapshot", online_json_field_missing(&f.user_snapshot)),
+            ("mentions", f.mentions.is_empty()),
+            ("expedite_map", online_json_field_missing(&f.expedite_map)),
+            ("topic", online_json_field_missing(&f.topic)),
+            ("simple_message", f.simple_message.is_empty()),
+            ("reply_id", f.reply_id.is_empty()),
+            ("reply_root_id", f.reply_root_id.is_empty()),
+            ("reply_first_level_id", f.reply_first_level_id.is_empty()),
+            (
+                "replied_message",
+                online_json_field_missing(&f.replied_message),
+            ),
+            ("reply_messages", reply_messages_missing),
+            ("reply_count", f.reply_count == 0 && reply_messages_missing),
+            ("read_bits", f.read_bits.is_empty()),
+            ("snapshot_id", f.snapshot_id.is_empty()),
+            ("create_at", f.create_at == 0),
+            ("update_at", f.update_at == 0),
+        ];
+        exclude_from_update.extend(
+            preserve
+                .into_iter()
+                .filter_map(|(column, should_preserve)| should_preserve.then_some(column)),
+        );
     }
 
     StorageOp::BatchUpsert(UpsertSpec {
@@ -131,6 +183,11 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
         // 并撤销超时 timer，避免普通回放/重放越权覆盖 failed/unsend。
         exclude_from_update,
     })
+}
+
+/// 将在线 JSON 富字段的空对象/数组视为缺省，避免稀疏 echo 覆盖已同步的绝对态。
+fn online_json_field_missing(value: &str) -> bool {
+    value.is_empty() || value == "{}" || value == "[]"
 }
 
 /// type=2 编辑：**仅覆盖内容列**，保留本地权威列（C2 真源 message_repo.rs:185-221

@@ -214,8 +214,9 @@ pub fn message_v3_commit_ops(
     let channel_id = event.channel_id.as_str().to_string();
     let viewer_id = auth_user_id.to_string();
     let sender_view = fields.user_id == auth_user_id;
+    // 在线 WS post 可能是稀疏 echo；冲突时保留 sync 已写入的缺省富字段，插入仍完整落行。
     let mut ops = vec![
-        crate::channel::event_to_upsert_op(event),
+        crate::channel::event_to_online_upsert_op(event),
         StorageOp::BatchUpdate(BatchUpdateSpec {
             table: "channel",
             key_col: "id",

@@ -183,7 +183,7 @@ fn col_text(row: &helix_core::effect::Row, name: &str) -> String {
     }
 }
 
-/// 核心回归：WS 推送路径用的 `event_to_upsert_op` 落到真 `message` 表（PK=temporary_id）。
+/// 核心回归：WS 推送路径用的在线 upsert 落到真 `message` 表（PK=temporary_id）。
 ///
 /// 若回退成写 `messages` 影子表 → execute IM_SCHEMA 不建该表 → batch_upsert 抛
 /// `no such table: messages` → 此测试在 batch_upsert 即红。
@@ -192,7 +192,7 @@ async fn ws_event_persists_into_678_message_table() {
     let storage = storage_with_im_schema().await;
     let ev = post_event(42, 7, "tmp-abc", "post-real-1", "hello world");
 
-    let op = event_to_upsert_op(&ev);
+    let op = helix_im::channel::event_to_online_upsert_op(&ev);
     storage
         .batch_upsert(match op {
             helix_core::effect::StorageOp::BatchUpsert(spec) => spec,
@@ -252,7 +252,7 @@ async fn ws_event_conflict_preserves_local_send_status_until_reconcile() {
         .await
         .expect("seed optimistic row");
 
-    let op = event_to_upsert_op(&post_event(
+    let op = helix_im::channel::event_to_online_upsert_op(&post_event(
         42,
         8,
         "tmp-optimistic",
@@ -275,6 +275,100 @@ async fn ws_event_conflict_preserves_local_send_status_until_reconcile() {
         "sending",
         "gate 冲突更新必须保留本地发送态，终态只由 PendingSend reconcile 决定"
     );
+}
+
+/// 在线 WS 稀疏 echo 冲突时，不得把 sync 已落地的加急/回复/已读字段擦空。
+#[tokio::test]
+async fn sparse_ws_upsert_preserves_sync_rich_fields() {
+    let storage = storage_with_im_schema().await;
+    let mut seeded = post_event(42, 20, "tmp-sparse", "post-sparse", "sync rich");
+    seeded.fields.expedite_map = "{\"recipients\":{\"444\":{\"status\":0}}}".to_string();
+    seeded.fields.reply_id = "reply-parent".to_string();
+    seeded.fields.reply_root_id = "reply-root".to_string();
+    seeded.fields.reply_first_level_id = "reply-first".to_string();
+    seeded.fields.replied_message = "{\"message\":\"parent\"}".to_string();
+    seeded.fields.reply_messages = "{\"reply-child\":{\"message\":\"child\"}}".to_string();
+    seeded.fields.reply_count = 1;
+    seeded.fields.read_bits = "0010".to_string();
+    seeded.fields.snapshot_id = "snapshot-rich".to_string();
+    seeded.fields.update_at = 1_700_000_000_100;
+    storage
+        .batch_upsert(match event_to_upsert_op(&seeded) {
+            StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected BatchUpsert, got {other:?}"),
+        })
+        .await
+        .expect("seed sync rich row");
+    storage
+        .batch_update(BatchUpdateSpec {
+            table: "message",
+            key_col: "id",
+            key_vals: vec![SqlValue::Text("post-sparse".to_string())],
+            patch: vec![(
+                "send_status".to_string(),
+                SqlValue::Text("failed".to_string()),
+            )],
+        })
+        .await
+        .expect("seed local send status");
+
+    let mut sparse = post_event(42, 21, "tmp-sparse", "post-sparse", "online body");
+    sparse.fields.user_id.clear();
+    sparse.fields.user_snapshot.clear();
+    sparse.fields.expedite_map = "{}".to_string();
+    sparse.fields.reply_id.clear();
+    sparse.fields.reply_root_id.clear();
+    sparse.fields.reply_first_level_id.clear();
+    sparse.fields.replied_message = "{}".to_string();
+    sparse.fields.reply_messages = "{}".to_string();
+    sparse.fields.reply_count = 0;
+    sparse.fields.read_bits.clear();
+    sparse.fields.snapshot_id.clear();
+    sparse.fields.viewers.clear();
+    sparse.fields.mentions.clear();
+    sparse.fields.create_at = 0;
+    sparse.fields.update_at = 0;
+
+    let op = helix_im::channel_write::message_v3_commit_ops(
+        &sparse,
+        "user-zhang",
+        &serde_json::json!({}),
+    )
+    .into_iter()
+    .next()
+    .expect("online PersistAtomic must start with message upsert");
+    storage
+        .batch_upsert(match op {
+            StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected BatchUpsert, got {other:?}"),
+        })
+        .await
+        .expect("online sparse upsert");
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(col_text(row, "message"), "online body");
+    assert_eq!(col_text(row, "expedite_map"), seeded.fields.expedite_map);
+    assert_eq!(col_text(row, "reply_id"), "reply-parent");
+    assert_eq!(col_text(row, "reply_root_id"), "reply-root");
+    assert_eq!(col_text(row, "reply_first_level_id"), "reply-first");
+    assert_eq!(
+        col_text(row, "replied_message"),
+        seeded.fields.replied_message
+    );
+    assert_eq!(
+        col_text(row, "reply_messages"),
+        seeded.fields.reply_messages
+    );
+    assert!(matches!(
+        col(row, "reply_count"),
+        Some(SqlValue::Integer(1))
+    ));
+    assert_eq!(col_text(row, "read_bits"), "0010");
+    assert_eq!(col_text(row, "snapshot_id"), "snapshot-rich");
+    assert_eq!(col_text(row, "send_status"), "failed");
+    assert!(matches!(col(row, "event_seq"), Some(SqlValue::Integer(21))));
 }
 
 /// sync 路径 `batch_upsert_events` 同样真落 message 表（与 WS 路径同表同 PK）。
@@ -325,6 +419,89 @@ async fn resync_same_event_is_idempotent_upsert() {
         1,
         "重拉同事件必须幂等覆盖（同 PK），不产生重复行"
     );
+}
+
+/// PersistAtomic 必须把 type=2 的 0 行命中视为失败，避免消息字段未落库却推进 cursor。
+#[tokio::test]
+async fn atomic_type2_zero_rows_roll_back_cursor_and_existing_row_updates() {
+    let storage = storage_with_im_schema().await;
+    let channel = channel_id(100);
+    let seed = post_event(100, 1, "tmp-type2", "post-type2", "before");
+    let seed_op = event_to_upsert_op(&seed);
+    storage
+        .batch_upsert(match seed_op {
+            StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected seed upsert, got {other:?}"),
+        })
+        .await
+        .expect("seed type=2 row");
+
+    let edited = PostFields {
+        id: "post-type2".to_string(),
+        msg_type: "TEXT".to_string(),
+        message: "after".to_string(),
+        props: "{\"edited\":true}".to_string(),
+        expedite_map: "{\"678\":true}".to_string(),
+        ..PostFields::default()
+    };
+    let existing = helix_im::channel::edit_content_op("post-type2", &edited);
+    let committed = execute_storage_ops_atomic(
+        &storage,
+        &[
+            existing,
+            helix_im::acl::to_effect::advance_cursor_op(channel, Seq(2)),
+        ],
+    )
+    .await;
+    assert!(matches!(committed, helix_core::tick::PortOutcome::Ok(_)));
+
+    let row = storage
+        .get(helix_core::effect::GetSpec {
+            table: "message",
+            key_col: "id",
+            key_val: SqlValue::Text("post-type2".to_string()),
+        })
+        .await
+        .expect("read updated message")
+        .expect("updated message row");
+    assert_eq!(col_text(&row, "message"), "after");
+    assert_eq!(col_text(&row, "expedite_map"), "{\"678\":true}");
+
+    let missing = helix_im::channel::edit_content_op("post-missing", &edited);
+    let failed = execute_storage_ops_atomic(
+        &storage,
+        &[
+            missing,
+            helix_im::acl::to_effect::advance_cursor_op(channel, Seq(3)),
+        ],
+    )
+    .await;
+    assert!(matches!(failed, helix_core::tick::PortOutcome::Err(_)));
+    assert!(
+        storage
+            .get(helix_core::effect::GetSpec {
+                table: "channel_event_cursor",
+                key_col: "channel_id",
+                key_val: SqlValue::Text(cid(100)),
+            })
+            .await
+            .expect("read cursor after failed type=2")
+            .is_some(),
+        "previous successful cursor must remain, but failed batch must not advance it"
+    );
+    let cursor = storage
+        .get(helix_core::effect::GetSpec {
+            table: "channel_event_cursor",
+            key_col: "channel_id",
+            key_val: SqlValue::Text(cid(100)),
+        })
+        .await
+        .expect("read cursor value")
+        .expect("cursor from successful batch");
+    assert!(matches!(
+        col(&cursor, "last_event_seq"),
+        Some(SqlValue::Integer(2))
+    ));
 }
 
 /// 服务端推送无 temporary_id（他人消息）时，PK 回退到 id（真源 cses-client From<Post>），

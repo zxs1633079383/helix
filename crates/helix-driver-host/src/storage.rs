@@ -44,7 +44,10 @@ use connection::{
 };
 use trace::{current_storage_trace_context, trace_sql};
 
-pub use trace::{with_storage_trace_context, StorageTraceContext};
+pub use trace::{
+    with_storage_operation_context, with_storage_trace_context, StorageOperationContext,
+    StorageTraceContext,
+};
 
 /// 内存数据库若未启用 shared cache，第二个连接会得到独立空库；文件 WAL 库与显式
 /// `cache=shared` 的内存库才启用只读池。
@@ -53,6 +56,7 @@ pub struct HostStorage {
     writer: Arc<Mutex<Connection>>,
     readers: Option<Arc<ReadPool>>,
     metrics: Arc<dyn AsyncMetricSink>,
+    db_target: Arc<String>,
 }
 
 impl HostStorage {
@@ -83,6 +87,7 @@ impl HostStorage {
             writer: Arc::new(Mutex::new(writer)),
             readers,
             metrics: Arc::new(NoopMetricSink),
+            db_target: Arc::new(target),
         };
         storage.migrate().await?;
         Ok(storage)

@@ -45,4 +45,19 @@ impl Channel {
         // 的 MAX guard 不会实际写入，但显式调用让意图清晰）
         fx.push(crate::acl::to_effect::advance_cursor(self.id, reset_cursor));
     }
+
+    /// 在 TooLong 权威窗口的原子持久化回执成功后提交新窗口。
+    ///
+    /// 调用前旧窗口、gate 与 cursor 均保持不变；调用方必须已在同一事务写入替换消息和
+    /// `channel_event_cursor`，失败路径不得调用本方法。
+    pub(crate) fn commit_too_long_after_atomic(&mut self, target_seq: Seq) -> bool {
+        if self.is_terminal() || target_seq < self.cursor.value() {
+            return false;
+        }
+        self.cursor.try_advance(target_seq);
+        self.buffer.clear();
+        self.gate = None;
+        self.last_sync_from_seq = None;
+        true
+    }
 }

@@ -36,6 +36,7 @@ use helix_core::effect::StorageOp;
 ///   注：列名仍走 `String`（`Row = Vec<(String, SqlValue)>` 是 core 类型契约，`convert_row`
 ///   从 rusqlite 读运行时列名同样是 String；改 `&'static str` 需 core 级动核且破坏 driver
 ///   codec——超本 drift 修复白名单，见 MAJ-5 仅 table/conflict_key 静态化的同因取舍）。
+/// 将 sync EventEnvelope 编译为完整 upsert；冲突时按服务端全量字段覆盖。
 pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
     event_to_upsert_op_with_policy(ev, false)
 }

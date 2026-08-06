@@ -2,7 +2,7 @@
 //!
 //! 验证（设计文档 §1.3 / §1.5）：
 //! - increment_channel 真帧（顶层 action + data{id,lastEventSeq,needSync}）
-//!   → Tick::Inbound 走 WS registry，注册 channel；global end 同批 Persist Ok 后再 emit。
+//!   → Tick::Inbound 走 WS registry，注册 channel；global end 同批 Persist Ok 后只发 typed ready。
 //! - event_seq 三级 fallback：① data.event_seq ② props.channel_event_seq ③ 顶层 channel_event_seq
 //!   各命中一级 + legacy data.seq 兼容（无 action 帧）。
 //! - 仅 id 非法（缺 / 非 26 字符）→ 生产路径 no-op / helper None；
@@ -71,7 +71,7 @@ fn increment_channel_real_frame_dispatches_through_registry() {
         "seq": 9
     });
     let bytes = serde_json::to_vec(&frame).unwrap();
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[], "viewer-1", "team_x", "", "", "");
 
     h.module
         .handle(&Tick::Inbound(InboundBytes(bytes.into())), 100, &mut h.sink)
@@ -97,20 +97,29 @@ fn increment_channel_real_frame_dispatches_through_registry() {
         "increment projection must wait for the batch persistence barrier"
     );
     complete_increment_batch(&mut h);
+    let emitted = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Emit { event } => Some(String::from_utf8_lossy(event.0.as_ref()).to_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     assert!(
-        h.sink.as_slice().iter().any(|effect| matches!(
-            effect,
-            Effect::Emit { event }
-                if {
-                    let body = String::from_utf8_lossy(event.0.as_ref());
-                    body.contains("im:channel:increment")
-                        && body.contains(CH26)
-                        && body.contains("displayName")
-                        && body.contains("general")
-                }
-        )),
-        "increment_channel should emit im:channel:increment, got {:?}",
-        h.sink.as_slice()
+        emitted
+            .iter()
+            .any(|body| body.contains("im:channel-sync-ready")),
+        "Persist Ok 后必须发布 typed channel-sync-ready，got {:?}",
+        emitted
+    );
+    assert!(
+        emitted
+            .iter()
+            .all(|body| !body.contains("im:channel:increment")
+                && !body.contains("im:channels:loaded")),
+        "channel sync 不得恢复 raw increment/loaded，got {:?}",
+        emitted
     );
 }
 
@@ -216,7 +225,7 @@ fn increment_channel_no_last_event_seq_still_dispatches() {
         "seq": 1
     });
     let bytes = serde_json::to_vec(&frame).unwrap();
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[], "viewer-1", "team_x", "", "", "");
 
     h.module
         .handle(&Tick::Inbound(InboundBytes(bytes.into())), 100, &mut h.sink)
@@ -233,13 +242,28 @@ fn increment_channel_no_last_event_seq_still_dispatches() {
         "缺 lastEventSeq 的帧仍应进入 increment batch"
     );
     complete_increment_batch(&mut h);
+    let emitted = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Emit { event } => Some(String::from_utf8_lossy(event.0.as_ref()).to_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     assert!(
-        h.sink.as_slice().iter().any(|effect| matches!(
-            effect,
-            Effect::Emit { event }
-                if String::from_utf8_lossy(event.0.as_ref()).contains("im:channel:increment")
-        )),
-        "缺 lastEventSeq → Persist Ok 后仍应发布 increment 投影，got {:?}",
-        h.sink.as_slice()
+        emitted
+            .iter()
+            .any(|body| body.contains("im:channel-sync-ready")),
+        "缺 lastEventSeq → Persist Ok 后仍应发布 typed ready，got {:?}",
+        emitted
+    );
+    assert!(
+        emitted
+            .iter()
+            .all(|body| !body.contains("im:channel:increment")
+                && !body.contains("im:channels:loaded")),
+        "缺 lastEventSeq → 不得恢复 raw increment/loaded，got {:?}",
+        emitted
     );
 }

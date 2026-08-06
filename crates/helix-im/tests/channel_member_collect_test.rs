@@ -172,6 +172,27 @@ fn collect_members_join_skips_owner_as_member() {
     assert_eq!(rows.iter().filter(|r| r.user_id == "u_owner").count(), 1);
 }
 
+/// boss leave 不创建幽灵成员；若 members 仍含该用户，角色自然恢复为 MEMBER。
+#[test]
+fn collect_members_boss_leave_restores_member_and_leave_wins() {
+    let data = serde_json::json!({
+        "members": [{ "id": "u_boss" }, { "id": "u_left" }],
+        "boss": [{ "id": "u_boss", "option": "leave" }],
+        "memberChange": { "leave": [{ "id": "u_left" }] }
+    });
+    let rows = collect_members(&data);
+    assert_eq!(role_of(&rows, "u_boss"), Some("MEMBER"));
+    assert_eq!(collect_member_leaves(&data), vec!["u_left".to_string()]);
+
+    let join_only = serde_json::json!({
+        "boss": [{ "id": "u_boss", "option": "leave" }]
+    });
+    assert!(
+        collect_members(&join_only).is_empty(),
+        "boss leave 不应凭空插入成员"
+    );
+}
+
 /// 回归锚: A1 —— `memberChange.leave` 解析出离场 user_id 集（缺 id 跳过；id ?? userId）。
 /// 调用方将此集接成 `StorageOp::BatchDelete(channel_member, scope=channel_id, key=user_id)`。
 #[test]

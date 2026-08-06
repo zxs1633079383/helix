@@ -17,6 +17,7 @@ pub struct MakeTopicProjection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChannelSettingsProjection {
     pub channel_id: ChannelId,
+    pub channel: serde_json::Value,
     pub display_name: Option<String>,
     pub purpose: String,
     pub header: String,
@@ -36,6 +37,8 @@ pub enum SyncTrigger {
     #[default]
     Routine,
     PongGap,
+    /// G13b hydration sync; terminal projection is emitted only after durable read-back.
+    Hydration,
 }
 
 impl SyncTrigger {
@@ -43,8 +46,19 @@ impl SyncTrigger {
         match self {
             Self::Routine => None,
             Self::PongGap => Some("pong_gap"),
+            Self::Hydration => None,
         }
     }
+}
+
+/// Hydration 的 channel/member 预写内存快照；失败时回滚本地临时壳。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HydrationPersistSnapshot {
+    pub had_channel: bool,
+    pub previous_target: Option<crate::state::Seq>,
+    pub was_increment_fetched: bool,
+    pub was_need_sync_skip: bool,
+    pub previous_about_me_len: usize,
 }
 
 /// 单一 corr 路由表的 value——一条在途异步操作（Persist / Http / Scan）回报时
@@ -141,6 +155,33 @@ pub enum CorrelationContext {
         projections: Vec<(ChannelId, Vec<u8>)>,
     },
 
+    /// 话题增量批次的原子落库回执；成功只发布 subtopics-sync-ready。
+    SubtopicIncrementBatchPersist {
+        parent_channel_id: ChannelId,
+        batch_key: String,
+        projections: Vec<(ChannelId, Vec<u8>)>,
+    },
+
+    /// MessageV3 本地频道分页 Scan；session/generation/cursor offset 均在回包时再次校验。
+    ChannelSyncPage {
+        channel_sync_session_id: String,
+        generation: u64,
+        offset: usize,
+        req_id: Option<String>,
+    },
+
+    /// 频道页首段 channel Scan 成功后的单次 channel_member 快照回读。
+    ///
+    /// channel 与 channel_member 必须分两次 Scan：Host 只回传最后一个 Scan 的 bytes，
+    /// 因此把首段 channel rows 固定在 correlation 中，成员回读成功后才发布最终页。
+    ChannelSyncPageMemberSnapshot {
+        channel_sync_session_id: String,
+        generation: u64,
+        offset: usize,
+        req_id: Option<String>,
+        channel_rows: Box<Vec<serde_json::Value>>,
+    },
+
     /// 在线 post/gate 路径：channel GuardedBump + Get(channel) 的 PortReply 回来后发布
     /// `message.left-dialog-list` 属性 frame。该变体承载“写后累计终值”链路，避免前端按事件 delta 自增。
     ChannelUpdateByPost {
@@ -165,6 +206,8 @@ pub enum CorrelationContext {
     /// too_long 首屏重拉落库 + channel 写后读回。
     TooLongReloadPersist {
         channel_id: ChannelId,
+        /// 权威窗口对应的游标；只在同批 PersistAtomic 成功后应用。
+        reset_to: crate::state::Seq,
         channel_updates: Vec<crate::channel_update::PendingChannelUpdate>,
     },
 
@@ -177,13 +220,14 @@ pub enum CorrelationContext {
         /// 仅显式 retry 为 true；admission 成功后强制从 Go 权威历史按 temporaryId 对账。
         authoritative_readback: bool,
     },
-    /// 权威历史已命中 retry 消息后的终态持久化回报；timeline 已由同一远端查询发布。
+    /// 发送对账终态持久化回报；retry 的 timeline 已由同一远端查询发布，普通 WS echo
+    /// 则由 `post` handler 的 MessageV3 权威投影发布，因此两者都不再触发额外 latest 回读。
     AuthoritativeSendReconcilePersist { temporary_id: TemporaryId },
     /// 发送事实已由本地存储确认后，重新读取已 attach 的 timeline。
     ///
-    /// 这把 P1、HTTP 对账、WS echo 和失败终态统一收敛为同一条
-    /// “durable fact -> local-first readback -> MessageV3 event”路径；consumer 不消费
-    /// `im:post:*` 补业务状态。`causation_id` 只来自调用方 request id，缺失时保持 None。
+    /// P1、HTTP 对账和失败终态使用“durable fact -> local-first readback -> MessageV3 event”
+    /// 路径；普通 WS echo 不使用此变体，而由 `post` handler 的权威投影直接更新 timeline。
+    /// consumer 不消费 `im:post:*` 补业务状态。`causation_id` 只来自调用方 request id，缺失时保持 None。
     TimelineRefreshAfterSendPersist {
         channel_id: ChannelId,
         /// Action retry 保留授权 binding 的原 window；legacy send/retry 为 None，按 latest 处理。
@@ -234,7 +278,7 @@ pub enum CorrelationContext {
         deferred_send_http: Option<TemporaryId>,
     },
 
-    /// 最近消息 local-first 第 2 段：`getLatestPost` HTTP 回报后合并并按能力缓存。
+    /// 最近消息 local-first 第 2 段：`getLatestPost` HTTP 回报后仅写入 durable message。
     MessageQueryRemote {
         request: Box<crate::query::MessageQueryRequest>,
         local_rows_desc: Box<Vec<serde_json::Value>>,
@@ -246,10 +290,19 @@ pub enum CorrelationContext {
         authoritative_send_readback: Option<TemporaryId>,
     },
 
-    /// 最近消息 local-first 第 3 段：cache Persist 回报后才记录当前会话 coverage 并 emit。
+    /// 最近消息 local-first 第 3 段：cache Persist 回报后发起同一 Scan read-back。
     MessageQueryCache {
         request: Box<crate::query::MessageQueryRequest>,
-        merged_rows_desc: Box<Vec<serde_json::Value>>,
+        coverage: Option<crate::query::local_first::RecentMessageCoverage>,
+        query_session_epoch: u64,
+        query_generation: u64,
+        causation_id: Option<String>,
+        deferred_send_http: Option<TemporaryId>,
+    },
+
+    /// 最近消息 local-first 第 4 段：durable Scan 回报才允许发布唯一 timeline 终态。
+    MessageQueryReadback {
+        request: Box<crate::query::MessageQueryRequest>,
         coverage: Option<crate::query::local_first::RecentMessageCoverage>,
         query_session_epoch: u64,
         query_generation: u64,
@@ -302,6 +355,19 @@ pub enum CorrelationContext {
     /// UC-3 `im_query_dialog_list` Scan 回报 → emit channel list 与 viewer read 绝对态。
     DialogListQuery { causation_id: Option<String> },
 
+    /// UC-3 首段 channel 行快照，等待当前 viewer 的 channel_member 置顶回读后合并发布。
+    DialogListMemberSnapshot {
+        channel_rows: Box<Vec<serde_json::Value>>,
+        causation_id: Option<String>,
+        auth_user_id: String,
+    },
+
+    /// G13d `im_query_subtopics` Scan 回报；父频道随 correlation 一起隔离。
+    SubtopicsQuery {
+        parent_channel_id: ChannelId,
+        causation_id: Option<String>,
+    },
+
     /// spec06 缺陷A：读族 outbound **HTTP** 回报（request-response 回灌）。
     ///
     /// 读族无 WS 回声、HTTP 响应体即数据 → 注册本上下文，`handle_port_reply` 按命令身份
@@ -311,6 +377,49 @@ pub enum CorrelationContext {
         req_id: String,
         command: String,
         channel_id: Option<String>,
+    },
+
+    /// MV3-G11g exact-by-id HTTP 回报；locate 标志不改变此独立查询语义。
+    OutboundExactPosts {
+        req_id: String,
+        requested_ids: Vec<String>,
+    },
+
+    /// MV3-G11g HTTP 可见命中已写入本地 message，等待按临时主键逐项读回。
+    ExactPostsPersist {
+        req_id: String,
+        accepted_keys: Vec<String>,
+    },
+
+    /// MV3-G11g exact read-back continuation；结果只在最后一个 key 读回后结算一次。
+    ExactPostsReadback {
+        req_id: String,
+        accepted_keys: Vec<String>,
+        next_index: usize,
+        rows: Vec<serde_json::Value>,
+    },
+
+    /// MV3-G11h initial-window HTTP 回报；只知 postId 的结果独立于 locate/exact。
+    OutboundInitialWindow {
+        req_id: String,
+        post_id: String,
+        page_size: u32,
+    },
+
+    /// MV3-G11h HTTP rows 已写入本地 message，等待有界 durable identity read-back。
+    InitialWindowPersist {
+        req_id: String,
+        post_id: String,
+        accepted_keys: Vec<String>,
+    },
+
+    /// MV3-G11h initial-window read-back continuation，最终只结算一次 Result。
+    InitialWindowReadback {
+        req_id: String,
+        post_id: String,
+        accepted_keys: Vec<String>,
+        next_index: usize,
+        rows: Vec<serde_json::Value>,
     },
 
     /// MV3-G02e 草稿 ScopedGet 读回；命令携带账号、频道和 req_id 的完整隔离上下文。
@@ -337,6 +446,19 @@ pub enum CorrelationContext {
         leaves: Vec<String>,
         causation_id: Option<String>,
     },
+
+    /// 在线角色变更首段成员表快照；只有已存在的成员行允许被更新。
+    ChannelMemberRoleScan {
+        channel_id: ChannelId,
+        user_ids: Vec<String>,
+        role: String,
+    },
+
+    /// 在线角色变更的成员表原子写屏障；成功后必须重新读回完整 roster。
+    ChannelMemberRolePersist { channel_id: ChannelId },
+
+    /// 在线角色变更最终成员表读回；只发布绝对 roster，不透传 role delta。
+    ChannelMemberRoleReadback { channel_id: ChannelId },
 
     /// 建群写族 HTTP 回报。服务端可能在 WebSocket 断线期间成功创建 channel，此时不会有
     /// `channel_created` 实时回声；保留已规范化成员，让 HTTP 权威回包也能落当前 channel/member
@@ -382,15 +504,51 @@ pub enum CorrelationContext {
     ///
     /// 仍保留 `im:read:result` 通用回灌；额外把 `data=*IncrementChannel` 送入既有 increment
     /// parser/application 规则，并把 channel/member 写提升为有回报的 Persist，避免未落稳即拉 sync。
-    OutboundIncrementHydration { req_id: String },
+    OutboundIncrementHydration {
+        req_id: String,
+        emit_channel_increment: bool,
+    },
 
     /// UC-4.5 IncrementChannel 的 channel/channel_member 相关 Persist 回报。
     /// `need_sync` 已合并服务端提示与本地 cursor 落后事实；成功后才启动单频道 sync，
     /// 两侧均确认无需拉取时才直接读回本地投影。
     IncrementHydrationPersist {
         channel_id: ChannelId,
+        req_id: String,
         need_sync: bool,
         raw_increment: Vec<u8>,
+        snapshot: HydrationPersistSnapshot,
+        emit_channel_increment: bool,
+    },
+
+    /// G13b channel durable read-back stage 1: tenant/viewer-scoped channel row.
+    HydrationChannelReadback {
+        req_id: String,
+        channel_id: ChannelId,
+    },
+
+    /// G13b durable read-back stage 2: current viewer member row.
+    HydrationMemberReadback {
+        req_id: String,
+        channel_id: ChannelId,
+        channel: Box<serde_json::Value>,
+    },
+
+    /// G13b durable read-back stage 3: bounded message window.
+    HydrationMessagesReadback {
+        req_id: String,
+        channel_id: ChannelId,
+        channel: Box<serde_json::Value>,
+        member: Box<serde_json::Value>,
+    },
+
+    /// G13b durable read-back stage 4: persisted cursor, then one terminal Result.
+    HydrationCursorReadback {
+        req_id: String,
+        channel_id: ChannelId,
+        channel: Box<serde_json::Value>,
+        member: Box<serde_json::Value>,
+        messages: Box<serde_json::Value>,
     },
 
     /// S7（issue #56）：byIds 成员快照读族 **HTTP** 回报。回报时**双 emit**——

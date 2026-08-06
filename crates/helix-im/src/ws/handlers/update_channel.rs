@@ -15,6 +15,87 @@ use crate::state::ChannelId;
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const UPDATE_CHANNEL_ACTION: &str = "update_channel";
+const TOP_KEYS: &[&str] = &["channelIsTop", "channel_is_top", "top"];
+const TOP_USER_KEYS: &[&str] = &["userId", "user_id", "memberUserId", "member_user_id"];
+
+/// 判断 update_channel 是否携带成员视角的置顶绝对态。
+fn has_top_intent(channel: &serde_json::Value, data: &serde_json::Value) -> bool {
+    TOP_KEYS
+        .iter()
+        .any(|key| channel.get(*key).is_some() || data.get(*key).is_some())
+}
+
+/// 读取置顶绝对态；非布尔值不允许进入 channel_member 写路径。
+fn top_intent_value(channel: &serde_json::Value, data: &serde_json::Value) -> Option<bool> {
+    TOP_KEYS.iter().find_map(|key| {
+        channel
+            .get(*key)
+            .or_else(|| data.get(*key))
+            .and_then(serde_json::Value::as_bool)
+    })
+}
+
+/// 读取显式 actor；置顶路径禁止用 auth fallback 代替后端 userId。
+fn top_intent_user_id<'a>(
+    channel: &'a serde_json::Value,
+    data: &'a serde_json::Value,
+) -> Option<&'a str> {
+    TOP_USER_KEYS.iter().find_map(|key| {
+        channel
+            .get(*key)
+            .or_else(|| data.get(*key))
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())
+    })
+}
+
+/// 置顶是单独成员状态；混入频道共享字段时整帧拒绝，避免误写 channel.is_top。
+fn top_intent_has_mixed_fields(channel: &serde_json::Value, data: &serde_json::Value) -> bool {
+    const ALLOWED_CHANNEL_KEYS: &[&str] = &[
+        "id",
+        "channelId",
+        "channel_id",
+        "userId",
+        "user_id",
+        "memberUserId",
+        "member_user_id",
+        "channelIsTop",
+        "channel_is_top",
+        "top",
+    ];
+    const ALLOWED_DATA_KEYS: &[&str] = &[
+        "channel",
+        "channelId",
+        "channel_id",
+        "userId",
+        "user_id",
+        "memberUserId",
+        "member_user_id",
+        "channelIsTop",
+        "channel_is_top",
+        "top",
+    ];
+    let channel_mixed = channel
+        .as_object()
+        .map(|object| {
+            object
+                .keys()
+                .any(|key| !ALLOWED_CHANNEL_KEYS.contains(&key.as_str()))
+        })
+        .unwrap_or(true);
+    let data_mixed = if data.get("channel").is_some() {
+        data.as_object()
+            .map(|object| {
+                object
+                    .keys()
+                    .any(|key| !ALLOWED_DATA_KEYS.contains(&key.as_str()))
+            })
+            .unwrap_or(true)
+    } else {
+        false
+    };
+    channel_mixed || data_mixed
+}
 
 struct UpdateChannelHandler;
 
@@ -73,6 +154,21 @@ impl WsMessageHandler for UpdateChannelHandler {
         else {
             return Ok(());
         };
+
+        // Go `change/top` 回推 `{id,userId,channelIsTop}`；它只属于 actor 的成员投影。
+        let top_intent = has_top_intent(channel, data);
+        if top_intent {
+            let Some(top) = top_intent_value(channel, data) else {
+                return Ok(());
+            };
+            let Some(user_id) = top_intent_user_id(channel, data) else {
+                return Ok(());
+            };
+            if user_id != ctx.auth_user_id || top_intent_has_mixed_fields(channel, data) {
+                return Ok(());
+            }
+            let _ = top;
+        }
         if let Some(last_post) = revoke_last_post(data)? {
             let corr = ctx.alloc_corr();
             let ops = crate::channel_write::message_v3_revoke_channel_ops(
@@ -90,7 +186,11 @@ impl WsMessageHandler for UpdateChannelHandler {
 
         // 收 Some 字段 → PATCH（空集 = 无可写字段，update_channel_partial 返回 None → 不 push）。
         let mut ops = Vec::with_capacity(2);
-        let cols = crate::channel_write::collect_present(channel);
+        let cols = if top_intent {
+            Vec::new()
+        } else {
+            crate::channel_write::collect_present(channel)
+        };
         if let Some(op) = crate::acl::to_effect::update_channel_partial_op(channel_id, cols) {
             ops.push(op);
         }
@@ -111,6 +211,9 @@ impl WsMessageHandler for UpdateChannelHandler {
         } else {
             None
         };
+        if top_intent && member_channel.is_none() {
+            return Ok(());
+        }
         if !ops.is_empty() {
             let corr = ctx.alloc_corr();
             out.push(helix_core::Effect::Persist { corr, ops });
@@ -128,13 +231,26 @@ impl WsMessageHandler for UpdateChannelHandler {
                         }
                     }
                 }
+                if top_intent {
+                    if let Some(top) = member_channel
+                        .as_ref()
+                        .and_then(|member| member.get("dialogPatch"))
+                        .and_then(|patch| patch.get("channelIsTop"))
+                    {
+                        object.insert("channelIsTop".to_string(), top.clone());
+                    }
+                }
             }
             ctx.state.corr_map.insert(
                 corr,
                 crate::state::CorrelationContext::UpdateChannelDialogPersist {
                     channel_id,
                     channel: Box::new(persisted_channel),
-                    member_channel: member_channel.map(Box::new),
+                    member_channel: if top_intent {
+                        None
+                    } else {
+                        member_channel.map(Box::new)
+                    },
                     causation_id,
                 },
             );

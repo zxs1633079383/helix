@@ -52,6 +52,7 @@ fn make_module_with_identity(channel_num: u64, auth_user_id: &str, company_id: &
         user_name: String::new(),
         org_name: String::new(),
         dept_name: String::new(),
+        offline_sync_diagnostics: Default::default(),
     };
     let mut module = ImModule::new(config);
     module.register_channel(channel_id(channel_num), 0);

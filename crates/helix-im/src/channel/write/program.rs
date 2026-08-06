@@ -86,7 +86,7 @@ pub fn program_full(
     row.push(("mention_user", SqlValue::Text(String::new())));
     row.push((
         "urgent_count",
-        SqlValue::Integer(i("urgentCount").unwrap_or(0)),
+        SqlValue::Integer(i("urgentCount").unwrap_or(0).max(0)),
     ));
     row.push((
         "urgent_post_list",

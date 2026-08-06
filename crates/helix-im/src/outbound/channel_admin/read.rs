@@ -140,6 +140,25 @@ read_cmd!(
     }
 );
 
+// #2b channels/load/increment：按父群请求话题频道增量，HTTP 只表示受理，结果经 WS end 收口。
+read_cmd!(
+    RequestChannelIncrementCommand,
+    REQUEST_CHANNEL_INCREMENT_REG,
+    "im_request_channel_increment",
+    |args, cmd| {
+        let channel_id = require_str(args, "channel_id", cmd)?;
+        let timestamp = args.get("timestamp").and_then(Value::as_i64).unwrap_or(0);
+        let cursors = args.get("cursors").cloned().unwrap_or_else(|| json!([]));
+        if !cursors.is_array() {
+            return Err(ImError::Parse(format!("{cmd}: cursors 必须是数组")));
+        }
+        Ok((
+            "channels/load/increment",
+            json!({ "timeStamp": timestamp, "channelId": channel_id, "cursors": cursors }),
+        ))
+    }
+);
+
 // #26 query：条件分页查询频道。透传前端给的 channel 条件 map（已 camelCase）+ pageOpts。
 // 真源内联匿名 struct{entity.Channel; entity.PageOpts} → 同层 merge（channel 字段与分页字段平铺）。
 read_cmd!(

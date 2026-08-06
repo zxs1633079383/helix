@@ -103,6 +103,7 @@ fn build_shell_with_mode(local_store_mode: LocalStoreMode) -> ExecutionShell {
         user_name: String::new(),
         org_name: String::new(),
         dept_name: String::new(),
+        offline_sync_diagnostics: Default::default(),
     };
     let mut module = ImModule::new_with_local_store(config, local_store_mode);
     module.register_channel(channel_id(1), 0);

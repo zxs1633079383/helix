@@ -17,7 +17,7 @@ use crate::state::{ChannelId, Seq};
 ///
 /// 字段映射真源 = cses-client `From<types::Post> for Message`（PK 三级回退、snake/camel 兼容
 /// 已在 parser 提取阶段处理）。`props` 保留服务端原始对象（业务扩展 / event_seq / read map 下游对账）。
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct PostFields {
     /// `temporary_id` ?? `temporaryId`（PK 首选，空字符串=缺省，由 event_to_upsert_op 走三级回退）。
     pub temporary_id: String,
@@ -25,6 +25,8 @@ pub struct PostFields {
     /// post 内的 channel_id（缺省回退到 envelope 权威 channel_id，在拼装时处理）。
     pub channel_id: String,
     pub user_id: String,
+    /// Wire `type` 字段在内部 typed view 中使用 `msg_type`，日志仍映射回协议名称。
+    #[serde(rename = "type")]
     pub msg_type: String,
     pub message: String,
     /// 短预览文本（Go wire `simpleMessage` / `simple_message`），用于 Dialog lastMessage。

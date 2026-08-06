@@ -178,13 +178,99 @@ impl Module for ImModule {
                     // spec06 缺陷A：读族注册回灌上下文（PortReply 透传 `im:read:result{req_id,body}`；写族
                     // fire-and-forget 不注册）。S7：byIds 成员快照走 OutboundMembersByIds（额外 emit im:channel:members）。
                     if crate::commands::is_read(name) {
-                        if let Some(req_id) = crate::read_relay::read_req_id(cmd.payload.as_ref()) {
-                            let ctx = if name == "im_channel_load_increment_by_channel_id" {
-                                CorrelationContext::OutboundIncrementHydration { req_id }
+                        let explicit_req_id = crate::read_relay::read_req_id(cmd.payload.as_ref());
+                        let increment_hydration = name == "im_channel_load_increment_by_channel_id";
+                        if increment_hydration
+                            && (self.config.auth_user_id.is_empty()
+                                || self.config.company_id.is_empty())
+                        {
+                            return Err(CoreError::ModuleError {
+                                module: self.name(),
+                                source: Box::new(crate::ImError::Parse(
+                                    "increment hydration requires RuntimeAuth account and tenant"
+                                        .to_string(),
+                                )),
+                            });
+                        }
+                        // 读族只有明确 correlation 才允许回灌；hydration 兼容旧 driver 的同时，
+                        // 由显式 transport req_id 决定是否发布 sender-only channelIncrement。
+                        let emit_channel_increment =
+                            increment_hydration && explicit_req_id.is_some();
+                        let req_id = match explicit_req_id {
+                            Some(req_id) => req_id,
+                            None if increment_hydration => {
+                                format!("increment-hydration-{}", corr.raw())
+                            }
+                            None => {
+                                // 无 correlation 的旧读请求仍执行 HTTP，但回包不得进入任何 UI 投影。
+                                for effect in effects {
+                                    out.push(effect);
+                                }
+                                return Ok(());
+                            }
+                        };
+                        {
+                            let ctx = if increment_hydration {
+                                CorrelationContext::OutboundIncrementHydration {
+                                    req_id,
+                                    emit_channel_increment,
+                                }
                             } else if name == "im_channels_members_by_ids" {
                                 CorrelationContext::OutboundMembersByIds { req_id }
                             } else if name == "im_user_candidates" {
                                 CorrelationContext::OutboundContactCandidates { req_id }
+                            } else if name == "im_get_posts_after_index" {
+                                // G11h initial-window 独立于 locate/exact：HTTP 成功必须先过 durable read-back。
+                                let args = serde_json::from_slice::<serde_json::Value>(
+                                    cmd.payload.as_ref(),
+                                )
+                                .map_err(|error| {
+                                    CoreError::ModuleError {
+                                        module: self.name(),
+                                        source: Box::new(crate::ImError::Parse(error.to_string())),
+                                    }
+                                })?;
+                                if let Some(request) =
+                                    crate::outbound::posts::read::initial_window_request(
+                                        &args, name,
+                                    )
+                                    .map_err(|error| {
+                                        CoreError::ModuleError {
+                                            module: self.name(),
+                                            source: Box::new(error),
+                                        }
+                                    })?
+                                {
+                                    CorrelationContext::OutboundInitialWindow {
+                                        req_id: request.req_id,
+                                        post_id: request.post_id,
+                                        page_size: request.page_size,
+                                    }
+                                } else {
+                                    let channel_id = args
+                                        .get("channel_id")
+                                        .and_then(serde_json::Value::as_str)
+                                        .map(str::to_owned);
+                                    CorrelationContext::OutboundReadReply {
+                                        req_id,
+                                        command: name.to_string(),
+                                        channel_id,
+                                    }
+                                }
+                            } else if name == "im_get_posts" {
+                                // G11g exact 查询独立于旧 locate 终态；locate 只保留兼容入参，不改变按 id 读回。
+                                let requested_ids = serde_json::from_slice::<serde_json::Value>(
+                                    cmd.payload.as_ref(),
+                                )
+                                .ok()
+                                .and_then(|value| {
+                                    crate::outbound::posts::read::exact_post_ids(&value, name).ok()
+                                })
+                                .unwrap_or_default();
+                                CorrelationContext::OutboundExactPosts {
+                                    req_id,
+                                    requested_ids,
+                                }
                             } else if name == "im_get_replies" || name == "im_get_reply_branch" {
                                 // G12 回复族冻结请求语义，PortReply 只生成 typed thread event。
                                 let request =
@@ -210,30 +296,6 @@ impl Module for ImModule {
                                         .insert(request.root_hint.clone(), request.revision);
                                 }
                                 CorrelationContext::OutboundReplies { request }
-                            } else if name == "im_get_posts"
-                                && serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
-                                    .ok()
-                                    .and_then(|value| {
-                                        value.get("locate").and_then(|flag| flag.as_bool())
-                                    })
-                                    .unwrap_or(false)
-                            {
-                                let post_id = serde_json::from_slice::<serde_json::Value>(
-                                    cmd.payload.as_ref(),
-                                )
-                                .ok()
-                                .and_then(|value| {
-                                    value
-                                        .get("post_ids")
-                                        .and_then(serde_json::Value::as_array)
-                                        .cloned()
-                                })
-                                .and_then(|ids| {
-                                    ids.into_iter()
-                                        .find_map(|id| id.as_str().map(str::to_owned))
-                                })
-                                .unwrap_or_default();
-                                CorrelationContext::OutboundLocatePost { req_id, post_id }
                             } else if name == "im_post_read_list" {
                                 CorrelationContext::OutboundPostReaders { req_id }
                             } else {
@@ -369,6 +431,8 @@ impl Module for ImModule {
                     } else if name == "im_channel_change_info"
                         || name == "im_channel_change_notice"
                         || name == "im_channel_change_display_name"
+                        || name == "im_channel_change_orient"
+                        || name == "im_channel_change_permission"
                     {
                         if let Ok(value) =
                             serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())

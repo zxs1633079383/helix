@@ -46,9 +46,20 @@ impl OutboundCommand for ChangeDisplayNameCommand {
         let channel_id = require_str(args, "channel_id", self.name())?;
         // displayName 必填（改名语义需非空；Go ChangeChannelDisPlayName.DisPlayName string 非指针）。
         let display_name = require_str(args, "display_name", self.name())?;
+        // CAS 版本只能由服务端投影带回；缺失、负数或浮点都不能进入 I/O。
+        let expected_version = args
+            .get("expected_version")
+            .and_then(Value::as_i64)
+            .filter(|version| *version >= 0)
+            .ok_or_else(|| {
+                ImError::Parse(format!(
+                    "{}: expected_version must be a non-negative integer",
+                    self.name()
+                ))
+            })?;
         Ok((
             "channel/change/displayName",
-            json!({ "id": channel_id, "displayName": display_name }),
+            json!({ "id": channel_id, "displayName": display_name, "expectedVersion": expected_version }),
         ))
     }
 }
@@ -67,11 +78,30 @@ impl OutboundCommand for ChangeOrientCommand {
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         let channel_id = require_str(args, "channel_id", self.name())?;
-        // orient 必填（Go UpdateChannelGuidePurposeCommand.Orient *string，本端点改导向语义需有值）。
-        let orient = require_str(args, "orient", self.name())?;
+        // orient 允许空串清空，但长度必须符合 Go 的 30 字符上限。
+        let orient = args
+            .get("orient")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ImError::Parse(format!("{}: 缺 orient（string）", self.name())))?;
+        if orient.chars().count() > 30 {
+            return Err(ImError::Parse(format!(
+                "{}: orient 最多 30 个字符",
+                self.name()
+            )));
+        }
+        let expected_version = args
+            .get("expected_version")
+            .and_then(Value::as_i64)
+            .filter(|version| *version >= 0)
+            .ok_or_else(|| {
+                ImError::Parse(format!(
+                    "{}: expected_version must be a non-negative integer",
+                    self.name()
+                ))
+            })?;
         Ok((
             "channel/change/orient",
-            json!({ "id": channel_id, "orient": orient }),
+            json!({ "id": channel_id, "orient": orient, "expectedVersion": expected_version }),
         ))
     }
 }
@@ -222,22 +252,51 @@ impl OutboundCommand for ViewChannelsCommand {
         "im_channels_view"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
-        // channels 必填非空数组（每项 {id, isRoot?}）。Go handler 对 id=="" 报错、isRoot nil 默认 true。
-        // 透传前端已构造好的 channels（snake_case 入参 channels，元素键直接是 wire camelCase id/isRoot）。
-        let channels = args
-            .get("channels")
-            .and_then(Value::as_array)
-            .filter(|a| !a.is_empty() && a.iter().all(Value::is_object))
-            .cloned()
-            .map(Value::Array)
-            .ok_or_else(|| {
-                ImError::Parse(format!(
-                    "{}: 缺/空 channels（非空 object 数组）",
-                    self.name()
-                ))
-            })?;
+        // 只接收 client_api 已一次归一化的 `{id,isRoot:true}`，这里不再补字段或改 id。
+        let channels = require_canonical_root_channels(args, self.name())?;
         Ok(("channels/view", json!({ "channels": channels })))
     }
+}
+
+/// 验证 channels/view 的冻结 wire 结构，拒绝重复 id、非 root 和未知字段。
+fn require_canonical_root_channels(args: &Value, command: &str) -> Result<Value, ImError> {
+    let channels = args
+        .get("channels")
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty())
+        .ok_or_else(|| {
+            ImError::Parse(format!(
+                "{command}: 缺/空 channels（非空 canonical object 数组）"
+            ))
+        })?;
+    let mut seen = std::collections::HashSet::with_capacity(channels.len());
+    for channel in channels {
+        let object = channel
+            .as_object()
+            .ok_or_else(|| ImError::Parse(format!("{command}: channel 必须是 object")))?;
+        if object.len() != 2 || !object.contains_key("id") || !object.contains_key("isRoot") {
+            return Err(ImError::Parse(format!(
+                "{command}: channel 只能包含 id/isRoot canonical 字段"
+            )));
+        }
+        let id = object
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty() && id.trim() == *id)
+            .ok_or_else(|| ImError::Parse(format!("{command}: id 必须是非空 canonical 字符串")))?;
+        if crate::state::ChannelId::from_str(id).is_none() {
+            return Err(ImError::Parse(format!(
+                "{command}: 非 canonical channel id: {id}"
+            )));
+        }
+        if object.get("isRoot").and_then(Value::as_bool) != Some(true) {
+            return Err(ImError::Parse(format!("{command}: isRoot 必须为 true")));
+        }
+        if !seen.insert(id) {
+            return Err(ImError::Parse(format!("{command}: channel id 重复: {id}")));
+        }
+    }
+    Ok(Value::Array(channels.to_vec()))
 }
 inventory::submit! {
     OutboundRegistration {

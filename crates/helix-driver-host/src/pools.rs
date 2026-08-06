@@ -23,7 +23,10 @@ use helix_core::{Correlation, Tick};
 use crate::http_envelope::run_http_envelope;
 use crate::ops::classify_port_error;
 use crate::spawner::{BoundedSpawner, Overflow};
-use crate::storage::{with_storage_trace_context, StorageTraceContext};
+use crate::storage::{
+    with_storage_operation_context, with_storage_trace_context, StorageOperationContext,
+    StorageTraceContext,
+};
 use crate::{execute_storage_ops, execute_storage_ops_atomic, PERSIST_QUEUE_CAP};
 
 use crate::HTTP_QUEUE_CAP;
@@ -133,7 +136,7 @@ where
             PERSIST_QUEUE_CAP,
             Overflow::Block,
             reply_tx,
-            move |_corr, payload: PersistJobPayload| {
+            move |corr, payload: PersistJobPayload| {
                 let storage = Arc::clone(&storage);
                 async move {
                     let PersistJobPayload { ops, atomic, trace } = payload;
@@ -144,10 +147,14 @@ where
                             execute_storage_ops(storage.as_ref(), &ops).await
                         }
                     };
-                    match trace {
-                        Some(trace) => with_storage_trace_context(trace, execute).await,
-                        None => execute.await,
-                    }
+                    let operation_context = StorageOperationContext::new(corr);
+                    with_storage_operation_context(operation_context, async move {
+                        match trace {
+                            Some(trace) => with_storage_trace_context(trace, execute).await,
+                            None => execute.await,
+                        }
+                    })
+                    .await
                 }
             },
         )

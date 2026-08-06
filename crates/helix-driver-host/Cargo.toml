@@ -24,6 +24,7 @@ libc        = "0.2"
 opentelemetry = "0.32"
 opentelemetry_sdk = { version = "0.32", features = ["trace", "metrics"] }
 opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "metrics", "grpc-tonic"] }
+sha2 = "0.10"
 
 # driver 层是 ambient API（SystemTime/线程）的合法落点 → 不开 disallowed deny
 [lints.clippy]

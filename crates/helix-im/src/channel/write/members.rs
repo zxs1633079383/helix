@@ -45,7 +45,7 @@ pub fn collect_members(data: &serde_json::Value) -> Vec<MemberRow> {
     let mut out: Vec<MemberRow> = Vec::new();
     collect_array(data.get("members"), "MEMBER", &mut out);
     collect_array(data.get("adminUsers"), "ADMIN", &mut out);
-    collect_array(data.get("boss"), "BOSS", &mut out);
+    collect_boss_array(data.get("boss"), &mut out);
     collect_owner(data.get("owner"), &mut out);
     collect_member_change_join(data, &mut out);
     dedupe_keep_last(out)
@@ -125,6 +125,30 @@ fn collect_array(value: Option<&serde_json::Value>, default_role: &str, out: &mu
     let Some(arr) = value.as_array() else { return };
     for item in arr {
         if let Some(row) = member_row_from_value(item, default_role) {
+            out.push(row);
+        }
+    }
+}
+
+/// boss 数组中的 leave 只撤销 BOSS 角色；成员是否仍在群由 members/其它权威源决定。
+fn collect_boss_array(value: Option<&serde_json::Value>, out: &mut Vec<MemberRow>) {
+    let Some(value) = value else { return };
+    let parsed;
+    let value = match value.as_str() {
+        Some(s) if s.trim().is_empty() => return,
+        Some(s) => {
+            parsed =
+                serde_json::from_str::<serde_json::Value>(s).unwrap_or(serde_json::Value::Null);
+            &parsed
+        }
+        None => value,
+    };
+    let Some(arr) = value.as_array() else { return };
+    for item in arr {
+        if item.get("option").and_then(serde_json::Value::as_str) == Some("leave") {
+            continue;
+        }
+        if let Some(row) = member_row_from_value(item, "BOSS") {
             out.push(row);
         }
     }

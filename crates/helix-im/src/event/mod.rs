@@ -6,8 +6,10 @@ use helix_core::Effect;
 use serde::Serialize;
 use serde_json::Value;
 
+pub mod announcement;
 pub mod channel;
 pub mod channel_member;
+pub(crate) mod channel_sync;
 pub mod post;
 pub mod read;
 pub mod schedule;

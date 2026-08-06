@@ -133,15 +133,14 @@ pub(crate) fn emit_create_posts_result(
     Ok(())
 }
 
-/// 回灌读取同步结果，并将每条回执分别发布为 canonical `im:post:readers` 事件。
+/// 回灌读取同步结果，并仅将每条回执发布为 canonical `im:post:readers` 事件。
+///
+/// 成功 body 只在 Helix 内部交给 receipt projector；不能再经通用
+/// `im:read:result` raw relay 触达 UI，否则会绕过 G06d allowlist。
 pub(crate) fn emit_post_readers(req_id: &str, outcome: &PortOutcome, out: &mut EffectSink) {
     match outcome {
         PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
             Ok(raw_body) => {
-                out.push(crate::read_relay::emit_read_result(
-                    req_id,
-                    raw_body.as_ref(),
-                ));
                 let body =
                     serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
                 for event in crate::query::render_ready::receipts::emit(&body) {

@@ -197,7 +197,7 @@ async fn apply_upsert(storage: &HostStorage, op: StorageOp) {
         .expect("type=1 must persist the complete message row");
 }
 
-/// 核心回归：WS 推送路径用的 `event_to_upsert_op` 落到真 `message` 表（PK=temporary_id）。
+/// 核心回归：WS 推送路径用的在线 upsert 落到真 `message` 表（PK=temporary_id）。
 ///
 /// 若回退成写 `messages` 影子表 → execute IM_SCHEMA 不建该表 → batch_upsert 抛
 /// `no such table: messages` → 此测试在 batch_upsert 即红。
@@ -206,7 +206,7 @@ async fn ws_event_persists_into_678_message_table() {
     let storage = storage_with_im_schema().await;
     let ev = post_event(42, 7, "tmp-abc", "post-real-1", "hello world");
 
-    let op = event_to_upsert_op(&ev);
+    let op = helix_im::channel::event_to_online_upsert_op(&ev);
     storage
         .batch_upsert(match op {
             helix_core::effect::StorageOp::BatchUpsert(spec) => spec,
@@ -266,7 +266,7 @@ async fn ws_event_conflict_preserves_local_send_status_until_reconcile() {
         .await
         .expect("seed optimistic row");
 
-    let op = event_to_upsert_op(&post_event(
+    let op = helix_im::channel::event_to_online_upsert_op(&post_event(
         42,
         8,
         "tmp-optimistic",
@@ -686,6 +686,89 @@ async fn resync_same_event_is_idempotent_upsert() {
         1,
         "重拉同事件必须幂等覆盖（同 PK），不产生重复行"
     );
+}
+
+/// PersistAtomic 必须把 type=2 的 0 行命中视为失败，避免消息字段未落库却推进 cursor。
+#[tokio::test]
+async fn atomic_type2_zero_rows_roll_back_cursor_and_existing_row_updates() {
+    let storage = storage_with_im_schema().await;
+    let channel = channel_id(100);
+    let seed = post_event(100, 1, "tmp-type2", "post-type2", "before");
+    let seed_op = event_to_upsert_op(&seed);
+    storage
+        .batch_upsert(match seed_op {
+            StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected seed upsert, got {other:?}"),
+        })
+        .await
+        .expect("seed type=2 row");
+
+    let edited = PostFields {
+        id: "post-type2".to_string(),
+        msg_type: "TEXT".to_string(),
+        message: "after".to_string(),
+        props: "{\"edited\":true}".to_string(),
+        expedite_map: "{\"678\":true}".to_string(),
+        ..PostFields::default()
+    };
+    let existing = helix_im::channel::edit_content_op("post-type2", &edited);
+    let committed = execute_storage_ops_atomic(
+        &storage,
+        &[
+            existing,
+            helix_im::acl::to_effect::advance_cursor_op(channel, Seq(2)),
+        ],
+    )
+    .await;
+    assert!(matches!(committed, helix_core::tick::PortOutcome::Ok(_)));
+
+    let row = storage
+        .get(helix_core::effect::GetSpec {
+            table: "message",
+            key_col: "id",
+            key_val: SqlValue::Text("post-type2".to_string()),
+        })
+        .await
+        .expect("read updated message")
+        .expect("updated message row");
+    assert_eq!(col_text(&row, "message"), "after");
+    assert_eq!(col_text(&row, "expedite_map"), "{\"678\":true}");
+
+    let missing = helix_im::channel::edit_content_op("post-missing", &edited);
+    let failed = execute_storage_ops_atomic(
+        &storage,
+        &[
+            missing,
+            helix_im::acl::to_effect::advance_cursor_op(channel, Seq(3)),
+        ],
+    )
+    .await;
+    assert!(matches!(failed, helix_core::tick::PortOutcome::Err(_)));
+    assert!(
+        storage
+            .get(helix_core::effect::GetSpec {
+                table: "channel_event_cursor",
+                key_col: "channel_id",
+                key_val: SqlValue::Text(cid(100)),
+            })
+            .await
+            .expect("read cursor after failed type=2")
+            .is_some(),
+        "previous successful cursor must remain, but failed batch must not advance it"
+    );
+    let cursor = storage
+        .get(helix_core::effect::GetSpec {
+            table: "channel_event_cursor",
+            key_col: "channel_id",
+            key_val: SqlValue::Text(cid(100)),
+        })
+        .await
+        .expect("read cursor value")
+        .expect("cursor from successful batch");
+    assert!(matches!(
+        col(&cursor, "last_event_seq"),
+        Some(SqlValue::Integer(2))
+    ));
 }
 
 /// 服务端推送无 temporary_id（他人消息）时，PK 回退到 id（真源 cses-client From<Post>），

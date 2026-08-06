@@ -28,12 +28,13 @@ fn display_name_endpoint_and_id_key() {
     assert!(is_outbound("im_channel_change_display_name"));
     let (url, body) = dispatch(
         "im_channel_change_display_name",
-        json!({ "channel_id": "c1", "display_name": "新群名" }),
+        json!({ "channel_id": "c1", "display_name": "新群名", "expected_version": 7 }),
     );
     assert!(url.ends_with("/channel/change/displayName"), "url={url}");
     // 键名陷阱：用 id（非 channelId）作 channelId 键。
     assert_eq!(body["id"], "c1");
     assert_eq!(body["displayName"], "新群名");
+    assert_eq!(body["expectedVersion"], 7);
     assert!(body.get("channelId").is_none());
 }
 
@@ -41,11 +42,12 @@ fn display_name_endpoint_and_id_key() {
 fn orient_and_purpose_use_id_key() {
     let (url, body) = dispatch(
         "im_channel_change_orient",
-        json!({ "channel_id": "c1", "orient": "left" }),
+        json!({ "channel_id": "c1", "orient": "left", "expected_version": 7 }),
     );
     assert!(url.ends_with("/channel/change/orient"), "url={url}");
     assert_eq!(body["id"], "c1");
     assert_eq!(body["orient"], "left");
+    assert_eq!(body["expectedVersion"], 7);
 
     let (url2, body2) = dispatch(
         "im_channel_change_purpose",
@@ -128,10 +130,41 @@ fn enable_approval_bool_and_channel_id() {
 
 #[test]
 fn view_channels_passthrough_channels_array() {
-    let channels = json!([{ "id": "c1", "isRoot": true }, { "id": "c2", "isRoot": false }]);
+    let channels = json!([
+        { "id": "chfixx0000000000000000001d", "isRoot": true },
+        { "id": "chfixx0000000000000000001e", "isRoot": true }
+    ]);
     let (url, body) = dispatch("im_channels_view", json!({ "channels": channels.clone() }));
     assert!(url.ends_with("/channels/view"), "url={url}");
     assert_eq!(body["channels"], channels);
+}
+
+#[test]
+fn view_channels_rejects_noncanonical_entries_and_duplicate_ids() {
+    let corr = Correlation::from_raw(4);
+    for channels in [
+        json!([{ "id": "chfixx0000000000000000001d" }]),
+        json!([{ "id": "chfixx0000000000000000001d", "isRoot": false }]),
+        json!([
+            { "id": "chfixx0000000000000000001d", "isRoot": true },
+            { "id": "chfixx0000000000000000001d", "isRoot": true }
+        ]),
+        json!([{ "id": "chfixx0000000000000000001d", "isRoot": true, "extra": 1 }]),
+    ] {
+        let payload = serde_json::to_vec(&json!({ "channels": channels })).unwrap();
+        assert!(
+            handle_outbound(
+                "im_channels_view",
+                &payload,
+                "http://h/api",
+                "http://h",
+                None,
+                corr
+            )
+            .is_err(),
+            "非 canonical channels 应拒绝"
+        );
+    }
 }
 
 #[test]
@@ -168,6 +201,32 @@ fn missing_required_fields_error_not_panic() {
         "http://h",
         None,
         corr
+    )
+    .is_err());
+
+    // displayName 缺 expected_version 或传负数均不得创建 HTTP effect。
+    let missing_version =
+        serde_json::to_vec(&json!({ "channel_id": "c1", "display_name": "n" })).unwrap();
+    assert!(handle_outbound(
+        "im_channel_change_display_name",
+        &missing_version,
+        "http://h/api",
+        "http://h",
+        None,
+        Correlation::from_raw(4),
+    )
+    .is_err());
+    let negative_version = serde_json::to_vec(
+        &json!({ "channel_id": "c1", "display_name": "n", "expected_version": -1 }),
+    )
+    .unwrap();
+    assert!(handle_outbound(
+        "im_channel_change_display_name",
+        &negative_version,
+        "http://h/api",
+        "http://h",
+        None,
+        Correlation::from_raw(5),
     )
     .is_err());
 }

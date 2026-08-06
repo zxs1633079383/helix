@@ -108,7 +108,9 @@ impl ImModule {
             return Ok(());
         };
         out.push(event.into_effect());
-        if let Some(signal) = urgent_channel_signal_from_row(row)? {
+        if let Some(signal) =
+            urgent_channel_signal_from_row(row, self.config.auth_user_id.as_str())?
+        {
             out.push(signal.into_effect());
         }
         let _confirmed_message_id = message_id;
@@ -116,16 +118,15 @@ impl ImModule {
     }
 }
 
-/// 从同一份 durable expediteMap 派生会话级加急信号（sequence 2）。
+/// 从 durable expediteMap 派生当前 viewer 的会话级加急信号（sequence 2）。
 ///
-/// 判定是**绝对**的（不是 viewer-local）：只要还有 recipient 未确认（`status <= 0`），
-/// 该 postId 就留在 `urgentPostList` 里、闪电亮着；全员确认后整体熄灭。
-/// 两个 persona 各自独立回放同一份绝对 map，因此天然收敛到同一结果，
-/// 不存在任何跨视角复制（INV-12）。
-///
+/// `urgentPostList` 是 member-scoped 绝对投影：只有当前 viewer 在 recipients 中且仍未确认，
+/// 才能点亮该账号的会话闪电；发送者和非收件人必须收到空列表。不能把“其他人仍未确认”
+/// 当成当前账号的 badge，否则 sender 会错误看到自己发出的加急。
 /// `urgentCount` 是死字段（会话列表只读 `urgentPostList`），本函数永不产出它。
 fn urgent_channel_signal_from_row(
     row: &helix_core::effect::Row,
+    viewer_user_id: &str,
 ) -> Result<Option<crate::event::MessageV3Event>, ImError> {
     let (Some(post_id), Some(channel_id), Some(expedite_map)) = (
         text_column(row, "id"),
@@ -136,9 +137,12 @@ fn urgent_channel_signal_from_row(
     ) else {
         return Ok(None);
     };
-    let data = if has_pending_recipient(&expedite_map) {
+    let data = if has_pending_recipient(&expedite_map, viewer_user_id) {
         serde_json::json!({
             "channelId": channel_id,
+            "userId": viewer_user_id,
+            "projectionAuthority": "server-member-absolute",
+            "memberScope": "current_user",
             "urgentPostList": [post_id],
             "urgentCurrentName": requester_display_name(&expedite_map),
             "hasUrgentPost": true,
@@ -146,6 +150,9 @@ fn urgent_channel_signal_from_row(
     } else {
         serde_json::json!({
             "channelId": channel_id,
+            "userId": viewer_user_id,
+            "projectionAuthority": "server-member-absolute",
+            "memberScope": "current_user",
             "urgentPostList": [],
             "urgentCurrentName": "",
             "hasUrgentPost": false,
@@ -154,19 +161,20 @@ fn urgent_channel_signal_from_row(
     crate::event::channel::update(data).map(Some)
 }
 
-/// 是否仍有未确认的加急目标（缺 `status` 视为未确认，宁可多提醒不可漏提醒）。
-fn has_pending_recipient(expedite_map: &serde_json::Value) -> bool {
+/// 判断当前 viewer 是否仍有未确认的加急目标；缺少 viewer 或 recipient 身份时 fail-closed。
+fn has_pending_recipient(expedite_map: &serde_json::Value, viewer_user_id: &str) -> bool {
+    if viewer_user_id.is_empty() {
+        return false;
+    }
     expedite_map
         .get("recipients")
         .and_then(serde_json::Value::as_object)
-        .is_some_and(|recipients| {
-            recipients.values().any(|recipient| {
-                recipient
-                    .get("status")
-                    .and_then(serde_json::Value::as_i64)
-                    .unwrap_or_default()
-                    <= 0
-            })
+        .and_then(|recipients| recipients.get(viewer_user_id))
+        .is_some_and(|recipient| {
+            recipient
+                .get("status")
+                .and_then(serde_json::Value::as_i64)
+                .is_some_and(|status| status <= 0)
         })
 }
 
@@ -196,4 +204,36 @@ fn text_column<'a>(row: &'a helix_core::effect::Row, column: &str) -> Option<&'a
                 _ => None,
             })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_pending_recipient;
+    use serde_json::json;
+
+    #[test]
+    fn sender_does_not_receive_recipient_urgent_badge() {
+        let expedite_map = json!({
+            "sender": { "id": "444", "name": "破坏者" },
+            "recipients": {
+                "447": { "status": 0 },
+                "678": { "status": 0 }
+            }
+        });
+
+        assert!(!has_pending_recipient(&expedite_map, "444"));
+        assert!(has_pending_recipient(&expedite_map, "447"));
+    }
+
+    #[test]
+    fn confirmed_recipient_does_not_keep_urgent_badge() {
+        let expedite_map = json!({
+            "recipients": {
+                "447": { "status": 1 }
+            }
+        });
+
+        assert!(!has_pending_recipient(&expedite_map, "447"));
+        assert!(!has_pending_recipient(&expedite_map, ""));
+    }
 }

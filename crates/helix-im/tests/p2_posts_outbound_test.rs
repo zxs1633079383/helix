@@ -358,7 +358,13 @@ fn registry_covers_exactly_all_outbound_commands() {
 fn every_registered_command_is_dispatchable() {
     // 各命令最小合法 payload（仅验证 dispatch 可达，不验证字段细节——细节在各专项测试）。
     let minimal: &[(&str, Value)] = &[
-        ("im_post_read", json!({ "channel_id": "c" })),
+        (
+            "im_post_read",
+            json!({
+                "channel_id": "chfixx00000000000000000001",
+                "posts": ["srvfix00000000000000000001"]
+            }),
+        ),
         ("im_revoke", json!({ "post_id": "p" })),
         ("im_channel_leave", json!({ "channel_id": "c" })),
         (
@@ -377,11 +383,20 @@ fn every_registered_command_is_dispatchable() {
             "im_make_topic",
             json!({ "root_id": "r", "user_ids": ["u1"], "req_id": "topic-request-1" }),
         ),
-        ("im_channel_member_change", json!({ "channel_id": "c" })),
+        (
+            "im_channel_member_change",
+            json!({
+                "channel_id": "c",
+                "team_id": "t",
+                "self_id": "me",
+                "join_user_ids": [],
+                "leave_user_ids": [],
+            }),
+        ),
         ("im_channel_close", json!({ "channel_id": "c" })),
         (
             "im_update_member_nickname",
-            json!({ "channel_id": "c", "nickname": "n" }),
+            json!({ "channel_id": "c", "user_id": "u", "nickname": "n" }),
         ),
         (
             "im_urgent_post",

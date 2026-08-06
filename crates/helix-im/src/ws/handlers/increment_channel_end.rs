@@ -1,3 +1,4 @@
+use helix_core::effect::{BatchUpdateSpec, SqlValue, StorageOp};
 use helix_core::{Effect, EffectSink};
 
 use crate::error::ImError;
@@ -6,18 +7,30 @@ use crate::state::ChannelId;
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const INCREMENT_CHANNEL_END_ACTION: &str = "increment_channel_end";
-const INITIAL_CHANNEL_PROJECTION_LIMIT: usize = 500;
 
 pub(crate) fn apply_increment_end(
     ctx: &mut ImWsContext<'_>,
     channel_id: Option<ChannelId>,
     out: &mut EffectSink,
 ) {
+    ctx.state.pending_increment_batch_id = None;
     match channel_id {
         Some(channel_id) => {
+            tracing::info!(
+                channel_id = %channel_id.as_str(),
+                "channel-sync-ready 未触发：收到带 channelId 的单频道结束帧"
+            );
             out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         }
         None => {
+            if !ctx.state.channel_sync_batch_pending {
+                tracing::info!(
+                    "channel-sync-ready 未触发：当前 global increment 批次没有新的 increment 帧"
+                );
+                return;
+            }
+            // 先封口当前批次；后续新 increment 会重新打开 pending，重复 end 不会重复提交。
+            ctx.state.channel_sync_batch_pending = false;
             // NS-1 + G-S1：输入帧序是可回放事实，且 Go 以最近活跃优先交付。
             // 用 Vec 保序、HashSet O(1) 去重，避免重新按 channelId 排序后把新频道推到历史洪峰末尾。
             // 直接构造 state 的旧测试/恢复态可能没有 increment_order；剩余 fetched 以 ID 升序补齐，
@@ -74,9 +87,19 @@ pub(crate) fn apply_increment_end(
                 }
             }
             if ops.is_empty() && projections.is_empty() {
+                tracing::info!(
+                    "channel-sync-ready 未触发：global increment_channel_end 没有可持久化的批次内容"
+                );
                 return;
             }
+            tracing::info!(
+                pending_ops = ops.len(),
+                projections = projections.len(),
+                "channel-sync-ready 等待 increment 批次 Persist 回执"
+            );
             let corr = ctx.alloc_corr();
+            ctx.state.channel_sync_persist_inflight =
+                ctx.state.channel_sync_persist_inflight.saturating_add(1);
             out.push(Effect::Persist { corr, ops });
             ctx.state.corr_map.insert(
                 corr,
@@ -84,6 +107,113 @@ pub(crate) fn apply_increment_end(
             );
         }
     }
+}
+
+/// 解析带范围的增量收尾帧；缺省 scope 保持旧全局 end 语义。
+pub(crate) fn apply_scoped_increment_end(
+    ctx: &mut ImWsContext<'_>,
+    channel_id: Option<ChannelId>,
+    scope: Option<&str>,
+    batch_id: Option<&str>,
+    out: &mut EffectSink,
+) {
+    match scope {
+        // Legacy frames had no scope. Preserve only that compatibility path; a
+        // declared scope must not silently fall through to another semantic.
+        None => {
+            apply_increment_end(ctx, channel_id, out);
+            return;
+        }
+        Some("channels") => {
+            if channel_id.is_some() {
+                tracing::warn!(
+                    "channel-sync-ready 未触发：scope=channels 不允许携带 parent channelId"
+                );
+                return;
+            }
+            let batch_id = batch_id.filter(|value| !value.is_empty());
+            if let Some(expected) = ctx.state.pending_increment_batch_id.as_deref() {
+                if batch_id != Some(expected) {
+                    tracing::warn!(
+                        expected_batch_id = expected,
+                        batch_id = batch_id.unwrap_or("<missing>"),
+                        "channel-sync-ready 未触发：普通频道收尾 batchId 不匹配"
+                    );
+                    return;
+                }
+            }
+            apply_increment_end(ctx, None, out);
+            return;
+        }
+        Some("subtopics") if channel_id.is_some() => {}
+        Some(other) => {
+            tracing::warn!(
+                scope = other,
+                "subtopics-sync-ready 未触发：未知或不完整的 scope"
+            );
+            return;
+        }
+    }
+
+    let parent_channel_id = channel_id.expect("checked above");
+    let batch_id = batch_id
+        .filter(|value| !value.is_empty())
+        .unwrap_or("legacy");
+    if let Some(expected) = ctx.state.pending_increment_batch_id.as_deref() {
+        if expected != batch_id {
+            tracing::warn!(
+                channel_id = %parent_channel_id.as_str(),
+                expected_batch_id = expected,
+                batch_id,
+                "subtopics-sync-ready 未触发：收尾 batchId 不匹配"
+            );
+            return;
+        }
+    }
+    ctx.state.pending_increment_batch_id = None;
+    let batch_key = format!("subtopics|{}|{}", parent_channel_id.as_str(), batch_id);
+    if ctx.state.subtopic_sync_completed.contains(&batch_key)
+        || ctx.state.subtopic_sync_active.as_deref() == Some(batch_key.as_str())
+    {
+        tracing::info!(
+            channel_id = %parent_channel_id.as_str(),
+            batch_id,
+            "subtopics-sync-ready 未触发：重复或在途批次"
+        );
+        return;
+    }
+
+    ctx.state.subtopic_sync_active = Some(batch_key.clone());
+    let mut ops = std::mem::take(&mut ctx.state.pending_increment_ops);
+    let projections = std::mem::take(&mut ctx.state.pending_increment_projections);
+
+    // 话题批次的成功标记与子频道/成员/cursor 写入共用同一 Persist，令下一次切群
+    // 能在本地判断快照有效；不能在内存里提前写标记，否则 Persist 失败会跳过下一次补偿。
+    ops.push(StorageOp::BatchUpdate(BatchUpdateSpec {
+        table: "channel",
+        key_col: "id",
+        key_vals: vec![SqlValue::Text(parent_channel_id.as_str().to_string())],
+        patch: vec![(
+            "subtopics_loaded_at".to_string(),
+            SqlValue::Integer(ctx.now_ms.min(i64::MAX as u64) as i64),
+        )],
+    }));
+
+    let corr = ctx.alloc_corr();
+    out.push(Effect::Persist { corr, ops });
+    ctx.state.corr_map.insert(
+        corr,
+        crate::state::CorrelationContext::SubtopicIncrementBatchPersist {
+            parent_channel_id,
+            batch_key,
+            projections,
+        },
+    );
+    tracing::info!(
+        channel_id = %parent_channel_id.as_str(),
+        batch_id,
+        "subtopics-sync-ready 等待话题 increment 批次 Persist 回执"
+    );
 }
 
 /// UC-10 待办触发（global increment-end 收尾）：缓冲非空 → build `posts/queryTodoList {postIds}`
@@ -118,27 +248,6 @@ fn trigger_todo_query(ctx: &mut ImWsContext<'_>, post_ids: &[String], out: &mut 
         .corr_map
         .insert(corr, crate::state::CorrelationContext::TodoQuery);
     tracing::info!("helix-im UC-10: hello 收尾触发 queryTodoList（待办内容拉取）");
-}
-
-/// G-S1 事务成功后的续步：发布最终投影。调用者只能是
-/// `IncrementBatchPersist` 的成功回执分支。
-pub(crate) fn after_increment_batch_persist(
-    projections: Vec<(ChannelId, Vec<u8>)>,
-    out: &mut EffectSink,
-) {
-    // Go delivers the batch in recent-activity order. Persist contains the
-    // complete batch, while the UI boundary publishes only the maintained
-    // dialog window; older rows remain queryable from local storage.
-    for (channel_id, raw) in projections
-        .into_iter()
-        .take(INITIAL_CHANNEL_PROJECTION_LIMIT)
-    {
-        out.push(crate::acl::to_effect::emit_channel_increment(
-            channel_id,
-            raw.as_ref(),
-        ));
-    }
-    out.push(crate::acl::to_effect::emit_channels_loaded());
 }
 
 /// B4：proactive resync 入口——不再逐 channel 直发，改为入 SyncScheduler 全局并发窗口
@@ -209,7 +318,17 @@ impl WsMessageHandler for IncrementChannelEndHandler {
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        apply_increment_end(ctx, parse_channel_id(frame), out);
+        let channel_id = parse_channel_id(frame);
+        let (scope, batch_id) = frame
+            .data()
+            .map(|data| {
+                (
+                    data.get("scope").and_then(serde_json::Value::as_str),
+                    data.get("batchId").and_then(serde_json::Value::as_str),
+                )
+            })
+            .unwrap_or((None, None));
+        apply_scoped_increment_end(ctx, channel_id, scope, batch_id, out);
         Ok(())
     }
 }

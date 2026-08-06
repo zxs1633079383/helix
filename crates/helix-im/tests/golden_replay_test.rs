@@ -198,7 +198,14 @@ fn real_go_increment_channel_registers_and_seeds_cursor() {
     // increment_channel.json 真帧 data.id = bi643wys7fgy9pbai9wjfusnfa，lastEventSeq = 151。
     let channel = ChannelId::from_str("bi643wys7fgy9pbai9wjfusnfa").expect("真帧 id 合法 26 字符");
 
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(
+        &[],
+        "444",
+        "64118eebd2b665246b7880eb",
+        "破坏者",
+        "战士",
+        "狂派事业部",
+    );
     h.start(0);
 
     let effects = h.step(inbound(INCREMENT_JSON), 1000);
@@ -249,13 +256,37 @@ fn real_go_increment_channel_registers_and_seeds_cursor() {
         })
         .expect("真 increment_channel_end 必须形成相关 Persist");
     let committed = h.step(port_reply_ok(persist_corr), 1_200);
-    assert!(
+    assert_eq!(
         committed
             .iter()
             .filter(|effect| **effect == EffectKind::Emit)
-            .count()
-            >= 2,
-        "事务成功后至少发布 channel:increment + channels:loaded"
+            .count(),
+        1,
+        "事务成功后只发布 typed channel-sync-ready"
+    );
+    let emitted = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Emit { event } => Some(String::from_utf8_lossy(event.0.as_ref()).to_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        emitted
+            .iter()
+            .any(|body| body.contains("im:channel-sync-ready")),
+        "Persist Ok 后必须发布 typed ready，got {:?}",
+        emitted
+    );
+    assert!(
+        emitted
+            .iter()
+            .all(|body| !body.contains("im:channel:increment")
+                && !body.contains("im:channels:loaded")),
+        "Persist Ok 后不得恢复 raw channel sync 事件，got {:?}",
+        emitted
     );
 }
 

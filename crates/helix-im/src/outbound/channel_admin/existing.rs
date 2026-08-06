@@ -134,6 +134,34 @@ fn require_exact_keys(args: &Value, allowed: &[&str], cmd: &str) -> Result<(), I
     Ok(())
 }
 
+/// 校验命令的 canonical 必填字段存在且为字符串；允许空串字段由调用方继续解释。
+fn require_string_fields(args: &Value, fields: &[&str], cmd: &str) -> Result<(), ImError> {
+    for field in fields {
+        if args.get(*field).and_then(Value::as_str).is_none() {
+            return Err(ImError::Parse(format!("{cmd}: 缺/类型错误字段 '{field}'")));
+        }
+    }
+    Ok(())
+}
+
+/// 校验可为空的字符串数组，拒绝非字符串与空成员，保持 Go DTO 的数组契约。
+fn require_string_array(args: &Value, key: &str, cmd: &str) -> Result<Vec<String>, ImError> {
+    let values = args
+        .get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/类型错误数组字段 '{key}'")))?;
+    values
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_string)
+                .ok_or_else(|| ImError::Parse(format!("{cmd}: 字段 '{key}' 必须是字符串数组")))
+        })
+        .collect()
+}
+
 fn require_non_empty_string_array(args: &Value, key: &str, cmd: &str) -> Result<Value, ImError> {
     let values = args
         .get(key)
@@ -172,29 +200,37 @@ impl OutboundCommand for MemberChangeCommand {
         "im_channel_member_change"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        require_exact_keys(
+            args,
+            &[
+                "channel_id",
+                "team_id",
+                "self_id",
+                "join_user_ids",
+                "leave_user_ids",
+            ],
+            self.name(),
+        )?;
+        require_string_fields(args, &["channel_id", "team_id", "self_id"], self.name())?;
         let channel_id = require_str(args, "channel_id", self.name())?;
         let team_id = args.get("team_id").and_then(Value::as_str).unwrap_or("");
         let self_id = args.get("self_id").and_then(Value::as_str).unwrap_or("");
+        let join_user_ids = require_string_array(args, "join_user_ids", self.name())?;
+        let leave_user_ids = require_string_array(args, "leave_user_ids", self.name())?;
         // 拼成员对象数组（三键 id/teamId/role 全 camelCase·role=MEMBER）。过滤空 id；join 额外排除自身。
-        let build_users = |key: &str, exclude_self: bool| -> Vec<Value> {
-            args.get(key)
-                .and_then(Value::as_array)
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(Value::as_str)
-                        .filter(|uid| !(uid.trim().is_empty() || exclude_self && *uid == self_id))
-                        .map(|uid| json!({ "id": uid, "teamId": team_id, "role": "MEMBER" }))
-                        .collect()
-                })
-                .unwrap_or_default()
+        let build_users = |ids: &[String], exclude_self: bool| -> Vec<Value> {
+            ids.iter()
+                .filter(|uid| !(exclude_self && uid.as_str() == self_id))
+                .map(|uid| json!({ "id": uid, "teamId": team_id, "role": "MEMBER" }))
+                .collect()
         };
         let mut body = serde_json::Map::new();
         body.insert("channelId".into(), Value::String(channel_id.to_string()));
-        let joins = build_users("join_user_ids", true);
+        let joins = build_users(&join_user_ids, true);
         if !joins.is_empty() {
             body.insert("joinUsers".into(), Value::Array(joins));
         }
-        let leaves = build_users("leave_user_ids", false);
+        let leaves = build_users(&leave_user_ids, false);
         if !leaves.is_empty() {
             body.insert("leaveUsers".into(), Value::Array(leaves));
         }
@@ -238,13 +274,13 @@ impl OutboundCommand for UpdateNicknameCommand {
         "im_update_member_nickname"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        require_exact_keys(args, &["channel_id", "user_id", "nickname"], self.name())?;
+        require_string_fields(args, &["channel_id", "user_id", "nickname"], self.name())?;
         let channel_id = require_str(args, "channel_id", self.name())?;
-        // nickname 允许空（trim 空→Go 侧清空昵称），故不 require 非空。
+        // nickname 允许空（trim 空→Go 侧清空昵称），但 user_id 必须显式透传。
         let nickname = args.get("nickname").and_then(Value::as_str).unwrap_or("");
-        let mut b = json!({ "channelId": channel_id, "nickname": nickname });
-        if let Some(uid) = args.get("user_id").and_then(Value::as_str) {
-            b["userId"] = json!(uid);
-        }
+        let user_id = args.get("user_id").and_then(Value::as_str).unwrap_or("");
+        let b = json!({ "channelId": channel_id, "userId": user_id, "nickname": nickname });
         Ok(("channel/member/change/nickname", b))
     }
 }

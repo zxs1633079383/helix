@@ -8,6 +8,7 @@
 
 | 文档 | 用途 |
 |---|---|
+| [`频道同步分页协议.md`](./频道同步分页协议.md) | MessageV3 hello increment ready、account-local channel 分页与 complete 协议。 |
 | [`消息发送全流程/在线与离线发送消息全流程.md`](./消息发送全流程/在线与离线发送消息全流程.md) | 结合 Helix 与现役 Go server 源码，说明 `im_send_message`、Persist/HTTP/timer/PortReply、WS authority、sender/receiver 未读、离线补偿与手动 retry。 |
 | [`消息发送全流程/在线与离线发送消息全流程.mmd`](./消息发送全流程/在线与离线发送消息全流程.mmd) | 同一链路的 Mermaid 图源。 |
 

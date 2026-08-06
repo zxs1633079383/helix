@@ -19,8 +19,8 @@ pub use values::{
 #[path = "correlation.rs"]
 mod correlation;
 pub use correlation::{
-    ChannelLifecycleTransition, ChannelSettingsProjection, CorrelationContext, MakeTopicProjection,
-    SyncTrigger,
+    ChannelLifecycleTransition, ChannelSettingsProjection, CorrelationContext,
+    HydrationPersistSnapshot, MakeTopicProjection, SyncTrigger,
 };
 
 pub(crate) struct FileUploadProgressState {
@@ -194,9 +194,39 @@ pub struct ImState {
     /// 与 `pending_increment_ops` 同批提交后才允许发布的逐频道投影原始数据。
     pub(crate) pending_increment_projections: Vec<(ChannelId, Vec<u8>)>,
 
+    /// 话题增量批次的活动身份；与普通频道 ready 分开，避免 scoped end 晋升全局列表。
+    pub(crate) subtopic_sync_active: Option<String>,
+
+    /// 已完成的话题批次键，重复 end 只读丢弃，不重复发布 ready。
+    pub(crate) subtopic_sync_completed: std::collections::HashSet<String>,
+
+    /// 当前缓冲 increment 帧携带的内部 batchId；收尾帧不匹配时 fail-closed。
+    pub(crate) pending_increment_batch_id: Option<String>,
+
+    /// 最近一次 global increment 原子落库后建立的频道分页会话；身份/transport 边界会清空。
+    pub(crate) channel_sync_session: Option<crate::channel_sync::ChannelSyncSession>,
+
+    /// 频道分页会话代际；每次 ready 递增，旧 cursor 跨代 fail-closed。
+    pub(crate) channel_sync_generation: u64,
+
+    /// 当前 increment 批次是否仍有未封口的频道帧；用于拒绝重复 global end。
+    pub(crate) channel_sync_batch_pending: bool,
+
+    /// 已封口但尚未收到 Persist 回执的 increment 批次数；每个成功回执各自发布一次 ready。
+    pub(crate) channel_sync_persist_inflight: usize,
+
+    /// 当前频道分页尚未 complete 时到达的新批次；complete 后合并为一次新的 ready。
+    pub(crate) channel_sync_refresh_pending: bool,
+
     /// UC-4.5 单频道 hydration 已完成 channel/member 落库、正在等待 sync 终态的 channel。
     /// terminal sync commit/no_change 后移除并触发本地 dialog/messages 读回投影。
     pub hydration_pending: HashSet<ChannelId>,
+
+    /// G13b hydration request identity，贯穿 sync 与 durable read-back 的唯一终态。
+    pub hydration_req_ids: HashMap<ChannelId, String>,
+
+    /// G09d canonical increment is released only after the same durable read-back as the Result.
+    pub hydration_emit_channel_increment: HashSet<ChannelId>,
 
     /// 当前物理会话中已成功缓存的最近消息窗口；不替代同步 cursor。
     pub(crate) recent_message_coverage:
@@ -231,8 +261,21 @@ pub struct ImState {
     pub(crate) inflight_member_update_seqs: HashSet<(ChannelId, Seq)>,
     pub(crate) committed_member_update_seqs: HashSet<(ChannelId, Seq)>,
 
+    /// 同一频道在线角色变更只允许一条成员表读写链在途；重复 authority 等首链完成后由后续
+    /// increment/member snapshot 收敛，避免并发读改写覆盖新角色。
+    pub(crate) inflight_member_role_updates: HashSet<ChannelId>,
+
     /// 已经通过持久屏障的 G14 authority 版本；用于 O(1) 丢弃重复或倒退的 WS 回执。
     pub(crate) committed_post_reads: BTreeMap<String, (i64, String)>,
+
+    /// 当前账号/租户下每频道已投影的公告绝对版本；只接受单调递增快照。
+    pub(crate) announcement_versions: BTreeMap<ChannelId, u64>,
+
+    /// 已发起但尚未收到绝对列表的公告重拉版本；抑制重复/旧 changed 通知。
+    pub(crate) announcement_reload_versions: BTreeMap<ChannelId, u64>,
+
+    /// 当前 transport 会话已发布的 G06b `(channel, post, snapshot, reader)` 增量去重键。
+    pub(crate) seen_post_read_deltas: HashSet<(ChannelId, String, String, String)>,
 
     /// coverage 会话代号；hello/disconnect 递增，旧回包不得污染新会话。
     pub(crate) query_session_epoch: u64,
@@ -287,7 +330,17 @@ impl ImState {
             pending_increment_bootstrap_after_scan: false,
             pending_increment_ops: Vec::new(),
             pending_increment_projections: Vec::new(),
+            subtopic_sync_active: None,
+            subtopic_sync_completed: HashSet::new(),
+            pending_increment_batch_id: None,
+            channel_sync_session: None,
+            channel_sync_generation: 0,
+            channel_sync_batch_pending: true,
+            channel_sync_persist_inflight: 0,
+            channel_sync_refresh_pending: false,
             hydration_pending: HashSet::new(),
+            hydration_req_ids: HashMap::new(),
+            hydration_emit_channel_increment: HashSet::new(),
             recent_message_coverage: HashMap::new(),
             message_query_generations: HashMap::new(),
             timeline_state: crate::timeline_state::TimelineState::default(),
@@ -300,7 +353,11 @@ impl ImState {
             committed_channel_creates: HashSet::new(),
             inflight_member_update_seqs: HashSet::new(),
             committed_member_update_seqs: HashSet::new(),
+            inflight_member_role_updates: HashSet::new(),
             committed_post_reads: BTreeMap::new(),
+            announcement_versions: BTreeMap::new(),
+            announcement_reload_versions: BTreeMap::new(),
+            seen_post_read_deltas: HashSet::new(),
             query_session_epoch: 0,
         }
     }
@@ -318,7 +375,15 @@ impl ImState {
         self.pending_increment_bootstrap_after_scan = false;
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
+        self.inflight_member_role_updates.clear();
+        self.subtopic_sync_active = None;
+        self.subtopic_sync_completed.clear();
+        self.pending_increment_batch_id = None;
+        self.channel_sync_batch_pending = true;
+        self.channel_sync_persist_inflight = 0;
         self.hydration_pending.clear();
+        self.hydration_req_ids.clear();
+        self.hydration_emit_channel_increment.clear();
         self.reply_projection_revisions.clear();
         self.reply_projection_seen_ids.clear();
         self.reset_transport_query_session();
@@ -335,6 +400,8 @@ impl ImState {
     /// next V2 patch against the revision that is still mounted in the UI.
     pub(crate) fn reset_transport_query_session(&mut self) {
         self.drop_query_session_correlations();
+        self.announcement_reload_versions.clear();
+        self.seen_post_read_deltas.clear();
     }
 
     /// 完整 query/session reset 同时撤销旧查询回包。
@@ -353,6 +420,7 @@ impl ImState {
                 CorrelationContext::MessageQueryLocal { .. }
                     | CorrelationContext::MessageQueryRemote { .. }
                     | CorrelationContext::MessageQueryCache { .. }
+                    | CorrelationContext::MessageQueryReadback { .. }
             )
         });
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
@@ -378,11 +446,24 @@ impl ImState {
         self.committed_channel_creates.clear();
         self.inflight_member_update_seqs.clear();
         self.committed_member_update_seqs.clear();
+        self.inflight_member_role_updates.clear();
         self.committed_post_reads.clear();
+        self.announcement_versions.clear();
+        self.announcement_reload_versions.clear();
         self.sync_scheduler.reset();
         self.hydration_pending.clear();
+        self.hydration_req_ids.clear();
+        self.hydration_emit_channel_increment.clear();
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
+        self.subtopic_sync_active = None;
+        self.subtopic_sync_completed.clear();
+        self.pending_increment_batch_id = None;
+        self.channel_sync_session = None;
+        self.channel_sync_generation = self.channel_sync_generation.wrapping_add(1);
+        self.channel_sync_batch_pending = false;
+        self.channel_sync_persist_inflight = 0;
+        self.channel_sync_refresh_pending = false;
         self.reset_recent_query_coverage();
         self.corr_map.retain(|_, context| {
             !matches!(
@@ -392,15 +473,30 @@ impl ImState {
                     | CorrelationContext::MessageV3RevokeChannelPersist { .. }
                     | CorrelationContext::MessageV3RevokeChannelReadback
                     | CorrelationContext::SyncPull { .. }
+                    | CorrelationContext::TooLongReload { .. }
+                    | CorrelationContext::TooLongReloadPersist { .. }
                     | CorrelationContext::IncrementBatchPersist { .. }
+                    | CorrelationContext::ChannelSyncPage { .. }
+                    | CorrelationContext::ChannelSyncPageMemberSnapshot { .. }
                     | CorrelationContext::IncrementHydrationPersist { .. }
+                    | CorrelationContext::HydrationChannelReadback { .. }
+                    | CorrelationContext::HydrationMemberReadback { .. }
+                    | CorrelationContext::HydrationMessagesReadback { .. }
+                    | CorrelationContext::HydrationCursorReadback { .. }
                     | CorrelationContext::OutboundIncrementHydration { .. }
                     | CorrelationContext::UpdateChannelDialogPersist { .. }
                     | CorrelationContext::DialogListQuery { .. }
+                    | CorrelationContext::SubtopicsQuery { .. }
                     | CorrelationContext::PostReadPersist { .. }
+                    | CorrelationContext::OutboundExactPosts { .. }
+                    | CorrelationContext::ExactPostsPersist { .. }
+                    | CorrelationContext::ExactPostsReadback { .. }
                     | CorrelationContext::OutboundChannelCreate { .. }
                     | CorrelationContext::ChannelCreatePersist { .. }
                     | CorrelationContext::ChannelMemberUpdatePersist { .. }
+                    | CorrelationContext::ChannelMemberRoleScan { .. }
+                    | CorrelationContext::ChannelMemberRolePersist { .. }
+                    | CorrelationContext::ChannelMemberRoleReadback { .. }
             )
         });
     }

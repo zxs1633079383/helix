@@ -142,6 +142,9 @@ pub fn member_channel_update_data(
         "lastPostAt": projection.last_post_at,
         "lastRootPostAt": projection.last_root_post_at,
     });
+    if let (Some(top), Some(object)) = (projection.channel_is_top, channel_update.as_object_mut()) {
+        object.insert("channelIsTop".to_string(), top.into());
+    }
     if let (Some(revision), Some(object)) = (
         projection.projection_revision,
         channel_update.as_object_mut(),

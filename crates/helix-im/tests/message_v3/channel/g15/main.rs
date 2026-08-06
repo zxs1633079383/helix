@@ -55,7 +55,7 @@ fn run_success() -> TestResult<(Vec<Value>, Vec<Value>)> {
     let http = correlation(harness.sink.as_slice())?;
     let body = serde_json::to_vec(&json!({
         "status":"SUCCESS",
-        "data":{"rootMessageId":ROOT_ID,"channelId":TOPIC_ID,"revision":41}
+        "data":{"rootMessageId":ROOT_ID,"channelId":TOPIC_ID,"memberIds":["g15-sender","g15-receiver"],"participantCount":2,"revision":41}
     }))
     .map_err(|error| error.to_string())?;
     harness.step(
@@ -71,6 +71,7 @@ fn run_success() -> TestResult<(Vec<Value>, Vec<Value>)> {
         "user_id":"g15-sender",
         "type":"TEXT",
         "message":"topic root",
+        "topic":serde_json::json!({"channelId":TOPIC_ID,"participantCount":2,"members":["g15-sender","g15-receiver"]}).to_string(),
         "create_at":1_700_001_510_000_i64
     }]);
     let rows = serde_json::to_vec(&row).map_err(|error| error.to_string())?;
@@ -82,16 +83,29 @@ fn run_success() -> TestResult<(Vec<Value>, Vec<Value>)> {
     Ok((sender.clone(), sender))
 }
 
-/// G-15 topic 事件携带父频道、topic、root 和真实 durable root。
+/// G-15 只复用既有 channelCreated + postUpdated，并在 durable root readback 后保持顺序。
 #[test]
-fn g15_emits_created_topic_after_root_readback() -> TestResult<()> {
+fn g15_emits_created_channel_then_updated_root_after_readback() -> TestResult<()> {
     let (events, _) = run_success()?;
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0]["event"], "im:channel:topic-created");
-    assert_eq!(events[0]["data"]["channelId"], TOPIC_ID);
-    assert_eq!(events[0]["data"]["parentChannelId"], PARENT_ID);
-    assert_eq!(events[0]["data"]["rootMessageId"], ROOT_ID);
-    assert_eq!(events[0]["data"]["rootPost"]["id"], ROOT_ID);
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0]["event"], "im:channel:created");
+    assert_eq!(events[0]["data"]["id"], TOPIC_ID);
+    assert_eq!(events[0]["data"]["type"], "T");
+    assert_eq!(events[0]["data"]["rootId"], PARENT_ID);
+    assert_eq!(events[0]["data"]["parentPostId"], ROOT_ID);
+    assert_eq!(
+        events[0]["data"]["members"],
+        json!(["g15-sender", "g15-receiver"])
+    );
+    assert_eq!(events[0]["data"]["memberCount"], 2);
+    assert_eq!(events[0]["data"]["unreadCount"], 0);
+    assert_eq!(events[1]["event"], "im:post:updated");
+    assert_eq!(events[1]["data"]["id"], ROOT_ID);
+    assert_eq!(events[1]["data"]["topic"]["channelId"], TOPIC_ID);
+    assert_eq!(events[1]["data"]["topic"]["participantCount"], 2);
+    assert!(!events
+        .iter()
+        .any(|event| event["event"] == "im:channel:topic-created"));
     Ok(())
 }
 

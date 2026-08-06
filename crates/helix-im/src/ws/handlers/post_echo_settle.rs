@@ -11,7 +11,7 @@
 
 use helix_core::EffectSink;
 
-use crate::state::{ChannelId, CorrelationContext, ServerId, TemporaryId};
+use crate::state::{CorrelationContext, ServerId, TemporaryId};
 use crate::sync_session::EventEnvelope;
 
 use super::super::{ImWsContext, WsFrame};
@@ -73,12 +73,14 @@ pub(super) fn is_echo_frame(
 ///   状态推进到 Sent）。
 /// - 之后从 `pending_sends` + `corr_map`(OptimisticSend) 移除该记录（防泄漏）。
 ///
+/// 普通自发 WS 回声不再注册 timeline latest 回读；同一 `post` handler 会继续完成
+/// MessageV3 原子提交和 `im:post:received` 权威投影，Angular 直接按 temporaryId 替换本地壳。
+///
 /// **不推进 cursor**：cursor 已由调用方 `ch.ingest` 推进（HX-C008 单调，避免双推）。
 /// 非 echo（`temporary_id` 空 / 不在 pending_sends / `id` 非合法 26 字符 ServerId）→ no-op，
 /// 与他人推送的新消息一致。边界零信任不 panic。
 pub(super) fn reconcile_post_echo(
     ctx: &mut ImWsContext<'_>,
-    channel_id: ChannelId,
     temporary_id: &str,
     server_id: Option<ServerId>,
     out: &mut EffectSink,
@@ -99,11 +101,11 @@ pub(super) fn reconcile_post_echo(
     }
     let reconcile_corr = ctx.alloc_corr();
     // R4-retain：取出该 send 的 P1 Persist corr（send 时回填），用于 O(1) 清路由。
-    let (persist_corr, timeline_readback) = ctx
+    let persist_corr = ctx
         .state
         .pending_sends
         .get(&tmp)
-        .map(|ps| (ps.persist_corr, ps.timeline_readback.clone()))
+        .map(|ps| ps.persist_corr)
         .unwrap_or_default();
     if let Some(ps) = ctx.state.pending_sends.get_mut(&tmp) {
         ps.reconcile(server_id, reconcile_corr, out);
@@ -115,20 +117,13 @@ pub(super) fn reconcile_post_echo(
     if let Some(corr) = persist_corr {
         ctx.state.corr_map.remove(&corr);
     }
-    // The reconcile Persist is the durable terminal fact. Its PortReply re-enters
-    // the attached local-first timeline readback, so consumers receive a
-    // MessageV3 timeline event rather than consuming the raw post echo.
-    ctx.state.corr_map.insert(reconcile_corr, {
-        let crate::pending_send::TimelineReadbackContext {
-            window_token,
-            causation_id,
-        } = timeline_readback;
-        CorrelationContext::TimelineRefreshAfterSendPersist {
-            channel_id,
-            window_token,
-            causation_id,
-        }
-    });
+    // The regular post handler owns the authoritative MessageV3 projection. This
+    // bookkeeping persist only closes the send reconciliation and must not issue a
+    // second `getLatestPost` request for the same WS echo.
+    ctx.state.corr_map.insert(
+        reconcile_corr,
+        CorrelationContext::AuthoritativeSendReconcilePersist { temporary_id: tmp },
+    );
 }
 
 #[cfg(test)]
@@ -136,8 +131,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn self_echo_terminal_persist_registers_the_attached_timeline_refresh_route() {
-        let channel_id = crate::state::test_channel_id(41);
+    fn self_echo_terminal_persist_does_not_schedule_latest_timeline_refresh() {
         let temporary_id = TemporaryId("temporary-echo-1".to_string());
         let mut state = crate::state::ImState::new();
         let mut pending = crate::pending_send::PendingSend::new(
@@ -159,7 +153,6 @@ mod tests {
             let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
             reconcile_post_echo(
                 &mut ctx,
-                channel_id,
                 temporary_id.0.as_str(),
                 Some(crate::state::test_server_id(41)),
                 &mut sink,
@@ -176,19 +169,16 @@ mod tests {
             .expect("self echo writes the terminal sent fact");
         assert_eq!(
             state.corr_map.get(&terminal_corr),
-            Some(&CorrelationContext::TimelineRefreshAfterSendPersist {
-                channel_id,
-                window_token: None,
-                causation_id: Some("send-request-echo".to_string()),
+            Some(&CorrelationContext::AuthoritativeSendReconcilePersist {
+                temporary_id: temporary_id.clone(),
             }),
-            "the echo terminal receipt must re-enter the typed timeline projector"
+            "普通 WS echo 只完成发送对账，timeline 由 post 权威投影更新"
         );
     }
 
     #[test]
-    // 回归锚: G03a（WS echo 终态沿用 retry window + causation）
-    fn retry_self_echo_preserves_the_authorizing_window_and_causation() {
-        let channel_id = crate::state::test_channel_id(42);
+    // 回归锚: G03a（WS echo 不因 retry window 触发第二次 latest 查询）
+    fn retry_self_echo_does_not_schedule_a_second_latest_query() {
         let temporary_id = TemporaryId("temporary-retry-echo".to_string());
         let mut state = crate::state::ImState::new();
         let mut pending = crate::pending_send::PendingSend::new(
@@ -213,7 +203,6 @@ mod tests {
             let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
             reconcile_post_echo(
                 &mut ctx,
-                channel_id,
                 temporary_id.0.as_str(),
                 Some(crate::state::test_server_id(42)),
                 &mut sink,
@@ -230,10 +219,8 @@ mod tests {
             .expect("retry self echo writes the terminal sent fact");
         assert_eq!(
             state.corr_map.get(&terminal_corr),
-            Some(&CorrelationContext::TimelineRefreshAfterSendPersist {
-                channel_id,
-                window_token: Some("retry-echo-window".to_string()),
-                causation_id: Some("retry-echo-request".to_string()),
+            Some(&CorrelationContext::AuthoritativeSendReconcilePersist {
+                temporary_id: temporary_id.clone(),
             })
         );
     }

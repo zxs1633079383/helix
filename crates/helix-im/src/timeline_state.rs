@@ -206,6 +206,11 @@ pub enum TimelineStateError {
     PageSizeTooLarge(u64),
     #[error("timeline row is missing id")]
     MissingId,
+    #[error("timeline window is stale or unattached: channel_id={channel_id}, window_token={window_token}")]
+    StaleWindow {
+        channel_id: String,
+        window_token: String,
+    },
 }
 
 /// 跨 Tick 保存时间线分页与定位状态。
@@ -214,6 +219,7 @@ pub struct TimelineState {
     slots: BTreeMap<String, TimelineWindow>,
     attachments: BTreeMap<String, (String, String)>,
     navigation_tokens: BTreeMap<String, String>,
+    active_window_by_channel: BTreeMap<String, String>,
 }
 
 impl TimelineState {
@@ -222,19 +228,41 @@ impl TimelineState {
         self.slots.clear();
         self.attachments.clear();
         self.navigation_tokens.clear();
+        self.active_window_by_channel.clear();
     }
 
     /// 注册一个已附着窗口。
     pub fn register_attachment(&mut self, scope: &TimelineScope) {
+        self.retire_other_windows(scope.channel_id.as_str(), scope.window_token.as_str());
         self.attachments.insert(
             scope.key(),
             (scope.channel_id.clone(), scope.window_token.clone()),
         );
+        self.active_window_by_channel
+            .insert(scope.channel_id.clone(), scope.window_token.clone());
     }
 
     /// 判断窗口是否已附着。
     pub fn is_attached(&self, scope: &TimelineScope) -> bool {
         self.attachments.contains_key(&scope.key())
+    }
+
+    /// 判断窗口是否仍是频道当前唯一活动窗口。
+    pub fn is_active_window(&self, channel_id: &str, window_token: &str) -> bool {
+        let scope = TimelineScope {
+            channel_id: channel_id.to_string(),
+            window_token: window_token.to_string(),
+        };
+        self.active_window_by_channel
+            .get(channel_id)
+            .is_some_and(|active| active == window_token)
+            && self.is_attached(&scope)
+            && self.current_view(&scope).is_some()
+    }
+
+    /// 返回日志所需的内存窗口与 attachment 数量，不暴露消息内容。
+    pub fn window_counts(&self) -> (usize, usize) {
+        (self.slots.len(), self.attachments.len())
     }
 
     /// 返回当前窗口状态。
@@ -246,8 +274,16 @@ impl TimelineState {
     pub fn located_target_channel(&self, message_id: &str) -> Option<&str> {
         let mut matches = self
             .slots
-            .values()
-            .filter(|slot| slot.items.iter().any(|item| item.id == message_id));
+            .iter()
+            .filter(|(key, slot)| {
+                let active_key = self
+                    .active_window_by_channel
+                    .get(slot.channel_id.as_str())
+                    .map(|active| format!("{}\u{1f}{active}", slot.channel_id));
+                active_key.as_deref() == Some(key.as_str())
+                    && slot.items.iter().any(|item| item.id == message_id)
+            })
+            .map(|(_, slot)| slot);
         let first = matches.next()?;
         matches
             .next()
@@ -257,21 +293,15 @@ impl TimelineState {
 
     /// 返回频道唯一已附着窗口及当前行数。
     pub fn unique_attached_window_for_channel(&self, channel_id: &str) -> Option<(String, usize)> {
-        let mut matches = self.attachments.values().filter_map(|(attached, token)| {
-            if attached != channel_id {
-                return None;
-            }
-            let scope = TimelineScope {
-                channel_id: attached.clone(),
-                window_token: token.clone(),
-            };
-            Some((
-                token.clone(),
-                self.current_view(&scope).map_or(0, |view| view.items.len()),
-            ))
-        });
-        let first = matches.next()?;
-        (matches.next().is_none()).then_some(first)
+        let token = self.active_window_by_channel.get(channel_id)?.clone();
+        let scope = TimelineScope {
+            channel_id: channel_id.to_string(),
+            window_token: token.clone(),
+        };
+        if !self.is_active_window(channel_id, token.as_str()) {
+            return None;
+        }
+        Some((token, self.current_view(&scope)?.items.len()))
     }
 
     /// 返回锚点所在窗口的页事实与稳定复合游标。
@@ -280,25 +310,26 @@ impl TimelineState {
         channel_id: &str,
         anchor_message_id: &str,
     ) -> Option<(WindowPage, usize, TimelineEntityKey)> {
-        let mut matches = self.slots.values().filter_map(|slot| {
-            if slot.channel_id != channel_id {
-                return None;
-            }
-            let message = slot
-                .items
-                .iter()
-                .find(|item| item.id == anchor_message_id)?;
-            Some((
-                slot.page.clone(),
-                slot.items.len(),
-                TimelineEntityKey {
-                    create_at: message.created_at,
-                    temporary_id: message.temporary_id.clone(),
-                },
-            ))
-        });
-        let first = matches.next()?;
-        (matches.next().is_none() && !first.2.temporary_id.is_empty()).then_some(first)
+        let window_token = self.active_window_by_channel.get(channel_id)?;
+        let scope = TimelineScope {
+            channel_id: channel_id.to_string(),
+            window_token: window_token.clone(),
+        };
+        let slot = self
+            .is_active_window(channel_id, window_token.as_str())
+            .then(|| self.current_view(&scope))??;
+        let message = slot
+            .items
+            .iter()
+            .find(|item| item.id == anchor_message_id)?;
+        (!message.temporary_id.is_empty()).then_some((
+            slot.page.clone(),
+            slot.items.len(),
+            TimelineEntityKey {
+                create_at: message.created_at,
+                temporary_id: message.temporary_id.clone(),
+            },
+        ))
     }
 
     /// 把一次定位请求登记为窗口当前导航。
@@ -338,6 +369,10 @@ impl TimelineState {
         request: TimelineWindowRequest,
         rows: &[Value],
     ) -> Result<(), TimelineStateError> {
+        let old_window_token = self
+            .active_window_by_channel
+            .get(request.channel_id.as_str())
+            .cloned();
         let scope = TimelineScope {
             channel_id: request.channel_id.clone(),
             window_token: request.window_token.clone(),
@@ -346,7 +381,9 @@ impl TimelineState {
             .iter()
             .map(timeline_item)
             .collect::<Result<Vec<_>, _>>()?;
-        self.register_attachment(&scope);
+        let channel_prefix = format!("{}\u{1f}", scope.channel_id);
+        self.navigation_tokens
+            .retain(|key, _| !key.starts_with(channel_prefix.as_str()));
         self.slots.insert(
             scope.key(),
             TimelineWindow {
@@ -362,6 +399,16 @@ impl TimelineState {
                 },
                 items,
             },
+        );
+        self.register_attachment(&scope);
+        tracing::debug!(
+            channel_id = scope.channel_id.as_str(),
+            old_window_token = old_window_token.as_deref().unwrap_or_default(),
+            new_window_token = scope.window_token.as_str(),
+            active_window_token = scope.window_token.as_str(),
+            slot_count = self.slots.len(),
+            attachment_count = self.attachments.len(),
+            "timeline active window replaced"
         );
         Ok(())
     }
@@ -421,15 +468,31 @@ impl TimelineState {
             .iter()
             .map(timeline_item)
             .collect::<Result<Vec<_>, _>>()?;
-        let slot = self
-            .slots
-            .entry(scope.key())
-            .or_insert_with(|| TimelineWindow {
-                channel_id: request.channel_id.clone(),
-                page: request.page.clone(),
-                anchor: TimelineAnchor::default(),
-                items: Vec::new(),
+        if !self.is_active_window(scope.channel_id.as_str(), scope.window_token.as_str()) {
+            tracing::debug!(
+                channel_id = scope.channel_id.as_str(),
+                active_window_token = self
+                    .active_window_by_channel
+                    .get(scope.channel_id.as_str())
+                    .map(String::as_str)
+                    .unwrap_or_default(),
+                stale_window_token = scope.window_token.as_str(),
+                slot_count = self.slots.len(),
+                attachment_count = self.attachments.len(),
+                "timeline page rejected for stale or unattached window"
+            );
+            return Err(TimelineStateError::StaleWindow {
+                channel_id: scope.channel_id,
+                window_token: scope.window_token,
             });
+        }
+        let slot =
+            self.slots
+                .get_mut(&scope.key())
+                .ok_or_else(|| TimelineStateError::StaleWindow {
+                    channel_id: scope.channel_id.clone(),
+                    window_token: scope.window_token.clone(),
+                })?;
         match mutation {
             TimelinePageMutation::Older => {
                 incoming.extend(slot.items.clone());
@@ -456,6 +519,32 @@ impl TimelineState {
         slot.page = request.page;
         self.register_attachment(&scope);
         Ok(())
+    }
+}
+
+impl TimelineState {
+    /// 淘汰频道旧窗口，避免迟到回包再次命中或复活旧分页作用域。
+    fn retire_other_windows(&mut self, channel_id: &str, keep_window_token: &str) {
+        let keep_key = format!("{channel_id}\u{1f}{keep_window_token}");
+        let stale_slot_keys = self
+            .slots
+            .iter()
+            .filter(|(key, slot)| slot.channel_id == channel_id && key.as_str() != keep_key)
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>();
+        let channel_prefix = format!("{channel_id}\u{1f}");
+        for key in stale_slot_keys {
+            self.slots.remove(&key);
+            self.attachments.remove(&key);
+            self.navigation_tokens.remove(&key);
+        }
+        self.attachments.retain(|key, (attached, token)| {
+            attached != channel_id || (token == keep_window_token && key == &keep_key)
+        });
+        self.navigation_tokens
+            .retain(|key, _| !key.starts_with(channel_prefix.as_str()) || key == &keep_key);
+        self.active_window_by_channel
+            .insert(channel_id.to_string(), keep_window_token.to_string());
     }
 }
 
@@ -499,4 +588,188 @@ fn dedup_and_bound(items: Vec<TimelineItem>) -> Vec<TimelineItem> {
         items.drain(..items.len() - MAX_TIMELINE_WINDOW_ITEMS);
     }
     items
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const CHANNEL_ID: &str = "chtimeline000000000000000001";
+    const OTHER_CHANNEL_ID: &str = "chtimeline000000000000000002";
+
+    /// 构造只含时间线稳定身份的测试行。
+    fn row(id: &str, create_at: i64) -> Value {
+        json!({
+            "id": id,
+            "createAt": create_at,
+            "temporaryId": format!("tmp-{id}"),
+        })
+    }
+
+    /// 构造带唯一窗口 token 的 latest 请求。
+    fn latest(channel_id: &str, window_token: &str) -> TimelineWindowRequest {
+        TimelineWindowRequest::latest_with_window_token(channel_id, window_token)
+    }
+
+    /// 同频道重复 replace 只保留第二个窗口，旧 anchor 不再参与分页。
+    #[test]
+    fn replacing_same_channel_retires_old_window() {
+        let mut state = TimelineState::default();
+        state
+            .replace(latest(CHANNEL_ID, "window-a"), &[row("message-a", 1)])
+            .expect("first window replaces");
+        state.begin_locate_navigation(CHANNEL_ID, "window-a", "navigation-a");
+        state
+            .replace(latest(CHANNEL_ID, "window-b"), &[row("message-b", 2)])
+            .expect("second window replaces");
+
+        assert_eq!(state.window_counts(), (1, 1));
+        assert!(!state.is_active_window(CHANNEL_ID, "window-a"));
+        assert!(state.is_active_window(CHANNEL_ID, "window-b"));
+        assert!(state
+            .paging_context_for_anchor(CHANNEL_ID, "message-a")
+            .is_none());
+        assert!(state
+            .paging_context_for_anchor(CHANNEL_ID, "message-b")
+            .is_some());
+        assert!(!state.is_current_locate_navigation(CHANNEL_ID, "window-a", "navigation-a"));
+    }
+
+    /// 旧窗口的迟到分页不得通过 entry-or-insert 复活已淘汰 slot。
+    #[test]
+    fn stale_merge_cannot_revive_retired_window() {
+        let mut state = TimelineState::default();
+        state
+            .replace(latest(CHANNEL_ID, "window-a"), &[row("message-a", 1)])
+            .expect("first window replaces");
+        state
+            .replace(latest(CHANNEL_ID, "window-b"), &[row("message-b", 2)])
+            .expect("second window replaces");
+        let mut stale_request = latest(CHANNEL_ID, "window-a");
+        stale_request.page.has_older = true;
+
+        let error = state
+            .merge_page(
+                stale_request,
+                &[row("message-before-a", 0)],
+                TimelinePageMutation::Older,
+            )
+            .expect_err("retired window is rejected");
+        assert!(matches!(error, TimelineStateError::StaleWindow { .. }));
+        assert_eq!(state.window_counts(), (1, 1));
+        assert!(state
+            .current_view(&TimelineScope {
+                channel_id: CHANNEL_ID.to_string(),
+                window_token: "window-a".to_string(),
+            })
+            .is_none());
+    }
+
+    /// 当前活动窗口的 older 页仍可合并并保持单一 attachment。
+    #[test]
+    fn active_window_accepts_older_page() {
+        let mut state = TimelineState::default();
+        state
+            .replace(
+                latest(CHANNEL_ID, "window-current"),
+                &[row("message-current", 2)],
+            )
+            .expect("current window replaces");
+        let mut request = latest(CHANNEL_ID, "window-current");
+        request.page.has_older = true;
+        state
+            .merge_page(
+                request,
+                &[row("message-older", 1)],
+                TimelinePageMutation::Older,
+            )
+            .expect("active older page merges");
+
+        let scope = TimelineScope {
+            channel_id: CHANNEL_ID.to_string(),
+            window_token: "window-current".to_string(),
+        };
+        let view = state.current_view(&scope).expect("active view exists");
+        assert_eq!(
+            view.items
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["message-older", "message-current",]
+        );
+    }
+
+    /// 同 token 的 latest 替换也必须撤销旧 locate 导航，防止旧回包被当作当前导航。
+    #[test]
+    fn replacing_same_token_clears_old_navigation() {
+        let mut state = TimelineState::default();
+        state
+            .replace(
+                latest(CHANNEL_ID, "window-current"),
+                &[row("message-old", 1)],
+            )
+            .expect("first window replaces");
+        state.begin_locate_navigation(CHANNEL_ID, "window-current", "navigation-old");
+        state
+            .replace(
+                latest(CHANNEL_ID, "window-current"),
+                &[row("message-new", 2)],
+            )
+            .expect("same-token latest replaces");
+
+        assert!(!state.is_current_locate_navigation(
+            CHANNEL_ID,
+            "window-current",
+            "navigation-old"
+        ));
+    }
+
+    /// 不同频道的活动窗口互不淘汰。
+    #[test]
+    fn replacing_one_channel_does_not_affect_another() {
+        let mut state = TimelineState::default();
+        state
+            .replace(latest(CHANNEL_ID, "window-a"), &[row("message-a", 1)])
+            .expect("first channel replaces");
+        state
+            .replace(
+                latest(OTHER_CHANNEL_ID, "window-other"),
+                &[row("message-other", 1)],
+            )
+            .expect("second channel replaces");
+        state
+            .replace(latest(CHANNEL_ID, "window-b"), &[row("message-b", 2)])
+            .expect("first channel replaces again");
+
+        assert!(state.is_active_window(OTHER_CHANNEL_ID, "window-other"));
+        assert!(state
+            .paging_context_for_anchor(OTHER_CHANNEL_ID, "message-other")
+            .is_some());
+    }
+
+    /// reset 清除 active index、slot、attachment 与导航 token。
+    #[test]
+    fn reset_invalidates_all_timeline_windows() {
+        let mut state = TimelineState::default();
+        state
+            .replace(
+                latest(CHANNEL_ID, "window-current"),
+                &[row("message-current", 1)],
+            )
+            .expect("window replaces");
+        state.begin_locate_navigation(CHANNEL_ID, "window-current", "navigation-current");
+        state.reset();
+
+        assert_eq!(state.window_counts(), (0, 0));
+        assert!(!state.is_active_window(CHANNEL_ID, "window-current"));
+        assert!(!state.is_current_locate_navigation(
+            CHANNEL_ID,
+            "window-current",
+            "navigation-current"
+        ));
+        assert!(state
+            .paging_context_for_anchor(CHANNEL_ID, "message-current")
+            .is_none());
+    }
 }

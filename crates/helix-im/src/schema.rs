@@ -218,6 +218,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
         user_name TEXT,\
         role TEXT NOT NULL DEFAULT 'MEMBER',\
         nick_name TEXT,\
+        channel_is_top INTEGER NOT NULL DEFAULT 0,\
         joined_at INTEGER NOT NULL DEFAULT 0,\
         updated_at INTEGER NOT NULL DEFAULT 0,\
         unread_count INTEGER NOT NULL DEFAULT 0,\
@@ -418,6 +419,7 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE channel_member ADD COLUMN msg_count_root INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN msg_count_private INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN last_read_seq INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN channel_is_top INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_event_cursor ADD COLUMN terminal_event_seq INTEGER NOT NULL DEFAULT 0",
     "CREATE TABLE IF NOT EXISTS channel_event_ledger (tenant_id TEXT NOT NULL, channel_id TEXT NOT NULL, event_seq INTEGER NOT NULL, event_kind TEXT NOT NULL, message_id TEXT, event_hash TEXT NOT NULL, coverage_id TEXT NOT NULL, applied_at_ms INTEGER NOT NULL, PRIMARY KEY (tenant_id, channel_id, event_seq))",
     "CREATE INDEX IF NOT EXISTS idx_channel_event_ledger_coverage ON channel_event_ledger(tenant_id, channel_id, coverage_id)",

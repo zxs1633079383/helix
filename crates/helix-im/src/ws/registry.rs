@@ -526,6 +526,77 @@ mod tests {
         );
     }
 
+    // 同一 global end 只封口一次；下一批新 increment 到达后必须重新允许 ready。
+    #[test]
+    fn channel_sync_global_increment_end_reopens_after_new_batch() {
+        let mut state = ImState::new();
+        let mut next_corr = 1;
+        let mut alloc_corr = || {
+            let corr = helix_core::Correlation::from_raw(next_corr);
+            next_corr += 1;
+            corr
+        };
+        let mut ctx = ImWsContext::new(
+            &mut state,
+            1_000,
+            "https://example.test/api",
+            "user-a",
+            &mut alloc_corr,
+        );
+        let channel_a = channel_id(21);
+        let channel_b = channel_id(22);
+        let increment_a = frame_from_json(serde_json::json!({
+            "action": "increment_channel",
+            "data": {
+                "id": channel_a.as_str(),
+                "lastEventSeq": 1,
+                "needSync": false,
+                "mentionList": [],
+                "urgentPostList": []
+            }
+        }));
+        let end = frame_from_json(serde_json::json!({
+            "action": "increment_channel_end",
+            "data": {}
+        }));
+
+        let mut out = EffectSink::new();
+        dispatch_ws(&mut ctx, &increment_a, &mut out).unwrap();
+        out.clear();
+        dispatch_ws(&mut ctx, &end, &mut out).unwrap();
+        assert!(out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Persist { .. })));
+        assert!(!ctx.state.channel_sync_batch_pending);
+
+        out.clear();
+        dispatch_ws(&mut ctx, &end, &mut out).unwrap();
+        assert!(
+            out.as_slice().is_empty(),
+            "duplicate global end must be ignored"
+        );
+
+        let increment_b = frame_from_json(serde_json::json!({
+            "action": "increment_channel",
+            "data": {
+                "id": channel_b.as_str(),
+                "lastEventSeq": 2,
+                "needSync": false,
+                "mentionList": [],
+                "urgentPostList": []
+            }
+        }));
+        dispatch_ws(&mut ctx, &increment_b, &mut out).unwrap();
+        out.clear();
+        dispatch_ws(&mut ctx, &end, &mut out).unwrap();
+        assert!(out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Persist { .. })));
+        assert!(!ctx.state.channel_sync_batch_pending);
+    }
+
     #[test]
     fn dispatch_ws_invalid_increment_end_channel_id_preserves_global_end_compatibility() {
         let mut state = ImState::new();

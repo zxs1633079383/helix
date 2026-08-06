@@ -428,6 +428,13 @@ impl ImModule {
                 }),
             ));
         }
+        if first_complete && self.state.channel_sync_refresh_pending {
+            self.state.channel_sync_refresh_pending = false;
+            tracing::info!(
+                "channel-sync-ready 延迟批次已合并：当前分页 session complete 后重新开放"
+            );
+            self.open_channel_sync_session(out)?;
+        }
         Ok(())
     }
 }

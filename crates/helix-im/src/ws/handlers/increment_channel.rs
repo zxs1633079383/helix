@@ -14,6 +14,8 @@ pub(crate) fn apply_increment(
     inc: &IncrementChannel,
     out: &mut EffectSink,
 ) {
+    // 每个新 increment 都重新打开当前批次；global end 只封口一次，避免后续批次被旧 ready 闸门吞掉。
+    ctx.state.channel_sync_batch_pending = true;
     if let Ok(data) = serde_json::from_slice::<serde_json::Value>(inc.raw.as_ref()) {
         if let Some(batch_id) = data
             .get("batchId")

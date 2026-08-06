@@ -203,14 +203,20 @@ pub struct ImState {
     /// 当前缓冲 increment 帧携带的内部 batchId；收尾帧不匹配时 fail-closed。
     pub(crate) pending_increment_batch_id: Option<String>,
 
-    /// 最近一次 hello increment 原子落库后建立的频道分页会话；身份/transport 边界会清空。
+    /// 最近一次 global increment 原子落库后建立的频道分页会话；身份/transport 边界会清空。
     pub(crate) channel_sync_session: Option<crate::channel_sync::ChannelSyncSession>,
 
     /// 频道分页会话代际；每次 ready 递增，旧 cursor 跨代 fail-closed。
     pub(crate) channel_sync_generation: u64,
 
-    /// 当前 hello increment 批次是否仍等待唯一 Persist 回执；失败时保留旧 session。
+    /// 当前 increment 批次是否仍有未封口的频道帧；用于拒绝重复 global end。
     pub(crate) channel_sync_batch_pending: bool,
+
+    /// 已封口但尚未收到 Persist 回执的 increment 批次数；每个成功回执各自发布一次 ready。
+    pub(crate) channel_sync_persist_inflight: usize,
+
+    /// 当前频道分页尚未 complete 时到达的新批次；complete 后合并为一次新的 ready。
+    pub(crate) channel_sync_refresh_pending: bool,
 
     /// UC-4.5 单频道 hydration 已完成 channel/member 落库、正在等待 sync 终态的 channel。
     /// terminal sync commit/no_change 后移除并触发本地 dialog/messages 读回投影。
@@ -330,6 +336,8 @@ impl ImState {
             channel_sync_session: None,
             channel_sync_generation: 0,
             channel_sync_batch_pending: true,
+            channel_sync_persist_inflight: 0,
+            channel_sync_refresh_pending: false,
             hydration_pending: HashSet::new(),
             hydration_req_ids: HashMap::new(),
             hydration_emit_channel_increment: HashSet::new(),
@@ -372,6 +380,7 @@ impl ImState {
         self.subtopic_sync_completed.clear();
         self.pending_increment_batch_id = None;
         self.channel_sync_batch_pending = true;
+        self.channel_sync_persist_inflight = 0;
         self.hydration_pending.clear();
         self.hydration_req_ids.clear();
         self.hydration_emit_channel_increment.clear();
@@ -453,6 +462,8 @@ impl ImState {
         self.channel_sync_session = None;
         self.channel_sync_generation = self.channel_sync_generation.wrapping_add(1);
         self.channel_sync_batch_pending = false;
+        self.channel_sync_persist_inflight = 0;
+        self.channel_sync_refresh_pending = false;
         self.reset_recent_query_coverage();
         self.corr_map.retain(|_, context| {
             !matches!(

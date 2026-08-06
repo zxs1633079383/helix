@@ -23,6 +23,14 @@ pub(crate) fn apply_increment_end(
             out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         }
         None => {
+            if !ctx.state.channel_sync_batch_pending {
+                tracing::info!(
+                    "channel-sync-ready 未触发：当前 global increment 批次没有新的 increment 帧"
+                );
+                return;
+            }
+            // 先封口当前批次；后续新 increment 会重新打开 pending，重复 end 不会重复提交。
+            ctx.state.channel_sync_batch_pending = false;
             // NS-1 + G-S1：输入帧序是可回放事实，且 Go 以最近活跃优先交付。
             // 用 Vec 保序、HashSet O(1) 去重，避免重新按 channelId 排序后把新频道推到历史洪峰末尾。
             // 直接构造 state 的旧测试/恢复态可能没有 increment_order；剩余 fetched 以 ID 升序补齐，
@@ -90,6 +98,8 @@ pub(crate) fn apply_increment_end(
                 "channel-sync-ready 等待 increment 批次 Persist 回执"
             );
             let corr = ctx.alloc_corr();
+            ctx.state.channel_sync_persist_inflight =
+                ctx.state.channel_sync_persist_inflight.saturating_add(1);
             out.push(Effect::Persist { corr, ops });
             ctx.state.corr_map.insert(
                 corr,

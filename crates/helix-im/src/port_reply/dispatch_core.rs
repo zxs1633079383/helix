@@ -284,48 +284,69 @@ impl ImModule {
         Ok(())
     }
 
-    /// 在 hello increment 全批持久成功后建立分页 session，仅发布轻量 ready 元数据。
+    /// 建立频道分页 session，并只发布轻量 ready 元数据。
+    pub(crate) fn open_channel_sync_session(
+        &mut self,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let generation = self.state.channel_sync_generation.wrapping_add(1);
+        self.state.channel_sync_generation = generation;
+        let channel_sync_session_id = format!("channel-sync-{generation}");
+        let session = crate::channel_sync::ChannelSyncSession::new(
+            channel_sync_session_id,
+            generation,
+            self.config.auth_user_id.as_str(),
+            self.config.company_id.as_str(),
+        );
+        tracing::info!(
+            session_id = %session.channel_sync_session_id,
+            generation,
+            "channel-sync-ready 已触发：increment 批次 PersistOk"
+        );
+        out.push(
+            crate::event::channel_sync::ready(
+                session.channel_sync_session_id.as_str(),
+                session.generation,
+            )?
+            .into_effect(),
+        );
+        self.state.channel_sync_session = Some(session);
+        Ok(())
+    }
+
+    /// 在 global increment 持久成功后建立分页 session；活动 session 会合并刷新。
     pub(super) fn handle_increment_batch_persist_reply(
         &mut self,
         _projections: Vec<(ChannelId, Vec<u8>)>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if self.state.channel_sync_persist_inflight == 0 {
+            tracing::info!(
+                "channel-sync-ready 未触发：当前 increment Persist 回执已处理或无在途批次"
+            );
+            return Ok(());
+        }
+        self.state.channel_sync_persist_inflight -= 1;
         match outcome {
             PortOutcome::Ok(_) => {
-                if !self.state.channel_sync_batch_pending {
+                // PersistOk 是唯一 ready 屏障；活动 session 未 complete 前不能被新批次覆盖。
+                if self
+                    .state
+                    .channel_sync_session
+                    .as_ref()
+                    .is_some_and(|session| !session.completed)
+                {
+                    self.state.channel_sync_refresh_pending = true;
                     tracing::info!(
-                        "channel-sync-ready 未触发：当前 increment 批次已经处理过 ready"
+                        pending_inflight = self.state.channel_sync_persist_inflight,
+                        "channel-sync-ready 延迟：已有频道分页 session 在途"
                     );
-                    return Ok(());
+                } else {
+                    self.open_channel_sync_session(out)?;
                 }
-                self.state.channel_sync_batch_pending = false;
-                // PersistOk 是唯一 ready 屏障；事件只携带 session 元数据，不重放频道数组。
-                let generation = self.state.channel_sync_generation.wrapping_add(1);
-                self.state.channel_sync_generation = generation;
-                let channel_sync_session_id = format!("channel-sync-{generation}");
-                let session = crate::channel_sync::ChannelSyncSession::new(
-                    channel_sync_session_id,
-                    generation,
-                    self.config.auth_user_id.as_str(),
-                    self.config.company_id.as_str(),
-                );
-                tracing::info!(
-                    session_id = %session.channel_sync_session_id,
-                    generation,
-                    "channel-sync-ready 已触发：increment 批次 PersistOk"
-                );
-                out.push(
-                    crate::event::channel_sync::ready(
-                        session.channel_sync_session_id.as_str(),
-                        session.generation,
-                    )?
-                    .into_effect(),
-                );
-                self.state.channel_sync_session = Some(session);
             }
             PortOutcome::Err(error) => {
-                self.state.channel_sync_batch_pending = false;
                 tracing::warn!(
                     error = ?error,
                     "channel-sync-ready 未触发：increment 批次持久化失败，保留旧会话"
@@ -1171,7 +1192,14 @@ mod channel_sync_contract_tests {
             "user-a",
             "company-a",
         ));
+        module
+            .state
+            .channel_sync_session
+            .as_mut()
+            .expect("old session")
+            .completed = true;
         module.state.reset_increment_batch();
+        module.state.channel_sync_persist_inflight = 1;
         module
             .handle_increment_batch_persist_reply(
                 Vec::new(),
@@ -1190,6 +1218,7 @@ mod channel_sync_contract_tests {
         );
 
         module.state.reset_increment_batch();
+        module.state.channel_sync_persist_inflight = 1;
         module
             .handle_increment_batch_persist_reply(
                 Vec::new(),
@@ -1206,7 +1235,14 @@ mod channel_sync_contract_tests {
         assert!(ready["data"].get("companyId").is_none());
         assert_eq!(ready["data"]["defaultPageSize"], 20);
 
+        module
+            .state
+            .channel_sync_session
+            .as_mut()
+            .expect("ready session")
+            .completed = true;
         module.state.reset_increment_batch();
+        module.state.channel_sync_persist_inflight = 1;
         out.clear();
         module
             .handle_increment_batch_persist_reply(
@@ -1224,6 +1260,73 @@ mod channel_sync_contract_tests {
             )
             .expect("duplicate success is idempotent");
         assert_eq!(out.as_slice().len(), 1);
+    }
+
+    #[test]
+    fn active_channel_sync_session_is_not_replaced_until_complete() {
+        let mut module = module();
+        let mut out = EffectSink::new();
+        module.state.channel_sync_persist_inflight = 2;
+
+        module
+            .handle_increment_batch_persist_reply(
+                Vec::new(),
+                &PortOutcome::Ok(ReplyBytes(Bytes::new())),
+                &mut out,
+            )
+            .expect("first persist opens a session");
+        let first_session = module
+            .state
+            .channel_sync_session
+            .as_ref()
+            .expect("first session")
+            .channel_sync_session_id
+            .clone();
+        assert_eq!(out.as_slice().len(), 1);
+
+        module
+            .handle_increment_batch_persist_reply(
+                Vec::new(),
+                &PortOutcome::Ok(ReplyBytes(Bytes::new())),
+                &mut out,
+            )
+            .expect("second persist is coalesced");
+        assert_eq!(out.as_slice().len(), 1);
+        assert_eq!(
+            module
+                .state
+                .channel_sync_session
+                .as_ref()
+                .expect("active session")
+                .channel_sync_session_id,
+            first_session
+        );
+        assert!(module.state.channel_sync_refresh_pending);
+
+        out.clear();
+        module
+            .handle_query_command(
+                "im_complete_channel_sync",
+                serde_json::json!({
+                    "channel_sync_session_id": first_session,
+                    "req_id": "complete-refresh"
+                })
+                .to_string()
+                .as_bytes(),
+                &mut out,
+            )
+            .expect("complete opens the coalesced refresh");
+        assert_eq!(out.as_slice().len(), 3);
+        assert!(!module.state.channel_sync_refresh_pending);
+        assert_ne!(
+            module
+                .state
+                .channel_sync_session
+                .as_ref()
+                .expect("refreshed session")
+                .channel_sync_session_id,
+            first_session
+        );
     }
 
     #[test]

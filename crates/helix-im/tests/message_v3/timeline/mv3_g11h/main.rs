@@ -253,6 +253,10 @@ fn g11h_initial_window_waits_for_readback_and_keeps_target_first() {
     assert_eq!(posts[0]["message"], "target-durable");
     assert_eq!(posts[1]["id"], NEXT);
     assert_eq!(posts[1]["message"], "next-durable");
+    assert!(
+        event["data"]["body"].get("generation").is_none(),
+        "G11h terminal must not expose Timeline generation"
+    );
 }
 
 #[test]

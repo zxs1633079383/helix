@@ -299,6 +299,10 @@ fn g11b_older_waits_for_durable_scan_and_returns_query_result() {
     );
     assert_eq!(events[0]["data"]["body"]["hasOlder"], true);
     assert_eq!(events[0]["data"]["body"]["hasNewer"], false);
+    assert!(
+        events[0]["data"]["body"].get("generation").is_none(),
+        "G11b terminal must not expose Timeline generation"
+    );
     let encoded = serde_json::to_string(&events).unwrap();
     for forbidden in [
         "postReceived",

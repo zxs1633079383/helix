@@ -52,7 +52,6 @@ pub struct TimelineNavigationState {
     window_token: String,
     page_size: u32,
     request_id: Option<String>,
-    generation: Option<u64>,
     kind: TimelineNavigationKind,
     rows: Vec<Value>,
     page: WindowPage,
@@ -77,7 +76,6 @@ impl TimelineNavigationState {
             page,
             page_size,
             request_id,
-            generation: None,
             kind: TimelineNavigationKind::Older {
                 anchor_post_id,
                 anchor_create_at: None,
@@ -108,7 +106,6 @@ impl TimelineNavigationState {
             },
             page_size,
             request_id: Some(request_id),
-            generation: None,
             kind: TimelineNavigationKind::Older {
                 anchor_post_id,
                 anchor_create_at,
@@ -139,7 +136,6 @@ impl TimelineNavigationState {
             page,
             page_size,
             request_id,
-            generation: None,
             kind: TimelineNavigationKind::Newer {
                 anchor_post_id,
                 anchor_create_at: None,
@@ -170,7 +166,6 @@ impl TimelineNavigationState {
             },
             page_size,
             request_id: Some(request_id),
-            generation: None,
             kind: TimelineNavigationKind::Newer {
                 anchor_post_id,
                 anchor_create_at,
@@ -206,7 +201,6 @@ impl TimelineNavigationState {
             window_token,
             page_size,
             request_id,
-            generation: None,
             kind: TimelineNavigationKind::Locate {
                 target_message_id,
                 navigation_token,
@@ -216,12 +210,6 @@ impl TimelineNavigationState {
             older_cursor: None,
             newer_cursor: None,
         }
-    }
-
-    /// 绑定 Host generation；它只用于 stale correlation 校验，不参与消息排序。
-    pub fn with_generation(mut self, generation: Option<u64>) -> Self {
-        self.generation = generation;
-        self
     }
 
     /// 返回导航所属频道。
@@ -247,11 +235,6 @@ impl TimelineNavigationState {
     /// 返回 transport correlation，不把它混入业务 cursor。
     pub fn request_id(&self) -> Option<&str> {
         self.request_id.as_deref()
-    }
-
-    /// 返回请求携带的 Host generation。
-    pub const fn generation(&self) -> Option<u64> {
-        self.generation
     }
 
     /// 返回稳定的业务操作名，供终态合同回显。
@@ -491,23 +474,6 @@ pub fn parse_older_request_with_anchor(
     )
 }
 
-/// 读取可选 Host generation；非法值在产生任何 I/O 前拒绝。
-pub fn parse_generation(payload: &[u8], command: &str) -> Result<Option<u64>, ImError> {
-    let value: Value = serde_json::from_slice(payload)
-        .map_err(|error| ImError::Parse(format!("{command} payload: {error}")))?;
-    let Some(raw) = value.as_object().and_then(|object| {
-        object
-            .get("generation")
-            .or_else(|| object.get("generation_id"))
-    }) else {
-        return Ok(None);
-    };
-    let generation = raw.as_u64().ok_or_else(|| {
-        ImError::Parse(format!("{command} generation must be non-negative integer"))
-    })?;
-    Ok(Some(generation))
-}
-
 /// 解析定位请求，并拒绝 renderer 注入 target 之外的实体键。
 pub fn parse_locate_request(
     payload: &[u8],
@@ -665,7 +631,6 @@ fn parse_request(
                 | "page_size"
                 | "req_id"
                 | "reqId"
-                | "generation"
                 | "operation"
                 | "targetPostId"
                 | "target_post_id"

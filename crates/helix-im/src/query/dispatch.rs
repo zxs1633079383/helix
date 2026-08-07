@@ -106,10 +106,6 @@ impl ImModule {
             n if n == crate::older_context::LOAD_OLDER_CONTEXT => {
                 let (channel_id, anchor_post_id, anchor_create_at, page_size, request_id) =
                     crate::timeline_navigation::parse_older_request_with_anchor(payload)?;
-                let generation = crate::timeline_navigation::parse_generation(
-                    payload,
-                    crate::older_context::LOAD_OLDER_CONTEXT,
-                )?;
                 let state =
                     crate::timeline_navigation::TimelineNavigationState::older_without_window(
                         channel_id,
@@ -117,18 +113,13 @@ impl ImModule {
                         request_id,
                         anchor_post_id,
                         anchor_create_at,
-                    )
-                    .with_generation(generation);
+                    );
                 self.start_timeline_navigation_or_local(state, out);
             }
             // G11c 下拉页：Go 解析 anchor，Helix 不保存 window/cursor。
             n if n == crate::timeline_navigation::LOAD_NEWER_CONTEXT => {
                 let (channel_id, anchor_post_id, anchor_create_at, page_size, request_id) =
                     crate::timeline_navigation::parse_newer_request_with_anchor(payload)?;
-                let generation = crate::timeline_navigation::parse_generation(
-                    payload,
-                    crate::timeline_navigation::LOAD_NEWER_CONTEXT,
-                )?;
                 let state =
                     crate::timeline_navigation::TimelineNavigationState::newer_without_window(
                         channel_id,
@@ -136,8 +127,7 @@ impl ImModule {
                         request_id,
                         anchor_post_id,
                         anchor_create_at,
-                    )
-                    .with_generation(generation);
+                    );
                 self.start_timeline_navigation_or_local(state, out);
             }
             // G11d 定位直接进入 Go context authority；两条命令名共享严格的持久读回链。
@@ -146,7 +136,6 @@ impl ImModule {
             {
                 let (channel_id, target_message_id, page_size, request_id, navigation_token) =
                     crate::timeline_navigation::parse_locate_request_for_command(payload, n)?;
-                let generation = crate::timeline_navigation::parse_generation(payload, n)?;
                 let navigation_token = navigation_token
                     .or_else(|| request_id.clone())
                     .unwrap_or_else(|| format!("locate:{target_message_id}"));
@@ -157,8 +146,7 @@ impl ImModule {
                     request_id,
                     target_message_id,
                     navigation_token,
-                )
-                .with_generation(generation);
+                );
                 self.start_timeline_navigation_or_local(state, out);
             }
             _ => tracing::debug!("im: query dispatch miss '{}'", name),

@@ -6,7 +6,7 @@
 |---|---|
 | `G-16` | `POST /api/cses/channel/close` body `{channelId}` |
 | `G-16b` | `POST /api/cses/channel/member/leave` body `{channelId,userId?,newCreator?}` |
-| `G-16c` | `POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?,expectedVersion?}`；其他专用命令见 UC-5.5 |
+| `G-16c` | `POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?}`；其他专用命令见 UC-5.5；写入不携带客户端版本条件 |
 
 ## WS
 

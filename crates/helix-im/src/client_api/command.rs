@@ -365,12 +365,6 @@ fn normalize_public_semantics(public: &str, obj: &mut Map<String, Value>) -> Res
             );
             copy_setting(&settings, obj, &["description", "purpose"], "purpose");
             copy_setting(&settings, obj, &["rules", "header"], "header");
-            copy_setting(
-                &settings,
-                obj,
-                &["expectedVersion", "expected_version"],
-                "expected_version",
-            );
         }
         _ => {}
     }
@@ -634,7 +628,7 @@ mod tests {
         }
     }
 
-    /// 公开 channelsView 不接受临时/非 canonical channel id，避免把伪 id 写入 Go CAS。
+    /// 公开 channelsView 不接受临时/非 canonical channel id，避免把伪 id 写入 Go。
     #[test]
     fn channels_view_public_intent_rejects_noncanonical_channel_ids() {
         assert!(normalize_command_payload(

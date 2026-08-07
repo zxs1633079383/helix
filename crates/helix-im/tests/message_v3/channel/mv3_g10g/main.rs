@@ -3,7 +3,7 @@ mod phase1_reference;
 
 const GATE_ID: &str = "MV3-G10g";
 
-/// 锁定 G10g 的完整只读参考包，供后续权限 CAS 测试复用。
+/// 锁定 G10g 的完整只读参考包，供后续权限无版本写入测试复用。
 #[test]
 fn phase3_gate_reference_is_complete() {
     phase1_reference::assert_phase3_reference_gate(GATE_ID);

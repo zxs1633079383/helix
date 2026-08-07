@@ -1922,8 +1922,8 @@
             "channel"
           ],
           "http": {
-            "request": "`POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?,expectedVersion?}`；其他专用命令见 UC-5.5",
-            "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；权威响应 `data={channelId,purpose,header,settingVersion}`，Helix 只持久化响应终态；版本冲突返回 `status=FAILED`、`data={code,channelId,settingVersion}`，不得覆盖本地已提交终态"
+            "request": "`POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?}`；其他专用命令见 UC-5.5；写入不携带客户端版本条件",
+            "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；权威响应 `data={channelId,purpose,header,settingVersion}`，Helix 只持久化响应终态；普通业务失败不得覆盖本地已提交终态"
           },
           "ws": {
             "events": "`update_channel`, `update_channel_notice`"
@@ -1973,8 +1973,8 @@
             "channel"
           ],
           "http": {
-            "request": "`POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?,expectedVersion?}`；其他专用命令见 UC-5.5",
-            "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；权威响应 `data={channelId,purpose,header,settingVersion}`，Helix 只持久化响应终态；版本冲突返回 `status=FAILED`、`data={code,channelId,settingVersion}`，不得覆盖本地已提交终态"
+            "request": "`POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?}`；其他专用命令见 UC-5.5；写入不携带客户端版本条件",
+            "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；权威响应 `data={channelId,purpose,header,settingVersion}`，Helix 只持久化响应终态；普通业务失败不得覆盖本地已提交终态"
           },
           "ws": {
             "events": "`update_channel`, `update_channel_notice`"
@@ -2007,8 +2007,7 @@
             ],
             "optional": [
               "purpose",
-              "header",
-              "expected_version"
+              "header"
             ],
             "forbid_unknown": true
           },
@@ -2027,8 +2026,8 @@
             "channel"
           ],
           "http": {
-            "request": "`POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?,expectedVersion?}`；其他专用命令见 UC-5.5",
-            "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；权威响应 `data={channelId,purpose,header,settingVersion}`，Helix 只持久化响应终态；版本冲突返回 `status=FAILED`、`data={code,channelId,settingVersion}`，不得覆盖本地已提交终态"
+            "request": "`POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?}`；其他专用命令见 UC-5.5；写入不携带客户端版本条件",
+            "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；权威响应 `data={channelId,purpose,header,settingVersion}`，Helix 只持久化响应终态；普通业务失败不得覆盖本地已提交终态"
           },
           "ws": {
             "events": "`update_channel`, `update_channel_notice`"

@@ -25,9 +25,9 @@ correlation 再做一次租户内 `channel_member` Scan；两次读取在 Helix 
 并按 `team_id` 与 RuntimeAuth company 过滤；缺失快照时保留已有非空字段，不用空数组覆盖旧投影。
 频道页的群设置读取版本仍必须在本地读侧保留：Go 当前以 `channel.update_at` 同时作为
 `settingVersion` 与 `permissionRevision`。因此 `query/render_ready/channel.rs` 对旧表行优先读取显式
-`setting_version`/`permission_revision`，缺失时回退到持久化的 `updated_at`/`updateAt`。权限写入
-不再把该读取版本当作 `expectedVersion`/CAS 条件；群导向、群资料和公告等仍有独立旧合同的写入
-不得因此删除读取字段。
+`setting_version`/`permission_revision`，缺失时回退到持久化的 `updated_at`/`updateAt`。MessageV3
+频道与成员写入不接收客户端版本条件；这些读取字段仍用于投影、乱序保护和后续独立竞态方案，
+不得因此删除。
 
 在线 `channel_member_role_updated` 不再把 `{userIds, role}` delta 透传给 Angular。Helix 先读回
 当前频道成员，确认目标成员已存在后以 `channel_id,user_id` 复合键原子 upsert 角色（撤销归一为
@@ -54,7 +54,7 @@ cursor 绑定、Persist 成功/失败与 ready 一次性、跨批次重新 ready
 
 ## Phase 3 频道治理命令维护
 
-`im_channel_change_orient` 使用 `id/orient/expectedVersion`，允许空导向但限制 30 个字符；
+`im_channel_change_orient` 使用 `id/orient`，允许空导向但限制 30 个字符；
 `im_channel_change_permission` 使用无版本条件的 partial patch，权限值仅允许
 `BOSS/CREATOR/MANAGER/MEMBER`，Helix 不根据频道类型重算 `BOSS` 能力。成员变更与昵称命令
 的 canonical 输入分别固定为五键和三键，空数组/空昵称仍可表达清空语义。

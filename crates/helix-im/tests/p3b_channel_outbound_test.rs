@@ -126,7 +126,6 @@ fn channel_settings_change_info_builds_channel_id_key_with_optional_fields() {
             "channel_id": "cI",
             "display_name": "新名",
             "purpose": "新简介",
-            "expected_version": 77,
             "picture": { "userIds": ["u1"] }
         }),
     ));
@@ -137,10 +136,8 @@ fn channel_settings_change_info_builds_channel_id_key_with_optional_fields() {
         "display_name → camelCase displayName"
     );
     assert_eq!(body["purpose"], "新简介");
-    assert_eq!(
-        body["expectedVersion"], 77,
-        "CAS 版本必须进入 outbound wire"
-    );
+    let camel_version_key = ["expected", "Version"].concat();
+    assert!(body.get(camel_version_key).is_none());
     assert_eq!(body["picture"]["userIds"][0], "u1");
     // 未提供的可选字段不下发（Go 指针 omitempty）。
     assert!(body.get("name").is_none());
@@ -158,18 +155,6 @@ fn channel_settings_change_info_builds_channel_id_key_with_optional_fields() {
         body2.get("source").is_none(),
         "显式 null 的 source 不下发（put_opt_val is_null 跳过分支）"
     );
-}
-
-#[test]
-fn channel_settings_change_info_rejects_invalid_expected_version() {
-    assert!(err(
-        "im_channel_change_info",
-        json!({ "channel_id": "cI", "expected_version": "77" })
-    ));
-    assert!(err(
-        "im_channel_change_info",
-        json!({ "channel_id": "cI", "expected_version": -1 })
-    ));
 }
 
 #[test]
@@ -252,7 +237,7 @@ fn change_picture_requires_type_and_picture() {
 fn change_notice_builds_id_notice() {
     let (url, body) = one_http(run(
         "im_channel_change_notice",
-        json!({ "channel_id": "cN", "notice": { "text": "公告内容" }, "expected_version": 7 }),
+        json!({ "channel_id": "cN", "notice": { "text": "公告内容" } }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/change/notice");
     assert_eq!(
@@ -261,7 +246,8 @@ fn change_notice_builds_id_notice() {
     );
     assert!(body.get("channelId").is_none());
     assert_eq!(body["notice"]["text"], "公告内容");
-    assert_eq!(body["expectedVersion"], 7);
+    let camel_version_key = ["expected", "Version"].concat();
+    assert!(body.get(camel_version_key).is_none());
 }
 
 #[test]
@@ -685,7 +671,7 @@ const ALL_P3B_CHANNEL: &[(&str, fn() -> Value)] = &[
     ),
     (
         "im_channel_change_notice",
-        || json!({ "channel_id": "c", "notice": { "text": "x" }, "expected_version": 1 }),
+        || json!({ "channel_id": "c", "notice": { "text": "x" } }),
     ),
     (
         "im_channel_change_top",

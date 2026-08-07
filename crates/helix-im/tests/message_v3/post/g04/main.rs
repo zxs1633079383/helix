@@ -40,37 +40,29 @@ fn posts_update_authority() -> Value {
     json!({
         "action": "posts_update",
         "data": {
-            "event_seq": 1,
-            "channelId": CHANNEL_ID,
-            "actor_id": ACTOR_ID,
-            "system_event": {
-                "eventId": "g04-revoke-event",
-                "eventSeq": 1,
-                "actorId": ACTOR_ID,
-                "targetMsgId": POST_ID,
-                "systemEvent": "message-recalled",
-                "occurredAt": UPDATE_AT
-            },
-            "posts": [{
-                "id": POST_ID,
-                "temporaryId": TEMPORARY_ID,
-                "channelId": CHANNEL_ID,
-                "userId": ACTOR_ID,
-                "type": "TEXT",
-                "message": MESSAGE,
-                "simpleMessage": MESSAGE,
-                "props": {
-                    "channel_event_seq": 1,
-                    "system_event": {
-                        "eventId": "g04-revoke-event",
-                        "actorId": ACTOR_ID,
-                        "systemEvent": "message-recalled"
-                    }
-                },
-                "viewers": ["all"],
-                "createAt": CREATE_AT,
-                "updateAt": UPDATE_AT,
-                "revoke": true
+            "events": [{
+                "event_seq": 1,
+                "post": {
+                    "id": POST_ID,
+                    "temporaryId": TEMPORARY_ID,
+                    "channelId": CHANNEL_ID,
+                    "userId": ACTOR_ID,
+                    "type": "TEXT",
+                    "message": MESSAGE,
+                    "simpleMessage": MESSAGE,
+                    "props": {
+                        "channel_event_seq": 1,
+                        "system_event": {
+                            "eventId": "g04-revoke-event",
+                            "actorId": ACTOR_ID,
+                            "systemEvent": "message-recalled"
+                        }
+                    },
+                    "viewers": ["all"],
+                    "createAt": CREATE_AT,
+                    "updateAt": UPDATE_AT,
+                    "revoke": true
+                }
             }]
         }
     })

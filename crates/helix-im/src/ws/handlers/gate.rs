@@ -267,27 +267,3 @@ pub(super) fn gate_ingest_content_event(
     trigger_backfill_if_large_gap(ctx, channel_id, seq, out);
     Ok(())
 }
-
-/// 仅推进 cursor 的 gate 入口（`posts_update` 批量帧用，BLOCKING-2）。
-///
-/// `posts_update` 是**单 cursor 事件**（顶层一个 event_seq）携 N 条 post 编辑/撤回：N 条内容
-/// patch 已由调用方**立即**幂等落库（`BatchUpdate WHERE id`），cursor 由顶层 event_seq 推进一次。
-/// 走 `Channel::ingest_cursor_advance`（严格 +1 / drop / 缺口仅 arm 1s gate，绝不 MAX-jump 跨空洞，
-/// 守 spec §S6）——与 `gate_ingest_content_event` 同口径：无 event_seq → no-op（无 cursor 锚），
-/// 未注册 channel（driver 未种 cursor）静默忽略（边界零信任，helix-im 不变量 4）。
-pub(super) fn gate_advance_cursor_only(
-    ctx: &mut ImWsContext<'_>,
-    frame: &WsFrame,
-    channel_id: ChannelId,
-    out: &mut EffectSink,
-) -> Result<(), ImError> {
-    let Some(seq) = frame.event_seq() else {
-        return Ok(());
-    };
-    if let Some(ch) = ctx.state.channels.get_mut(&channel_id) {
-        ch.ingest_cursor_advance(seq, out)?;
-    }
-    // 根治：posts_update 批量帧的顶层 event_seq 缺口同样立即 backfill（cursor 卡住时追平）。
-    trigger_backfill_if_large_gap(ctx, channel_id, seq, out);
-    Ok(())
-}

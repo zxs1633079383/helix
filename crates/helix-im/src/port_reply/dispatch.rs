@@ -1272,7 +1272,9 @@ impl ImModule {
                         .state
                         .channels
                         .get_mut(&channel_id)
-                        .map(|channel| channel.commit_contiguous_after_atomic(target_seq, out))
+                        .map(|channel| {
+                            channel.commit_contiguous_range_after_atomic(target_seq, out)
+                        })
                         .transpose()?
                         .unwrap_or(false);
                     if !committed {

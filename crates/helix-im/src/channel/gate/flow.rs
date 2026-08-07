@@ -82,6 +82,26 @@ impl Channel {
         Ok(true)
     }
 
+    /// Commit a validated contiguous posts_update prefix after its single atomic write.
+    pub(crate) fn commit_contiguous_range_after_atomic(
+        &mut self,
+        target_seq: Seq,
+        fx: &mut EffectSink,
+    ) -> Result<bool, ImError> {
+        if self.is_terminal() || target_seq <= self.cursor.value() {
+            return Ok(false);
+        }
+        if !self.cursor.try_advance(target_seq) {
+            return Ok(false);
+        }
+        let mut channel_updates = Vec::new();
+        self.flush_contiguous_from_buffer(fx, &mut channel_updates)?;
+        for pending in channel_updates {
+            fx.push(crate::acl::to_effect::bump_channel_unread(&pending.update));
+        }
+        Ok(true)
+    }
+
     /// 处理一个入站事件（WS 路径，§4.6）
     ///
     /// - seq == cursor+1 → 立即 apply（PersistFire）+ flush_contiguous_from_buffer
@@ -187,12 +207,10 @@ impl Channel {
         self.arm_gate_if_needed(effects);
     }
 
-    /// BLOCKING-2：仅推进 cursor 的 gate 入口（posts_update 批量帧用）。
+    /// 仅推进 cursor 的兼容入口；当前 `posts_update` 只在发现批内缺口时借此 arm gate。
     ///
-    /// posts_update 是**单 cursor 事件**（顶层一个 event_seq）但携带 N 条 post 编辑/撤回——
-    /// 真源 `handle_batch_update`（post.rs:226）保存所有 post 后由顶层 event_seq 推进 cursor 一次。
-    /// N 条内容 patch 由调用方**立即**幂等落库（`BatchUpdate WHERE id`，本地无行=no-op），本方法
-    /// 只负责 cursor 的严格 +1 / drop / 缺口 arm-gate——**不**落 message、**不** emit（emit 由调用方）。
+    /// 批量内容 patch 与每个事件序号由调用方先组成一个原子提交；本方法不落 message，
+    /// 也不发布领域事件。正常批量前缀使用 `commit_contiguous_range_after_atomic` 一次推进范围。
     ///
     /// 三路（与 `ingest` 同口径，守 spec §S6 严格 +1）：
     /// - seq == cursor+1 → 推进 cursor（+ flush buffer 中已就绪的连续 post）；

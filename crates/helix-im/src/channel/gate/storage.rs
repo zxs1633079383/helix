@@ -367,6 +367,16 @@ pub fn edit_content_op(msg_id: &str, fields: &crate::sync_session::PostFields) -
     })
 }
 
+/// 将 canonical posts_update 的稀疏 post patch 编译为字段级更新，并写入该事件的本地序号。
+/// 缺失字段保留本地值；显式 null 由 parser 归一为可清空的文本表示。
+pub fn posts_update_edit_op(
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    event_seq: u64,
+) -> StorageOp {
+    posts_update_mutation_op(msg_id, fields, event_seq, false)
+}
+
 /// type=3 撤回：标记 message 行 `revoke=1`（C2 真源 post.rs:1110-1114 `batch_revoke`）。
 ///
 /// 撤回**无须** messages body——直接按 wire msgId 命中行置 revoke。用 `BatchUpdate`
@@ -390,34 +400,130 @@ pub fn revoke_authority_op(
     fields: crate::sync_session::PostFields,
     event_seq: u64,
 ) -> StorageOp {
+    posts_update_mutation_op(msg_id, &fields, event_seq, true)
+}
+
+/// 构造 posts_update 的公共稀疏字段写集；仅该批处理路径使用，post_update 保持原 helper。
+fn posts_update_mutation_op(
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    event_seq: u64,
+    revoke: bool,
+) -> StorageOp {
     use helix_core::effect::{BatchUpdateSpec, SqlValue};
-    let crate::sync_session::PostFields {
-        msg_type,
-        message,
-        props,
-        viewers,
-        simple_message,
-        update_at,
-        ..
-    } = fields;
+    let mut patch = Vec::new();
+    if fields.has_field(crate::sync_session::POST_FIELD_TYPE) {
+        patch.push(("type".to_string(), SqlValue::Text(fields.msg_type.clone())));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_MESSAGE) {
+        patch.push((
+            "message".to_string(),
+            SqlValue::Text(fields.message.clone()),
+        ));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_SIMPLE_MESSAGE) {
+        patch.push((
+            "simple_message".to_string(),
+            SqlValue::Text(fields.simple_message.clone()),
+        ));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_PROPS) {
+        patch.push(("props".to_string(), SqlValue::Text(fields.props.clone())));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_VIEWERS) {
+        patch.push((
+            "viewers".to_string(),
+            SqlValue::Text(serde_json::json!(fields.viewers).to_string()),
+        ));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_MENTIONS) {
+        patch.push((
+            "mentions".to_string(),
+            SqlValue::Text(serde_json::json!(fields.mentions).to_string()),
+        ));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_EXPEDITE_MAP) {
+        patch.push((
+            "expedite_map".to_string(),
+            SqlValue::Text(fields.expedite_map.clone()),
+        ));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_QUICK_REPLY) {
+        patch.push((
+            "quick_reply".to_string(),
+            SqlValue::Text(fields.quick_reply.clone()),
+        ));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_TOPIC) {
+        patch.push(("topic".to_string(), SqlValue::Text(fields.topic.clone())));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_REPLY_ID) {
+        patch.push((
+            "reply_id".to_string(),
+            SqlValue::Text(fields.reply_id.clone()),
+        ));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_REPLY_ROOT_ID) {
+        patch.push((
+            "reply_root_id".to_string(),
+            SqlValue::Text(fields.reply_root_id.clone()),
+        ));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_REPLY_FIRST_LEVEL_ID) {
+        patch.push((
+            "reply_first_level_id".to_string(),
+            SqlValue::Text(fields.reply_first_level_id.clone()),
+        ));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_REPLIED_MESSAGE) {
+        patch.push((
+            "replied_message".to_string(),
+            SqlValue::Text(clear_json_null(&fields.replied_message)),
+        ));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_REPLY_MESSAGES) {
+        patch.push((
+            "reply_messages".to_string(),
+            SqlValue::Text(clear_json_null_object(&fields.reply_messages)),
+        ));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_REPLY_COUNT) {
+        patch.push((
+            "reply_count".to_string(),
+            SqlValue::Integer(fields.reply_count),
+        ));
+    }
+    if fields.has_field(crate::sync_session::POST_FIELD_UPDATE_AT) {
+        patch.push(("update_at".to_string(), SqlValue::Integer(fields.update_at)));
+    }
+    patch.push(("event_seq".to_string(), SqlValue::Integer(event_seq as i64)));
+    if revoke {
+        patch.push(("revoke".to_string(), SqlValue::Integer(1)));
+    }
     StorageOp::BatchUpdate(BatchUpdateSpec {
         table: "message",
         key_col: "id",
         key_vals: vec![SqlValue::Text(msg_id.to_string())],
-        patch: vec![
-            ("type".to_string(), SqlValue::Text(msg_type)),
-            ("message".to_string(), SqlValue::Text(message)),
-            ("props".to_string(), SqlValue::Text(props)),
-            (
-                "viewers".to_string(),
-                SqlValue::Text(serde_json::json!(viewers).to_string()),
-            ),
-            ("simple_message".to_string(), SqlValue::Text(simple_message)),
-            ("event_seq".to_string(), SqlValue::Integer(event_seq as i64)),
-            ("update_at".to_string(), SqlValue::Integer(update_at)),
-            ("revoke".to_string(), SqlValue::Integer(1)),
-        ],
+        patch,
     })
+}
+
+/// Explicit JSON null clears a scalar JSON/text field instead of persisting the literal `null`.
+fn clear_json_null(value: &str) -> String {
+    if value == "null" {
+        String::new()
+    } else {
+        value.to_string()
+    }
+}
+
+/// Explicit null/empty replyMessages clears the preview container to its renderer-safe object.
+fn clear_json_null_object(value: &str) -> String {
+    if value.is_empty() || value == "null" {
+        "{}".to_string()
+    } else {
+        value.to_string()
+    }
 }
 
 /// type=6 已读：**单调覆盖** message 行 `read_bits` 列（C2 真源 post.rs:1116-1120 `batch_apply_read`）。

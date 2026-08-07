@@ -344,22 +344,23 @@ fn posts_update_authority(event_seq: u64) -> Value {
     json!({
         "action": "posts_update",
         "data": {
-            "event_seq": event_seq,
             "channelId": common::cid(CHANNEL_INDEX),
-            "actor_id": ACTOR_ID,
-            "posts": [{
-                "id": POST_ID,
-                "temporaryId": TEMPORARY_ID,
-                "channelId": common::cid(CHANNEL_INDEX),
-                "userId": ACTOR_ID,
-                "type": "TEXT",
-                "message": MESSAGE,
-                "simpleMessage": MESSAGE,
-                "props": { "channel_event_seq": event_seq },
-                "viewers": ["all"],
-                "createAt": CREATE_AT,
-                "updateAt": UPDATE_AT,
-                "revoke": true
+            "events": [{
+                "event_seq": event_seq,
+                "post": {
+                    "id": POST_ID,
+                    "temporaryId": TEMPORARY_ID,
+                    "channelId": common::cid(CHANNEL_INDEX),
+                    "userId": ACTOR_ID,
+                    "type": "TEXT",
+                    "message": MESSAGE,
+                    "simpleMessage": MESSAGE,
+                    "props": { "channel_event_seq": event_seq },
+                    "viewers": ["all"],
+                    "createAt": CREATE_AT,
+                    "updateAt": UPDATE_AT,
+                    "revoke": true
+                }
             }]
         }
     })

@@ -597,8 +597,8 @@ pub enum CorrelationContext {
         terminal_event: Vec<u8>,
     },
 
-    /// `posts_update` carries one channel event sequence and N message mutations. The entire write-set,
-    /// including the cursor, is committed atomically; renderer events are released only after this corr succeeds.
+    /// `posts_update` carries a validated contiguous event prefix. The entire write-set, including the
+    /// cursor range, is committed atomically; renderer events are released only after this corr succeeds.
     PostsUpdateAtomic {
         channel_id: ChannelId,
         target_seq: crate::state::Seq,

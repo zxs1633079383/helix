@@ -122,13 +122,22 @@ fn persisted_bool(row: &Value, keys: &[&str]) -> Option<bool> {
     parsed
 }
 
-/// Read a persisted role without accepting unknown role strings as authority.
+/// Read a persisted role and normalize Go/Helix owner/admin aliases for capability checks.
 fn persisted_role(row: &Value) -> Option<String> {
     row.get("role")
         .and_then(Value::as_str)
         .map(str::trim)
         .map(str::to_ascii_uppercase)
-        .filter(|role| matches!(role.as_str(), "CREATOR" | "MANAGER" | "MEMBER" | "BOSS"))
+        .and_then(|role| {
+            let canonical = match role.as_str() {
+                "OWNER" | "CREATOR" => "CREATOR",
+                "ADMIN" | "MANAGER" | "MANGER" => "MANAGER",
+                "MEMBER" => "MEMBER",
+                "BOSS" => "BOSS",
+                _ => return None,
+            };
+            Some(canonical.to_string())
+        })
 }
 
 /// Read a persisted permission threshold and fail closed for invalid values.
@@ -178,6 +187,17 @@ fn role_at_or_above(role: Option<&str>, required: Option<&str>) -> bool {
     role_level <= required_level
 }
 
+/// Derive a threshold capability while distinguishing a missing policy from an invalid one.
+fn derived_threshold_capability(row: &Value, role: Option<&str>, keys: &[&str]) -> bool {
+    let required = persisted_role_value(row, keys);
+    if required.is_some() {
+        return role_at_or_above(role, required.as_deref());
+    }
+    // A role-readback row can omit thresholds when the channel row is unavailable; only the
+    // canonical owner may safely default to true because it is above every valid gate.
+    !keys.iter().any(|key| row.get(*key).is_some()) && role == Some("CREATOR")
+}
+
 /// Project absolute settings/member capabilities, preserving persisted Go fields when present.
 fn insert_viewer_capabilities(output: &mut Map<String, Value>, row: &Value) {
     let role = persisted_role(row);
@@ -191,14 +211,18 @@ fn insert_viewer_capabilities(output: &mut Map<String, Value>, row: &Value) {
         || (is_open && matches!(role.as_deref(), Some("BOSS")));
     let derived_settings = admin_role;
     let derived_members = admin_role;
-    let derived_notice = role_at_or_above(
+    let derived_mention = derived_threshold_capability(
+        row,
         role.as_deref(),
-        persisted_role_value(row, &["notice_permission", "noticePermission"]).as_deref(),
+        &["mention_permission", "mentionPermission"],
     );
-    let derived_top = role_at_or_above(
+    let derived_notice = derived_threshold_capability(
+        row,
         role.as_deref(),
-        persisted_role_value(row, &["top_permission", "topPermission"]).as_deref(),
+        &["notice_permission", "noticePermission"],
     );
+    let derived_top =
+        derived_threshold_capability(row, role.as_deref(), &["top_permission", "topPermission"]);
     let can_edit = persisted_bool(
         row,
         &["can_edit_channel_settings", "canEditChannelSettings"],
@@ -208,6 +232,8 @@ fn insert_viewer_capabilities(output: &mut Map<String, Value>, row: &Value) {
         persisted_bool(row, &["can_manage_settings", "canManageSettings"]).unwrap_or(can_edit);
     let can_manage_members =
         persisted_bool(row, &["can_manage_members", "canManageMembers"]).unwrap_or(derived_members);
+    let can_mention_all =
+        persisted_bool(row, &["can_mention_all", "canMentionAll"]).unwrap_or(derived_mention);
     let can_publish_notice =
         persisted_bool(row, &["can_publish_notice", "canPublishNotice"]).unwrap_or(derived_notice);
     let can_change_permissions =
@@ -224,6 +250,7 @@ fn insert_viewer_capabilities(output: &mut Map<String, Value>, row: &Value) {
         "canManageMembers".to_string(),
         Value::Bool(can_manage_members),
     );
+    output.insert("canMentionAll".to_string(), Value::Bool(can_mention_all));
     output.insert(
         "canPublishNotice".to_string(),
         Value::Bool(can_publish_notice),
@@ -654,9 +681,9 @@ mod tests {
     #[test]
     fn projects_viewer_capabilities_from_authoritative_role() {
         let rows = json!([
-            { "id": "creator", "type": "P", "role": "CREATOR", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
-            { "id": "manager", "type": "P", "role": "MANAGER", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
-            { "id": "boss", "type": "O", "role": "BOSS", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
+            { "id": "creator", "type": "P", "role": "CREATOR", "mentionPermission": "MANAGER", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
+            { "id": "manager", "type": "P", "role": "MANAGER", "mentionPermission": "MANAGER", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
+            { "id": "boss", "type": "O", "role": "BOSS", "mentionPermission": "MANAGER", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
             { "id": "member", "type": "P", "role": "MEMBER", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
             { "id": "invalid", "type": "P", "role": "UNKNOWN", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
             { "id": "missing", "type": "P" }
@@ -674,6 +701,7 @@ mod tests {
             assert_eq!(row["canManageMembers"], true, "{id}");
             assert_eq!(row["canEditChannelSettings"], true, "{id}");
             assert_eq!(row["canChangePermissions"], id != "manager", "{id}");
+            assert_eq!(row["canMentionAll"], true, "{id}");
             assert_eq!(row["canPublishNotice"], true, "{id}");
             assert_eq!(row["canPinMessage"], true, "{id}");
         }
@@ -687,6 +715,7 @@ mod tests {
             assert_eq!(row["canManageSettings"], false, "{id}");
             assert_eq!(row["canManageMembers"], false, "{id}");
             assert_eq!(row["canEditChannelSettings"], false, "{id}");
+            assert_eq!(row["canMentionAll"], false, "{id}");
             assert_eq!(row["canPublishNotice"], false, "{id}");
             assert_eq!(row["canChangePermissions"], false, "{id}");
             assert_eq!(row["canPinMessage"], false, "{id}");
@@ -722,6 +751,35 @@ mod tests {
 
         assert_eq!(shaped["canManageSettings"], true);
         assert_eq!(shaped["canManageMembers"], false);
+    }
+
+    /// 角色读回使用 OWNER/ADMIN 别名时，viewer capability 仍按 CREATOR/MANAGER 计算。
+    #[test]
+    fn normalizes_owner_and_admin_aliases_for_role_readback() {
+        let owner = shape_channel_row(&json!({
+            "id": "owner-readback",
+            "role": "OWNER",
+        }));
+        assert_eq!(owner["canEditChannelSettings"], true);
+        assert_eq!(owner["canManageMembers"], true);
+        assert_eq!(owner["canMentionAll"], true);
+        assert_eq!(owner["canPublishNotice"], true);
+        assert_eq!(owner["canChangePermissions"], true);
+        assert_eq!(owner["canPinMessage"], true);
+
+        let admin = shape_channel_row(&json!({
+            "id": "admin-readback",
+            "role": "ADMIN",
+            "mentionPermission": "MANAGER",
+            "noticePermission": "MANAGER",
+            "topPermission": "MANAGER",
+        }));
+        assert_eq!(admin["canEditChannelSettings"], true);
+        assert_eq!(admin["canManageMembers"], true);
+        assert_eq!(admin["canMentionAll"], true);
+        assert_eq!(admin["canPublishNotice"], true);
+        assert_eq!(admin["canChangePermissions"], false);
+        assert_eq!(admin["canPinMessage"], true);
     }
 
     /// 回归锚: legacy channel rows use the durable update timestamp as the Go CAS version.

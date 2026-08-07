@@ -457,8 +457,14 @@ pub enum CorrelationContext {
     /// 在线角色变更的成员表原子写屏障；成功后必须重新读回完整 roster。
     ChannelMemberRolePersist { channel_id: ChannelId },
 
+    /// 在线角色变更先读回本地完整频道行，保留权限门槛与 viewer-scoped 字段。
+    ChannelMemberRoleChannelReadback { channel_id: ChannelId },
+
     /// 在线角色变更最终成员表读回；只发布绝对 roster，不透传 role delta。
-    ChannelMemberRoleReadback { channel_id: ChannelId },
+    ChannelMemberRoleReadback {
+        channel_id: ChannelId,
+        channel: Option<Box<serde_json::Value>>,
+    },
 
     /// 建群写族 HTTP 回报。服务端可能在 WebSocket 断线期间成功创建 channel，此时不会有
     /// `channel_created` 实时回声；保留已规范化成员，让 HTTP 权威回包也能落当前 channel/member

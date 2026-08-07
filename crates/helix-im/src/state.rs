@@ -239,6 +239,13 @@ pub struct ImState {
     /// 已附着的有界时间线窗口；只保存分页与定位所需的业务事实。
     pub(crate) timeline_state: crate::timeline_state::TimelineState,
 
+    /// 仅保存已通过远端权限与 durable read-back 的 Timeline coverage；不保存视觉 window。
+    pub(crate) timeline_navigation_coverage:
+        HashMap<String, crate::timeline_navigation::TimelineNavigationCoverage>,
+
+    /// Timeline V3 reqId ledger；同一 reqId 只允许一条 accepted→terminal 链。
+    pub(crate) timeline_navigation_pending: HashSet<String>,
+
     /// G05 request-scoped, bounded target ledger. Only trusted WS authority may consume an entry;
     /// HTTP acceptance merely prunes explicit failures and never establishes delivery.
     pub(crate) pending_forward_deliveries: crate::forward::PendingForwardDeliveryLedger,
@@ -344,6 +351,8 @@ impl ImState {
             recent_message_coverage: HashMap::new(),
             message_query_generations: HashMap::new(),
             timeline_state: crate::timeline_state::TimelineState::default(),
+            timeline_navigation_coverage: HashMap::new(),
+            timeline_navigation_pending: HashSet::new(),
             pending_forward_deliveries: crate::forward::PendingForwardDeliveryLedger::default(),
             pending_schedule_requests: BTreeMap::new(),
             pending_schedule_cancel_requests: BTreeMap::new(),

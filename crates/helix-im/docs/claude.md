@@ -58,17 +58,22 @@ cursor 绑定、Persist 成功/失败与 ready 一次性、跨批次重新 ready
 `OutboundReadReply`/`im:read:result` 纯读回灌路径，不增加 Storage、WS 或第二结果事件。
 `channelIncrement` 专用事件生产者尚未在本仓发现，不能据此宣称 G09d canonical 事件完成。
 
-## Phase 2 时间线单活动窗口修复
+## Phase 2 Timeline Reactor（G11b–G11h）
 
-`TimelineState` 以 `active_window_by_channel` 维护每个频道唯一活动窗口。latest/locate
-`replace` 先校验 rows，再淘汰同频道旧 slots、attachments 和 navigation token；旧异步 page
-回包不能通过 `entry(...).or_insert` 复活已淘汰窗口。`paging_context_for_anchor` 与
-`unique_attached_window_for_channel` 只查询活动窗口，缺失或过期 anchor 以结构化 read error
-结束，不再抛出裸 `im_load_older_context requires...` engine-step parse error。
+G11a latest 的既有对外语义保持不变；older/newer/locate 不再要求、保存或读取视觉
+`TimelineWindow`。`timeline:<reqId>` 仅是一次请求的瞬时 correlation token，不是 attach
+前置条件，也不承担滚动状态。Angular 负责 `ViewerLocalWindow`、merge、scroll 与 Dialog/
+generation；Helix 只负责请求关联、权限结果回灌、durable readback 和单终态。
 
-Timeline HTTP、Persist、SQLite read-back 及最终 Emit 均在继续前重检 active window；窗口已替换时
-只记录脱敏 stale 诊断并失败安全。transport reconnect 仍按既有规则保留 viewer-local attachment，
-身份/generation reset 由 `ImState::reset_recent_query_coverage` 清除全部时间线状态。
+older/newer 直接接收 `{channelId, anchor:{createAt,postId}, pageSize, reqId, generation,
+operation}`，locate 接收 targetPostId；Go 是 postId 映射、排序、`limit+1`、边界和 targetIndex
+的唯一权威。Helix 先查本地持久化 coverage，LocalComplete 直接发一个终态且不产生 Go HTTP；
+LocalMiss/Insufficient 对同一 reqId 最多发一次 Go 请求，回灌后再发一个终态。重复 reqId、
+过期 generation 或 scope 不匹配均 fail-closed，不能产生第二终态。
+
+统一终态包含 `reqId/generation/channelId/operation/pageSize/items/target/bounds/hasOlder/
+hasNewer`；缺少覆盖元数据不能用数组长度推断 LocalComplete。真实 Go/WS、双用户、Native DOM
+和 canonical 证据仍需跨仓环境采集，不能由 Helix 单测替代。
 
 `timeline_state` 单测覆盖同频道换窗、旧 merge、当前 older、同 token 导航、跨频道隔离和 reset；
 真实群聊切换、上拉与 SQLite read-back 仍需用户在人工验收阶段确认。

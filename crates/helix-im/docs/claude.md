@@ -89,6 +89,26 @@ Timeline HTTP、Persist、SQLite read-back 及最终 Emit 均在继续前重检 
 `timeline_state` 单测覆盖同频道换窗、旧 merge、当前 older、同 token 导航、跨频道隔离和 reset；
 真实群聊切换、上拉与 SQLite read-back 仍需用户在人工验收阶段确认。
 
+## Phase 2 Timeline Reactor（G11b–G11h）
+
+G11a latest 的既有对外语义保持不变；older/newer/locate 不再要求、保存或读取视觉
+`TimelineWindow`。`timeline:<reqId>` 仅是一次请求的瞬时 correlation token，不是 attach
+前置条件，也不承担滚动状态。Angular 负责 `ViewerLocalWindow`、merge、scroll 与 Dialog/
+generation；Helix 只负责请求关联、权限结果回灌、durable readback 和单终态。
+
+older/newer 直接接收 `{channelId, anchor:{createAt,postId}, pageSize, reqId, generation,
+operation}`，locate 接收 targetPostId；Go 是 postId 映射、排序、`limit+1`、边界和 targetIndex
+的唯一权威。Helix 先查本地持久化 coverage，LocalComplete 直接发一个终态且不产生 Go HTTP；
+LocalMiss/Insufficient 对同一 reqId 最多发一次 Go 请求，回灌后再发一个终态。重复 reqId、
+过期 generation 或 scope 不匹配均 fail-closed，不能产生第二终态。
+
+统一终态包含 `reqId/generation/channelId/operation/pageSize/items/target/bounds/hasOlder/
+hasNewer`；缺少覆盖元数据不能用数组长度推断 LocalComplete。真实 Go/WS、双用户、Native DOM
+和 canonical 证据仍需跨仓环境采集，不能由 Helix 单测替代。
+
+`timeline_state` 单测覆盖同频道换窗、旧 merge、当前 older、同 token 导航、跨频道隔离和 reset；
+真实群聊切换、上拉与 SQLite read-back 仍需用户在人工验收阶段确认。
+
 ## 纯离线 sync/notify 字段消失诊断
 
 诊断默认关闭，运行时由 Host 环境变量注入 `ImConfig.offline_sync_diagnostics`，不改变同步

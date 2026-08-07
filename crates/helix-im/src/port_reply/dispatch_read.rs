@@ -19,6 +19,85 @@ const LOCATE_NAVIGATION_ORDER: &[ScanOrder] =
     &[ScanOrder::asc("create_at"), ScanOrder::asc("temporary_id")];
 
 impl ImModule {
+    /// 先走权威 coverage 命中；缺 coverage 时仅发起一次 Go HTTP。
+    pub(crate) fn start_timeline_navigation_or_local(
+        &mut self,
+        state: crate::timeline_navigation::TimelineNavigationState,
+        out: &mut EffectSink,
+    ) {
+        if state
+            .generation()
+            .is_some_and(|generation| generation != self.state.channel_sync_generation)
+        {
+            if let Some(request_id) = state.request_id() {
+                out.push(crate::read_relay::emit_read_error(
+                    request_id,
+                    "timeline generation is stale",
+                ));
+            }
+            return;
+        }
+        // Coverage 元数据在本轮 read-back 中建立；没有完整 metadata 不能把消息数组误当命中。
+        let Some(request_id) = state.request_id() else {
+            self.start_timeline_navigation_http(state, out);
+            return;
+        };
+        if !self
+            .state
+            .timeline_navigation_pending
+            .insert(request_id.to_string())
+        {
+            out.push(crate::read_relay::emit_read_error(
+                request_id,
+                "duplicate timeline reqId",
+            ));
+            return;
+        }
+        let key = state.coverage_key();
+        let Some(coverage) = self.state.timeline_navigation_coverage.get(&key).cloned() else {
+            self.start_timeline_navigation_http(state, out);
+            return;
+        };
+        let shaped = crate::render_ready::shape_message_rows_for_viewer(
+            &Value::Array(coverage.rows),
+            self.config.auth_user_id.as_str(),
+        );
+        let mut body = serde_json::json!({
+            "reqId": request_id,
+            "channelId": state.channel_id().as_str(),
+            "operation": state.operation(),
+            "messages": shaped,
+            "hasOlder": coverage.has_older,
+            "hasNewer": coverage.has_newer,
+            "pageSize": state.page_size(),
+            "generation": state.generation(),
+        });
+        if let Some(target_index) = coverage.target_index {
+            body["targetPostId"] = serde_json::json!(state.anchor_message_id());
+            body["targetIndex"] = serde_json::json!(target_index);
+        }
+        out.push(crate::read_relay::emit_read_body(request_id, body));
+    }
+
+    /// 记录已完成远端权限过滤和 durable read-back 的 coverage 元数据。
+    fn remember_timeline_navigation_coverage(
+        &mut self,
+        state: &crate::timeline_navigation::TimelineNavigationState,
+        rows: &[Value],
+        target_index: Option<usize>,
+    ) {
+        let page = state.page();
+        self.state.timeline_navigation_coverage.insert(
+            state.coverage_key(),
+            crate::timeline_navigation::TimelineNavigationCoverage {
+                rows: rows.to_vec(),
+                has_older: page.has_older,
+                has_newer: page.has_newer,
+                target_index,
+            },
+        );
+    }
+
     /// 发起 Timeline V3 authority HTTP，并注册唯一 correlation continuation。
     pub(crate) fn start_timeline_navigation_http(
         &mut self,
@@ -48,26 +127,17 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if !self
-            .state
-            .timeline_state
-            .is_active_window(state.channel_id().as_str(), state.window_token())
+        // G11b-G11h 的 HTTP continuation 只由 corr/reqId/generation 关联；不得读取视觉 window。
+        if state
+            .generation()
+            .is_some_and(|generation| generation != self.state.channel_sync_generation)
         {
-            tracing::debug!(
-                channel_id = state.channel_id().as_str(),
-                stale_window_token = state.window_token(),
-                request_id = state.request_id().unwrap_or_default(),
-                direction = timeline_navigation_direction(&state),
-                "timeline HTTP reply ignored for stale window"
-            );
-            self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
-            return Ok(());
-        }
-        if locate_navigation_is_stale(&self.state.timeline_state, &state) {
-            tracing::debug!(
-                channel_id = state.channel_id().as_str(),
-                "ignoring stale timeline locate HTTP correlation"
-            );
+            if let Some(request_id) = state.request_id() {
+                out.push(crate::read_relay::emit_read_error(
+                    request_id,
+                    "timeline generation is stale",
+                ));
+            }
             return Ok(());
         }
         let reply = match outcome {
@@ -196,13 +266,8 @@ impl ImModule {
         else {
             return Ok(());
         };
-        if !self.state.timeline_state.is_current_locate_navigation(
-            state.channel_id().as_str(),
-            state.window_token(),
-            navigation_token,
-        ) {
-            return Ok(());
-        }
+        // Locate stale-generation filtering belongs to Angular; Helix only correlates reqId.
+        let _ = navigation_token;
         if let Some(request_id) = state.request_id() {
             out.push(crate::read_relay::emit_read_error(
                 request_id,
@@ -256,26 +321,17 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if !self
-            .state
-            .timeline_state
-            .is_active_window(state.channel_id().as_str(), state.window_token())
+        // Durable read-back 仍须匹配 corr；视觉 window 的淘汰由 Angular generation 处理。
+        if state
+            .generation()
+            .is_some_and(|generation| generation != self.state.channel_sync_generation)
         {
-            tracing::debug!(
-                channel_id = state.channel_id().as_str(),
-                stale_window_token = state.window_token(),
-                request_id = state.request_id().unwrap_or_default(),
-                direction = timeline_navigation_direction(&state),
-                "timeline read-back ignored for stale window"
-            );
-            self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
-            return Ok(());
-        }
-        if locate_navigation_is_stale(&self.state.timeline_state, &state) {
-            tracing::debug!(
-                channel_id = state.channel_id().as_str(),
-                "ignoring stale timeline locate readback correlation"
-            );
+            if let Some(request_id) = state.request_id() {
+                out.push(crate::read_relay::emit_read_error(
+                    request_id,
+                    "timeline generation is stale",
+                ));
+            }
             return Ok(());
         }
         if matches!(
@@ -312,6 +368,7 @@ impl ImModule {
             if newer_http_has_rows(&state) && rows.is_empty() {
                 self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
             } else {
+                self.remember_timeline_navigation_coverage(&state, &rows, None);
                 match self.emit_timeline_navigation_newer_result(&state, &rows) {
                     Ok(effect) => out.push(effect),
                     Err(error) => {
@@ -360,6 +417,7 @@ impl ImModule {
             if !state.rows().is_empty() && rows.is_empty() {
                 self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
             } else {
+                self.remember_timeline_navigation_coverage(&state, &rows, None);
                 out.push(self.emit_timeline_navigation_result(&state, &rows)?);
             }
             return Ok(());
@@ -414,6 +472,12 @@ impl ImModule {
                 return Ok(());
             }
         };
+        let target_index = state.target_index();
+        if target_index.is_none() {
+            self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+            return Ok(());
+        }
+        self.remember_timeline_navigation_coverage(&state, &rows, target_index);
         out.push(self.emit_timeline_locate_result(&state, &rows)?);
         Ok(())
     }
@@ -436,9 +500,13 @@ impl ImModule {
             request_id,
             serde_json::json!({
                 "reqId": request_id,
+                "channelId": state.channel_id().as_str(),
+                "operation": state.operation(),
                 "messages": shaped,
                 "hasOlder": page.has_older,
                 "hasNewer": page.has_newer,
+                "pageSize": state.page_size(),
+                "generation": state.generation(),
                 "olderCursor": Value::Null,
                 "newerCursor": Value::Null,
             }),
@@ -461,29 +529,20 @@ impl ImModule {
         let shaped_rows = shaped.as_array().ok_or_else(|| {
             ImError::Parse("timeline newer durable rows must shape to array".to_string())
         })?;
-        let mut request = crate::timeline_state::TimelineWindowRequest::latest_with_window_token(
-            state.channel_id().as_str(),
-            state.window_token(),
-        );
-        request.page_size = state.page_size();
-        request.page = state.page();
-        self.state
-            .timeline_state
-            .patch_page_from_render_ready(
-                request,
-                shaped_rows,
-                crate::timeline_state::TimelinePageMutation::Newer,
-                state.request_id().map(str::to_string),
-            )
-            .map_err(|error| ImError::Parse(format!("timeline newer projection: {error}")))?;
+        // Angular owns ViewerLocalWindow/merge; Helix only returns the absolute page.
+        let _ = shaped_rows;
         let page = state.page();
         Ok(crate::read_relay::emit_read_body(
             request_id,
             serde_json::json!({
                 "reqId": request_id,
+                "channelId": state.channel_id().as_str(),
+                "operation": state.operation(),
                 "messages": shaped,
                 "hasOlder": page.has_older,
                 "hasNewer": page.has_newer,
+                "pageSize": state.page_size(),
+                "generation": state.generation(),
                 "olderCursor": Value::Null,
                 "newerCursor": Value::Null,
             }),
@@ -500,50 +559,29 @@ impl ImModule {
             .request_id()
             .ok_or_else(|| ImError::Parse("timeline locate result missing req_id".to_string()))?;
         let crate::timeline_navigation::TimelineNavigationKind::Locate {
-            target_message_id,
-            navigation_token,
+            target_message_id: _,
+            navigation_token: _,
         } = state.kind()
         else {
             return Err(ImError::Parse(
                 "timeline locate result requires locate state".to_string(),
             ));
         };
-        if !self.state.timeline_state.is_current_locate_navigation(
-            state.channel_id().as_str(),
-            state.window_token(),
-            navigation_token,
-        ) {
-            return Err(ImError::Parse(
-                "timeline locate result is stale".to_string(),
-            ));
-        }
-        let mut request = crate::timeline_state::TimelineWindowRequest::latest_with_window_token(
-            state.channel_id().as_str(),
-            state.window_token(),
-        );
-        request.page_size = state.page_size();
-        request.page = state.page();
-        self.state
-            .timeline_state
-            .patch_page_from_render_ready(
-                request,
-                rows,
-                crate::timeline_state::TimelinePageMutation::Locate {
-                    target_message_id: target_message_id.to_string(),
-                    navigation_token: navigation_token.to_string(),
-                    activate: true,
-                },
-                Some(request_id.to_string()),
-            )
-            .map_err(|error| ImError::Parse(format!("timeline locate projection: {error}")))?;
+        // Locate center-scroll and stale generation handling belong to Angular.
         let page = state.page();
         Ok(crate::read_relay::emit_read_body(
             request_id,
             serde_json::json!({
                 "reqId": request_id,
+                "channelId": state.channel_id().as_str(),
+                "operation": state.operation(),
                 "messages": rows,
                 "hasOlder": page.has_older,
                 "hasNewer": page.has_newer,
+                "pageSize": state.page_size(),
+                "generation": state.generation(),
+                "targetPostId": state.anchor_message_id(),
+                "targetIndex": state.target_index(),
                 "olderCursor": state.older_cursor().cloned().unwrap_or(Value::Null),
                 "newerCursor": state.newer_cursor().cloned().unwrap_or(Value::Null),
             }),
@@ -1594,11 +1632,14 @@ fn older_navigation_rows(
     if state.rows().is_empty() {
         return Vec::new();
     }
-    let Some(cursor) = (match state.kind() {
-        crate::timeline_navigation::TimelineNavigationKind::Older { cursor, .. } => Some(cursor),
-        _ => None,
-    }) else {
-        return Vec::new();
+    let cursor = match state.kind() {
+        crate::timeline_navigation::TimelineNavigationKind::Older { cursor, .. }
+            if !state.is_windowless() =>
+        {
+            Some(cursor)
+        }
+        crate::timeline_navigation::TimelineNavigationKind::Older { .. } => None,
+        _ => return Vec::new(),
     };
     let mut seen = HashSet::new();
     let mut filtered = rows
@@ -1616,10 +1657,12 @@ fn older_navigation_rows(
                 return None;
             }
             let key = durable_navigation_key(&row)?;
-            if key.0 > cursor.create_at
-                || (key.0 == cursor.create_at && key.1.as_str() >= cursor.temporary_id.as_str())
-            {
-                return None;
+            if let Some(cursor) = cursor {
+                if key.0 > cursor.create_at
+                    || (key.0 == cursor.create_at && key.1.as_str() >= cursor.temporary_id.as_str())
+                {
+                    return None;
+                }
             }
             let identity = if !fields.id.is_empty() {
                 format!("id:{}", fields.id)
@@ -1668,11 +1711,14 @@ fn newer_navigation_rows(
     if !newer_http_has_rows(state) {
         return Vec::new();
     }
-    let Some(cursor) = (match state.kind() {
-        crate::timeline_navigation::TimelineNavigationKind::Newer { cursor, .. } => Some(cursor),
-        _ => None,
-    }) else {
-        return Vec::new();
+    let cursor = match state.kind() {
+        crate::timeline_navigation::TimelineNavigationKind::Newer { cursor, .. }
+            if !state.is_windowless() =>
+        {
+            Some(cursor)
+        }
+        crate::timeline_navigation::TimelineNavigationKind::Newer { .. } => None,
+        _ => return Vec::new(),
     };
     let mut seen = HashSet::new();
     let mut filtered = rows
@@ -1690,10 +1736,12 @@ fn newer_navigation_rows(
                 return None;
             }
             let key = durable_navigation_key(&row)?;
-            if key.0 < cursor.create_at
-                || (key.0 == cursor.create_at && key.1.as_str() <= cursor.temporary_id.as_str())
-            {
-                return None;
+            if let Some(cursor) = cursor {
+                if key.0 < cursor.create_at
+                    || (key.0 == cursor.create_at && key.1.as_str() <= cursor.temporary_id.as_str())
+                {
+                    return None;
+                }
             }
             let identity = if !fields.id.is_empty() {
                 format!("id:{}", fields.id)

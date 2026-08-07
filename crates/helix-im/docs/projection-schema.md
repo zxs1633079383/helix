@@ -95,6 +95,11 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `query::emit_dialog_list_frame_result` | `im:interaction:frame` | `schemaVersion` `surface` `frameId` `scope` `mode` `baseRevision?` `revision` `causationId?` `snapshot?` `patch?` | invoke `im_query_dialog_list` / 左侧列表写后 patch |
 | `query::emit_dialogs_cleared` | `im:channels:loaded`（第二形态）| `reason` | invoke `im_delete_all_dialogs` |
 
+频道 render-ready 行中的 `settingVersion` 与 `permissionRevision` 是群设置 CAS 的只读权威字段。
+旧版本地 `channel` 表没有专用版本列时，Helix 以同源的 `updated_at`（Go `channel.update_at`）
+生成这两个 camelCase 字段；若后续 schema 提供显式版本列则显式列优先。客户端不得从角色、
+时间或本地乐观状态自行合成版本。
+
 > **`im:interaction:frame` 左侧会话列表合同**：这是 `message.left-dialog-list` 的唯一生产消费面。
 > snapshot 带 `rows + orderedChannelIds`，patch 仅带变更属性和 `moveRow`；客户端必须在
 > `scope`、`schemaVersion` 与 `baseRevision` 全部匹配时一次性应用，失败只请求新的 snapshot。

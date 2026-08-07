@@ -63,6 +63,17 @@ cursor 绑定、Persist 成功/失败与 ready 一次性、跨批次重新 ready
 `OutboundReadReply`/`im:read:result` 纯读回灌路径，不增加 Storage、WS 或第二结果事件。
 `channelIncrement` 专用事件生产者尚未在本仓发现，不能据此宣称 G09d canonical 事件完成。
 
+## 2026-08-06 频道设置回包可诊断边界
+
+- `port_reply/dispatch_projection.rs::handle_outbound_channel_settings_reply` 只在完整的 HTTP 2xx/base64
+  envelope、body `status=SUCCESS`、object `data`、`channelId`、`purpose`、`header` 和非负整数
+  `settingVersion` 均通过后才持久化并发布 `channelUpdate`；任何缺失或类型错误都 fail-closed。
+- `response_data_with_reason` 与 `decode_settings_projection` 返回有限的脱敏 reason，并在
+  `cses.im.permission` target 记录 `stage/channelId/correlation/operationId/hasBody/hasProjection/hasCapability/
+  settingVersion/reason`；默认日志级别不改变业务状态，也不打印正文、成员或认证信息。
+- 持久化成功后才允许事件发布；persist 或 emit 失败不会伪造成功投影。当前 `dispatch_projection` 单测只证明
+  HTTP envelope/authority decode 的确定性边界，未证明真实 Go/WS、Tauri bus、Angular 消费或双用户链路。
+
 ## Phase 2 时间线单活动窗口修复
 
 `TimelineState` 以 `active_window_by_channel` 维护每个频道唯一活动窗口。latest/locate

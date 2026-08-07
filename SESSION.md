@@ -433,3 +433,9 @@
 ✅ DONE 已为显式 retry 接入权威 `getLatestPost` continuation，并把读回页长截断到 Go timeline V3 最大 60；真实服务复现旧实现返回 `status=failed, invalid timeline query: pageSize`，生产破坏去掉上限后聚焦测试精确红（61 != 60，exit 101），恢复后页长合同 2/2 与发送 HTTP/WS/readback 9/9 全绿。Native WDIO 候选与 G02b/G02c 真实 lane 将继续重建复跑，不在此条提前晋级 real PASS | @2026-07-31T21:36:00-07:00
 
 🎯 EXPECT Spec006 转发 picker 的权威频道补偿查询在冷启动 18K+ 投影突发下仍返回目标群；可证伪断言：① `im_channel_query.condition.display_name` 出站严格还原为 Go `displayName`；② Native 默认有界事件窗口覆盖本轮已观测突发；③ Helix focused read/query、Tauri helix_im 与 dual-real-forward 全绿后才记账 T029 | 赌注 中 | 可逆 是 | @2026-08-01T05:10:00-0700
+
+## EXPECT（2026-08-06：频道群设置 CAS 版本读回修复）
+
+- 目标：修复 legacy Helix `channel` 行缺少 `settingVersion/permissionRevision` 导致 MessageV3 在进入 Tauri command 前抛出 `CHANNEL_SETTINGS_EXPECTED_VERSION_REQUIRED`。
+- 可证伪断言：`render_ready::channel::shape_channel_row` 对旧行以 `updated_at` 补出两个版本字段；客户端群资料/公告/权限控件在权威版本缺失时保持 fail-closed；聚焦测试、Rust 检查和前端 lint/test 可复现通过。
+- 边界：不修改 Go 合同、不改本地 DB schema、不触碰客户端既有 release 文件；真实宿主重启与双用户运行态需单独采证，不以单测替代。

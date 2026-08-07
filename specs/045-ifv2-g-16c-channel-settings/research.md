@@ -39,7 +39,7 @@ cses-client `48c48b04e6eb980334bade119fb34b859b1e435a`；Mobile
 
 ## Decision 5 - Gate-specific authority
 
-**Decision**: HTTP 为 ``POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?,expectedVersion?}`；其他专用命令见 UC-5.5`；WS 为 ``update_channel`, `update_channel_notice``；远端表为 `channel、channel_event、post`。Transport success 不自动等于 durable terminal。
+**Decision**: HTTP 为 ``POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?}`；其他专用命令见 UC-5.5`；WS 为 ``update_channel`, `update_channel_notice``；远端表为 `channel、channel_event、post`。写入不携带版本条件，Transport success 不自动等于 durable terminal。
 
 **Rationale**: terminal authority、persist barrier 与竞态必须从当前生产 handler 和 PortReply/Inbound 证明。
 

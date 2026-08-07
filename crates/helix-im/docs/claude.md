@@ -23,6 +23,11 @@ correlation 再做一次租户内 `channel_member` Scan；两次读取在 Helix 
 
 频道页的 `members/adminUsers/boss/owner/memberCount` 来自 `channel_member` 行的角色分桶，
 并按 `team_id` 与 RuntimeAuth company 过滤；缺失快照时保留已有非空字段，不用空数组覆盖旧投影。
+频道页的群设置读取版本仍必须在本地读侧保留：Go 当前以 `channel.update_at` 同时作为
+`settingVersion` 与 `permissionRevision`。因此 `query/render_ready/channel.rs` 对旧表行优先读取显式
+`setting_version`/`permission_revision`，缺失时回退到持久化的 `updated_at`/`updateAt`。MessageV3
+频道与成员写入不接收客户端版本条件；这些读取字段仍用于投影、乱序保护和后续独立竞态方案，
+不得因此删除。
 
 在线 `channel_member_role_updated` 不再把 `{userIds, role}` delta 透传给 Angular。Helix 先读回
 当前频道成员，确认目标成员已存在后以 `channel_id,user_id` 复合键原子 upsert 角色（撤销归一为
@@ -49,14 +54,25 @@ cursor 绑定、Persist 成功/失败与 ready 一次性、跨批次重新 ready
 
 ## Phase 3 频道治理命令维护
 
-`im_channel_change_orient` 使用 `id/orient/expectedVersion`，允许空导向但限制 30 个字符；
-`im_channel_change_permission` 使用非负 `expectedVersion` 的 partial patch，权限值仅允许
+`im_channel_change_orient` 使用 `id/orient`，允许空导向但限制 30 个字符；
+`im_channel_change_permission` 使用无版本条件的 partial patch，权限值仅允许
 `BOSS/CREATOR/MANAGER/MEMBER`，Helix 不根据频道类型重算 `BOSS` 能力。成员变更与昵称命令
 的 canonical 输入分别固定为五键和三键，空数组/空昵称仍可表达清空语义。
 
 增量读取在没有 `req_id` 时保留内部 hydration 上下文；显式 `req_id` 时复用统一
 `OutboundReadReply`/`im:read:result` 纯读回灌路径，不增加 Storage、WS 或第二结果事件。
 `channelIncrement` 专用事件生产者尚未在本仓发现，不能据此宣称 G09d canonical 事件完成。
+
+## 2026-08-06 频道设置回包可诊断边界
+
+- `port_reply/dispatch_projection.rs::handle_outbound_channel_settings_reply` 只在完整的 HTTP 2xx/base64
+  envelope、body `status=SUCCESS`、object `data`、`channelId`、`purpose`、`header` 和非负整数
+  `settingVersion` 均通过后才持久化并发布 `channelUpdate`；任何缺失或类型错误都 fail-closed。
+- `response_data_with_reason` 与 `decode_settings_projection` 返回有限的脱敏 reason，并在
+  `cses.im.permission` target 记录 `stage/channelId/correlation/operationId/hasBody/hasProjection/hasCapability/
+  settingVersion/reason`；默认日志级别不改变业务状态，也不打印正文、成员或认证信息。
+- 持久化成功后才允许事件发布；persist 或 emit 失败不会伪造成功投影。当前 `dispatch_projection` 单测只证明
+  HTTP envelope/authority decode 的确定性边界，未证明真实 Go/WS、Tauri bus、Angular 消费或双用户链路。
 
 ## Phase 2 时间线单活动窗口修复
 
@@ -69,6 +85,25 @@ cursor 绑定、Persist 成功/失败与 ready 一次性、跨批次重新 ready
 Timeline HTTP、Persist、SQLite read-back 及最终 Emit 均在继续前重检 active window；窗口已替换时
 只记录脱敏 stale 诊断并失败安全。transport reconnect 仍按既有规则保留 viewer-local attachment，
 身份/generation reset 由 `ImState::reset_recent_query_coverage` 清除全部时间线状态。
+
+`timeline_state` 单测覆盖同频道换窗、旧 merge、当前 older、同 token 导航、跨频道隔离和 reset；
+真实群聊切换、上拉与 SQLite read-back 仍需用户在人工验收阶段确认。
+
+## Phase 2 Timeline Reactor（G11b–G11h）
+
+G11a latest 的既有对外语义保持不变；older/newer/locate 不再要求、保存或读取视觉
+`TimelineWindow`。`timeline:<reqId>` 仅是一次请求的瞬时 correlation token，不是 attach
+前置条件，也不承担滚动状态。Angular 负责 `ViewerLocalWindow`、merge、scroll 与 Dialog/
+generation；Helix 只负责请求关联、权限结果回灌、durable readback 和单终态。
+
+older/newer 直接接收 `{channelId, anchor:{createAt,postId}, pageSize, reqId, operation}`，locate 接收
+targetPostId；Timeline `generation` 不属于 G11b/G11c/G11d 请求或 Helix owned state。Go 是 postId 映射、排序、`limit+1`、边界和 targetIndex
+的唯一权威。Helix 先查本地持久化 coverage，LocalComplete 直接发一个终态且不产生 Go HTTP；
+LocalMiss/Insufficient 对同一 reqId 最多发一次 Go 请求，回灌后再发一个终态。重复 reqId 或
+scope 不匹配均 fail-closed，不能产生第二终态；客户端仍负责 Host/window 生命周期淘汰。
+
+统一终态包含 `reqId/channelId/operation/pageSize/items/target/bounds/hasOlder/hasNewer`；缺少覆盖元数据不能用数组长度推断 LocalComplete。真实 Go/WS、双用户、Native DOM
+和 canonical 证据仍需跨仓环境采集，不能由 Helix 单测替代。
 
 `timeline_state` 单测覆盖同频道换窗、旧 merge、当前 older、同 token 导航、跨频道隔离和 reset；
 真实群聊切换、上拉与 SQLite read-back 仍需用户在人工验收阶段确认。

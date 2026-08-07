@@ -14,13 +14,13 @@ const GATE_ID: &str = "MV3-G10c";
 const CHANNEL_ID: &str = "chfixx0000000000000000000a";
 const NOW_MS: u64 = 1_700_001_800_000;
 
-/// 锁定 G10c 的完整只读参考包，供简介 CAS 场景复用。
+/// 锁定 G10c 的完整只读参考包，供简介写入场景复用。
 #[test]
 fn phase3_gate_reference_is_complete() {
     phase1_reference::assert_phase3_reference_gate(GATE_ID);
 }
 
-/// 提取简介 CAS 的 HTTP correlation，确认使用共享 info endpoint。
+/// 提取简介写入的 HTTP correlation，确认使用共享 info endpoint。
 fn http_corr(effects: &[Effect]) -> Result<helix_core::Correlation, String> {
     effects
         .iter()
@@ -53,9 +53,9 @@ fn emitted(effects: &[Effect]) -> Vec<Value> {
         .collect()
 }
 
-/// G10c 成功必须把 purpose/expectedVersion 发给 info endpoint，且完整快照保留 header 与其他字段。
+/// G10c 成功必须把 purpose 发给 info endpoint，且完整快照保留 header 与其他字段。
 #[test]
-fn g10c_cas_success_preserves_header_then_emits_bare_channel_update() -> Result<(), String> {
+fn g10c_success_preserves_header_then_emits_bare_channel_update() -> Result<(), String> {
     let mut harness =
         common::Harness::new_with_identity(&[], "g10c-actor", "g10c-company", "", "", "");
     harness.step(
@@ -64,7 +64,6 @@ fn g10c_cas_success_preserves_header_then_emits_bare_channel_update() -> Result<
             json!({
                 "channel_id": CHANNEL_ID,
                 "purpose": "After",
-                "expected_version": 7,
             }),
         ),
         NOW_MS,
@@ -85,7 +84,6 @@ fn g10c_cas_success_preserves_header_then_emits_bare_channel_update() -> Result<
         json!({
             "channelId": CHANNEL_ID,
             "purpose": "After",
-            "expectedVersion": 7,
         })
     );
     assert!(body.get("header").is_none());
@@ -142,53 +140,12 @@ fn g10c_cas_success_preserves_header_then_emits_bare_channel_update() -> Result<
         .all(|event| event["event"] != "im:channel:settings-updated"));
     Ok(())
 }
-
-/// G10c 陈旧 CAS 回包必须零 Persist、零 event，不能以旧值覆盖既有 header。
+/// G10c 非法字段在 Helix 边界拒绝 HTTP。
 #[test]
-fn g10c_stale_cas_conflict_has_zero_local_effects() -> Result<(), String> {
-    let mut harness =
-        common::Harness::new_with_identity(&[], "g10c-actor", "g10c-company", "", "", "");
-    harness.step(
-        common::command_json(
-            "im_channel_change_info",
-            json!({
-                "channel_id": CHANNEL_ID,
-                "purpose": "Stale",
-                "expected_version": 7,
-            }),
-        ),
-        NOW_MS,
-    );
-    let corr = http_corr(harness.sink.as_slice())?;
-    let conflict = json!({
-        "status": "FAILURE",
-        "data": {
-            "code": "CHANNEL_SETTINGS_VERSION_CONFLICT",
-            "expectedVersion": 7,
-            "currentVersion": 8,
-        }
-    });
-    harness.step(
-        common::port_reply_with_body(
-            corr.raw(),
-            common::enveloped(Bytes::from(
-                serde_json::to_vec(&conflict).map_err(|error| error.to_string())?,
-            )),
-        ),
-        NOW_MS + 1,
-    );
-    assert!(harness.sink.as_slice().is_empty());
-    Ok(())
-}
-
-/// G10c 非法 expected_version 在 Helix 边界拒绝 HTTP，避免绕过共享 CAS authority。
-#[test]
-fn g10c_invalid_cas_intent_has_zero_http_effects() {
+fn g10c_invalid_info_intent_has_zero_http_effects() {
     let cases = [
-        json!({"channel_id": CHANNEL_ID, "purpose": "x"}),
-        json!({"channel_id": CHANNEL_ID, "purpose": "x", "expected_version": -1}),
-        json!({"channel_id": CHANNEL_ID, "purpose": "x", "expected_version": "7"}),
-        json!({"purpose": "x", "expected_version": 7}),
+        json!({"purpose": "x"}),
+        json!({"channel_id": CHANNEL_ID, "purpose": 1}),
     ];
     for payload in cases {
         let result = helix_im::outbound::handle_outbound(

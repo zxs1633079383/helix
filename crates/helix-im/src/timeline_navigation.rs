@@ -22,16 +22,27 @@ pub const LOCATE_CONTEXT: &str = "im_locate_context";
 pub enum TimelineNavigationKind {
     Older {
         anchor_post_id: String,
+        anchor_create_at: Option<i64>,
         cursor: TimelineEntityKey,
     },
     Newer {
         anchor_post_id: String,
+        anchor_create_at: Option<i64>,
         cursor: TimelineEntityKey,
     },
     Locate {
         target_message_id: String,
         navigation_token: String,
     },
+}
+
+/// 已通过 Go 与 durable read-back 的本地完整覆盖；消息数组本身不能单独构成命中。
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimelineNavigationCoverage {
+    pub rows: Vec<Value>,
+    pub has_older: bool,
+    pub has_newer: bool,
+    pub target_index: Option<usize>,
 }
 
 /// 一次跨 HTTP、PersistOk 与 readback 存活的 owned 导航状态。
@@ -44,6 +55,7 @@ pub struct TimelineNavigationState {
     kind: TimelineNavigationKind,
     rows: Vec<Value>,
     page: WindowPage,
+    target_index: Option<usize>,
     older_cursor: Option<Value>,
     newer_cursor: Option<Value>,
 }
@@ -66,9 +78,44 @@ impl TimelineNavigationState {
             request_id,
             kind: TimelineNavigationKind::Older {
                 anchor_post_id,
+                anchor_create_at: None,
                 cursor,
             },
             rows: Vec::new(),
+            target_index: None,
+            older_cursor: None,
+            newer_cursor: None,
+        }
+    }
+
+    /// 创建不依赖视觉窗口的 older 查询；anchor 时间只作为 Go 请求输入，排序事实仍由 Go 解析。
+    pub fn older_without_window(
+        channel_id: ChannelId,
+        page_size: u32,
+        request_id: String,
+        anchor_post_id: String,
+        anchor_create_at: Option<i64>,
+    ) -> Self {
+        let correlation_token = format!("timeline:{}", request_id);
+        Self {
+            channel_id,
+            window_token: correlation_token.clone(),
+            page: WindowPage {
+                window_token: correlation_token,
+                ..WindowPage::default()
+            },
+            page_size,
+            request_id: Some(request_id),
+            kind: TimelineNavigationKind::Older {
+                anchor_post_id,
+                anchor_create_at,
+                cursor: TimelineEntityKey {
+                    create_at: 0,
+                    temporary_id: String::new(),
+                },
+            },
+            rows: Vec::new(),
+            target_index: None,
             older_cursor: None,
             newer_cursor: None,
         }
@@ -91,9 +138,44 @@ impl TimelineNavigationState {
             request_id,
             kind: TimelineNavigationKind::Newer {
                 anchor_post_id,
+                anchor_create_at: None,
                 cursor,
             },
             rows: Vec::new(),
+            target_index: None,
+            older_cursor: None,
+            newer_cursor: None,
+        }
+    }
+
+    /// 创建不依赖视觉窗口的 newer 查询；Helix 不保存或读取 TimelineWindow。
+    pub fn newer_without_window(
+        channel_id: ChannelId,
+        page_size: u32,
+        request_id: String,
+        anchor_post_id: String,
+        anchor_create_at: Option<i64>,
+    ) -> Self {
+        let correlation_token = format!("timeline:{}", request_id);
+        Self {
+            channel_id,
+            window_token: correlation_token.clone(),
+            page: WindowPage {
+                window_token: correlation_token,
+                ..WindowPage::default()
+            },
+            page_size,
+            request_id: Some(request_id),
+            kind: TimelineNavigationKind::Newer {
+                anchor_post_id,
+                anchor_create_at,
+                cursor: TimelineEntityKey {
+                    create_at: 0,
+                    temporary_id: String::new(),
+                },
+            },
+            rows: Vec::new(),
+            target_index: None,
             older_cursor: None,
             newer_cursor: None,
         }
@@ -124,6 +206,7 @@ impl TimelineNavigationState {
                 navigation_token,
             },
             rows: Vec::new(),
+            target_index: None,
             older_cursor: None,
             newer_cursor: None,
         }
@@ -139,14 +222,43 @@ impl TimelineNavigationState {
         self.page_size
     }
 
-    /// 返回 Helix 已解析的 attached window token。
+    /// 返回一次查询的瞬时 correlation token；它不是视觉窗口或 attach 前置。
     pub fn window_token(&self) -> &str {
         self.window_token.as_str()
+    }
+
+    /// 判断是否只使用瞬时 correlation token，避免按视觉窗口游标过滤 Go 权威页。
+    pub fn is_windowless(&self) -> bool {
+        self.window_token.starts_with("timeline:")
     }
 
     /// 返回 transport correlation，不把它混入业务 cursor。
     pub fn request_id(&self) -> Option<&str> {
         self.request_id.as_deref()
+    }
+
+    /// 返回稳定的业务操作名，供终态合同回显。
+    pub const fn operation(&self) -> &'static str {
+        match self.kind {
+            TimelineNavigationKind::Older { .. } => "older",
+            TimelineNavigationKind::Newer { .. } => "newer",
+            TimelineNavigationKind::Locate { .. } => "locate",
+        }
+    }
+
+    /// 返回与视觉生命周期无关的本地 coverage key。
+    pub fn coverage_key(&self) -> String {
+        format!(
+            "{}:{}:{}:{}",
+            self.channel_id.as_str(),
+            match &self.kind {
+                TimelineNavigationKind::Older { .. } => "older",
+                TimelineNavigationKind::Newer { .. } => "newer",
+                TimelineNavigationKind::Locate { .. } => "locate",
+            },
+            self.anchor_message_id(),
+            self.page_size
+        )
     }
 
     /// 返回导航类别。
@@ -178,6 +290,11 @@ impl TimelineNavigationState {
     /// 用权限过滤且补齐 wire 字段的同源行替换原始 HTTP 页。
     pub fn replace_rows(&mut self, rows: Vec<Value>) {
         self.rows = rows;
+    }
+
+    /// 返回 Go authority 校验过的 locate targetIndex。
+    pub const fn target_index(&self) -> Option<usize> {
+        self.target_index
     }
 
     /// 返回 authority 提供的向前游标；缺省时以 null 结算，不在 Helix 侧合成。
@@ -273,6 +390,7 @@ impl TimelineNavigationState {
                         "timeline locate targetIndex does not identify target".to_string(),
                     ));
                 }
+                self.target_index = Some(target_index);
                 self.page.has_older =
                     data.get("hasOlder")
                         .and_then(Value::as_bool)
@@ -320,11 +438,36 @@ pub fn parse_newer_request(
     Ok(parsed)
 }
 
+/// 解析 newer 的 V3 anchor；旧 tuple API 仍由测试和兼容 caller 使用。
+pub fn parse_newer_request_with_anchor(
+    payload: &[u8],
+) -> Result<(ChannelId, String, Option<i64>, u32, String), ImError> {
+    parse_v3_request(payload, LOAD_NEWER_CONTEXT, "anchor_post_id")
+}
+
 /// 解析上拉请求，并拒绝 renderer 注入复合游标。
 pub fn parse_older_request(
     payload: &[u8],
 ) -> Result<(ChannelId, String, u32, Option<String>), ImError> {
-    parse_request(
+    let parsed = parse_request(
+        payload,
+        crate::older_context::LOAD_OLDER_CONTEXT,
+        "anchor_post_id",
+    )?;
+    if parsed.3.is_none() {
+        return Err(ImError::Parse(format!(
+            "{} req_id is required",
+            crate::older_context::LOAD_OLDER_CONTEXT
+        )));
+    }
+    Ok(parsed)
+}
+
+/// 解析 older 的 V3 anchor；Go 负责 postId→temporary_id 与排序事实。
+pub fn parse_older_request_with_anchor(
+    payload: &[u8],
+) -> Result<(ChannelId, String, Option<i64>, u32, String), ImError> {
+    parse_v3_request(
         payload,
         crate::older_context::LOAD_OLDER_CONTEXT,
         "anchor_post_id",
@@ -378,6 +521,7 @@ pub fn navigation_http(
     let (path, body) = match state.kind() {
         TimelineNavigationKind::Older {
             anchor_post_id,
+            anchor_create_at,
             cursor,
         } => (
             "posts/getPostsAfterIndex",
@@ -386,11 +530,16 @@ pub fn navigation_http(
                 "cursorVersion": 1,
                 "pageSize": state.page_size(),
                 "direction": "older",
-                "cursor": cursor,
+                "anchor": {
+                    "postId": anchor_post_id,
+                    "createAt": anchor_create_at,
+                },
+                "cursor": if anchor_create_at.is_some() { Value::Null } else { json!(cursor) },
             }),
         ),
         TimelineNavigationKind::Newer {
             anchor_post_id,
+            anchor_create_at,
             cursor,
         } => (
             "posts/getPostsAfterIndex",
@@ -399,7 +548,11 @@ pub fn navigation_http(
                 "cursorVersion": 1,
                 "pageSize": state.page_size(),
                 "direction": "newer",
-                "cursor": cursor,
+                "anchor": {
+                    "postId": anchor_post_id,
+                    "createAt": anchor_create_at,
+                },
+                "cursor": if anchor_create_at.is_some() { Value::Null } else { json!(cursor) },
             }),
         ),
         TimelineNavigationKind::Locate {
@@ -477,6 +630,11 @@ fn parse_request(
                 | "pageSize"
                 | "page_size"
                 | "req_id"
+                | "reqId"
+                | "operation"
+                | "targetPostId"
+                | "target_post_id"
+                | "anchor"
                 | "navigationToken"
         )
     }) {
@@ -492,9 +650,17 @@ fn parse_request(
         .ok_or_else(|| ImError::Parse(format!("{command} missing channel_id")))?;
     let channel_id = ChannelId::from_str(channel)
         .ok_or_else(|| ImError::Parse(format!("invalid channel_id: {channel}")))?;
+    let anchor_post_id = object
+        .get("anchor")
+        .and_then(Value::as_object)
+        .and_then(|anchor| anchor.get("postId").or_else(|| anchor.get("post_id")))
+        .and_then(Value::as_str);
     let message_id = object
         .get(message_field)
+        .or_else(|| object.get("targetPostId"))
+        .or_else(|| object.get("target_post_id"))
         .and_then(Value::as_str)
+        .or(anchor_post_id)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ImError::Parse(format!("{command} missing {message_field}")))?
         .to_string();
@@ -502,7 +668,7 @@ fn parse_request(
         TimelinePageSize::parse(object.get("pageSize").or_else(|| object.get("page_size")))
             .map_err(|error| ImError::Parse(format!("{command} pageSize: {error}")))?
             .get();
-    let request_id = match object.get("req_id") {
+    let request_id = match object.get("req_id").or_else(|| object.get("reqId")) {
         Some(Value::String(value)) if !value.is_empty() => Some(value.clone()),
         Some(_) => {
             return Err(ImError::Parse(format!(
@@ -512,6 +678,28 @@ fn parse_request(
         None => None,
     };
     Ok((channel_id, message_id, page_size, request_id))
+}
+
+/// 解析无 window 的 Timeline 请求，要求 reqId 并提取 `{createAt,postId}` anchor。
+fn parse_v3_request(
+    payload: &[u8],
+    command: &str,
+    message_field: &str,
+) -> Result<(ChannelId, String, Option<i64>, u32, String), ImError> {
+    let parsed = parse_request(payload, command, message_field)?;
+    let value: Value = serde_json::from_slice(payload)
+        .map_err(|error| ImError::Parse(format!("{command} payload: {error}")))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| ImError::Parse(format!("{command} payload must be object")))?;
+    let anchor = object.get("anchor").and_then(Value::as_object);
+    let anchor_create_at = anchor
+        .and_then(|value| value.get("createAt").or_else(|| value.get("create_at")))
+        .and_then(Value::as_i64);
+    let request_id = parsed
+        .3
+        .ok_or_else(|| ImError::Parse(format!("{command} req_id is required")))?;
+    Ok((parsed.0, parsed.1, anchor_create_at, parsed.2, request_id))
 }
 
 /// 校验远端页严格按 `(createAt, temporaryId)` 升序且属于请求频道。

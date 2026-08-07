@@ -102,61 +102,33 @@ impl ImModule {
                 self.state.reset_recent_query_coverage();
                 out.push(crate::query::emit_dialogs_cleared());
             }
-            // G11a 上拉页：与 newer 共享复合 cursor、cache barrier 和 readback 状态机。
+            // G11b 上拉页：只用 reqId/scope/anchor correlation，不读取 attached visual window。
             n if n == crate::older_context::LOAD_OLDER_CONTEXT => {
-                let (channel_id, anchor_post_id, page_size, request_id) =
-                    crate::timeline_navigation::parse_older_request(payload)?;
-                let Some((page, _, cursor)) = self
-                    .state
-                    .timeline_state
-                    .paging_context_for_anchor(channel_id.as_str(), &anchor_post_id)
-                else {
-                    self.emit_timeline_navigation_request_failure(
-                        channel_id.as_str(),
-                        "older",
-                        anchor_post_id.as_str(),
-                        request_id.as_deref(),
-                        out,
-                    )?;
-                    return Ok(());
-                };
-                let state = crate::timeline_navigation::TimelineNavigationState::older(
-                    channel_id,
-                    page,
-                    page_size,
-                    request_id,
-                    anchor_post_id,
-                    cursor,
-                );
-                self.start_timeline_navigation_http(state, out);
+                let (channel_id, anchor_post_id, anchor_create_at, page_size, request_id) =
+                    crate::timeline_navigation::parse_older_request_with_anchor(payload)?;
+                let state =
+                    crate::timeline_navigation::TimelineNavigationState::older_without_window(
+                        channel_id,
+                        page_size,
+                        request_id,
+                        anchor_post_id,
+                        anchor_create_at,
+                    );
+                self.start_timeline_navigation_or_local(state, out);
             }
-            // G10b 下拉页：cursor 只从 attached typed state 解析，端侧不能伪造排序边界。
+            // G11c 下拉页：Go 解析 anchor，Helix 不保存 window/cursor。
             n if n == crate::timeline_navigation::LOAD_NEWER_CONTEXT => {
-                let (channel_id, anchor_post_id, page_size, request_id) =
-                    crate::timeline_navigation::parse_newer_request(payload)?;
-                let Some((page, _, cursor)) = self
-                    .state
-                    .timeline_state
-                    .paging_context_for_anchor(channel_id.as_str(), &anchor_post_id)
-                else {
-                    self.emit_timeline_navigation_request_failure(
-                        channel_id.as_str(),
-                        "newer",
-                        anchor_post_id.as_str(),
-                        request_id.as_deref(),
-                        out,
-                    )?;
-                    return Ok(());
-                };
-                let state = crate::timeline_navigation::TimelineNavigationState::newer(
-                    channel_id,
-                    page,
-                    page_size,
-                    request_id,
-                    anchor_post_id,
-                    cursor,
-                );
-                self.start_timeline_navigation_http(state, out);
+                let (channel_id, anchor_post_id, anchor_create_at, page_size, request_id) =
+                    crate::timeline_navigation::parse_newer_request_with_anchor(payload)?;
+                let state =
+                    crate::timeline_navigation::TimelineNavigationState::newer_without_window(
+                        channel_id,
+                        page_size,
+                        request_id,
+                        anchor_post_id,
+                        anchor_create_at,
+                    );
+                self.start_timeline_navigation_or_local(state, out);
             }
             // G11d 定位直接进入 Go context authority；两条命令名共享严格的持久读回链。
             n if n == crate::timeline_navigation::LOCATE_MESSAGE
@@ -164,92 +136,20 @@ impl ImModule {
             {
                 let (channel_id, target_message_id, page_size, request_id, navigation_token) =
                     crate::timeline_navigation::parse_locate_request_for_command(payload, n)?;
-                let Some((window_token, _)) = self
-                    .state
-                    .timeline_state
-                    .unique_attached_window_for_channel(channel_id.as_str())
-                else {
-                    self.emit_timeline_navigation_request_failure(
-                        channel_id.as_str(),
-                        "locate",
-                        target_message_id.as_str(),
-                        request_id.as_deref(),
-                        out,
-                    )?;
-                    return Ok(());
-                };
                 let navigation_token = navigation_token
                     .or_else(|| request_id.clone())
                     .unwrap_or_else(|| format!("locate:{target_message_id}"));
-                if self.state.timeline_state.is_current_locate_navigation(
-                    channel_id.as_str(),
-                    window_token.as_str(),
-                    navigation_token.as_str(),
-                ) {
-                    tracing::debug!(
-                        channel_id = channel_id.as_str(),
-                        navigation_token,
-                        "ignoring duplicate locate navigation"
-                    );
-                    return Ok(());
-                }
-                self.state.timeline_state.begin_locate_navigation(
-                    channel_id.as_str(),
-                    window_token.as_str(),
-                    navigation_token.as_str(),
-                );
                 let state = crate::timeline_navigation::TimelineNavigationState::locate(
                     channel_id,
-                    window_token,
+                    format!("timeline:{}", navigation_token),
                     page_size,
                     request_id,
                     target_message_id,
                     navigation_token,
                 );
-                self.start_timeline_navigation_http(state, out);
+                self.start_timeline_navigation_or_local(state, out);
             }
             _ => tracing::debug!("im: query dispatch miss '{}'", name),
-        }
-        Ok(())
-    }
-
-    /// 把未附着或已淘汰的时间线请求结算为可关联失败，避免引擎步骤抛出裸解析错误。
-    fn emit_timeline_navigation_request_failure(
-        &self,
-        channel_id: &str,
-        direction: &str,
-        anchor_post_id: &str,
-        request_id: Option<&str>,
-        out: &mut EffectSink,
-    ) -> Result<(), ImError> {
-        let active_window_token = self
-            .state
-            .timeline_state
-            .unique_attached_window_for_channel(channel_id)
-            .map(|(token, _)| token)
-            .unwrap_or_default();
-        let (slot_count, attachment_count) = self.state.timeline_state.window_counts();
-        tracing::warn!(
-            channel_id,
-            active_window_token = active_window_token.as_str(),
-            direction,
-            anchor_present = !anchor_post_id.is_empty(),
-            slot_count,
-            attachment_count,
-            "timeline navigation rejected before HTTP: active window missing or anchor is stale"
-        );
-        if let Some(request_id) = request_id {
-            out.push(crate::read_relay::emit_read_error(
-                request_id,
-                "timeline window is stale or unattached",
-            ));
-        } else {
-            tracing::debug!(
-                channel_id,
-                direction,
-                anchor_post_id,
-                "timeline failure has no request id"
-            );
         }
         Ok(())
     }

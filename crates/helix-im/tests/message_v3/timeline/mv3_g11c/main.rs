@@ -366,6 +366,10 @@ fn g11c_newer_waits_for_durable_scan_and_returns_sorted_result() {
         "durable-newer-40"
     );
     assert_eq!(events[0]["data"]["body"]["hasNewer"], false);
+    assert!(
+        events[0]["data"]["body"].get("generation").is_none(),
+        "G11c terminal must not expose Timeline generation"
+    );
     let encoded = serde_json::to_string(&events).unwrap();
     for forbidden in [
         "postReceived",

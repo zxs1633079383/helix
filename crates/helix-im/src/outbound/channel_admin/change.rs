@@ -2,7 +2,7 @@
 //!
 //! 五条群信息修改命令，各独立 endpoint + body + inventory 注册（C4 收口，与 P3a/其他
 //! channel_*.rs 零交集）。除 #15 change/props（故意不广播，见文末注释）外，本族 4 条触发
-//! `update_channel`；notice 复用 settings CAS authority，成功后也只走 `update_channel`。
+//! `update_channel`；notice 复用普通事务 authority，成功后也只走 `update_channel`。
 //!
 //! ## endpoint / body 真源（mattermost csesapi 逐字，不自造 fixture，C5）
 //! 子路由前缀 `channel/change`（BaseRoutes.Channel = `/api/cses/channel`，api.go）。
@@ -10,7 +10,7 @@
 //!   header?, purpose?, orient?, module?, source?}`，UserId 由后端 session 覆盖（json:"-" 不读 body）。
 //! - source #12 `command.ChangeChannelSource`：`{id, title}`（**id**=channelId，非 channelId 键）。
 //! - picture#14 解码到 `*ent.Channel`：读 `{id, pictureType, picture}`（id=channelId）。
-//! - notice #10 `command.ChangeChannelNotice`：`{id, notice:{text}, expectedVersion}`（**id**=channelId）。
+//! - notice #10 `command.ChangeChannelNotice`：`{id, notice:{text}}`（**id**=channelId）。
 //! - top    #18 `command.UpdateChannelTopCommand`：`{channelId, top:bool}`（per-member 置顶）。
 //!
 //! **casing/键名陷阱**：source/picture/notice 用 **`id`** 作 channelId 键（command json tag `json:"id"`），
@@ -65,24 +65,6 @@ impl OutboundCommand for ChangeInfoCommand {
                     self.name()
                 )));
             }
-        }
-        if let Some(value) = args.get("expected_version") {
-            let expected_version =
-                value
-                    .as_i64()
-                    .filter(|version| *version >= 0)
-                    .ok_or_else(|| {
-                        ImError::Parse(format!(
-                            "{}: expected_version 必须为非负 int64",
-                            self.name()
-                        ))
-                    })?;
-            b["expectedVersion"] = json!(expected_version);
-        } else if args.get("purpose").and_then(Value::as_str).is_some() {
-            return Err(ImError::Parse(format!(
-                "{}: purpose 修改必须携带 expected_version",
-                self.name()
-            )));
         }
         Ok(("channel/change/info", b))
     }
@@ -150,8 +132,8 @@ inventory::submit! {
     }
 }
 
-/// #10 POST /api/cses/channel/change/notice — 公告 CAS → update_channel（不发旧 notice 事件）。
-/// 真源 `command.ChangeChannelNotice`：`{id, notice:{text}, expectedVersion}`。
+/// #10 POST /api/cses/channel/change/notice — 公告事务更新 → update_channel（不发旧 notice 事件）。
+/// 真源 `command.ChangeChannelNotice`：`{id, notice:{text}}`。
 struct ChangeNoticeCommand;
 impl OutboundCommand for ChangeNoticeCommand {
     fn name(&self) -> &'static str {
@@ -167,22 +149,11 @@ impl OutboundCommand for ChangeNoticeCommand {
             .get("text")
             .and_then(Value::as_str)
             .ok_or_else(|| ImError::Parse(format!("{}: notice.text 必须为字符串", self.name())))?;
-        let expected_version = args
-            .get("expected_version")
-            .and_then(Value::as_i64)
-            .filter(|version| *version >= 0)
-            .ok_or_else(|| {
-                ImError::Parse(format!(
-                    "{}: expected_version 必须为非负 int64",
-                    self.name()
-                ))
-            })?;
         Ok((
             "channel/change/notice",
             json!({
                 "id": channel_id,
                 "notice": {"text": text},
-                "expectedVersion": expected_version,
             }),
         ))
     }
@@ -224,13 +195,15 @@ inventory::submit! {
 }
 
 /// #?? POST /api/cses/channel/change/permission — 改群权限（@提醒/公告/置顶权限）→ update_channel。
-/// body = `{channelId, mentionPermission?, noticePermission?, topPermission?, expectedVersion}`。
+/// body = `{channelId, mentionPermission?, noticePermission?, topPermission?}`。
 /// 权限是 partial patch；每个显式值必须属于 Go authority 的四值 allowlist。
 struct ChangePermissionCommand;
 impl OutboundCommand for ChangePermissionCommand {
     fn name(&self) -> &'static str {
         "im_channel_change_permission"
     }
+
+    /// 将权限 partial patch 序列化为无版本条件的 Go HTTP 请求。
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         let channel_id = require_str(args, "channel_id", self.name())?;
         let mut body = json!({ "channelId": channel_id });
@@ -260,17 +233,6 @@ impl OutboundCommand for ChangePermissionCommand {
                 self.name()
             )));
         }
-        let expected_version = args
-            .get("expected_version")
-            .and_then(Value::as_i64)
-            .filter(|version| *version >= 0)
-            .ok_or_else(|| {
-                ImError::Parse(format!(
-                    "{}: expected_version 必须为非负 int64",
-                    self.name()
-                ))
-            })?;
-        body["expectedVersion"] = json!(expected_version);
         Ok(("channel/change/permission", body))
     }
 }
@@ -295,7 +257,7 @@ mod tests {
 
     use crate::outbound::registry::{handle_outbound, is_outbound};
 
-    /// im_channel_change_permission 正常路径：partial patch + expectedVersion 透传。
+    /// im_channel_change_permission 正常路径：partial patch 且不携带旧版本条件字段。
     #[test]
     fn change_permission_dispatch_and_body() {
         assert!(is_outbound("im_channel_change_permission"));
@@ -304,7 +266,6 @@ mod tests {
             "channel_id": "c1",
             "mention_permission": "CREATOR",
             "top_permission": "MEMBER",
-            "expected_version": 7,
         }))
         .unwrap();
         let effects = handle_outbound(
@@ -329,13 +290,14 @@ mod tests {
                 assert_eq!(body["mentionPermission"], "CREATOR");
                 assert!(body.get("noticePermission").is_none());
                 assert_eq!(body["topPermission"], "MEMBER");
-                assert_eq!(body["expectedVersion"], 7);
+                let legacy_version_key = format!("{}{}", "expected", "Version");
+                assert!(body.get(&legacy_version_key).is_none());
             }
             other => panic!("expected Http, got {other:?}"),
         }
     }
 
-    /// 缺全部权限、缺 CAS 或使用未知枚举 → Err（边界零信任，不 panic）。
+    /// 缺全部权限或使用未知枚举 → Err（边界零信任，不 panic）。
     #[test]
     fn change_permission_missing_field_errors() {
         let corr = Correlation::from_raw(2);
@@ -353,11 +315,7 @@ mod tests {
         )
         .is_err());
 
-        for invalid in [
-            json!({"channel_id": "c1", "mention_permission": "BOSS"}),
-            json!({"channel_id": "c1", "mention_permission": "OWNER", "expected_version": 1}),
-            json!({"channel_id": "c1", "mention_permission": "BOSS", "expected_version": -1}),
-        ] {
+        for invalid in [json!({"channel_id": "c1", "mention_permission": "OWNER"})] {
             assert!(handle_outbound(
                 "im_channel_change_permission",
                 &serde_json::to_vec(&invalid).unwrap(),
@@ -370,14 +328,13 @@ mod tests {
         }
     }
 
-    /// 公告命令只允许 `{text}` notice 与非负 expected_version，旧 map 形状一律拒绝。
+    /// 公告命令只允许 `{text}` notice，旧 map 形状一律拒绝。
     #[test]
-    fn change_notice_requires_text_and_expected_version() {
+    fn change_notice_requires_text_without_version_condition() {
         let corr = Correlation::from_raw(3);
         let payload = serde_json::to_vec(&json!({
             "channel_id": "c1",
             "notice": {"text": "公告"},
-            "expected_version": 7,
         }))
         .unwrap();
         let effects = handle_outbound(
@@ -388,7 +345,7 @@ mod tests {
             None,
             corr,
         )
-        .expect("notice CAS should dispatch");
+        .expect("notice update should dispatch");
         let Effect::Http { req, .. } = &effects[0] else {
             panic!("expected HTTP effect")
         };
@@ -398,14 +355,12 @@ mod tests {
             json!({
                 "id": "c1",
                 "notice": {"text": "公告"},
-                "expectedVersion": 7,
             })
         );
 
         for invalid in [
-            json!({"channel_id": "c1", "notice": {"message": "公告"}, "expected_version": 7}),
-            json!({"channel_id": "c1", "notice": {"text": "公告"}}),
-            json!({"channel_id": "c1", "notice": {"text": "公告"}, "expected_version": -1}),
+            json!({"channel_id": "c1", "notice": {"message": "公告"}}),
+            json!({"channel_id": "c1"}),
         ] {
             assert!(
                 handle_outbound(

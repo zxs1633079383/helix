@@ -50,7 +50,7 @@
 | im_channel_leave | G-16b / UC-5.3b member leave 广播 | channel_id | ∅ | http_write, transport_broadcast, projection | im:interaction:frame | active/declared |
 | im_channel_change_display_name | G-16c / UC-5.4 群属性修改 | channel_id, display_name | ∅ | http_write, projection | im:interaction:frame | active/declared |
 | im_channel_change_notice | G-16c / UC-5.4 群属性修改 | channel_id, notice | ∅ | http_write, projection | im:interaction:frame | active/declared |
-| im_channel_change_info | G-16c / UC-5.4 群属性修改 | channel_id | purpose, header, expected_version | http_write, projection | im:interaction:frame | active/declared |
+| im_channel_change_info | G-16c / UC-5.4 群属性修改 | channel_id | purpose, header | http_write, projection | im:interaction:frame | active/declared |
 | im_channel_change_top | G-17 / UC-5.5 频道置顶 | channel_id, top | ∅ | http_write, storage_upsert, projection | im:interaction:frame | active/declared |
 | im_set_message_top | G-18 / UC-5.5b 消息置顶 | channel_id, post_id | ∅ | http_write, projection | im:interaction:frame | active/declared |
 | im_set_message_untop | G-18 / UC-5.5b 消息置顶 | channel_id, post_id | ∅ | http_write, projection | im:interaction:frame | active/declared |

@@ -255,11 +255,37 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) {
-        let Some(projection) =
-            decode_settings_projection(expected_channel_id, causation_id, outcome)
-        else {
-            return;
-        };
+        tracing::debug!(
+            target: "cses.im.permission",
+            stage = "settings.reply.before_decode",
+            channel_id = expected_channel_id.as_str(),
+            causation_id = ?causation_id,
+            outcome_ok = matches!(outcome, PortOutcome::Ok(_)),
+            has_http_reply = matches!(outcome, PortOutcome::Ok(reply) if !reply.0.is_empty()),
+            "收到频道设置 authority 回包，准备校验投影"
+        );
+        let projection =
+            match decode_settings_projection(expected_channel_id, causation_id, outcome) {
+                Ok(projection) => projection,
+                Err(reason) => {
+                    tracing::debug!(
+                        target: "cses.im.permission",
+                        stage = "settings.reply.rejected",
+                        channel_id = expected_channel_id.as_str(),
+                        reason,
+                        "频道设置 authority 回包未通过 ADR-007/字段/版本校验，保持 fail-closed"
+                    );
+                    return;
+                }
+            };
+        tracing::debug!(
+            target: "cses.im.permission",
+            stage = "settings.reply.decoded",
+            channel_id = projection.channel_id.as_str(),
+            setting_version = projection.setting_version,
+            has_display_name = projection.display_name.is_some(),
+            "频道设置 authority 投影解析成功"
+        );
         let persist_corr = self.alloc_corr_internal();
         let mut row: Row = vec![
             (
@@ -298,6 +324,13 @@ impl ImModule {
             persist_corr,
             CorrelationContext::OutboundChannelSettingsPersist { projection },
         );
+        tracing::debug!(
+            target: "cses.im.permission",
+            stage = "settings.persist.accepted",
+            channel_id = expected_channel_id.as_str(),
+            persist_corr = persist_corr.raw(),
+            "频道设置持久化 effect 已入队，等待 durable readback"
+        );
     }
 
     /// 在 channel PersistOk 后释放频道设置的 MessageV3 权威事件。
@@ -309,10 +342,32 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), crate::error::ImError> {
         if !matches!(outcome, PortOutcome::Ok(_)) {
+            tracing::debug!(
+                target: "cses.im.permission",
+                stage = "settings.persist.rejected",
+                channel_id = projection.channel_id.as_str(),
+                setting_version = projection.setting_version,
+                reason = "storage_effect_failed",
+                "频道设置持久化未确认，不发布 Angular 权威事件"
+            );
             return Ok(());
         }
+        tracing::debug!(
+            target: "cses.im.permission",
+            stage = "settings.persist.completed",
+            channel_id = projection.channel_id.as_str(),
+            setting_version = projection.setting_version,
+            "频道设置持久化已确认，准备生成 channel update"
+        );
         let mut channel = projection.channel;
         let Some(channel_map) = channel.as_object_mut() else {
+            tracing::debug!(
+                target: "cses.im.permission",
+                stage = "settings.emit.rejected",
+                channel_id = projection.channel_id.as_str(),
+                reason = "channel_projection_not_object",
+                "频道设置投影不是对象，阻止伪造 Angular 事件"
+            );
             return Ok(());
         };
         // 只补齐已由 Go authority 确认的标识和版本，其他字段原样保留，避免构造伪 DialogItem。
@@ -324,26 +379,53 @@ impl ImModule {
             "settingVersion".to_string(),
             serde_json::Value::from(projection.setting_version),
         );
-        if let Ok(event) = crate::event::channel::update(channel) {
-            out.push(event.into_effect());
+        match crate::event::channel::update(channel) {
+            Ok(event) => {
+                tracing::debug!(
+                    target: "cses.im.permission",
+                    stage = "settings.emit.accepted",
+                    channel_id = projection.channel_id.as_str(),
+                    setting_version = projection.setting_version,
+                    "频道设置 channel update 已生成，等待总线/Angular 消费"
+                );
+                out.push(event.into_effect());
+            }
+            Err(error) => {
+                tracing::debug!(
+                    target: "cses.im.permission",
+                    stage = "settings.emit.rejected",
+                    channel_id = projection.channel_id.as_str(),
+                    reason = "channel_event_parse_failed",
+                    error = ?error,
+                    "频道设置 channel update 生成失败"
+                );
+            }
         }
         Ok(())
     }
 }
 
 fn response_data(outcome: &PortOutcome) -> Option<serde_json::Value> {
+    response_data_with_reason(outcome).ok()
+}
+
+/// 解包并校验 Go 成功响应；返回有限原因供权限 trace 诊断，绝不暴露响应正文。
+fn response_data_with_reason(outcome: &PortOutcome) -> Result<serde_json::Value, &'static str> {
     let PortOutcome::Ok(reply) = outcome else {
-        return None;
+        return Err("port_outcome_not_ok");
     };
-    let raw = crate::http_envelope::unwrap_sync_envelope(reply.0.as_ref()).ok()?;
-    let response: serde_json::Value = serde_json::from_slice(&raw).ok()?;
+    let raw = crate::http_envelope::unwrap_success_envelope(reply.0.as_ref(), "channel_settings")
+        .map_err(|_| "http_envelope_invalid_or_non_2xx")?;
+    let response: serde_json::Value =
+        serde_json::from_slice(&raw).map_err(|_| "body_json_invalid")?;
     if response.get("status").and_then(serde_json::Value::as_str) != Some("SUCCESS") {
-        return None;
+        return Err("body_status_not_success");
     }
     response
         .get("data")
         .cloned()
         .filter(serde_json::Value::is_object)
+        .ok_or("body_data_missing_or_not_object")
 }
 
 fn decode_make_topic_projection(
@@ -383,15 +465,16 @@ fn decode_settings_projection(
     expected_channel_id: ChannelId,
     causation_id: Option<String>,
     outcome: &PortOutcome,
-) -> Option<ChannelSettingsProjection> {
-    let data = response_data(outcome)?;
+) -> Result<ChannelSettingsProjection, &'static str> {
+    let data = response_data_with_reason(outcome)?;
     let channel_id = data
         .get("channelId")
         .or_else(|| data.get("id"))
         .and_then(serde_json::Value::as_str)
-        .and_then(ChannelId::from_str)?;
+        .ok_or("channel_id_missing_or_invalid")
+        .and_then(|value| ChannelId::from_str(value).ok_or("channel_id_format_invalid"))?;
     if channel_id != expected_channel_id {
-        return None;
+        return Err("channel_id_mismatch");
     }
     let settings = data
         .get("settings")
@@ -401,14 +484,23 @@ fn decode_settings_projection(
         .get("displayName")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
-    let purpose = settings.get("purpose")?.as_str()?.to_string();
-    let header = settings.get("header")?.as_str()?.to_string();
+    let purpose = settings
+        .get("purpose")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("purpose_missing_or_invalid")?
+        .to_string();
+    let header = settings
+        .get("header")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("header_missing_or_invalid")?
+        .to_string();
     let setting_version = data
         .get("settingVersion")
         .or_else(|| settings.get("settingVersion"))
         .and_then(serde_json::Value::as_u64)
-        .filter(|version| *version <= i64::MAX as u64)?;
-    Some(ChannelSettingsProjection {
+        .filter(|version| *version <= i64::MAX as u64)
+        .ok_or("setting_version_missing_or_invalid")?;
+    Ok(ChannelSettingsProjection {
         channel_id,
         channel: data.clone(),
         display_name,
@@ -417,4 +509,125 @@ fn decode_settings_projection(
         setting_version,
         causation_id,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_settings_projection, response_data_with_reason};
+    use crate::state::ChannelId;
+    use bytes::Bytes;
+    use helix_core::tick::{PortOutcome, ReplyBytes};
+    use serde_json::{json, Value};
+
+    /// 测试专用 ADR-007 base64 编码器，与 host 的标准表保持一致。
+    fn encode_base64(bytes: &[u8]) -> String {
+        const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut output = String::with_capacity(bytes.len().div_ceil(3) * 4);
+        for chunk in bytes.chunks(3) {
+            let b0 = chunk[0] as u32;
+            let b1 = chunk.get(1).copied().unwrap_or_default() as u32;
+            let b2 = chunk.get(2).copied().unwrap_or_default() as u32;
+            let value = (b0 << 16) | (b1 << 8) | b2;
+            output.push(TABLE[((value >> 18) & 63) as usize] as char);
+            output.push(TABLE[((value >> 12) & 63) as usize] as char);
+            output.push(if chunk.len() > 1 {
+                TABLE[((value >> 6) & 63) as usize] as char
+            } else {
+                '='
+            });
+            output.push(if chunk.len() > 2 {
+                TABLE[(value & 63) as usize] as char
+            } else {
+                '='
+            });
+        }
+        output
+    }
+
+    /// 构造 Host 回灌的 HTTP 信封，确保测试覆盖真实 Go body 解包边界。
+    fn outcome(data: Value) -> PortOutcome {
+        let body = serde_json::to_vec(&json!({ "status": "SUCCESS", "data": data })).unwrap();
+        let envelope = serde_json::to_vec(&json!({
+            "status": 200,
+            "headers": [],
+            "body": encode_base64(&body),
+        }))
+        .unwrap();
+        PortOutcome::Ok(ReplyBytes(Bytes::from(envelope)))
+    }
+
+    /// 成功设置回包必须能形成后续持久化与事件所需的完整投影。
+    #[test]
+    fn decodes_complete_settings_projection_from_adr007_reply() {
+        let channel_id = ChannelId::from_str("chfixx00000000000000000001").unwrap();
+        let projection = decode_settings_projection(
+            channel_id,
+            Some("op-settings-1".to_string()),
+            &outcome(json!({
+                "id": channel_id.as_str(),
+                "purpose": "purpose",
+                "header": "notice",
+                "settingVersion": 17,
+                "canEditChannelSettings": true,
+            })),
+        )
+        .expect("complete authority projection should decode");
+        assert_eq!(projection.channel_id, channel_id);
+        assert_eq!(projection.setting_version, 17);
+        assert_eq!(projection.purpose, "purpose");
+        assert_eq!(projection.header, "notice");
+        assert_eq!(projection.causation_id.as_deref(), Some("op-settings-1"));
+    }
+
+    /// 缺少 purpose/header/version 的 HTTP 200 不能制造空 channel update。
+    #[test]
+    fn rejects_sparse_success_body_instead_of_emitting_partial_projection() {
+        let channel_id = ChannelId::from_str("chfixx00000000000000000001").unwrap();
+        let sparse = outcome(json!({
+            "id": channel_id.as_str(),
+            "mentionPermission": "MANAGER",
+        }));
+        assert_eq!(
+            decode_settings_projection(channel_id, None, &sparse),
+            Err("purpose_missing_or_invalid")
+        );
+    }
+
+    /// 只有 ADR-007 成功 body 才能进入设置投影解析。
+    #[test]
+    fn rejects_non_success_body_before_projection() {
+        let body = serde_json::to_vec(&json!({ "status": "ERROR", "data": {} })).unwrap();
+        let envelope = serde_json::to_vec(&json!({
+            "status": 200,
+            "headers": [],
+            "body": encode_base64(&body),
+        }))
+        .unwrap();
+        let outcome = PortOutcome::Ok(ReplyBytes(Bytes::from(envelope)));
+        assert_eq!(
+            response_data_with_reason(&outcome),
+            Err("body_status_not_success")
+        );
+    }
+
+    /// HTTP 非 2xx 即使 body 伪装 SUCCESS 也不能推进设置持久化屏障。
+    #[test]
+    fn rejects_non_2xx_http_envelope_before_body_success() {
+        let body = serde_json::to_vec(&json!({
+            "status": "SUCCESS",
+            "data": {"id": "chfixx00000000000000000001"}
+        }))
+        .unwrap();
+        let envelope = serde_json::to_vec(&json!({
+            "status": 409,
+            "headers": [],
+            "body": encode_base64(&body),
+        }))
+        .unwrap();
+        let outcome = PortOutcome::Ok(ReplyBytes(Bytes::from(envelope)));
+        assert_eq!(
+            response_data_with_reason(&outcome),
+            Err("http_envelope_invalid_or_non_2xx")
+        );
+    }
 }

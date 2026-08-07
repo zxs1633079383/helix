@@ -1524,7 +1524,6 @@ mod channel_sync_contract_tests {
                 &mut out,
             )
             .expect("member snapshot emits channel page");
-
         let page = event(&out.as_slice()[0]);
         let items = page["data"]["items"].as_array().expect("items array");
         assert_eq!(items.len(), 2, "cross-company rows must be fail-closed");

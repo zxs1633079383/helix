@@ -88,12 +88,6 @@ fn normalize_public_semantics(public: &str, obj: &mut Map<String, Value>) -> Res
             );
             copy_setting(&settings, obj, &["description", "purpose"], "purpose");
             copy_setting(&settings, obj, &["rules", "header"], "header");
-            copy_setting(
-                &settings,
-                obj,
-                &["expectedVersion", "expected_version"],
-                "expected_version",
-            );
         }
         _ => {}
     }

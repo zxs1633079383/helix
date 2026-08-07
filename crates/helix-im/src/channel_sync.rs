@@ -333,7 +333,7 @@ pub(crate) fn project_page_with_members(
         if team_id != scope.company_id {
             continue;
         }
-        let role = normalize_projection_role(text_field(object, &["role"]).unwrap_or("MEMBER"));
+        let source_role = text_field(object, &["role"]).unwrap_or("");
         let nickname = text_field(object, &["nick_name", "nickName", "nickname"]).unwrap_or("");
         by_channel
             .entry(channel_id.to_string())
@@ -344,7 +344,7 @@ pub(crate) fn project_page_with_members(
                 "teamId": team_id,
                 "nickName": nickname,
                 "nickname": nickname,
-                "role": role,
+                "role": source_role,
             }));
     }
 
@@ -402,19 +402,31 @@ fn attach_member_projection(
     let mut bosses = Vec::new();
     let mut owner = Value::Null;
     let mut visible = false;
+    let mut viewer_role = None;
     for member in members {
-        let Some(role) = member.get("role").and_then(Value::as_str) else {
+        let Some(source_role) = member.get("role").and_then(Value::as_str) else {
             continue;
         };
-        visible |= member
+        let role = normalize_projection_role(source_role);
+        let mut projected_member = member.clone();
+        if let Some(object) = projected_member.as_object_mut() {
+            object.insert("role".to_string(), Value::String(role.to_string()));
+        }
+        let is_viewer = member
             .get("userId")
             .and_then(Value::as_str)
             .is_some_and(|id| id == scope.viewer_user_id);
-        match role {
-            "OWNER" if owner.is_null() => owner = member.clone(),
-            "ADMIN" => admins.push(member.clone()),
-            "BOSS" => bosses.push(member.clone()),
-            _ => regular.push(member.clone()),
+        visible |= is_viewer;
+        if is_viewer {
+            // Keep the raw authority value for capability resolution; the normalized
+            // display role must not turn an unknown or missing source role into MEMBER.
+            viewer_role = canonical_projection_role(source_role);
+        }
+        match normalize_projection_role(role) {
+            "OWNER" if owner.is_null() => owner = projected_member.clone(),
+            "ADMIN" => admins.push(projected_member.clone()),
+            "BOSS" => bosses.push(projected_member.clone()),
+            _ => regular.push(projected_member),
         }
     }
     let Some(object) = row.as_object_mut() else {
@@ -425,6 +437,11 @@ fn attach_member_projection(
     object.insert("boss".to_string(), Value::Array(bosses));
     object.insert("owner".to_string(), owner);
     object.insert("memberCount".to_string(), Value::from(members.len() as u64));
+    // The channel row does not own viewer identity; carry the scoped member role into the
+    // render-ready row so capability fallback follows the same authority as Go increment.
+    if let Some(role) = viewer_role {
+        object.insert("role".to_string(), Value::String(role.to_string()));
+    }
     if object.contains_key("member_count") {
         object.insert(
             "member_count".to_string(),
@@ -448,6 +465,17 @@ fn normalize_projection_role(role: &str) -> &'static str {
         "ADMIN" | "MANAGER" | "MANGER" => "ADMIN",
         "BOSS" => "BOSS",
         _ => "MEMBER",
+    }
+}
+
+/// Convert a persisted member role to the canonical Go capability role, failing closed for unknown input.
+fn canonical_projection_role(role: &str) -> Option<&'static str> {
+    match role.trim().to_ascii_uppercase().as_str() {
+        "OWNER" | "CREATOR" => Some("CREATOR"),
+        "ADMIN" | "MANAGER" | "MANGER" => Some("MANAGER"),
+        "BOSS" => Some("BOSS"),
+        "MEMBER" => Some("MEMBER"),
+        _ => None,
     }
 }
 
@@ -567,7 +595,7 @@ mod tests {
                 "channel_id": format!("channel-{index}"),
                 "user_id": "user-a",
                 "team_id": "company-a",
-                "role": if index == 0 { "OWNER" } else { "MEMBER" },
+                "role": if index == 0 { "CREATOR" } else { "MEMBER" },
                 "nick_name": format!("成员 {index}"),
             }));
         }
@@ -584,6 +612,9 @@ mod tests {
         assert_eq!(page[0]["owner"]["userId"], "user-a");
         assert_eq!(page[0]["memberCount"], 1);
         assert_eq!(page[0]["owner"]["nickName"], "成员 0");
+        assert_eq!(page[0]["role"], "CREATOR");
+        assert_eq!(page[0]["canEditChannelSettings"], true);
+        assert_eq!(page[0]["canManageMembers"], true);
     }
 
     #[test]
@@ -625,5 +656,36 @@ mod tests {
                 .expect("valid snapshots");
         assert!(page.is_empty());
         assert!(!has_more);
+    }
+
+    /// Unknown viewer roles remain visible as a member row but never grant a capability.
+    #[test]
+    fn member_projection_fails_closed_for_unknown_viewer_role() {
+        let channels = serde_json::json!([{
+            "id": "channel-unknown-role",
+            "team_id": "company-a",
+            "type": "O",
+            "noticePermission": "MEMBER",
+            "topPermission": "MEMBER"
+        }]);
+        let members = serde_json::json!([{
+            "channel_id": "channel-unknown-role",
+            "user_id": "user-a",
+            "team_id": "company-a",
+            "role": "UNKNOWN"
+        }]);
+        let scope = crate::query::DialogListScope::new("user-a", "company-a");
+        let (page, has_more) = project_page_with_members(
+            &serde_json::to_vec(&channels).unwrap(),
+            &serde_json::to_vec(&members).unwrap(),
+            &scope,
+            0,
+        )
+        .expect("valid snapshots");
+        assert!(!has_more);
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0]["canManageMembers"], false);
+        assert_eq!(page[0]["canPublishNotice"], false);
+        assert_eq!(page[0]["canPinMessage"], false);
     }
 }

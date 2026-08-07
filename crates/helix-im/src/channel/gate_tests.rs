@@ -31,6 +31,51 @@ fn message_upsert_keeps_dedicated_event_seq_across_historical_refill() {
     assert!(historical.exclude_from_update.contains(&"event_seq"));
 }
 
+/// Readback upsert must guard only missing fields while allowing explicit empty values.
+#[test]
+fn message_readback_upsert_uses_presence_for_rich_columns() {
+    let channel_id = crate::state::test_channel_id(2);
+    let mut missing = crate::sync_session::PostFields {
+        id: "post-readback".to_string(),
+        temporary_id: "tmp-readback".to_string(),
+        ..Default::default()
+    };
+    let missing_event =
+        EventEnvelope::new(channel_id, Seq(0), EventKind::PostUpsert, missing.clone());
+    let StorageOp::BatchUpsert(missing_spec) = event_to_readback_upsert_op(&missing_event) else {
+        panic!("readback post must use BatchUpsert");
+    };
+    for column in [
+        "expedite_map",
+        "reply_id",
+        "reply_messages",
+        "reply_count",
+        "read_bits",
+    ] {
+        assert!(missing_spec.exclude_from_update.contains(&column));
+    }
+
+    missing.present_fields = crate::sync_session::POST_FIELD_EXPEDITE_MAP
+        | crate::sync_session::POST_FIELD_REPLY_ID
+        | crate::sync_session::POST_FIELD_REPLY_MESSAGES
+        | crate::sync_session::POST_FIELD_REPLY_COUNT
+        | crate::sync_session::POST_FIELD_READ_BITS;
+    let explicit_event = EventEnvelope::new(channel_id, Seq(0), EventKind::PostUpsert, missing);
+    let StorageOp::BatchUpsert(explicit_spec) = event_to_readback_upsert_op(&explicit_event) else {
+        panic!("readback post must use BatchUpsert");
+    };
+    for column in [
+        "expedite_map",
+        "reply_id",
+        "reply_messages",
+        "reply_count",
+        "read_bits",
+    ] {
+        assert!(!explicit_spec.exclude_from_update.contains(&column));
+    }
+    assert!(explicit_spec.exclude_from_update.contains(&"event_seq"));
+}
+
 fn is_too_long_emit(e: &Effect) -> bool {
     matches!(e, Effect::Emit { event }
             if String::from_utf8_lossy(event.0.as_ref()).contains("im:sync:too_long"))

@@ -76,7 +76,7 @@ fn public_command_semantics_adapt_ui_intents_inside_helix() {
 fn channel_settings_intent_maps_render_fields_to_go_channel_fields() {
     let normalized = normalize_command_payload(
         "im_channel_settings",
-        r#"{"channelId":"ch1","settings":{"displayName":"新群名","description":"群说明","rules":"群规则","expectedVersion":7}}"#.as_bytes(),
+        r#"{"channelId":"ch1","settings":{"displayName":"新群名","description":"群说明","rules":"群规则"}}"#.as_bytes(),
     )
     .expect("normalize settings");
     let value: Value = serde_json::from_slice(&normalized).expect("decode settings");
@@ -88,7 +88,15 @@ fn channel_settings_intent_maps_render_fields_to_go_channel_fields() {
     assert_eq!(value["display_name"], "新群名");
     assert_eq!(value["purpose"], "群说明");
     assert_eq!(value["header"], "群规则");
-    assert_eq!(value["expected_version"], 7);
+    assert_eq!(
+        value,
+        json!({
+            "channel_id": "ch1",
+            "display_name": "新群名",
+            "purpose": "群说明",
+            "header": "群规则"
+        })
+    );
     assert!(value.get("settings").is_none());
 }
 

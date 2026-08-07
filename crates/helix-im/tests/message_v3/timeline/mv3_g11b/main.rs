@@ -234,6 +234,10 @@ fn older_command(page_size: u64) -> helix_core::Tick {
         "im_load_older_context",
         json!({
             "channel_id": cid(CHANNEL),
+            "anchor": {
+                "postId": "srvfix00000000000000000001",
+                "createAt": 1_700_001_200_001_i64,
+            },
             "anchor_post_id": "srvfix00000000000000000001",
             "page_size": page_size,
             "req_id": REQUEST_ID,
@@ -295,6 +299,10 @@ fn g11b_older_waits_for_durable_scan_and_returns_query_result() {
     );
     assert_eq!(events[0]["data"]["body"]["hasOlder"], true);
     assert_eq!(events[0]["data"]["body"]["hasNewer"], false);
+    assert!(
+        events[0]["data"]["body"].get("generation").is_none(),
+        "G11b terminal must not expose Timeline generation"
+    );
     let encoded = serde_json::to_string(&events).unwrap();
     for forbidden in [
         "postReceived",
@@ -351,28 +359,40 @@ fn g11b_page_size_caps_before_io() {
     );
 }
 
-/// 锚点不在 attached window 时 fail-closed，不静默回退 latest。
+/// 锚点不需要 attached window；缺 coverage 时直接向 Go 发起一次请求。
 #[test]
-fn g11b_anchor_miss_has_no_fallback_io() {
+fn g11b_anchor_miss_starts_one_authority_io() {
     let mut harness =
         Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
     let command = command_json(
         "im_load_older_context",
         json!({
             "channel_id": cid(CHANNEL),
-            "anchor_post_id": "srvfix0000000000000000000000000099",
+            "anchor": {
+                "postId": "srvfix00000000000000000099",
+                "createAt": 1_700_001_200_099_i64,
+            },
+            "anchor_post_id": "srvfix00000000000000000099",
             "page_size": 20,
             "req_id": REQUEST_ID,
         }),
     );
-    harness
-        .module
-        .handle(&command, 1, &mut harness.sink)
-        .expect_err("anchor miss must reject");
-    assert!(
-        harness.sink.as_slice().is_empty(),
-        "anchor miss must not fallback latest"
-    );
+    harness.step(command, 1);
+    let http = only_http(&harness, Some("/posts/getPostsAfterIndex"));
+    let body = harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, req } if *corr == http => req
+                .body
+                .as_ref()
+                .and_then(|bytes| serde_json::from_slice::<Value>(bytes.as_ref()).ok()),
+            _ => None,
+        })
+        .expect("anchor miss authority body");
+    assert_eq!(body["direction"], "older");
+    assert_eq!(body["anchor"]["postId"], "srvfix00000000000000000099");
 }
 
 /// HTTP 失败只结算关联 error，且不产生 timeline 广播或第二 terminal。

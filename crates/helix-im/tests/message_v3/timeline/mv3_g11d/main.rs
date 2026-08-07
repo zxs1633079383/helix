@@ -319,6 +319,10 @@ fn g11d_context_waits_for_centered_durable_window() {
     );
     assert_eq!(events[0]["data"]["body"]["olderCursor"], "opaque-older-1");
     assert_eq!(events[0]["data"]["body"]["newerCursor"], "opaque-newer-1");
+    assert!(
+        events[0]["data"]["body"].get("generation").is_none(),
+        "G11d terminal must not expose Timeline generation"
+    );
     let encoded = serde_json::to_string(&events).unwrap();
     for forbidden in [
         "im:timeline:located",

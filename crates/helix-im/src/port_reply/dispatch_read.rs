@@ -25,18 +25,6 @@ impl ImModule {
         state: crate::timeline_navigation::TimelineNavigationState,
         out: &mut EffectSink,
     ) {
-        if state
-            .generation()
-            .is_some_and(|generation| generation != self.state.channel_sync_generation)
-        {
-            if let Some(request_id) = state.request_id() {
-                out.push(crate::read_relay::emit_read_error(
-                    request_id,
-                    "timeline generation is stale",
-                ));
-            }
-            return;
-        }
         // Coverage 元数据在本轮 read-back 中建立；没有完整 metadata 不能把消息数组误当命中。
         let Some(request_id) = state.request_id() else {
             self.start_timeline_navigation_http(state, out);
@@ -70,7 +58,6 @@ impl ImModule {
             "hasOlder": coverage.has_older,
             "hasNewer": coverage.has_newer,
             "pageSize": state.page_size(),
-            "generation": state.generation(),
         });
         if let Some(target_index) = coverage.target_index {
             body["targetPostId"] = serde_json::json!(state.anchor_message_id());
@@ -127,19 +114,7 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        // G11b-G11h 的 HTTP continuation 只由 corr/reqId/generation 关联；不得读取视觉 window。
-        if state
-            .generation()
-            .is_some_and(|generation| generation != self.state.channel_sync_generation)
-        {
-            if let Some(request_id) = state.request_id() {
-                out.push(crate::read_relay::emit_read_error(
-                    request_id,
-                    "timeline generation is stale",
-                ));
-            }
-            return Ok(());
-        }
+        // G11b-G11d 的 HTTP continuation 只由 owned corr/reqId/channel state 关联。
         let reply = match outcome {
             PortOutcome::Ok(reply) => reply,
             PortOutcome::Err(error) => {
@@ -266,7 +241,7 @@ impl ImModule {
         else {
             return Ok(());
         };
-        // Locate stale-generation filtering belongs to Angular; Helix only correlates reqId.
+        // Locate window lifecycle filtering belongs to Angular; Helix only correlates reqId.
         let _ = navigation_token;
         if let Some(request_id) = state.request_id() {
             out.push(crate::read_relay::emit_read_error(
@@ -321,19 +296,7 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        // Durable read-back 仍须匹配 corr；视觉 window 的淘汰由 Angular generation 处理。
-        if state
-            .generation()
-            .is_some_and(|generation| generation != self.state.channel_sync_generation)
-        {
-            if let Some(request_id) = state.request_id() {
-                out.push(crate::read_relay::emit_read_error(
-                    request_id,
-                    "timeline generation is stale",
-                ));
-            }
-            return Ok(());
-        }
+        // Durable read-back 仍须匹配 owned corr；客户端负责窗口生命周期淘汰。
         if matches!(
             state.kind(),
             crate::timeline_navigation::TimelineNavigationKind::Newer { .. }
@@ -506,7 +469,6 @@ impl ImModule {
                 "hasOlder": page.has_older,
                 "hasNewer": page.has_newer,
                 "pageSize": state.page_size(),
-                "generation": state.generation(),
                 "olderCursor": Value::Null,
                 "newerCursor": Value::Null,
             }),
@@ -542,7 +504,6 @@ impl ImModule {
                 "hasOlder": page.has_older,
                 "hasNewer": page.has_newer,
                 "pageSize": state.page_size(),
-                "generation": state.generation(),
                 "olderCursor": Value::Null,
                 "newerCursor": Value::Null,
             }),
@@ -567,7 +528,7 @@ impl ImModule {
                 "timeline locate result requires locate state".to_string(),
             ));
         };
-        // Locate center-scroll and stale generation handling belong to Angular.
+        // Locate center-scroll and window lifecycle handling belong to Angular.
         let page = state.page();
         Ok(crate::read_relay::emit_read_body(
             request_id,
@@ -579,7 +540,6 @@ impl ImModule {
                 "hasOlder": page.has_older,
                 "hasNewer": page.has_newer,
                 "pageSize": state.page_size(),
-                "generation": state.generation(),
                 "targetPostId": state.anchor_message_id(),
                 "targetIndex": state.target_index(),
                 "olderCursor": state.older_cursor().cloned().unwrap_or(Value::Null),

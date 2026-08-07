@@ -96,14 +96,13 @@ G11a latest 的既有对外语义保持不变；older/newer/locate 不再要求�
 前置条件，也不承担滚动状态。Angular 负责 `ViewerLocalWindow`、merge、scroll 与 Dialog/
 generation；Helix 只负责请求关联、权限结果回灌、durable readback 和单终态。
 
-older/newer 直接接收 `{channelId, anchor:{createAt,postId}, pageSize, reqId, generation,
-operation}`，locate 接收 targetPostId；Go 是 postId 映射、排序、`limit+1`、边界和 targetIndex
+older/newer 直接接收 `{channelId, anchor:{createAt,postId}, pageSize, reqId, operation}`，locate 接收
+targetPostId；Timeline `generation` 不属于 G11b/G11c/G11d 请求或 Helix owned state。Go 是 postId 映射、排序、`limit+1`、边界和 targetIndex
 的唯一权威。Helix 先查本地持久化 coverage，LocalComplete 直接发一个终态且不产生 Go HTTP；
-LocalMiss/Insufficient 对同一 reqId 最多发一次 Go 请求，回灌后再发一个终态。重复 reqId、
-过期 generation 或 scope 不匹配均 fail-closed，不能产生第二终态。
+LocalMiss/Insufficient 对同一 reqId 最多发一次 Go 请求，回灌后再发一个终态。重复 reqId 或
+scope 不匹配均 fail-closed，不能产生第二终态；客户端仍负责 Host/window 生命周期淘汰。
 
-统一终态包含 `reqId/generation/channelId/operation/pageSize/items/target/bounds/hasOlder/
-hasNewer`；缺少覆盖元数据不能用数组长度推断 LocalComplete。真实 Go/WS、双用户、Native DOM
+统一终态包含 `reqId/channelId/operation/pageSize/items/target/bounds/hasOlder/hasNewer`；缺少覆盖元数据不能用数组长度推断 LocalComplete。真实 Go/WS、双用户、Native DOM
 和 canonical 证据仍需跨仓环境采集，不能由 Helix 单测替代。
 
 `timeline_state` 单测覆盖同频道换窗、旧 merge、当前 older、同 token 导航、跨频道隔离和 reset；

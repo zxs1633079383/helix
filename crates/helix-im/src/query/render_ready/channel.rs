@@ -263,6 +263,31 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
         "companyId",
         &["company_id", "companyId", "team_id", "teamId"],
     );
+    // Go still exposes channel.update_at for legacy settingVersion readers and the
+    // permissionRevision read-side ordering hint; permission writes no longer send it
+    // as a CAS condition. Prefer explicit columns when a newer schema has them.
+    insert_alias(
+        &mut output,
+        row,
+        "settingVersion",
+        &[
+            "setting_version",
+            "settingVersion",
+            "updated_at",
+            "updateAt",
+        ],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "permissionRevision",
+        &[
+            "permission_revision",
+            "permissionRevision",
+            "updated_at",
+            "updateAt",
+        ],
+    );
     insert_alias(&mut output, row, "userId", &["user_id", "userId"]);
     insert_alias(&mut output, row, "isActive", &["is_active", "isActive"]);
     insert_alias(
@@ -697,5 +722,29 @@ mod tests {
 
         assert_eq!(shaped["canManageSettings"], true);
         assert_eq!(shaped["canManageMembers"], false);
+    }
+
+    /// 回归锚: legacy channel rows use the durable update timestamp as the Go CAS version.
+    #[test]
+    fn restores_cas_versions_from_legacy_updated_at_rows() {
+        let shaped = shape_channel_row(&json!({
+            "id": "channel-cas-version",
+            "type": "P",
+            "role": "CREATOR",
+            "updated_at": 1_786_001_262_956_i64,
+        }));
+
+        assert_eq!(shaped["settingVersion"], 1_786_001_262_956_i64);
+        assert_eq!(shaped["permissionRevision"], 1_786_001_262_956_i64);
+
+        let explicit = shape_channel_row(&json!({
+            "id": "channel-explicit-version",
+            "updated_at": 10_i64,
+            "setting_version": 11_i64,
+            "permission_revision": 12_i64,
+        }));
+
+        assert_eq!(explicit["settingVersion"], 11_i64);
+        assert_eq!(explicit["permissionRevision"], 12_i64);
     }
 }

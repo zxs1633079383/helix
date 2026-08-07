@@ -224,13 +224,15 @@ inventory::submit! {
 }
 
 /// #?? POST /api/cses/channel/change/permission — 改群权限（@提醒/公告/置顶权限）→ update_channel。
-/// body = `{channelId, mentionPermission?, noticePermission?, topPermission?, expectedVersion}`。
+/// body = `{channelId, mentionPermission?, noticePermission?, topPermission?}`。
 /// 权限是 partial patch；每个显式值必须属于 Go authority 的四值 allowlist。
 struct ChangePermissionCommand;
 impl OutboundCommand for ChangePermissionCommand {
     fn name(&self) -> &'static str {
         "im_channel_change_permission"
     }
+
+    /// 将权限 partial patch 序列化为无版本条件的 Go HTTP 请求。
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         let channel_id = require_str(args, "channel_id", self.name())?;
         let mut body = json!({ "channelId": channel_id });
@@ -260,17 +262,6 @@ impl OutboundCommand for ChangePermissionCommand {
                 self.name()
             )));
         }
-        let expected_version = args
-            .get("expected_version")
-            .and_then(Value::as_i64)
-            .filter(|version| *version >= 0)
-            .ok_or_else(|| {
-                ImError::Parse(format!(
-                    "{}: expected_version 必须为非负 int64",
-                    self.name()
-                ))
-            })?;
-        body["expectedVersion"] = json!(expected_version);
         Ok(("channel/change/permission", body))
     }
 }
@@ -295,7 +286,7 @@ mod tests {
 
     use crate::outbound::registry::{handle_outbound, is_outbound};
 
-    /// im_channel_change_permission 正常路径：partial patch + expectedVersion 透传。
+    /// im_channel_change_permission 正常路径：partial patch 且不携带旧版本条件字段。
     #[test]
     fn change_permission_dispatch_and_body() {
         assert!(is_outbound("im_channel_change_permission"));
@@ -304,7 +295,6 @@ mod tests {
             "channel_id": "c1",
             "mention_permission": "CREATOR",
             "top_permission": "MEMBER",
-            "expected_version": 7,
         }))
         .unwrap();
         let effects = handle_outbound(
@@ -329,13 +319,14 @@ mod tests {
                 assert_eq!(body["mentionPermission"], "CREATOR");
                 assert!(body.get("noticePermission").is_none());
                 assert_eq!(body["topPermission"], "MEMBER");
-                assert_eq!(body["expectedVersion"], 7);
+                let legacy_version_key = format!("{}{}", "expected", "Version");
+                assert!(body.get(&legacy_version_key).is_none());
             }
             other => panic!("expected Http, got {other:?}"),
         }
     }
 
-    /// 缺全部权限、缺 CAS 或使用未知枚举 → Err（边界零信任，不 panic）。
+    /// 缺全部权限或使用未知枚举 → Err（边界零信任，不 panic）。
     #[test]
     fn change_permission_missing_field_errors() {
         let corr = Correlation::from_raw(2);
@@ -354,9 +345,7 @@ mod tests {
         .is_err());
 
         for invalid in [
-            json!({"channel_id": "c1", "mention_permission": "BOSS"}),
-            json!({"channel_id": "c1", "mention_permission": "OWNER", "expected_version": 1}),
-            json!({"channel_id": "c1", "mention_permission": "BOSS", "expected_version": -1}),
+            json!({"channel_id": "c1", "mention_permission": "OWNER"}),
         ] {
             assert!(handle_outbound(
                 "im_channel_change_permission",

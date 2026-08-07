@@ -1478,18 +1478,52 @@ mod channel_sync_contract_tests {
         let outcome = PortOutcome::Ok(ReplyBytes(Bytes::from(
             serde_json::to_vec(&rows).expect("rows JSON"),
         )));
-        let mut out = EffectSink::new();
+        let member_rows = serde_json::json!([
+            {
+                "channel_id": "creator-channel",
+                "user_id": "user-a",
+                "team_id": "company-a",
+                "role": "CREATOR"
+            },
+            {
+                "channel_id": "member-channel",
+                "user_id": "user-a",
+                "team_id": "company-a",
+                "role": "MEMBER"
+            }
+        ]);
+        let member_outcome = PortOutcome::Ok(ReplyBytes(Bytes::from(
+            serde_json::to_vec(&member_rows).expect("member rows JSON"),
+        )));
+        let mut scan_out = EffectSink::new();
 
         module
             .handle_channel_sync_page_reply(
-                session.channel_sync_session_id,
+                session.channel_sync_session_id.clone(),
                 session.generation,
                 0,
                 None,
                 &outcome,
+                &mut scan_out,
+            )
+            .expect("channel page schedules member snapshot");
+        assert!(scan_out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, helix_core::Effect::Persist { .. })));
+
+        let mut out = EffectSink::new();
+        module
+            .handle_channel_sync_page_member_reply(
+                session.channel_sync_session_id,
+                session.generation,
+                0,
+                None,
+                Box::new(rows),
+                &member_outcome,
                 &mut out,
             )
-            .expect("channel page emits");
+            .expect("member snapshot emits channel page");
 
         let page = event(&out.as_slice()[0]);
         let items = page["data"]["items"].as_array().expect("items array");

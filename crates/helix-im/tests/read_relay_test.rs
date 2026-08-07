@@ -115,7 +115,9 @@ fn search_do_registers_relay_and_passes_three_sections_through() {
             serde_json::json!({
                 "req_id": "search-do-1",
                 "keyword": "项目",
-                "cursor": "opaque-1",
+                "user_cursor": "user-opaque-1",
+                "channel_cursor": "channel-opaque-1",
+                "message_group_cursor": "message-opaque-1",
                 "page_size": 20
             }),
         ),
@@ -138,7 +140,13 @@ fn search_do_registers_relay_and_passes_three_sections_through() {
         .expect("search/do 必须产生 HTTP");
     assert_eq!(
         wire_body,
-        serde_json::json!({ "keyword": "项目", "cursor": "opaque-1", "pageSize": 20 })
+        serde_json::json!({
+            "keyword": "项目",
+            "userCursor": "user-opaque-1",
+            "channelCursor": "channel-opaque-1",
+            "messageGroupCursor": "message-opaque-1",
+            "pageSize": 20
+        })
     );
 
     let authority = serde_json::json!({

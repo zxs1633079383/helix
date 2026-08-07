@@ -233,7 +233,6 @@ fn search_post_builds_bounded_camel_body() {
         "im_search_post",
         json!({
             "req_id": "search-post-1",
-            "scope": "channel",
             "keyword": "hi",
             "channel_id": "cS",
             "sender_ids": ["u1"],
@@ -248,10 +247,9 @@ fn search_post_builds_bounded_camel_body() {
     assert_eq!(
         body,
         json!({
-            "scope": "channel",
             "keyword": "hi",
             "channelId": "cS",
-            "senderIds": ["u1"],
+            "senderUserIds": ["u1"],
             "contentTypes": ["FILE"],
             "startAt": 10,
             "endAt": 20,
@@ -261,13 +259,12 @@ fn search_post_builds_bounded_camel_body() {
     );
 }
 
-/// user/channel/do 共用必填 keyword 与有界分页合同，聚合搜索也必须是读族。
+/// user/channel 使用单 cursor；do 精确上行三段独立 cursor。
 #[test]
 fn search_user_channel_do_share_keyword_search_body() {
     for (name, ep) in [
         ("im_search_user", "search/user"),
         ("im_search_channel", "search/channel"),
-        ("im_search_do", "search/do"),
     ] {
         let (url, body) = one_http(run(
             name,
@@ -280,22 +277,63 @@ fn search_user_channel_do_share_keyword_search_body() {
         );
         assert!(is_read(name), "{name} 必须注册为读族");
     }
+    let (url, body) = one_http(run(
+        "im_search_do",
+        json!({
+            "req_id":"rq-do", "keyword":"q", "user_cursor":"u",
+            "channel_cursor":"c", "message_group_cursor":"m", "page_size":10
+        }),
+    ));
+    assert_eq!(url, "http://x/api/cses/search/do");
+    assert_eq!(
+        body,
+        json!({
+            "keyword":"q", "userCursor":"u", "channelCursor":"c",
+            "messageGroupCursor":"m", "pageSize":10
+        })
+    );
+    assert!(is_read("im_search_do"));
 }
 
-/// 搜索边界拒绝缺 req_id、空 keyword、空筛选、非法 scope/时间和越界页长。
+/// 搜索边界兼容 legacy scope 但不上行；拒绝缺 req_id、空筛选、非法 scope/时间和越界页长。
 #[test]
 fn search_boundaries_fail_closed() {
-    assert!(err(
+    let (_, channel_only) = one_http(run(
         "im_search_post",
-        json!({ "req_id": "r", "scope": "channel", "keyword": "x" })
+        json!({ "req_id": "channel-only", "channel_id": " c1 " }),
     ));
+    assert_eq!(channel_only, json!({ "channelId": "c1" }));
+    let (_, scoped) = one_http(run(
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "channel", "keyword": "x" }),
+    ));
+    assert!(scoped.get("scope").is_none());
+    assert!(scoped.get("channelId").is_none());
+    let (_, flat) = one_http(run(
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "global", "channel_id": "c", "keyword": "x" }),
+    ));
+    assert_eq!(flat["channelId"], "c");
+    assert!(flat.get("scope").is_none());
     assert!(err(
         "im_search_post",
         json!({ "req_id": "r", "scope": "global" })
     ));
     assert!(err(
         "im_search_post",
+        json!({ "req_id": "r", "scope": "invalid", "keyword": "x" })
+    ));
+    assert!(err(
+        "im_search_post",
         json!({ "req_id": "r", "scope": "global", "keyword": "x", "start_at": 2, "end_at": 1 })
+    ));
+    assert!(err(
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "global", "keyword": "x", "start_at": (i64::MAX as u64) + 1 })
+    ));
+    assert!(err(
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "global", "keyword": "x", "end_at": (i64::MAX as u64) + 1 })
     ));
     assert!(err(
         "im_search_post",
@@ -305,8 +343,16 @@ fn search_boundaries_fail_closed() {
     assert!(err("im_search_channel", json!({ "keyword": "x" })));
     assert!(err(
         "im_search_do",
-        json!({ "req_id": "r", "keyword": "x", "cursor": "" })
+        json!({ "req_id": "r", "keyword": "x", "cursor": "wrong" })
     ));
+    for payload in [
+        json!({ "req_id": "r", "keyword": "界".repeat(513) }),
+        json!({ "req_id": "r", "channel_id": "c".repeat(129) }),
+        json!({ "req_id": "r", "sender_ids": vec!["u"; 101] }),
+        json!({ "req_id": "r", "sender_ids": ["u".repeat(129)] }),
+    ] {
+        assert!(err("im_search_post", payload));
+    }
 }
 
 /// 服务端 session 权威字段和排序策略禁止从任何搜索命令透传。

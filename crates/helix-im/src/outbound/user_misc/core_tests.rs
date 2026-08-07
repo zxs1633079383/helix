@@ -208,7 +208,6 @@ fn search_post_camel_case_body() {
         "im_search_post",
         json!({
             "req_id": "rq-1",
-            "scope": "channel",
             "channel_id": "c1",
             "keyword": " hi ",
             "sender_ids": ["u1", "u2"],
@@ -220,21 +219,26 @@ fn search_post_camel_case_body() {
         }),
     );
     assert_eq!(url, "http://h/api/cses/search/post");
-    assert_eq!(body["scope"], json!("channel"));
     assert_eq!(body["channelId"], json!("c1"));
     assert_eq!(body["keyword"], json!("hi"));
-    assert_eq!(body["senderIds"], json!(["u1", "u2"]));
+    assert_eq!(body["senderUserIds"], json!(["u1", "u2"]));
     assert_eq!(body["contentTypes"], json!(["FILE", "IMAGE"]));
     assert_eq!(body["startAt"], json!(10));
     assert_eq!(body["endAt"], json!(20));
     assert_eq!(body["cursor"], json!("next-1"));
     assert_eq!(body["pageSize"], json!(25));
     assert!(body.get("reqId").is_none());
+    assert!(body.get("scope").is_none());
 }
 
-/// search/post：允许纯筛选查询，并拒绝缺 scope、空查询、非法时间与越界分页。
+/// search/post：scope 仅兼容旧调用方读取，flat/group 只由 channel_id 是否存在决定。
 #[test]
 fn search_post_filter_and_boundaries_fail_closed() {
+    let (_, channel_only) = dispatch(
+        "im_search_post",
+        json!({ "req_id": "rq-channel-only", "channel_id": " c1 " }),
+    );
+    assert_eq!(channel_only, json!({ "channelId": "c1" }));
     let (_, body) = dispatch(
         "im_search_post",
         json!({
@@ -245,11 +249,19 @@ fn search_post_filter_and_boundaries_fail_closed() {
         }),
     );
     assert_eq!(body["contentTypes"], json!(["FILE"]));
+    assert!(body.get("scope").is_none());
+    let (_, grouped) = dispatch(
+        "im_search_post",
+        json!({ "req_id": "rq-global", "scope": "channel", "keyword": "x" }),
+    );
+    assert!(grouped.get("scope").is_none());
+    assert!(grouped.get("channelId").is_none());
     for invalid in [
-        json!({ "req_id": "r", "channel_id": "c1", "keyword": "x" }),
-        json!({ "req_id": "r", "scope": "channel", "keyword": "x" }),
+        json!({ "req_id": "r", "scope": "invalid", "keyword": "x" }),
         json!({ "req_id": "r", "scope": "global" }),
         json!({ "req_id": "r", "scope": "global", "keyword": "x", "start_at": 20, "end_at": 10 }),
+        json!({ "req_id": "r", "scope": "global", "keyword": "x", "start_at": (i64::MAX as u64) + 1 }),
+        json!({ "req_id": "r", "scope": "global", "keyword": "x", "end_at": (i64::MAX as u64) + 1 }),
         json!({ "req_id": "r", "scope": "global", "keyword": "x", "page_size": 51 }),
         json!({ "req_id": "r", "scope": "global", "keyword": "x", "cursor": "" }),
     ] {
@@ -264,15 +276,31 @@ fn search_post_filter_and_boundaries_fail_closed() {
         )
         .is_err());
     }
+    for invalid in [
+        json!({ "req_id": "r", "keyword": "界".repeat(513) }),
+        json!({ "req_id": "r", "channel_id": "c".repeat(129) }),
+        json!({ "req_id": "r", "sender_ids": vec!["u"; 101] }),
+        json!({ "req_id": "r", "sender_ids": ["u".repeat(129)] }),
+    ] {
+        let payload = serde_json::to_vec(&invalid).unwrap();
+        assert!(handle_outbound(
+            "im_search_post",
+            &payload,
+            "http://h/api/cses",
+            "http://h",
+            None,
+            Correlation::from_raw(3)
+        )
+        .is_err());
+    }
 }
 
-/// user/channel/do：共享必填 keyword、有界 cursor/page_size 与本地 req_id 合同。
+/// user/channel 使用单 cursor；do 使用三段独立 cursor。
 #[test]
 fn keyword_search_commands_share_bounded_wire_contract() {
     for (name, endpoint) in [
         ("im_search_user", "search/user"),
         ("im_search_channel", "search/channel"),
-        ("im_search_do", "search/do"),
     ] {
         let (url, body) = dispatch(
             name,
@@ -289,6 +317,41 @@ fn keyword_search_commands_share_bounded_wire_contract() {
             json!({ "keyword": "张三", "cursor": "cursor-1", "pageSize": 50 })
         );
     }
+    let (url, body) = dispatch(
+        "im_search_do",
+        json!({
+            "req_id": "rq-global",
+            "keyword": " 张三 ",
+            "user_cursor": "u-next",
+            "channel_cursor": "c-next",
+            "message_group_cursor": "m-next",
+            "page_size": 50
+        }),
+    );
+    assert_eq!(url, "http://h/api/cses/search/do");
+    assert_eq!(
+        body,
+        json!({
+            "keyword":"张三",
+            "userCursor":"u-next",
+            "channelCursor":"c-next",
+            "messageGroupCursor":"m-next",
+            "pageSize":50
+        })
+    );
+    let payload = serde_json::to_vec(&json!({
+        "req_id":"rq-global", "keyword":"x", "cursor":"wrong"
+    }))
+    .unwrap();
+    assert!(handle_outbound(
+        "im_search_do",
+        &payload,
+        "http://h/api/cses",
+        "http://h",
+        None,
+        Correlation::from_raw(10)
+    )
+    .is_err());
 }
 
 /// 四个搜索命令缺失 req_id 时必须在发 HTTP 前拒绝，避免 UI promise 永久挂起。
@@ -301,7 +364,7 @@ fn search_commands_require_req_id() {
         "im_search_do",
     ] {
         let body = if name == "im_search_post" {
-            json!({ "scope": "global", "keyword": "x" })
+            json!({ "keyword": "x" })
         } else {
             json!({ "keyword": "x" })
         };

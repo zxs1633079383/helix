@@ -31,6 +31,17 @@ impl Channel {
         self.terminal_event_seq
     }
 
+    /// 从本地 channel 投影恢复已删除/已关闭终态；序列为 0 也必须阻断补偿。
+    pub(crate) fn mark_projection_terminal(&mut self, terminal_seq: Seq) {
+        if self.is_terminal() {
+            return;
+        }
+        self.terminal_event_seq = Some(terminal_seq);
+        self.buffer.clear();
+        self.gate = None;
+        self.last_sync_from_seq = None;
+    }
+
     /// 从启动 scan 恢复 closed tombstone。终态水位必须已经被 cursor 同批提交；否则宁可
     /// 不注册该 marker，也不能让一个超前 tombstone 绕过连续游标不变量。
     pub(crate) fn restore_terminal(&mut self, terminal_seq: Seq) -> bool {

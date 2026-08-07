@@ -187,6 +187,10 @@ pub struct ImState {
     /// 而缺失 `increment_channel` / `im:channel:increment`。
     pub pending_increment_bootstrap_after_scan: bool,
 
+    /// 启动 channel 投影扫描成功后才允许向 Go/心跳发送 active cursor 集合。
+    /// 扫描失败保持 false，避免未知的删除频道重新进入补偿链路。
+    pub startup_channel_projection_ready: bool,
+
     /// 当前 hello increment 批次尚未提交的 channel/member 写，global end 时合并为一个
     /// `Persist{corr}`；driver ack 前不得发布 increment/loaded 最终投影。
     pub(crate) pending_increment_ops: Vec<helix_core::effect::StorageOp>,
@@ -335,6 +339,7 @@ impl ImState {
             pong_gap_batch: crate::sync::pong_batch::PongGapBatch::default(),
             about_me_post_ids: Vec::new(),
             pending_increment_bootstrap_after_scan: false,
+            startup_channel_projection_ready: false,
             pending_increment_ops: Vec::new(),
             pending_increment_projections: Vec::new(),
             subtopic_sync_active: None,
@@ -482,6 +487,7 @@ impl ImState {
                     | CorrelationContext::MessageV3RevokeChannelPersist { .. }
                     | CorrelationContext::MessageV3RevokeChannelReadback
                     | CorrelationContext::SyncPull { .. }
+                    | CorrelationContext::ScanChannelProjections
                     | CorrelationContext::TooLongReload { .. }
                     | CorrelationContext::TooLongReloadPersist { .. }
                     | CorrelationContext::IncrementBatchPersist { .. }

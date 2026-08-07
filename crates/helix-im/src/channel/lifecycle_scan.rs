@@ -1,4 +1,5 @@
-//! `handle_scan_reply`（E4 / S2：on_start Scan{channel_event_cursor} 的 PortReply 处理）。
+//! `handle_scan_reply` 与 `handle_channel_projection_scan_reply`（E4 / S2：on_start
+//! 的 cursor/channel 双扫描 PortReply 处理）。
 //!
 //! 从 `lifecycle.rs` 拆出（structure-gate 300 行硬顶·many-small-files·零行为变更）。
 //! 仍是 `ImModule` 的 inherent 方法（Rust 多 impl 块），与 `lifecycle.rs` 其余生命周期
@@ -6,7 +7,7 @@
 
 use crate::error::ImError;
 use crate::module::ImModule;
-use crate::state::ChannelId;
+use crate::state::{ChannelId, Seq};
 use helix_core::EffectSink;
 
 impl ImModule {
@@ -96,32 +97,98 @@ impl ImModule {
             rows.len()
         );
 
-        // 若 hello 早于 scan 回包，首个 bootstrap increment 已经以空 cursors 发出。
-        // scan 载入 cursor 后补发一次带真实游标的 `/channels/load/increment`，让 Go 回推
-        // `increment_channel` 分片，恢复 UC-4.1 的 `im:channel:increment` 契约面。
-        if self.state.conn == crate::state::ConnState::Connected
-            && self.state.pending_increment_bootstrap_after_scan
-        {
-            self.state.pending_increment_bootstrap_after_scan = false;
-            if !self.state.channels.is_empty() {
-                let conn_id = self.state.connection_id.clone();
-                let cursors = self.channel_cursors();
-                let inc_corr = self.alloc_corr_internal();
-                out.push(crate::acl::to_effect::increment_http_trigger(
-                    &self.config.api_base_url,
-                    &cursors,
-                    inc_corr,
-                    conn_id.as_deref(),
-                ));
-            }
-        }
-
-        // 仅在已连接时触发 proactive resync（复用 Connected 路径逻辑）
-        // 若此时尚未连接，Connected 事件到来后会自行 resync
-        if self.state.conn == crate::state::ConnState::Connected {
-            self.emit_proactive_resync(out);
-        }
+        // 先读取 channel 投影，再决定哪些 cursor 可以进入补偿队列。
+        self.request_channel_projection_scan(out);
 
         Ok(())
     }
+
+    /// 处理 channel 投影扫描，删除/关闭频道直接进入本地 terminal，避免重启后继续补偿。
+    pub(crate) fn handle_channel_projection_scan_reply(
+        &mut self,
+        reply: &helix_core::tick::ReplyBytes,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let rows: Vec<serde_json::Value> = if reply.0.is_empty() {
+            vec![]
+        } else {
+            match serde_json::from_slice(reply.0.as_ref()) {
+                Ok(rows) => rows,
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        raw = %String::from_utf8_lossy(reply.0.as_ref()),
+                        "channel projection scan JSON parse failed; startup sync remains fail-closed"
+                    );
+                    return Ok(());
+                }
+            }
+        };
+
+        let mut terminal_count = 0usize;
+        for row in &rows {
+            let Some(channel_id) = row
+                .get("id")
+                .or_else(|| row.get("channel_id"))
+                .and_then(serde_json::Value::as_str)
+                .and_then(ChannelId::from_str)
+            else {
+                continue;
+            };
+            let delete_at = row
+                .get("delete_at")
+                .or_else(|| row.get("deleteAt"))
+                .and_then(as_i64)
+                .unwrap_or(0);
+            let is_remove = row
+                .get("is_remove")
+                .or_else(|| row.get("isRemove"))
+                .and_then(as_bool)
+                .unwrap_or(false);
+            if delete_at <= 0 && !is_remove {
+                continue;
+            }
+            let projection_seq = row
+                .get("last_event_seq")
+                .or_else(|| row.get("lastEventSeq"))
+                .and_then(as_i64)
+                .unwrap_or(0)
+                .max(0) as u64;
+            if let Some(channel) = self.state.channels.get_mut(&channel_id) {
+                let terminal_seq = Seq(projection_seq.max(channel.cursor.value().0));
+                channel.mark_projection_terminal(terminal_seq);
+                terminal_count += 1;
+            }
+        }
+
+        tracing::info!(
+            channel_count = rows.len(),
+            terminal_count,
+            "channel projection scan resolved; deleted channels excluded from sync"
+        );
+        self.state.startup_channel_projection_ready = true;
+        self.finish_startup_scan(out);
+        Ok(())
+    }
+}
+
+/// 读取 channel 投影中的整数列，拒绝布尔/浮点等非契约值。
+fn as_i64(value: &serde_json::Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|v| i64::try_from(v).ok()))
+}
+
+/// 读取 channel 投影中的删除标记，兼容 SQLite 整数与 JSON 布尔形态。
+fn as_bool(value: &serde_json::Value) -> Option<bool> {
+    value
+        .as_bool()
+        .or_else(|| value.as_i64().map(|v| v != 0))
+        .or_else(|| {
+            value.as_str().and_then(|v| match v {
+                "1" | "true" | "TRUE" => Some(true),
+                "0" | "false" | "FALSE" => Some(false),
+                _ => None,
+            })
+        })
 }

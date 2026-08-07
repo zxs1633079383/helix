@@ -548,7 +548,7 @@ impl Module for ImModule {
                 //      留着可继续推进 cursor（HX-C008 cursor 单调推进）；只是不再续拉 sync。
                 //      旧代码 continuation_pending.clear() 仅清续拉意图、故意不清 corr_to_channel
                 //      本体（module.rs 路由1 仍能推 cursor），此处逐字节保真。
-                //   3. OptimisticSend / ScanCursors 不动（旧代码同样不清）。
+                //   3. OptimisticSend / ScanCursors / ScanChannelProjections 不动（本地回报与连接无关）。
                 for ctx in self.state.corr_map.values_mut() {
                     if let CorrelationContext::ChannelPersist {
                         wants_continuation, ..
@@ -566,7 +566,7 @@ impl Module for ImModule {
         Ok(())
     }
 
-    /// 启动：Scan `channel_event_cursor` 载入 cursor，注册已知 channel 后触发 proactive sync。
+    /// 启动：先 Scan `channel_event_cursor` 与 `channel` 投影，过滤终态后才触发 proactive sync。
     fn on_start(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
         self.start_lifecycle(out)
             .map_err(|e| CoreError::ModuleError {

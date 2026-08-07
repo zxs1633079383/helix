@@ -2,16 +2,18 @@
 //!
 //! ## 验收场景
 //!
-//! on_start 发出 Persist{Scan(_helix_monotonic)}，PortReply 回来时：
-//! 1. 解析 rows（scope_key TEXT→u64 channel_id, value INTEGER→cursor）→ register_channel
-//! 2. 若已 Connected，批量发 proactive sync Http（与 Connected 路径复用）
+//! on_start 发出 Persist{Scan(channel_event_cursor)}，PortReply 回来时：
+//! 1. 解析 rows（channel_id TEXT + last_event_seq INTEGER）→ register_channel
+//! 2. 再扫描 channel 投影，过滤 delete_at/is_remove 后才发补偿 Http
 //! 3. 解析失败降级：log warn，不崩，空 channel 集启动仍可用
 //!
 //! ## schema 契约
 //!
-//! scan 目标表：`_helix_monotonic`（列：scope_key TEXT PRIMARY KEY, value INTEGER）
-//! 写路径：advance_cursor → MonotonicUpsert{scope_key=channel_id.to_string(), value=seq}
-//! 读路径：engine_loop rows_to_reply_bytes → JSON `[{"scope_key":"<u64>","value":N},...]`
+//! cursor 扫描目标表：`channel_event_cursor`（列：channel_id TEXT PRIMARY KEY,
+//! last_event_seq INTEGER）
+//! 写路径：advance_cursor → MonotonicUpsert{channel_id=channel_id.to_string(), value=seq}
+//! 读路径：engine_loop rows_to_reply_bytes → JSON
+//! `[{{"channel_id":"<channel-id>","last_event_seq":N}},...]`
 
 mod common;
 use common::*;
@@ -25,6 +27,17 @@ fn http_reqs(sink: &helix_core::EffectSink) -> Vec<(String, String)> {
         .iter()
         .filter_map(|e| match e {
             Effect::Http { req, .. } => Some((req.method.clone(), req.url.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 取当前 step 中新增的 Persist correlation，区分 cursor 与 channel 投影扫描。
+fn persist_corrs(sink: &helix_core::EffectSink) -> Vec<u64> {
+    sink.as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
             _ => None,
         })
         .collect()
@@ -55,13 +68,31 @@ fn scan_reply_registers_channels_and_syncs_on_connected() {
 
     // 在连接之前先回报 scan（尚未 Connected）
     let scan_effects = h.step(scan_port_reply, 100);
-    // scan reply 时尚未连接，不应产生 Http sync
+    // cursor scan reply 时尚未连接，不应产生 Http sync；随后先完成 channel 投影过滤。
     assert!(
         !scan_effects
             .iter()
             .any(|e| matches!(e, EffectKind::Http(_))),
         "scan reply before Connected should NOT emit Http sync, got: {:?}",
         scan_effects
+    );
+    let projection_scan_corr = persist_corrs(&h.sink)
+        .into_iter()
+        .next()
+        .expect("cursor scan should schedule channel projection scan");
+    let projection_effects = h.step(
+        port_reply_with_body(
+            projection_scan_corr,
+            channel_projection_scan_reply(&[(101, false, 50), (102, false, 100), (103, false, 0)]),
+        ),
+        150,
+    );
+    assert!(
+        !projection_effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::Http(_))),
+        "projection scan before Connected should NOT emit Http sync, got: {:?}",
+        projection_effects
     );
 
     // A4：Connected 只置 Connecting，不立即 resync（握手前 resync 会被 Go 401）
@@ -126,11 +157,21 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
         hello_reqs[0].1
     );
 
-    // 然后 scan 回报（已握手完成/Connected）→ 先补发 1 个带 cursor 的 bootstrap increment，
-    // E4 路径仍立即对 3 个 scan 载入 channel 发 sync Http 作为兜底。
+    // 然后 cursor scan 回报（已握手完成/Connected）；删除过滤完成后再补发 bootstrap/sync。
     let scan_body = scan_reply(&[(1, 10), (2, 20), (3, 30)]);
     let scan_port_reply = port_reply_with_body(scan_persist_corr, scan_body);
-    let reply_effects = h.step(scan_port_reply, 200);
+    h.step(scan_port_reply, 200);
+    let projection_scan_corr = persist_corrs(&h.sink)
+        .into_iter()
+        .next()
+        .expect("cursor scan should schedule channel projection scan");
+    let projection_effects = h.step(
+        port_reply_with_body(
+            projection_scan_corr,
+            channel_projection_scan_reply(&[(1, false, 10), (2, false, 20), (3, false, 30)]),
+        ),
+        250,
+    );
     let reqs = http_reqs(&h.sink);
     let increment_count = reqs
         .iter()
@@ -143,7 +184,7 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
     assert_eq!(
         (increment_count, sync_count),
         (1, 3),
-        "scan reply after Connected should retry increment once and emit 3 sync Http, got reqs={reqs:?}, effects={reply_effects:?}"
+        "channel projection scan should retry increment once and emit 3 sync Http, got reqs={reqs:?}, effects={projection_effects:?}"
     );
 }
 
@@ -174,7 +215,18 @@ fn scan_reply_after_empty_hello_retries_increment_with_loaded_cursors() {
     );
 
     let scan_body = scan_reply(&[(1, 10), (2, 20), (3, 30)]);
-    let reply_effects = h.step(port_reply_with_body(scan_persist_corr, scan_body), 200);
+    h.step(port_reply_with_body(scan_persist_corr, scan_body), 200);
+    let projection_scan_corr = persist_corrs(&h.sink)
+        .into_iter()
+        .next()
+        .expect("cursor scan should schedule channel projection scan");
+    let reply_effects = h.step(
+        port_reply_with_body(
+            projection_scan_corr,
+            channel_projection_scan_reply(&[(1, false, 10), (2, false, 20), (3, false, 30)]),
+        ),
+        250,
+    );
     let reqs: Vec<_> = h
         .sink
         .as_slice()
@@ -201,6 +253,83 @@ fn scan_reply_after_empty_hello_retries_increment_with_loaded_cursors() {
             .iter()
             .any(|e| matches!(e, EffectKind::Http(_))),
         "scan reply should emit retry/sync Http effects"
+    );
+}
+
+#[test]
+fn channel_projection_scan_marks_deleted_channel_terminal() {
+    let mut h = Harness::new(&[]);
+    let start_effects = h.start(0);
+    let cursor_scan_corr = start_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("on_start should emit cursor scan");
+
+    h.step(
+        port_reply_with_body(cursor_scan_corr, scan_reply(&[(7, 0)])),
+        100,
+    );
+    let projection_scan_corr = persist_corrs(&h.sink)
+        .into_iter()
+        .next()
+        .expect("cursor scan should schedule channel projection scan");
+    let projection_effects = h.step(
+        port_reply_with_body(
+            projection_scan_corr,
+            channel_projection_scan_reply(&[(7, true, 4)]),
+        ),
+        150,
+    );
+
+    assert_eq!(h.module.terminal_event_seq_for(channel_id(7)), Some(4));
+    assert!(
+        !http_reqs(&h.sink)
+            .iter()
+            .any(|(_, url)| url.ends_with("/channel/sync/notify")),
+        "deleted channel must not emit startup sync, got effects={projection_effects:?}"
+    );
+}
+
+#[test]
+fn channel_projection_scan_error_keeps_startup_sync_fail_closed() {
+    let mut h = Harness::new(&[]);
+    let start_effects = h.start(0);
+    let cursor_scan_corr = start_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("on_start should emit cursor scan");
+
+    h.step(
+        port_reply_with_body(cursor_scan_corr, scan_reply(&[(8, 12)])),
+        100,
+    );
+    let projection_scan_corr = persist_corrs(&h.sink)
+        .into_iter()
+        .next()
+        .expect("cursor scan should schedule channel projection scan");
+    let effects = h.step(port_reply_err(projection_scan_corr), 150);
+
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Http(_))),
+        "projection scan failure must not emit compensating HTTP, got: {effects:?}"
+    );
+    h.step(Tick::Connected(TransportId::from_raw(0)), 200);
+    h.step(hello_inbound("CONN_SCAN_ERROR"), 250);
+    let body = h
+        .last_http_body()
+        .expect("hello should emit increment HTTP");
+    assert_eq!(
+        body["cursors"].as_array().map(Vec::len),
+        Some(0),
+        "failed projection scan must keep the active cursor snapshot gated"
     );
 }
 

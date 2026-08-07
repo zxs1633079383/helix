@@ -6,10 +6,24 @@ use helix_core::{Effect, EffectSink};
 
 impl ImModule {
     pub(crate) fn channel_cursors(&self) -> Vec<(ChannelId, Seq)> {
+        if !self.state.startup_channel_projection_ready {
+            return Vec::new();
+        }
+        // 启动 cursor 已载入但 channel 投影尚未完成时，先保持空快照；否则 hello
+        // 可能把已删除频道再次交给 Go，投影过滤完成后再由 finish_startup_scan 重试。
+        if self
+            .state
+            .corr_map
+            .values()
+            .any(|context| matches!(context, CorrelationContext::ScanChannelProjections))
+        {
+            return Vec::new();
+        }
         let mut cursors: Vec<(ChannelId, Seq)> = self
             .state
             .channels
             .iter()
+            .filter(|(_, channel)| !channel.is_terminal())
             .map(|(&id, ch)| (id, ch.cursor.value()))
             .collect();
         cursors.sort_unstable_by_key(|(id, _)| *id);
@@ -232,8 +246,54 @@ impl ImModule {
         });
     }
 
-    /// 启动：Scan `channel_event_cursor` 载入 cursor，注册已知 channel 后触发 proactive sync。
+    /// 请求本地 channel 投影扫描，供 cursor 扫描完成后过滤删除/关闭频道。
+    pub(crate) fn request_channel_projection_scan(&mut self, out: &mut EffectSink) {
+        self.state.startup_channel_projection_ready = false;
+        let scan_corr = self.alloc_corr_internal();
+        out.push(Effect::Persist {
+            corr: scan_corr,
+            ops: vec![StorageOp::Scan(ScanSpec {
+                table: "channel",
+                limit: None,
+                filter: None,
+                order_by: &[],
+            })],
+        });
+        self.state
+            .corr_map
+            .insert(scan_corr, CorrelationContext::ScanChannelProjections);
+    }
+
+    /// 完成启动扫描：仅在删除频道过滤完成后重试 increment/resync。
+    pub(crate) fn finish_startup_scan(&mut self, out: &mut EffectSink) {
+        if !self.state.startup_channel_projection_ready {
+            return;
+        }
+        if self.state.conn == ConnState::Connected
+            && self.state.pending_increment_bootstrap_after_scan
+        {
+            self.state.pending_increment_bootstrap_after_scan = false;
+            if !self.state.channels.is_empty() {
+                let conn_id = self.state.connection_id.clone();
+                let cursors = self.channel_cursors();
+                let inc_corr = self.alloc_corr_internal();
+                out.push(crate::acl::to_effect::increment_http_trigger(
+                    &self.config.api_base_url,
+                    &cursors,
+                    inc_corr,
+                    conn_id.as_deref(),
+                ));
+            }
+        }
+
+        if self.state.conn == ConnState::Connected {
+            self.emit_proactive_resync(out);
+        }
+    }
+
+    /// 启动：Scan cursor 与 channel 投影，注册已知 channel 后触发 proactive sync。
     pub(crate) fn start_lifecycle(&mut self, out: &mut EffectSink) -> Result<(), ImError> {
+        self.state.startup_channel_projection_ready = false;
         // 1. 吐 Persist{corr, Scan(channel_event_cursor)} 载入全部 cursor
         // 首次启动表为空；driver scan no-table 降级为 Err，由 handle_scan_reply 处理。
         let scan_corr = self.alloc_corr_internal();

@@ -75,6 +75,15 @@ fn apply_increment_effects(ctx: &mut ImWsContext<'_>, inc: &IncrementChannel) ->
         .entry(channel_id)
         .or_insert_with(|| Channel::new(channel_id, 0));
 
+    // 增量帧可能早于启动后的 channel 投影扫描到达；先用同一帧的删除标记封口，
+    // 让本批 `increment_channel_end` 和 PongGap 都跳过已删除/已关闭频道。
+    if is_terminal_projection(inc.raw.as_ref()) {
+        if let Some(channel) = ctx.state.channels.get_mut(&channel_id) {
+            channel
+                .mark_projection_terminal(Seq(inc.last_event_seq.0.max(channel.cursor.value().0)));
+        }
+    }
+
     if ctx.state.increment_fetched.insert(channel_id) {
         ctx.state.increment_order.push(channel_id);
     }
@@ -131,6 +140,45 @@ fn apply_increment_effects(ctx: &mut ImWsContext<'_>, inc: &IncrementChannel) ->
     }
 
     effects
+}
+
+/// 判断 increment 投影是否已经是删除/关闭终态，兼容 Go/SQLite 的字段形态。
+fn is_terminal_projection(raw: &[u8]) -> bool {
+    let Ok(data) = serde_json::from_slice::<serde_json::Value>(raw) else {
+        return false;
+    };
+    let delete_at = data
+        .get("deleteAt")
+        .or_else(|| data.get("delete_at"))
+        .and_then(projection_i64)
+        .unwrap_or(0);
+    let is_remove = data
+        .get("isRemove")
+        .or_else(|| data.get("is_remove"))
+        .and_then(projection_bool)
+        .unwrap_or(false);
+    delete_at > 0 || is_remove
+}
+
+/// 读取删除标记中的整数值，拒绝浮点和任意字符串转换。
+fn projection_i64(value: &serde_json::Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|v| i64::try_from(v).ok()))
+}
+
+/// 读取删除标记中的布尔值，兼容 SQLite 0/1 和 JSON 布尔。
+fn projection_bool(value: &serde_json::Value) -> Option<bool> {
+    value
+        .as_bool()
+        .or_else(|| value.as_i64().map(|v| v != 0))
+        .or_else(|| {
+            value.as_str().and_then(|v| match v {
+                "1" | "true" | "TRUE" => Some(true),
+                "0" | "false" | "FALSE" => Some(false),
+                _ => None,
+            })
+        })
 }
 
 struct IncrementChannelHandler;

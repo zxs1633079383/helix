@@ -363,6 +363,8 @@ mod tests {
             .channels
             .insert(channel_id, Channel::new(channel_id, 42));
         state.increment_fetched.insert(channel_id);
+        // 该单元测试直接构造已载入的频道；等价于 on_start 的 channel 投影扫描已完成。
+        state.startup_channel_projection_ready = true;
 
         let mut next_corr = 91;
         let mut alloc_corr = || {

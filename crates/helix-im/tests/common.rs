@@ -451,6 +451,24 @@ pub fn scan_reply(rows: &[(u64, u64)]) -> bytes::Bytes {
     bytes::Bytes::from(serde_json::to_vec(&arr).unwrap())
 }
 
+/// 构造 channel 投影扫描回报，用于启动阶段删除/关闭频道 terminal 过滤。
+#[allow(dead_code)]
+pub fn channel_projection_scan_reply(rows: &[(u64, bool, u64)]) -> bytes::Bytes {
+    use serde_json::json;
+    let arr: Vec<_> = rows
+        .iter()
+        .map(|&(channel_id, deleted, last_event_seq)| {
+            json!({
+                "id": cid(channel_id),
+                "delete_at": if deleted { 1_i64 } else { 0_i64 },
+                "is_remove": 0_i64,
+                "last_event_seq": last_event_seq as i64,
+            })
+        })
+        .collect();
+    bytes::Bytes::from(serde_json::to_vec(&arr).unwrap())
+}
+
 // ─── C2：sync events + messages map（phantom / readBits / edit / revoke）────────
 
 /// 单条 ChannelEvent 描述（C2 测试用）：seq + type + msgId。

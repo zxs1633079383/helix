@@ -29,6 +29,7 @@ pub fn heartbeat_root_cursors(state: &ImState) -> Vec<RootCursor> {
     let mut roots: Vec<RootCursor> = state
         .channels
         .iter()
+        .filter(|(_, channel)| !channel.is_terminal())
         .map(|(&id, ch)| RootCursor {
             channel_id: id,
             from_seq: ch.cursor.value(),
@@ -184,5 +185,23 @@ mod tests {
         assert!(h
             .chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn heartbeat_omits_terminal_channels() {
+        let mut state = ImState::new();
+        let active = cid('a');
+        let closed = cid('b');
+        state
+            .channels
+            .insert(active, crate::channel::Channel::new(active, 3));
+        let mut closed_channel = crate::channel::Channel::new(closed, 4);
+        closed_channel.mark_projection_terminal(Seq(0));
+        state.channels.insert(closed, closed_channel);
+
+        let roots = heartbeat_root_cursors(&state);
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].channel_id, active);
+        assert_eq!(roots[0].from_seq, Seq(3));
     }
 }

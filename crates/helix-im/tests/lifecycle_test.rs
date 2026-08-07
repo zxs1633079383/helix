@@ -35,6 +35,27 @@ fn inc(channel_num: u64, last_event_seq: u64, need_sync: bool) -> IncrementChann
     }
 }
 
+/// 构造带删除投影标记的 IncrementChannel，覆盖 Go/SQLite 的字段命名形态。
+fn deleted_inc(
+    channel_num: u64,
+    last_event_seq: u64,
+    need_sync: bool,
+    field: &str,
+) -> IncrementChannel {
+    let value = if field == "deleteAt" {
+        serde_json::json!(1)
+    } else {
+        serde_json::json!(true)
+    };
+    let raw = serde_json::json!({field: value});
+    IncrementChannel {
+        channel_id: channel_id(channel_num),
+        last_event_seq: Seq(last_event_seq),
+        need_sync,
+        raw: bytes::Bytes::from(serde_json::to_vec(&raw).unwrap()),
+    }
+}
+
 // ─── on_start 行为 ────────────────────────────────────────────────────────────
 
 #[test]
@@ -164,6 +185,56 @@ fn increment_end_resync_preserves_deterministic_delivery_order() {
         vec![cid(3), cid(1), cid(2)],
         "NS-1: resync sync/notify 必须保留 increment 到达顺序，got {:?}",
         ids
+    );
+}
+
+#[test]
+fn deleted_increment_channel_is_terminal_before_global_end() {
+    let mut h = Harness::new(&[]);
+    let deleted = deleted_inc(41, 7, true, "deleteAt");
+    h.module.ingest_increment(&deleted, &mut h.sink);
+    assert_eq!(
+        h.module.terminal_event_seq_for(channel_id(41)),
+        Some(7),
+        "deleteAt increment must close the in-memory channel before batch end"
+    );
+
+    h.sink.clear();
+    h.module.ingest_increment_end(None, &mut h.sink);
+    assert_eq!(
+        http_reqs(&h.sink)
+            .iter()
+            .filter(|(_, url)| url.ends_with("/channel/sync/notify"))
+            .count(),
+        0,
+        "deleted increment must not enter global-end resync"
+    );
+
+    let removed = deleted_inc(42, 9, true, "isRemove");
+    h.module.ingest_increment(&removed, &mut h.sink);
+    assert_eq!(
+        h.module.terminal_event_seq_for(channel_id(42)),
+        Some(9),
+        "isRemove increment must close the in-memory channel"
+    );
+}
+
+#[test]
+fn terminal_channel_is_omitted_from_hello_increment_cursors() {
+    let mut h = Harness::new(&[]);
+    h.module
+        .ingest_increment(&deleted_inc(43, 5, true, "deleteAt"), &mut h.sink);
+    h.start(0);
+    h.step(Tick::Connected(TransportId::from_raw(0)), 500);
+    h.step(hello_inbound("CONN_TERMINAL"), 600);
+
+    let body = h
+        .last_http_body()
+        .expect("hello should emit increment HTTP");
+    assert_eq!(
+        body["cursors"].as_array().map(Vec::len),
+        Some(0),
+        "terminal channel must not be sent back as an active increment cursor"
     );
 }
 

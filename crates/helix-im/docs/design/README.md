@@ -24,7 +24,7 @@
 - **发送 + echo 对账 ✅**：`im_send_message` → optimistic 落库 + `im:post:sending` + 15s timer → WS `post`/`posted` 回声 → `reconcile`（命中在途 `PendingSend` → server_id 覆写 + send_status='sent' + 撤 timer），未命中静默 no-op，超时标 `unsend`（无自动补发）。
 - **同步 ✅**：在线增量 push + 离线 pull（cursor 锚 `next_seq` 非 `max(seq)`，HX-C008）+ E3 续拉（`needs_continuation`/len≥500，双重终止保证）+ B2 冷启动自愈（local cursor < increment 水位 → 补 sync，once-only）+ 确定性 resync（HX-C010：HashMap 迭代前 `sort_unstable`）。
 - **gate 三阶段 ✅**：peek（只读）→ Persist 落库 → PortReply Ok 后 commit 推 cursor；cursor 单调不回退；buffer 上限 16384 或服务端 `too_long` → 清内存 buffer + drop 该 channel 本地 message 派生行 + reset Dialog 派生字段 + `im:sync:too_long` 全量重拉。
-- **corr_map + CorrelationContext ✅**：统一关联态单表（4 变体：`ScanCursors` / `ChannelPersist` / `OptimisticSend` / `SyncPull`），corr 全局单调唯一保证类别互斥路由。
+- **corr_map + CorrelationContext ✅**：统一关联态单表（包含 `ScanCursors` / `ScanChannelProjections` / `ChannelPersist` / `OptimisticSend` / `SyncPull`），corr 全局单调唯一保证类别互斥路由；启动投影扫描失败时保持 sync fail-closed。
 - **emit 11 个 `im:*` 事件 ✅**（真源 `acl/to_effect.rs`，经 `im:__bus__` 单总线）：
   `connection:established` / `channels:loaded` / `channel:increment` · `read` · `update` / `post:received` · `sending` · `updated` · `deleted` · `read` / `sync:too_long`。
 

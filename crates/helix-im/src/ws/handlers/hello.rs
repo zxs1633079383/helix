@@ -1,7 +1,7 @@
 use helix_core::EffectSink;
 
 use crate::error::ImError;
-use crate::state::{ChannelId, ConnState, Seq};
+use crate::state::{ChannelId, ConnState, CorrelationContext, Seq};
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
@@ -39,12 +39,24 @@ impl WsMessageHandler for HelloHandler {
             connection_id,
         ));
 
-        let mut cursors: Vec<(ChannelId, Seq)> = ctx
-            .state
-            .channels
-            .iter()
-            .map(|(&id, ch)| (id, ch.cursor.value()))
-            .collect();
+        // 启动 channel 投影扫描完成前不发送任何 active cursor；否则已删除频道会在
+        // hello 竞态窗口重新进入 Go 的增量/补偿链路。扫描成功后仍排除 terminal 聚合。
+        let mut cursors: Vec<(ChannelId, Seq)> = if ctx.state.startup_channel_projection_ready
+            && !ctx
+                .state
+                .corr_map
+                .values()
+                .any(|context| matches!(context, CorrelationContext::ScanChannelProjections))
+        {
+            ctx.state
+                .channels
+                .iter()
+                .filter(|(_, channel)| !channel.is_terminal())
+                .map(|(&id, ch)| (id, ch.cursor.value()))
+                .collect()
+        } else {
+            Vec::new()
+        };
         cursors.sort_unstable_by_key(|(id, _)| *id);
         ctx.state.pending_increment_bootstrap_after_scan = cursors.is_empty();
         let inc_corr = ctx.alloc_corr();

@@ -41,6 +41,23 @@ fn enqueue_and_drain_skips_missing_and_inflight_channels() {
     assert_eq!(state.sync_scheduler.pending_len(), 0);
 }
 
+/// 删除/关闭频道即使仍在 gap 列表，也不得重新进入 sync 队列。
+#[test]
+fn enqueue_and_drain_skips_projection_terminal_channel() {
+    let mut state = ImState::new();
+    let closed = test_channel_id(4);
+    let mut channel = Channel::new(closed, 0);
+    channel.mark_projection_terminal(crate::state::Seq(0));
+    state.channels.insert(closed, channel);
+
+    let mut out = EffectSink::new();
+    let mut alloc = mk_corr();
+    enqueue_and_drain(&mut state, "http://t", &[closed], &mut alloc, &mut out);
+
+    assert_eq!(state.sync_scheduler.inflight(), 0);
+    assert!(out.as_slice().is_empty());
+}
+
 /// drain 队首在出队后被注销 → 跳过并归还窗口（line 164-166 `None => release+continue`）。
 #[test]
 fn drain_skips_and_releases_window_for_removed_channel() {

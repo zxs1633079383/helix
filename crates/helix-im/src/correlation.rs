@@ -122,8 +122,11 @@ pub enum CorrelationContext {
     /// G-14a 提交成功后的 durable message 单行读回。
     MessageV3TemplateReadback,
 
-    /// on_start `Scan(_helix_monotonic)` 回报：载入 per-channel cursor + proactive resync（取代旧 `scan_corr`）。
+    /// on_start `Scan(channel_event_cursor)` 回报：载入 per-channel cursor，随后扫描 channel 投影。
     ScanCursors,
+
+    /// on_start `Scan(channel)` 回报：把已删除/已关闭频道标记为 terminal 后再启动补偿。
+    ScanChannelProjections,
 
     /// channel sync **Persist** 回报：推进 cursor，并把下一条连续实时事件交回 MessageV3 写屏障。
     /// （取代旧 `corr_to_channel` + `continuation_pending` 两张表——续拉意图降为本变体的

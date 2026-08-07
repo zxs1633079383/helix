@@ -418,9 +418,9 @@ mod phase2_contract_tests {
         assert!(module.state.channel_sync_session.is_none());
     }
 
-    /// 未附着窗口的 older 请求通过 req_id 回灌结构化失败，不再抛出 engine step parse error。
+    /// 未附着窗口的 older 请求直接进入 Timeline Reactor authority HTTP，不读取视觉窗口。
     #[test]
-    fn older_without_attached_window_returns_structured_failure() {
+    fn older_without_attached_window_uses_direct_authority_http() {
         let mut module = ImModule::new(crate::module::ImConfig::default());
         let mut out = EffectSink::new();
         module
@@ -435,15 +435,25 @@ mod phase2_contract_tests {
                 .expect("older payload serializes"),
                 &mut out,
             )
-            .expect("missing attachment is a structured failure");
+            .expect("missing attachment must use direct authority HTTP");
 
-        let Effect::Emit { event } = out.as_slice().first().expect("failure event emitted") else {
-            panic!("missing attachment must emit read result");
+        let Effect::Http { req, .. } = out.as_slice().first().expect("authority HTTP emitted")
+        else {
+            panic!("missing attachment must emit posts/getPostsAfterIndex HTTP");
         };
-        let event: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-        assert_eq!(event["event"], "im:read:result");
-        assert_eq!(event["data"]["req_id"], "older-failure-1");
-        assert!(event["data"].get("error").is_some());
+        assert_eq!(req.method, "POST");
+        assert!(req.url.ends_with("/posts/getPostsAfterIndex"));
+        let body: serde_json::Value =
+            serde_json::from_slice(req.body.as_ref().expect("authority request body")).unwrap();
+        assert_eq!(body["postIds"], "anchor-not-attached");
+        assert_eq!(body["direction"], "older");
+        assert_eq!(body["pageSize"], 40);
+        assert_eq!(body["anchor"]["postId"], "anchor-not-attached");
+        assert!(body["anchor"]["createAt"].is_null());
+        assert!(req
+            .headers
+            .iter()
+            .any(|(key, value)| key == "Cses-Track-Id" && value == "older-failure-1"));
     }
 
     /// ready 后 page 只注册当前 session 的 account-local Scan，未知 session fail-closed。

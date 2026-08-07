@@ -25,7 +25,8 @@ impl ImModule {
     /// 统一 `corr_map` 单表 + `match CorrelationContext` 分发（类别互斥靠 corr 全局唯一，见 state.rs
     /// `CorrelationContext` 不变量）：`remove(corr)` 取上下文 → `ChannelPersist` 委托
     /// `channel.on_persist_ok` 推 cursor / `OptimisticSend` 找 PendingSend / `ScanCursors`（E4）解析
-    /// on_start Scan rows（channel_id TEXT + last_event_seq INTEGER）→ register_channel + proactive sync。
+    /// on_start cursor rows（channel_id TEXT + last_event_seq INTEGER）→ register_channel；随后由
+    /// `ScanChannelProjections` 过滤删除/关闭频道后才允许 proactive sync。
     pub(crate) fn handle_port_reply(
         &mut self,
         corr: helix_core::Correlation,
@@ -243,11 +244,28 @@ impl ImModule {
                     self.handle_scan_reply(reply, out)?;
                 }
                 PortOutcome::Err(e) => {
-                    // 降级：scan 失败（包括首次启动表不存在 / no such table）不崩，空 channel 集仍可用
+                    // 降级：cursor scan 失败（包括首次启动表不存在）仍读取 channel 投影，
+                    // 已删除频道不能因为 cursor 表异常而重新进入补偿。
                     tracing::warn!(
                         corr = corr.raw(),
                         error = ?e,
-                        "scan channel_event_cursor failed (likely first run, no cursors yet), starting with empty channel set"
+                        "scan channel_event_cursor failed; continuing with channel projection scan"
+                    );
+                    self.request_channel_projection_scan(out);
+                }
+            },
+
+            CorrelationContext::ScanChannelProjections => match outcome {
+                PortOutcome::Ok(reply) => {
+                    self.handle_channel_projection_scan_reply(reply, out)?;
+                }
+                PortOutcome::Err(e) => {
+                    // 投影扫描失败时保持启动补偿闸门关闭，不伪造 terminal，也不让未知
+                    // 删除状态的频道继续发 sync；下一次 on_start 会重新扫描。
+                    tracing::warn!(
+                        corr = corr.raw(),
+                        error = ?e,
+                        "scan channel projection failed; startup sync remains fail-closed"
                     );
                 }
             },
@@ -969,6 +987,11 @@ impl ImModule {
                 causation_id: _,
             } => match outcome {
                 PortOutcome::Ok(_) => {
+                    // close/leave 的本地字段已经成功落库；立即封住当前内存聚合，
+                    // 避免同一连接后续的 increment、PongGap 或 gate 再发补偿。
+                    if let Some(channel) = self.state.channels.get_mut(&channel_id) {
+                        channel.mark_projection_terminal(channel.cursor.value());
+                    }
                     out.push(match transition {
                         crate::state::ChannelLifecycleTransition::Closed { delete_at } => {
                             crate::acl::to_effect_s1::emit_channel_closed(channel_id, delete_at)

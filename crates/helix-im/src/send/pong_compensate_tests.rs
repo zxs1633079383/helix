@@ -195,6 +195,34 @@ fn unknown_gap_channel_is_skipped_not_panicked() {
 }
 
 #[test]
+fn projection_terminal_gap_channel_is_not_compensated() {
+    let mut state = ImState::new();
+    let closed = test_channel_id(10);
+    let mut channel = Channel::new(closed, 0);
+    channel.mark_projection_terminal(crate::state::Seq(0));
+    state.channels.insert(closed, channel);
+
+    let mut out = EffectSink::new();
+    let mut alloc = mk_corr();
+    compensate_from_pong(
+        &mut state,
+        "http://t",
+        1_000,
+        &[closed],
+        true,
+        &mut alloc,
+        &mut out,
+    );
+
+    assert_eq!(
+        count_sync_http(&out),
+        0,
+        "deleted/closed channel must not be reintroduced by PongGap"
+    );
+    assert_eq!(state.sync_scheduler.pending_len(), 0);
+}
+
+#[test]
 fn throttle_dedups_same_channel_within_5s() {
     let mut state = ImState::new();
     let c1 = test_channel_id(1);

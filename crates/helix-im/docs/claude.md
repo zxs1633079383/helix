@@ -31,8 +31,10 @@ correlation 再做一次租户内 `channel_member` Scan；两次读取在 Helix 
 
 在线 `channel_member_role_updated` 不再把 `{userIds, role}` delta 透传给 Angular。Helix 先读回
 当前频道成员，确认目标成员已存在后以 `channel_id,user_id` 复合键原子 upsert 角色（撤销归一为
-`MEMBER`），PersistOk 后再次读回完整 roster，再发布既有 `im:channel:member-updated` 包装的
-绝对 `channel`。任何缺行、租户缺失、持久化失败或读回畸形都 fail-closed，旧 roster 保留。
+`MEMBER`），PersistOk 后先读回完整 `channel` 行，再读回完整 roster，合并当前 viewer 的绝对
+`role` 与 `can*` capability 后发布既有 `im:channel:member-updated` 包装的绝对 `channel`。
+`OWNER/CREATOR`、`ADMIN/MANAGER` 别名在 Helix 投影层归一；`members[].admin` 仍只是渲染字段，
+不参与 viewer 权限判定。任何缺行、租户缺失、持久化失败或读回畸形都 fail-closed，旧 roster 保留。
 
 `im_complete_channel_sync` 只接受当前 account/company 的 session，使用统一
 `im:read:result` 回传 `completed=true`；重复 complete 可重复得到同一成功 body，错误

@@ -307,6 +307,19 @@ fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
     });
     if let Some(remove_persist_corr) = remove_persist_corr {
         h.step(port_reply_ok(remove_persist_corr), 1_006);
+        let remove_channel_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
+            _ => None,
+        });
+        if let Some(remove_channel_corr) = remove_channel_corr {
+            h.step(
+                port_reply_with_body(
+                    remove_channel_corr,
+                    bytes::Bytes::from(serde_json::to_vec(&[] as &[serde_json::Value]).unwrap()),
+                ),
+                1_007,
+            );
+        }
         let remove_readback_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
             Effect::Persist { corr, .. } => Some(corr.raw()),
             _ => None,
@@ -326,7 +339,7 @@ fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
                         .unwrap(),
                     ),
                 ),
-                1_007,
+                1_008,
             );
         }
     }
@@ -374,12 +387,26 @@ fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
         panic!("role update must persist the role change atomically");
     };
     h.step(port_reply_ok(role_persist_corr), 1_002);
+    let role_channel_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { corr, .. } => Some(corr.raw()),
+        _ => None,
+    });
+    let Some(role_channel_corr) = role_channel_corr else {
+        panic!("role update must read back the channel projection after PersistOk");
+    };
+    h.step(
+        port_reply_with_body(
+            role_channel_corr,
+            bytes::Bytes::from(serde_json::to_vec(&[] as &[serde_json::Value]).unwrap()),
+        ),
+        1_003,
+    );
     let role_readback_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
         Effect::Persist { corr, .. } => Some(corr.raw()),
         _ => None,
     });
     let Some(role_readback_corr) = role_readback_corr else {
-        panic!("role update must read back the complete roster after PersistOk");
+        panic!("role update must read back the complete roster after channel projection");
     };
     h.step(
         port_reply_with_body(
@@ -395,7 +422,7 @@ fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
                 .unwrap(),
             ),
         ),
-        1_003,
+        1_004,
     );
     assert!(emit_names(&h.sink)
         .iter()
@@ -448,6 +475,146 @@ fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
         before,
         "quit_company thin bus 不得推进 cursor"
     );
+}
+
+/// 回归锚：添加管理员后，OWNER 的完整频道权限投影不能被 roster 读回覆盖掉。
+#[test]
+fn owner_role_readback_keeps_permissions_after_admin_change() {
+    let cid1 = cid(1);
+    let mut h = Harness::new_with_identity(&[1], "owner", "team-a", "", "", "");
+
+    dispatch(
+        &mut h,
+        json!({
+            "v": 1,
+            "action": "channel_member_role_updated",
+            "data": { "channelId": cid1, "userIds": ["admin-1"], "role": "ADMIN" }
+        }),
+        2_000,
+    )
+    .expect("admin role update must route Ok");
+
+    let role_scan_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { corr, .. } => Some(corr.raw()),
+        _ => None,
+    });
+    let Some(role_scan_corr) = role_scan_corr else {
+        panic!("role update must scan the target member before writing");
+    };
+    h.step(
+        port_reply_with_body(
+            role_scan_corr,
+            bytes::Bytes::from(
+                serde_json::to_vec(&[json!({
+                    "channel_id": cid1,
+                    "user_id": "admin-1",
+                    "team_id": "team-a",
+                    "role": "MEMBER",
+                })])
+                .unwrap(),
+            ),
+        ),
+        2_001,
+    );
+
+    let role_persist_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
+        _ => None,
+    });
+    let Some(role_persist_corr) = role_persist_corr else {
+        panic!("role update must persist the admin role atomically");
+    };
+    h.step(port_reply_ok(role_persist_corr), 2_002);
+
+    let channel_readback_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { corr, .. } => Some(corr.raw()),
+        _ => None,
+    });
+    let Some(channel_readback_corr) = channel_readback_corr else {
+        panic!("role update must read back the channel row before scanning members");
+    };
+    h.step(
+        port_reply_with_body(
+            channel_readback_corr,
+            bytes::Bytes::from(
+                serde_json::to_vec(&[json!({
+                    "id": cid1,
+                    "type": "P",
+                    "display_name": "权限回归群",
+                    "team_id": "team-a",
+                    "role": "MEMBER",
+                    "mention_permission": "MANAGER",
+                    "notice_permission": "MANAGER",
+                    "top_permission": "MANAGER",
+                    "setting_version": 42,
+                    "permission_revision": 42,
+                })])
+                .unwrap(),
+            ),
+        ),
+        2_003,
+    );
+
+    let member_readback_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { corr, .. } => Some(corr.raw()),
+        _ => None,
+    });
+    let Some(member_readback_corr) = member_readback_corr else {
+        panic!("role update must scan the complete member roster");
+    };
+    h.step(
+        port_reply_with_body(
+            member_readback_corr,
+            bytes::Bytes::from(
+                serde_json::to_vec(&[
+                    json!({
+                        "channel_id": cid1,
+                        "user_id": "owner",
+                        "team_id": "team-a",
+                        "role": "OWNER",
+                        "nick_name": "群主",
+                    }),
+                    json!({
+                        "channel_id": cid1,
+                        "user_id": "admin-1",
+                        "team_id": "team-a",
+                        "role": "ADMIN",
+                        "nick_name": "管理员",
+                    }),
+                ])
+                .unwrap(),
+            ),
+        ),
+        2_004,
+    );
+
+    let event: serde_json::Value = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).ok(),
+            _ => None,
+        })
+        .expect("role readback must emit member-updated");
+    assert_eq!(event["event"], "im:channel:member-updated");
+    let channel = &event["data"]["channel"];
+    assert_eq!(channel["role"], "OWNER");
+    assert_eq!(channel["displayName"], "权限回归群");
+    assert_eq!(channel["settingVersion"], 42);
+    assert_eq!(channel["permissionRevision"], 42);
+    for capability in [
+        "canEditChannelSettings",
+        "canManageSettings",
+        "canManageMembers",
+        "canMentionAll",
+        "canPublishNotice",
+        "canChangePermissions",
+        "canPinMessage",
+    ] {
+        assert_eq!(channel[capability], true, "OWNER capability {capability}");
+    }
+    assert_eq!(channel["adminUsers"][0]["userId"], "admin-1");
 }
 
 // ─── ③ change_channel_approval wire 值无 Status 后缀（常量名带 Status 是陷阱）──────

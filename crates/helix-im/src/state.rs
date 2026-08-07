@@ -505,6 +505,7 @@ impl ImState {
                     | CorrelationContext::ChannelMemberUpdatePersist { .. }
                     | CorrelationContext::ChannelMemberRoleScan { .. }
                     | CorrelationContext::ChannelMemberRolePersist { .. }
+                    | CorrelationContext::ChannelMemberRoleChannelReadback { .. }
                     | CorrelationContext::ChannelMemberRoleReadback { .. }
             )
         });

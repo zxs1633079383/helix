@@ -1049,8 +1049,19 @@ impl ImModule {
             CorrelationContext::ChannelMemberRolePersist { channel_id } => {
                 self.handle_channel_member_role_persist_reply(channel_id, outcome, out)?;
             }
-            CorrelationContext::ChannelMemberRoleReadback { channel_id } => {
-                self.handle_channel_member_role_readback_reply(channel_id, outcome, out)?;
+            CorrelationContext::ChannelMemberRoleChannelReadback { channel_id } => {
+                self.handle_channel_member_role_channel_readback_reply(channel_id, outcome, out)?;
+            }
+            CorrelationContext::ChannelMemberRoleReadback {
+                channel_id,
+                channel,
+            } => {
+                self.handle_channel_member_role_readback_reply(
+                    channel_id,
+                    channel.map(|value| *value),
+                    outcome,
+                    out,
+                )?;
             }
 
             CorrelationContext::OutboundChannelCreate {

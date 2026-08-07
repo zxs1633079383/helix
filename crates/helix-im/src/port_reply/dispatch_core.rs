@@ -702,7 +702,49 @@ impl ImModule {
         let corr = self.alloc_corr_internal();
         self.state.corr_map.insert(
             corr,
-            crate::state::CorrelationContext::ChannelMemberRoleReadback { channel_id },
+            crate::state::CorrelationContext::ChannelMemberRoleChannelReadback { channel_id },
+        );
+        out.push(helix_core::Effect::Persist {
+            corr,
+            ops: vec![helix_core::effect::StorageOp::Get(
+                helix_core::effect::GetSpec {
+                    table: "channel",
+                    key_col: "id",
+                    key_val: helix_core::effect::SqlValue::Text(channel_id.as_str().to_string()),
+                },
+            )],
+        });
+        Ok(())
+    }
+
+    /// 角色写后先读回本地频道行，再进入成员绝对 roster 读回，保留权限门槛。
+    pub(super) fn handle_channel_member_role_channel_readback_reply(
+        &mut self,
+        channel_id: crate::state::ChannelId,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let channel = match outcome {
+            PortOutcome::Ok(reply) => serde_json::from_slice::<serde_json::Value>(reply.0.as_ref())
+                .ok()
+                .and_then(|value| value.as_array().and_then(|rows| rows.first()).cloned())
+                .filter(|value| value.is_object()),
+            PortOutcome::Err(error) => {
+                tracing::warn!(
+                    channel_id = %channel_id.as_str(),
+                    error = ?error,
+                    "channel member role channel readback failed; continuing with roster-only projection"
+                );
+                None
+            }
+        };
+        let corr = self.alloc_corr_internal();
+        self.state.corr_map.insert(
+            corr,
+            crate::state::CorrelationContext::ChannelMemberRoleReadback {
+                channel_id,
+                channel: channel.map(Box::new),
+            },
         );
         out.push(helix_core::Effect::Persist {
             corr,
@@ -725,6 +767,7 @@ impl ImModule {
     pub(super) fn handle_channel_member_role_readback_reply(
         &mut self,
         channel_id: crate::state::ChannelId,
+        channel: Option<serde_json::Value>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -744,6 +787,7 @@ impl ImModule {
         let mut admins = Vec::new();
         let mut bosses = Vec::new();
         let mut owner = serde_json::Value::Null;
+        let mut viewer_role = None;
         for row in rows {
             let Some(object) = row.as_object() else {
                 continue;
@@ -770,6 +814,9 @@ impl ImModule {
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("MEMBER"),
             );
+            if !self.config.auth_user_id.is_empty() && user_id == self.config.auth_user_id {
+                viewer_role = Some(role);
+            }
             let nick_name = object
                 .get("nick_name")
                 .or_else(|| object.get("nickName"))
@@ -793,16 +840,44 @@ impl ImModule {
         }
         let member_count =
             members.len() + admins.len() + bosses.len() + usize::from(!owner.is_null());
-        let channel = crate::query::render_ready::channel::shape_channel_row(&serde_json::json!({
-            "id": channel_id.as_str(),
-            "channelId": channel_id.as_str(),
-            "members": members,
-            "adminUsers": admins,
-            "boss": bosses,
-            "owner": owner,
-            "memberCount": member_count,
-            "isMemberChange": true,
-        }));
+        let mut channel = channel.unwrap_or_else(|| {
+            serde_json::json!({
+                "id": channel_id.as_str(),
+                "channelId": channel_id.as_str(),
+            })
+        });
+        let Some(channel_object) = channel.as_object_mut() else {
+            tracing::warn!(channel_id = %channel_id.as_str(), "channel member role channel projection is not an object");
+            return Ok(());
+        };
+        channel_object.insert(
+            "id".to_string(),
+            serde_json::Value::String(channel_id.as_str().to_string()),
+        );
+        channel_object.insert(
+            "channelId".to_string(),
+            serde_json::Value::String(channel_id.as_str().to_string()),
+        );
+        channel_object.insert("members".to_string(), serde_json::Value::Array(members));
+        channel_object.insert("adminUsers".to_string(), serde_json::Value::Array(admins));
+        channel_object.insert("boss".to_string(), serde_json::Value::Array(bosses));
+        channel_object.insert("owner".to_string(), owner);
+        channel_object.insert(
+            "memberCount".to_string(),
+            serde_json::Value::from(member_count),
+        );
+        channel_object.insert("isMemberChange".to_string(), serde_json::Value::Bool(true));
+        if let Some(role) = viewer_role {
+            channel_object.insert(
+                "role".to_string(),
+                serde_json::Value::String(role.to_string()),
+            );
+        } else if !self.config.auth_user_id.is_empty() {
+            // Never reuse a stale channel role when the authenticated viewer is absent from the
+            // durable roster; the next full channel projection must re-establish authority.
+            channel_object.remove("role");
+        }
+        let channel = crate::query::render_ready::channel::shape_channel_row(&channel);
         out.push(
             crate::event::channel_member::updated(serde_json::json!({
                 "channelId": channel_id.as_str(),

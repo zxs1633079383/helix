@@ -1,5 +1,7 @@
 # MessageV3 Phase 3 Channel Domain Helix 交接
 
+> **2026-08-07 fix worktree 修订**：channel/channelMember outbound 写入已物理下线版本条件、冲突错误和 CAS 分支；当前有效 wire 不携带版本字段，普通失败按通用 envelope fail-closed。本文旧快照中的 CAS 描述仅作历史审计，不是当前生产合同。
+
 **协议：** `AGENT_HANDOFF/v1`
 **状态：** `PARTIAL`
 **更新时间：** 2026-08-03
@@ -68,8 +70,8 @@ receiver、真实 DB、Native、独立 persona、第二设备或 runtime provena
   branch=`codex/phase3-channel-member-20260804`，production commit=`47ec9ee0`。
 - `member_admin` 只接受 `NORMAL|STRONG|IGNORE` notify 与 `ADMIN|MEMBER` role；不新增 command、event
   或 storage 表。
-- `change_dedicated`/`change` 沿既有 command/correlation/PortReply 链加入 orient 0-30 字符、
-  `expected_version` CAS、权限部分补丁和 `BOSS/type=O` 边界。
+- `change_dedicated`/`change` 沿既有 command/correlation/PortReply 链保持 orient 0-30 字符、
+  无版本 wire、权限部分补丁和 `BOSS/type=O` 边界。
 - `trait_impl` 对显式 `req_id` 的 increment 保持既有 `OutboundReadReply`/`im:read:result` 纯读路径；
   无 req_id 的历史 hydration 兼容路径不改变，未新建第二 Result registry。
 - `member_admin` 的昵称、成员变更和 role wire 复用既有事件映射；presence 仍为 zero-event Result，

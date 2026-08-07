@@ -34,13 +34,13 @@
 -> ProjectionStore -> SurfaceRuntime -> typed component`
 
 纯本地已提交事实查询可以不新增持久化；任何写入型事实都不能用 HTTP/command receipt 代替
-匹配的提交屏障。频道生命周期、成员 roster 与 settingsVersion 均由 Frame 权威返回；版本冲突不由 UI 猜测覆盖。
+匹配的提交屏障。频道生命周期、成员 roster 与 settingsVersion 均由 Frame 权威返回；写入不依赖客户端版本条件，普通失败不由 UI 猜测覆盖。
 
 ## HTTP / WS
 
 - G-16: `POST /api/cses/channel/close` body `{channelId}`
 - G-16b: `POST /api/cses/channel/member/leave` body `{channelId,userId?,newCreator?}`
-- G-16c: `POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?,expectedVersion?}`；其他专用命令见 UC-5.5
+- G-16c: `POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?}`；其他专用命令见 UC-5.5；写入不携带客户端版本条件
 
 - G-16: `channel_close`
 - G-16b: `channel_member_update`, `quit_company`（公司域也可能推）

@@ -14,13 +14,13 @@ const GATE_ID: &str = "MV3-G10b";
 const CHANNEL_ID: &str = "chfixx0000000000000000000a";
 const NOW_MS: u64 = 1_700_001_800_000;
 
-/// 锁定 G10b 的完整只读参考包，供后续 notice CAS 测试复用。
+/// 锁定 G10b 的完整只读参考包，供后续 notice 写入测试复用。
 #[test]
 fn phase3_gate_reference_is_complete() {
     phase1_reference::assert_phase3_reference_gate(GATE_ID);
 }
 
-/// 从当前批次提取公告 HTTP correlation，确保成功与冲突共用现役 command 回路。
+/// 从当前批次提取公告 HTTP correlation，确保成功沿现役 command 回路回灌。
 fn http_corr(effects: &[Effect]) -> Result<helix_core::Correlation, String> {
     effects
         .iter()
@@ -53,9 +53,9 @@ fn emitted(effects: &[Effect]) -> Vec<Value> {
         .collect()
 }
 
-/// G10b 成功必须把 nested notice/text 与 expectedVersion 发给 Go，并在 PersistOk 后发布完整裸 DialogItem。
+/// G10b 成功必须把 nested notice/text 发给 Go，并在 PersistOk 后发布完整裸 DialogItem。
 #[test]
-fn g10b_cas_success_preserves_props_then_emits_bare_channel_update() -> Result<(), String> {
+fn g10b_success_preserves_props_then_emits_bare_channel_update() -> Result<(), String> {
     let mut harness =
         common::Harness::new_with_identity(&[], "g10b-actor", "g10b-company", "", "", "");
     harness.step(
@@ -64,7 +64,6 @@ fn g10b_cas_success_preserves_props_then_emits_bare_channel_update() -> Result<(
             json!({
                 "channel_id": CHANNEL_ID,
                 "notice": {"text": "After"},
-                "expected_version": 7,
             }),
         ),
         NOW_MS,
@@ -85,7 +84,6 @@ fn g10b_cas_success_preserves_props_then_emits_bare_channel_update() -> Result<(
         json!({
             "id": CHANNEL_ID,
             "notice": {"text": "After"},
-            "expectedVersion": 7,
         })
     );
 
@@ -135,53 +133,12 @@ fn g10b_cas_success_preserves_props_then_emits_bare_channel_update() -> Result<(
         .all(|event| event["event"] != "im:channel:settings-updated"));
     Ok(())
 }
-
-/// G10b 陈旧 CAS 回包必须零 Persist、零 event，不得由旧 update_channel_notice 路由伪造成功。
-#[test]
-fn g10b_stale_cas_conflict_has_zero_local_effects() -> Result<(), String> {
-    let mut harness =
-        common::Harness::new_with_identity(&[], "g10b-actor", "g10b-company", "", "", "");
-    harness.step(
-        common::command_json(
-            "im_channel_change_notice",
-            json!({
-                "channel_id": CHANNEL_ID,
-                "notice": {"text": "Stale"},
-                "expected_version": 7,
-            }),
-        ),
-        NOW_MS,
-    );
-    let corr = http_corr(harness.sink.as_slice())?;
-    let conflict = json!({
-        "status": "FAILURE",
-        "data": {
-            "code": "CHANNEL_SETTINGS_VERSION_CONFLICT",
-            "expectedVersion": 7,
-            "currentVersion": 8,
-        }
-    });
-    harness.step(
-        common::port_reply_with_body(
-            corr.raw(),
-            common::enveloped(Bytes::from(
-                serde_json::to_vec(&conflict).map_err(|error| error.to_string())?,
-            )),
-        ),
-        NOW_MS + 1,
-    );
-    assert!(harness.sink.as_slice().is_empty());
-    Ok(())
-}
-
-/// G10b 入站缺失/错误 notice 或 expected_version 时在 Helix 边界拒绝 HTTP。
+/// G10b 入站缺失或错误 notice 时在 Helix 边界拒绝 HTTP。
 #[test]
 fn g10b_invalid_notice_intent_has_zero_http_effects() {
     let cases = [
-        json!({"channel_id": CHANNEL_ID, "expected_version": 7}),
-        json!({"channel_id": CHANNEL_ID, "notice": {"message": "wrong"}, "expected_version": 7}),
-        json!({"channel_id": CHANNEL_ID, "notice": {"text": "x"}}),
-        json!({"channel_id": CHANNEL_ID, "notice": {"text": "x"}, "expected_version": -1}),
+        json!({"channel_id": CHANNEL_ID}),
+        json!({"channel_id": CHANNEL_ID, "notice": {"message": "wrong"}}),
     ];
     for payload in cases {
         let result = helix_im::outbound::handle_outbound(

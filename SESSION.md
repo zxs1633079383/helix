@@ -434,7 +434,9 @@
 
 🎯 EXPECT Spec006 转发 picker 的权威频道补偿查询在冷启动 18K+ 投影突发下仍返回目标群；可证伪断言：① `im_channel_query.condition.display_name` 出站严格还原为 Go `displayName`；② Native 默认有界事件窗口覆盖本轮已观测突发；③ Helix focused read/query、Tauri helix_im 与 dual-real-forward 全绿后才记账 T029 | 赌注 中 | 可逆 是 | @2026-08-01T05:10:00-0700
 
-## EXPECT（2026-08-06：频道群设置 CAS 版本读回修复）
+## 历史记录（2026-08-06：频道群设置版本读回修复）
+
+> **历史资料**：该条记录描述 CAS 下线前的失败路径；2026-08-07 fix worktree 已物理移除 channel/channelMember 写入版本条件。当前有效语义以 helix-im outbound、contracts 和三仓 fix worktree 为准。
 
 - 目标：修复 legacy Helix `channel` 行缺少 `settingVersion/permissionRevision` 导致 MessageV3 在进入 Tauri command 前抛出 `CHANNEL_SETTINGS_EXPECTED_VERSION_REQUIRED`。
 - 可证伪断言：`render_ready::channel::shape_channel_row` 对旧行以 `updated_at` 补出两个版本字段；客户端群资料/公告/权限控件在权威版本缺失时保持 fail-closed；聚焦测试、Rust 检查和前端 lint/test 可复现通过。

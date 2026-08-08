@@ -290,26 +290,20 @@ fn expected_event(event_seq: u64, confirmed: bool) -> Value {
     })
 }
 
-/// 构造同一次 authority 的会话级加急信号（`urgentPostList` 是会话列表闪电的权威源）。
+/// 构造同一次 authority 的当前 viewer 成员级加急信号。
 ///
 /// 本 fixture 的 `expediteMap.sender` 只有 id 没有 name，因此 `urgentCurrentName` 走空串降级。
-fn expected_channel_signal(confirmed: bool) -> Value {
+fn expected_channel_signal(viewer_id: &str, pending: bool) -> Value {
     json!({
         "event": "im:channel:update",
-        "data": if confirmed {
-            json!({
-                "channelId": CHANNEL_ID,
-                "urgentPostList": [],
-                "urgentCurrentName": "",
-                "hasUrgentPost": false
-            })
-        } else {
-            json!({
-                "channelId": CHANNEL_ID,
-                "urgentPostList": [POST_ID],
-                "urgentCurrentName": "",
-                "hasUrgentPost": true
-            })
+        "data": {
+            "channelId": CHANNEL_ID,
+            "userId": viewer_id,
+            "projectionAuthority": "server-member-absolute",
+            "memberScope": "current_user",
+            "urgentPostList": if pending { json!([POST_ID]) } else { json!([]) },
+            "urgentCurrentName": "",
+            "hasUrgentPost": pending,
         }
     })
 }
@@ -318,16 +312,21 @@ fn expected_channel_signal(confirmed: bool) -> Value {
 #[test]
 fn g07_emits_absolute_expedite_map_for_sender_and_receiver() -> TestResult<()> {
     let trace = run_gate()?;
-    // 每次 authority 的精确出站序列 = post 绝对投影 → 会话级加急信号（visual 参考包
-    // `post/mv3-g05c` / `post/mv3-g05d` outbound sequence 1 + 2）。
-    let expected = vec![
+    // 每次 authority 的精确出站序列 = post 绝对投影 → 当前成员的会话级信号。
+    let expected_sender = vec![
         expected_event(1, false),
-        expected_channel_signal(false),
+        expected_channel_signal(ACTOR_ID, false),
         expected_event(2, true),
-        expected_channel_signal(true),
+        expected_channel_signal(ACTOR_ID, false),
     ];
-    assert_eq!(trace.sender.events, expected);
-    assert_eq!(trace.receiver.events, expected);
+    let expected_receiver = vec![
+        expected_event(1, false),
+        expected_channel_signal(RECEIVER_ID, true),
+        expected_event(2, true),
+        expected_channel_signal(RECEIVER_ID, false),
+    ];
+    assert_eq!(trace.sender.events, expected_sender);
+    assert_eq!(trace.receiver.events, expected_receiver);
     let encoded = serde_json::to_string(&trace.sender.events).map_err(|error| error.to_string())?;
     for forbidden in [
         "actionCapabilities",

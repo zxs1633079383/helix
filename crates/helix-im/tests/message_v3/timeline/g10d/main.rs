@@ -136,17 +136,19 @@ fn remote_post(index: u32) -> Value {
     })
 }
 
-/// G-10d 新事实更新 newer 区域，但 anchor identity 保持不变。
+/// G-10d locate 是 windowless read result；后续 attached refresh 只追加新事实。
 #[test]
 fn g10d_preserves_anchor_and_exposes_newer_hint() -> TestResult<()> {
     let trace = run_success()?;
     assert_eq!(trace.events.len(), 1);
     let event = &trace.events[0];
     assert_eq!(event["event"], "im:timeline:update");
-    assert_eq!(event["data"]["direction"], "newer");
-    assert_eq!(event["data"]["anchorPostId"], TARGET_ID);
-    assert_eq!(event["data"]["newerCount"], 11);
-    assert_eq!(event["data"]["hasNewer"], true);
+    assert_eq!(event["data"]["direction"], "append");
+    assert_eq!(event["data"]["anchorPostId"], Value::Null);
+    assert_eq!(event["data"]["hasNewer"], false);
+    assert_eq!(event["data"]["messages"].as_array().map(Vec::len), Some(20));
+    assert_eq!(event["data"]["messages"][19]["id"], base::server_id(21));
+    assert!(event["data"].get("newerCount").is_none());
     Ok(())
 }
 

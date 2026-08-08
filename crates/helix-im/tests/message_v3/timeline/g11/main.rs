@@ -36,27 +36,30 @@ fn run_success() -> TestResult<PersonaTrace> {
     })
 }
 
-/// G-11 定位终态携带 bounded window、目标与显式 reveal 数据。
+/// G-11 定位终态通过 reqId 返回 bounded window，中心滚动由消费者执行。
 #[test]
 fn g11_locates_target_in_active_bounded_window() -> TestResult<()> {
     let trace = run_success()?;
     assert_eq!(trace.events.len(), 1);
     let event = &trace.events[0];
-    assert_eq!(event["event"], "im:timeline:located");
-    assert_eq!(event["data"]["state"], "ready");
+    assert_eq!(event["event"], "im:read:result");
+    assert_eq!(event["data"]["req_id"], "g10d-locate-request");
+    let body = &event["data"]["body"];
+    assert_eq!(body["reqId"], "g10d-locate-request");
+    assert_eq!(body["channelId"], "chfixx0000000000000000001c");
+    assert_eq!(body["operation"], "locate");
+    assert_eq!(body["targetPostId"], "srvfix0000000000000000000a");
+    assert_eq!(body["targetIndex"], 5);
+    assert_eq!(body["hasOlder"], true);
+    assert_eq!(body["hasNewer"], true);
     assert_eq!(
-        event["data"]["targetMessageId"],
-        "srvfix0000000000000000000a"
-    );
-    assert_eq!(event["data"]["revealPostId"], "srvfix0000000000000000000a");
-    assert_eq!(event["data"]["navigationToken"], "g10d-navigation");
-    assert_eq!(
-        event["data"]["messages"]
+        body["messages"]
             .as_array()
             .ok_or_else(|| "G-11 messages must be array".to_string())?
             .len(),
-        11
+        1
     );
+    assert_eq!(body["messages"][0]["id"], "srvfix0000000000000000000a");
     Ok(())
 }
 

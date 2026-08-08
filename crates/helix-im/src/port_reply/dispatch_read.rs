@@ -185,6 +185,12 @@ impl ImModule {
             self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
             return Ok(());
         }
+        // 空 authority 页没有可写消息；跳过空 Persist，直接进入 bounded Scan，
+        // 兼容真实 C++ storage bridge 不为零操作写集发送回执的运行时合同。
+        if ops.is_empty() {
+            self.schedule_timeline_navigation_readback(state, out)?;
+            return Ok(());
+        }
         let corr = self.alloc_corr_internal();
         out.push(Effect::Persist { corr, ops });
         self.state

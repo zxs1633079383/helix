@@ -20,6 +20,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:post:send-failed",
     "im:post:increment-failed",
     "im:messages:query_result",
+    "im:timeline:ready",
     "im:timeline:window",
     "im:timeline:update",
     "im:timeline:located",
@@ -114,6 +115,7 @@ mod tests {
         assert!(events.iter().any(|e| e == "im:post:increment-failed"));
         assert!(events.iter().any(|e| e == "im:post:send-failed"));
         assert!(events.iter().any(|e| e == "im:timeline:window"));
+        assert!(events.iter().any(|e| e == "im:timeline:ready"));
         assert!(events.iter().any(|e| e == "im:operation:status"));
         assert!(events.iter().any(|e| e == "im:channel:member-updated"));
         assert!(!events.iter().any(|e| e == "im:channel:left"));

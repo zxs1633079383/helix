@@ -109,6 +109,8 @@ fn authoritative_readback_page_size(visible_items: Option<usize>) -> u32 {
 #[cfg(test)]
 mod authoritative_readback_tests {
     use super::*;
+    use bytes::Bytes;
+    use helix_core::tick::{PortOutcome, ReplyBytes};
 
     /// 空窗口沿用时间线默认页长，避免发出显式零值。
     #[test]
@@ -172,6 +174,190 @@ mod authoritative_readback_tests {
             .as_slice()
             .iter()
             .any(|effect| matches!(effect, Effect::CancelTimer { .. })));
+    }
+
+    /// timeline 新代际丢弃旧投影时，retry 的权威 temporaryId 仍必须进入退避链。
+    #[test]
+    fn stale_timeline_generation_still_schedules_authoritative_retry() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let channel_id = crate::state::test_channel_id(31);
+        let temporary_id = crate::state::TemporaryId("tmp-authority-stale-generation".to_string());
+        let mut pending = crate::pending_send::PendingSend::new(
+            temporary_id.clone(),
+            helix_core::TimerId::from_raw(42),
+            None,
+        );
+        pending.status = crate::state::SendStatus::Sending;
+        pending.authoritative_readback_after_http = true;
+        pending.body = Some(serde_json::json!({
+            "temporaryId": temporary_id.0,
+            "channelId": channel_id.as_str(),
+        }));
+        module
+            .state
+            .pending_sends
+            .insert(temporary_id.clone(), pending);
+        module
+            .state
+            .begin_message_query_generation(channel_id, "latest");
+
+        let request = MessageQueryRequest {
+            channel_id,
+            limit: 20,
+            window_token: "latest".to_string(),
+        };
+        let outcome = PortOutcome::Ok(ReplyBytes(Bytes::from_static(
+            br#"{"status":200,"body":"eyJzdGF0dXMiOiJTVUNDRVNTIiwiZGF0YSI6eyJwb3N0cyI6W119fQ=="}"#,
+        )));
+        let mut out = EffectSink::new();
+        module
+            .handle_message_query_remote_reply(
+                request,
+                Vec::new(),
+                0,
+                0,
+                None,
+                None,
+                Some(temporary_id.clone()),
+                1_000,
+                &outcome,
+                &mut out,
+            )
+            .expect("stale authority readback must remain routable");
+
+        assert!(out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::ScheduleTimer { after_ms: 100, .. })));
+        assert!(module
+            .state
+            .pending_sends
+            .get(&temporary_id)
+            .is_some_and(|pending| pending.authoritative_readback_timer.is_some()));
+        assert!(!out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Emit { .. })));
+    }
+
+    /// 旧代际收到已落库的 authority post 时，必须把 sent/postId 投影回当前窗口。
+    #[test]
+    fn stale_timeline_generation_projects_settled_authority_post() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let channel_id = crate::state::test_channel_id(31);
+        let temporary_id = crate::state::TemporaryId("tmp-authority-stale-settled".to_string());
+        let mut pending = crate::pending_send::PendingSend::new(
+            temporary_id.clone(),
+            helix_core::TimerId::from_raw(43),
+            None,
+        );
+        pending.status = crate::state::SendStatus::Sending;
+        pending.authoritative_readback_after_http = true;
+        pending.body = Some(serde_json::json!({
+            "temporaryId": temporary_id.0,
+            "channelId": channel_id.as_str(),
+        }));
+        module
+            .state
+            .pending_sends
+            .insert(temporary_id.clone(), pending);
+        module
+            .state
+            .begin_message_query_generation(channel_id, "latest");
+
+        let request = MessageQueryRequest {
+            channel_id,
+            limit: 20,
+            window_token: "latest".to_string(),
+        };
+        let outcome = PortOutcome::Ok(ReplyBytes(Bytes::from_static(
+            br#"{"status":200,"body":"eyJzdGF0dXMiOiJTVUNDRVNTIiwiZGF0YSI6eyJwb3N0cyI6W3siaWQiOiJzcnZmaXgwMDAwMDAwMDAwMDAwMDAwMDAyYSIsInRlbXBvcmFyeUlkIjoidG1wLWF1dGhvcml0eS1zdGFsZS1zZXR0bGVkIiwiY2hhbm5lbElkIjoiY2hmaXh4MDAwMDAwMDAwMDAwMDAwMDAwMWYiLCJtZXNzYWdlIjoicmV0cnkiLCJ0eXBlIjoiVEVYVCIsImNyZWF0ZUF0IjoxLCJ1c2VySWQiOiJ1c2VyLWEifV19fQ=="}"#,
+        )));
+        let mut out = EffectSink::new();
+        module
+            .handle_message_query_remote_reply(
+                request,
+                Vec::new(),
+                0,
+                0,
+                None,
+                None,
+                Some(temporary_id.clone()),
+                1_000,
+                &outcome,
+                &mut out,
+            )
+            .expect("stale authority post must project");
+
+        assert!(!module.state.pending_sends.contains_key(&temporary_id));
+        assert!(out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Persist { .. })));
+        let has_post_received_emit = out.as_slice().iter().any(|effect| {
+            let Effect::Emit { event } = effect else {
+                return false;
+            };
+            let payload: serde_json::Value =
+                serde_json::from_slice(event.0.as_ref()).expect("post event JSON");
+            payload.get("event").and_then(serde_json::Value::as_str) == Some("im:post:received")
+                && payload
+                    .pointer("/data/temporaryId")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(temporary_id.0.as_str())
+                && payload
+                    .pointer("/data/sendStatus")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("sent")
+                && payload
+                    .pointer("/data/serverId")
+                    .is_some_and(|value| !value.is_null())
+        });
+        assert!(has_post_received_emit);
+    }
+
+    /// 增量批次 reset 不能丢掉显式 retry 的权威回读 correlation；完整身份/query reset 仍须清除它。
+    #[test]
+    fn transport_reset_preserves_authoritative_readback_only() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let channel_id = crate::state::test_channel_id(32);
+        let temporary_id = crate::state::TemporaryId("tmp-authority-transport-reset".to_string());
+        let request = MessageQueryRequest {
+            channel_id,
+            limit: 20,
+            window_token: "latest".to_string(),
+        };
+        let corr = module.alloc_corr_internal();
+        module.state.corr_map.insert(
+            corr,
+            CorrelationContext::MessageQueryRemote {
+                request: Box::new(request),
+                local_rows_desc: Box::new(Vec::new()),
+                query_session_epoch: 0,
+                query_generation: 1,
+                causation_id: None,
+                deferred_send_http: None,
+                authoritative_send_readback: Some(temporary_id),
+            },
+        );
+
+        module.state.reset_transport_query_session();
+        assert!(module.state.corr_map.values().any(|context| matches!(
+            context,
+            CorrelationContext::MessageQueryRemote {
+                authoritative_send_readback: Some(_),
+                ..
+            }
+        )));
+
+        module.state.reset_recent_query_coverage();
+        assert!(!module.state.corr_map.values().any(|context| matches!(
+            context,
+            CorrelationContext::MessageQueryRemote {
+                authoritative_send_readback: Some(_),
+                ..
+            }
+        )));
     }
 }
 
@@ -611,12 +797,15 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if !self.is_current_message_query(
+        let current_query = self.is_current_message_query(
             request.channel_id,
             &request.window_token,
             query_session_epoch,
             query_generation,
-        ) {
+        );
+        // 发送权威对账不依赖 renderer 的窗口代际：旧代际不能再发布 timeline，
+        // 但仍必须消费这次 HTTP 回包并结算同一 temporaryId。
+        if !current_query && authoritative_send_readback.is_none() {
             return Ok(());
         }
         let reply = match outcome {
@@ -627,6 +816,14 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback failed"
                 );
+                // 显式 retry 的 authority query 即使 transport 失败也必须继续有限退避，
+                // 否则一次 transient read error 会把发送永久留在 sending。
+                if let Some(temporary_id) = authoritative_send_readback.as_ref() {
+                    self.schedule_authoritative_send_readback_retry(temporary_id, out);
+                }
+                if !current_query {
+                    return Ok(());
+                }
                 out.push(self.emit_timeline_failed(&request, now_ms, causation_id)?);
                 self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
                 return Ok(());
@@ -641,19 +838,62 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback returned invalid response"
                 );
+                // 解析失败与空窗口等价：保留 retry 机会，不把 HTTP 200 误当成终态。
+                if let Some(temporary_id) = authoritative_send_readback.as_ref() {
+                    self.schedule_authoritative_send_readback_retry(temporary_id, out);
+                }
+                if !current_query {
+                    return Ok(());
+                }
                 out.push(self.emit_timeline_failed(&request, now_ms, causation_id)?);
                 self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
                 return Ok(());
             }
         };
         let received_count = remote_posts.len();
+        let authoritative_post = authoritative_send_readback
+            .as_ref()
+            .and_then(|temporary_id| {
+                remote_posts.iter().find(|post| {
+                    let fields = crate::ws::parser::extract_post_fields(post);
+                    fields.temporary_id == temporary_id.0
+                        && crate::state::ServerId::from_str(fields.id.as_str()).is_some()
+                })
+            });
         if let Some(temporary_id) = authoritative_send_readback {
-            self.reconcile_authoritative_send_readback(
+            let settled = self.reconcile_authoritative_send_readback(
                 request.channel_id,
                 &temporary_id,
                 &remote_posts,
                 out,
             );
+            if !settled {
+                self.schedule_authoritative_send_readback_retry(&temporary_id, out);
+            }
+            tracing::info!(
+                channel_id = request.channel_id.as_str(),
+                current_query,
+                remote_posts = remote_posts.len(),
+                authoritative_settled = settled,
+                "authoritative send readback consumed"
+            );
+            if settled {
+                // 权威回读一旦证明同一 temporaryId 已有真实 server id，统一走
+                // 已知 post:received 合同；current/stale 两种 query 代际都可幂等合并。
+                if let Some(post) = authoritative_post {
+                    let fields = crate::ws::parser::extract_post_fields(post);
+                    out.push(crate::acl::to_effect::emit_post_received_for_viewer(
+                        request.channel_id,
+                        0,
+                        fields.id.as_str(),
+                        &fields,
+                        self.config.auth_user_id.as_str(),
+                    ));
+                }
+            }
+        }
+        if !current_query {
+            return Ok(());
         }
         let (mut remote_rows_desc, mut cache_ops) = match visible_remote_rows_and_cache_ops(
             request.channel_id,
@@ -884,6 +1124,52 @@ impl ImModule {
         Ok(())
     }
 
+    /// 在远端历史尚未赶上 posts/create 时安排一次有界权威回读，不把空窗口误判为失败。
+    fn schedule_authoritative_send_readback_retry(
+        &mut self,
+        temporary_id: &crate::state::TemporaryId,
+        out: &mut EffectSink,
+    ) {
+        let next_attempt = self
+            .state
+            .pending_sends
+            .get(temporary_id)
+            .filter(|pending| {
+                pending.authoritative_readback_after_http
+                    && pending.status != crate::state::SendStatus::Sent
+                    && pending.status != crate::state::SendStatus::UnSend
+                    && pending.authoritative_readback_timer.is_none()
+            })
+            .and_then(|pending| pending.authoritative_readback_attempt.checked_add(1));
+        let Some(next_attempt) = next_attempt else {
+            return;
+        };
+        if next_attempt > crate::pending_send::AUTHORITATIVE_READBACK_MAX_ATTEMPTS {
+            tracing::warn!(
+                tmp_id = temporary_id.0.as_str(),
+                attempts = next_attempt,
+                "authoritative retry history still missing after bounded readback attempts"
+            );
+            return;
+        }
+        let timer_id = self.alloc_timer();
+        let after_ms = crate::pending_send::authoritative_readback_backoff_ms(next_attempt);
+        if let Some(pending) = self.state.pending_sends.get_mut(temporary_id) {
+            pending.authoritative_readback_attempt = next_attempt;
+            pending.authoritative_readback_timer = Some(timer_id);
+        }
+        out.push(Effect::ScheduleTimer {
+            id: timer_id,
+            after_ms,
+        });
+        tracing::debug!(
+            tmp_id = temporary_id.0.as_str(),
+            attempt = next_attempt,
+            after_ms,
+            "scheduled authoritative retry history readback"
+        );
+    }
+
     /// 用 Go 历史中的同 temporaryId + 合法 server id 结算 retry，并撤销其超时令牌。
     fn reconcile_authoritative_send_readback(
         &mut self,
@@ -891,7 +1177,7 @@ impl ImModule {
         temporary_id: &crate::state::TemporaryId,
         posts: &[Value],
         out: &mut EffectSink,
-    ) {
+    ) -> bool {
         let server_id = posts.iter().find_map(|post| {
             let fields = crate::ws::parser::extract_post_fields(post);
             (fields.temporary_id == temporary_id.0)
@@ -899,19 +1185,20 @@ impl ImModule {
                 .flatten()
         });
         let Some(server_id) = server_id else {
-            return;
+            return false;
         };
         let context = CorrelationContext::AuthoritativeSendReconcilePersist {
             temporary_id: temporary_id.clone(),
         };
         if !self.settle_authoritative_send(temporary_id, server_id, context, out) {
-            return;
+            return false;
         }
         tracing::info!(
             channel_id = channel_id.as_str(),
             tmp_id = temporary_id.0.as_str(),
             "explicit retry settled from authoritative history"
         );
+        true
     }
 
     /// 将已验证 server id 持久化到同一 pending 聚合，并登记后续 continuation。
@@ -922,11 +1209,11 @@ impl ImModule {
         continuation: CorrelationContext,
         out: &mut EffectSink,
     ) -> bool {
-        let Some(persist_corr) = self
+        let Some((persist_corr, authoritative_readback_timer)) = self
             .state
             .pending_sends
             .get(temporary_id)
-            .map(|pending| pending.persist_corr)
+            .map(|pending| (pending.persist_corr, pending.authoritative_readback_timer))
         else {
             tracing::warn!(
                 tmp_id = temporary_id.0.as_str(),
@@ -941,6 +1228,9 @@ impl ImModule {
         self.state.pending_sends.remove(temporary_id);
         if let Some(persist_corr) = persist_corr {
             self.state.corr_map.remove(&persist_corr);
+        }
+        if let Some(timer_id) = authoritative_readback_timer {
+            out.push(Effect::CancelTimer { id: timer_id });
         }
         self.state.corr_map.insert(reconcile_corr, continuation);
         true

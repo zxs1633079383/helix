@@ -118,7 +118,52 @@ impl ImModule {
             return Ok(());
         }
 
-        // 4. 15s 发送超时 timer
+        // 4. 显式 retry 的权威历史回读退避 timer。
+        //    Go 的 posts/create 先返回 admission，Pulsar/投影稍后才可被 getLatestPost 看见；
+        //    这里用 PendingSend 自带的短退避链重新发起查询，不把一次过早的空窗口当成失败。
+        let maybe_authoritative_tmp = self
+            .state
+            .pending_sends
+            .iter()
+            .find(|(_, pending)| pending.authoritative_readback_timer == Some(timer_id))
+            .map(|(id, _)| id.clone());
+
+        if let Some(tmp_id) = maybe_authoritative_tmp {
+            let retry_context = self.state.pending_sends.get(&tmp_id).and_then(|pending| {
+                let channel_id = pending
+                    .body
+                    .as_ref()
+                    .and_then(|body| body.get("channelId"))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(crate::state::ChannelId::from_str)?;
+                Some((
+                    channel_id,
+                    pending.timeline_readback.window_token.clone(),
+                    pending.timeline_readback.causation_id.clone(),
+                    pending.status,
+                ))
+            });
+            if let Some(pending) = self.state.pending_sends.get_mut(&tmp_id) {
+                pending.authoritative_readback_timer = None;
+            }
+            if let Some((channel_id, window_token, causation_id, status)) = retry_context {
+                if status != crate::state::SendStatus::Sent
+                    && status != crate::state::SendStatus::UnSend
+                    && self.state.conn == ConnState::Connected
+                {
+                    self.start_authoritative_send_readback(
+                        channel_id,
+                        window_token.as_deref(),
+                        causation_id,
+                        tmp_id,
+                        out,
+                    )?;
+                }
+            }
+            return Ok(());
+        }
+
+        // 5. 15s 发送超时 timer
         let maybe_tmp = self
             .state
             .pending_sends

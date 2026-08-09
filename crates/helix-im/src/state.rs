@@ -413,29 +413,34 @@ impl ImState {
     /// socket reconnects, so preserving projector state lets recovered durable facts publish the
     /// next V2 patch against the revision that is still mounted in the UI.
     pub(crate) fn reset_transport_query_session(&mut self) {
-        self.drop_query_session_correlations();
+        // 增量批次/transport reset 会让普通 timeline query 失效，但显式 retry 的
+        // authoritative readback 仍需消费迟到 HTTP 回包，否则 posts/create 已成功却
+        // 会丢掉 temporaryId 对账入口。
+        self.drop_query_session_correlations(true);
         self.announcement_reload_versions.clear();
         self.seen_post_read_deltas.clear();
     }
 
     /// 完整 query/session reset 同时撤销旧查询回包。
     fn reset_query_session_correlations(&mut self) {
-        self.drop_query_session_correlations();
+        self.drop_query_session_correlations(false);
         self.clear_pending_action_state();
     }
 
     /// 丢弃断线后不可再消费的 query correlation，并推进 session epoch 使迟到回包 fail closed。
-    fn drop_query_session_correlations(&mut self) {
+    fn drop_query_session_correlations(&mut self, preserve_authoritative_readback: bool) {
         self.recent_message_coverage.clear();
         self.message_query_generations.clear();
-        self.corr_map.retain(|_, context| {
-            !matches!(
-                context,
-                CorrelationContext::MessageQueryLocal { .. }
-                    | CorrelationContext::MessageQueryRemote { .. }
-                    | CorrelationContext::MessageQueryCache { .. }
-                    | CorrelationContext::MessageQueryReadback { .. }
-            )
+        self.corr_map.retain(|_, context| match context {
+            CorrelationContext::MessageQueryRemote {
+                authoritative_send_readback,
+                ..
+            } if preserve_authoritative_readback => authoritative_send_readback.is_some(),
+            CorrelationContext::MessageQueryLocal { .. }
+            | CorrelationContext::MessageQueryRemote { .. }
+            | CorrelationContext::MessageQueryCache { .. }
+            | CorrelationContext::MessageQueryReadback { .. } => false,
+            _ => true,
         });
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
     }

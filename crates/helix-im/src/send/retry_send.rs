@@ -830,6 +830,11 @@ fn continue_retry(
     let timeout_timer = module.alloc_timer();
     let persist_corr = module.alloc_corr_internal();
     let connection_id = module.state.connection_id.clone();
+    let previous_authoritative_readback_timer = module
+        .state
+        .pending_sends
+        .get(&temporary_id)
+        .and_then(|pending| pending.authoritative_readback_timer);
     let pending = module
         .state
         .pending_sends
@@ -839,6 +844,8 @@ fn continue_retry(
     pending.timeout_timer = timeout_timer;
     pending.http_started = false;
     pending.authoritative_readback_after_http = true;
+    pending.authoritative_readback_attempt = 0;
+    pending.authoritative_readback_timer = None;
     pending.body = Some(body.clone());
     if request_id.is_some() {
         pending.timeline_readback.causation_id = request_id;
@@ -859,6 +866,9 @@ fn continue_retry(
             "sending",
         )],
     });
+    if let Some(timer_id) = previous_authoritative_readback_timer {
+        out.push(Effect::CancelTimer { id: timer_id });
+    }
     out.push(
         crate::event::post::sending_from_local_body(
             channel_id.as_str(),

@@ -1432,6 +1432,24 @@ impl ImModule {
             CorrelationContext::TimelineNavigationReadback { state } => {
                 self.handle_timeline_navigation_readback_reply(state, outcome, now_ms, out)?;
             }
+
+            // older/newer 页的每个 authority identity 都必须由 durable storage 逐项确认。
+            CorrelationContext::TimelineNavigationExactReadback {
+                state,
+                accepted_keys,
+                next_index,
+                rows,
+            } => {
+                self.handle_timeline_navigation_exact_readback_reply(
+                    state,
+                    accepted_keys,
+                    next_index,
+                    rows,
+                    outcome,
+                    now_ms,
+                    out,
+                )?;
+            }
         }
 
         Ok(())

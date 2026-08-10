@@ -655,4 +655,12 @@ pub enum CorrelationContext {
     TimelineNavigationReadback {
         state: Box<crate::timeline_navigation::TimelineNavigationState>,
     },
+
+    /// V3 older/newer/locate 页按 authority identity 逐项 durable readback 的续接状态。
+    TimelineNavigationExactReadback {
+        state: Box<crate::timeline_navigation::TimelineNavigationState>,
+        accepted_keys: Vec<crate::timeline_navigation::TimelineNavigationReadbackKey>,
+        next_index: usize,
+        rows: Vec<serde_json::Value>,
+    },
 }

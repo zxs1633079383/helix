@@ -55,7 +55,8 @@ pub fn filter_visible_remote_rows(
                 actual: actual_channel.to_string(),
             });
         }
-        let is_target = message_id == target_message_id;
+        let is_target =
+            crate::timeline_navigation::row_matches_message_identity(row, target_message_id);
         target_present |= is_target;
         let fields = crate::ws::parser::extract_post_fields(row);
         let visible = !row_is_revoked(row)
@@ -115,7 +116,8 @@ pub fn normalize_durable_located_window(
                 actual: actual_channel.to_string(),
             });
         }
-        let is_target = message_id == target_message_id;
+        let is_target =
+            crate::timeline_navigation::row_matches_message_identity(&row, target_message_id);
         target_present |= is_target;
         let fields = crate::ws::parser::extract_post_fields(&row);
         let visible = !row_is_revoked(&row)
@@ -138,7 +140,9 @@ pub fn normalize_durable_located_window(
     visible_rows.sort_by_key(durable_row_key);
     let target_index = visible_rows
         .iter()
-        .position(|row| row.get("id").and_then(Value::as_str) == Some(target_message_id))
+        .position(|row| {
+            crate::timeline_navigation::row_matches_message_identity(row, target_message_id)
+        })
         .ok_or_else(|| LocateProjectionError::TargetMissing(target_message_id.to_string()))?;
     let allocation = crate::timeline_state::allocate_locate_window(
         target_index,
@@ -209,7 +213,8 @@ pub fn normalize_located_window(
                 actual: channel_id.to_string(),
             });
         }
-        target_found |= message_id == target_message_id;
+        target_found |=
+            crate::timeline_navigation::row_matches_message_identity(row, target_message_id);
     }
     if !target_found {
         return Err(LocateProjectionError::TargetMissing(

@@ -43,6 +43,15 @@ pub struct TimelineNavigationCoverage {
     pub has_older: bool,
     pub has_newer: bool,
     pub target_index: Option<usize>,
+    pub older_cursor: Option<Value>,
+    pub newer_cursor: Option<Value>,
+}
+
+/// Locate/分页 durable readback 使用的实际 SQLite message 主键列和值。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimelineNavigationReadbackKey {
+    pub column: &'static str,
+    pub value: String,
 }
 
 /// 一次跨 HTTP、PersistOk 与 readback 存活的 owned 导航状态。
@@ -53,6 +62,7 @@ pub struct TimelineNavigationState {
     page_size: u32,
     request_id: Option<String>,
     kind: TimelineNavigationKind,
+    authority_rows: Vec<Value>,
     rows: Vec<Value>,
     page: WindowPage,
     target_index: Option<usize>,
@@ -81,6 +91,7 @@ impl TimelineNavigationState {
                 anchor_create_at: None,
                 cursor,
             },
+            authority_rows: Vec::new(),
             rows: Vec::new(),
             target_index: None,
             older_cursor: None,
@@ -114,6 +125,7 @@ impl TimelineNavigationState {
                     temporary_id: String::new(),
                 },
             },
+            authority_rows: Vec::new(),
             rows: Vec::new(),
             target_index: None,
             older_cursor: None,
@@ -141,6 +153,7 @@ impl TimelineNavigationState {
                 anchor_create_at: None,
                 cursor,
             },
+            authority_rows: Vec::new(),
             rows: Vec::new(),
             target_index: None,
             older_cursor: None,
@@ -174,6 +187,7 @@ impl TimelineNavigationState {
                     temporary_id: String::new(),
                 },
             },
+            authority_rows: Vec::new(),
             rows: Vec::new(),
             target_index: None,
             older_cursor: None,
@@ -205,6 +219,7 @@ impl TimelineNavigationState {
                 target_message_id,
                 navigation_token,
             },
+            authority_rows: Vec::new(),
             rows: Vec::new(),
             target_index: None,
             older_cursor: None,
@@ -282,9 +297,19 @@ impl TimelineNavigationState {
         self.page.clone()
     }
 
-    /// 返回通过权限和 wire 校验的原始消息页。
+    /// 返回经过 viewer 权限过滤且补齐 wire 字段的消息页。
     pub fn rows(&self) -> &[Value] {
         &self.rows
+    }
+
+    /// 返回本次 HTTP authority 校验后的原始 rows，区分后续 viewer 过滤结果。
+    pub(crate) fn authority_rows(&self) -> &[Value] {
+        &self.authority_rows
+    }
+
+    /// 标记过滤或 bounded read-back 后的 locate 目标下标。
+    pub(crate) fn set_target_index(&mut self, target_index: Option<usize>) {
+        self.target_index = target_index;
     }
 
     /// 用权限过滤且补齐 wire 字段的同源行替换原始 HTTP 页。
@@ -315,7 +340,7 @@ impl TimelineNavigationState {
             } => self
                 .rows
                 .iter()
-                .find(|row| row.get("id").and_then(Value::as_str) == Some(target_message_id)),
+                .find(|row| row_matches_message_identity(row, target_message_id)),
             TimelineNavigationKind::Older { .. } => self.rows.first(),
             TimelineNavigationKind::Newer { .. } => self.rows.last(),
         }?;
@@ -356,7 +381,8 @@ impl TimelineNavigationState {
                 ))
             }
         };
-        validate_rows(&rows, self.channel_id.as_str())?;
+        let allow_id_fallback = matches!(&self.kind, TimelineNavigationKind::Locate { .. });
+        validate_rows(&rows, self.channel_id.as_str(), allow_id_fallback)?;
         match &self.kind {
             TimelineNavigationKind::Older { .. } => {
                 let has_more = data
@@ -394,11 +420,9 @@ impl TimelineNavigationState {
                     .ok_or_else(|| {
                         ImError::Parse("timeline locate response missing targetIndex".to_string())
                     })?;
-                if rows
+                if !rows
                     .get(target_index)
-                    .and_then(|row| row.get("id"))
-                    .and_then(Value::as_str)
-                    != Some(target_message_id.as_str())
+                    .is_some_and(|row| row_matches_message_identity(row, target_message_id))
                 {
                     return Err(ImError::Parse(
                         "timeline locate targetIndex does not identify target".to_string(),
@@ -434,9 +458,25 @@ impl TimelineNavigationState {
                     .filter(|value| !value.is_null());
             }
         }
+        self.authority_rows = rows.clone();
         self.rows = rows;
         Ok(())
     }
+}
+
+/// 判断 wire、durable 或 render-ready 行是否包含请求目标的任一稳定身份。
+pub(crate) fn row_matches_message_identity(row: &Value, target_message_id: &str) -> bool {
+    [
+        "id",
+        "message_id",
+        "postId",
+        "msgId",
+        "temporaryId",
+        "temporary_id",
+    ]
+    .iter()
+    .filter_map(|key| row.get(*key).and_then(Value::as_str))
+    .any(|value| value == target_message_id)
 }
 
 /// 解析下拉请求，并拒绝 renderer 注入 cursor/order/range。
@@ -716,8 +756,8 @@ fn parse_v3_request(
     Ok((parsed.0, parsed.1, anchor_create_at, parsed.2, request_id))
 }
 
-/// 校验远端页严格按 `(createAt, temporaryId)` 升序且属于请求频道。
-fn validate_rows(rows: &[Value], channel_id: &str) -> Result<(), ImError> {
+/// 校验远端页属于请求频道且按稳定 `(createAt, identity)` 升序。
+fn validate_rows(rows: &[Value], channel_id: &str, allow_id_fallback: bool) -> Result<(), ImError> {
     let mut previous: Option<(i64, &str)> = None;
     for row in rows {
         let row_channel = row
@@ -730,20 +770,32 @@ fn validate_rows(rows: &[Value], channel_id: &str) -> Result<(), ImError> {
             .and_then(Value::as_i64)
             .filter(|value| *value > 0)
             .ok_or_else(|| ImError::Parse("timeline row missing createAt".to_string()))?;
-        let temporary_id = row
+        let identity = row
             .get("temporaryId")
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| ImError::Parse("timeline row missing temporaryId".to_string()))?;
+            .or_else(|| {
+                allow_id_fallback
+                    .then(|| row.get("id").and_then(Value::as_str))
+                    .flatten()
+                    .filter(|value| !value.is_empty())
+            })
+            .ok_or_else(|| {
+                ImError::Parse(if allow_id_fallback {
+                    "timeline row missing temporaryId/id".to_string()
+                } else {
+                    "timeline row missing temporaryId".to_string()
+                })
+            })?;
         if row_channel != channel_id {
             return Err(ImError::Parse("timeline row channel mismatch".to_string()));
         }
-        if previous.is_some_and(|key| key >= (create_at, temporary_id)) {
+        if previous.is_some_and(|key| key >= (create_at, identity)) {
             return Err(ImError::Parse(
                 "timeline rows must be strictly ordered by composite cursor".to_string(),
             ));
         }
-        previous = Some((create_at, temporary_id));
+        previous = Some((create_at, identity));
     }
     Ok(())
 }

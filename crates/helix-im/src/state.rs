@@ -430,6 +430,8 @@ impl ImState {
     /// 丢弃断线后不可再消费的 query correlation，并推进 session epoch 使迟到回包 fail closed。
     fn drop_query_session_correlations(&mut self, preserve_authoritative_readback: bool) {
         self.recent_message_coverage.clear();
+        self.timeline_navigation_coverage.clear();
+        self.timeline_navigation_pending.clear();
         self.message_query_generations.clear();
         self.corr_map.retain(|_, context| match context {
             CorrelationContext::MessageQueryRemote {

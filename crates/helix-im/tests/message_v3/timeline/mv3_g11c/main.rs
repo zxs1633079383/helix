@@ -1,7 +1,7 @@
-//! MV3-G11c：newer 只在 durable cache Persist 与 bounded Scan read-back 后结算。
+//! MV3-G11c：newer 只在 durable cache Persist 与精确 identity Scan read-back 后结算。
 
 use bytes::Bytes;
-use helix_core::effect::{Effect, ScanOrder, StorageOp};
+use helix_core::effect::{Effect, StorageOp};
 use helix_core::{Correlation, Module, Tick};
 use serde_json::{json, Value};
 
@@ -266,7 +266,7 @@ fn latest_durable_rows() -> Bytes {
     Bytes::from(serde_json::to_vec(&rows).unwrap())
 }
 
-/// MV3-G11c 成功链严格为 HTTP → Persist → Scan → 唯一 QueryMessagesResult。
+/// MV3-G11c 成功链严格为 HTTP → Persist → 精确 identity Scan → 唯一 QueryMessagesResult。
 #[test]
 fn g11c_newer_waits_for_durable_scan_and_returns_sorted_result() {
     let mut harness =
@@ -311,18 +311,18 @@ fn g11c_newer_waits_for_durable_scan_and_returns_sorted_result() {
             }),
             _ => None,
         })
-        .expect("newer bounded Scan spec");
-    assert_eq!(scan.limit, Some(21));
+        .expect("newer exact identity Scan spec");
+    assert_eq!(scan.limit, Some(1));
     match &scan.filter {
-        Some((column, helix_core::effect::SqlValue::Text(channel))) => {
-            assert_eq!(*column, "channel_id");
-            assert_eq!(channel.as_str(), cid(CHANNEL));
+        Some((column, helix_core::effect::SqlValue::Text(temporary_id))) => {
+            assert_eq!(*column, "temporary_id");
+            assert_eq!(temporary_id.as_str(), "mv3-g11c-21");
         }
-        _ => panic!("newer Scan must filter the requested channel"),
+        _ => panic!("newer Scan must filter the requested authority identity"),
     }
-    assert_eq!(
-        scan.order_by,
-        &[ScanOrder::asc("create_at"), ScanOrder::asc("temporary_id")]
+    assert!(
+        scan.order_by.is_empty(),
+        "identity lookup does not need ordering"
     );
     harness.step(
         port_reply_with_body(readback.raw(), newer_durable_rows()),
@@ -528,4 +528,58 @@ fn g11c_duplicate_readback_is_noop() {
         10,
     );
     assert!(harness.sink.as_slice().is_empty());
+}
+
+/// 非空 authority newer 页被 viewer 全部过滤时，不能伪装成带 hasNewer=true 的成功空页。
+#[test]
+fn g11c_non_empty_filtered_page_fails_closed_instead_of_retryable_empty_success() {
+    let mut harness =
+        Harness::new_with_identity(&[CHANNEL], "g11c-viewer", "g11c-company", "", "", "");
+    attach_latest_window(&mut harness);
+    harness.step(newer_command(20), 6);
+    let http = only_http(&harness);
+    let hidden = json!({
+        "status": "SUCCESS",
+        "data": {
+            "posts": [{
+                "id": sid(21),
+                "temporaryId": "mv3-g11c-hidden",
+                "channelId": cid(CHANNEL),
+                "userId": "g11c-author",
+                "type": "TEXT",
+                "message": "hidden newer",
+                "simpleMessage": "hidden newer",
+                "viewers": ["g11c-other"],
+                "eventSeq": 121,
+                "createAt": 1_700_001_200_021_i64
+            }],
+            "hasMore": true
+        }
+    });
+    harness.step(
+        port_reply_with_body(
+            http.raw(),
+            enveloped(Bytes::from(serde_json::to_vec(&hidden).unwrap())),
+        ),
+        7,
+    );
+    assert!(emitted_events(&harness).is_empty(), "HTTP is not terminal");
+    let readback = only_message_scan(&harness);
+    harness.step(
+        port_reply_with_body(readback.raw(), Bytes::from_static(b"[]")),
+        8,
+    );
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1, "filtered page must settle exactly once");
+    assert_eq!(events[0]["event"], "im:read:result");
+    assert_eq!(events[0]["data"]["req_id"], REQUEST_ID);
+    assert!(
+        events[0]["data"].get("error").is_some(),
+        "non-empty authority + empty filtered rows must fail, not retry"
+    );
+    assert_ne!(
+        events[0]["data"]["body"]["messages"],
+        json!([]),
+        "must not emit messages=[] success with hasNewer=true"
+    );
 }

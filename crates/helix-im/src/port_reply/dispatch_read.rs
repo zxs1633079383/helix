@@ -157,6 +157,13 @@ impl ImModule {
                     return Ok(());
                 }
             };
+            let target_index = rows.iter().position(|row| {
+                crate::timeline_navigation::row_matches_message_identity(
+                    row,
+                    state.anchor_message_id(),
+                )
+            });
+            state.set_target_index(target_index);
             state.replace_rows(rows);
         }
         let (rows, ops) = match crate::query::local_first::visible_remote_rows_and_cache_ops(
@@ -258,6 +265,18 @@ impl ImModule {
         state: Box<crate::timeline_navigation::TimelineNavigationState>,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        let exact_keys = match state.kind() {
+            crate::timeline_navigation::TimelineNavigationKind::Older { .. }
+            | crate::timeline_navigation::TimelineNavigationKind::Newer { .. } => {
+                timeline_navigation_readback_keys(&state)
+            }
+            crate::timeline_navigation::TimelineNavigationKind::Locate { .. } => Vec::new(),
+        };
+        if !exact_keys.is_empty() {
+            // V3 分页页内每条 authority identity 都单独读回，禁止频道最新页冒充本次结果。
+            self.schedule_timeline_navigation_exact_readback(state, exact_keys, 1, Vec::new(), out);
+            return Ok(());
+        }
         let corr = self.alloc_corr_internal();
         let effect = match state.kind() {
             crate::timeline_navigation::TimelineNavigationKind::Older { .. } => {
@@ -288,10 +307,166 @@ impl ImModule {
         Ok(())
     }
 
+    /// 为分页页内下一个 authority identity 发出精确 durable Scan。
+    fn schedule_timeline_navigation_exact_readback(
+        &mut self,
+        state: Box<crate::timeline_navigation::TimelineNavigationState>,
+        accepted_keys: Vec<String>,
+        next_index: usize,
+        rows: Vec<Value>,
+        out: &mut EffectSink,
+    ) {
+        let key = accepted_keys[next_index - 1].clone();
+        let corr = self.alloc_corr_internal();
+        out.push(Effect::Persist {
+            corr,
+            ops: vec![StorageOp::Scan(exact_posts_scan_spec(&key))],
+        });
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::TimelineNavigationExactReadback {
+                state,
+                accepted_keys,
+                next_index,
+                rows,
+            },
+        );
+    }
+
+    /// 处理分页页内逐项 durable readback，并在最后一条 identity 后只结算一次。
+    pub(super) fn handle_timeline_navigation_exact_readback_reply(
+        &mut self,
+        state: Box<crate::timeline_navigation::TimelineNavigationState>,
+        accepted_keys: Vec<String>,
+        next_index: usize,
+        mut rows: Vec<Value>,
+        outcome: &PortOutcome,
+        now_ms: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let expected_key = accepted_keys
+            .get(next_index.saturating_sub(1))
+            .ok_or_else(|| {
+                ImError::Parse("timeline exact readback index out of bounds".to_string())
+            })?;
+        let durable_rows = match outcome {
+            PortOutcome::Ok(reply) => {
+                match crate::query::local_first::parse_local_rows(reply.0.as_ref()) {
+                    Ok(rows) => rows,
+                    Err(error) => {
+                        tracing::warn!(
+                            channel_id = state.channel_id().as_str(),
+                            error = ?error,
+                            "timeline exact durable read-back malformed"
+                        );
+                        self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+                        return Ok(());
+                    }
+                }
+            }
+            PortOutcome::Err(error) => {
+                tracing::warn!(
+                    channel_id = state.channel_id().as_str(),
+                    error = ?error,
+                    "timeline exact durable read-back failed"
+                );
+                self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+                return Ok(());
+            }
+        };
+        let accepted = accepted_keys.iter().cloned().collect::<HashSet<_>>();
+        let mut seen = rows
+            .iter()
+            .filter_map(durable_storage_key)
+            .collect::<HashSet<_>>();
+        let mut expected_found = false;
+        for row in durable_rows {
+            let Some(key) = durable_storage_key(&row) else {
+                continue;
+            };
+            if !accepted.contains(&key) {
+                continue;
+            }
+            expected_found |= key == *expected_key;
+            if seen.insert(key) {
+                rows.push(row);
+            }
+        }
+        if !expected_found {
+            tracing::warn!(
+                channel_id = state.channel_id().as_str(),
+                expected_key = expected_key.as_str(),
+                "timeline exact durable read-back missing authority identity"
+            );
+            self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+            return Ok(());
+        }
+
+        let mut next = next_index;
+        while next < accepted_keys.len() {
+            if seen.contains(&accepted_keys[next]) {
+                next += 1;
+            } else {
+                break;
+            }
+        }
+        if next < accepted_keys.len() {
+            self.schedule_timeline_navigation_exact_readback(
+                state,
+                accepted_keys,
+                next + 1,
+                rows,
+                out,
+            );
+            return Ok(());
+        }
+
+        let projected_rows = match state.kind() {
+            crate::timeline_navigation::TimelineNavigationKind::Older { .. } => {
+                older_navigation_rows(&state, rows, self.config.auth_user_id.as_str())
+            }
+            crate::timeline_navigation::TimelineNavigationKind::Newer { .. } => {
+                newer_navigation_rows(&state, rows, self.config.auth_user_id.as_str())
+            }
+            crate::timeline_navigation::TimelineNavigationKind::Locate { .. } => Vec::new(),
+        };
+        if projected_rows.len() != accepted_keys.len() {
+            tracing::warn!(
+                channel_id = state.channel_id().as_str(),
+                expected = accepted_keys.len(),
+                actual = projected_rows.len(),
+                "timeline exact durable read-back projected an incomplete page"
+            );
+            self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+            return Ok(());
+        }
+        self.remember_timeline_navigation_coverage(&state, &projected_rows, None);
+        match state.kind() {
+            crate::timeline_navigation::TimelineNavigationKind::Newer { .. } => {
+                match self.emit_timeline_navigation_newer_result(&state, &projected_rows) {
+                    Ok(effect) => out.push(effect),
+                    Err(error) => {
+                        tracing::warn!(
+                            channel_id = state.channel_id().as_str(),
+                            error = ?error,
+                            "timeline newer exact durable rows could not project"
+                        );
+                        self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+                    }
+                }
+            }
+            crate::timeline_navigation::TimelineNavigationKind::Older { .. } => {
+                out.push(self.emit_timeline_navigation_result(&state, &projected_rows)?);
+            }
+            crate::timeline_navigation::TimelineNavigationKind::Locate { .. } => {}
+        }
+        Ok(())
+    }
+
     /// 匹配的本地读回存在且身份一致时，释放唯一 production Timeline Delta。
     pub(super) fn handle_timeline_navigation_readback_reply(
         &mut self,
-        state: Box<crate::timeline_navigation::TimelineNavigationState>,
+        mut state: Box<crate::timeline_navigation::TimelineNavigationState>,
         outcome: &PortOutcome,
         now_ms: u64,
         out: &mut EffectSink,
@@ -377,7 +552,7 @@ impl ImModule {
             };
             // HTTP 只建立“期望有页”的事实；若该页确实有可见 rows，却没有任何
             // matching durable row，必须失败保旧，不能旁路用 HTTP rows 结算。
-            if !state.rows().is_empty() && rows.is_empty() {
+            if !state.authority_rows().is_empty() && rows.is_empty() {
                 self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
             } else {
                 self.remember_timeline_navigation_coverage(&state, &rows, None);
@@ -435,11 +610,14 @@ impl ImModule {
                 return Ok(());
             }
         };
-        let target_index = state.target_index();
+        let target_index = rows.iter().position(|row| {
+            crate::timeline_navigation::row_matches_message_identity(row, target_message_id)
+        });
         if target_index.is_none() {
             self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
             return Ok(());
         }
+        state.set_target_index(target_index);
         self.remember_timeline_navigation_coverage(&state, &rows, target_index);
         out.push(self.emit_timeline_locate_result(&state, &rows)?);
         Ok(())
@@ -1523,6 +1701,19 @@ fn older_navigation_scan_spec(
     }
 }
 
+/// 提取 older/newer authority 页的稳定 message storage identity，并保持页内顺序去重。
+fn timeline_navigation_readback_keys(
+    state: &crate::timeline_navigation::TimelineNavigationState,
+) -> Vec<String> {
+    let mut seen = HashSet::new();
+    state
+        .rows()
+        .iter()
+        .filter_map(|row| durable_storage_key(row))
+        .filter(|key| seen.insert(key.clone()))
+        .collect()
+}
+
 /// 构造 newer durable read-back 的 bounded message Scan，尾部按复合键升序读取一条 lookahead。
 fn newer_navigation_scan_spec(
     state: &crate::timeline_navigation::TimelineNavigationState,
@@ -1642,7 +1833,7 @@ fn older_navigation_rows(
         .collect()
 }
 
-/// 判断 HTTP newer 页是否包含锚点之后的可见行；anchor-only 页仍是合法 empty terminal。
+/// 判断 HTTP newer 页是否包含锚点之后的 authority 行；anchor-only 页仍是合法 empty terminal。
 fn newer_http_has_rows(state: &crate::timeline_navigation::TimelineNavigationState) -> bool {
     let Some(cursor) = (match state.kind() {
         crate::timeline_navigation::TimelineNavigationKind::Newer { cursor, .. } => Some(cursor),
@@ -1651,7 +1842,7 @@ fn newer_http_has_rows(state: &crate::timeline_navigation::TimelineNavigationSta
         return false;
     };
     state
-        .rows()
+        .authority_rows()
         .iter()
         .filter_map(durable_navigation_key)
         .any(|key| {
@@ -1733,6 +1924,11 @@ fn durable_navigation_key(row: &Value) -> Option<(i64, String)> {
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())?;
     Some((create_at, temporary_id.to_string()))
+}
+
+/// 从 wire 或 durable message row 提取 exact readback 使用的 temporary identity。
+fn durable_storage_key(row: &Value) -> Option<String> {
+    exact_storage_key(&crate::ws::parser::extract_post_fields(row))
 }
 
 /// 解析 Go `posts/get` 的 SUCCESS 信封业务体；只接受数组，空数组表示合法零命中。

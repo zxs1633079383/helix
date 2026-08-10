@@ -86,6 +86,24 @@ fn only_message_scan(harness: &Harness) -> Correlation {
     corr
 }
 
+/// 从当前批次提取过滤后空页仍需经过的空 Persist barrier。
+fn only_empty_persist(harness: &Harness) -> Correlation {
+    let mut correlations = harness
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Persist { corr, ops } if ops.is_empty() => Some(*corr),
+            _ => None,
+        });
+    let corr = correlations.next().expect("expected empty older Persist");
+    assert!(
+        correlations.next().is_none(),
+        "expected one empty older Persist only"
+    );
+    corr
+}
+
 /// 解出当前批次所有 Emit，验证 older 不借用 timeline 领域广播。
 fn emitted_events(harness: &Harness) -> Vec<Value> {
     harness
@@ -206,26 +224,22 @@ fn older_posts() -> Bytes {
     )
 }
 
-/// 构造 durable snake_case rows，顺序与 HTTP 文本故意不同。
-fn durable_rows() -> Bytes {
-    let rows = (1..=3)
-        .map(|index| {
-            json!({
-                "id": format!("srvfix{index:020x}"),
-                "temporary_id": format!("mv3-g11b-older-{index}"),
-                "channel_id": cid(CHANNEL),
-                "user_id": "mv3-g11b-author",
-                "type": "TEXT",
-                "message": format!("durable-older-{index}"),
-                "simple_message": format!("durable-older-{index}"),
-                "viewers": ["all"],
-                "create_at": 1_700_001_100_000_i64 + i64::from(index),
-                "event_seq": 100 + index,
-                "send_status": "sent",
-            })
-        })
-        .collect::<Vec<_>>();
-    Bytes::from(serde_json::to_vec(&rows).unwrap())
+/// 构造一条 durable snake_case row，模拟 exact Scan 的真实单行回报。
+fn durable_row(index: i64) -> Bytes {
+    let row = json!({
+        "id": format!("srvfix{index:020x}"),
+        "temporary_id": format!("mv3-g11b-older-{index}"),
+        "channel_id": cid(CHANNEL),
+        "user_id": "mv3-g11b-author",
+        "type": "TEXT",
+        "message": format!("durable-older-{index}"),
+        "simple_message": format!("durable-older-{index}"),
+        "viewers": ["all"],
+        "create_at": 1_700_001_100_000_i64 + index,
+        "event_seq": 100 + index,
+        "send_status": "sent",
+    });
+    Bytes::from(serde_json::to_vec(&json!([row])).unwrap())
 }
 
 /// 构造 canonical older command，只发送 snake_case Rust 载荷。
@@ -245,7 +259,7 @@ fn older_command(page_size: u64) -> helix_core::Tick {
     )
 }
 
-/// G11b 成功链严格为 HTTP → Persist → Scan → 唯一 QueryMessagesResult。
+/// G11b 成功链严格为 HTTP → Persist → 每条 authority identity 的 exact Scan → 唯一结果。
 #[test]
 fn g11b_older_waits_for_durable_scan_and_returns_query_result() {
     let mut harness =
@@ -282,8 +296,16 @@ fn g11b_older_waits_for_durable_scan_and_returns_query_result() {
         emitted_events(&harness).is_empty(),
         "PersistOk is not terminal"
     );
-    let readback = only_message_scan(&harness);
-    harness.step(port_reply_with_body(readback.raw(), durable_rows()), 8);
+    let mut readback = only_message_scan(&harness);
+    for index in 1_i64..=3 {
+        harness.step(
+            port_reply_with_body(readback.raw(), durable_row(index)),
+            7 + index as u64,
+        );
+        if index < 3 {
+            readback = only_message_scan(&harness);
+        }
+    }
     let events = emitted_events(&harness);
     assert_eq!(events.len(), 1, "one reqId must have one terminal result");
     assert_eq!(events[0]["event"], "im:read:result");
@@ -316,6 +338,42 @@ fn g11b_older_waits_for_durable_scan_and_returns_query_result() {
             "forbidden older output: {forbidden}"
         );
     }
+}
+
+/// 最新频道 Scan 不能冒充 older authority 页；否则客户端会收到当前窗口并重试同一 anchor。
+#[test]
+fn g11b_latest_channel_scan_cannot_satisfy_older_authority_page() {
+    let mut harness =
+        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    attach_latest_window(&mut harness);
+    harness.step(older_command(20), 5);
+    let http = only_http(&harness, Some("/posts/getPostsAfterIndex"));
+    harness.step(
+        port_reply_with_body(http.raw(), enveloped(older_posts())),
+        6,
+    );
+    let cache = only_cache_write(&harness);
+    harness.step(port_reply_with_body(cache.raw(), Bytes::new()), 7);
+    let readback = only_message_scan(&harness);
+    harness.step(
+        port_reply_with_body(readback.raw(), latest_durable_rows()),
+        8,
+    );
+    let events = emitted_events(&harness);
+    let terminal = events
+        .iter()
+        .filter(|event| event["data"]["req_id"] == REQUEST_ID)
+        .collect::<Vec<_>>();
+    assert_eq!(terminal.len(), 1, "older request must settle once");
+    assert!(
+        terminal[0]["data"].get("error").is_some(),
+        "latest channel rows must fail exact authority readback"
+    );
+    assert!(
+        terminal[0]["data"].get("body").is_none()
+            || terminal[0]["data"]["body"].get("messages").is_none(),
+        "stale latest rows must never become the older success page"
+    );
 }
 
 /// G11b 页长接受 60，超过上限在任何 storage/http effect 前拒绝。
@@ -419,4 +477,60 @@ fn g11b_http_failure_preserves_old_window() {
     assert_eq!(events[0]["event"], "im:read:result");
     assert_eq!(events[0]["data"]["req_id"], REQUEST_ID);
     assert!(events[0]["data"].get("error").is_some());
+}
+
+/// 非空 authority 页被 viewer 全部过滤时，不能伪装成带 hasOlder=true 的成功空页。
+#[test]
+fn g11b_non_empty_filtered_page_fails_closed_instead_of_retryable_empty_success() {
+    let mut harness =
+        Harness::new_with_identity(&[CHANNEL], "g11b-viewer", "g11b-company", "", "", "");
+    attach_latest_window(&mut harness);
+    harness.step(older_command(20), 5);
+    let http = only_http(&harness, Some("/posts/getPostsAfterIndex"));
+    let hidden = json!({
+        "status": "SUCCESS",
+        "data": {
+            "posts": [{
+                "id": "srvfix00000000000000000021",
+                "temporaryId": "mv3-g11b-hidden",
+                "channelId": cid(CHANNEL),
+                "userId": "g11b-author",
+                "type": "TEXT",
+                "message": "hidden older",
+                "simpleMessage": "hidden older",
+                "viewers": ["g11b-other"],
+                "eventSeq": 121,
+                "createAt": 1_700_001_100_021_i64
+            }],
+            "hasMore": true
+        }
+    });
+    harness.step(
+        port_reply_with_body(
+            http.raw(),
+            enveloped(Bytes::from(serde_json::to_vec(&hidden).unwrap())),
+        ),
+        6,
+    );
+    assert!(emitted_events(&harness).is_empty(), "HTTP is not terminal");
+    let empty_persist = only_empty_persist(&harness);
+    harness.step(port_reply_with_body(empty_persist.raw(), Bytes::new()), 7);
+    let readback = only_message_scan(&harness);
+    harness.step(
+        port_reply_with_body(readback.raw(), Bytes::from_static(b"[]")),
+        8,
+    );
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1, "filtered page must settle exactly once");
+    assert_eq!(events[0]["event"], "im:read:result");
+    assert_eq!(events[0]["data"]["req_id"], REQUEST_ID);
+    assert!(
+        events[0]["data"].get("error").is_some(),
+        "non-empty authority + empty filtered rows must fail, not retry"
+    );
+    assert_ne!(
+        events[0]["data"]["body"]["messages"],
+        json!([]),
+        "must not emit messages=[] success with hasOlder=true"
+    );
 }

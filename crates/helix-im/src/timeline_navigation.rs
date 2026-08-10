@@ -53,6 +53,7 @@ pub struct TimelineNavigationState {
     page_size: u32,
     request_id: Option<String>,
     kind: TimelineNavigationKind,
+    authority_rows: Vec<Value>,
     rows: Vec<Value>,
     page: WindowPage,
     target_index: Option<usize>,
@@ -81,6 +82,7 @@ impl TimelineNavigationState {
                 anchor_create_at: None,
                 cursor,
             },
+            authority_rows: Vec::new(),
             rows: Vec::new(),
             target_index: None,
             older_cursor: None,
@@ -114,6 +116,7 @@ impl TimelineNavigationState {
                     temporary_id: String::new(),
                 },
             },
+            authority_rows: Vec::new(),
             rows: Vec::new(),
             target_index: None,
             older_cursor: None,
@@ -141,6 +144,7 @@ impl TimelineNavigationState {
                 anchor_create_at: None,
                 cursor,
             },
+            authority_rows: Vec::new(),
             rows: Vec::new(),
             target_index: None,
             older_cursor: None,
@@ -174,6 +178,7 @@ impl TimelineNavigationState {
                     temporary_id: String::new(),
                 },
             },
+            authority_rows: Vec::new(),
             rows: Vec::new(),
             target_index: None,
             older_cursor: None,
@@ -205,6 +210,7 @@ impl TimelineNavigationState {
                 target_message_id,
                 navigation_token,
             },
+            authority_rows: Vec::new(),
             rows: Vec::new(),
             target_index: None,
             older_cursor: None,
@@ -282,9 +288,19 @@ impl TimelineNavigationState {
         self.page.clone()
     }
 
-    /// 返回通过权限和 wire 校验的原始消息页。
+    /// 返回经过 viewer 权限过滤且补齐 wire 字段的消息页。
     pub fn rows(&self) -> &[Value] {
         &self.rows
+    }
+
+    /// 返回本次 HTTP authority 校验后的原始 rows，区分后续 viewer 过滤结果。
+    pub(crate) fn authority_rows(&self) -> &[Value] {
+        &self.authority_rows
+    }
+
+    /// 标记过滤或 bounded read-back 后的 locate 目标下标。
+    pub(crate) fn set_target_index(&mut self, target_index: Option<usize>) {
+        self.target_index = target_index;
     }
 
     /// 用权限过滤且补齐 wire 字段的同源行替换原始 HTTP 页。
@@ -315,7 +331,7 @@ impl TimelineNavigationState {
             } => self
                 .rows
                 .iter()
-                .find(|row| row.get("id").and_then(Value::as_str) == Some(target_message_id)),
+                .find(|row| row_matches_message_identity(row, target_message_id)),
             TimelineNavigationKind::Older { .. } => self.rows.first(),
             TimelineNavigationKind::Newer { .. } => self.rows.last(),
         }?;
@@ -380,11 +396,9 @@ impl TimelineNavigationState {
                     .ok_or_else(|| {
                         ImError::Parse("timeline locate response missing targetIndex".to_string())
                     })?;
-                if rows
+                if !rows
                     .get(target_index)
-                    .and_then(|row| row.get("id"))
-                    .and_then(Value::as_str)
-                    != Some(target_message_id.as_str())
+                    .is_some_and(|row| row_matches_message_identity(row, target_message_id))
                 {
                     return Err(ImError::Parse(
                         "timeline locate targetIndex does not identify target".to_string(),
@@ -420,9 +434,25 @@ impl TimelineNavigationState {
                     .filter(|value| !value.is_null());
             }
         }
+        self.authority_rows = rows.clone();
         self.rows = rows;
         Ok(())
     }
+}
+
+/// 判断 wire、durable 或 render-ready 行是否包含请求目标的任一稳定身份。
+pub(crate) fn row_matches_message_identity(row: &Value, target_message_id: &str) -> bool {
+    [
+        "id",
+        "message_id",
+        "postId",
+        "msgId",
+        "temporaryId",
+        "temporary_id",
+    ]
+    .iter()
+    .filter_map(|key| row.get(*key).and_then(Value::as_str))
+    .any(|value| value == target_message_id)
 }
 
 /// 解析下拉请求，并拒绝 renderer 注入 cursor/order/range。

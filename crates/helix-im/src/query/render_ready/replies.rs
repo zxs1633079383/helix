@@ -319,7 +319,11 @@ fn reply_belongs_to_root_for_mode(
         ],
     };
     keys.iter()
-        .find_map(|key| post.get(*key).and_then(serde_json::Value::as_str))
+        .find_map(|key| {
+            post.get(*key)
+                .and_then(serde_json::Value::as_str)
+                .filter(|relation| !relation.is_empty())
+        })
         .is_some_and(|relation| relation == root_hint)
 }
 

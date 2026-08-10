@@ -235,16 +235,57 @@ fn latest_durable_rows() -> Bytes {
 
 /// 构造 canonical im_locate_context 请求。
 fn locate_command(target: u64) -> helix_core::Tick {
+    locate_command_for_target(&format!("srvfix{target:020x}"))
+}
+
+/// 构造以 temporaryId 作为目标身份的 locate 请求，覆盖移动端真实调用形态。
+fn locate_command_for_target(target: &str) -> helix_core::Tick {
     command_json(
         "im_locate_context",
         json!({
             "channel_id": cid(CHANNEL),
-            "message_id": format!("srvfix{target:020x}"),
+            "message_id": target,
             "page_size": 4,
             "req_id": REQUEST_ID,
             "navigationToken": "g11d-current"
         }),
     )
+}
+
+/// temporaryId 目标必须沿用 HTTP → Persist → bounded Scan 的真实 locate 链路。
+#[test]
+fn g11d_context_accepts_temporary_id_target() {
+    let mut harness =
+        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    attach_latest_window(&mut harness);
+    harness.step(locate_command_for_target("mv3-g11d-3"), 6);
+    let http = only_http(&harness, "/posts/postContext");
+    assert_eq!(
+        harness.last_http_body().expect("locate HTTP body")["postId"],
+        "mv3-g11d-3"
+    );
+    harness.step(
+        port_reply_with_body(http.raw(), enveloped(locate_posts())),
+        7,
+    );
+    assert!(
+        emitted_events(&harness).is_empty(),
+        "HTTP cannot settle locate"
+    );
+    let cache = only_cache_write(&harness);
+    harness.step(port_reply_with_body(cache.raw(), Bytes::new()), 8);
+    assert!(
+        emitted_events(&harness).is_empty(),
+        "PersistOk cannot settle locate"
+    );
+    let readback = only_message_scan(&harness);
+    harness.step(port_reply_with_body(readback.raw(), durable_rows()), 9);
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1, "one reqId has one terminal result");
+    let body = &events[0]["data"]["body"];
+    assert_eq!(body["targetPostId"], "mv3-g11d-3");
+    assert_eq!(body["targetIndex"], 2);
+    assert_eq!(body["messages"][2]["temporaryId"], "mv3-g11d-3");
 }
 
 /// Locate 成功必须是 HTTP → Persist → Scan → 一个 QueryMessagesResult，且不广播 timeline。
@@ -383,4 +424,126 @@ fn g11d_revoked_target_has_correlated_error_without_persist() {
     assert!(!serde_json::to_string(&events)
         .unwrap()
         .contains("im:timeline:"));
+}
+
+/// 隐藏前置消息被过滤后，locate 的 targetIndex 必须按可见 durable 窗口重算。
+#[test]
+fn g11d_hidden_predecessor_reindexes_visible_target() {
+    let mut harness =
+        Harness::new_with_identity(&[CHANNEL], "g11d-viewer", "g11d-company", "", "", "");
+    attach_latest_window(&mut harness);
+    harness.step(locate_command(3), 6);
+    let http = only_http(&harness, "/posts/postContext");
+    let authority = serde_json::json!({
+        "status": "SUCCESS",
+        "data": {
+            "posts": [
+                {
+                    "id": "srvfix00000000000000000001",
+                    "temporaryId": "mv3-g11d-visible-1",
+                    "channelId": cid(CHANNEL),
+                    "userId": "g11d-author",
+                    "type": "TEXT",
+                    "message": "visible before",
+                    "viewers": ["all"],
+                    "createAt": 1_700_001_400_001_i64
+                },
+                {
+                    "id": "srvfix00000000000000000002",
+                    "temporaryId": "mv3-g11d-hidden-2",
+                    "channelId": cid(CHANNEL),
+                    "userId": "g11d-author",
+                    "type": "TEXT",
+                    "message": "hidden before",
+                    "viewers": ["g11d-other"],
+                    "createAt": 1_700_001_400_002_i64
+                },
+                {
+                    "id": "srvfix00000000000000000003",
+                    "temporaryId": "mv3-g11d-target-3",
+                    "channelId": cid(CHANNEL),
+                    "userId": "g11d-author",
+                    "type": "TEXT",
+                    "message": "target",
+                    "viewers": ["all"],
+                    "createAt": 1_700_001_400_003_i64
+                },
+                {
+                    "id": "srvfix00000000000000000004",
+                    "temporaryId": "mv3-g11d-visible-4",
+                    "channelId": cid(CHANNEL),
+                    "userId": "g11d-author",
+                    "type": "TEXT",
+                    "message": "visible after",
+                    "viewers": ["all"],
+                    "createAt": 1_700_001_400_004_i64
+                }
+            ],
+            "targetIndex": 2,
+            "hasOlder": true,
+            "hasNewer": true
+        }
+    });
+    harness.step(
+        port_reply_with_body(
+            http.raw(),
+            enveloped(Bytes::from(serde_json::to_vec(&authority).unwrap())),
+        ),
+        7,
+    );
+    let cache = only_cache_write(&harness);
+    harness.step(port_reply_with_body(cache.raw(), Bytes::new()), 8);
+    let readback = only_message_scan(&harness);
+    let durable = serde_json::json!([
+        {
+            "id": "srvfix00000000000000000001",
+            "temporary_id": "mv3-g11d-visible-1",
+            "channel_id": cid(CHANNEL),
+            "user_id": "g11d-author",
+            "type": "TEXT",
+            "message": "durable before",
+            "viewers": ["all"],
+            "create_at": 1_700_001_400_001_i64,
+            "send_status": "sent"
+        },
+        {
+            "id": "srvfix00000000000000000003",
+            "temporary_id": "mv3-g11d-target-3",
+            "channel_id": cid(CHANNEL),
+            "user_id": "g11d-author",
+            "type": "TEXT",
+            "message": "durable target",
+            "viewers": ["all"],
+            "create_at": 1_700_001_400_003_i64,
+            "send_status": "sent"
+        },
+        {
+            "id": "srvfix00000000000000000004",
+            "temporary_id": "mv3-g11d-visible-4",
+            "channel_id": cid(CHANNEL),
+            "user_id": "g11d-author",
+            "type": "TEXT",
+            "message": "durable after",
+            "viewers": ["all"],
+            "create_at": 1_700_001_400_004_i64,
+            "send_status": "sent"
+        }
+    ]);
+    harness.step(
+        port_reply_with_body(
+            readback.raw(),
+            Bytes::from(serde_json::to_vec(&durable).unwrap()),
+        ),
+        9,
+    );
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    let body = &events[0]["data"]["body"];
+    assert_eq!(
+        body["targetIndex"], 1,
+        "hidden predecessor shifts target index"
+    );
+    assert_eq!(body["messages"][1]["id"], "srvfix00000000000000000003");
+    assert_eq!(body["hasOlder"], true);
+    assert_eq!(body["hasNewer"], true);
 }

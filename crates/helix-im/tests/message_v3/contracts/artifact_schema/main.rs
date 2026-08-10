@@ -199,6 +199,9 @@ fn phase1_common_properties(schema_version: &str) -> Value {
         "schema_version": {"const": schema_version},
         "gate_id": {"type": "string", "pattern": PHASE1_GATE_ID_PATTERN},
         "status": {"enum": PHASE1_STATUSES},
+        "contract_decision_ref": {
+            "const": "specs/004-messagev3-helix-phase1-send-domain/Phase1合同决议.json"
+        },
     })
 }
 
@@ -257,12 +260,11 @@ fn phase1_schema(file: &str) -> Value {
                 "additionalProperties": false,
                 "required": ["angular", "helix"],
                 "properties": {
-                    "angular": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-                    "helix": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+                    "angular": {"type": "array", "items": {"type": "string"}},
+                    "helix": {"type": "array", "items": {"type": "string"}}
                 }
             });
-            properties["shared_invariants"] =
-                json!({"type": "array", "minItems": 1, "items": {"type": "string"}});
+            properties["shared_invariants"] = json!({"type": "array", "items": {"type": "string"}});
             properties["current_contract_ref"] = json!({"const": "contract.json"});
             properties
         }
@@ -309,7 +311,7 @@ fn phase1_schema(file: &str) -> Value {
                 }
             });
             properties["host_stage_error"] = json!({"type": ["object", "null"]});
-            properties["deterministic_ids"] = json!({"type": "object", "minProperties": 1});
+            properties["deterministic_ids"] = json!({"type": "object"});
             properties
         }
         "effects-contract.json" => {
@@ -339,8 +341,7 @@ fn phase1_schema(file: &str) -> Value {
             // 用精确 Gate 集合锁住，比一刀切的 minItems 更贴合参考包。
             properties["target_state_invariants"] =
                 json!({"type": "array", "items": {"type": "string"}});
-            properties["hard_rules"] =
-                json!({"type": "array", "minItems": 1, "items": {"type": "string"}});
+            properties["hard_rules"] = json!({"type": "array", "items": {"type": "string"}});
             properties
         }
         "outbound-contract.json" => {
@@ -362,13 +363,26 @@ fn phase1_schema(file: &str) -> Value {
                         "core_output": {"const": "Effect::Emit"},
                         "envelope": {"const": "{event,data}"},
                         "angular_mapping": {"type": "string", "minLength": 1},
-                        "angular_payload_rule": {"type": "string", "minLength": 1}
+                        "angular_payload_rule": {"type": "string", "minLength": 1},
+                        "contract_event_kind": {"type": "string", "minLength": 1},
+                        "required_payload_paths": {
+                            "type": "array",
+                            "items": {"type": "string", "minLength": 1}
+                        }
                     }
                 }
             });
             properties["command_results"] = json!({"type": "array", "items": {"type": "object"}});
-            properties["delivery_rules"] =
-                json!({"type": "array", "minItems": 1, "items": {"type": "string"}});
+            properties["delivery_rules"] = json!({"type": "array", "items": {"type": "string"}});
+            // 参考包允许显式记录历史事件复用与合同扩展；它们不改变核心信道形状。
+            properties["contract_extensions"] = json!({
+                "type": "array",
+                "items": {"type": "object"}
+            });
+            properties["reused_event_contracts"] = json!({
+                "type": "array",
+                "items": {"type": "object"}
+            });
             properties
         }
         "outbound-sample.json" => {
@@ -438,19 +452,96 @@ fn phase1_schema(file: &str) -> Value {
         other => panic!("unknown Phase 1 generated file `{other}`"),
     };
 
+    let optional = if file == "outbound-contract.json" {
+        ["contract_extensions", "reused_event_contracts"]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+    } else {
+        std::collections::BTreeSet::new()
+    };
     let required = properties
         .as_object_mut()
         .expect("properties map")
         .keys()
+        .filter(|key| !optional.contains(key.as_str()))
         .cloned()
         .collect::<Vec<_>>();
-    json!({
+    let mut schema = json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "additionalProperties": false,
         "required": required,
         "properties": properties
-    })
+    });
+    if file == "inbound-contract.json" {
+        // Deferred/partial/N/A 参考包允许显式空命令；目标接入 Gate 仍必须声明
+        // 至少一个命令、字段归属和共享不变量，避免把空合同误当成已完成实现。
+        schema["allOf"] = json!([
+            {
+                "if": {"properties": {"status": {"const": "TARGET_REQUIRED"}}},
+                "then": {
+                    "properties": {
+                        "rust_commands": {"minItems": 1},
+                        "field_ownership": {
+                            "properties": {
+                                "angular": {"minItems": 1},
+                                "helix": {"minItems": 1}
+                            }
+                        },
+                        "shared_invariants": {"minItems": 1}
+                    }
+                }
+            },
+            {
+                "if": {
+                    "properties": {
+                        "status": {
+                            "enum": ["PARTIAL_DEFERRED_GAP", "NOT_APPLICABLE"]
+                        }
+                    }
+                },
+                "then": {
+                    "properties": {
+                        "field_ownership": {
+                            "properties": {
+                                "angular": {"minItems": 1},
+                                "helix": {"minItems": 1}
+                            }
+                        },
+                        "shared_invariants": {"minItems": 1}
+                    }
+                }
+            }
+        ]);
+    } else if file == "inbound-sample.json" {
+        schema["allOf"] = json!([{
+            "if": {"properties": {"status": {"const": "TARGET_REQUIRED"}}},
+            "then": {"properties": {"deterministic_ids": {"minProperties": 1}}}
+        }]);
+    } else if file == "effects-contract.json" {
+        schema["allOf"] = json!([{
+            "if": {
+                "properties": {
+                    "status": {
+                        "enum": ["TARGET_REQUIRED", "PARTIAL_DEFERRED_GAP", "NOT_APPLICABLE"]
+                    }
+                }
+            },
+            "then": {"properties": {"hard_rules": {"minItems": 1}}}
+        }]);
+    } else if file == "outbound-contract.json" {
+        schema["allOf"] = json!([{
+            "if": {
+                "properties": {
+                    "status": {
+                        "enum": ["TARGET_REQUIRED", "PARTIAL_DEFERRED_GAP", "NOT_APPLICABLE"]
+                    }
+                }
+            },
+            "then": {"properties": {"delivery_rules": {"minItems": 1}}}
+        }]);
+    }
+    schema
 }
 
 /// 33 Gate 的 registry entries（`gate_id` + `reference_path`）。
@@ -531,7 +622,8 @@ fn phase1_status_is_consistent_across_registry_and_artifacts() {
 
 /// 出站信道与出站样本必须同生共死，且零事件 Gate 的验收形态按状态二分。
 ///
-/// 对应 spec §2.1 里标 `（零事件）` 的四个 Gate：
+/// 当前 Phase 1 参考包中有六个零事件 Gate：
+/// - `MV3-G01i/G01j`：关闭合同决议留下的 deferred Gap，不产生结果；
 /// - `MV3-G02d/G02e/G04d`：零事件但**有**结构化 Command Result（错误码 / 投影结果）；
 /// - `MV3-G05l`：`NOT_APPLICABLE` 的**负向** Gate，零 Effect、零事件、零 Command Result——
 ///   它的验收就是「什么都不发生」，一旦这里冒出任何结果就说明工具栏命令写进了 IM。
@@ -562,10 +654,13 @@ fn phase1_zero_event_gates_match_their_declared_shape() {
             "{gate_id}: 出站信道数与事件样本数必须同为零或同为非零（channels={channels} samples={samples}）"
         );
         if channels == 0 {
-            if state == "NOT_APPLICABLE" {
+            if matches!(
+                state,
+                "NOT_APPLICABLE" | "DEFERRED_GAP" | "PARTIAL_DEFERRED_GAP"
+            ) {
                 assert_eq!(
                     command_results, 0,
-                    "{gate_id}: 负向 Gate 必须零 Command Result（零 IM 写入的机器化表达）"
+                    "{gate_id}: deferred/负向 Gate 必须零 Command Result（未接入或零 IM 写入）"
                 );
             } else {
                 assert!(
@@ -591,22 +686,23 @@ fn phase1_zero_event_gates_match_their_declared_shape() {
     zero_event_gates.sort();
     assert_eq!(
         zero_event_gates,
-        vec!["MV3-G02d", "MV3-G02e", "MV3-G04d", "MV3-G05l"],
-        "零事件 Gate 集合与 spec §2.1 的声明不符"
+        vec!["MV3-G01i", "MV3-G01j", "MV3-G02d", "MV3-G02e", "MV3-G04d", "MV3-G05l",],
+        "零事件 Gate 集合与 Phase 1 参考包声明不符"
     );
 }
 
-/// 声明「零 Effect」的 Gate 恰好只有 spec §2.1 标注的两个，且两者形态完全一致。
+/// 当前 Phase 1 参考包声明「零 Effect」的 Gate 恰好是两个 deferred Gap 加两个负向/早退 Gate。
 ///
 /// `allowed_effect_tags` 与 `reference_sequence` 同时为空 = 该 Gate 不允许产生任何 Effect：
 /// - `MV3-G02d`（64 MiB 早退）：超限必须在暂存前返回结构化错误，**不创建 temporaryId、
 ///   不 Persist、不 Emit**（INV-11）；
-/// - `MV3-G05l`（零 IM 写入工具栏命令）：整条命令不得触达 IM。
+/// - `MV3-G05l`（零 IM 写入工具栏命令）：整条命令不得触达 IM；
+/// - `MV3-G01i/G01j`：已关闭的合同决议保持 deferred Gap，不伪造 Effect。
 ///
-/// 这两个 Gate 的正确实现方式就是「什么都不做」，所以必须用**精确集合**锁死；否则某天有人
+/// 这些 Gate 的正确实现方式就是「什么都不做」，所以必须用**精确集合**锁死；否则某天有人
 /// 给别的 Gate 把 Effect 序列清空，schema 层面看不出任何异常。
 #[test]
-fn phase1_zero_effect_gates_are_exactly_the_declared_two() {
+fn phase1_zero_effect_gates_are_exactly_the_declared_set() {
     let mut zero_effect = Vec::new();
     for entry in phase1_entries() {
         let gate_id = entry["gate_id"].as_str().expect("gate_id").to_string();
@@ -650,8 +746,8 @@ fn phase1_zero_effect_gates_are_exactly_the_declared_two() {
     zero_effect.sort();
     assert_eq!(
         zero_effect,
-        vec!["MV3-G02d", "MV3-G05l"],
-        "零 Effect Gate 集合与 spec §2.1 的声明不符"
+        vec!["MV3-G01i", "MV3-G01j", "MV3-G02d", "MV3-G05l"],
+        "零 Effect Gate 集合与 Phase 1 参考包声明不符"
     );
 }
 

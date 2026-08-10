@@ -145,17 +145,23 @@ fn remote_post(index: u32) -> Value {
     })
 }
 
-/// G-11a 只有当前 token 激活 located，旧响应只发布 stale merge。
+/// G-11a 的 token 生命周期由 Angular 持有；Helix 为每次 locate 返回独立 reqId 结果。
 #[test]
-fn g11a_current_token_activates_and_stale_response_only_merges() -> TestResult<()> {
+fn g11a_returns_independent_req_results_for_out_of_order_tokens() -> TestResult<()> {
     let trace = run_out_of_order()?;
     assert_eq!(trace.events.len(), 2);
-    assert_eq!(trace.events[0]["event"], "im:timeline:located");
-    assert_eq!(trace.events[0]["data"]["navigationToken"], "g11a-current");
-    assert_eq!(trace.events[1]["event"], "im:timeline:update");
-    assert_eq!(trace.events[1]["data"]["direction"], "merge");
-    assert_eq!(trace.events[1]["data"]["state"], "stale");
-    assert_eq!(trace.events[1]["data"]["anchorPostId"], base::server_id(8));
+    for (event, request_id, target_id) in [
+        (&trace.events[0], "g11a-g11a-current", base::server_id(10)),
+        (&trace.events[1], "g11a-g11a-stale", base::server_id(8)),
+    ] {
+        assert_eq!(event["event"], "im:read:result");
+        assert_eq!(event["data"]["req_id"], request_id);
+        let body = &event["data"]["body"];
+        assert_eq!(body["reqId"], request_id);
+        assert_eq!(body["operation"], "locate");
+        assert_eq!(body["targetPostId"], target_id);
+        assert_eq!(body["targetIndex"], 5);
+    }
     Ok(())
 }
 

@@ -185,6 +185,12 @@ impl ImModule {
             self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
             return Ok(());
         }
+        // 空 authority 页没有可写消息；跳过空 Persist，直接进入 bounded Scan，
+        // 兼容真实 C++ storage bridge 不为零操作写集发送回执的运行时合同。
+        if ops.is_empty() {
+            self.schedule_timeline_navigation_readback(state, out)?;
+            return Ok(());
+        }
         let corr = self.alloc_corr_internal();
         out.push(Effect::Persist { corr, ops });
         self.state
@@ -425,6 +431,29 @@ impl ImModule {
             state.page_size(),
         ) {
             Ok(rows) => rows,
+            Err(crate::query::render_ready::locate::LocateProjectionError::TargetMissing(_))
+                if !state.rows().is_empty() =>
+            {
+                // 有界 asc Scan 可能落在目标之前；所有 authority rows 已在 PersistOk 前通过同一批 upsert 提交。
+                match crate::query::render_ready::locate::normalize_durable_located_window(
+                    state.rows().to_vec(),
+                    state.channel_id().as_str(),
+                    target_message_id,
+                    self.config.auth_user_id.as_str(),
+                    state.page_size(),
+                ) {
+                    Ok(rows) => rows,
+                    Err(error) => {
+                        tracing::warn!(
+                            channel_id = state.channel_id().as_str(),
+                            error = ?error,
+                            "timeline locate authority fallback failed closed"
+                        );
+                        self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+                        return Ok(());
+                    }
+                }
+            }
             Err(error) => {
                 tracing::warn!(
                     channel_id = state.channel_id().as_str(),

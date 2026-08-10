@@ -337,19 +337,32 @@ impl TimelineNavigationState {
         let data = root.get("data").and_then(Value::as_object).ok_or_else(|| {
             ImError::Parse("timeline navigation response missing data".to_string())
         })?;
-        let rows = data
-            .get("posts")
-            .and_then(Value::as_array)
-            .cloned()
-            .ok_or_else(|| {
-                ImError::Parse("timeline navigation response missing posts".to_string())
-            })?;
+        // Go CommonRes uses `count:0, posts:null` for an empty navigation page;
+        // accept that explicit zero-card shape without weakening non-empty validation.
+        let (rows, empty_authority_page) = match data.get("posts") {
+            Some(Value::Array(rows)) => {
+                let rows = rows.clone();
+                (
+                    rows.clone(),
+                    data.get("count").and_then(Value::as_u64) == Some(0) && rows.is_empty(),
+                )
+            }
+            Some(Value::Null) if data.get("count").and_then(Value::as_u64) == Some(0) => {
+                (Vec::new(), true)
+            }
+            _ => {
+                return Err(ImError::Parse(
+                    "timeline navigation response missing posts".to_string(),
+                ))
+            }
+        };
         validate_rows(&rows, self.channel_id.as_str())?;
         match &self.kind {
             TimelineNavigationKind::Older { .. } => {
                 let has_more = data
                     .get("hasMore")
                     .and_then(Value::as_bool)
+                    .or_else(|| empty_authority_page.then_some(false))
                     .ok_or_else(|| {
                         ImError::Parse(
                             "timeline older response missing boolean hasMore".to_string(),
@@ -362,6 +375,7 @@ impl TimelineNavigationState {
                 let has_more = data
                     .get("hasMore")
                     .and_then(Value::as_bool)
+                    .or_else(|| empty_authority_page.then_some(false))
                     .ok_or_else(|| {
                         ImError::Parse(
                             "timeline newer response missing boolean hasMore".to_string(),
@@ -732,4 +746,45 @@ fn validate_rows(rows: &[Value], channel_id: &str) -> Result<(), ImError> {
         previous = Some((create_at, temporary_id));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TimelineNavigationState;
+
+    /// Go 空页的显式 `count:0, posts:null` 必须结算为合法 older 终态。
+    #[test]
+    fn empty_authority_page_accepts_null_posts() {
+        let mut state = TimelineNavigationState::older_without_window(
+            crate::state::test_channel_id(11),
+            20,
+            "req-empty-older".to_string(),
+            "srvfix00000000000000000001".to_string(),
+            None,
+        );
+
+        state
+            .ingest_http_body(br#"{"status":"SUCCESS","data":{"count":0,"posts":null}}"#)
+            .expect("explicit zero-card page is a successful empty result");
+
+        assert!(state.rows().is_empty());
+        assert!(!state.page().has_older);
+        assert!(!state.page().has_more);
+    }
+
+    /// 非零 count 与 null posts 仍然失败，避免把畸形后端响应伪装为空页。
+    #[test]
+    fn non_empty_count_rejects_null_posts() {
+        let mut state = TimelineNavigationState::older_without_window(
+            crate::state::test_channel_id(12),
+            20,
+            "req-invalid-older".to_string(),
+            "srvfix00000000000000000001".to_string(),
+            None,
+        );
+
+        assert!(state
+            .ingest_http_body(br#"{"status":"SUCCESS","data":{"count":1,"posts":null}}"#)
+            .is_err());
+    }
 }

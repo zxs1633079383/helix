@@ -298,6 +298,10 @@ fn expected_last_post(authority: &Value) -> TestResult<Value> {
         "message": post["message"],
         "createAt": post["createAt"],
     });
+    // 当前 authority 会把服务端 userSnapshot 原样带入频道 lastPost，保持渲染所需身份快照。
+    if post.get("userSnapshot").is_some() {
+        last_post["userSnapshot"] = post["userSnapshot"].clone();
+    }
     if post["type"] == "MULTIPLY" {
         last_post["type"] = json!("MULTIPLY");
         last_post["forwardDetail"] = expected_forward_detail();

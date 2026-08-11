@@ -45,3 +45,7 @@ harness = false
 [[test]]
 name = "message_v3_phase1_real_go"
 path = "tests/message_v3_phase1_real_go.rs"
+
+[[test]]
+name = "message_v3_domain"
+path = "tests/message_v3_domain.rs"

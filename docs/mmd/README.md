@@ -1,5 +1,8 @@
 # MessageV3 Phase 1-4 客户端与 Helix Gate 时序图
 
+阅读或修改本目录前先看 [`AGENTS.md`](./AGENTS.md)；本 README 只承载 84 Gate 的分母、
+Phase/Domain 索引和文件链接，具体 Gate 规则按局部 AGENTS 的渐进式披露顺序下钻。
+
 本目录以 PC 参考客户端 `/System/Volumes/Data/workspace/angular/visual/cses-client`
 的 **84 Gate 机读分母**为准，按 `Phase → Domain → Gate` 组织 Mermaid 时序图。每张图都沿用
 [发送消息参考图](./发送消息.mmd)的逐跳粒度，描述 Angular/Port、Tauri/FFI/Web、Helix

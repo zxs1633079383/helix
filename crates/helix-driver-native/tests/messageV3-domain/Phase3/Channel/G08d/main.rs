@@ -1,8 +1,18 @@
 use crate::shared;
+use serde_json::json;
 
-/// MV3-G08d：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G08d：真实 `channel/member/leave` → Persist → closed terminalReason=left。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g08d_real_chain() {
-    shared::record_unverified("Phase3", "Channel", "MV3-G08d", "Phase3 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    shared::assert_new_channel_mutation(
+        "Phase3",
+        "Channel",
+        "MV3-G08d",
+        "im_channel_leave",
+        "/api/cses/channel/member/leave",
+        "im:channel:closed",
+        |_, channel| json!({"channel_id": channel}),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("MV3-G08d real chain failed: {error}"));
 }

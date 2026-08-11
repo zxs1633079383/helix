@@ -1,8 +1,11 @@
 use crate::shared;
+use serde_json::json;
 
-/// MV3-G10d：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G10d：真实 orient mutation，核对 Go authority、PersistOk 与 channel update。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g10d_real_chain() {
-    shared::record_unverified("Phase3", "Channel", "MV3-G10d", "Phase3 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    shared::assert_new_channel_mutation(
+        "Phase3", "Channel", "MV3-G10d", "im_channel_change_orient", "/api/cses/channel/change/orient", "im:channel:update",
+        |_, channel| json!({"channel_id": channel, "orient": "GENERAL", "req_id": shared::run_token("g10d")}),
+    ).await.unwrap_or_else(|error| panic!("MV3-G10d real chain failed: {error}"));
 }

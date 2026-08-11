@@ -1,8 +1,11 @@
 use crate::shared;
+use serde_json::json;
 
-/// MV3-G09a：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G09a：真实成员移除 → Go WS `channel_member_update` → roster Persist/Emit。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g09a_real_chain() {
-    shared::record_unverified("Phase3", "ChannelMember", "MV3-G09a", "Phase3 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    shared::assert_new_channel_mutation(
+        "Phase3", "ChannelMember", "MV3-G09a", "im_channel_member_change", "/api/cses/channel/member/change", "im:channel:member-updated",
+        |context, channel| json!({"channel_id": channel, "team_id": context.actor.company_id, "self_id": context.actor.user_id, "join_user_ids": [], "leave_user_ids": [context.third.user_id]}),
+    ).await.unwrap_or_else(|error| panic!("MV3-G09a real chain failed: {error}"));
 }

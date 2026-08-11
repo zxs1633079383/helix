@@ -1,8 +1,26 @@
 use crate::shared;
+use serde_json::json;
 
-/// MV3-G09d：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G09d：真实单频道增量读回 → `im:read:result` 与 channel hydration。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g09d_real_chain() {
-    shared::record_unverified("Phase3", "ChannelMember", "MV3-G09d", "Phase3 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    let (_guard, context) = shared::remote_setup().await;
+    let channel = shared::create_channel(&context)
+        .await
+        .unwrap_or_else(|error| panic!("MV3-G09d channel setup failed: {error}"));
+    let req_id = shared::run_token("g09d");
+    shared::assert_real_read_or_blocked(
+        &context,
+        "Phase3",
+        "ChannelMember",
+        "MV3-G09d",
+        &channel,
+        "im_channel_load_increment_by_channel_id",
+        "/api/cses/channel/load/incrementByChannelId",
+        json!({"channel_id": channel, "req_id": req_id}),
+        |envelope| shared::data_string(envelope, &["req_id"]).as_deref() == Some(req_id.as_str()),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("MV3-G09d real chain failed: {error}"));
+    let _ = shared::close_channel(&context, &channel).await;
 }

@@ -1634,6 +1634,118 @@ where
     session.close().await
 }
 
+/// 执行一个真实 HTTP mutation，并把 Go WS/Helix terminal projection 作为唯一成功证据。
+pub(crate) async fn assert_real_mutation_or_blocked<F>(
+    context: &AuthContext,
+    phase: &str,
+    domain: &str,
+    gate: &str,
+    channel_id: &str,
+    command: &'static str,
+    endpoint: &str,
+    payload: Value,
+    event_name: &str,
+    predicate: F,
+) -> Result<(), String>
+where
+    F: Fn(&Value) -> bool,
+{
+    let mut session = match start_real_helix_session(context, &[channel_id]).await {
+        Ok(session) => session,
+        Err(error) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({"reason": "real Helix session unavailable", "first_failing_layer": "Helix native transport/auth", "command": command, "go_http": endpoint, "error": error}),
+            )?;
+            return Ok(());
+        }
+    };
+    if let Err(error) = session.command(command, payload.clone()).await {
+        let _ = session.close().await;
+        write_gate_evidence(
+            phase,
+            domain,
+            gate,
+            "BLOCKED_PRECONDITION",
+            json!({"reason": "real mutation command was not admitted", "first_failing_layer": "Helix Tick ingress", "command": command, "go_http": endpoint, "error": error}),
+        )?;
+        return Ok(());
+    }
+    let event = match session
+        .wait_event(
+            event_name,
+            |envelope| predicate(envelope),
+            Duration::from_secs(25),
+        )
+        .await
+    {
+        Ok(event) => event,
+        Err(error) => {
+            let _ = session.close().await;
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({"reason": "Go mutation produced no terminal WS/Helix projection", "first_failing_layer": "Go route/producer/WS or Helix PersistOk", "command": command, "go_http": endpoint, "event": event_name, "error": error}),
+            )?;
+            return Ok(());
+        }
+    };
+    let event_json: Value = serde_json::from_slice(event.0.as_ref())
+        .map_err(|error| format!("{gate} mutation event JSON failed: {error}"))?;
+    write_gate_evidence(
+        phase,
+        domain,
+        gate,
+        "PASS",
+        json!({
+            "command": command,
+            "go_http": endpoint,
+            "terminal_event": event_name,
+            "channel_id": channel_id,
+            "event": event_json,
+        }),
+    )?;
+    session.close().await
+}
+
+/// 创建 run-owned 频道并执行一个独立 mutation Gate，结束后只清理本轮频道。
+pub(crate) async fn assert_new_channel_mutation<F>(
+    phase: &str,
+    domain: &str,
+    gate: &str,
+    command: &'static str,
+    endpoint: &str,
+    event_name: &str,
+    build_payload: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&AuthContext, &str) -> Value,
+{
+    let (_guard, context) = remote_setup().await;
+    let channel = create_channel(&context).await?;
+    let payload = build_payload(&context, &channel);
+    let result = assert_real_mutation_or_blocked(
+        &context,
+        phase,
+        domain,
+        gate,
+        &channel,
+        command,
+        endpoint,
+        payload,
+        event_name,
+        |_| true,
+    )
+    .await;
+    let _ = close_channel(&context, &channel).await;
+    result
+}
+
 /// 写入一条 run-owned channel fixture，供 G13a/G13d 的本地 SQLite 查询通过真实 NativeStorage 回灌。
 pub(crate) async fn insert_channel_fixture(
     storage: &NativeStorage,

@@ -1500,12 +1500,12 @@ mod phase1 {
     mod upload {
         use super::*;
 
-        /// MV3-G01c/G01d/G01e/G01g/G02d/G03c：真实 media prepare→PUT→complete→get。
+        /// 历史 Go-owned media prepare→PUT→complete→get 探针，不是当前 Angular 媒体真链。
         ///
-        /// 当前 8066 实跑已证实该 Gate 被 Go `media.type NOT NULL` 写入缺口阻断；保留
-        /// 用例作为修复后立即启用的真实探针，默认不把后端 schema 漂移算作测试通过。
+        /// Angular 现在由 Java/fileDrive/OSS 完成字节上传，Go 只消费稳定媒体引用；该旧探针
+        /// 保留用于后端媒体 API 独立诊断并继续忽略，不能作为 Phase1 G01c/d/e/g/G03c 证据。
         #[tokio::test]
-        #[ignore = "blocked by current Go media repository: media.type is NOT NULL but Prepare never populates it"]
+        #[ignore = "legacy Go-owned media API probe; Angular media owner is Java/fileDrive/OSS"]
         async fn mv3_media_upload_chain_real_go() {
             let (_guard, context) = remote_setup().await;
             let channel = create_channel(&context).await.unwrap();

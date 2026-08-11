@@ -7,7 +7,7 @@
 - **分支**：`codex/messagev3-phase1-real-chain`
 - **Go 服务**：`/System/Volumes/Data/workspace/golang/cses-im-server-MessageV3-helix`，运行端点 `http://127.0.0.1:8066/api/cses`、`ws://127.0.0.1:8066/api/v4/websocket`
 - **Angular 真源**：`/System/Volumes/Data/workspace/angular/visual/cses-client`
-- **提交**：`a6ab29fc`（生产事件契约修复）、`e7492a1a`（Phase1-4 真实 Gate harness）
+- **提交**：`a6ab29fc`（生产事件契约修复）、`e7492a1a`（Phase1-4 真实 Gate harness）、`15e9fdcf`（缺口清单与交接记录）
 - **推送状态**：未 push
 
 ## 本轮完成事项
@@ -19,6 +19,14 @@
 5. 修复 G09c 的 authenticated actor identity，并把成员昵称事件统一为 `im:channel:member-nickname`；Phase3 15/15 通过。
 6. 为 Phase4 Pin、Bookmark、Announcement、Search、Todo 补真实 probe；没有 target command 或终态 event 时写出跨仓根因。
 7. 清理文档统计口径：README、SESSION 和本 handoff 均区分 Cargo harness 结果与业务 Gate evidence 结果。
+
+## 本轮媒体测试类修复（不启动 WDIO）
+
+1. 根据 Angular `messageFileUpload.service.ts` 与 `@ccc/core-common` `FileService` 的现行实现，纠正媒体 owner：文件字节走 Java `fileDrive`/OSS；Go 8066 只消费完成后的稳定媒体引用并执行 `posts/create`，旧 Rust `/media/upload/prepare` 探针不再作为 Angular 真链依据。
+2. `Phase1/Upload/G01c,d,e,g` 改为稳定 `picture/attachment` 引用的真实 Go post 闭环，分别覆盖多图、文件、AUDIO/VIDEO（duration/尺寸）和 TEMPLATE/IMAGE；每个测试仍检查 `Tick::Command → sending → Go HTTP → WS post → received → SQLite sent → im:__bus__`。
+3. `Phase1/Upload/G03c` 改为 `postIds + channelIds` 的真实图片 preview 转发，核对 source/target 的 `bucket/id/uri` 稳定引用一致，并证明转发不重复 prepare/PUT。
+4. `Phase1/Upload/G02d` 改为 Helix planner 的精确 `67,108,865` bytes 负向 Gate，验证在 Go/OSS/SQLite/业务 WS 之前拒绝，写入 local-contract PASS。
+5. 本轮没有启动 WDIO；因此媒体 Gate 的 Java/fileDrive/OSS 字节级上传仍明确写为 `BLOCKED_PRECONDITION`，不会把 stable-reference fixture 误报为完整媒体 PASS。
 
 ## 验证结果
 
@@ -48,11 +56,11 @@
 按每个注册 Gate 选取最新 `evidence.json`：
 
 ```text
-Phase1: 20 PASS / 1 BLOCKED_PRECONDITION / 11 NOT_VERIFIED / 1 NOT_APPLICABLE
+Phase1: 21 PASS / 6 BLOCKED_PRECONDITION / 5 NOT_VERIFIED / 1 NOT_APPLICABLE
 Phase2:  9 PASS / 7 BLOCKED_PRECONDITION /  0 NOT_VERIFIED / 4 NOT_APPLICABLE
 Phase3: 15 PASS / 0 BLOCKED_PRECONDITION /  0 NOT_VERIFIED / 0 NOT_APPLICABLE
 Phase4:  6 PASS / 10 BLOCKED_PRECONDITION / 0 NOT_VERIFIED / 0 NOT_APPLICABLE
-总计:   50 PASS / 18 BLOCKED_PRECONDITION / 11 NOT_VERIFIED / 5 NOT_APPLICABLE
+总计:   51 PASS / 23 BLOCKED_PRECONDITION / 5 NOT_VERIFIED / 5 NOT_APPLICABLE
 ```
 
 证据目录：`artifacts/messagev3-phase1-4-real-chain/`。运行证据未加入 Git，且不包含账号、cookie、密码、正文或完整 URL。两个历史中间 `MV3-G05j-create` 目录已可恢复地移至 `/tmp/messagev3-stale-g05j-create-20260811`，避免把非注册 Gate 计入 84 Gate 汇总。
@@ -61,7 +69,7 @@ Phase4:  6 PASS / 10 BLOCKED_PRECONDITION / 0 NOT_VERIFIED / 0 NOT_APPLICABLE
 
 ### Go/后端侧
 
-- **Media**：`internal/store/sqlstore/media_repository.go:26` 的 `Create` 当前遗漏 `SetType`，触发 live `media.type NOT NULL`；修复后先做真实 DB row 验证，再重跑 Phase1 media/forward。
+- **Media**：Angular 当前字节上传 owner 是 Java `fileDrive`/OSS，不是 Go `/media/upload/prepare`；需提供真实 Java prepare、OSS PUT/complete 与 sender/receiver read-back，同 Rust stable-reference 子链对账后再晋级 G01c/d/e/g、G03c。
 - **Post producer/readback**：`internal/app/cses_post_write.go:205` 调用 `CreateCsesPost`；`internal/app/cses_post_create.go:57-107` 负责 producer 投递。当前部分 post admission 后无法从 `/posts/get` 读回，阻塞 Phase2 Timeline 和 Phase4 Announcement read。
 - **Pin**：真实 route 位于 `internal/app/cses_channel_manager_pin.go:195-331`；需要检查 post pin WS producer、event payload 和 consumer 落库，使 Helix 能收到 `im:post:updated`。
 - **Search**：当前 Go 只有 `/search/post`、`/search/user`、`/search/channel`、`/search/do`；Angular 目标 global/in-channel/grouped command 尚未形成三方注册合同。
@@ -75,7 +83,7 @@ Phase4:  6 PASS / 10 BLOCKED_PRECONDITION / 0 NOT_VERIFIED / 0 NOT_APPLICABLE
 
 ## 推荐下一轮执行顺序
 
-1. 修 Go media `SetType`，验证 SQL row，再跑 Phase1 G01c/d/e/g/G03c。
+1. 补 Angular Java `fileDrive`/OSS 的真实 media fixture 与同轮证据，再跑 Phase1 G01c/d/e/g/G03c；不要把 Go media repository 约束当作当前 Angular 上传链路。
 2. 修/观测 Go post producer 到远端读库的屏障，再跑 Phase2 Timeline；同屏障成功后跑 Phase4 G07d。
 3. 修 Pin WS→Helix projection→SQLite，再跑 G05f/G05g。
 4. 明确 Search/Todo 三方合同后跑 G14a-c/G15a-d。

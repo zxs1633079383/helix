@@ -415,3 +415,8 @@
 🎯 EXPECT 沉淀 Phase1-4 BLOCKED/NOT_VERIFIED/NOT_APPLICABLE 的逐 Gate 证据缺口与 handoff；可证伪断言：① 新增两份中文 Markdown，逐 Gate 对应最新 evidence.json；② 不把 Cargo harness 通过或 health 200 写成业务 PASS；③ README 链接、相对/绝对源码引用和 `git diff --check` 全部通过；④ 不改 Go/Angular 生产代码。@2026-08-11T14:39:29+0800
 
 ✅ DONE 已新增 `Phase1-4-非通过Gate证据缺口清单.md` 与 `handoff.md`，覆盖 34 个非 PASS Gate 的当前事实、缺失证据、跨仓 owner、清障顺序和重跑命令；README 已挂接入口，Markdown 链接检查与 `git diff --check` 通过，Go/Angular 工作树未修改。@2026-08-11T14:39:29+0800
+
+🎯 EXPECT 推进 Phase1-4 真实 Angular→Helix→Go 8066→WS→SQLite→emit 证据，按用户明确排除 Todo、任务/会议卡片、平均分后收敛可验收 Gate。可证伪断言：① 不改写 84 Gate 原始状态，只新增按排除清单过滤的证据汇总；② 先修复已被源码与运行错误共同定位的 Go media.type、再逐层复验 Pin/Timeline/Search/本地 N/A，所有 PASS 必须有当前窗口的 HTTP/WS/Storage/Emit 或真实 Angular 终态证据；③ 不以 health、HTTP 200、Rust harness 通过或旧 artifact 冒充业务 PASS；④ 修改三仓时保留既有 dirty/untracked，按 Go/Rust/文档独立批次聚焦验证并提交，不自动 push；⑤ 若外部 PG/Pulsar/ES/认证态或运行中的 8066 二进制无法安全更新，记录 BLOCKED 而不是伪造全绿 | 赌注 高 | 可逆 是 | @2026-08-11T14:50:59+0800
+
+✅ DONE 直接修正 Phase1 Upload 测试类且未启动 WDIO：G01c/d/e/g 以 Angular Java/fileDrive/OSS 完成后的稳定媒体引用真实打 Go `posts/create`，G03c 以 `postIds + channelIds` 真实转发，全部聚焦测试通过并取得 WS/Helix/SQLite/emit 子链；G02d 以 Helix planner 精确拒绝 67,108,865 bytes 并取得零副作用 PASS。最新账为 Phase1 21 PASS / 6 BLOCKED_PRECONDITION / 5 NOT_VERIFIED / 1 NOT_APPLICABLE，总计 51/23/5/5；媒体完整 Gate 仍因本轮未取 Java/fileDrive/OSS 字节级同轮证据保持 BLOCKED。@2026-08-11T15:20:00+0800
+⚡ DRIFT-PRED 原先把 Go `/media/upload/prepare` 的 `media.type NOT NULL` 当作 Angular 媒体链根因；核对 Angular `FileService`、Java/fileDrive/OSS 与 Helix strict matrix 后改为稳定引用→Go post 子链，旧 Go-owned probe 保持忽略并降级为独立诊断 → 候选教训：媒体 Gate 必须先锁定真实上传 owner，再决定 Go 是字节平面还是 post consumer。@2026-08-11T15:20:00+0800

@@ -46,10 +46,10 @@ artifacts/messagev3-phase1-4-real-chain/<run-id>/<Phase>/<Domain>/<Gate>/evidenc
 
 | Phase | Gate 数 | PASS | BLOCKED_PRECONDITION | NOT_VERIFIED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Phase1 | 33 | 20 | 1 | 11 | 1 |
+| Phase1 | 33 | 21 | 6 | 5 | 1 |
 | Phase2 | 20 | 9 | 7 | 0 | 4 |
 | Phase3 | 15 | 15 | 0 | 0 | 0 |
 | Phase4 | 16 | 6 | 10 | 0 | 0 |
-| 合计 | 84 | 50 | 18 | 11 | 5 |
+| 合计 | 84 | 51 | 23 | 5 | 5 |
 
-`cargo test` 的 `33/20/15/16 passed` 表示 84 个 harness 函数都执行并成功写出证据；上表才是业务 Gate 证据状态。当前主要阻塞是 Go media `media.type NOT NULL`、timeline producer/读回、Pin 的 `im:post:updated` 投影、Search/Todo 的 Angular/Helix 合同缺口，以及 Announcement 的异步帖子持久化读回。每一项都在对应 `evidence.json` 保留了 endpoint、req_id/correlation、事件和源码根因，不以 health/HTTP 200 代替终态。
+`cargo test` 的 `33/20/15/16 passed` 表示 84 个 harness 函数都执行并成功写出证据；上表才是业务 Gate 证据状态。本轮聚焦媒体测试中，G01c/d/e/g/G03c 已验证稳定媒体引用消费的 Go/WS/Helix/SQLite/emit 子链，因未启动 WDIO 而保留 Java `fileDrive`/OSS 字节平面 `BLOCKED_PRECONDITION`；G02d 的 Helix 64MiB+1 local contract 已 PASS。其余主要阻塞是 timeline producer/读回、Pin 的 `im:post:updated` 投影、Search/Todo 的 Angular/Helix 合同缺口，以及 Announcement 的异步帖子持久化读回。每一项都在对应 `evidence.json` 保留 endpoint、req_id/correlation、事件和源码根因，不以 health/HTTP 200 代替终态。

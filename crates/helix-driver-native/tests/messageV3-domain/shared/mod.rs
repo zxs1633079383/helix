@@ -8,7 +8,7 @@
 //! 运行方式：
 //!
 //! ```text
-//! cargo test -p helix-driver-native --test message_v3_phase1_real_go -- --nocapture --test-threads=1
+//! cargo test -p helix-driver-native --test message_v3_domain -- --nocapture --test-threads=1
 //! ```
 //!
 //! 默认不读取环境变量。测试会自动寻找现有 `cses-client/.wdio/credentials.local.json`，
@@ -98,6 +98,35 @@ pub(crate) struct SendIntent {
     pub(crate) viewers: Vec<String>,
     pub(crate) mentions: Vec<String>,
     pub(crate) replied: Option<Value>,
+}
+
+/// 构造已经由 Angular 的 Java/fileDrive/OSS 平面收口后的稳定媒体引用。
+///
+/// 该 fixture 只代表“媒体字节已经上传完成”，不会伪造 Java 票据或 OSS PUT；
+/// 真实 Go 测试从这里开始验证 `posts/create`、WS、Helix projection 和 SQLite。
+pub(crate) fn completed_media_ref(
+    bucket: &str,
+    id: &str,
+    name: &str,
+    content_type: &str,
+    size: u64,
+    sha256: &str,
+    extra: Value,
+) -> Value {
+    let mut node = serde_json::Map::from_iter([
+        ("bucket".to_string(), json!(bucket)),
+        ("id".to_string(), json!(id)),
+        ("uri".to_string(), json!(format!("/media/{id}"))),
+        ("name".to_string(), json!(name)),
+        ("contentType".to_string(), json!(content_type)),
+        ("size".to_string(), json!(size)),
+        ("sha256".to_string(), json!(sha256)),
+        ("upload".to_string(), json!({"status": "completed"})),
+    ]);
+    if let Some(extra) = extra.as_object() {
+        node.extend(extra.clone());
+    }
+    Value::Object(node)
 }
 
 pub(crate) struct SendEvidence {
@@ -1306,6 +1335,122 @@ pub(crate) fn assert_post_frame(
     Ok(())
 }
 
+/// 只核对媒体稳定引用和 Host 产出的公开元数据，忽略 Go/WS 追加的非业务字段。
+pub(crate) fn assert_media_props(
+    actual_props: &Value,
+    expected_props: &Value,
+    label: &str,
+) -> Result<(), String> {
+    let values_equal = |actual: Option<&Value>, expected: &Value| match (actual, expected) {
+        (Some(Value::Number(actual)), Value::Number(expected)) => {
+            actual.as_f64() == expected.as_f64()
+        }
+        (Some(actual), expected) => actual == expected,
+        (None, _) => false,
+    };
+    let compare_node = |actual: &Value, expected: &Value, node_label: &str| {
+        let actual_object = actual
+            .as_object()
+            .ok_or_else(|| format!("{node_label} actual media node is not object"))?;
+        let expected_object = expected
+            .as_object()
+            .ok_or_else(|| format!("{node_label} expected media node is not object"))?;
+        for key in ["bucket", "id", "uri", "contentType", "size", "sha256"] {
+            let expected_value = expected_object
+                .get(key)
+                .ok_or_else(|| format!("{node_label} expected media node misses {key}"))?;
+            let actual_value = actual_object.get(key).or_else(|| {
+                (key == "name")
+                    .then(|| actual_object.get("fileName"))
+                    .flatten()
+            });
+            if !values_equal(actual_value, expected_value) {
+                return Err(format!(
+                    "{node_label} media {key} mismatch: expected {expected_value}, got {}",
+                    actual_value.unwrap_or(&Value::Null)
+                ));
+            }
+        }
+        let expected_name = expected_object
+            .get("name")
+            .ok_or_else(|| format!("{node_label} expected media node misses name"))?;
+        let actual_name = actual_object
+            .get("name")
+            .or_else(|| actual_object.get("fileName"));
+        if !values_equal(actual_name, expected_name) {
+            return Err(format!(
+                "{node_label} media name mismatch: expected {expected_name}, got {}",
+                actual_name.unwrap_or(&Value::Null)
+            ));
+        }
+        if let Some(expected_duration) = expected_object.get("duration") {
+            if !values_equal(actual_object.get("duration"), expected_duration) {
+                return Err(format!(
+                    "{node_label} media duration mismatch: expected {expected_duration}, got {}",
+                    actual_object.get("duration").unwrap_or(&Value::Null)
+                ));
+            }
+        }
+        for key in ["width", "height"] {
+            if let Some(expected_value) = expected_object.get(key) {
+                if !values_equal(actual_object.get(key), expected_value) {
+                    return Err(format!(
+                        "{node_label} media {key} mismatch: expected {expected_value}, got {}",
+                        actual_object.get(key).unwrap_or(&Value::Null)
+                    ));
+                }
+            }
+        }
+        Ok::<(), String>(())
+    };
+
+    if let Some(expected_files) = expected_props.get("files").and_then(Value::as_array) {
+        let actual_files = actual_props
+            .get("files")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("{label} received props.files is missing"))?;
+        if actual_files.len() != expected_files.len() {
+            return Err(format!(
+                "{label} media file count mismatch: expected {}, got {}",
+                expected_files.len(),
+                actual_files.len()
+            ));
+        }
+        for (index, (actual, expected)) in actual_files.iter().zip(expected_files).enumerate() {
+            compare_node(actual, expected, &format!("{label}.files[{index}]"))?;
+        }
+        return Ok(());
+    }
+
+    if let Some(expected_file) = expected_props.get("file") {
+        let actual_file = actual_props
+            .get("file")
+            .ok_or_else(|| format!("{label} received props.file is missing"))?;
+        compare_node(actual_file, expected_file, &format!("{label}.file"))?;
+        return Ok(());
+    }
+
+    if let Some(expected_template_file) = expected_props
+        .pointer("/template/file")
+        .or_else(|| expected_props.pointer("/template/files/0"))
+    {
+        let actual_template_file = actual_props
+            .pointer("/template/file")
+            .or_else(|| actual_props.pointer("/template/files/0"))
+            .ok_or_else(|| format!("{label} received template media file is missing"))?;
+        compare_node(
+            actual_template_file,
+            expected_template_file,
+            &format!("{label}.template.file"),
+        )?;
+        return Ok(());
+    }
+
+    Err(format!(
+        "{label} expected props has no supported media shape"
+    ))
+}
+
 /// 为单个 Gate 写入不含 secret 的机器可读证据，便于审计 PASS/失败分类。
 pub(crate) fn write_gate_evidence(
     phase: &str,
@@ -1410,6 +1555,142 @@ pub(crate) async fn assert_isolated_send(
         return Err(format!("channel cleanup failed: {error}"));
     }
     result
+}
+
+/// 以稳定 Java/OSS 媒体引用跑真实 Go `posts/create`，并明确标记外部媒体平面未由本测试覆盖。
+///
+/// 这样 Gate 不再把错误的 Go `/media/upload/prepare` 当作 Angular 当前链路；成功的子链仍
+/// 必须通过 `Tick::Command → sending → Go/WS → received → SQLite sent → emit`，但完整 Gate
+/// 只有在 Java/fileDrive/OSS 的同轮字节证据补齐后才能晋级 PASS。
+pub(crate) async fn assert_media_reference_send(
+    phase: &str,
+    domain: &str,
+    gate: &str,
+    message_type: &'static str,
+    text: String,
+    props: Value,
+    extra: Value,
+) -> Result<(), String> {
+    let (_guard, context) = remote_setup().await;
+    let channel = match create_channel(&context).await {
+        Ok(channel) => channel,
+        Err(error) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "real Go channel could not be created for media reference send",
+                    "first_failing_layer": "Go channel/create",
+                    "media_upload_owner": "Angular FileService -> Java fileDrive/OSS",
+                    "go_role": "posts/create only",
+                    "error": error,
+                }),
+            )?;
+            return Ok(());
+        }
+    };
+    let expected_props = props.clone();
+    let result = run_helix_send(
+        &context,
+        &channel,
+        SendIntent {
+            message_type,
+            text,
+            props,
+            viewers: vec!["all".to_string()],
+            mentions: Vec::new(),
+            replied: None,
+        },
+        15_000,
+    )
+    .await;
+    let cleanup = close_channel(&context, &channel).await;
+    if let Err(error) = cleanup {
+        return Err(format!("media reference channel cleanup failed: {error}"));
+    }
+
+    let evidence = match result {
+        Ok(evidence) => evidence,
+        Err(error) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "stable media reference did not complete the real Go post chain",
+                    "first_failing_layer": "Helix/Go posts/create/WS/projection",
+                    "media_upload_owner": "Angular FileService -> Java fileDrive/OSS",
+                    "go_role": "posts/create only",
+                    "media_plane": "not_run",
+                    "error": error,
+                }),
+            )?;
+            return Ok(());
+        }
+    };
+    let received: Value = serde_json::from_slice(evidence.received.0.as_ref())
+        .map_err(|error| format!("{gate} decode received media event failed: {error}"))?;
+    let actual_props = received
+        .pointer("/data/props")
+        .ok_or_else(|| format!("{gate} received event has no data.props"))?;
+    if let Err(error) = assert_media_props(actual_props, &expected_props, gate) {
+        write_gate_evidence(
+            phase,
+            domain,
+            gate,
+            "BLOCKED_PRECONDITION",
+            json!({
+                "reason": "Go/WS/Helix chain completed but media reference metadata did not round-trip",
+                "first_failing_layer": "Go post props or Helix received projection",
+                "media_upload_owner": "Angular FileService -> Java fileDrive/OSS",
+                "go_role": "posts/create only",
+                "media_plane": "not_run",
+                "verified_subchain": [
+                    "Tick::Command(im_send_message)",
+                    "im:post:sending",
+                    "SQLite send_status=sending",
+                    "Go posts/create SUCCESS",
+                    "Go WS action=post",
+                    "im:post:received",
+                    "SQLite send_status=sent",
+                    "NativeEventSink/im:__bus__"
+                ],
+                "error": error,
+                "temporary_id": evidence.temporary_id,
+                "extra": extra,
+            }),
+        )?;
+        return Ok(());
+    }
+    write_gate_evidence(
+        phase,
+        domain,
+        gate,
+        "BLOCKED_PRECONDITION",
+        json!({
+            "reason": "Rust real-chain test verified stable-media post consumption, but the Gate's Angular Java/fileDrive/OSS byte plane is outside this test",
+            "media_upload_owner": "Angular FileService -> Java fileDrive/OSS",
+            "go_role": "posts/create only",
+            "media_plane": "not_run",
+            "verified_subchain": [
+                "Tick::Command(im_send_message)",
+                "im:post:sending",
+                "SQLite send_status=sending",
+                "Go posts/create SUCCESS",
+                "Go WS action=post",
+                "im:post:received",
+                "SQLite send_status=sent",
+                "NativeEventSink/im:__bus__"
+            ],
+            "stable_reference_round_trip": true,
+            "temporary_id": evidence.temporary_id,
+            "extra": extra,
+        }),
+    )?;
+    Ok(())
 }
 
 /// 以 Go 已存在而本地为空的消息验证 latest Timeline 的 HTTP→cache Persist→SQLite read-back 链。
@@ -3074,6 +3355,141 @@ pub(crate) async fn assert_forward_chain(
             }),
         )?;
         return Ok(());
+    }
+    Ok(())
+}
+
+/// 按 Angular 图片 preview 转发的 `postIds + channelIds` wire 验证稳定媒体引用不上传、不变形。
+pub(crate) async fn assert_image_forward_chain(
+    phase: &str,
+    domain: &str,
+    gate: &str,
+) -> Result<(), String> {
+    let (_guard, context) = remote_setup().await;
+    let source = create_channel(&context).await?;
+    let target = create_channel(&context).await?;
+    let result = async {
+        let expected_props = json!({
+            "imagePosition": "bottom",
+            "files": [completed_media_ref(
+                "picture",
+                &resource_name("forward-image"),
+                "phase1-forward.png",
+                "image/png",
+                2048,
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                json!({"width": 320, "height": 180}),
+            )]
+        });
+        let (_ack, source_frame) = direct_post(
+            &context,
+            &source,
+            "IMAGE",
+            &resource_name("forward-image-text"),
+            expected_props.clone(),
+            json!(["all"]),
+            json!([]),
+        )
+        .await?;
+        let source_data = source_frame
+            .get("data")
+            .cloned()
+            .unwrap_or_else(|| source_frame.clone());
+        let source_post_id = extract_id(&source_data, &["id", "postId", "post_id"])
+            .ok_or_else(|| format!("{gate} source image post has no id: {source_frame}"))?;
+        let source_props = source_data
+            .get("props")
+            .ok_or_else(|| format!("{gate} source image post has no props: {source_frame}"))?;
+        assert_media_props(source_props, &expected_props, &format!("{gate}.source"))?;
+
+        let mut observer = open_raw_ws(&context.observer, 72).await?;
+        wait_ws_hello(&mut observer).await?;
+        let http = go_http(&context.actor).await?;
+        require_success(
+            request_json(
+                &http,
+                "POST",
+                &format!("{GO_HTTP_BASE}/posts/createPosts"),
+                Some(json!({
+                    "postIds": [source_post_id],
+                    "channelIds": [target]
+                })),
+                "forward-image",
+            )
+            .await?,
+            "posts/createPosts",
+        )?;
+        let target_frame = wait_ws_action(
+            &mut observer,
+            "post",
+            |frame| {
+                string_field(frame, &["type"]).as_deref() == Some("IMAGE")
+                    || data_string(frame, &["type"]).as_deref() == Some("IMAGE")
+            },
+            Duration::from_secs(20),
+        )
+        .await?;
+        let target_data = target_frame
+            .get("data")
+            .cloned()
+            .unwrap_or_else(|| target_frame.clone());
+        if string_field(&target_data, &["type"]).as_deref() != Some("IMAGE") {
+            return Err(format!(
+                "{gate} target forward is not IMAGE: {target_frame}"
+            ));
+        }
+        let target_props = target_data
+            .get("props")
+            .ok_or_else(|| format!("{gate} target image post has no props: {target_frame}"))?;
+        assert_media_props(target_props, source_props, &format!("{gate}.target"))?;
+        observer
+            .transport
+            .close()
+            .await
+            .map_err(|error| format!("close image forward observer WS: {error}"))?;
+        Ok::<(), String>(())
+    }
+    .await;
+    let _ = close_channel(&context, &target).await;
+    let _ = close_channel(&context, &source).await;
+    match result {
+        Ok(()) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "Rust real-chain test verified image preview forward consumption, but Angular Java/fileDrive/OSS upload evidence is outside this test",
+                    "media_upload_owner": "Angular FileService -> Java fileDrive/OSS",
+                    "go_http": "posts/createPosts",
+                    "wire": "postIds + channelIds",
+                    "source_target_same_stable_reference": true,
+                    "prepare_count": 0,
+                    "oss_put_count": 0,
+                    "register_path_generated_count": 0,
+                    "ws_action": "post",
+                    "media_plane": "not_run"
+                }),
+            )?;
+        }
+        Err(error) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "real image preview forward did not complete Go createPosts/WS projection",
+                    "first_failing_layer": "Go createPosts/WS or target membership",
+                    "media_upload_owner": "Angular FileService -> Java fileDrive/OSS",
+                    "go_http": "posts/createPosts",
+                    "wire": "postIds + channelIds",
+                    "media_plane": "not_run",
+                    "error": error
+                }),
+            )?;
+        }
     }
     Ok(())
 }

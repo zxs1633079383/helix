@@ -6,11 +6,11 @@
 
 | Phase | Gate 数 | PASS | BLOCKED_PRECONDITION | NOT_VERIFIED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Phase1 | 33 | 20 | 1 | 11 | 1 |
+| Phase1 | 33 | 21 | 6 | 5 | 1 |
 | Phase2 | 20 | 9 | 7 | 0 | 4 |
 | Phase3 | 15 | 15 | 0 | 0 | 0 |
 | Phase4 | 16 | 6 | 10 | 0 | 0 |
-| 合计 | 84 | **50** | **18** | **11** | **5** |
+| 合计 | 84 | **51** | **23** | **5** | **5** |
 
 `cargo test` 中的 `passed` 只表示 Gate harness 执行完并写出证据；本表的 `PASS` 才表示业务链已经满足 HTTP、Go WS、Helix projection、SQLite 持久化和事件总线等合同。当前缺口不是通过增加等待时间或改成静态断言解决，必须补齐下面列出的真实证据。
 
@@ -24,7 +24,7 @@ artifacts/messagev3-phase1-4-real-chain/<run-id>/<Phase>/<Domain>/<Gate>/evidenc
 
 ### `BLOCKED_PRECONDITION`
 
-测试已经触达真实链，但在 Go producer/consumer、远端读回、WS fan-out、Helix projection 或跨仓合同处失败。清障后必须重新跑同一 Gate，并在同一轮证据中看到失败层之后的全部终态；不能把 HTTP 200 或 health 200 当成 PASS。
+测试已经触达真实链，但在 Go producer/consumer、远端读回、WS fan-out、Helix projection 或跨仓合同处失败。媒体 Gate 还要求 Angular 的 Java/fileDrive/OSS 字节上传证据；Rust 测试只从稳定引用开始时，必须保留该外部前置阻塞。清障后必须重新跑同一 Gate，并在同一轮证据中看到失败层之后的全部终态；不能把 HTTP 200 或 health 200 当成 PASS。
 
 ### `NOT_VERIFIED`
 
@@ -34,7 +34,7 @@ artifacts/messagev3-phase1-4-real-chain/<run-id>/<Phase>/<Domain>/<Gate>/evidenc
 
 该 Gate 的 owner 是 Angular/native 本地生命周期或零写入边界，没有独立 Go mutation。它不能靠 Go real-chain 晋级；要么保持 N/A 并提供对应的本地/宿主证据，要么补充明确的 Helix local assertion 后重新定义终态。
 
-## Phase1：缺口 13 个
+## Phase1：缺口 12 个
 
 ### BLOCKED：`Post/MV3-G03a`
 
@@ -49,7 +49,21 @@ artifacts/messagev3-phase1-4-real-chain/<run-id>/<Phase>/<Domain>/<Gate>/evidenc
 
 证据文件：`Phase1/Post/MV3-G03a/evidence.json`。Angular 的真实转发合同在 [Phase1 Handoff](/System/Volumes/Data/workspace/angular/visual/cses-client/tests/e2e/wdio/phase1/Handoff.md:161)。
 
-### NOT_VERIFIED：Draft、Post、Upload
+### BLOCKED：Upload 媒体引用与转发
+
+Rust 测试已经使用当前 Angular 链路产出的稳定媒体引用，真实打到 Go `posts/create`/`posts/createPosts`，并断言 Go WS `post`、Helix `im:post:received`、SQLite `sending→sent` 与 `NativeEventSink/im:__bus__`。这些 Gate 仍不能标成完整 PASS，因为本轮没有启动 Angular/WDIO，也没有 Java `fileDrive`/OSS 的字节级 prepare、PUT、complete 同轮证据；旧的“Go `media.type NOT NULL`”不是当前 Angular 媒体链的阻塞根因。
+
+| Gate | 当前已验证 | 完整 Gate 仍缺的证据 |
+| --- | --- | --- |
+| `Upload/MV3-G01c` | 两个 `picture` 稳定引用、`posts/create`、WS、Helix projection、SQLite 与 emit。 | 两张真实图片由 Angular `FileService` → Java/fileDrive → OSS 完成 prepare/progress/PUT/complete，且 sender/receiver read-back 同轮一致。 |
+| `Upload/MV3-G01d` | `attachment/phase1-file.txt` 稳定引用和 Go 消息闭环。 | 真实 `phase1-file.txt` bytes 的 Java/fileDrive/OSS 上传与文件名/大小 authority read-back。 |
+| `Upload/MV3-G01e` | AUDIO（duration=2、无尺寸）与 VIDEO（duration=2、320x180）分别完成 Go/WS/Helix/SQLite/emit。 | 两个真实媒体 fixture 的 Host 元数据、Java/fileDrive/OSS 上传平面与双 persona projection。 |
+| `Upload/MV3-G01g` | Canvas 生成图的 `TEMPLATE/IMAGE` 稳定引用和 Go 消息闭环。 | `im_stage_generated_media`、真实正尺寸 bytes、Java/fileDrive/OSS 上传和模板 sender/receiver read-back。 |
+| `Upload/MV3-G03c` | `postIds + channelIds` 图片 preview 转发，source/target 稳定引用一致，prepare/PUT 计数为 0。 | source 图片必须先由真实 Angular Java/fileDrive/OSS 链产生，并提供 target read-back 的跨仓证据。 |
+
+`Upload/MV3-G02d` 已从缺口移出：Rust 直接在 Helix planner 边界拒绝精确 `67,108,865` bytes，并以 `effect_count=0`、Go/OSS/SQLite/业务 WS 计数为 0 写入 PASS。该 PASS 是 Helix local contract，不替代 Angular/Tauri UI 宿主的视觉证据。
+
+### NOT_VERIFIED：Draft、Post
 
 | Gate | 当前事实 | 清除所需证据 |
 | --- | --- | --- |
@@ -58,12 +72,6 @@ artifacts/messagev3-phase1-4-real-chain/<run-id>/<Phase>/<Domain>/<Gate>/evidenc
 | `Post/MV3-G01i` | VOTE create 入口隐藏，只有 contract，没有真实 create producer。 | 若要做 real PASS：补 capability/schema、create command、Go mutation、WS authority、Helix projection 和 durable read-back；若产品决定保持隐藏入口：补 zero-effect/gap evidence，证明无 Angular intent、无 Native mutation、无 HTTP/WS 写入，不能把入口隐藏算成功。 |
 | `Post/MV3-G01j` | AVERAGE_SCORE create 与 G01i 相同，当前没有真实 fixture/terminal projection。 | 同 G01i：补真实 producer 链，或记录隐藏入口的 zero-effect/gap evidence；DOM 隐藏本身不是 real-chain PASS。见 [Phase1 Handoff](/System/Volumes/Data/workspace/angular/visual/cses-client/tests/e2e/wdio/phase1/Handoff.md:203)。 |
 | `Post/MV3-G02c` | 没有被批准的 durable failed row 和真实 retry 起始 fixture。 | 先获得同一 `temporaryId` 的 `send_status=failed` 行及失败原因；再触发真实 `im_retry_send`，证明 HTTP admission、同 temporaryId、真实 WS authority `post`、canonical server id、`failed→sent`、旧 timer 取消和单 bubble 终态。Angular retry 合同见 [real-send-fault.e2e.ts](/System/Volumes/Data/workspace/angular/visual/cses-client/tests/e2e/wdio/phase1/specs/real-send-fault.e2e.ts:78)。 |
-| `Upload/MV3-G01c` | 多图片 prepare 触发 Go `media.type NOT NULL`，`SqlMediaRepository.Create` 没有 `SetType`。 | 先修 Go `/System/Volumes/Data/workspace/golang/cses-im-server-MessageV3-helix/internal/store/sqlstore/media_repository.go:26` 并用真实 DB 验证 media row 的 `type`；再提供两张真实图片的 prepare/progress/upload、Go post、WS `post`、Helix sending/received、SQLite media reference 与 receiver read-back。 |
-| `Upload/MV3-G01d` | 文件 prepare 被同一个 `media.type NOT NULL` 约束阻断。 | 修复 media type 后，必须使用真实 `phase1-file.txt` fixture，证明文件名、字节大小、prepare/upload、authority post、WS、两端 projection/read-back；不能从预置 DOM 补字段。 |
-| `Upload/MV3-G01e` | AUDIO/VIDEO prepare 被同一个 `media.type NOT NULL` 约束阻断。 | 修复后分别证明 audio `m4a/duration=2` 无 width/height，video `mp4/duration=2/320x180`，两条媒体上传及 post authority/WS/projection 均成功。 |
-| `Upload/MV3-G01g` | generated template image prepare 被同一个 `media.type NOT NULL` 约束阻断。 | 修复后证明真实 Canvas 产生正尺寸 bytes、`im_stage_generated_media`、模板文件名和稳定 media reference；禁止退回 register/path 文件链，并完成 target/receiver read-back。 |
-| `Upload/MV3-G02d` | 这是本地 TauriHostCommand `67,108,865` bytes 的负向 Gate，native host fixture 尚未接入。 | 提供精确 64 MiB+1 文件；在 registration/generated stage/send/message/HTTP/upload/optimistic DOM 之前拒绝，证明没有 `/oss/getPresignedUrl`、`posts/create`、UploadFile、OSS PUT、SQLite sending 或非心跳 WS。Angular 负向合同见 [real-media-limit.e2e.ts](/System/Volumes/Data/workspace/angular/visual/cses-client/tests/e2e/wdio/phase1/specs/real-media-limit.e2e.ts:63)。 |
-| `Upload/MV3-G03c` | 图片 preview forward 依赖媒体 fixture，当前同一 `media.type` blocker 仍在。 | 修复媒体后，从已有 image preview 转发；证明 source/target 使用同一稳定 media reference，prepare/upload/register/path/generated 均为 0，只产生一次 send、一个 target post、WS/projection/read-back。Angular 合同见 [Phase1 Handoff](/System/Volumes/Data/workspace/angular/visual/cses-client/tests/e2e/wdio/phase1/Handoff.md:163)。 |
 
 ### NOT_APPLICABLE：`Post/MV3-G05l`
 
@@ -129,7 +137,7 @@ Phase3 当前 15 个 Gate 全部 PASS，没有 BLOCKED、NOT_VERIFIED 或 N/A。
 
 ## 建议清障顺序
 
-1. **Go media**：补 `SetType` 并先验证真实 SQL media row，再重跑 G01c/d/e/g、G03c。
+1. **Angular media plane**：用真实 Java `fileDrive`/OSS fixture 补同轮 bytes、prepare/PUT/complete 与 read-back，再把 G01c/d/e/g、G03c 从“稳定引用子链”晋级完整 Gate；不要把 Go `/media/upload/prepare` 当成 Angular 当前上传入口。
 2. **Go post producer/read authority**：确认 `CreateCsesPost(s)` 的 consumer、远端 post store 和 `/posts/get` 读回，再重跑 Phase2 G11a/e/g/h、G11b/c/d，并复用同一屏障验证 G07d。
 3. **Pin projection**：沿 Go pin handler → WS → `post_pin` → SQLite 更新逐跳加证据，重跑 G05f/g。
 4. **Search/Todo 合同**：先完成 Angular command、Helix registry/capability、Go route/DTO 的三方注册，再跑 G14a/b/c、G15a-d。

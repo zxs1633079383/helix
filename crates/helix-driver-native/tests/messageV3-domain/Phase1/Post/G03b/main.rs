@@ -1,14 +1,9 @@
 use crate::shared;
 
-/// MV3-G03b：保留 Angular merge-forward 的真实前置缺口，不用错误 wire 伪造通过。
+/// MV3-G03b：按 Angular merge-forward wire 创建真实 MULTIPLY post，并核对 WS。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED: Angular merge forward requires MULTIPLY mergeMessage assembled from local authority rows"]
 async fn mv3_g03b_real_chain() {
-    shared::record_unverified(
-        "Phase1",
-        "Post",
-        "MV3-G03b",
-        "Angular merge mode requires source channel title and MULTIPLY mergeMessage authority; current target has no verified full projection fixture",
-    )
-    .unwrap();
+    shared::assert_forward_chain("Phase1", "Post", "MV3-G03b", 2)
+        .await
+        .unwrap_or_else(|error| panic!("MV3-G03b FAIL: {error}"));
 }

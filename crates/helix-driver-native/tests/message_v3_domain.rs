@@ -1,5 +1,6 @@
 //! MessageV3 Phase1-4 按 Phase→Domain→Gate 拆分的真实 Rust 集成测试入口。
-//! 默认执行已具备真实 Go/WS/SQLite 适配器的 Gate；其余 Gate 以 ignored NOT_VERIFIED 保留前置证据。
+//! 84 个 Gate 全部默认执行真实适配器探测；缺少真实前置时写
+//! `BLOCKED_PRECONDITION`/`NOT_VERIFIED`/`NOT_APPLICABLE` 证据，不以 `#[ignore]` 掩盖缺口。
 
 #[path = "messageV3-domain/shared/mod.rs"]
 mod shared;

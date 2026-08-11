@@ -1,8 +1,17 @@
 use crate::shared;
 
-/// MV3-G14b：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G14b：真实探测频道搜索现有路由，并记录目标命令未注册的合同缺口。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g14b_real_chain() {
-    shared::record_unverified("Phase4", "Search", "MV3-G14b", "Phase4 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    shared::assert_search_contract_gap(
+        "Phase4",
+        "Search",
+        "MV3-G14b",
+        "im_search_in_channel",
+        "im_search_post",
+        "/api/cses/search/post",
+        |channel| serde_json::json!({"req_id": shared::run_token("search-channel"), "keyword": shared::resource_name("search"), "channel_id": channel, "scope": "channel", "page_size": 20}),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("MV3-G14b FAIL: {error}"));
 }

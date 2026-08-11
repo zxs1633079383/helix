@@ -407,3 +407,7 @@
 ✅ DONE `fbeb41d4` 已完成 MessageV3 Phase1-4 的 84 个 Phase→Domain→Gate Rust real-chain target；当前真实账为 Phase1 19 PASS、13 NOT_VERIFIED、1 NOT_APPLICABLE，Phase2-4 共 51 个 NOT_VERIFIED。所有未具备真实 Angular/Go/WS/SQLite 前置的 Gate 均未伪造 PASS；运行证据保留在未跟踪的 `artifacts/messagev3-phase1-4-real-chain/`，不进入提交。@2026-08-11T12:20:00+0800
 
 🎯 EXPECT 继续把 Phase1 未验证项与 Phase2-4 的真实 Rust native Gate 逐批接入 localhost:8066；可证伪断言：① 每个已解锁 Gate 都由 Tick/Helix Effect/Go HTTP/真实 WS/SQLite/Emit 形成同轮证据；② Go route 或外部 producer 缺失只落 BLOCKED_PRECONDITION/NOT_VERIFIED，不伪造 PASS；③ 共享 harness 只扩展真实适配器，不修改原始 Helix、Go 或 Angular 生产代码；④ 每完成一个 Domain 都有独立聚焦运行、cargo check、diff check 与分类 commit；⑤ 最终报告仍保留 84 Gate 分母。@2026-08-11T12:30:00+0800
+
+✅ DONE Phase1-4 的 84 个 `PhaseN/Domain/Gate` Rust real-chain 测试均已默认执行；Phase1/2/3/4 focused run 分别为 33/20/15/16 passed、0 failed。最新 evidence 汇总为 50 PASS、18 BLOCKED_PRECONDITION、11 NOT_VERIFIED、5 NOT_APPLICABLE；Go media、timeline、Pin、Announcement persistence、Search/Todo 合同缺口均保留了逐 Gate 证据，没有把 harness 通过冒充业务 PASS。修复并验证了 G06b 双 Helix 会话竞态、G09c actor 身份与 `im:channel:member-nickname` 事件名；本批次尚未 push。@2026-08-11T14:27:50+0800
+
+⚡ DRIFT-PRED 本轮实际需要修改 Helix 生产事件名与 G09c 身份处理，且 Phase2-4 不能继续以 `#[ignore]` 作为默认前置闸门；候选教训：真实 Gate 的合同修复必须和测试 harness 分开提交，缺口应在运行证据中显式标注，而不是通过 ignored 测试或旧文档统计隐藏。@2026-08-11T14:27:50+0800

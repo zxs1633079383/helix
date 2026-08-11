@@ -1,8 +1,7 @@
 use crate::shared;
 
-/// MV3-G03c：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G03c：执行真实前置证据写入，保留媒体 fixture/forward 缺口。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g03c_real_chain() {
     shared::record_unverified(
         "Phase1",

@@ -1,0 +1,62 @@
+%% Phase1 / post / MV3-G05b 快捷回复 emoji
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g05b/contract.json
+%% UI owners: src/pages/message-v3/service/toolbar-command/commands/emoji.command.ts::execute；src/pages/message-v3/components/message-item/message-item.component.ts::onQuickReplyClick；src/pages/message-v3/service/message.service.ts::sendQuickRelayMessage
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant PS as Pending or local state
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员点消息上的表情，气泡下方出现该 emoji 与人数；同一个人再点同一个 emoji 不重复计数
+  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: quickReply(payload)
+    Gate->>Native: invokeAccepted("im_quick_reply", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_quick_reply", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_quick_reply", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 给消息贴 emoji 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /posts/quickReply
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  Go-->>WS: WS authority event or canonical result
+  WS->>E: Tick::Inbound(authority bytes)
+  E->>IM: apply authoritative event before settlement
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction message + channel + viewer member + cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM->>Sink: Effect::Emit {event,data}（postUpdated，POST_UPDATE）
+  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  Sink-->>FFI: FFI batch raw {event,data}
+  Sink-->>Web: Web EventBatch raw {event,data}
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：同 emoji 项已存在：把 self 追加进该项 userIds/users（已在其中则完全不变，长度不增）；不存在：push 新项 emoji, userIds:[self], users:[userId:self,userName]；已有项相对顺序保持先到先排；对端同一条消息的 quickReply 出现 self 项、该 emoji 计数 +1；sender 侧 channel.unreadCount 前后完全相等（贴表情不是新消息，不参与未读）；对端 getMemberUnread(channelId, receiverId).unreadCount 前后完全相等
+  Note over UI,Web: 关键负向：不得产生新消息：messages 集合长度不变，且不得 emit postReceived（快捷回复不是「发一条 emoji 消息」）；不得更新 channel.lastPost / lastPostAt / unreadCount（inventory §5「快捷回复 emoji」整行为 —）；同一用户对同一 emoji 重复点击必须幂等：userIds 里 self 只出现一次，users 长度与 userIds 长度恒等
+  Note over E,Sink: 出站事件集合：postUpdated，POST_UPDATE；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

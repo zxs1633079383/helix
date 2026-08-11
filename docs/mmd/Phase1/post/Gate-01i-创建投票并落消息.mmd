@@ -1,0 +1,25 @@
+%% Phase1 / post / MV3-G01i 创建投票并落消息
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g01i/contract.json
+%% UI owners: src/pages/message-v3/components/chat-input/chat-input.component.ts::openCreateVote；src/pages/message-v3/components/confirm-window/create-vote/create-vote.component.ts::verificationAndUpload；src/pages/message-v3/service/message.service.ts::createVote（tap 内 fire-and-forget 补造）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant PS as Pending or local state
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员创建一个投票，会话内立即出现可参与的投票卡片，其他成员看到并可投票
+  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=none；dual=no；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  UI->>Gate: 创建投票并落消息(payload)
+  Gate-->>UI: 当前客户端路由结果或受控空结果
+  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
+  Note over UI,Web: 关键负向：Phase 1 不得显示或触发创建投票入口；Phase 1 不得调用 MessageV3 createVote、im_send_message 或 /posts/create 补造 VOTE 消息；本 Gate 的 Command、Effect、Event 和 sender/receiver 业务投影必须全部为空
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

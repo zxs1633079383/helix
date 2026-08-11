@@ -1,0 +1,58 @@
+%% Phase2 / read / MV3-G06b 单条已读
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/read/mv3-g06b/contract.json
+%% UI owners: src/pages/message-v3/components/chat-content/chat-content-base.component.ts::inViewMsgRead；src/pages/message-v3/components/message-content/message-template-content/message-template-content.component.ts::onReceivedClick；src/pages/message-v3/components/windows/chat-drag-window/chat-drag.template.ts::onClose
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员滚动看到某几条消息，这几条自动上报已读；发送这些消息的人看到已读人数 +1
+  Note over UI,Web: 当前覆盖状态：mock=partial；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: postRead(payload)
+    Gate->>Native: invokeAccepted("im_post_read", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_post_read", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_post_read", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 消息进入可视区即上报已读 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /api/cses/post/read
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction message read + viewer member + cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM->>Sink: Effect::Emit {event,data}（postRead，POST_READ，channelUpdate，UPDATE_CHANNEL）
+  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  Sink-->>FFI: FFI batch raw {event,data}
+  Sink-->>Web: Web EventBatch raw {event,data}
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：Go 仅在 snapshotId 对应的 receiver 快照中命中当前用户时把该 receiver 位从 0 置 1；作者、非接收者、已为 1 的消息不变，Angular 事件与状态中不存在 bitmap；Go 按当前 reader（Phase 1 receiver）本事务实际 changedPosts 数量扣减并钳制非负，再从同一事务回读该 reader 的 channel_member；Angular 将 update_channel.unreadCount 绝对赋值，不执行 newlyRead 或 last_read_seq 计算；Go 只移除本批实际已读 post 对应的 mention，并在同一事务回读 mentionCount / mentionList / mentionUser 绝对值；Angular 原样替换；原发送者只按相同 snapshotId 合并 readerUserId；合并后 readUserIds 包含本读者、unreadUserIds 减少该用户，快照不匹配时 fail closed 并等待完整 receipt 投影
+  Note over UI,Web: 关键负向：Angular 不得按 postIds.length、newlyRead 或本地 last_read_seq 推导 unreadCount；只能消费 Go update_channel 的绝对计数；Angular 只提交 channelId,postIds；字段归一化只能在一个 Adapter/Helix client_api 边界执行，进入 Core 时必须已是 channel_id,posts，Go wire 为 channelId,posts；Angular 的 ImGateEvent、ChatMessage receipt 投影和持久化状态不得出现 readBits / memberIds / readerIds；bitmap 只留在 Go 与 Helix 内部
+  Note over E,Sink: 出站事件集合：postRead，POST_READ，channelUpdate，UPDATE_CHANNEL；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

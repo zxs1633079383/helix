@@ -1,0 +1,47 @@
+%% Phase2 / sync / MV3-G13a hello 全量会话列表
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/sync/mv3-g13a/contract.json
+%% UI owners: src/pages/message-v3/service/messageDialog.service.ts:1164::拉取会话列表（主链路，替代旧 store:query ”channel”）；src/pages/message-v3/components/confirm-window/create-chat/create-chat.component.ts:103（查已有私聊会话后内存过滤）；src/pages/message-v3/components/windows/choose-session/choose-session.component.ts:45（转发 / 选会话弹窗数据源）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员登录 / 切公司后，左侧会话列表从当前账号的本地快照一次恢复，旧账号会话不会混入、读取动作不会清未读，本次查询也不启动远端补偿
+  Note over UI,Web: 当前覆盖状态：mock=partial；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: queryDialogList(payload)
+    Gate->>Native: invokeAccepted("im_query_dialog_list", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_query_dialog_list", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_query_dialog_list", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 登录/切公司后拉取全部可见会话 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Scan（channel/event_seq + sync cursor）
+  Host->>DB: account-scoped read or write
+  DB-->>Host: PortReply(local result)
+  Host->>E: Tick::PortReply(local)
+  E->>IM: correlate local result
+  IM-->>E: Command Result {data}
+  E-->>Gate: PortReply(Result)
+  Gate-->>UI: render absolute snapshot or query result
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：同一 queryDialogList 只返回一次结构化 Command Result  items ，items 是当前账号库中按 is_top、last_post_at、created_at 降序读取的可见频道绝对快照；ImGate events$ 始终为空；rawDialogs 由 mediator.apply() 写入（禁止裸赋值），保护 4 个字段 + 7 个 ApplyReason + messagesLoaded 单调性；Angular 只解包 Result.items；rootId 非空的话题允许存在于结果中，但只能由既有树形视图挂到父频道，不能成为主会话根节点；各频道 unreadCount 取快照携带值，本 Gate 只读不写：装载动作绝不把自侧未读归零；归零只能由显式 G06a / G06b 已读意图触发，setActiveChannel 不具备已读语义
+  Note over UI,Web: 关键负向：queryDialogList 不得发布 channelIncrement、channelsLoaded 或其它 ImGateEvent；现有 Mock 的两类 emit 与 Helix 的 im:channel:list / im:read:channel 只能记作 current/missing 迁移事实，不得复制进新 Adapter 充当目标链；话题频道（type=”T” / rootId 非空）不得成为主会话根节点，只能由既有视图树挂到当前结果内可见的父频道；rawDialogs 不得裸赋值：写入必须经 mediator.apply()（保护 4 字段 + 7 个 ApplyReason + messagesLoaded 单调性），绕过即视为契约破损
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

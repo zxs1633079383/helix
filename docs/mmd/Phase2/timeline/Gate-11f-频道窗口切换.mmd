@@ -1,0 +1,25 @@
+%% Phase2 / timeline / MV3-G11f 频道窗口切换
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/timeline/mv3-g11f/contract.json
+%% UI owners: src/pages/message-v3/service/dialogSwitch.service.ts::SwitchPipeline 的 LoadDataSource / SetGlobalState 边界；src/pages/message-v3/components/chat-content/chat-content.component.ts::按 active channel 绑定该频道窗口
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员切换会话时只看到目标频道已经存在的最新窗口，不闪现上一频道消息，也不破坏任何持久化游标
+  Note over UI,Web: 当前覆盖状态：mock=not_applicable；helix=not_applicable；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  UI->>Gate: 频道窗口切换(payload)
+  Gate-->>UI: 当前客户端路由结果或受控空结果
+  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
+  Note over IM,DB: 关键效果：active channel 改变后，Angular 原子选择该 channel 已存在的 latest 窗口；窗口存在时不得重复查询或重建业务状态；目标频道尚无窗口时只委托 G11a 查询 latest；查询完成前保持明确 loading/empty 状态，不得展示上一频道窗口；切换只改变 Angular viewer-local 活动窗口选择；所有频道的消息窗口、older/newer cursor 与 sync cursor 都保持不变；对端成员的 viewer-local 未读在本 Gate 前后完全相等（getMemberUnread(channelId, otherUserId).unreadCount 调用前后取值一致），读取动作绝不写对端未读
+  Note over UI,Web: 关键负向：Port、实现、测试替身和业务调用方不得保留 resetDataSource 符号、兼容别名或动态字符串调用；任一可达命中即 Gate 失败；不得清除本频道或其他频道的持久化消息、timeline cursor、sync cursor、eventSeq 或窗口状态；不得新增 im_reset_channel_cursor、Tauri invoke、Go endpoint 或任何业务事件；本 Gate 是纯前端窗口选择
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

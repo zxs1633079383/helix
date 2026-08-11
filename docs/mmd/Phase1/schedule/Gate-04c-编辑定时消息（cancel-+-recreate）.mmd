@@ -1,0 +1,59 @@
+%% Phase1 / schedule / MV3-G04c 编辑定时消息（cancel + recreate）
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/schedule/mv3-g04c/contract.json
+%% UI owners: src/pages/message-v3/service/messageContainerShared.service.ts::scheduleMessageHandle（进入编辑先 cancelSchedule）；src/pages/message-v3/service/messageContainerShared.service.ts::restoreScheduleMessage（取消编辑重建原条）；src/pages/message-v3/service/messageContainerShared.service.ts::getScheduleReplyMessage（→ getPosts([replyId]) 恢复回复引用）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant PS as Pending or local state
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员点定时提示条进入编辑，改完内容或时间保存，待发消息按新内容更新；取消编辑则原待发消息完整恢复
+  Note over UI,Web: 当前覆盖状态：mock=partial；helix=full；dual=no；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: cancelSchedule + createSchedule(payload)
+    Gate->>Native: invokeAccepted("im_cancel_schedule + im_create_schedule", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_cancel_schedule + im_create_schedule", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_cancel_schedule + im_create_schedule", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 修改待发定时消息内容或时间 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /posts/cancelSchedule + POST /posts/createSchedule
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction schedule + channel + cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM->>Sink: Effect::Emit {event,data}（channelScheduleCanceled，UPDATE_CHANNEL，channelScheduleCreated）
+  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  Sink-->>FFI: FFI batch raw {event,data}
+  Sink-->>Web: Web EventBatch raw {event,data}
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：编辑保存后待发对象为新内容 / 新时间；hasSchedulePost 最终回到 true；取消编辑必须由 restoreScheduleMessage 把原条重建回去（hasSchedulePost 回到 true，内容与时间与编辑前一致）；编辑态若原消息带回复，走 getScheduleReplyMessage → getPosts([replyId]) 恢复引用条；接收者侧 events 为空、无状态变化（persona-local，不传播）
+  Note over UI,Web: 关键负向：定时未到不得产生 postReceived（待发消息不进时间线）；不得更新 channel.lastPost / lastPostAt / unreadCount（待发消息不参与会话摘要与未读，语义只由 hasSchedulePost 承载）；不得假设存在 update 语义：必须严格 cancel + create 两步（顺序不可颠倒，cancel 失败必须阻止进入编辑）
+  Note over E,Sink: 出站事件集合：channelScheduleCanceled，UPDATE_CHANNEL，channelScheduleCreated；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

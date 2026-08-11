@@ -1,0 +1,25 @@
+%% Phase4 / search / MV3-G14c 跨会话消息搜索并分组
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/search/mv3-g14c/contract.json
+%% UI owners: src/pages/message-v3/components/windows/chat-historical-records-search-window/chat-historical-records-search.template.ts::searchHistoricalByChannel；src/pages/message-v3/service/message.service.ts::searchGlobal
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员打开独立历史消息搜索窗搜关键字，结果按会话分组，可在会话间切换并跳转到命中那条
+  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=none；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  UI->>Gate: searchMessagesGrouped(payload)
+  Gate-->>UI: 当前客户端路由结果或受控空结果
+  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
+  Note over IM,DB: 关键效果：返回 channelId, channel, items[]：按 channelId 分组，组内消息按 createAt 升序，单组条数受 SEARCH_MAX_LIMIT 保护；channel 取不到时给 null 且不阻塞列表（分组标题降级展示），不得因此丢掉该组的命中消息
+  Note over UI,Web: 关键负向：无匹配 / 空关键字必须返回空集合（界面据此展示空态），不得抛错；组内消息不得乱序（必须 createAt 升序，否则「上下文阅读」错乱）
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

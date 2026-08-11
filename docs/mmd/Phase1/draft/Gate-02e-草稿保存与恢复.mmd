@@ -1,0 +1,33 @@
+%% Phase1 / draft / MV3-G02e 草稿保存与恢复
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/draft/mv3-g02e/contract.json
+%% UI owners: src/pages/message-v3/service/dialogSwitch.service.ts::saveDialogState（切会话前 dispatch REQUEST_DRAFT）；src/pages/message-v3/components/chat-input/chat-input.component.ts::onRequestDraft（返回草稿并 clearInput）；src/pages/message-v3/service/dialog-switch/phases/restore-draft.phase.ts（切回时回填）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  participant Ext as Other business host
+  Note over UI,Gate: 用户目标：成员输入一半切到别的会话，切回来时输入框内容、@、引用条、文档快照都还在
+  Note over UI,Web: 当前覆盖状态：mock=missing；helix=none；dual=no；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  UI->>Gate: 草稿保存与恢复(payload)
+  Gate-->>UI: 当前客户端路由结果或受控空结果
+  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
+  alt 旧业务 Host 仍可用
+    Ext->>Go: 未定（非 Helix 链路）
+    Go-->>Ext: HTTP response / legacy result
+    Ext-->>UI: 旧链路结果（不纳入 Helix Gate Event）
+  else 当前入口隐藏、待定或断供
+    Note over Ext,Go: 当前合同要求 fail-closed；不伪造成功消息、不新增 Helix fallback
+  end
+  Note over IM,DB: 关键效果：draft = currentText, mentions, replyMessage, documentSnapshot, documentUpdatedAt 存进 currentDialog.draft；切回该会话时由 restore-draft.phase 回填输入框；replyMessage 在 INIT_USERS_AFTER 阶段回填；取草稿的同时执行 clearInput()，不得让同一份内容同时留在旧会话输入框；草稿是 persona-local：接收者侧 events 为空、无任何状态变化（不传播）
+  Note over UI,Web: 关键负向：现状不经 Port：重启即丢、跨端不同步 —— 不得把「切会话能恢复」误判为已持久化；RESET_DRAFT 与 onInputCleared 的调用点已被注释（chat-input.component.ts:585-587），不得据此认为存在草稿清理事件；Object.entries(patch) 必须先 filter 掉 undefined 再 spread，禁止让 partial patch 把已有本地字段覆盖成 undefined
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

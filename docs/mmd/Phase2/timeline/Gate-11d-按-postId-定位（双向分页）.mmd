@@ -1,0 +1,57 @@
+%% Phase2 / timeline / MV3-G11d 按 postId 定位（双向分页）
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/timeline/mv3-g11d/contract.json
+%% UI owners: src/pages/message-v3/components/chat-content/chat-content.component.ts::已知 channelId 的跳转链（目标：改走 queryMessages direction=locate）；src/pages/message-v3/enum/enum.ts::JUMP_TO_MESSAGE（跳转与高亮配置的派发口）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员从搜索结果 / @提醒 / 书签点进某条消息，列表定位到它并高亮
+  Note over UI,Web: 当前覆盖状态：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: queryMessages(payload)
+    Gate->>Native: invokeAccepted("im_locate_message", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_locate_message", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_locate_message", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 跳转到指定消息并可双向翻页 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /api/cses/posts/postContext（cursorVersion=1；已支持默认 20 / 最大 60）
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction message window + timeline cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM-->>E: Command Result {data}
+  E-->>Gate: PortReply(Result)
+  Gate-->>UI: render absolute snapshot or query result
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：返回包含 locatePostId 的权威上下文窗口，目标尽量位于 floor(limit/2)，边界不足时向另一侧补足；Angular 不扫描本地全量缓存制造定位窗口；一个 reqId 只返回一个 terminal QueryMessagesResult；hasOlder / hasNewer 与 opaque olderCursor / newerCursor 同时给出，供定位后双向翻页；定位完成后高亮该条并把它滚入视口（滚动与高亮配置见 enum.ts），高亮不得覆盖用户后续手动滚动；目标不在本地缓存时必须能从服务端拉取该消息所在窗口后再定位（不得空列表）
+  Note over UI,Web: 关键负向：定位后不得自动滚底（滚底会立即丢失定位位置）；目标不在本地缓存时不得静默回落 latest 尾窗；必须回源目标上下文，权威返回不存在 / 不可见 / 已撤回时才允许关联失败或明确空态；limit 缺省必须是 20，显式值只允许 1..60；超过 60 不得产生 I/O
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

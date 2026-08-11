@@ -1,0 +1,57 @@
+%% Phase2 / timeline / MV3-G11c 下拉加载更新消息
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/timeline/mv3-g11c/contract.json
+%% UI owners: src/pages/message-v3/service/chatContentShared.service.ts:722::handlePullLoad（direction=newer，锚点取 messages[messages.length-1]）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员从搜索跳到历史位置后往下滚，逐步补到最新
+  Note over UI,Web: 当前覆盖状态：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: queryMessages(payload)
+    Gate->>Native: invokeAccepted("im_load_newer_context", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_load_newer_context", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_load_newer_context", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 从历史位置往下补齐到最新 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /api/cses/posts/getPostsAfterIndex（cursorVersion=1，direction=newer；已支持默认 20 / 最大 60）
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction message window + timeline cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM-->>E: Command Result {data}
+  E-->>Gate: PortReply(Result)
+  Gate-->>UI: render absolute snapshot or query result
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：返回权威锚点之后最多 limit 条，按稳定时间线顺序升序；窗口边界与 opaque cursor 由 Helix/Go 提供，Angular 不扫描全量缓存推导；一个 reqId 只返回一个 terminal QueryMessagesResult；hasOlder / hasNewer 与 olderCursor / newerCursor 描述该窗口的双向边界；插入方式为尾部拼接 newMessages = [...messages, ...list]；补齐到最新（hasNewer=false）后必须恢复「贴底跟随」语义；补到最新且贴底后由 inViewMsgRead（G06b）上报，读取者自侧 unreadCount 归零
+  Note over UI,Web: 关键负向：hasNewer = false 时不得继续显示加载态（否则底部常驻转圈）；锚点未命中已附着窗口时不得静默从头补或切换 latest；必须以同 reqId 的关联失败结束，调用方保留当前已渲染列表；limit 缺省必须是 20，显式值只允许 1..60；超过 60 不得产生 I/O
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

@@ -1,0 +1,26 @@
+%% Phase1 / upload / MV3-G02d 上传失败早退
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/upload/mv3-g02d/contract.json
+%% UI owners: src/pages/message-v3/service/messageSend.service.ts:170-185（上传失败分支）；src/pages/message-v3/service/messageSend.service.ts:137-147（本地 uploading 态消息先入列表）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant PS as Pending or local state
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：图片或文件上传中断时，消息停在本地失败态，服务端不留半条脏消息，其他成员什么都看不到
+  Note over UI,Web: 当前覆盖状态：mock=partial；helix=none；dual=no；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  UI->>Gate: 上传失败早退(payload)
+  Gate-->>UI: 当前客户端路由结果或受控空结果
+  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
+  Note over IM,DB: 关键效果：本地 uploading 态消息先入列表（messageSend.service.ts:137-147），uploadProgress 逐步 dispatch UPDATE_MESSAGE_WITH_SEND；上传失败仅 dispatch UPDATE_MESSAGE_WITH_SEND(sendStatus:'unSend') + renderService.error，然后 return 早退；失败消息留在时间线本地失败态，可被 MV3-G02c 重发拾起；接收者侧 events 为空、未读不变、时间线无任何新消息（persona-local，不传播）
+  Note over UI,Web: 关键负向：绝不产生任何 Port 调用（sendMessage 调用计数必须为 0，return 早退）；不得更新 channel.lastPost / lastPostAt / unreadCount / eventSeq（服务端与会话列表状态零变化）；失败态不得用失败发生时刻改写 createAt，必须沿用 localCreateAt（否则破坏排序与底部锚点补偿）
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

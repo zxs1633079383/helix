@@ -1,0 +1,61 @@
+%% Phase3 / channel / MV3-G10a 改群名
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel/mv3-g10a/contract.json
+%% UI owners: src/pages/message-v3/components/drawer/chat-settings/chat-settings.component.ts::editChannelName；src/pages/message-v3/service/message.service.ts::setDialogName
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：有权限的成员改群名后，自己和群内其他人的会话列表标题、聊天窗标题同步变成新名字，群内出现一条系统提示。
+  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: changeChannelSettings(payload)
+    Gate->>Native: invokeAccepted("im_channel_change_display_name", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_channel_change_display_name", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_channel_change_display_name", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 修改群显示名 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /channel/change/displayName
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  Go-->>WS: WS authority event or canonical result
+  WS->>E: Tick::Inbound(authority bytes)
+  E->>IM: apply authoritative event before settlement
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction channel + members + cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM->>Sink: Effect::Emit {event,data}（channelUpdate，UPDATE_CHANNEL，im:channel:update）
+  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  Sink-->>FFI: FFI batch raw {event,data}
+  Sink-->>Web: Web EventBatch raw {event,data}
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：channel.displayName === 入参 displayName；purpose / props.notice / 状态位 / members 逐字段不变；隐藏的 channel.settingVersion 更新为响应中的权威 settingVersion；该字段仅作为读取投影和顺序信息保留
+  Note over UI,Web: 关键负向：displayName === undefined 时不得写入（messageDialog.updateDialog 必须先 filter undefined 再 spread，否则 partial patch 把群名清空）；不得顺带改写未传入的字段（purpose / notice / top / notify / orient / permission 六项调用前后逐字段相等）
+  Note over E,Sink: 出站事件集合：channelUpdate，UPDATE_CHANNEL，im:channel:update；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

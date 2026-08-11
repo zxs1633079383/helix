@@ -1,0 +1,25 @@
+%% Phase2 / sync / MV3-G13d 子话题查询
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/sync/mv3-g13d/contract.json
+%% UI owners: src/pages/message-v3/service/message.service.ts:366::requestChannelIncrement（切群时拉子话题）；src/pages/message-v3/service/message.service.ts:1146::queryIncrementTopics（会话列表展开时拉子话题）；src/pages/message-v3/service/messageChatGlobal.service.ts:190::setCurrentDialog 第 5.3 步（异步预拉该 channel 的全部 topic）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员展开当前账号可见的父会话，只看到本地已持久化且属于该父会话的话题；本地尚无权威快照时得到合法空结果
+  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=none；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  UI->>Gate: querySubtopics(payload)
+  Gate-->>UI: 当前客户端路由结果或受控空结果
+  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
+  Note over IM,DB: 关键效果：同一 querySubtopics 只返回一次结构化 Command Result  items ；items 中每条 channel.rootId === parentChannelId 且 type=”T”，无匹配子话题返回空数组，ImGate events$ 始终为空；查询只读取当前账号已持久化可见集；Phase 3 创建或 MV3-G13c / lifecycle hydration 把新话题写入本地库后，再次查询才可见，本 Gate 自身不创建或远端补齐话题；只有当前账号库中可见父频道的子项可进入结果；非匹配 rootId、其它 teamId / account、孤儿或仅远端存在的频道均不得返回；对端成员的 viewer-local 未读在本 Gate 前后完全相等（getMemberUnread(channelId, otherUserId).unreadCount 调用前后取值一致），读取动作绝不写对端未读
+  Note over UI,Web: 关键负向：空集合是合法成功结果，不得抛错（父会话没有话题是常态）；parentChannelId 为空 / falsy 时必须直接返回 []，不得全表扫描把所有话题都返回；当前账号库中不存在可见 parentChannelId 时必须返回 []；即使存在 root_id 命中的孤儿 / 旧账号残留行也不得泄露
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

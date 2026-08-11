@@ -57,6 +57,6 @@ sequenceDiagram
   Sink-->>FFI: batch raw timeline thread events
   Sink-->>Web: EventBatch raw timeline thread events
   alt HTTP/Persist failure
-    IM->>Sink: Emit correlated read error; no partial thread event
+    IM->>Sink: Emit correlated read error；no partial thread event
   end
   Note over UI,Web: current production PortReply maps reply readback to im:timeline:thread；旧 read relay im:read:result 只作 transport/contract drift 记录，不由 shell 拼字段。

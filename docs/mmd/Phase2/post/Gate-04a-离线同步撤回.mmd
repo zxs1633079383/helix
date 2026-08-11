@@ -31,7 +31,7 @@ sequenceDiagram
   Go-->>Host: sync page containing type=3 revoke authority
   Host->>E: PortReply(sync page)
   E->>IM: parse sync reply and preserve corr_key
-  IM->>IM: ignore already applied event_seq; queue missing sequence
+  IM->>IM: ignore already applied event_seq；queue missing sequence
   IM->>Host: Effect::PersistAtomic(message.revoke + channel cursor)
   Host->>DB: 同一事务提交撤回与 cursor
   DB-->>Host: PortReply(PersistOk)
@@ -43,7 +43,7 @@ sequenceDiagram
   Host->>E: Tick::PortReply
   IM->>Sink: Emit im:post:revoke
   IM->>Sink: Emit im:sync:recovered
-  Sink-->>UI: Native bus -> recalled message + recovery complete
+  Sink-->>UI: Native bus → recalled message + recovery complete
   Sink-->>FFI: batch raw revoke/recovered bytes
   Sink-->>Web: EventBatch raw revoke/recovered bytes
   alt duplicate replay / cursor already ahead

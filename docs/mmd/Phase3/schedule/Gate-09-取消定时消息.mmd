@@ -51,6 +51,6 @@ sequenceDiagram
     Sink-->>FFI: batch raw canceled event
     Sink-->>Web: EventBatch raw canceled event
   else late create or duplicate
-    IM->>IM: monotonic cursor rejects stale create; no schedule resurrection
+    IM->>IM: monotonic cursor rejects stale create；no schedule resurrection
   end
   Note over UI,Web: 编辑定时消息是 cancel 后再 create 的两条独立 command；不合成 Angular 中间态。取消与到点竞态需以唯一 durable 终态为准。

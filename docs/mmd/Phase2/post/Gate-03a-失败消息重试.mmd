@@ -33,7 +33,7 @@ sequenceDiagram
   DB-->>Host: PortReply(failed row)
   Host->>E: Tick::PortReply
   E->>IM: route retry correlation
-  IM->>PS: reuse temporary_id，failed -> Local
+  IM->>PS: reuse temporary_id，failed → Local
   IM->>Host: Effect::Persist(send_status=sending)
   Host->>DB: update same pending row
   DB-->>Host: PortReply(retry P1, PersistOk)
@@ -46,7 +46,7 @@ sequenceDiagram
   Go-->>WS: WS action=post(same temporary_id, server id)
   WS->>E: Tick::Inbound(post)
   E->>IM: dispatch post + post_echo_settle
-  IM->>PS: reconcile same temporary_id -> server id
+  IM->>PS: reconcile same temporary_id → server id
   IM->>Host: Persist sent identity
   IM->>Host: CancelTimer retry_timeout
   IM->>Host: PersistAtomic G-01(message + channel + member + cursor)
@@ -59,7 +59,7 @@ sequenceDiagram
   Host->>E: Tick::PortReply(readback)
   IM->>Sink: Emit im:post:received(sendStatus=sent)
   IM->>Sink: Emit im:channel:update
-  Sink-->>UI: sender sees sending -> received; receiver sees only received after authority
+  Sink-->>UI: sender sees sending → received；receiver sees only received after authority
   Sink-->>FFI: batch raw events
   Sink-->>Web: EventBatch raw events
   alt retry HTTP/Persist failure or second timeout

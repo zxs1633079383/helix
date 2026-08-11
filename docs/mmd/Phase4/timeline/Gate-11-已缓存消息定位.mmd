@@ -35,7 +35,7 @@ sequenceDiagram
     DB-->>Host: PortReply(readback)
     Host->>E: Tick::PortReply(readback)
     IM->>Sink: Emit im:timeline:located(postId,window,tokens)
-    Sink-->>UI: Native bus -> resolve locate waiter; UI scrolls to postId
+    Sink-->>UI: Native bus → resolve locate waiter；UI scrolls to postId
     Sink-->>FFI: batch raw located event bytes
     Sink-->>Web: EventBatch raw located event bytes
   else miss or scope mismatch

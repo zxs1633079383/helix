@@ -26,7 +26,7 @@ sequenceDiagram
   UI->>Gate: sendMessage(new text)
   Gate->>Native: invokeAccepted("im_send_message", payload)
   Native->>E: Tick::Command(send)
-  E->>IM: optimistic send -> Persist P1
+  E->>IM: optimistic send → Persist P1
   IM->>Host: Effect::Persist(message sending)
   Host->>DB: write temporary row
   DB-->>Host: PortReply(P1)
@@ -49,10 +49,10 @@ sequenceDiagram
   IM->>Sink: Emit im:post:received
   IM->>Sink: Emit im:channel:update
   IM->>Sink: Emit im:timeline:update(direction=append)
-  Sink-->>UI: append new row; evict oldest when window reaches 20
+  Sink-->>UI: append new row；evict oldest when window reaches 20
   Sink-->>FFI: batch post/channel/timeline raw bytes
   Sink-->>Web: EventBatch post/channel/timeline raw bytes
   alt duplicate/gap/PersistErr
-    IM->>IM: drop duplicate or buffer gap; no second append
+    IM->>IM: drop duplicate or buffer gap；no second append
   end
   Note over DB,UI: window bound、eviction、anchor/revision 由 Helix durable query 事实决定，Angular 不自行 splice 出第二份业务状态。

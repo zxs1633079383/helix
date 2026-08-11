@@ -52,10 +52,10 @@ sequenceDiagram
   end
   Host->>E: Tick::PortReply(readback)
   IM->>Sink: Emit im:timeline:update(direction=newer,rows,pageToken)
-  Sink-->>UI: Native bus -> append newer page, preserve anchor
+  Sink-->>UI: Native bus → append newer page, preserve anchor
   Sink-->>FFI: batch raw timeline update
   Sink-->>Web: EventBatch raw timeline update
   alt HTTP/Persist failure
-    IM->>Sink: Emit failed query result; keep previous durable window
+    IM->>Sink: Emit failed query result；keep previous durable window
   end
   Note over UI,Web: newer page 不推动其他 viewer 的窗口；shell 不把 page token 转成 UI directive。

@@ -42,7 +42,7 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply
   IM->>Sink: Emit im:timeline:located(postId,anchor,tokens)
-  Sink-->>UI: resolve locate waiter; consumer scrolls to anchor
+  Sink-->>UI: resolve locate waiter；consumer scrolls to anchor
   Sink-->>FFI: batch raw located event
   Sink-->>Web: EventBatch raw located event
 
@@ -50,16 +50,16 @@ sequenceDiagram
     UI->>Gate: im_load_older_context(current token)
     Gate->>Native: Tick::Command(older)
     Native->>E: route older
-    E->>IM: HTTP/scan -> PersistAtomic -> readback
+    E->>IM: HTTP/scan → PersistAtomic → readback
     IM->>Sink: Emit im:timeline:update(direction=older)
   and independent newer page
     UI->>Gate: im_load_newer_context(current token)
     Gate->>Native: Tick::Command(newer)
     Native->>E: route newer
-    E->>IM: HTTP/scan -> PersistAtomic -> readback
+    E->>IM: HTTP/scan → PersistAtomic → readback
     IM->>Sink: Emit im:timeline:update(direction=newer)
   end
   alt stale token / out-of-order page
-    IM->>IM: reject stale page; do not merge older/newer responses
+    IM->>IM: reject stale page；do not merge older/newer responses
   end
   Note over UI,Web: 两个方向共享 durable anchor 但不共享 renderer reducer；当前 tests 的 im:read:result 与 production timeline event 命名存在 drift。

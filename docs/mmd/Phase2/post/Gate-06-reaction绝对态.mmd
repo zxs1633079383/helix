@@ -31,7 +31,7 @@ sequenceDiagram
   Go-->>Host: 2xx admission（不发布 reaction 终态）
   Go-->>WS: WS post_update.quickReply(event_seq)
   WS->>E: Tick::Inbound(post_update)
-  E->>IM: parse quickReply map -> bounded absolute array
+  E->>IM: parse quickReply map → bounded absolute array
   alt event_seq is next
     IM->>Host: Effect::PersistAtomic(message.quick_reply + cursor)
     Host->>DB: single mutation of message and cursor
@@ -46,6 +46,6 @@ sequenceDiagram
     Sink-->>FFI: batch raw updated event
     Sink-->>Web: EventBatch raw updated event
   else gap or duplicate
-    IM->>IM: buffer gap or drop duplicate; do not Emit
+    IM->>IM: buffer gap or drop duplicate；do not Emit
   end
   Note over UI,Web: current viewer selected state derives from userIds；shell 不把 quickReply 再塞入另一套 props/reducer。

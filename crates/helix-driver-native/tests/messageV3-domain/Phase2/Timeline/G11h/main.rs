@@ -8,7 +8,9 @@ async fn mv3_g11h_real_chain() {
         "MV3-G11h",
         "im_get_posts_after_index",
         "/api/cses/posts/getPostsAfterIndex",
-        |_, post_id, req_id| json!({"req_id": req_id, "post_id": post_id, "page_size": 20}),
+        |_, post_id, req_id, _create_at| {
+            json!({"req_id": req_id, "post_id": post_id, "page_size": 20})
+        },
     )
     .await
     .unwrap_or_else(|error| panic!("MV3-G11h FAIL: {error}"));

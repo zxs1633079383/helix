@@ -8,10 +8,10 @@ async fn mv3_g11b_real_chain() {
         "MV3-G11b",
         "im_load_older_context",
         "/api/cses/posts/getPostsAfterIndex",
-        |channel, post_id, req_id| {
+        |channel, post_id, req_id, create_at| {
             json!({
                 "channel_id": channel,
-                "anchor": {"postId": post_id, "createAt": 0},
+                "anchor": {"postId": post_id, "createAt": create_at},
                 "anchor_post_id": post_id,
                 "page_size": 20,
                 "req_id": req_id,

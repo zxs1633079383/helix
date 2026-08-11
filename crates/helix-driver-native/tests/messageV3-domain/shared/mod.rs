@@ -49,6 +49,10 @@ pub(crate) static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 pub(crate) static AUTH_CONTEXT: OnceCell<Result<Arc<AuthContext>, String>> = OnceCell::const_new();
 pub(crate) static REMOTE_LOCK: OnceCell<Mutex<()>> = OnceCell::const_new();
 
+const CHANNEL_FIXTURE_WAIT_SECS: u64 = 30;
+const CHANNEL_FIXTURE_FRESHNESS_MS: i64 = 10 * 60 * 1000;
+const CHANNEL_FIXTURE_SNAPSHOT_END_MS: i64 = 9_000_000_000_000;
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct CredentialFile {
     pub(crate) accounts: Vec<CredentialAccount>,
@@ -187,10 +191,14 @@ impl RealHelixSession {
                 .map_err(|_| "real Helix engine graceful shutdown timed out".to_string())?
                 .map_err(|error| format!("real Helix engine task failed: {error}"))?;
         }
-        self.actor_transport
-            .close()
-            .await
-            .map_err(|error| format!("close real Helix actor WS: {error}"))?;
+        // Go may close the socket after the terminal projection; cleanup remains idempotent and
+        // must not downgrade a fully proven Gate merely because the peer already disconnected.
+        if let Err(error) = self.actor_transport.close().await {
+            let text = error.to_string();
+            if !text.contains("closed connection") && !text.contains("connection is closed") {
+                return Err(format!("close real Helix actor WS: {error}"));
+            }
+        }
         remove_test_storage(&self.db_path);
         Ok(())
     }
@@ -750,10 +758,227 @@ pub(crate) fn extract_id(value: &Value, keys: &[&str]) -> Option<String> {
     }
 }
 
+/// 将远端 JSON 数字或兼容历史字符串字段解析为毫秒整数。
+fn json_i64(value: Option<&Value>) -> Option<i64> {
+    match value {
+        Some(Value::Number(number)) => number.as_i64(),
+        Some(Value::String(text)) => text.parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
+/// 返回当前 Unix 毫秒，供 run-owned 频道的新鲜度和快照有效期校验使用。
+fn unix_now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64)
+        .unwrap_or_default()
+}
+
+/// 拒绝旧的、关闭的或身份字段不匹配的 channel/create/read-back 结果。
+fn validate_active_channel_projection(
+    channel: &Value,
+    expected_id: &str,
+    expected_display_name: &str,
+    now_ms: i64,
+) -> Result<(), String> {
+    let actual_id = string_field(channel, &["id", "channelId", "channel_id"])
+        .ok_or_else(|| "channel projection has no canonical id".to_string())?;
+    if actual_id != expected_id {
+        return Err(format!(
+            "channel projection id mismatch: expected {expected_id}, got {actual_id}"
+        ));
+    }
+    let display_name = string_field(channel, &["displayName", "display_name"])
+        .ok_or_else(|| "channel projection has no displayName".to_string())?;
+    if display_name != expected_display_name {
+        return Err(format!(
+            "channel projection displayName mismatch: expected {expected_display_name}, got {display_name}"
+        ));
+    }
+    if let Some(channel_type) = string_field(channel, &["type"]) {
+        if channel_type != "P" {
+            return Err(format!(
+                "run-owned fixture must be private group type P, got {channel_type}"
+            ));
+        }
+    }
+    if let Some(delete_at) = json_i64(channel.get("deleteAt").or_else(|| channel.get("delete_at")))
+    {
+        if delete_at != 0 {
+            return Err(format!(
+                "channel projection is expired: deleteAt={delete_at}"
+            ));
+        }
+    }
+    let closed = match channel.get("close").or_else(|| channel.get("closed")) {
+        Some(Value::Bool(value)) => *value,
+        Some(Value::String(value)) => value.eq_ignore_ascii_case("true"),
+        _ => false,
+    };
+    if closed {
+        return Err("channel projection is closed".to_string());
+    }
+    let created_at = json_i64(channel.get("createAt").or_else(|| channel.get("create_at")))
+        .ok_or_else(|| "channel projection has no createAt".to_string())?;
+    if created_at < now_ms.saturating_sub(CHANNEL_FIXTURE_FRESHNESS_MS)
+        || created_at > now_ms.saturating_add(CHANNEL_FIXTURE_FRESHNESS_MS)
+    {
+        return Err(format!(
+            "channel projection is not run-owned fresh: createAt={created_at}, now={now_ms}"
+        ));
+    }
+    Ok(())
+}
+
+/// 选择最新且仍开放的成员快照，并要求本轮三 persona 全部存在。
+fn validate_active_member_snapshot(
+    response: &Value,
+    channel_id: &str,
+    required_user_ids: &BTreeSet<String>,
+    now_ms: i64,
+) -> Result<(), String> {
+    let data = response
+        .pointer("/data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "channel member snapshot response has no data array".to_string())?;
+    let snapshot = data
+        .iter()
+        .filter(|candidate| {
+            string_field(candidate, &["channelId", "channel_id"]).as_deref() == Some(channel_id)
+        })
+        .max_by_key(|candidate| json_i64(candidate.get("startTime")).unwrap_or_default())
+        .ok_or_else(|| format!("no member snapshot for channel {channel_id}"))?;
+    let snapshot_id = string_field(snapshot, &["snapshotId", "snapshot_id"])
+        .ok_or_else(|| "member snapshot has no snapshotId".to_string())?;
+    if snapshot_id.is_empty() {
+        return Err("member snapshot has an empty snapshotId".to_string());
+    }
+    if let Some(end_time) = json_i64(snapshot.get("endTime").or_else(|| snapshot.get("end_time"))) {
+        if end_time > 0 && end_time <= now_ms {
+            return Err(format!(
+                "member snapshot is expired: snapshotId={snapshot_id}, endTime={end_time}"
+            ));
+        }
+    }
+    let members = snapshot
+        .get("members")
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("member snapshot {snapshot_id} has no members array"))?;
+    let actual_user_ids = members
+        .iter()
+        .filter_map(|member| string_field(member, &["userId", "user_id"]))
+        .collect::<BTreeSet<_>>();
+    let missing = required_user_ids
+        .difference(&actual_user_ids)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(format!(
+            "member snapshot {snapshot_id} missing members: {missing:?}"
+        ));
+    }
+    Ok(())
+}
+
+/// 在 channel/create 后等待精确频道 read-back 与 active member snapshot 同时稳定。
+async fn wait_active_channel_fixture(
+    http: &NativeHttp,
+    channel_id: &str,
+    display_name: &str,
+    required_user_ids: &BTreeSet<String>,
+) -> Result<(), String> {
+    let deadline = Instant::now() + Duration::from_secs(CHANNEL_FIXTURE_WAIT_SECS);
+    let mut last_error = String::new();
+    while Instant::now() < deadline {
+        let channel_result = request_json(
+            http,
+            "POST",
+            &format!("{GO_HTTP_BASE}/channel/query"),
+            Some(json!({
+                "id": channel_id,
+                "pageNumber": 1,
+                "pageSize": 1,
+                "offset": 0
+            })),
+            "channel-fixture-readback",
+        )
+        .await
+        .and_then(|observation| require_success(observation, "channel/query"));
+        let channel_check = channel_result.and_then(|response| {
+            let data = response
+                .pointer("/data")
+                .ok_or_else(|| "channel/query SUCCESS response has no data".to_string())?;
+            let row = match data {
+                Value::Array(rows) => rows
+                    .iter()
+                    .find(|row| {
+                        string_field(row, &["id", "channelId", "channel_id"]).as_deref()
+                            == Some(channel_id)
+                    })
+                    .ok_or_else(|| {
+                        format!("channel/query did not return run-owned channel {channel_id}")
+                    })?,
+                Value::Object(_) => data,
+                _ => return Err("channel/query data is neither array nor object".to_string()),
+            };
+            validate_active_channel_projection(row, channel_id, display_name, unix_now_ms())
+        });
+        if let Err(error) = channel_check {
+            last_error = error;
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            continue;
+        }
+
+        let snapshot_check = request_json(
+            http,
+            "POST",
+            &format!("{GO_HTTP_BASE}/channel/member/snapshot"),
+            Some(json!({
+                "channelId": channel_id,
+                "startTime": 0,
+                "endTime": CHANNEL_FIXTURE_SNAPSHOT_END_MS
+            })),
+            "channel-fixture-snapshot",
+        )
+        .await
+        .and_then(|observation| require_success(observation, "channel/member/snapshot"))
+        .and_then(|response| {
+            validate_active_member_snapshot(&response, channel_id, required_user_ids, unix_now_ms())
+        });
+        match snapshot_check {
+            Ok(()) => return Ok(()),
+            Err(error) => last_error = error,
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    Err(format!(
+        "run-owned channel fixture did not become active within {CHANNEL_FIXTURE_WAIT_SECS}s: {last_error}"
+    ))
+}
+
+/// 在业务证据链结束后先关闭 Helix session，再只清理本轮 run-owned 频道。
+async fn finish_run_owned_channel<T>(
+    context: &AuthContext,
+    channel_id: &str,
+    result: Result<T, String>,
+) -> Result<T, String> {
+    let cleanup = close_channel(context, channel_id).await;
+    match (result, cleanup) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(error)) => Err(format!("channel cleanup failed: {error}")),
+        (Err(error), Err(cleanup_error)) => {
+            Err(format!("{error}; channel cleanup failed: {cleanup_error}"))
+        }
+    }
+}
+
 /// 以 canonical channel/create body 创建 run-owned 私有群聊。
 pub(crate) async fn create_channel(context: &AuthContext) -> Result<String, String> {
     let http = go_http(&context.actor).await?;
     let display_name = resource_name("channel");
+    let started_at = unix_now_ms();
     let body = json!({
         "type": "P",
         "userIds": [context.observer.user_id, context.third.user_id],
@@ -769,8 +994,20 @@ pub(crate) async fn create_channel(context: &AuthContext) -> Result<String, Stri
     )
     .await?;
     let response = require_success(observation, "channel/create")?;
-    extract_id(&response, &["id", "channelId", "channel_id"])
-        .ok_or_else(|| "channel/create SUCCESS response has no canonical channel id".to_string())
+    let channel = response
+        .pointer("/data")
+        .filter(|value| value.is_object())
+        .ok_or_else(|| "channel/create SUCCESS response has no channel object".to_string())?;
+    let channel_id = string_field(channel, &["id"])
+        .ok_or_else(|| "channel/create SUCCESS response has no canonical channel id".to_string())?;
+    validate_active_channel_projection(channel, &channel_id, &display_name, started_at)?;
+    let required_user_ids = BTreeSet::from([
+        context.actor.user_id.clone(),
+        context.observer.user_id.clone(),
+        context.third.user_id.clone(),
+    ]);
+    wait_active_channel_fixture(&http, &channel_id, &display_name, &required_user_ids).await?;
+    Ok(channel_id)
 }
 
 /// 只关闭本测试刚创建的频道；不执行全库 truncate/flush。
@@ -785,6 +1022,56 @@ pub(crate) async fn close_channel(context: &AuthContext, channel_id: &str) -> Re
     )
     .await?;
     require_success(observation, "channel/close").map(|_| ())
+}
+
+#[cfg(test)]
+mod channel_fixture_regression_tests {
+    use super::*;
+
+    #[test]
+    fn stale_channel_readback_is_rejected_before_gate_seed() {
+        let now_ms = 1_800_000_000_000_i64;
+        let stale = json!({
+            "id": "stale-channel",
+            "displayName": "hx-p1-channel-old",
+            "type": "P",
+            "createAt": now_ms - CHANNEL_FIXTURE_FRESHNESS_MS - 1,
+            "deleteAt": now_ms - 1,
+            "close": true
+        });
+
+        let error = validate_active_channel_projection(
+            &stale,
+            "stale-channel",
+            "hx-p1-channel-old",
+            now_ms,
+        )
+        .expect_err("closed/expired channel must not be accepted as a run-owned fixture");
+        assert!(error.contains("deleteAt") || error.contains("close"));
+    }
+
+    #[test]
+    fn active_snapshot_requires_all_run_personas_and_open_end() {
+        let now_ms = 1_800_000_000_000_i64;
+        let required = BTreeSet::from([
+            "actor".to_string(),
+            "observer".to_string(),
+            "third".to_string(),
+        ]);
+        let incomplete = json!({
+            "data": [{
+                "channelId": "run-channel",
+                "snapshotId": "snapshot-1",
+                "startTime": now_ms - 100,
+                "endTime": 0,
+                "members": [{"userId": "actor", "role": "CREATOR"}]
+            }]
+        });
+
+        let error = validate_active_member_snapshot(&incomplete, "run-channel", &required, now_ms)
+            .expect_err("a snapshot without the active observer/third members is not usable");
+        assert!(error.contains("missing members"));
+    }
 }
 
 /// 在真实 Go 上直接发送一条 post，返回 HTTP admission 和 observer 的 outbound post frame。
@@ -827,45 +1114,59 @@ pub(crate) async fn direct_post_as(
     raw_id: u32,
 ) -> Result<(Value, Value), String> {
     let mut observer = open_raw_ws(watcher, raw_id).await?;
-    wait_ws_hello(&mut observer).await?;
-    let temporary_id = run_token("post");
-    let http = go_http(sender).await?;
-    let body = json!({
-        "channelId": channel_id,
-        "userId": sender.user_id,
-        "type": message_type,
-        "message": text,
-        "simpleMessage": text,
-        "props": props,
-        "viewers": viewers,
-        "mentions": mentions,
-        "temporaryId": temporary_id
-    });
-    let observation = request_json(
-        &http,
-        "POST",
-        &format!("{GO_HTTP_BASE}/posts/create"),
-        Some(body),
-        "post-create",
-    )
-    .await?;
-    let response = require_success(observation, "posts/create")?;
-    let post = wait_ws_action(
-        &mut observer,
-        "post",
-        |frame| {
-            extract_id(frame, &["temporaryId", "temporary_id"]).as_deref()
-                == Some(temporary_id.as_str())
-        },
-        Duration::from_secs(20),
-    )
-    .await?;
-    observer
+    let result = async {
+        wait_ws_hello(&mut observer).await?;
+        let temporary_id = run_token("post");
+        let http = go_http(sender).await?;
+        let body = json!({
+            "channelId": channel_id,
+            // Angular buildMessageObject always carries the active company/team scope;
+            // Go exact/timeline reads use this field to enforce tenant visibility.
+            "teamId": sender.company_id,
+            "userId": sender.user_id,
+            "type": message_type,
+            "message": text,
+            "simpleMessage": text,
+            "props": props,
+            "viewers": viewers,
+            "mentions": mentions,
+            "temporaryId": temporary_id
+        });
+        let observation = request_json(
+            &http,
+            "POST",
+            &format!("{GO_HTTP_BASE}/posts/create"),
+            Some(body),
+            "post-create",
+        )
+        .await?;
+        let response = require_success(observation, "posts/create")?;
+        let post = wait_ws_action(
+            &mut observer,
+            "post",
+            |frame| {
+                extract_id(frame, &["temporaryId", "temporary_id"]).as_deref()
+                    == Some(temporary_id.as_str())
+            },
+            Duration::from_secs(20),
+        )
+        .await?;
+        Ok::<(Value, Value), String>((response, post))
+    }
+    .await;
+    let close_result = observer
         .transport
         .close()
         .await
-        .map_err(|error| format!("close observer WS: {error}"))?;
-    Ok((response, post))
+        .map_err(|error| format!("close observer WS: {error}"));
+    match (result, close_result) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+        (Err(error), Err(close_error)) => {
+            Err(format!("{error}; close observer WS failed: {close_error}"))
+        }
+    }
 }
 
 /// 初始化真实 IM SQLite schema；只对本测试新建数据库执行 CREATE/migration。
@@ -1697,122 +1998,230 @@ pub(crate) async fn assert_media_reference_send(
 pub(crate) async fn assert_latest_timeline_gate(gate: &str) -> Result<(), String> {
     let (_guard, context) = remote_setup().await;
     let channel = create_channel(&context).await?;
-    let marker = resource_name("timeline-latest");
-    let (_response, post_frame) = direct_post_as(
-        &context.actor,
-        &context.observer,
-        &channel,
-        "TEXT",
-        &marker,
-        json!({}),
-        json!(["all"]),
-        json!([]),
-        71,
-    )
-    .await?;
-    let temporary_id = extract_id(&post_frame, &["temporaryId", "temporary_id"])
-        .ok_or_else(|| format!("{gate} seed post has no temporaryId: {post_frame}"))?;
-    let post_id = extract_id(&post_frame, &["id", "postId", "post_id"])
-        .ok_or_else(|| format!("{gate} seed post has no server id: {post_frame}"))?;
-    let visibility_http = go_http(&context.actor).await?;
-    let visibility_deadline = Instant::now() + Duration::from_secs(20);
-    let mut visible = false;
-    while Instant::now() < visibility_deadline {
-        if let Ok(observation) = request_json(
-            &visibility_http,
-            "POST",
-            &format!("{GO_HTTP_BASE}/posts/get"),
-            Some(json!({"postIds": [post_id.clone()]})),
-            "timeline-seed-readback",
+    let result = async {
+        let marker = resource_name("timeline-latest");
+        let (_response, post_frame) = direct_post_as(
+            &context.actor,
+            &context.observer,
+            &channel,
+            "TEXT",
+            &marker,
+            json!({}),
+            json!(["all"]),
+            json!([]),
+            71,
         )
-        .await
-        {
-            if let Ok(body) = require_success(observation, "posts/get") {
-                let encoded = serde_json::to_string(&body).unwrap_or_default();
-                if encoded.contains(marker.as_str()) {
-                    visible = true;
-                    break;
+        .await?;
+        let temporary_id = extract_id(&post_frame, &["temporaryId", "temporary_id"])
+            .ok_or_else(|| format!("{gate} seed post has no temporaryId: {post_frame}"))?;
+        let post_id = extract_id(&post_frame, &["id", "postId", "post_id"])
+            .ok_or_else(|| format!("{gate} seed post has no server id: {post_frame}"))?;
+        let visibility_http = go_http(&context.actor).await?;
+        let visibility_deadline = Instant::now() + Duration::from_secs(20);
+        let mut visible = false;
+        while Instant::now() < visibility_deadline {
+            if let Ok(observation) = request_json(
+                &visibility_http,
+                "POST",
+                &format!("{GO_HTTP_BASE}/posts/get"),
+                Some(json!({"postIds": [post_id.clone()]})),
+                "timeline-seed-readback",
+            )
+            .await
+            {
+                if let Ok(body) = require_success(observation, "posts/get") {
+                    let encoded = serde_json::to_string(&body).unwrap_or_default();
+                    if encoded.contains(marker.as_str()) {
+                        visible = true;
+                        break;
+                    }
                 }
             }
+            tokio::time::sleep(Duration::from_millis(200)).await;
         }
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-    if !visible {
+        if !visible {
+            write_gate_evidence(
+                "Phase2",
+                "Timeline",
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "Go posts/create returned an outbound post frame, but the same post was not readable from real Go posts/get within 20s",
+                    "first_failing_layer": "Go producer/consumer or remote post persistence",
+                    "post_id": post_id,
+                    "temporary_id": temporary_id,
+                    "runtime": "localhost:8066",
+                }),
+            )?;
+            return Err(format!(
+                "{gate} seed post is not visible in Go posts/get after asynchronous create; post_id={post_id}"
+            ));
+        }
+        let mut session = start_real_helix_session(&context, &[channel.as_str()]).await?;
+        let window_token = resource_name("timeline-window");
+        session
+            .command(
+                "im_query_messages_by_channel",
+                json!({
+                    "channel_id": channel,
+                    "pageSize": 20,
+                    "windowToken": window_token,
+                }),
+            )
+            .await?;
+        let event = session
+            .wait_event(
+                "im:timeline:ready",
+                |envelope| {
+                    envelope.pointer("/data/messages").is_some()
+                        && data_string(envelope, &["channelId", "channel_id"]).is_some()
+                },
+                Duration::from_secs(25),
+            )
+            .await?;
+        let event_json: Value = serde_json::from_slice(event.0.as_ref())
+            .map_err(|error| format!("{gate} timeline event JSON failed: {error}"))?;
+        let messages = event_json
+            .pointer("/data/messages")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("{gate} timeline event has no messages: {event_json}"))?;
+        if !messages.iter().any(|message| {
+            string_field(message, &["text", "message"]).as_deref() == Some(marker.as_str())
+        }) {
+            return Err(format!(
+                "{gate} timeline event omitted seeded marker: {event_json}"
+            ));
+        }
+        let row = scan_message_row(&session.storage, &temporary_id).await?;
+        if row_text(&row, "send_status").as_deref() != Some("sent") {
+            return Err(format!("{gate} cache row is not sent: {row:?}"));
+        }
         write_gate_evidence(
             "Phase2",
             "Timeline",
             gate,
-            "BLOCKED_PRECONDITION",
+            "PASS",
             json!({
-                "reason": "Go posts/create returned an outbound post frame, but the same post was not readable from real Go posts/get within 20s",
-                "first_failing_layer": "Go producer/consumer or remote post persistence",
+                "command": "im_query_messages_by_channel",
+                "go_http": "/api/cses/posts/getLatestPost",
+                "pipeline": ["Tick::Command", "Helix local Scan miss", "Go HTTP", "Persist cache", "SQLite read-back", "im:timeline:ready"],
+                "channel_id": channel,
                 "post_id": post_id,
                 "temporary_id": temporary_id,
-                "runtime": "localhost:8066",
+                "window_token": window_token,
+                "event": event_json,
             }),
         )?;
-        let _ = close_channel(&context, &channel).await;
-        return Err(format!(
-            "{gate} seed post is not visible in Go posts/get after asynchronous create; post_id={post_id}"
-        ));
+        session.close().await
     }
-    let mut session = start_real_helix_session(&context, &[channel.as_str()]).await?;
-    let window_token = resource_name("timeline-window");
-    session
-        .command(
-            "im_query_messages_by_channel",
-            json!({
-                "channel_id": channel,
-                "pageSize": 20,
-                "windowToken": window_token,
-            }),
+    .await;
+    finish_run_owned_channel(&context, &channel, result).await
+}
+
+/// 执行 G11g exact-by-id 读链，并保证 read session 与 run-owned 频道按顺序收尾。
+pub(crate) async fn assert_exact_timeline_gate(gate: &str) -> Result<(), String> {
+    let (_guard, context) = remote_setup().await;
+    let channel = create_channel(&context).await?;
+    let result = async {
+        let (_response, frame) = direct_post_as(
+            &context.actor,
+            &context.observer,
+            &channel,
+            "TEXT",
+            &resource_name("exact-post"),
+            json!({}),
+            json!(["all"]),
+            json!([]),
+            72,
         )
         .await?;
-    let event = session
-        .wait_event(
-            "im:timeline:ready",
-            |envelope| {
-                envelope.pointer("/data/messages").is_some()
-                    && data_string(envelope, &["channelId", "channel_id"]).is_some()
-            },
-            Duration::from_secs(25),
-        )
-        .await?;
-    let event_json: Value = serde_json::from_slice(event.0.as_ref())
-        .map_err(|error| format!("{gate} timeline event JSON failed: {error}"))?;
-    let messages = event_json
-        .pointer("/data/messages")
-        .and_then(Value::as_array)
-        .ok_or_else(|| format!("{gate} timeline event has no messages: {event_json}"))?;
-    if !messages.iter().any(|message| {
-        string_field(message, &["text", "message"]).as_deref() == Some(marker.as_str())
-    }) {
-        return Err(format!(
-            "{gate} timeline event omitted seeded marker: {event_json}"
-        ));
+        let post_id = extract_id(&frame, &["id", "postId", "post_id"])
+            .ok_or_else(|| format!("{gate} seed post has no id: {frame}"))?;
+        let temporary_id = extract_id(&frame, &["temporaryId", "temporary_id"])
+            .ok_or_else(|| format!("{gate} seed post has no temporary id: {frame}"))?;
+        let mut session = start_real_helix_session(&context, &[channel.as_str()]).await?;
+        let session_result = async {
+            let req_id = run_token("g11g-exact");
+            session
+                .command(
+                    "im_get_posts",
+                    json!({"post_ids": [post_id.clone()], "req_id": req_id}),
+                )
+                .await?;
+            let event = session
+                .wait_event(
+                    "im:read:result",
+                    |envelope| {
+                        data_string(envelope, &["req_id"]).as_deref() == Some(req_id.as_str())
+                    },
+                    Duration::from_secs(25),
+                )
+                .await?;
+            let event_json: Value = serde_json::from_slice(event.0.as_ref())
+                .map_err(|error| format!("{gate} event JSON failed: {error}"))?;
+            let body = event_json
+                .pointer("/data/body")
+                .ok_or_else(|| format!("{gate} result has no body: {event_json}"))?;
+            let posts = body
+                .get("posts")
+                .and_then(Value::as_array)
+                .ok_or_else(|| format!("{gate} exact result has no posts array: {body}"))?;
+            if posts.is_empty() {
+                write_gate_evidence(
+                    "Phase2",
+                    "Timeline",
+                    gate,
+                    "BLOCKED_PRECONDITION",
+                    json!({
+                        "reason": "Go posts/get returned SUCCESS-shaped exact result but no seeded post",
+                        "first_failing_layer": "Go producer/consumer or remote post persistence",
+                        "post_id": post_id,
+                        "event": event_json,
+                    }),
+                )?;
+                return Ok::<(), String>(());
+            }
+            if !posts.iter().any(|post| {
+                extract_id(post, &["id", "postId", "serverId"]).as_deref()
+                    == Some(post_id.as_str())
+            }) {
+                return Err(format!(
+                    "{gate} exact post result omitted requested server id: {body}"
+                ));
+            }
+            let row = scan_message_row(&session.storage, &temporary_id).await?;
+            if row_text(&row, "send_status").as_deref() != Some("sent") {
+                return Err(format!("{gate} durable row is not sent: {row:?}"));
+            }
+            write_gate_evidence(
+                "Phase2",
+                "Timeline",
+                gate,
+                "PASS",
+                json!({
+                    "command": "im_get_posts",
+                    "go_http": "/api/cses/posts/get",
+                    "terminal_event": "im:read:result",
+                    "post_id": post_id,
+                    "temporary_id": temporary_id,
+                    "event": event_json,
+                }),
+            )?;
+            Ok::<(), String>(())
+        }
+        .await;
+        let session_cleanup = session.close().await;
+        match (session_result, session_cleanup) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), Ok(())) => Err(error),
+            (Ok(()), Err(error)) => Err(format!("Helix session cleanup failed: {error}")),
+            (Err(error), Err(cleanup_error)) => Err(format!(
+                "{error}; Helix session cleanup failed: {cleanup_error}"
+            )),
+        }
     }
-    let row = scan_message_row(&session.storage, &temporary_id).await?;
-    if row_text(&row, "send_status").as_deref() != Some("sent") {
-        return Err(format!("{gate} cache row is not sent: {row:?}"));
-    }
-    write_gate_evidence(
-        "Phase2",
-        "Timeline",
-        gate,
-        "PASS",
-        json!({
-            "command": "im_query_messages_by_channel",
-            "go_http": "/api/cses/posts/getLatestPost",
-            "pipeline": ["Tick::Command", "Helix local Scan miss", "Go HTTP", "Persist cache", "SQLite read-back", "im:timeline:ready"],
-            "channel_id": channel,
-            "post_id": post_id,
-            "temporary_id": temporary_id,
-            "window_token": window_token,
-            "event": event_json,
-        }),
-    )?;
-    session.close().await?;
-    close_channel(&context, &channel).await
+    .await;
+    finish_run_owned_channel(&context, &channel, result).await
 }
 
 /// 在既有 run-owned channel 上执行一条真实 command，并等待唯一 terminal DomainEvent。
@@ -1881,7 +2290,38 @@ pub(crate) async fn assert_real_read_or_blocked<F>(
 where
     F: Fn(&Value) -> bool,
 {
-    let mut session = match start_real_helix_session(context, &[channel_id]).await {
+    assert_real_read_or_blocked_as(
+        context,
+        &context.actor,
+        phase,
+        domain,
+        gate,
+        channel_id,
+        command,
+        endpoint,
+        payload,
+        predicate,
+    )
+    .await
+}
+
+/// 以指定真实身份执行远端读；Search 等场景需要用 ES 已授权的会话而非默认 actor。
+pub(crate) async fn assert_real_read_or_blocked_as<F>(
+    context: &AuthContext,
+    persona: &Persona,
+    phase: &str,
+    domain: &str,
+    gate: &str,
+    channel_id: &str,
+    command: &'static str,
+    endpoint: &str,
+    payload: Value,
+    predicate: F,
+) -> Result<(), String>
+where
+    F: Fn(&Value) -> bool,
+{
+    let mut session = match start_real_helix_session_as(context, persona, &[channel_id]).await {
         Ok(session) => session,
         Err(error) => {
             write_gate_evidence(
@@ -2090,6 +2530,53 @@ where
     session.close().await
 }
 
+/// 等待指定置顶状态的 canonical projection，并核对同一状态已落入 SQLite。
+async fn wait_pinned_projection(
+    session: &mut RealHelixSession,
+    gate: &str,
+    post_id: &str,
+    expected_pinned: bool,
+) -> Result<(Value, Value), String> {
+    let updated = session
+        .wait_event(
+            "im:post:updated",
+            |envelope| {
+                data_string(envelope, &["id", "postId", "post_id"]).as_deref() == Some(post_id)
+                    && envelope
+                        .pointer("/data/props/pinned")
+                        .and_then(Value::as_bool)
+                        == Some(expected_pinned)
+            },
+            Duration::from_secs(25),
+        )
+        .await?;
+    let updated_json: Value = serde_json::from_slice(updated.0.as_ref())
+        .map_err(|error| format!("{gate} update event JSON failed: {error}"))?;
+    // pin WS 帧只携带服务端 post id；发送落库初期则以 temporary_id 为主键，
+    // 因此必须使用同一消息的 id/temporary_id 双键精确回读，且等待 PersistFire 收敛。
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let mut last_props = Value::Null;
+    let props_json = loop {
+        if let Ok(row) = scan_message_row_by_id_or_temporary(&session.storage, post_id).await {
+            if let Some(props) = row_text(&row, "props") {
+                let parsed: Value = serde_json::from_str(&props)
+                    .map_err(|error| format!("{gate} pin props JSON failed: {error}"))?;
+                last_props = parsed.clone();
+                if parsed.get("pinned").and_then(Value::as_bool) == Some(expected_pinned) {
+                    break parsed;
+                }
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "{gate} SQLite pinned patch mismatch: expected={expected_pinned}, last={last_props}"
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    Ok((updated_json, props_json))
+}
+
 /// 在同一真实 native 会话中先发送消息再执行 post mutation，核对 WS projection 与 SQLite patch。
 pub(crate) async fn assert_post_pin_chain(
     phase: &str,
@@ -2101,6 +2588,7 @@ pub(crate) async fn assert_post_pin_chain(
 ) -> Result<(), String> {
     let (_guard, context) = remote_setup().await;
     let channel = create_channel(&context).await?;
+    let mut attempted_post_id = None::<String>;
     let result = async {
         let mut session = match start_real_helix_session(&context, &[channel.as_str()]).await {
             Ok(session) => session,
@@ -2160,6 +2648,7 @@ pub(crate) async fn assert_post_pin_chain(
             .map_err(|error| format!("{gate} received event JSON failed: {error}"))?;
         let post_id = data_string(&received_json, &["id", "postId", "post_id"])
             .ok_or_else(|| format!("{gate} received event has no server post id"))?;
+        attempted_post_id = Some(post_id.clone());
         let _sent_row = wait_message_status(
             &session.storage,
             &actual_temporary_id,
@@ -2167,39 +2656,56 @@ pub(crate) async fn assert_post_pin_chain(
             Duration::from_secs(8),
         )
         .await?;
-        session
-            .command(
-                command,
-                json!({
-                    "channel_id": channel,
-                    "post_id": post_id,
-                }),
+        // Go 的 post WS 回声先于异步 producer durable commit；pin mutation 必须等远端可读。
+        wait_remote_post_visible(&context, &post_id, None, gate).await?;
+        // 取消置顶必须先建立同一 post 的置顶状态；Go 对不存在的 pin 是幂等 no-op，不会发 WS。
+        let (updated_json, props_json, setup_projection) = if expected_pinned {
+            session
+                .command(
+                    command,
+                    json!({
+                        "channel_id": channel,
+                        "post_id": post_id,
+                    }),
+                )
+                .await?;
+            let (updated_json, props_json) =
+                wait_pinned_projection(&mut session, gate, &post_id, expected_pinned).await?;
+            (updated_json, props_json, None)
+        } else {
+            session
+                .command(
+                    "im_set_message_top",
+                    json!({
+                        "channel_id": channel,
+                        "post_id": post_id,
+                    }),
+                )
+                .await?;
+            let (pin_event, pin_props) =
+                wait_pinned_projection(&mut session, gate, &post_id, true).await?;
+            session
+                .command(
+                    command,
+                    json!({
+                        "channel_id": channel,
+                        "post_id": post_id,
+                    }),
+                )
+                .await?;
+            let (updated_json, props_json) =
+                wait_pinned_projection(&mut session, gate, &post_id, false).await?;
+            (
+                updated_json,
+                props_json,
+                Some(json!({
+                    "command": "im_set_message_top",
+                    "go_http": "/api/cses/channel/add/postPinned",
+                    "event": pin_event,
+                    "persist_after": pin_props,
+                })),
             )
-            .await?;
-        let updated = session
-            .wait_event(
-                "im:post:updated",
-                |envelope| {
-                    data_string(envelope, &["id", "postId", "post_id"]).as_deref()
-                        == Some(post_id.as_str())
-                        && envelope
-                            .pointer("/data/props/pinned")
-                            .and_then(Value::as_bool)
-                            == Some(expected_pinned)
-                },
-                Duration::from_secs(25),
-            )
-            .await?;
-        let updated_json: Value = serde_json::from_slice(updated.0.as_ref())
-            .map_err(|error| format!("{gate} update event JSON failed: {error}"))?;
-        let row = scan_message_row(&session.storage, &post_id).await?;
-        let props = row_text(&row, "props")
-            .ok_or_else(|| format!("{gate} pin update row has no props column"))?;
-        let props_json: Value = serde_json::from_str(&props)
-            .map_err(|error| format!("{gate} pin props JSON failed: {error}"))?;
-        if props_json.get("pinned").and_then(Value::as_bool) != Some(expected_pinned) {
-            return Err(format!("{gate} SQLite pinned patch mismatch: {props_json}"));
-        }
+        };
         write_gate_evidence(
             phase,
             domain,
@@ -2212,6 +2718,7 @@ pub(crate) async fn assert_post_pin_chain(
                 "temporary_id": actual_temporary_id,
                 "post_id": post_id,
                 "expected_pinned": expected_pinned,
+                "setup_projection": setup_projection,
                 "event": updated_json,
                 "persist_after": props_json,
             }),
@@ -2221,6 +2728,24 @@ pub(crate) async fn assert_post_pin_chain(
     .await;
     let _ = close_channel(&context, &channel).await;
     if let Err(error) = &result {
+        let pin_readback = match go_http(&context.actor).await {
+            Ok(http) => match request_json(
+                &http,
+                "POST",
+                &format!("{GO_HTTP_BASE}/channel/load/postPinned"),
+                Some(json!({"channelId": channel})),
+                "pin-timeout-readback",
+            )
+            .await
+            {
+                Ok(observation) => json!({
+                    "status": observation.status,
+                    "body": observation.body,
+                }),
+                Err(readback_error) => json!({"error": readback_error}),
+            },
+            Err(readback_error) => json!({"error": readback_error}),
+        };
         write_gate_evidence(
             phase,
             domain,
@@ -2232,6 +2757,8 @@ pub(crate) async fn assert_post_pin_chain(
                 "command": command,
                 "go_http": endpoint,
                 "error": error,
+                "post_id": attempted_post_id,
+                "pin_readback": pin_readback,
             }),
         )?;
         return Ok(());
@@ -2258,6 +2785,7 @@ async fn seed_announcement(
                 "id": post_id,
                 "temporaryId": post_id,
                 "channelId": channel_id,
+                "teamId": context.actor.company_id,
                 "userId": context.actor.user_id,
                 "type": "ANNOUNCEMENT",
                 "message": marker,
@@ -2314,9 +2842,11 @@ async fn seed_announcement(
 }
 
 /// 等待公告保存触发的异步 CreateCsesPost 真实落库；只作为 G07d 已读前置屏障。
-async fn wait_announcement_post_visible(
+/// 等待 Go producer 将 seeded post 持久化到租户可见的 `posts/get` 读面。
+async fn wait_remote_post_visible(
     context: &AuthContext,
     post_id: &str,
+    expected_marker: Option<&str>,
     gate: &str,
 ) -> Result<Value, String> {
     let http = go_http(&context.actor).await?;
@@ -2340,6 +2870,12 @@ async fn wait_announcement_post_visible(
             .is_some_and(|rows| {
                 rows.iter().any(|row| {
                     extract_id(row, &["id", "postId", "post_id"]).as_deref() == Some(post_id)
+                        && expected_marker
+                            .map(|marker| {
+                                string_field(row, &["message", "simpleMessage", "text"]).as_deref()
+                                    == Some(marker)
+                            })
+                            .unwrap_or(true)
                 })
             });
         if visible {
@@ -2348,8 +2884,51 @@ async fn wait_announcement_post_visible(
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     Err(format!(
-        "{gate} announcement post {post_id} did not become visible through posts/get after producer persistence wait: {last_posts}"
+        "{gate} post {post_id} did not become visible through posts/get after producer persistence wait: {last_posts}"
     ))
+}
+
+/// G07d 公告读链沿用普通 post 的租户可见持久化屏障。
+async fn wait_announcement_post_visible(
+    context: &AuthContext,
+    post_id: &str,
+    gate: &str,
+) -> Result<Value, String> {
+    wait_remote_post_visible(context, post_id, None, gate).await
+}
+
+/// 创建一条 Timeline 导航用的真实 post，返回 server id、temporary id 与服务端 createAt。
+async fn seed_timeline_post(
+    context: &AuthContext,
+    channel_id: &str,
+    marker: &str,
+    raw_id: u32,
+) -> Result<(String, String, i64), String> {
+    let (_response, frame) = direct_post_as(
+        &context.actor,
+        &context.observer,
+        channel_id,
+        "TEXT",
+        marker,
+        json!({}),
+        json!(["all"]),
+        json!([]),
+        raw_id,
+    )
+    .await?;
+    let post_id = extract_id(&frame, &["id", "postId", "post_id"])
+        .ok_or_else(|| format!("timeline seed post has no server id: {frame}"))?;
+    let temporary_id = extract_id(&frame, &["temporaryId", "temporary_id"])
+        .ok_or_else(|| format!("timeline seed post has no temporaryId: {frame}"))?;
+    let create_at = json_i64(
+        frame
+            .get("createAt")
+            .or_else(|| frame.get("create_at"))
+            .or_else(|| frame.pointer("/data/createAt"))
+            .or_else(|| frame.pointer("/data/create_at")),
+    )
+    .ok_or_else(|| format!("timeline seed post has no createAt: {frame}"))?;
+    Ok((post_id, temporary_id, create_at))
 }
 
 /// 通过 `im_get_posts` 将真实公告 post 固化到指定 Helix session 的 SQLite。
@@ -2609,79 +3188,121 @@ pub(crate) async fn assert_announcement_read_chain(
     Ok(())
 }
 
-/// 实际探测当前 Go 搜索路由，但因目标 Gate 命令尚未注册而固定写入 BLOCKED_PRECONDITION。
-pub(crate) async fn assert_search_contract_gap<F>(
+/// 以真实 marker post 验证 Search command→Go route→`im:read:result` 的响应合同。
+///
+/// Search 不走 WS business echo；PASS 必须同时看到 Helix read relay、Go body SUCCESS、
+/// 目标结果集合和 seeded post/marker，HTTP 200 或 command 注册本身都不能晋级。
+pub(crate) async fn assert_search_real_chain<F>(
     phase: &str,
     domain: &str,
     gate: &str,
-    target_command: &str,
-    current_command: &'static str,
+    command: &'static str,
     endpoint: &str,
     build_payload: F,
 ) -> Result<(), String>
 where
-    F: FnOnce(&str) -> Value,
+    F: FnOnce(&str, &str, &str) -> Value,
 {
     let (_guard, context) = remote_setup().await;
-    let channel = create_channel(&context).await?;
-    let req_id = run_token("search-probe");
-    let mut probe = json!({
-        "target_command": target_command,
-        "current_command": current_command,
-        "go_http": endpoint,
-        "req_id": req_id,
-    });
-    match start_real_helix_session(&context, &[channel.as_str()]).await {
-        Ok(mut session) => {
-            let mut payload = build_payload(&channel);
-            if let Some(object) = payload.as_object_mut() {
-                object.insert("req_id".to_string(), Value::String(req_id.clone()));
-            }
-            let probe_result = match session.command(current_command, payload).await {
-                Ok(()) => match session
-                    .wait_event(
-                        "im:read:result",
-                        |envelope| {
-                            data_string(envelope, &["req_id"]).as_deref() == Some(req_id.as_str())
+    let channel = match create_channel(&context).await {
+        Ok(channel) => channel,
+        Err(error) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "run-owned search channel fixture could not be created",
+                    "first_failing_layer": "Go channel/create or active member snapshot",
+                    "command": command,
+                    "go_http": endpoint,
+                    "error": error,
+                }),
+            )?;
+            return Ok(());
+        }
+    };
+    let marker = resource_name("search-marker");
+    let seed_result = direct_post_as(
+        &context.actor,
+        &context.observer,
+        &channel,
+        "TEXT",
+        &marker,
+        json!({}),
+        json!(["all"]),
+        json!([]),
+        91,
+    )
+    .await;
+    let result = match seed_result {
+        Ok((_response, frame)) => {
+            let post_id = extract_id(&frame, &["id", "postId", "post_id"])
+                .ok_or_else(|| format!("{gate} seeded search post has no canonical id: {frame}"));
+            match post_id {
+                Ok(post_id) => {
+                    // Give the real producer/ES indexing consumer a bounded opportunity before querying.
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    let req_id = run_token("search");
+                    let mut payload = build_payload(&channel, &marker, &post_id);
+                    if let Some(object) = payload.as_object_mut() {
+                        object.insert("req_id".to_string(), Value::String(req_id));
+                    }
+                    let predicate_marker = marker.clone();
+                    let predicate_post = post_id.clone();
+                    assert_real_read_or_blocked_as(
+                        &context,
+                        &context.observer,
+                        phase,
+                        domain,
+                        gate,
+                        &channel,
+                        command,
+                        endpoint,
+                        payload,
+                        move |envelope| {
+                            let body = envelope.pointer("/data/body");
+                            let data = body.and_then(|body| body.get("data"));
+                            let has_expected_shape = match command {
+                                "im_search_do" => data
+                                    .and_then(|data| data.get("messageGroups"))
+                                    .and_then(|groups| groups.get("items"))
+                                    .is_some_and(Value::is_array),
+                                "im_search_post" => data
+                                    .and_then(|data| data.get("items"))
+                                    .is_some_and(Value::is_array),
+                                _ => false,
+                            };
+                            has_expected_shape
+                                && envelope.to_string().contains(&predicate_marker)
+                                && envelope.to_string().contains(&predicate_post)
                         },
-                        Duration::from_secs(25),
                     )
                     .await
-                {
-                    Ok(event) => serde_json::from_slice::<Value>(event.0.as_ref())
-                        .map(|value| json!({"event": value}))
-                        .unwrap_or_else(|error| json!({"decode_error": error.to_string()})),
-                    Err(error) => json!({"error": error}),
-                },
-                Err(error) => json!({"admission_error": error}),
-            };
-            probe["current_probe"] = probe_result;
-            let _ = session.close().await;
+                }
+                Err(error) => Err(error),
+            }
         }
-        Err(error) => {
-            probe["session_error"] = Value::String(error);
-        }
-    }
-    write_gate_evidence(
-        phase,
-        domain,
-        gate,
-        "BLOCKED_PRECONDITION",
-        json!({
-            "reason": "Angular target search command has no Helix registration and the cross-repo Gate cannot be proven by an alternate command",
-            "first_failing_layer": "Angular/Helix/Go contract registration",
-            "target_command": target_command,
-            "current_command": current_command,
-            "go_http": endpoint,
-            "source_facts": [
-                "Angular gate contract marks the target command TARGET_REQUIRED",
-                "Helix outbound registry currently exposes only im_search_post/im_search_user/im_search_channel/im_search_do",
-                "Go router currently exposes /search/post, /search/user, /search/channel and /search/do",
-            ],
-            "probe": probe,
-        }),
-    )?;
+        Err(error) => Err(error),
+    };
     let _ = close_channel(&context, &channel).await;
+    if let Err(error) = result {
+        write_gate_evidence(
+            phase,
+            domain,
+            gate,
+            "BLOCKED_PRECONDITION",
+            json!({
+                "reason": "seeded search post or real Search command chain did not reach a provable terminal result",
+                "first_failing_layer": "Go post producer, ES authorization/indexing, or Helix read relay",
+                "command": command,
+                "go_http": endpoint,
+                "marker": marker,
+                "error": error,
+            }),
+        )?;
+    }
     Ok(())
 }
 
@@ -2724,7 +3345,26 @@ async fn run_real_urgent_mutation(
     Ok(event_json)
 }
 
-/// 真实探测待办查询；明确区分 read relay 与自动 `im:todo:updated` 投影合同。
+/// 判断自动 todo item 是否同时命中 post identity、Go messageType 和删除权限。
+fn todo_item_matches(
+    item: &Value,
+    post_id: &str,
+    expected_type: &str,
+    expected_can_delete: bool,
+) -> bool {
+    let item_post_id = item
+        .pointer("/post/id")
+        .and_then(Value::as_str)
+        .or_else(|| item.pointer("/post/postId").and_then(Value::as_str));
+    item_post_id == Some(post_id)
+        && item.get("type").and_then(Value::as_str) == Some(expected_type)
+        && item.get("canDel").and_then(Value::as_bool) == Some(expected_can_delete)
+}
+
+/// 真实执行待办 mutation，并等待连接后的全量 increment 收尾自动发出 `im:todo:updated`。
+///
+/// 显式 `im_query_todo_list` 只作为最终 read-back；它不能替代由 Go increment WS→Helix
+/// `TodoQuery` correlation→NativeEventSink emit 的自动投影证据。
 pub(crate) async fn assert_todo_real_probe(
     phase: &str,
     domain: &str,
@@ -2735,10 +3375,61 @@ pub(crate) async fn assert_todo_real_probe(
     expected_can_delete: bool,
 ) -> Result<(), String> {
     let (_guard, context) = remote_setup().await;
-    let channel = create_channel(&context).await?;
-    let result = async {
+    let channel = match create_channel(&context).await {
+        Ok(channel) => channel,
+        Err(error) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "run-owned todo channel fixture could not be created",
+                    "first_failing_layer": "Go channel/create or active member snapshot",
+                    "command": "im_query_todo_list",
+                    "go_http": "/api/cses/posts/queryTodoList",
+                    "error": error,
+                }),
+            )?;
+            return Ok(());
+        }
+    };
+    let mut post_id_for_evidence = None::<String>;
+    let mut mutation_for_evidence = Value::Null;
+    let mut session = match start_real_helix_session_as(
+        &context,
+        &context.observer,
+        &[channel.as_str()],
+    )
+    .await
+    {
+        Ok(session) => session,
+        Err(error) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "real Helix todo session could not be started",
+                    "first_failing_layer": "Helix native transport/auth precondition",
+                    "command": "automatic global increment → im_query_todo_list",
+                    "go_http": ["/api/cses/channels/load/increment", "/api/cses/posts/queryTodoList"],
+                    "error": error,
+                }),
+            )?;
+            let cleanup = close_channel(&context, &channel).await;
+            return cleanup
+                .map_err(|cleanup_error| format!("todo channel cleanup failed: {cleanup_error}"));
+        }
+    };
+    let session_result = async {
         let text = resource_name("todo-post");
-        let mentions = if needs_urgent { json!([]) } else { json!([context.observer.user_id]) };
+        let mentions = if needs_urgent {
+            json!([])
+        } else {
+            json!([context.observer.user_id])
+        };
         let (_ack, frame) = direct_post_as(
             &context.actor,
             &context.observer,
@@ -2753,6 +3444,7 @@ pub(crate) async fn assert_todo_real_probe(
         .await?;
         let post_id = extract_id(&frame, &["id", "postId", "post_id"])
             .ok_or_else(|| format!("{gate} todo seed has no post id: {frame}"))?;
+        post_id_for_evidence = Some(post_id.clone());
         let urgent_event = if needs_urgent {
             let created = run_real_urgent_mutation(&context, &channel, &post_id, false).await;
             let confirmed = if created.is_ok() && needs_confirm {
@@ -2764,12 +3456,38 @@ pub(crate) async fn assert_todo_real_probe(
         } else {
             None
         };
-        let req_id = run_token("todo-query");
-        let mut session = start_real_helix_session_as(&context, &context.observer, &[channel.as_str()]).await?;
+        mutation_for_evidence = json!({"created": urgent_event});
+        // Go's global increment worker is asynchronous and currently needs about 2–3 minutes for
+        // this tenant; the test waits for the actual projection instead of sleeping a fixed 500ms.
+        let todo_event = session
+            .wait_event(
+                "im:todo:updated",
+                |envelope| {
+                    envelope
+                        .pointer("/data/items")
+                        .and_then(Value::as_array)
+                        .is_some_and(|items| {
+                            items.iter().any(|item| {
+                                todo_item_matches(
+                                    item,
+                                    &post_id,
+                                    expected_type,
+                                    expected_can_delete,
+                                )
+                            })
+                        })
+                },
+                Duration::from_secs(300),
+            )
+            .await?;
+        let todo_event_json: Value = serde_json::from_slice(todo_event.0.as_ref())
+            .map_err(|error| format!("{gate} todo event JSON failed: {error}"))?;
+
+        let req_id = run_token("todo-readback");
         session
             .command(
                 "im_query_todo_list",
-                json!({"post_ids": [post_id], "req_id": req_id}),
+                json!({"post_ids": [post_id.clone()], "req_id": req_id}),
             )
             .await?;
         let read = session
@@ -2781,56 +3499,16 @@ pub(crate) async fn assert_todo_real_probe(
             .await?;
         let read_json: Value = serde_json::from_slice(read.0.as_ref())
             .map_err(|error| format!("{gate} todo read JSON failed: {error}"))?;
-        let todo_event = session
-            .wait_event("im:todo:updated", |_| true, Duration::from_millis(500))
-            .await
-            .ok()
-            .and_then(|event| serde_json::from_slice::<Value>(event.0.as_ref()).ok());
-        let _ = session.close().await;
-        let items = read_json.pointer("/data/body/data/channels");
-        let todo_item_matches = read_json.to_string().contains(post_id.as_str())
-            && read_json.to_string().contains(expected_type);
-        if todo_event.is_none() {
-            write_gate_evidence(
-                phase,
-                domain,
-                gate,
-                "BLOCKED_PRECONDITION",
-                json!({
-                    "reason": "real explicit im_query_todo_list returned through im:read:result, but the Gate requires the automatic im:todo:updated projection",
-                    "first_failing_layer": "Helix todo correlation/automatic projection contract",
-                    "command": "im_query_todo_list",
-                    "go_http": "/api/cses/posts/queryTodoList",
-                    "post_id": post_id,
-                    "expected_type": expected_type,
-                    "expected_can_delete": expected_can_delete,
-                    "urgent_mutation": urgent_event,
-                    "read_result": read_json,
-                    "read_channels_present": items.is_some(),
-                    "todo_event": null,
-                }),
-            )?;
-            return Ok::<(), String>(());
-        }
-        let todo_event = todo_event.unwrap_or(Value::Null);
-        let item = todo_event.pointer("/data/items");
-        if !todo_item_matches || item.is_none() {
-            write_gate_evidence(
-                phase,
-                domain,
-                gate,
-                "BLOCKED_PRECONDITION",
-                json!({
-                    "reason": "todo projection arrived but did not contain the seeded post/type contract",
-                    "first_failing_layer": "Go todo payload or Helix todo projection",
-                    "post_id": post_id,
-                    "expected_type": expected_type,
-                    "expected_can_delete": expected_can_delete,
-                    "read_result": read_json,
-                    "todo_event": todo_event,
-                }),
-            )?;
-            return Ok(());
+        let read_body = read_json
+            .pointer("/data/body")
+            .ok_or_else(|| format!("{gate} todo read-back has no Go body: {read_json}"))?;
+        if read_body.get("status").and_then(Value::as_str) != Some("SUCCESS")
+            || !read_json.to_string().contains(post_id.as_str())
+            || !read_json.to_string().contains(expected_type)
+        {
+            return Err(format!(
+                "{gate} todo read-back omitted the seeded contract: {read_json}"
+            ));
         }
         write_gate_evidence(
             phase,
@@ -2838,20 +3516,50 @@ pub(crate) async fn assert_todo_real_probe(
             gate,
             "PASS",
             json!({
-                "command": "im_query_todo_list",
-                "go_http": "/api/cses/posts/queryTodoList",
+                "command": "automatic global increment → im_query_todo_list read-back",
+                "go_http": ["/api/cses/channels/load/increment", "/api/cses/posts/queryTodoList"],
                 "post_id": post_id,
                 "expected_type": expected_type,
                 "expected_can_delete": expected_can_delete,
+                "automatic_event": "im:todo:updated",
                 "read_result": read_json,
-                "todo_event": todo_event,
+                "todo_event": todo_event_json,
+                "urgent_mutation": mutation_for_evidence,
             }),
         )?;
-        Ok(())
+        Ok::<(), String>(())
     }
     .await;
-    let _ = close_channel(&context, &channel).await;
-    result
+    let session_cleanup = session.close().await;
+    let result = match (session_result, session_cleanup) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(()), Err(error)) => Err(format!("Helix todo session cleanup failed: {error}")),
+        (Err(error), Err(cleanup_error)) => Err(format!(
+            "{error}; Helix todo session cleanup failed: {cleanup_error}"
+        )),
+    };
+    let cleanup = close_channel(&context, &channel).await;
+    if let Err(error) = result {
+        write_gate_evidence(
+            phase,
+            domain,
+            gate,
+            "BLOCKED_PRECONDITION",
+            json!({
+                "reason": "automatic todo projection or its exact read-back did not reach a terminal proof",
+                "first_failing_layer": "Go global increment worker, Go queryTodoList, or Helix TodoQuery projection",
+                "command": "automatic global increment → im_query_todo_list",
+                "go_http": ["/api/cses/channels/load/increment", "/api/cses/posts/queryTodoList"],
+                "post_id": post_id_for_evidence,
+                "expected_type": expected_type,
+                "expected_can_delete": expected_can_delete,
+                "urgent_mutation": mutation_for_evidence,
+                "error": error,
+            }),
+        )?;
+    }
+    cleanup.map_err(|error| format!("todo channel cleanup failed: {error}"))
 }
 
 /// 创建 run-owned 频道并执行一个独立 mutation Gate，结束后只清理本轮频道。
@@ -3063,103 +3771,140 @@ pub(crate) async fn assert_timeline_navigation_gate<F>(
     build_payload: F,
 ) -> Result<(), String>
 where
-    F: Fn(&str, &str, &str) -> Value,
+    F: Fn(&str, &str, &str, i64) -> Value,
 {
     let (_guard, context) = remote_setup().await;
     let channel = create_channel(&context).await?;
-    let marker = resource_name("timeline-navigation");
-    let (_response, frame) = direct_post_as(
-        &context.actor,
-        &context.observer,
-        &channel,
-        "TEXT",
-        &marker,
-        json!({}),
-        json!(["all"]),
-        json!([]),
-        73,
-    )
-    .await?;
-    let post_id = extract_id(&frame, &["id", "postId", "post_id"])
-        .ok_or_else(|| format!("{gate} seed post has no id: {frame}"))?;
-    let req_id = run_token("timeline-navigation");
-    let mut session = start_real_helix_session(&context, &[channel.as_str()]).await?;
-    session
-        .command(command, build_payload(&channel, &post_id, &req_id))
-        .await?;
-    let event = session
-        .wait_event(
-            "im:read:result",
-            |envelope| data_string(envelope, &["req_id"]).as_deref() == Some(req_id.as_str()),
-            Duration::from_secs(25),
-        )
-        .await?;
-    let event_json: Value = serde_json::from_slice(event.0.as_ref())
-        .map_err(|error| format!("{gate} event JSON failed: {error}"))?;
-    if event_json.pointer("/data/error").is_some() {
-        write_gate_evidence(
-            "Phase2",
-            "Timeline",
-            gate,
-            "BLOCKED_PRECONDITION",
-            json!({
-                "reason": "real Go timeline authority returned an error",
-                "first_failing_layer": "Go timeline route/session or remote producer persistence",
-                "endpoint": endpoint,
-                "event": event_json,
-            }),
-        )?;
-        session.close().await?;
-        let _ = close_channel(&context, &channel).await;
-        return Ok(());
+    let result = async {
+        // Older/newer are exclusive sides of the anchor; seed two durable posts so the
+        // response assertion proves the direction instead of expecting the anchor itself back.
+        let (anchor_marker, expected_marker, post_id, anchor_create_at) = match gate {
+            "MV3-G11b" => {
+                let older_marker = resource_name("timeline-older-result");
+                let anchor_marker = resource_name("timeline-older-anchor");
+                let (older_id, _, _older_create_at) =
+                    seed_timeline_post(&context, &channel, &older_marker, 73).await?;
+                let (anchor_id, _, anchor_create_at) =
+                    seed_timeline_post(&context, &channel, &anchor_marker, 74).await?;
+                wait_remote_post_visible(&context, &older_id, Some(&older_marker), gate).await?;
+                wait_remote_post_visible(&context, &anchor_id, Some(&anchor_marker), gate).await?;
+                (anchor_marker, older_marker, anchor_id, anchor_create_at)
+            }
+            "MV3-G11c" => {
+                let anchor_marker = resource_name("timeline-newer-anchor");
+                let newer_marker = resource_name("timeline-newer-result");
+                let (anchor_id, _, anchor_create_at) =
+                    seed_timeline_post(&context, &channel, &anchor_marker, 75).await?;
+                let (newer_id, _, _newer_create_at) =
+                    seed_timeline_post(&context, &channel, &newer_marker, 76).await?;
+                wait_remote_post_visible(&context, &anchor_id, Some(&anchor_marker), gate).await?;
+                wait_remote_post_visible(&context, &newer_id, Some(&newer_marker), gate).await?;
+                (anchor_marker, newer_marker, anchor_id, anchor_create_at)
+            }
+            _ => {
+                let marker = resource_name("timeline-navigation");
+                let (post_id, _, create_at) =
+                    seed_timeline_post(&context, &channel, &marker, 77).await?;
+                wait_remote_post_visible(&context, &post_id, Some(&marker), gate).await?;
+                (marker.clone(), marker, post_id, create_at)
+            }
+        };
+        let req_id = run_token("timeline-navigation");
+        let mut session = start_real_helix_session(&context, &[channel.as_str()]).await?;
+        let session_result = async {
+            session
+                .command(
+                    command,
+                    build_payload(&channel, &post_id, &req_id, anchor_create_at),
+                )
+                .await?;
+            let event = session
+                .wait_event(
+                    "im:read:result",
+                    |envelope| {
+                        data_string(envelope, &["req_id"]).as_deref() == Some(req_id.as_str())
+                    },
+                    Duration::from_secs(25),
+                )
+                .await?;
+            let event_json: Value = serde_json::from_slice(event.0.as_ref())
+                .map_err(|error| format!("{gate} event JSON failed: {error}"))?;
+            if event_json.pointer("/data/error").is_some() {
+                write_gate_evidence(
+                    "Phase2",
+                    "Timeline",
+                    gate,
+                    "BLOCKED_PRECONDITION",
+                    json!({
+                        "reason": "real Go timeline authority returned an error",
+                        "first_failing_layer": "Go timeline route/session or remote producer persistence",
+                        "endpoint": endpoint,
+                        "event": event_json,
+                    }),
+                )?;
+                return Ok::<(), String>(());
+            }
+            let body = event_json
+                .pointer("/data/body")
+                .ok_or_else(|| format!("{gate} read result has no body: {event_json}"))?;
+            let rows = body
+                .get("posts")
+                .or_else(|| body.get("messages"))
+                .and_then(Value::as_array)
+                .ok_or_else(|| format!("{gate} result has no posts/messages array: {body}"))?;
+            if rows.is_empty() {
+                write_gate_evidence(
+                    "Phase2",
+                    "Timeline",
+                    gate,
+                    "BLOCKED_PRECONDITION",
+                    json!({
+                        "reason": "real Go timeline result contains no seeded message",
+                        "first_failing_layer": "Go producer/consumer or remote timeline persistence",
+                        "endpoint": endpoint,
+                        "post_id": post_id,
+                        "event": event_json,
+                    }),
+                )?;
+                return Ok::<(), String>(());
+            }
+            if !rows.iter().any(|row| {
+                string_field(row, &["text", "message", "simpleMessage"]).as_deref()
+                    == Some(expected_marker.as_str())
+            }) {
+                return Err(format!("{gate} result omitted seeded marker: {event_json}"));
+            }
+            write_gate_evidence(
+                "Phase2",
+                "Timeline",
+                gate,
+                "PASS",
+                json!({
+                    "command": command,
+                    "go_http": endpoint,
+                    "terminal_event": "im:read:result",
+                    "req_id": req_id,
+                    "post_id": post_id,
+                    "anchor_marker": anchor_marker,
+                    "expected_marker": expected_marker,
+                    "event": event_json,
+                }),
+            )?;
+            Ok::<(), String>(())
+        }
+        .await;
+        let session_cleanup = session.close().await;
+        match (session_result, session_cleanup) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), Ok(())) => Err(error),
+            (Ok(()), Err(error)) => Err(format!("Helix session cleanup failed: {error}")),
+            (Err(error), Err(cleanup_error)) => Err(format!(
+                "{error}; Helix session cleanup failed: {cleanup_error}"
+            )),
+        }
     }
-    let body = event_json
-        .pointer("/data/body")
-        .ok_or_else(|| format!("{gate} read result has no body: {event_json}"))?;
-    let rows = body
-        .get("posts")
-        .or_else(|| body.get("messages"))
-        .and_then(Value::as_array)
-        .ok_or_else(|| format!("{gate} result has no posts/messages array: {body}"))?;
-    if rows.is_empty() {
-        write_gate_evidence(
-            "Phase2",
-            "Timeline",
-            gate,
-            "BLOCKED_PRECONDITION",
-            json!({
-                "reason": "real Go timeline result contains no seeded message",
-                "first_failing_layer": "Go producer/consumer or remote timeline persistence",
-                "endpoint": endpoint,
-                "post_id": post_id,
-                "event": event_json,
-            }),
-        )?;
-        session.close().await?;
-        let _ = close_channel(&context, &channel).await;
-        return Ok(());
-    }
-    if !rows.iter().any(|row| {
-        string_field(row, &["text", "message", "simpleMessage"]).as_deref() == Some(marker.as_str())
-    }) {
-        return Err(format!("{gate} result omitted seeded marker: {event_json}"));
-    }
-    write_gate_evidence(
-        "Phase2",
-        "Timeline",
-        gate,
-        "PASS",
-        json!({
-            "command": command,
-            "go_http": endpoint,
-            "terminal_event": "im:read:result",
-            "req_id": req_id,
-            "post_id": post_id,
-            "event": event_json,
-        }),
-    )?;
-    session.close().await?;
-    close_channel(&context, &channel).await
+    .await;
+    finish_run_owned_channel(&context, &channel, result).await
 }
 
 /// 记录一个仍然执行但缺少真实前置的 Gate，保留可审计缺口而不伪造 PASS。
@@ -3209,7 +3954,18 @@ pub(crate) async fn assert_forward_chain(
 ) -> Result<(), String> {
     let (_guard, context) = remote_setup().await;
     let source = create_channel(&context).await?;
-    let target = create_channel(&context).await?;
+    let target = match create_channel(&context).await {
+        Ok(target) => target,
+        Err(error) => {
+            let cleanup = close_channel(&context, &source).await;
+            return Err(match cleanup {
+                Ok(()) => format!("target channel fixture failed: {error}"),
+                Err(cleanup_error) => format!(
+                    "target channel fixture failed: {error}; source cleanup failed: {cleanup_error}"
+                ),
+            });
+        }
+    };
     let result = async {
         let mut source_posts = Vec::new();
         for index in 0..2 {
@@ -3277,30 +4033,68 @@ pub(crate) async fn assert_forward_chain(
                 "createAt": 0
             })]
         };
+        // Angular relayMessages only carries postIds/targetChannelIds/mode.  The Go
+        // postIds branch re-reads the source authority and allocates fresh IDs;
+        // sending source posts verbatim would make the producer hit post_new_pk.
+        let body = if mode == "item" {
+            json!({
+                "postIds": source_posts
+                    .iter()
+                    .filter_map(|post| extract_id(post, &["id"]))
+                    .collect::<Vec<_>>(),
+                "channelIds": [target]
+            })
+        } else {
+            json!({ "posts": posts, "channelIds": [target] })
+        };
         let response = request_json(
             &http,
             "POST",
             &format!("{GO_HTTP_BASE}/posts/createPosts"),
-            Some(json!({ "posts": posts, "channelIds": [target] })),
+            Some(body),
             "forward",
         )
         .await?;
         require_success(response, "posts/createPosts")?;
+        let mut observed_messages = Vec::new();
         if mode == "item" {
-            for source_post in &source_posts {
-                let expected = string_field(source_post, &["message"]).unwrap_or_default();
+            // Go/Pulsar fan-out may deliver the two target posts in a different
+            // WS order; collect the complete target batch and compare the
+            // independently known source-message set instead of trusting arrival order.
+            let mut target_frames = Vec::with_capacity(source_posts.len());
+            for _ in 0..source_posts.len() {
                 let frame = wait_ws_action(
                     &mut observer,
                     "post",
-                    |frame| string_field(frame, &["message"]).as_deref() == Some(expected.as_str())
-                        || data_string(frame, &["message"]).as_deref() == Some(expected.as_str()),
+                    |frame| {
+                        let channel = string_field(frame, &["channelId", "channel_id"])
+                            .or_else(|| data_string(frame, &["channelId", "channel_id"]));
+                        channel.as_deref() == Some(target.as_str())
+                    },
                     Duration::from_secs(20),
                 )
                 .await?;
-                if !frame.to_string().contains(&expected) {
-                    return Err("item forward post did not retain source message".to_string());
-                }
+                target_frames.push(frame);
             }
+            let mut expected_messages = source_posts
+                .iter()
+                .filter_map(|post| string_field(post, &["message"]))
+                .collect::<Vec<_>>();
+            let mut actual_messages = target_frames
+                .iter()
+                .filter_map(|frame| {
+                    string_field(frame, &["message"])
+                        .or_else(|| data_string(frame, &["message"]))
+                })
+                .collect::<Vec<_>>();
+            expected_messages.sort();
+            actual_messages.sort();
+            if actual_messages != expected_messages {
+                return Err(format!(
+                    "item forward target messages mismatch: expected {expected_messages:?}, got {actual_messages:?}; frames={target_frames:?}"
+                ));
+            }
+            observed_messages = actual_messages;
         } else {
             let frame = wait_ws_action(
                 &mut observer,
@@ -3331,6 +4125,7 @@ pub(crate) async fn assert_forward_chain(
                 "wire": "posts + channelIds",
                 "mode": mode,
                 "source_post_count": source_posts.len(),
+                "observed_target_messages": observed_messages,
                 "ws_action": "post",
             }),
         )?;

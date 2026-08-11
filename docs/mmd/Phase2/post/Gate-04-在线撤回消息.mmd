@@ -1,0 +1,57 @@
+%% Phase2 / post / G-04 在线撤回消息
+%% Helix owners: ws/handlers/posts_update.rs; ws/handlers/update_channel.rs; port_reply/message_v3_revoke.rs; channel/write/revoke.rs
+sequenceDiagram
+  autonumber
+  participant UI as PC Angular UI
+  participant Gate as messageV3ImGate
+  participant Native as Tauri/Native
+  participant FFI as Mobile FFI
+  participant Web as Browser/Web
+  participant E as ExecutionShell/Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM server
+  participant WS as WS inbound
+  participant Sink as EventSink/adapter
+
+  alt PC Tauri 入口
+    UI->>Gate: revoke(postId)
+    Gate->>Native: invokeAccepted("im_revoke", {postId})
+    Native->>E: Tick::Command(AppCommand)
+  else Mobile FFI 入口
+    FFI->>E: helix_command("im_revoke", {postId})
+  else Web 入口
+    Web->>E: invoke("im_revoke", {postId})
+  end
+  E->>IM: step(Tick::Command)
+  IM->>IM: 校验 actor/post/channel 权限并生成 corr_key
+  IM->>Host: Effect::Http POST revoke request
+  Host->>Go: HTTP revoke admission
+  Go-->>Host: 2xx admission（不直接 Emit）
+  Go-->>WS: WS posts_update(revoke,event_seq)
+  WS->>E: Tick::Inbound(posts_update)
+  E->>IM: dispatch revoke authority
+  IM->>IM: event_seq duplicate/gap/order gate
+  IM->>Host: Effect::PersistAtomic(message.revoke + cursor)
+  Host->>DB: 原子写 message revoke、channel cursor
+  DB-->>Host: PortReply(PersistOk/PersistErr)
+  Host->>E: Tick::PortReply
+  alt revoke commit succeeds
+    IM->>Host: Effect::PersistAtomic(update_channel lastPost + member)
+    Host->>DB: 去传输字段后写 channel/channel_member
+    DB-->>Host: PortReply(channel PersistOk)
+    Host->>E: Tick::PortReply
+    IM->>Host: Persist ScopedGet channel_member/message
+    Host->>DB: readback viewer-local absolute values
+    DB-->>Host: PortReply(readback)
+    Host->>E: Tick::PortReply(readback)
+    IM->>Sink: Emit im:post:revoke(same post identity)
+    IM->>Sink: Emit im:channel:update(lastPost)
+    Sink-->>UI: Angular replaces message with recalled state
+    Sink-->>FFI: batch raw post/channel events
+    Sink-->>Web: EventBatch raw post/channel events
+  else PersistErr / stale duplicate
+    IM-->>Sink: no terminal event；duplicate event_seq is no-op
+  end
+  Note over UI,Web: 撤回不递增 unread；sender/receiver 从同一 durable authority 收敛，不由 UI 本地删除消息。

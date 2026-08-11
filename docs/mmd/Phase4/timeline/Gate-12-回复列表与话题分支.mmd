@@ -1,0 +1,62 @@
+%% Phase4 / timeline / G-12 回复列表与话题分支
+%% Helix owners: query/render_ready/replies.rs; port_reply/dispatch.rs; event/timeline.rs
+sequenceDiagram
+  autonumber
+  participant UI as PC Angular UI
+  participant Gate as messageV3ImGate
+  participant Native as Tauri/Native
+  participant FFI as Mobile FFI
+  participant Web as Browser/Web
+  participant E as ExecutionShell/Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM server
+  participant Sink as EventSink/adapter
+
+  par reply list snapshot
+    UI->>Gate: getReplies({channelId,rootPostId,page})
+    Gate->>Native: invokeAccepted("im_get_replies", payload)
+    Native->>E: Tick::Command(AppCommand)
+    E->>IM: map command to reply snapshot
+    IM->>Host: Effect::Http GET replies(root)
+    Host->>Go: HTTP replies page
+    Go-->>Host: root + replies + hasMore
+    Host->>E: PortReply(reply snapshot)
+    E->>IM: correlate req_id
+    IM->>Host: Effect::PersistAtomic(reply rows + cursor if needed)
+    Host->>DB: durable reply snapshot
+    DB-->>Host: PortReply(PersistOk)
+    Host->>E: Tick::PortReply
+    IM->>Host: Persist ScopedGet thread rows
+    Host->>DB: readback snapshot
+    DB-->>Host: PortReply(readback)
+    Host->>E: Tick::PortReply
+    IM->>Sink: Emit im:timeline:thread(projectionMode=snapshot)
+  and reply branch append
+    UI->>Gate: getReplyBranch({channelId,rootPostId,replyId})
+    Gate->>Native: invokeAccepted("im_get_reply_branch", payload)
+    Native->>E: Tick::Command(AppCommand)
+    E->>IM: map command to branch
+    IM->>Host: Effect::Http GET reply branch
+    Host->>Go: HTTP branch page
+    Go-->>Host: root + first-level branch
+    Host->>E: PortReply(branch)
+    E->>IM: correlate branch req_id
+    IM->>Host: Effect::PersistAtomic(branch rows + cursor)
+    Host->>DB: durable branch write
+    DB-->>Host: PortReply(PersistOk)
+    Host->>E: Tick::PortReply
+    IM->>Host: Persist ScopedGet branch rows
+    Host->>DB: readback branch
+    DB-->>Host: PortReply(readback)
+    Host->>E: Tick::PortReply
+    IM->>Sink: Emit im:timeline:thread(projectionMode=append)
+  end
+  Sink-->>UI: Native im:__bus__ resolves thread waiters and renders root/replies
+  Sink-->>FFI: batch raw timeline thread events
+  Sink-->>Web: EventBatch raw timeline thread events
+  alt HTTP/Persist failure
+    IM->>Sink: Emit correlated read error; no partial thread event
+  end
+  Note over UI,Web: current production PortReply maps reply readback to im:timeline:thread；旧 read relay im:read:result 只作 transport/contract drift 记录，不由 shell 拼字段。

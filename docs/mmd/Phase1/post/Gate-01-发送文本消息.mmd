@@ -1,0 +1,86 @@
+%% Phase1 / post / G-01 发送文本消息与频道绝对态
+%% 机制真源: crates/helix-im/src/send/flow.rs; src/port_reply/dispatch_core.rs; src/ws/handlers/post.rs; src/port_reply/message_v3_post.rs
+%% 测试真源: crates/helix-im/tests/message_v3/post/g01/main.rs; tests/send_test.rs; tests/f1_send_http_reconcile_test.rs
+%% 约束: HTTP 2xx 仅 transport admission；WS action=post + PersistAtomic/readback 才能 settle sent。
+sequenceDiagram
+  autonumber
+  participant UI as PC Angular UI
+  participant Gate as messageV3ImGate
+  participant Native as Tauri/Native
+  participant FFI as Mobile FFI
+  participant Web as Browser/Web
+  participant E as ExecutionShell/Tick
+  participant IM as helix-im
+  participant PS as PendingSend
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM server
+  participant WS as WS inbound
+  participant Sink as EventSink/adapter
+
+  alt PC Tauri 入口
+    UI->>Gate: sendMessage(params)
+    Gate->>Native: invokeAccepted("im_send_message", minimal payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Mobile FFI 入口
+    FFI->>E: helix_command("im_send_message", payload)
+  else Web 入口
+    Web->>E: invoke("im_send_message", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 channel/body，生成 temporary_id、corr_key
+  IM->>PS: register Local pending send
+  IM->>Host: Effect::Persist(P1, send_status=sending)
+  Host->>DB: BatchUpsert message(temp_id, body, status=sending)
+  DB-->>Host: PortReply(P1, Ok/Err)
+  Host->>E: Tick::PortReply(P1)
+  E->>IM: route P1
+
+  alt P1 PersistOk
+    IM->>PS: Local -> Sending
+    IM->>Sink: Effect::Emit im:post:sending(sendStatus=sending)
+    opt attached timeline
+      IM->>Host: Effect::Persist Scan attached timeline
+      Host-->>E: PortReply(timeline snapshot)
+      E->>IM: continue HTTP only after snapshot
+    end
+    IM->>Host: Effect::Http POST /posts/create
+    IM->>Host: Effect::ScheduleTimer send_timeout_ms
+    Host->>Go: HTTP /posts/create
+    Go-->>Host: 2xx admission（仍是 Sending，不是 Sent）
+    Go-->>WS: WS action=post(temp_id,id,event_seq)
+    WS->>E: Tick::Inbound(post)
+    E->>IM: dispatch post authority
+    IM->>PS: reconcile temporary_id -> server id
+    IM->>Host: Effect::Persist message(id, send_status=sent)
+    Host->>DB: ON CONFLICT temporary_id 写 server identity
+    DB-->>Host: PortReply(reconcile)
+    Host->>E: Tick::PortReply(reconcile)
+    IM->>Host: Effect::CancelTimer
+    IM->>Host: Effect::PersistAtomic G-01(message + channel + member + cursor)
+    Host->>DB: 事务提交 message/channel/channel_member/cursor
+    DB-->>Host: PortReply(G-01, PersistOk)
+    Host->>E: Tick::PortReply(G-01)
+    E->>IM: release only matching authority corr
+    IM->>Host: Effect::Persist ScopedGet channel_member
+    Host->>DB: 读回 viewer-local unread/lastPost 绝对态
+    DB-->>Host: PortReply(readback)
+    Host->>E: Tick::PortReply(readback)
+    IM->>Sink: Effect::Emit im:post:received(sendStatus=sent)
+    IM->>Sink: Effect::Emit im:channel:update(lastPost, unreadCount)
+    Sink-->>UI: Native im:__bus__ -> Angular events$
+    Sink-->>FFI: FFI batch raw {event,data}
+    Sink-->>Web: Web EventBatch v2 raw {event,data}
+  else P1 PersistErr
+    IM->>PS: Local -> failed
+    IM->>Host: Persist message(send_status=unsend)
+    IM->>Host: CancelTimer（若已创建）
+    IM->>Sink: Emit im:post:send-failed(sendStatus=failed)
+  end
+
+  alt HTTP error / timeout before WS post
+    IM->>Host: Persist send_status=unsend
+    IM->>Host: CancelTimer（HTTP error；timeout 分支由 lifecycle 收口）
+    IM->>Sink: Emit im:post:send-failed
+  end
+  Note over DB,Sink: DB 的 unsend 与事件 data 的 sendStatus=failed 是两个边界字段，不混为同一状态。

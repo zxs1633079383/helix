@@ -1,0 +1,69 @@
+%% Phase2 / post / G-03a 失败消息重试
+%% Helix owners: send/flow.rs; send/retry_send.rs; channel/lifecycle.rs; port_reply/dispatch_core.rs; event/post.rs
+%% Retry reuses the original temporary_id; no im:post:retrying event is invented.
+sequenceDiagram
+  autonumber
+  participant UI as PC Angular UI
+  participant Gate as messageV3ImGate
+  participant Native as Tauri/Native
+  participant FFI as Mobile FFI
+  participant Web as Browser/Web
+  participant E as ExecutionShell/Tick
+  participant IM as helix-im
+  participant PS as PendingSend
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM server
+  participant WS as WS inbound
+  participant Sink as EventSink/adapter
+
+  Note over UI,Sink: 前置状态：首次发送已收到 im:post:send-failed，DB send_status=unsend，保留 temporary_id。
+  alt PC Tauri retry
+    UI->>Gate: retrySend(messageId)
+    Gate->>Native: invokeAccepted("im_retry_send", {messageId})
+    Native->>E: Tick::Command(AppCommand)
+  else Mobile FFI retry
+    FFI->>E: helix_command("im_retry_send", {messageId})
+  else Web retry
+    Web->>E: invoke("im_retry_send", {messageId})
+  end
+  E->>IM: step(Tick::Command)
+  IM->>Host: Effect::Persist(load failed row by messageId)
+  Host->>DB: Get message + original temporary_id
+  DB-->>Host: PortReply(failed row)
+  Host->>E: Tick::PortReply
+  E->>IM: route retry correlation
+  IM->>PS: reuse temporary_id，failed -> Local
+  IM->>Host: Effect::Persist(send_status=sending)
+  Host->>DB: update same pending row
+  DB-->>Host: PortReply(retry P1, PersistOk)
+  Host->>E: Tick::PortReply(retry P1)
+  IM->>Sink: Emit im:post:sending(same temporary_id)
+  IM->>Host: Effect::Http POST /posts/create(retry, same temporary_id)
+  IM->>Host: Effect::ScheduleTimer retry_timeout
+  Host->>Go: HTTP retry admission
+  Go-->>Host: 2xx admission（仍等待 authority）
+  Go-->>WS: WS action=post(same temporary_id, server id)
+  WS->>E: Tick::Inbound(post)
+  E->>IM: dispatch post + post_echo_settle
+  IM->>PS: reconcile same temporary_id -> server id
+  IM->>Host: Persist sent identity
+  IM->>Host: CancelTimer retry_timeout
+  IM->>Host: PersistAtomic G-01(message + channel + member + cursor)
+  Host->>DB: commit and guarded cursor bump
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply
+  IM->>Host: Persist ScopedGet channel_member/message
+  Host->>DB: readback absolute sender/receiver state
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  IM->>Sink: Emit im:post:received(sendStatus=sent)
+  IM->>Sink: Emit im:channel:update
+  Sink-->>UI: sender sees sending -> received; receiver sees only received after authority
+  Sink-->>FFI: batch raw events
+  Sink-->>Web: EventBatch raw events
+  alt retry HTTP/Persist failure or second timeout
+    IM->>Host: Persist send_status=unsend
+    IM->>Sink: Emit im:post:send-failed
+  end
+  Note over UI,Web: retry command/accepted 不可替代最终 received；同 temporary_id 幂等对账，失败重试不复制消息。

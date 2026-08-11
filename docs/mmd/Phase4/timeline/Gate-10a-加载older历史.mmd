@@ -1,0 +1,61 @@
+%% Phase4 / timeline / G-10a 加载 older 历史
+%% Helix owners: query/local_first.rs; timeline_navigation.rs; port_reply/dispatch_read.rs; event/timeline.rs
+sequenceDiagram
+  autonumber
+  participant UI as PC Angular UI
+  participant Gate as messageV3ImGate
+  participant Native as Tauri/Native
+  participant FFI as Mobile FFI
+  participant Web as Browser/Web
+  participant E as ExecutionShell/Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM server
+  participant Sink as EventSink/adapter
+
+  UI->>Gate: queryMessages(latest prerequisite)
+  Gate->>Native: invokeAccepted("im_query_messages_by_channel", latest payload)
+  Native->>E: Tick::Command(latest)
+  E->>IM: local-first latest window
+  IM->>Host: Persist Scan coverage around oldest row
+  Host->>DB: read local older coverage/token
+  DB-->>Host: PortReply(coverage/token)
+  Host->>E: Tick::PortReply
+
+  alt PC older request
+    UI->>Gate: queryMessages(direction=older)
+    Gate->>Native: invokeAccepted("im_load_older_context", {anchor,token})
+    Native->>E: Tick::Command(older)
+  else Mobile older request
+    FFI->>E: helix_command("im_load_older_context", payload)
+  else Web older request
+    Web->>E: invoke("im_load_older_context", payload)
+  end
+  E->>IM: handle_query_command(older)
+  alt local older page complete
+    IM->>Host: Persist ScopedGet older page
+    Host->>DB: readback ordered page
+    DB-->>Host: PortReply(readback)
+  else local miss
+    IM->>Host: Effect::Http GET older context
+    Host->>Go: HTTP older page(anchor,opaque token)
+    Go-->>Host: older rows + next/prev token
+    Host->>E: PortReply(remote page)
+    IM->>Host: Effect::PersistAtomic(rows + cursor)
+    Host->>DB: durable write before terminal event
+    DB-->>Host: PortReply(PersistOk)
+    Host->>E: Tick::PortReply
+    IM->>Host: Persist ScopedGet older page
+    Host->>DB: readback page
+    DB-->>Host: PortReply(readback)
+  end
+  Host->>E: Tick::PortReply(readback)
+  IM->>Sink: Emit im:timeline:update(direction=older,rows,pageToken)
+  Sink-->>UI: Native bus -> prepend page, preserve anchor
+  Sink-->>FFI: batch raw timeline update
+  Sink-->>Web: EventBatch raw timeline update
+  alt HTTP/Persist failure
+    IM->>Sink: Emit im:read:result(req_id,error) or current failed timeline state
+  end
+  Note over IM,Sink: current production local-first uses timeline events；tests/旧 spec 的 im:read:result 是 drift，不能混作第二条业务协议。

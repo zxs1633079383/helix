@@ -1,0 +1,61 @@
+%% Phase4 / timeline / G-10 latest bounded timeline
+%% Helix owners: query/local_first.rs; event/timeline.rs; port_reply/dispatch_read.rs
+%% 当前生产出口是 im:timeline:ready + im:timeline:update；旧 im:messages:query_result 仅作 drift 记录。
+sequenceDiagram
+  autonumber
+  participant UI as PC Angular UI
+  participant Gate as messageV3ImGate
+  participant Native as Tauri/Native
+  participant FFI as Mobile FFI
+  participant Web as Browser/Web
+  participant E as ExecutionShell/Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM server
+  participant Sink as EventSink/adapter
+
+  alt PC Tauri 入口
+    UI->>Gate: queryMessages({channelId,limit,anchor})
+    Gate->>Native: invokeAccepted("im_query_messages_by_channel", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Mobile FFI 入口
+    FFI->>E: helix_command("im_query_messages_by_channel", payload)
+  else Web 入口
+    Web->>E: invoke("im_query_messages_by_channel", payload)
+  end
+  E->>IM: step(Tick::Command)
+  IM->>IM: validate channel, bounded limit, runtime generation, req_id
+  IM->>Host: Effect::Persist Scan local timeline
+  Host->>DB: query latest bounded rows + coverage/token
+  DB-->>Host: PortReply(local rows, coverage)
+  Host->>E: Tick::PortReply(local scan)
+  alt local coverage complete
+    IM->>Host: Persist ScopedGet rows/channel
+    Host->>DB: readback ordered absolute page
+    DB-->>Host: PortReply(readback)
+    Host->>E: Tick::PortReply(readback)
+    IM->>Sink: Emit im:timeline:ready(window,token,state=ready)
+  else local coverage missing
+    IM->>Host: Effect::Http GET channel sync/latest
+    Host->>Go: HTTP timeline page request
+    Go-->>Host: page + nextSeq/anchor metadata
+    Host->>E: PortReply(remote page)
+    E->>IM: continue same req_id/corr_key
+    IM->>Host: Effect::PersistAtomic(page rows + cursor)
+    Host->>DB: commit remote rows and cursor
+    DB-->>Host: PortReply(PersistOk)
+    Host->>E: Tick::PortReply
+    IM->>Host: Persist ScopedGet latest bounded rows
+    Host->>DB: readback after durable write
+    DB-->>Host: PortReply(readback)
+    Host->>E: Tick::PortReply
+    IM->>Sink: Emit im:timeline:ready(window,token,state=ready)
+    IM->>Sink: Emit im:timeline:update(direction=replace)
+  else HTTP/Persist failure
+    IM->>Sink: Emit im:timeline:ready(req_id,state=failed,error)
+  end
+  Sink-->>UI: Native im:__bus__ resolves query waiter and renders bounded window
+  Sink-->>FFI: batch raw timeline event bytes
+  Sink-->>Web: EventBatch v2 raw timeline event bytes
+  Note over UI,Web: UI 只消费绝对 window/token；不在 shell 侧 merge rows、补 unread 或生成导航 directive。

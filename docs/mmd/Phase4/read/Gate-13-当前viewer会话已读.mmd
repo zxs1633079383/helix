@@ -1,0 +1,62 @@
+%% Phase4 / read / G-13 当前 viewer 会话已读
+%% Helix owners: outbound/channel_admin/read.rs; port_reply/dispatch_read.rs; event/read.rs
+sequenceDiagram
+  autonumber
+  participant UI as PC Angular UI
+  participant Gate as messageV3ImGate
+  participant Native as Tauri/Native
+  participant FFI as Mobile FFI
+  participant Web as Browser/Web
+  participant E as ExecutionShell/Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM server
+  participant WS as WS inbound
+  participant Sink as EventSink/adapter
+
+  UI->>Gate: query dialog list/current channels
+  Gate->>Native: invokeAccepted("im_query_dialog_list", query payload)
+  Native->>E: Tick::Command(dialog query)
+  E->>IM: local-first dialog list
+  IM->>Host: Persist Scan channel/member rows
+  Host->>DB: read current viewer unread/mention values
+  DB-->>Host: PortReply(dialog absolute rows)
+  Host->>E: Tick::PortReply
+  IM->>Sink: Emit im:read:result(req_id=dialog)
+  Sink-->>UI: render current dialog list
+
+  alt PC marks channels viewed
+    UI->>Gate: channelsView(channelIds)
+    Gate->>Native: invokeAccepted("im_channels_view", {channelIds})
+    Native->>E: Tick::Command(AppCommand)
+  else Mobile FFI marks viewed
+    FFI->>E: helix_command("im_channels_view", {channelIds})
+  else Web marks viewed
+    Web->>E: invoke("im_channels_view", {channelIds})
+  end
+  E->>IM: step(Tick::Command)
+  IM->>IM: dedupe channelIds and scope to current viewer
+  IM->>Host: Effect::Http POST channels/view
+  Host->>Go: channel read admission
+  Go-->>Host: 2xx admission
+  Go-->>WS: WS update_channel(read/unread/mention,event_seq)
+  WS->>E: Tick::Inbound(update_channel)
+  E->>IM: dispatch channel read authority
+  IM->>Host: Effect::PersistAtomic(channel_member unread/mention + cursor)
+  Host->>DB: commit only current viewer member rows
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply
+  IM->>Host: Persist ScopedGet channel_member/channel
+  Host->>DB: readback viewer-local zeroed projection
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply
+  IM->>Sink: Emit im:read:channel(read result)
+  IM->>Sink: Emit im:channel:update(unreadCount,mentionCount)
+  Sink-->>UI: clear current viewer badges; keep other viewers unchanged
+  Sink-->>FFI: batch raw read/channel bytes
+  Sink-->>Web: EventBatch raw read/channel bytes
+  alt HTTP/PersistErr or stale event_seq
+    IM->>IM: retain previous durable projection; no false zero event
+  end
+  Note over UI,Web: session read is viewer-local；Angular 不从 sender/observer 数值反推未读，也不消费旧 Frame/surface directive。

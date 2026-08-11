@@ -1,0 +1,51 @@
+%% Phase2 / post / G-06 reaction/quickReply 绝对态
+%% Helix owners: event/post/reaction.rs; channel/write/reaction.rs; ws/handlers/post_update.rs; port_reply/message_v3_reaction.rs
+sequenceDiagram
+  autonumber
+  participant UI as PC Angular UI
+  participant Gate as messageV3ImGate
+  participant Native as Tauri/Native
+  participant FFI as Mobile FFI
+  participant Web as Browser/Web
+  participant E as ExecutionShell/Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM server
+  participant WS as WS inbound
+  participant Sink as EventSink/adapter
+
+  alt PC Tauri 入口
+    UI->>Gate: quickReply({postId,emoji})
+    Gate->>Native: invokeAccepted("im_quick_reply", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Mobile FFI 入口
+    FFI->>E: helix_command("im_quick_reply", payload)
+  else Web 入口
+    Web->>E: invoke("im_quick_reply", payload)
+  end
+  E->>IM: step(Tick::Command)
+  IM->>IM: validate post/emoji and correlation
+  IM->>Host: Effect::Http POST quick-reply
+  Host->>Go: HTTP reaction admission
+  Go-->>Host: 2xx admission（不发布 reaction 终态）
+  Go-->>WS: WS post_update.quickReply(event_seq)
+  WS->>E: Tick::Inbound(post_update)
+  E->>IM: parse quickReply map -> bounded absolute array
+  alt event_seq is next
+    IM->>Host: Effect::PersistAtomic(message.quick_reply + cursor)
+    Host->>DB: single mutation of message and cursor
+    DB-->>Host: PortReply(PersistOk)
+    Host->>E: Tick::PortReply
+    IM->>Host: Persist ScopedGet message
+    Host->>DB: readback same postId quickReply
+    DB-->>Host: PortReply(readback)
+    Host->>E: Tick::PortReply
+    IM->>Sink: Emit im:post:updated(data.quickReply absolute)
+    Sink-->>UI: Angular renders reaction array/count from event
+    Sink-->>FFI: batch raw updated event
+    Sink-->>Web: EventBatch raw updated event
+  else gap or duplicate
+    IM->>IM: buffer gap or drop duplicate; do not Emit
+  end
+  Note over UI,Web: current viewer selected state derives from userIds；shell 不把 quickReply 再塞入另一套 props/reducer。

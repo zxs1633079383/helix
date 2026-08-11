@@ -1,0 +1,61 @@
+%% Phase4 / timeline / G-10b 加载 newer 消息
+%% Helix owners: query/local_first.rs; timeline_navigation.rs; port_reply/dispatch_read.rs; event/timeline.rs
+sequenceDiagram
+  autonumber
+  participant UI as PC Angular UI
+  participant Gate as messageV3ImGate
+  participant Native as Tauri/Native
+  participant FFI as Mobile FFI
+  participant Web as Browser/Web
+  participant E as ExecutionShell/Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM server
+  participant Sink as EventSink/adapter
+
+  UI->>Gate: queryMessages(latest/located prerequisite)
+  Gate->>Native: invokeAccepted("im_query_messages_by_channel", payload)
+  Native->>E: Tick::Command(latest)
+  E->>IM: establish bounded window and newer token
+
+  alt PC newer request
+    UI->>Gate: queryMessages(direction=newer)
+    Gate->>Native: invokeAccepted("im_load_newer_context", {anchor,token})
+    Native->>E: Tick::Command(newer)
+  else Mobile newer request
+    FFI->>E: helix_command("im_load_newer_context", payload)
+  else Web newer request
+    Web->>E: invoke("im_load_newer_context", payload)
+  end
+  E->>IM: handle_query_command(newer)
+  IM->>Host: Persist Scan newer coverage
+  Host->>DB: local query after anchor
+  DB-->>Host: PortReply(local rows/coverage)
+  Host->>E: Tick::PortReply
+  alt local coverage complete
+    IM->>Host: Persist ScopedGet newer page
+    Host->>DB: readback page
+    DB-->>Host: PortReply(readback)
+  else local miss
+    IM->>Host: Effect::Http GET newer context
+    Host->>Go: HTTP newer page(anchor,opaque token)
+    Go-->>Host: newer rows + next/prev token
+    Host->>E: PortReply(remote page)
+    IM->>Host: Effect::PersistAtomic(rows + cursor)
+    Host->>DB: durable write
+    DB-->>Host: PortReply(PersistOk)
+    Host->>E: Tick::PortReply
+    IM->>Host: Persist ScopedGet newer page
+    Host->>DB: readback page
+    DB-->>Host: PortReply(readback)
+  end
+  Host->>E: Tick::PortReply(readback)
+  IM->>Sink: Emit im:timeline:update(direction=newer,rows,pageToken)
+  Sink-->>UI: Native bus -> append newer page, preserve anchor
+  Sink-->>FFI: batch raw timeline update
+  Sink-->>Web: EventBatch raw timeline update
+  alt HTTP/Persist failure
+    IM->>Sink: Emit failed query result; keep previous durable window
+  end
+  Note over UI,Web: newer page 不推动其他 viewer 的窗口；shell 不把 page token 转成 UI directive。

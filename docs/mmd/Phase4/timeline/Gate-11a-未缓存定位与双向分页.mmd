@@ -1,0 +1,65 @@
+%% Phase4 / timeline / G-11a 未缓存定位与双向分页
+%% Helix owners: query/local_first.rs; timeline_navigation.rs; port_reply/dispatch_read.rs; event/timeline.rs
+sequenceDiagram
+  autonumber
+  participant UI as PC Angular UI
+  participant Gate as messageV3ImGate
+  participant Native as Tauri/Native
+  participant FFI as Mobile FFI
+  participant Web as Browser/Web
+  participant E as ExecutionShell/Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM server
+  participant Sink as EventSink/adapter
+
+  alt PC Tauri 入口
+    UI->>Gate: queryMessages(locate uncached postId)
+    Gate->>Native: invokeAccepted("im_locate_message", {postId,req_id})
+    Native->>E: Tick::Command(locate)
+  else Mobile FFI 入口
+    FFI->>E: helix_command("im_locate_message", payload)
+  else Web 入口
+    Web->>E: invoke("im_locate_message", payload)
+  end
+  E->>IM: step(Tick::Command)
+  IM->>Host: Effect::Persist Scan local index
+  Host->>DB: lookup postId
+  DB-->>Host: PortReply(miss)
+  Host->>E: Tick::PortReply(miss)
+  IM->>Host: Effect::Http GET locate context
+  Host->>Go: HTTP locate/post context
+  Go-->>Host: located row + older/newer page tokens
+  Host->>E: PortReply(remote locate)
+  E->>IM: continue locate correlation
+  IM->>Host: Effect::PersistAtomic(located rows + cursor)
+  Host->>DB: durable write located context
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply
+  IM->>Host: Persist ScopedGet located window
+  Host->>DB: readback anchor and tokens
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply
+  IM->>Sink: Emit im:timeline:located(postId,anchor,tokens)
+  Sink-->>UI: resolve locate waiter; consumer scrolls to anchor
+  Sink-->>FFI: batch raw located event
+  Sink-->>Web: EventBatch raw located event
+
+  par independent older page
+    UI->>Gate: im_load_older_context(current token)
+    Gate->>Native: Tick::Command(older)
+    Native->>E: route older
+    E->>IM: HTTP/scan -> PersistAtomic -> readback
+    IM->>Sink: Emit im:timeline:update(direction=older)
+  and independent newer page
+    UI->>Gate: im_load_newer_context(current token)
+    Gate->>Native: Tick::Command(newer)
+    Native->>E: route newer
+    E->>IM: HTTP/scan -> PersistAtomic -> readback
+    IM->>Sink: Emit im:timeline:update(direction=newer)
+  end
+  alt stale token / out-of-order page
+    IM->>IM: reject stale page; do not merge older/newer responses
+  end
+  Note over UI,Web: 两个方向共享 durable anchor 但不共享 renderer reducer；当前 tests 的 im:read:result 与 production timeline event 命名存在 drift。

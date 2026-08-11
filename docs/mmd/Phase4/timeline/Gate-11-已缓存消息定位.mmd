@@ -1,0 +1,44 @@
+%% Phase4 / timeline / G-11 已缓存消息定位
+%% Helix owners: query/local_first.rs; port_reply/dispatch_read.rs; event/timeline.rs
+%% Cached locate is local-only; the consumer performs scrolling after the correlated result.
+sequenceDiagram
+  autonumber
+  participant UI as PC Angular UI
+  participant Gate as messageV3ImGate
+  participant Native as Tauri/Native
+  participant FFI as Mobile FFI
+  participant Web as Browser/Web
+  participant E as ExecutionShell/Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Sink as EventSink/adapter
+
+  alt PC Tauri 入口
+    UI->>Gate: queryMessages(locate postId)
+    Gate->>Native: invokeAccepted("im_locate_message", {postId,req_id})
+    Native->>E: Tick::Command(AppCommand)
+  else Mobile FFI 入口
+    FFI->>E: helix_command("im_locate_message", payload)
+  else Web 入口
+    Web->>E: invoke("im_locate_message", payload)
+  end
+  E->>IM: step(Tick::Command)
+  IM->>IM: validate postId/channel scope and locate correlation
+  IM->>Host: Effect::Persist Scan local message index
+  Host->>DB: lookup postId in tenant-local bounded cache
+  DB-->>Host: PortReply(hit, surrounding rows, older/newer tokens)
+  Host->>E: Tick::PortReply(hit)
+  alt cached hit
+    IM->>Host: Persist ScopedGet located window
+    Host->>DB: readback ordered bounded window
+    DB-->>Host: PortReply(readback)
+    Host->>E: Tick::PortReply(readback)
+    IM->>Sink: Emit im:timeline:located(postId,window,tokens)
+    Sink-->>UI: Native bus -> resolve locate waiter; UI scrolls to postId
+    Sink-->>FFI: batch raw located event bytes
+    Sink-->>Web: EventBatch raw located event bytes
+  else miss or scope mismatch
+    IM->>Sink: Emit correlated failed locate/read result
+  end
+  Note over UI,Web: renderer 执行滚动，不由 Helix 发布 activate-window/Surface 指令；cached locate 不应制造 HTTP。

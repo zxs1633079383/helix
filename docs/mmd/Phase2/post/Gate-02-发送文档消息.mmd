@@ -1,0 +1,62 @@
+%% Phase2 / post / G-02 发送文档消息
+%% Helix owners: event/post.rs; port_reply/message_v3_post.rs; ws/handlers/post.rs; channel/write/post.rs
+%% Client reference: cses-client helixTauriImGate.sendMessage(type=DOCUMENT)
+sequenceDiagram
+  autonumber
+  participant UI as PC Angular UI
+  participant Gate as messageV3ImGate
+  participant Native as Tauri/Native
+  participant FFI as Mobile FFI
+  participant Web as Browser/Web
+  participant E as ExecutionShell/Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM server
+  participant WS as WS inbound
+  participant Sink as EventSink/adapter
+
+  alt PC Tauri 入口
+    UI->>Gate: sendMessage(type=DOCUMENT, document props)
+    Gate->>Native: invokeAccepted("im_send_message", minimal payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Mobile FFI 入口
+    FFI->>E: helix_command("im_send_message", DOCUMENT payload)
+  else Web 入口
+    Web->>E: invoke("im_send_message", DOCUMENT payload)
+  end
+  E->>IM: step(Tick::Command)
+  IM->>IM: 校验 document.url/title/placeholder，生成 temporary_id
+  IM->>Host: Effect::Persist(message type=DOCUMENT, status=sending)
+  Host->>DB: BatchUpsert optimistic document row
+  DB-->>Host: PortReply(P1, PersistOk)
+  Host->>E: Tick::PortReply(P1)
+  E->>IM: release P1
+  IM->>Sink: Emit im:post:sending(sendStatus=sending, document props)
+  IM->>Host: Effect::Http POST /posts/create
+  IM->>Host: Effect::ScheduleTimer send_timeout_ms
+  Host->>Go: HTTP /posts/create(type=DOCUMENT)
+  Go-->>Host: 2xx admission（不等于 sent）
+  Go-->>WS: WS action=post(id,temp_id,event_seq,document props)
+  WS->>E: Tick::Inbound(post)
+  E->>IM: dispatch authority post
+  IM->>Host: Persist temporary_id -> server id, sent
+  IM->>Host: CancelTimer
+  IM->>Host: PersistAtomic G-01(message + channel + member + cursor)
+  Host->>DB: commit document row and channel absolute state
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply
+  IM->>Host: Persist ScopedGet message/channel_member
+  Host->>DB: readback document and viewer unread
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  IM->>Sink: Emit im:post:received(document props, sendStatus=sent)
+  IM->>Sink: Emit im:channel:update(lastPost=document, unreadCount)
+  Sink-->>UI: im:__bus__ -> Angular document card
+  Sink-->>FFI: batch raw document event bytes
+  Sink-->>Web: EventBatch raw document event bytes
+  alt HTTP/WS/Persist failure
+    IM->>Host: Persist send_status=unsend
+    IM->>Sink: Emit im:post:send-failed(sendStatus=failed)
+  end
+  Note over UI,Web: sender/receiver 读到同一 server id 与 document props；consumer runtime 仍需独立验证。

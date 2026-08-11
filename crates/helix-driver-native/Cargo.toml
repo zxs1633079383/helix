@@ -32,6 +32,7 @@ criterion = "0.5"
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 helix-im = { path = "../helix-im" }
+sha2 = "0.10"
 
 [[bench]]
 name = "storage_upsert"
@@ -40,3 +41,7 @@ harness = false
 [[bench]]
 name = "engine_bench"
 harness = false
+
+[[test]]
+name = "message_v3_phase1_real_go"
+path = "tests/message_v3_phase1_real_go.rs"

@@ -14,6 +14,11 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 修正为 Rust→真实 Go 8066 的 Phase1 Domain/Gate 集成测试；可证伪断言：① 仅在 `codex/messagev3-phase1-real-chain` worktree 新增 `helix-driver-native` Rust real-go test target 与必要 Cargo 注册，不改 Go/Angular 生产代码；② 测试默认直连 `http://127.0.0.1:8066/api/cses` 与 `ws://127.0.0.1:8066/api/v4/websocket`，自动发现现有凭据，禁止要求用户配置环境变量；③ 至少一条真实发送链同时证明 HTTP admission、WS `post`、Helix `sending→received/failed`、本地 SQLite row 与 Native EventSink emit，缺前置时明确 `BLOCKED/NOT_VERIFIED`；④ Phase1 目标按 Domain→Gate 命名，未能真实执行的 Gate 显式 `#[ignore]`/gap，不把 Node runner、health 或 fake server 计作 PASS；⑤ 聚焦 cargo target、`git diff --check` 通过后按独立批次提交，不自动 push | 赌注 高 | 可逆 是 | @2026-08-11T10:00:00+0800
+
+✅ DONE Rust→Go 8066 真实 target 已落地：`cargo test -p helix-driver-native --test message_v3_phase1_real_go -- --nocapture --test-threads=1` 在当前 live Go server 上 `14 passed; 0 failed; 7 ignored`。真实发送路径取得 `sending` optimistic SQLite 行、Go `/posts/create` admission、WS `post`、Helix `im:post:received`、`send_status=sent` 行级读回和 `im:__bus__` envelope；失败路径取得 `im:post:send-failed` 与 `unsend/failed` 行级读回。按 registry 映射为 21/33 Gate real PASS，媒体 6 Gate 被 Go `media.type NOT NULL` 缺口阻断，其余显式 gap/非 Go 合同保持 `NOT_VERIFIED`/`NOT_APPLICABLE`；未改 Go/Angular 生产代码，未要求环境变量 | @2026-08-11T10:32:00+0800
+⚡ DRIFT-PRED 先前的 Node runner 不是 Rust→Go 真实测试；本批次补入 `helix-driver-native` native engine/HTTP/WS/SQLite/EventSink 纵向集成 target，并把 Node runner 降为可选编排入口。当前仍不是 33/33 Green，媒体 schema 漂移需 Go owner 修复后再取消 ignore | @2026-08-11T10:32:00+0800
+
 🎯 EXPECT Phase1 三仓真实链路测试按 `Phase1 → Domain → Gate` 分包落地；可证伪断言：① 只在独立 worktree `codex/messagev3-phase1-real-chain` 修改 Helix 测试/runner/证据文档，不改当前主工作树、Go/Angular 生产代码；② 默认无需用户配置环境变量，runner 自动指向 `127.0.0.1:8066` 与现有 Angular/Go 运行态，缺依赖时 fail-closed；③ 33 个 Gate 与 Helix registry、Angular manifest、真实 WDIO 类逐项对账，三个 Gap 保持 fail-closed；④ 任何业务 `PASS` 都必须有同轮 HTTP、WS、Native projection、DOM 和 storage 证据，canonical/行级 readback 缺失只标 `PARTIAL`；⑤ Node contract、dry-run、`git diff --check` 通过后按 Phase1→Domain 批次提交，不自动 push | 赌注 高 | 可逆 是 | @2026-08-11T09:00:00+0800
 
 ✅ DONE Phase1 三仓矩阵、33 Gate/3 Gap 对账、真实 WDIO runner 与 fail-closed summary 已落地；contract 4/4、Node syntax、diff check 通过，当前分支已拆为两批提交。真实业务 run 尚未启动：Go 8066 health=200，但 4544 已被现有 cses-client 占用，runner 按合同返回 `BLOCKED_PRECONDITION`，未把 health 或静态类当作业务 PASS | @2026-08-11T09:35:00+0800

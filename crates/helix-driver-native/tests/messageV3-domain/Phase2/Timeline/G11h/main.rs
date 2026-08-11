@@ -1,8 +1,15 @@
 use crate::shared;
+use serde_json::json;
 
-/// MV3-G11h：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G11h：只持有 postId 时走 initial `getPostsAfterIndex`，不伪造多余 postIds。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g11h_real_chain() {
-    shared::record_unverified("Phase2", "Timeline", "MV3-G11h", "Phase2 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    shared::assert_timeline_navigation_gate(
+        "MV3-G11h",
+        "im_get_posts_after_index",
+        "/api/cses/posts/getPostsAfterIndex",
+        |_, post_id, req_id| json!({"req_id": req_id, "post_id": post_id, "page_size": 20}),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("MV3-G11h FAIL: {error}"));
 }

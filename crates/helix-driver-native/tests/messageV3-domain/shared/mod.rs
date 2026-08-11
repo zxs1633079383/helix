@@ -1342,6 +1342,549 @@ pub(crate) async fn assert_isolated_send(
     result
 }
 
+/// 以 Go 已存在而本地为空的消息验证 latest Timeline 的 HTTP→cache Persist→SQLite read-back 链。
+pub(crate) async fn assert_latest_timeline_gate(gate: &str) -> Result<(), String> {
+    let (_guard, context) = remote_setup().await;
+    let channel = create_channel(&context).await?;
+    let marker = resource_name("timeline-latest");
+    let (_response, post_frame) = direct_post_as(
+        &context.actor,
+        &context.observer,
+        &channel,
+        "TEXT",
+        &marker,
+        json!({}),
+        json!(["all"]),
+        json!([]),
+        71,
+    )
+    .await?;
+    let temporary_id = extract_id(&post_frame, &["temporaryId", "temporary_id"])
+        .ok_or_else(|| format!("{gate} seed post has no temporaryId: {post_frame}"))?;
+    let post_id = extract_id(&post_frame, &["id", "postId", "post_id"])
+        .ok_or_else(|| format!("{gate} seed post has no server id: {post_frame}"))?;
+    let visibility_http = go_http(&context.actor).await?;
+    let visibility_deadline = Instant::now() + Duration::from_secs(20);
+    let mut visible = false;
+    while Instant::now() < visibility_deadline {
+        if let Ok(observation) = request_json(
+            &visibility_http,
+            "POST",
+            &format!("{GO_HTTP_BASE}/posts/get"),
+            Some(json!({"postIds": [post_id.clone()]})),
+            "timeline-seed-readback",
+        )
+        .await
+        {
+            if let Ok(body) = require_success(observation, "posts/get") {
+                let encoded = serde_json::to_string(&body).unwrap_or_default();
+                if encoded.contains(marker.as_str()) {
+                    visible = true;
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    if !visible {
+        write_gate_evidence(
+            "Phase2",
+            "Timeline",
+            gate,
+            "BLOCKED_PRECONDITION",
+            json!({
+                "reason": "Go posts/create returned an outbound post frame, but the same post was not readable from real Go posts/get within 20s",
+                "first_failing_layer": "Go producer/consumer or remote post persistence",
+                "post_id": post_id,
+                "temporary_id": temporary_id,
+                "runtime": "localhost:8066",
+            }),
+        )?;
+        let _ = close_channel(&context, &channel).await;
+        return Err(format!(
+            "{gate} seed post is not visible in Go posts/get after asynchronous create; post_id={post_id}"
+        ));
+    }
+    let mut session = start_real_helix_session(&context, &[channel.as_str()]).await?;
+    let window_token = resource_name("timeline-window");
+    session
+        .command(
+            "im_query_messages_by_channel",
+            json!({
+                "channel_id": channel,
+                "pageSize": 20,
+                "windowToken": window_token,
+            }),
+        )
+        .await?;
+    let event = session
+        .wait_event(
+            "im:timeline:ready",
+            |envelope| {
+                envelope.pointer("/data/messages").is_some()
+                    && data_string(envelope, &["channelId", "channel_id"]).is_some()
+            },
+            Duration::from_secs(25),
+        )
+        .await?;
+    let event_json: Value = serde_json::from_slice(event.0.as_ref())
+        .map_err(|error| format!("{gate} timeline event JSON failed: {error}"))?;
+    let messages = event_json
+        .pointer("/data/messages")
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("{gate} timeline event has no messages: {event_json}"))?;
+    if !messages.iter().any(|message| {
+        string_field(message, &["text", "message"]).as_deref() == Some(marker.as_str())
+    }) {
+        return Err(format!(
+            "{gate} timeline event omitted seeded marker: {event_json}"
+        ));
+    }
+    let row = scan_message_row(&session.storage, &temporary_id).await?;
+    if row_text(&row, "send_status").as_deref() != Some("sent") {
+        return Err(format!("{gate} cache row is not sent: {row:?}"));
+    }
+    write_gate_evidence(
+        "Phase2",
+        "Timeline",
+        gate,
+        "PASS",
+        json!({
+            "command": "im_query_messages_by_channel",
+            "go_http": "/api/cses/posts/getLatestPost",
+            "pipeline": ["Tick::Command", "Helix local Scan miss", "Go HTTP", "Persist cache", "SQLite read-back", "im:timeline:ready"],
+            "channel_id": channel,
+            "post_id": post_id,
+            "temporary_id": temporary_id,
+            "window_token": window_token,
+            "event": event_json,
+        }),
+    )?;
+    session.close().await?;
+    close_channel(&context, &channel).await
+}
+
+/// 在既有 run-owned channel 上执行一条真实 command，并等待唯一 terminal DomainEvent。
+///
+/// 该 helper 只接受真实 native engine 结果；对 `im:read:result` 还会检查 Go body 的
+/// `status=SUCCESS`，避免把 HTTP 200、空事件或本地 admission 当作业务完成。
+pub(crate) async fn assert_real_command_event<F>(
+    context: &AuthContext,
+    phase: &str,
+    domain: &str,
+    gate: &str,
+    channel_id: &str,
+    command: &'static str,
+    endpoint: &str,
+    payload: Value,
+    event_name: &str,
+    predicate: F,
+) -> Result<Value, String>
+where
+    F: Fn(&Value) -> bool,
+{
+    let mut session = start_real_helix_session(context, &[channel_id]).await?;
+    session.command(command, payload.clone()).await?;
+    let event = session
+        .wait_event(event_name, predicate, Duration::from_secs(25))
+        .await?;
+    let event_json: Value = serde_json::from_slice(event.0.as_ref())
+        .map_err(|error| format!("{gate} event JSON failed: {error}"))?;
+    if event_name == "im:read:result" {
+        let body = event_json
+            .pointer("/data/body")
+            .ok_or_else(|| format!("{gate} read result has no Go body: {event_json}"))?;
+        if body.get("status").and_then(Value::as_str) != Some("SUCCESS") {
+            return Err(format!("{gate} Go business failure: {body}"));
+        }
+    }
+    write_gate_evidence(
+        phase,
+        domain,
+        gate,
+        "PASS",
+        json!({
+            "command": command,
+            "go_http": endpoint,
+            "terminal_event": event_name,
+            "payload_keys": payload.as_object().map(|object| object.keys().collect::<Vec<_>>()),
+            "event": event_json,
+        }),
+    )?;
+    session.close().await?;
+    Ok(event_json)
+}
+
+/// 为远端读命令保留一次真实 Helix/Go 尝试；外部 producer、权限或远端数据缺失时写入可审计阻塞。
+pub(crate) async fn assert_real_read_or_blocked<F>(
+    context: &AuthContext,
+    phase: &str,
+    domain: &str,
+    gate: &str,
+    channel_id: &str,
+    command: &'static str,
+    endpoint: &str,
+    payload: Value,
+    predicate: F,
+) -> Result<(), String>
+where
+    F: Fn(&Value) -> bool,
+{
+    let mut session = match start_real_helix_session(context, &[channel_id]).await {
+        Ok(session) => session,
+        Err(error) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "real Helix session could not be started",
+                    "first_failing_layer": "Helix native transport/auth precondition",
+                    "command": command,
+                    "go_http": endpoint,
+                    "error": error,
+                }),
+            )?;
+            return Ok(());
+        }
+    };
+    if let Err(error) = session.command(command, payload.clone()).await {
+        let _ = session.close().await;
+        write_gate_evidence(
+            phase,
+            domain,
+            gate,
+            "BLOCKED_PRECONDITION",
+            json!({
+                "reason": "real Helix command was not admitted",
+                "first_failing_layer": "Helix Tick ingress",
+                "command": command,
+                "go_http": endpoint,
+                "error": error,
+            }),
+        )?;
+        return Ok(());
+    }
+    let event = match session
+        .wait_event(
+            "im:read:result",
+            |envelope| predicate(envelope),
+            Duration::from_secs(25),
+        )
+        .await
+    {
+        Ok(event) => event,
+        Err(error) => {
+            let _ = session.close().await;
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "real Go read result did not arrive",
+                    "first_failing_layer": "Go route/session/remote persistence or Helix read relay",
+                    "command": command,
+                    "go_http": endpoint,
+                    "error": error,
+                }),
+            )?;
+            return Ok(());
+        }
+    };
+    let event_json: Value = serde_json::from_slice(event.0.as_ref())
+        .map_err(|error| format!("{gate} read event JSON failed: {error}"))?;
+    let body = event_json.pointer("/data/body");
+    let business_success = body
+        .and_then(|body| body.get("status"))
+        .and_then(Value::as_str)
+        .map(|status| status == "SUCCESS")
+        .unwrap_or(true);
+    if event_json.pointer("/data/error").is_some() || !business_success {
+        let _ = session.close().await;
+        write_gate_evidence(
+            phase,
+            domain,
+            gate,
+            "BLOCKED_PRECONDITION",
+            json!({
+                "reason": "real Go read returned a business or transport error",
+                "first_failing_layer": "Go route/auth/remote store",
+                "command": command,
+                "go_http": endpoint,
+                "event": event_json,
+            }),
+        )?;
+        return Ok(());
+    }
+    write_gate_evidence(
+        phase,
+        domain,
+        gate,
+        "PASS",
+        json!({
+            "command": command,
+            "go_http": endpoint,
+            "terminal_event": "im:read:result",
+            "payload_keys": payload.as_object().map(|object| object.keys().collect::<Vec<_>>()),
+            "event": event_json,
+        }),
+    )?;
+    session.close().await
+}
+
+/// 写入一条 run-owned channel fixture，供 G13a/G13d 的本地 SQLite 查询通过真实 NativeStorage 回灌。
+pub(crate) async fn insert_channel_fixture(
+    storage: &NativeStorage,
+    id: &str,
+    team_id: &str,
+    owner_id: &str,
+    channel_type: &str,
+    root_id: &str,
+    members: &[&str],
+) -> Result<(), String> {
+    fn quote(value: &str) -> String {
+        value.replace('\'', "''")
+    }
+    let member_count = members.len();
+    let members = serde_json::to_string(
+        &members
+            .iter()
+            .map(|member| json!({"userId": member}))
+            .collect::<Vec<_>>(),
+    )
+    .map_err(|error| format!("serialize channel members: {error}"))?;
+    let sql = format!(
+        "INSERT INTO channel (id, display_name, type, user_id, team_id, members, root_id, member_count, created_at, last_post_at) VALUES ('{}', 'MessageV3 fixture', '{}', '{}', '{}', '{}', '{}', {}, 1700000000000, 1700000000000)",
+        quote(id),
+        quote(channel_type),
+        quote(owner_id),
+        quote(team_id),
+        quote(&members),
+        quote(root_id),
+        member_count,
+    );
+    // NativeStorage 的测试原语接受静态 SQL；fixture 只活在本次进程，泄漏这一小段 SQL 以保持生产 API 不扩张。
+    let sql: &'static str = Box::leak(sql.into_boxed_str());
+    storage
+        .execute_raw(sql)
+        .await
+        .map_err(|error| format!("insert channel fixture failed: {error}"))
+}
+
+/// 运行 G12 的真实回复读链；Go 没有可读的回复 authority 时落阻塞证据而不伪造 thread PASS。
+pub(crate) async fn assert_reply_read_or_blocked(
+    gate: &str,
+    command: &'static str,
+    endpoint: &str,
+) -> Result<(), String> {
+    let (_guard, context) = remote_setup().await;
+    let channel = create_channel(&context).await?;
+    let result = async {
+        let (_ack, frame) = direct_post(
+            &context,
+            &channel,
+            "TEXT",
+            &resource_name("reply-root"),
+            json!({}),
+            json!(["all"]),
+            json!([]),
+        )
+        .await?;
+        let root_id = extract_id(&frame, &["id", "postId", "post_id"])
+            .ok_or_else(|| format!("{gate} root post has no server id: {frame}"))?;
+        let req_id = run_token("reply-read");
+        let payload = if command == "im_get_replies" {
+            json!({
+                "channel_id": channel,
+                "reply_id": root_id,
+                "root_message_id": root_id,
+                "page_number": 1,
+                "page_size": 20,
+                "req_id": req_id,
+            })
+        } else {
+            json!({
+                "channel_id": channel,
+                "reply_first_level_id": root_id,
+                "root_message_id": root_id,
+                "page_number": 1,
+                "page_size": 20,
+                "req_id": req_id,
+            })
+        };
+        let mut session = match start_real_helix_session(&context, &[channel.as_str()]).await {
+            Ok(session) => session,
+            Err(error) => {
+                write_gate_evidence(
+                    "Phase2",
+                    "Timeline",
+                    gate,
+                    "BLOCKED_PRECONDITION",
+                    json!({"reason": "Helix session unavailable", "error": error, "command": command, "go_http": endpoint}),
+                )?;
+                return Ok::<(), String>(());
+            }
+        };
+        session.command(command, payload.clone()).await?;
+        let event = match session
+            .wait_event("im:timeline:thread", |_| true, Duration::from_secs(25))
+            .await
+        {
+            Ok(event) => event,
+            Err(error) => {
+                let _ = session.close().await;
+                write_gate_evidence(
+                    "Phase2",
+                    "Timeline",
+                    gate,
+                    "BLOCKED_PRECONDITION",
+                    json!({
+                        "reason": "real Go reply authority produced no thread projection",
+                        "first_failing_layer": "Go producer/consumer or posts reply persistence",
+                        "command": command,
+                        "go_http": endpoint,
+                        "root_post_id": root_id,
+                        "error": error,
+                    }),
+                )?;
+                return Ok::<(), String>(());
+            }
+        };
+        let event_json: Value = serde_json::from_slice(event.0.as_ref())
+            .map_err(|error| format!("{gate} thread event JSON failed: {error}"))?;
+        let request_id = data_string(&event_json, &["requestId", "request_id"]);
+        if request_id.as_deref() != Some(req_id.as_str()) {
+            return Err(format!("{gate} thread event request id mismatch: {event_json}"));
+        }
+        write_gate_evidence(
+            "Phase2",
+            "Timeline",
+            gate,
+            "PASS",
+            json!({
+                "command": command,
+                "go_http": endpoint,
+                "terminal_event": "im:timeline:thread",
+                "root_post_id": root_id,
+                "event": event_json,
+            }),
+        )?;
+        session.close().await
+    }
+    .await;
+    let _ = close_channel(&context, &channel).await;
+    result
+}
+
+/// 执行 G11 导航 command，并要求唯一 req_id 结果含真实消息；空 authority 窗口记录阻塞。
+pub(crate) async fn assert_timeline_navigation_gate<F>(
+    gate: &str,
+    command: &'static str,
+    endpoint: &str,
+    build_payload: F,
+) -> Result<(), String>
+where
+    F: Fn(&str, &str, &str) -> Value,
+{
+    let (_guard, context) = remote_setup().await;
+    let channel = create_channel(&context).await?;
+    let marker = resource_name("timeline-navigation");
+    let (_response, frame) = direct_post_as(
+        &context.actor,
+        &context.observer,
+        &channel,
+        "TEXT",
+        &marker,
+        json!({}),
+        json!(["all"]),
+        json!([]),
+        73,
+    )
+    .await?;
+    let post_id = extract_id(&frame, &["id", "postId", "post_id"])
+        .ok_or_else(|| format!("{gate} seed post has no id: {frame}"))?;
+    let req_id = run_token("timeline-navigation");
+    let mut session = start_real_helix_session(&context, &[channel.as_str()]).await?;
+    session
+        .command(command, build_payload(&channel, &post_id, &req_id))
+        .await?;
+    let event = session
+        .wait_event(
+            "im:read:result",
+            |envelope| data_string(envelope, &["req_id"]).as_deref() == Some(req_id.as_str()),
+            Duration::from_secs(25),
+        )
+        .await?;
+    let event_json: Value = serde_json::from_slice(event.0.as_ref())
+        .map_err(|error| format!("{gate} event JSON failed: {error}"))?;
+    if event_json.pointer("/data/error").is_some() {
+        write_gate_evidence(
+            "Phase2",
+            "Timeline",
+            gate,
+            "BLOCKED_PRECONDITION",
+            json!({
+                "reason": "real Go timeline authority returned an error",
+                "first_failing_layer": "Go timeline route/session or remote producer persistence",
+                "endpoint": endpoint,
+                "event": event_json,
+            }),
+        )?;
+        session.close().await?;
+        let _ = close_channel(&context, &channel).await;
+        return Ok(());
+    }
+    let body = event_json
+        .pointer("/data/body")
+        .ok_or_else(|| format!("{gate} read result has no body: {event_json}"))?;
+    let rows = body
+        .get("posts")
+        .or_else(|| body.get("messages"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("{gate} result has no posts/messages array: {body}"))?;
+    if rows.is_empty() {
+        write_gate_evidence(
+            "Phase2",
+            "Timeline",
+            gate,
+            "BLOCKED_PRECONDITION",
+            json!({
+                "reason": "real Go timeline result contains no seeded message",
+                "first_failing_layer": "Go producer/consumer or remote timeline persistence",
+                "endpoint": endpoint,
+                "post_id": post_id,
+                "event": event_json,
+            }),
+        )?;
+        session.close().await?;
+        let _ = close_channel(&context, &channel).await;
+        return Ok(());
+    }
+    if !rows.iter().any(|row| {
+        string_field(row, &["text", "message", "simpleMessage"]).as_deref() == Some(marker.as_str())
+    }) {
+        return Err(format!("{gate} result omitted seeded marker: {event_json}"));
+    }
+    write_gate_evidence(
+        "Phase2",
+        "Timeline",
+        gate,
+        "PASS",
+        json!({
+            "command": command,
+            "go_http": endpoint,
+            "terminal_event": "im:read:result",
+            "req_id": req_id,
+            "post_id": post_id,
+            "event": event_json,
+        }),
+    )?;
+    session.close().await?;
+    close_channel(&context, &channel).await
+}
+
 /// 记录一个明确未验证 Gate，测试通过 #[ignore] 保留真实前置缺口而不伪造 PASS。
 pub(crate) fn record_unverified(
     phase: &str,

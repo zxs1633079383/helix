@@ -1,8 +1,28 @@
 use crate::shared;
+use serde_json::json;
 
-/// MV3-G13b：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G13b：真实频道增量 hydration 读命令 → Go `/channel/load/incrementByChannelId`。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g13b_real_chain() {
-    shared::record_unverified("Phase2", "Sync", "MV3-G13b", "Phase2 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    let (_guard, context) = shared::remote_setup().await;
+    let channel = shared::create_channel(&context)
+        .await
+        .unwrap_or_else(|error| panic!("MV3-G13b channel setup failed: {error}"));
+    let req_id = shared::run_token("g13b-increment");
+    shared::assert_real_read_or_blocked(
+        &context,
+        "Phase2",
+        "Sync",
+        "MV3-G13b",
+        &channel,
+        "im_channel_load_increment_by_channel_id",
+        "/api/cses/channel/load/incrementByChannelId",
+        json!({"channel_id": channel, "req_id": req_id}),
+        |envelope| shared::data_string(envelope, &["req_id"]).as_deref() == Some(req_id.as_str()),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("MV3-G13b real chain failed: {error}"));
+    shared::close_channel(&context, &channel)
+        .await
+        .unwrap_or_else(|error| panic!("MV3-G13b cleanup failed: {error}"));
 }

@@ -1,8 +1,23 @@
 use crate::shared;
+use serde_json::json;
 
-/// MV3-G11d：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G11d：真实 postId locate 经过 `/posts/postContext` authority 与 req_id terminal。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g11d_real_chain() {
-    shared::record_unverified("Phase2", "Timeline", "MV3-G11d", "Phase2 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    shared::assert_timeline_navigation_gate(
+        "MV3-G11d",
+        "im_locate_message",
+        "/api/cses/posts/postContext",
+        |channel, post_id, req_id| {
+            json!({
+                "channel_id": channel,
+                "message_id": post_id,
+                "page_size": 20,
+                "req_id": req_id,
+                "navigationToken": req_id,
+            })
+        },
+    )
+    .await
+    .unwrap_or_else(|error| panic!("MV3-G11d FAIL: {error}"));
 }

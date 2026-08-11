@@ -1,8 +1,13 @@
 use crate::shared;
 
-/// MV3-G12b：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G12b：真实读取 Go `/posts/getReplyBranch`，以 Helix thread append 收口。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g12b_real_chain() {
-    shared::record_unverified("Phase2", "Timeline", "MV3-G12b", "Phase2 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    shared::assert_reply_read_or_blocked(
+        "MV3-G12b",
+        "im_get_reply_branch",
+        "/api/cses/posts/getReplyBranch",
+    )
+    .await
+    .unwrap_or_else(|error| panic!("MV3-G12b FAIL: {error}"));
 }

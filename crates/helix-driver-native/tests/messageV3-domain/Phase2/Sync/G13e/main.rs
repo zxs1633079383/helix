@@ -1,8 +1,13 @@
 use crate::shared;
 
-/// MV3-G13e：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G13e：冷启动/重连生命周期是本地宿主状态，不是 Go mutation Gate。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g13e_real_chain() {
-    shared::record_unverified("Phase2", "Sync", "MV3-G13e", "Phase2 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    shared::record_not_applicable(
+        "Phase2",
+        "Sync",
+        "MV3-G13e",
+        "G13e 只验证 Angular/native 生命周期与恢复调度；没有独立 Go mutation，真实 Go 链不能替代本地状态机断言。",
+    )
+    .unwrap();
 }

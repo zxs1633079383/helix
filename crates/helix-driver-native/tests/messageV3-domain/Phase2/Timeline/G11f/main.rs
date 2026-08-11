@@ -1,8 +1,13 @@
 use crate::shared;
 
-/// MV3-G11f：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G11f：本地视觉窗口是 Angular 生命周期状态，不存在 Go mutation。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g11f_real_chain() {
-    shared::record_unverified("Phase2", "Timeline", "MV3-G11f", "Phase2 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    shared::record_not_applicable(
+        "Phase2",
+        "Timeline",
+        "MV3-G11f",
+        "G11f 只描述 Angular 本地 viewer window/scroll lifecycle；没有 Go HTTP、Go WS 或 Helix storage mutation，不能伪造 real-chain PASS。",
+    )
+    .unwrap();
 }

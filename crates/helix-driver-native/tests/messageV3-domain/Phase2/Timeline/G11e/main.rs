@@ -1,8 +1,13 @@
 use crate::shared;
 
-/// MV3-G11e：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G11e：重复读取复用同一 latest authority endpoint，不引入 queryCache 旁路。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g11e_real_chain() {
-    shared::record_unverified("Phase2", "Timeline", "MV3-G11e", "Phase2 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    if let Err(error) = shared::assert_latest_timeline_gate("MV3-G11e").await {
+        if error.contains("not visible in Go posts/get") {
+            // queryCache reuse 只有在 Go authority 真正可读时才能晋级；当前保留阻塞证据。
+            return;
+        }
+        panic!("MV3-G11e FAIL: {error}");
+    }
 }

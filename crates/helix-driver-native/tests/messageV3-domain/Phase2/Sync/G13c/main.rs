@@ -1,8 +1,73 @@
 use crate::shared;
+use serde_json::json;
+use tokio::time::Duration;
 
-/// MV3-G13c：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G13c：真实 `/channels/load/increment` 读回，并检查 Helix 增量投影或阻塞原因。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g13c_real_chain() {
-    shared::record_unverified("Phase2", "Sync", "MV3-G13c", "Phase2 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    let (_guard, context) = shared::remote_setup().await;
+    let channel = shared::create_channel(&context)
+        .await
+        .unwrap_or_else(|error| panic!("MV3-G13c channel setup failed: {error}"));
+    let req_id = shared::run_token("g13c-increment");
+    let mut session = shared::start_real_helix_session(&context, &[channel.as_str()])
+        .await
+        .unwrap_or_else(|error| panic!("MV3-G13c Helix session failed: {error}"));
+    session
+        .command(
+            "im_request_channel_increment",
+            json!({"channel_id": channel, "timestamp": 0, "cursors": [], "req_id": req_id}),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("MV3-G13c command failed: {error}"));
+    let event = match session
+        .wait_event(
+            "im:read:result",
+            |envelope| {
+                shared::data_string(envelope, &["req_id"]).as_deref() == Some(req_id.as_str())
+            },
+            Duration::from_secs(25),
+        )
+        .await
+    {
+        Ok(event) => event,
+        Err(error) => {
+            shared::write_gate_evidence(
+                "Phase2",
+                "Sync",
+                "MV3-G13c",
+                "BLOCKED_PRECONDITION",
+                json!({"reason": "channels/load/increment did not produce read result", "first_failing_layer": "Go increment route/WS producer or Helix read relay", "error": error}),
+            )
+            .unwrap_or_else(|write_error| panic!("MV3-G13c blocked evidence failed: {write_error}"));
+            session
+                .close()
+                .await
+                .unwrap_or_else(|close_error| panic!("MV3-G13c cleanup failed: {close_error}"));
+            shared::close_channel(&context, &channel)
+                .await
+                .unwrap_or_else(|close_error| {
+                    panic!("MV3-G13c channel cleanup failed: {close_error}")
+                });
+            return;
+        }
+    };
+    let event_json: serde_json::Value = serde_json::from_slice(event.0.as_ref())
+        .unwrap_or_else(|error| panic!("MV3-G13c event JSON failed: {error}"));
+    assert!(event_json.pointer("/data/body").is_some());
+    shared::write_gate_evidence(
+        "Phase2",
+        "Sync",
+        "MV3-G13c",
+        "PASS",
+        json!({"command": "im_request_channel_increment", "go_http": "/api/cses/channels/load/increment", "terminal_event": "im:read:result", "event": event_json, "ws_follow_up": "im:channel:increment expected when Go returns an increment snapshot"}),
+    )
+    .unwrap_or_else(|error| panic!("MV3-G13c evidence failed: {error}"));
+    session
+        .close()
+        .await
+        .unwrap_or_else(|error| panic!("MV3-G13c cleanup failed: {error}"));
+    shared::close_channel(&context, &channel)
+        .await
+        .unwrap_or_else(|error| panic!("MV3-G13c channel cleanup failed: {error}"));
 }

@@ -411,3 +411,7 @@
 ✅ DONE Phase1-4 的 84 个 `PhaseN/Domain/Gate` Rust real-chain 测试均已默认执行；Phase1/2/3/4 focused run 分别为 33/20/15/16 passed、0 failed。最新 evidence 汇总为 50 PASS、18 BLOCKED_PRECONDITION、11 NOT_VERIFIED、5 NOT_APPLICABLE；Go media、timeline、Pin、Announcement persistence、Search/Todo 合同缺口均保留了逐 Gate 证据，没有把 harness 通过冒充业务 PASS。修复并验证了 G06b 双 Helix 会话竞态、G09c actor 身份与 `im:channel:member-nickname` 事件名；本批次尚未 push。@2026-08-11T14:27:50+0800
 
 ⚡ DRIFT-PRED 本轮实际需要修改 Helix 生产事件名与 G09c 身份处理，且 Phase2-4 不能继续以 `#[ignore]` 作为默认前置闸门；候选教训：真实 Gate 的合同修复必须和测试 harness 分开提交，缺口应在运行证据中显式标注，而不是通过 ignored 测试或旧文档统计隐藏。@2026-08-11T14:27:50+0800
+
+🎯 EXPECT 沉淀 Phase1-4 BLOCKED/NOT_VERIFIED/NOT_APPLICABLE 的逐 Gate 证据缺口与 handoff；可证伪断言：① 新增两份中文 Markdown，逐 Gate 对应最新 evidence.json；② 不把 Cargo harness 通过或 health 200 写成业务 PASS；③ README 链接、相对/绝对源码引用和 `git diff --check` 全部通过；④ 不改 Go/Angular 生产代码。@2026-08-11T14:39:29+0800
+
+✅ DONE 已新增 `Phase1-4-非通过Gate证据缺口清单.md` 与 `handoff.md`，覆盖 34 个非 PASS Gate 的当前事实、缺失证据、跨仓 owner、清障顺序和重跑命令；README 已挂接入口，Markdown 链接检查与 `git diff --check` 通过，Go/Angular 工作树未修改。@2026-08-11T14:39:29+0800

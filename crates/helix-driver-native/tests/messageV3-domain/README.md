@@ -1,5 +1,10 @@
 # MessageV3 Phase1-4 真实 Gate 测试
 
+缺口与交接记录：
+
+- [Phase1-4 非通过 Gate 证据缺口清单](Phase1-4-非通过Gate证据缺口清单.md)
+- [handoff](handoff.md)
+
 ## 目录合同
 
 测试按 `PhaseN/Domain/Gate/main.rs` 拆分；`message_v3_domain.rs` 只负责注册固定的 84 个独立 Gate：Phase1=33、Phase2=20、Phase3=15、Phase4=16。共享模块通过 native driver 的 `NativeHttp`、`NativeTransport`、`NativeStorage`、`NativeEventSink` 和 `run_engine_loop_with_transports` 接入真实 Go 服务，不创建 fake HTTP/WS，也不把 Node runner 或静态回放当作真实链。

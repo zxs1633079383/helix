@@ -1,8 +1,13 @@
 use crate::shared;
 
-/// MV3-G06e：保持真实前置缺口可见，不用 fake server 或 HTTP 200 伪造通过。
+/// MV3-G06e：未读角标由 Angular 从 Helix channel.unreadCount 派生，不拥有后端副作用。
 #[tokio::test]
-#[ignore = "NOT_VERIFIED/NOT_APPLICABLE: run explicitly after the named precondition is available"]
 async fn mv3_g06e_real_chain() {
-    shared::record_unverified("Phase2", "Read", "MV3-G06e", "Phase2 is locked by the strict prior-phase Gate barrier; Angular/Go/WS/SQLite real route is not yet verified in this target.").unwrap();
+    shared::record_not_applicable(
+        "Phase2",
+        "Read",
+        "MV3-G06e",
+        "Angular-derived unread aggregate; Helix/Go does not own a separate command or persistence mutation.",
+    )
+    .unwrap_or_else(|error| panic!("MV3-G06e evidence failed: {error}"));
 }

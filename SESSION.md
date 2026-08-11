@@ -405,3 +405,5 @@
 - 边界：不修改 Go 合同、不改本地 DB schema、不触碰客户端既有 release 文件；真实宿主重启与双用户运行态需单独采证，不以单测替代。
 
 ✅ DONE `fbeb41d4` 已完成 MessageV3 Phase1-4 的 84 个 Phase→Domain→Gate Rust real-chain target；当前真实账为 Phase1 19 PASS、13 NOT_VERIFIED、1 NOT_APPLICABLE，Phase2-4 共 51 个 NOT_VERIFIED。所有未具备真实 Angular/Go/WS/SQLite 前置的 Gate 均未伪造 PASS；运行证据保留在未跟踪的 `artifacts/messagev3-phase1-4-real-chain/`，不进入提交。@2026-08-11T12:20:00+0800
+
+🎯 EXPECT 继续把 Phase1 未验证项与 Phase2-4 的真实 Rust native Gate 逐批接入 localhost:8066；可证伪断言：① 每个已解锁 Gate 都由 Tick/Helix Effect/Go HTTP/真实 WS/SQLite/Emit 形成同轮证据；② Go route 或外部 producer 缺失只落 BLOCKED_PRECONDITION/NOT_VERIFIED，不伪造 PASS；③ 共享 harness 只扩展真实适配器，不修改原始 Helix、Go 或 Angular 生产代码；④ 每完成一个 Domain 都有独立聚焦运行、cargo check、diff check 与分类 commit；⑤ 最终报告仍保留 84 Gate 分母。@2026-08-11T12:30:00+0800

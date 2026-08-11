@@ -35,6 +35,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex, OnceCell};
+use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
 pub(crate) const GO_HTTP_BASE: &str = "http://127.0.0.1:8066/api/cses";
@@ -105,6 +106,160 @@ pub(crate) struct SendEvidence {
     pub(crate) received: DomainEventBytes,
     pub(crate) row: Row,
     pub(crate) bus_envelope: Value,
+}
+
+/// 持有一次真实 Helix native engine 会话；所有 Phase2-4 command Gate 共用这一条边界。
+///
+/// 会话同时拥有 actor WS、NativeHttp、NativeStorage、NativeEventSink 和 engine task，
+/// 因而测试不会把“直接 curl 成功”误报成 Helix 业务完成。调用方必须在断言前调用
+/// [`RealHelixSession::command`]，并在返回前调用 [`RealHelixSession::close`]。
+pub(crate) struct RealHelixSession {
+    pub(crate) storage: NativeStorage,
+    pub(crate) events: broadcast::Receiver<DomainEventBytes>,
+    tick_tx: mpsc::Sender<Tick>,
+    actor_transport: Arc<NativeTransport>,
+    shutdown_tx: Option<oneshot::Sender<()>>,
+    engine: Option<JoinHandle<()>>,
+    db_path: PathBuf,
+}
+
+impl RealHelixSession {
+    /// 向当前 engine 注入一条真实 `Tick::Command`，不绕过 Helix public module。
+    pub(crate) async fn command(&self, name: &'static str, payload: Value) -> Result<(), String> {
+        let bytes = serde_json::to_vec(&payload)
+            .map_err(|error| format!("serialize {name} payload: {error}"))?;
+        self.tick_tx
+            .send(Tick::Command(AppCommand::new(name, Bytes::from(bytes))))
+            .await
+            .map_err(|error| format!("send {name} Tick failed: {error}"))
+    }
+
+    /// 等待当前会话的 canonical DomainEvent，并保留精确 data predicate。
+    pub(crate) async fn wait_event<F>(
+        &mut self,
+        event_name: &str,
+        predicate: F,
+        wait_for: Duration,
+    ) -> Result<DomainEventBytes, String>
+    where
+        F: Fn(&Value) -> bool,
+    {
+        wait_domain_event(&mut self.events, event_name, predicate, wait_for).await
+    }
+
+    /// 发送 shutdown、等待 engine drain、关闭 actor WS，并删除本轮独占 SQLite。
+    pub(crate) async fn close(mut self) -> Result<(), String> {
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            let _ = shutdown_tx.send(());
+        }
+        if let Some(engine) = self.engine.take() {
+            timeout(Duration::from_secs(15), engine)
+                .await
+                .map_err(|_| "real Helix engine graceful shutdown timed out".to_string())?
+                .map_err(|error| format!("real Helix engine task failed: {error}"))?;
+        }
+        self.actor_transport
+            .close()
+            .await
+            .map_err(|error| format!("close real Helix actor WS: {error}"))?;
+        remove_test_storage(&self.db_path);
+        Ok(())
+    }
+}
+
+/// 启动一条注册指定频道的真实 Helix native engine 会话，并等待 authenticated hello。
+pub(crate) async fn start_real_helix_session(
+    context: &AuthContext,
+    channel_ids: &[&str],
+) -> Result<RealHelixSession, String> {
+    let (storage, db_path) = open_test_storage().await?;
+    let (event_sink, events) = NativeEventSink::new();
+    let http = go_http(&context.actor).await?;
+
+    let mut im_config = ImConfig::default();
+    im_config.ws_url = GO_WS_URL.to_string();
+    im_config.api_base_url = GO_HTTP_BASE.to_string();
+    im_config.default_api_base_url = MAIN_API_BASE.to_string();
+    im_config.auth_user_id = context.actor.user_id.clone();
+    im_config.company_id = context.actor.company_id.clone();
+    im_config.user_name = context.actor.user_name.clone();
+    im_config.org_name = context.actor.org_name.clone();
+    im_config.dept_name = context.actor.dept_name.clone();
+    im_config.ping_interval_ms = 60_000;
+    im_config.send_timeout_ms = 15_000;
+
+    let mut module = ImModule::new(im_config);
+    for channel_id in channel_ids {
+        let channel = helix_im::state::ChannelId::from_str(channel_id)
+            .ok_or_else(|| format!("channel id is not canonical Helix ChannelId: {channel_id}"))?;
+        module.register_channel(channel, 0);
+    }
+    let mut shell = ExecutionShell::new();
+    shell.register(module);
+
+    let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
+    let transport_raw =
+        100u32.saturating_add((RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed) % 10_000) as u32);
+    let mut actor_transport = NativeTransport::new(
+        GO_WS_URL,
+        TransportId::from_raw(transport_raw),
+        Some(tick_tx.clone()),
+    )
+    .with_handshake_headers(ws_headers(&context.actor));
+    let activation = actor_transport
+        .connect()
+        .await
+        .map_err(|error| format!("real Helix actor WS connect failed: {error}"))?;
+    let actor_transport = Arc::new(actor_transport);
+    let mut transports = TransportTable::new();
+    transports.insert(
+        TransportId::from_raw(transport_raw),
+        Arc::clone(&actor_transport),
+    );
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let engine_tick_tx = tick_tx.clone();
+    let engine_storage = storage.clone();
+    let engine = tokio::spawn(async move {
+        run_engine_loop_with_transports(
+            shell,
+            tick_rx,
+            engine_tick_tx,
+            EngineConfig::new(
+                engine_storage,
+                http,
+                SharedFileUploader::default(),
+                event_sink,
+                8,
+            )
+            .with_metric_sink(Arc::new(NoopMetricSink)),
+            shutdown_rx,
+            transports,
+        )
+        .await;
+    });
+    activation
+        .activate()
+        .await
+        .map_err(|error| format!("real Helix actor WS activation failed: {error}"))?;
+
+    let mut session = RealHelixSession {
+        storage,
+        events,
+        tick_tx,
+        actor_transport,
+        shutdown_tx: Some(shutdown_tx),
+        engine: Some(engine),
+        db_path,
+    };
+    session
+        .wait_event(
+            "im:connection:established",
+            |_| true,
+            Duration::from_secs(20),
+        )
+        .await?;
+    Ok(session)
 }
 
 /// 生成不含账号/令牌的本轮 correlation 头和 run-owned 资源前缀。
@@ -604,13 +759,42 @@ pub(crate) async fn direct_post(
     viewers: Value,
     mentions: Value,
 ) -> Result<(Value, Value), String> {
-    let mut observer = open_raw_ws(&context.observer, 10).await?;
+    direct_post_as(
+        &context.actor,
+        &context.observer,
+        channel_id,
+        message_type,
+        text,
+        props,
+        viewers,
+        mentions,
+        10,
+    )
+    .await
+}
+
+/// 以指定 sender 创建 post，并由指定 watcher 观察真实 Go `post` WS 回声。
+///
+/// Phase2/Phase4 的双用户 Gate 使用此 helper 证明 reader/author audience，而不是只在
+/// 同一个 actor session 内看到自己的 HTTP admission。
+pub(crate) async fn direct_post_as(
+    sender: &Persona,
+    watcher: &Persona,
+    channel_id: &str,
+    message_type: &str,
+    text: &str,
+    props: Value,
+    viewers: Value,
+    mentions: Value,
+    raw_id: u32,
+) -> Result<(Value, Value), String> {
+    let mut observer = open_raw_ws(watcher, raw_id).await?;
     wait_ws_hello(&mut observer).await?;
     let temporary_id = run_token("post");
-    let http = go_http(&context.actor).await?;
+    let http = go_http(sender).await?;
     let body = json!({
         "channelId": channel_id,
-        "userId": context.actor.user_id,
+        "userId": sender.user_id,
         "type": message_type,
         "message": text,
         "simpleMessage": text,

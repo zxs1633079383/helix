@@ -49,7 +49,7 @@ fn first_bool(data: &serde_json::Value, keys: &[&str]) -> Option<bool> {
     })
 }
 
-// ─── channel 维护事件（created / closed / member-updated / memberNickname）──────
+// ─── channel 维护事件（created / closed / member-updated / member-nickname）──────
 
 /// `channel_created` → `im:channel:created`（真源 channel.rs:569）。
 ///
@@ -163,10 +163,10 @@ pub fn emit_channel_settings_updated(
     ))
 }
 
-/// `update_channel_member_nickName` → `im:channel:memberNickname`（真源 channel.rs:757）。
+/// `update_channel_member_nickName` → `im:channel:member-nickname`（MessageV3 canonical event）。
 pub fn emit_member_nickname(channel_id: ChannelId, user_id: &str, nick_name: &str) -> Effect {
     emit(
-        "im:channel:memberNickname",
+        "im:channel:member-nickname",
         serde_json::json!({
             "channelId": channel_id.as_str(),
             "userId": user_id,

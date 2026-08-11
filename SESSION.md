@@ -14,6 +14,21 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 完成 MessageV3 第一批 9 个运行态 Gate 与第二批 Pin/Search/Todo 9 个代码 Gate 的真实闭环；可证伪断言：① 第一批只在新的 run-owned 活跃频道上重取 Go `posts/create`/producer/WS、Helix projection、SQLite read-back 和 emit 证据，G03a、G11a/b/c/d/e/g/h、G07d 未取得逐跳终态前不得改成 PASS；② Pin G05f/g 必须证明 Go pin HTTP→WS `post_pin`→Helix `im:post:updated`→SQLite props 读回，Search G14a-c 必须证明 Angular/Helix/Go command/body/`im:read:result` 合同，Todo G15a-d 必须证明真实 mutation→Go WS→Helix 自动 `im:todo:updated` 投影；③ 不改动现有 Angular `src-tauri/Cargo.toml` 与 `visual/`、Helix artifacts，不泄露 DSN/凭据；④ 每个新增/修改函数有紧邻注释，Rust cargo 只在完整模块和最终验收运行，最终按批次提交但不 push | 赌注 高 | 可逆 是 | @2026-08-11T16:05:00+0800
+
+✅ DONE 第一批 9 个与第二批 9 个已完成真实复验：G03a、G11a/b/c/d/e/g/h、G07d、G05f/g、G14a/b/c、G15a/b/c/d 的最新 `evidence.json` 全部为 PASS。84 Gate 最新汇总为 Phase1 `22/5/5/1`、Phase2 `16/0/0/4`、Phase3 `15/0/0/0`、Phase4 `16/0/0/0`，总计 `69 PASS / 5 BLOCKED_PRECONDITION / 5 NOT_VERIFIED / 5 NOT_APPLICABLE`。验证包含 focused Rust real-chain、Go pin/store/app tests、`go build ./...`、`go vet ./...`、`git diff --check`；缺口清单与 handoff 已同步到 `crates/helix-driver-native/tests/messageV3-domain/`，未启动 WDIO、未执行真实数据库 migration、未 push | @2026-08-11T17:10:00+0800
+⚡ DRIFT-PRED 运行态复现 Pin 的 PostgreSQL `42P10` 后，修复范围从预期的 Helix 测试扩展为 Go Store 兼容写法与手工 migration 文档；这是基于精确 add-pin 请求和 live schema 缺联合唯一约束的证据决定的，真实数据库 DDL 仍留给审批后的 migration 流程 | @2026-08-11T17:10:00+0800
+
+🎯 EXPECT 修正为 Rust→真实 Go 8066 的 Phase1 Domain/Gate 集成测试；可证伪断言：① 仅在 `codex/messagev3-phase1-real-chain` worktree 新增 `helix-driver-native` Rust real-go test target 与必要 Cargo 注册，不改 Go/Angular 生产代码；② 测试默认直连 `http://127.0.0.1:8066/api/cses` 与 `ws://127.0.0.1:8066/api/v4/websocket`，自动发现现有凭据，禁止要求用户配置环境变量；③ 至少一条真实发送链同时证明 HTTP admission、WS `post`、Helix `sending→received/failed`、本地 SQLite row 与 Native EventSink emit，缺前置时明确 `BLOCKED/NOT_VERIFIED`；④ Phase1 目标按 Domain→Gate 命名，未能真实执行的 Gate 显式 `#[ignore]`/gap，不把 Node runner、health 或 fake server 计作 PASS；⑤ 聚焦 cargo target、`git diff --check` 通过后按独立批次提交，不自动 push | 赌注 高 | 可逆 是 | @2026-08-11T10:00:00+0800
+
+✅ DONE Rust→Go 8066 真实 target 已落地：`cargo test -p helix-driver-native --test message_v3_phase1_real_go -- --nocapture --test-threads=1` 在当前 live Go server 上 `14 passed; 0 failed; 7 ignored`。真实发送路径取得 `sending` optimistic SQLite 行、Go `/posts/create` admission、WS `post`、Helix `im:post:received`、`send_status=sent` 行级读回和 `im:__bus__` envelope；失败路径取得 `im:post:send-failed` 与 `unsend/failed` 行级读回。按 registry 映射为 21/33 Gate real PASS，媒体 6 Gate 被 Go `media.type NOT NULL` 缺口阻断，其余显式 gap/非 Go 合同保持 `NOT_VERIFIED`/`NOT_APPLICABLE`；未改 Go/Angular 生产代码，未要求环境变量 | @2026-08-11T10:32:00+0800
+⚡ DRIFT-PRED 先前的 Node runner 不是 Rust→Go 真实测试；本批次补入 `helix-driver-native` native engine/HTTP/WS/SQLite/EventSink 纵向集成 target，并把 Node runner 降为可选编排入口。当前仍不是 33/33 Green，媒体 schema 漂移需 Go owner 修复后再取消 ignore | @2026-08-11T10:32:00+0800
+
+🎯 EXPECT Phase1 三仓真实链路测试按 `Phase1 → Domain → Gate` 分包落地；可证伪断言：① 只在独立 worktree `codex/messagev3-phase1-real-chain` 修改 Helix 测试/runner/证据文档，不改当前主工作树、Go/Angular 生产代码；② 默认无需用户配置环境变量，runner 自动指向 `127.0.0.1:8066` 与现有 Angular/Go 运行态，缺依赖时 fail-closed；③ 33 个 Gate 与 Helix registry、Angular manifest、真实 WDIO 类逐项对账，三个 Gap 保持 fail-closed；④ 任何业务 `PASS` 都必须有同轮 HTTP、WS、Native projection、DOM 和 storage 证据，canonical/行级 readback 缺失只标 `PARTIAL`；⑤ Node contract、dry-run、`git diff --check` 通过后按 Phase1→Domain 批次提交，不自动 push | 赌注 高 | 可逆 是 | @2026-08-11T09:00:00+0800
+
+✅ DONE Phase1 三仓矩阵、33 Gate/3 Gap 对账、真实 WDIO runner 与 fail-closed summary 已落地；contract 4/4、Node syntax、diff check 通过，当前分支已拆为两批提交。真实业务 run 尚未启动：Go 8066 health=200，但 4544 已被现有 cses-client 占用，runner 按合同返回 `BLOCKED_PRECONDITION`，未把 health 或静态类当作业务 PASS | @2026-08-11T09:35:00+0800
+⚡ DRIFT-PRED 实跑预期受现有 4544 监听进程阻断，未取得本轮 HTTP→WS→Native projection→DOM/storage 证据；释放 4544-4546 后须重跑至少 `send-core`，再决定 Phase1 全量是否可晋级 | @2026-08-11T09:35:00+0800
+
 🎯 EXPECT 以独立 Search Gate 合同接通现有四个搜索命令；可证伪断言：① 仅修改 `helix-im` 现有 search outbound、三份聚焦测试、独立 Search 合同与本活账，不改冻结 Spec047、core 或任一 driver；② `im_search_post/user/channel/do` 均要求非空 `req_id`，拒绝 `user_id/team_id/company_id/sort`，并把 public snake_case 精确转换为 Go camelCase；③ post 支持有界筛选与 cursor，channel scope 缺 channel_id、无 keyword 且无筛选、非法时间或 page_size 均 fail-closed，另外三命令 keyword 必填；④ `im_search_do` 改为 read 并继续只通过既有 `im:read:result` 回灌，不新增事件、ABI、reducer 或缓存；⑤ focused test、`cargo check -p helix-im` 与 `git diff --check` 通过后独立提交且不 push | 赌注 高 | 可逆 是 | @2026-08-06T19:11:07+0800
 
 ✅ DONE 独立 Search Gate 最小实现已完成：四个既有 `/search/{post,user,channel,do}` 命令统一要求本地 `req_id`，拒绝客户端身份/租户/排序字段；post 支持 channel/global scope、发送人、内容类型、时间与有界 opaque cursor/page，目录与聚合搜索使用必填 keyword 和同一分页边界。`im_search_do` 已切为读族，Go 三段权威 JSON 继续经既有 `im:read:result` 原样回灌，未新增事件、ABI、driver、reducer、缓存或 SQLite。聚焦单元 15/15、P5a 18/18、read-relay 14/14 与 `cargo check -p helix-im` PASS；真实 Go/ES、PC/Flutter/Web runtime 与性能证据仍为 NOT_RUN。额外全量 lib 探测为 285/286，唯一失败是未改动的 `channel_sync_page_projects_capabilities_with_tenant_scope`，不冒充全量 Green且未越界修复 | @2026-08-06T19:20:40+0800
@@ -384,6 +399,8 @@
 
 🎯 EXPECT Spec006 转发 picker 的权威频道补偿查询在冷启动 18K+ 投影突发下仍返回目标群；可证伪断言：① `im_channel_query.condition.display_name` 出站严格还原为 Go `displayName`；② Native 默认有界事件窗口覆盖本轮已观测突发；③ Helix focused read/query、Tauri helix_im 与 dual-real-forward 全绿后才记账 T029 | 赌注 中 | 可逆 是 | @2026-08-01T05:10:00-0700
 
+🎯 EXPECT 新增 MessageV3 Phase1-4 的 84 个 Phase→Domain→Gate Rust real-chain target；可证伪断言：① manifest 的 33/20/15/16 Gate 与 Cargo `--list` 逐项一致；② Go 8066 可执行的 Phase1 Gate 串行运行时 HTTP `SUCCESS`、WS、SQLite terminal 和 `im:__bus__` 同时成立；③ media/retry/draft/forward/Phase2-4 前置缺失只产生 `NOT_VERIFIED`/`NOT_APPLICABLE`，不伪造 PASS；④ 新 target 编译、真实 Phase1 focused run、ignored evidence run 与 `git diff --check` 均通过 | 赌注 高 | 可逆 是 | @2026-08-11T12:00:00+0800
+
 ## 历史记录（2026-08-06：频道群设置版本读回修复）
 
 > **历史资料**：该条记录描述 CAS 下线前的失败路径；2026-08-07 fix worktree 已物理移除 channel/channelMember 写入版本条件。当前有效语义以 helix-im outbound、contracts 和三仓 fix worktree 为准。
@@ -391,3 +408,20 @@
 - 目标：修复 legacy Helix `channel` 行缺少 `settingVersion/permissionRevision` 导致 MessageV3 在进入 Tauri command 前抛出 `CHANNEL_SETTINGS_EXPECTED_VERSION_REQUIRED`。
 - 可证伪断言：`render_ready::channel::shape_channel_row` 对旧行以 `updated_at` 补出两个版本字段；客户端群资料/公告/权限控件在权威版本缺失时保持 fail-closed；聚焦测试、Rust 检查和前端 lint/test 可复现通过。
 - 边界：不修改 Go 合同、不改本地 DB schema、不触碰客户端既有 release 文件；真实宿主重启与双用户运行态需单独采证，不以单测替代。
+
+✅ DONE `fbeb41d4` 已完成 MessageV3 Phase1-4 的 84 个 Phase→Domain→Gate Rust real-chain target；当前真实账为 Phase1 19 PASS、13 NOT_VERIFIED、1 NOT_APPLICABLE，Phase2-4 共 51 个 NOT_VERIFIED。所有未具备真实 Angular/Go/WS/SQLite 前置的 Gate 均未伪造 PASS；运行证据保留在未跟踪的 `artifacts/messagev3-phase1-4-real-chain/`，不进入提交。@2026-08-11T12:20:00+0800
+
+🎯 EXPECT 继续把 Phase1 未验证项与 Phase2-4 的真实 Rust native Gate 逐批接入 localhost:8066；可证伪断言：① 每个已解锁 Gate 都由 Tick/Helix Effect/Go HTTP/真实 WS/SQLite/Emit 形成同轮证据；② Go route 或外部 producer 缺失只落 BLOCKED_PRECONDITION/NOT_VERIFIED，不伪造 PASS；③ 共享 harness 只扩展真实适配器，不修改原始 Helix、Go 或 Angular 生产代码；④ 每完成一个 Domain 都有独立聚焦运行、cargo check、diff check 与分类 commit；⑤ 最终报告仍保留 84 Gate 分母。@2026-08-11T12:30:00+0800
+
+✅ DONE Phase1-4 的 84 个 `PhaseN/Domain/Gate` Rust real-chain 测试均已默认执行；Phase1/2/3/4 focused run 分别为 33/20/15/16 passed、0 failed。最新 evidence 汇总为 50 PASS、18 BLOCKED_PRECONDITION、11 NOT_VERIFIED、5 NOT_APPLICABLE；Go media、timeline、Pin、Announcement persistence、Search/Todo 合同缺口均保留了逐 Gate 证据，没有把 harness 通过冒充业务 PASS。修复并验证了 G06b 双 Helix 会话竞态、G09c actor 身份与 `im:channel:member-nickname` 事件名；本批次尚未 push。@2026-08-11T14:27:50+0800
+
+⚡ DRIFT-PRED 本轮实际需要修改 Helix 生产事件名与 G09c 身份处理，且 Phase2-4 不能继续以 `#[ignore]` 作为默认前置闸门；候选教训：真实 Gate 的合同修复必须和测试 harness 分开提交，缺口应在运行证据中显式标注，而不是通过 ignored 测试或旧文档统计隐藏。@2026-08-11T14:27:50+0800
+
+🎯 EXPECT 沉淀 Phase1-4 BLOCKED/NOT_VERIFIED/NOT_APPLICABLE 的逐 Gate 证据缺口与 handoff；可证伪断言：① 新增两份中文 Markdown，逐 Gate 对应最新 evidence.json；② 不把 Cargo harness 通过或 health 200 写成业务 PASS；③ README 链接、相对/绝对源码引用和 `git diff --check` 全部通过；④ 不改 Go/Angular 生产代码。@2026-08-11T14:39:29+0800
+
+✅ DONE 已新增 `Phase1-4-非通过Gate证据缺口清单.md` 与 `handoff.md`，覆盖 34 个非 PASS Gate 的当前事实、缺失证据、跨仓 owner、清障顺序和重跑命令；README 已挂接入口，Markdown 链接检查与 `git diff --check` 通过，Go/Angular 工作树未修改。@2026-08-11T14:39:29+0800
+
+🎯 EXPECT 推进 Phase1-4 真实 Angular→Helix→Go 8066→WS→SQLite→emit 证据，按用户明确排除 Todo、任务/会议卡片、平均分后收敛可验收 Gate。可证伪断言：① 不改写 84 Gate 原始状态，只新增按排除清单过滤的证据汇总；② 先修复已被源码与运行错误共同定位的 Go media.type、再逐层复验 Pin/Timeline/Search/本地 N/A，所有 PASS 必须有当前窗口的 HTTP/WS/Storage/Emit 或真实 Angular 终态证据；③ 不以 health、HTTP 200、Rust harness 通过或旧 artifact 冒充业务 PASS；④ 修改三仓时保留既有 dirty/untracked，按 Go/Rust/文档独立批次聚焦验证并提交，不自动 push；⑤ 若外部 PG/Pulsar/ES/认证态或运行中的 8066 二进制无法安全更新，记录 BLOCKED 而不是伪造全绿 | 赌注 高 | 可逆 是 | @2026-08-11T14:50:59+0800
+
+✅ DONE 直接修正 Phase1 Upload 测试类且未启动 WDIO：G01c/d/e/g 以 Angular Java/fileDrive/OSS 完成后的稳定媒体引用真实打 Go `posts/create`，G03c 以 `postIds + channelIds` 真实转发，全部聚焦测试通过并取得 WS/Helix/SQLite/emit 子链；G02d 以 Helix planner 精确拒绝 67,108,865 bytes 并取得零副作用 PASS。最新账为 Phase1 21 PASS / 6 BLOCKED_PRECONDITION / 5 NOT_VERIFIED / 1 NOT_APPLICABLE，总计 51/23/5/5；媒体完整 Gate 仍因本轮未取 Java/fileDrive/OSS 字节级同轮证据保持 BLOCKED。@2026-08-11T15:20:00+0800
+⚡ DRIFT-PRED 原先把 Go `/media/upload/prepare` 的 `media.type NOT NULL` 当作 Angular 媒体链根因；核对 Angular `FileService`、Java/fileDrive/OSS 与 Helix strict matrix 后改为稳定引用→Go post 子链，旧 Go-owned probe 保持忽略并降级为独立诊断 → 候选教训：媒体 Gate 必须先锁定真实上传 owner，再决定 Go 是字节平面还是 post consumer。@2026-08-11T15:20:00+0800

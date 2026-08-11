@@ -4,7 +4,7 @@
 //! + §8 待核对点已坐实）。
 //!
 //! 行为真源：现网 `handlers/channel.rs:702 handle_member_nickname_update` →
-//! `channel_member_repo::update_nickname`（复合 PK UPDATE）→ emit `im:channel:memberNickname`。
+//! `channel_member_repo::update_nickname`（复合 PK UPDATE）→ emit `im:channel:member-nickname`。
 //!
 //! wire：`{channelId, userId, nickName}`。helix：`update_member_nickname`（复合 PK upsert，
 //! 冲突仅改 nick_name；本地缺成员行插占位，权威靠 path1 全量覆盖——见 to_effect_s1 裁决注释）。

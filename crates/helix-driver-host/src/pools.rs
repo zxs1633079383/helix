@@ -21,8 +21,9 @@ use helix_core::tick::{PortOutcome, ReplyBytes};
 use helix_core::{Correlation, Tick};
 
 use crate::http_envelope::run_http_envelope;
+use crate::metrics::{AsyncMetricSink, NoopMetricSink};
 use crate::ops::classify_port_error;
-use crate::spawner::{BoundedSpawner, Overflow};
+use crate::spawner::{BoundedSpawner, FeedbackSender, FeedbackSink, Overflow};
 use crate::storage::{
     with_storage_operation_context, with_storage_trace_context, StorageOperationContext,
     StorageTraceContext,
@@ -57,15 +58,12 @@ struct UploadProgressTickReporter {
     corr: Correlation,
     percent_step: u8,
     last_emitted_percent: AtomicU8,
-    reply_tx: Arc<mpsc::UnboundedSender<Tick>>,
+    reply_tx: FeedbackSink,
 }
 
 impl UploadProgressTickReporter {
-    fn new(
-        corr: Correlation,
-        percent_step: u8,
-        reply_tx: Arc<mpsc::UnboundedSender<Tick>>,
-    ) -> Option<Self> {
+    /// 构造有界百分比进度 reporter；非法步长不创建回灌源。
+    fn new(corr: Correlation, percent_step: u8, reply_tx: FeedbackSink) -> Option<Self> {
         (1..=100).contains(&percent_step).then_some(Self {
             corr,
             percent_step,
@@ -100,12 +98,10 @@ impl FileUploadProgressReporter for UploadProgressTickReporter {
                 Ordering::Relaxed,
             ) {
                 Ok(_) => {
-                    self.reply_tx
-                        .send(Tick::PortProgress {
-                            corr: self.corr,
-                            progress,
-                        })
-                        .ok();
+                    self.reply_tx.send(Tick::PortProgress {
+                        corr: self.corr,
+                        progress,
+                    });
                     return;
                 }
                 Err(actual) => seen = actual,
@@ -120,22 +116,25 @@ impl FileUploadProgressReporter for UploadProgressTickReporter {
 ///
 /// 同 key 内所有 Persist/PersistFire 严格按入队顺序执行（N=1 → 单 worker 单消费者）。
 /// job queue 有界（`PERSIST_QUEUE_CAP`），超限时 caller `.await` 阻塞，背压传导到 tick_tx。
-pub fn get_or_spawn_persist<S>(
+pub(crate) fn get_or_spawn_persist<S>(
     workers: &mut HashMap<String, BoundedSpawner<PersistJobPayload>>,
     table_key: String,
     storage: Arc<S>,
-    reply_tx: mpsc::UnboundedSender<Tick>,
+    reply_tx: FeedbackSink,
+    metrics: Arc<dyn AsyncMetricSink>,
 ) -> &BoundedSpawner<PersistJobPayload>
 where
     S: Storage + Send + Sync + 'static,
 {
     workers.entry(table_key).or_insert_with(|| {
         let storage = Arc::clone(&storage);
-        BoundedSpawner::new(
+        BoundedSpawner::new_with_feedback(
             1, // N=1：单 worker 单消费者保写序（不变量3）
             PERSIST_QUEUE_CAP,
             Overflow::Block,
             reply_tx,
+            metrics,
+            "persist",
             move |corr, payload: PersistJobPayload| {
                 let storage = Arc::clone(&storage);
                 async move {
@@ -173,11 +172,57 @@ pub fn spawn_http_pool<H>(
 where
     H: HttpRequester + Send + Sync + 'static,
 {
-    BoundedSpawner::new(
+    spawn_http_pool_with_feedback(
+        concurrency,
+        http,
+        FeedbackSink::Raw(reply_tx),
+        overflow,
+        Arc::new(NoopMetricSink),
+    )
+}
+
+/// 构造带低基数 pool 指标的 HTTP 工作池。
+pub(crate) fn spawn_http_pool_observed<H>(
+    concurrency: usize,
+    http: Arc<H>,
+    reply_tx: FeedbackSender,
+    overflow: Overflow,
+    metrics: Arc<dyn AsyncMetricSink>,
+) -> BoundedSpawner<HttpRequest>
+where
+    H: HttpRequester + Send + Sync + 'static,
+{
+    spawn_http_pool_with_feedback(
+        concurrency,
+        http,
+        FeedbackSink::Stamped(reply_tx),
+        overflow,
+        metrics,
+    )
+}
+
+/// 汇合测试 raw 回灌与生产 stamped 回灌的 HTTP pool 构造。
+fn spawn_http_pool_with_feedback<H>(
+    concurrency: usize,
+    http: Arc<H>,
+    feedback: FeedbackSink,
+    overflow: Overflow,
+    metrics: Arc<dyn AsyncMetricSink>,
+) -> BoundedSpawner<HttpRequest>
+where
+    H: HttpRequester + Send + Sync + 'static,
+{
+    let pool = match overflow {
+        Overflow::Block => "http",
+        Overflow::DropNewest => "http_fire",
+    };
+    BoundedSpawner::new_with_feedback(
         concurrency,
         HTTP_QUEUE_CAP,
         overflow,
-        reply_tx,
+        feedback,
+        metrics,
+        pool,
         move |corr, req: HttpRequest| {
             let http = Arc::clone(&http);
             async move {
@@ -223,15 +268,57 @@ pub fn spawn_upload_pool<U>(
 where
     U: FileUploader + Send + Sync + 'static,
 {
-    let progress_reply_tx = Arc::new(reply_tx.clone());
-    BoundedSpawner::new(
+    spawn_upload_pool_with_feedback(
+        concurrency,
+        uploader,
+        FeedbackSink::Raw(reply_tx),
+        overflow,
+        Arc::new(NoopMetricSink),
+    )
+}
+
+/// 构造带低基数 pool 指标的上传工作池。
+pub(crate) fn spawn_upload_pool_observed<U>(
+    concurrency: usize,
+    uploader: Arc<U>,
+    reply_tx: FeedbackSender,
+    overflow: Overflow,
+    metrics: Arc<dyn AsyncMetricSink>,
+) -> BoundedSpawner<FileUploadRequest>
+where
+    U: FileUploader + Send + Sync + 'static,
+{
+    spawn_upload_pool_with_feedback(
+        concurrency,
+        uploader,
+        FeedbackSink::Stamped(reply_tx.clone()),
+        overflow,
+        metrics,
+    )
+}
+
+/// 汇合测试 raw 回灌与生产 stamped 回灌的 Upload pool 构造。
+fn spawn_upload_pool_with_feedback<U>(
+    concurrency: usize,
+    uploader: Arc<U>,
+    feedback: FeedbackSink,
+    overflow: Overflow,
+    metrics: Arc<dyn AsyncMetricSink>,
+) -> BoundedSpawner<FileUploadRequest>
+where
+    U: FileUploader + Send + Sync + 'static,
+{
+    let progress_reply_tx = feedback.clone();
+    BoundedSpawner::new_with_feedback(
         concurrency,
         HTTP_QUEUE_CAP,
         overflow,
-        reply_tx,
+        feedback,
+        metrics,
+        "upload",
         move |corr, req: FileUploadRequest| {
             let uploader = Arc::clone(&uploader);
-            let progress_reply_tx = Arc::clone(&progress_reply_tx);
+            let progress_reply_tx = progress_reply_tx.clone();
             async move {
                 let correlation = corr.map(Correlation::raw).unwrap_or_default();
                 tracing::info!(

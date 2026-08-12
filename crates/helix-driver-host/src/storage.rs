@@ -23,6 +23,7 @@ mod trace;
 mod values;
 mod write;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -57,6 +58,7 @@ pub struct HostStorage {
     readers: Option<Arc<ReadPool>>,
     metrics: Arc<dyn AsyncMetricSink>,
     db_target: Arc<String>,
+    inflight: Arc<AtomicUsize>,
 }
 
 impl HostStorage {
@@ -88,6 +90,7 @@ impl HostStorage {
             readers,
             metrics: Arc::new(NoopMetricSink),
             db_target: Arc::new(target),
+            inflight: Arc::new(AtomicUsize::new(0)),
         };
         storage.migrate().await?;
         Ok(storage)
@@ -174,7 +177,7 @@ impl Storage for HostStorage {
             return write::batch_upsert(self, spec).await;
         }
         let rows = spec.rows.len();
-        let started = Instant::now();
+        let started = self.start_storage_operation();
         let result = write::batch_upsert(self, spec).await;
         self.record_storage_result("batch_upsert", rows, started, &result);
         result
@@ -185,7 +188,7 @@ impl Storage for HostStorage {
             return write::batch_update(self, spec).await;
         }
         let rows = spec.key_vals.len();
-        let started = Instant::now();
+        let started = self.start_storage_operation();
         let result = write::batch_update(self, spec).await;
         self.record_storage_result("batch_update", rows, started, &result);
         result
@@ -195,7 +198,7 @@ impl Storage for HostStorage {
         if !self.metrics.is_enabled() {
             return write::monotonic_upsert(self, spec).await;
         }
-        let started = Instant::now();
+        let started = self.start_storage_operation();
         let result = write::monotonic_upsert(self, spec).await;
         self.record_storage_result("monotonic_upsert", 1, started, &result);
         result
@@ -205,7 +208,7 @@ impl Storage for HostStorage {
         if !self.metrics.is_enabled() {
             return write::guarded_bump(self, spec).await;
         }
-        let started = Instant::now();
+        let started = self.start_storage_operation();
         let result = write::guarded_bump(self, spec).await;
         self.record_storage_result("guarded_bump", 1, started, &result);
         result
@@ -216,7 +219,7 @@ impl Storage for HostStorage {
         if !self.metrics.is_enabled() {
             return write::scoped_guarded_bump(self, spec).await;
         }
-        let started = Instant::now();
+        let started = self.start_storage_operation();
         let result = write::scoped_guarded_bump(self, spec).await;
         self.record_storage_result("scoped_guarded_bump", 1, started, &result);
         result
@@ -226,7 +229,7 @@ impl Storage for HostStorage {
         if !self.metrics.is_enabled() {
             return read::get(self, spec).await;
         }
-        let started = Instant::now();
+        let started = self.start_storage_operation();
         let result = read::get(self, spec).await;
         let rows = result
             .as_ref()
@@ -242,7 +245,7 @@ impl Storage for HostStorage {
         if !self.metrics.is_enabled() {
             return read::scoped_get(self, spec).await;
         }
-        let started = Instant::now();
+        let started = self.start_storage_operation();
         let result = read::scoped_get(self, spec).await;
         let rows = result
             .as_ref()
@@ -257,7 +260,7 @@ impl Storage for HostStorage {
         if !self.metrics.is_enabled() {
             return read::scan(self, spec).await;
         }
-        let started = Instant::now();
+        let started = self.start_storage_operation();
         let result = read::scan(self, spec).await;
         let rows = result.as_ref().map_or(0, Vec::len);
         self.record_storage_result("scan", rows, started, &result);
@@ -269,7 +272,7 @@ impl Storage for HostStorage {
             return write::batch_delete(self, spec).await;
         }
         let rows = spec.key_vals.len();
-        let started = Instant::now();
+        let started = self.start_storage_operation();
         let result = write::batch_delete(self, spec).await;
         self.record_storage_result("batch_delete", rows, started, &result);
         result
@@ -280,7 +283,7 @@ impl Storage for HostStorage {
             return write::atomic_write(self, ops).await;
         }
         let operation_count = ops.len();
-        let started = Instant::now();
+        let started = self.start_storage_operation();
         let result = write::atomic_write(self, ops).await;
         self.record_storage_result("atomic_write", operation_count, started, &result);
         result
@@ -288,6 +291,18 @@ impl Storage for HostStorage {
 }
 
 impl HostStorage {
+    /// 进入真实 SQLite 操作区间并发布并发 Gauge。
+    fn start_storage_operation(&self) -> Instant {
+        let inflight = self.inflight.fetch_add(1, Ordering::Relaxed) + 1;
+        let _ = self.metrics.try_record(MetricEvent::gauge(
+            MetricId::StorageInflight,
+            inflight as f64,
+            MetricLabels::one(LabelKey::Stage, "storage"),
+        ));
+        Instant::now()
+    }
+
+    /// 闭合存储结果、批大小和故障分类，并将 inflight 饱和归还。
     fn record_storage_result<T>(
         &self,
         operation: &'static str,
@@ -295,6 +310,18 @@ impl HostStorage {
         started: Instant,
         result: &Result<T, PortError>,
     ) {
+        let remaining = self
+            .inflight
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                Some(current.saturating_sub(1))
+            })
+            .unwrap_or_default()
+            .saturating_sub(1);
+        let _ = self.metrics.try_record(MetricEvent::gauge(
+            MetricId::StorageInflight,
+            remaining as f64,
+            MetricLabels::one(LabelKey::Stage, "storage"),
+        ));
         let status = if result.is_ok() { "ok" } else { "error" };
         let labels = MetricLabels::one(LabelKey::Stage, "storage")
             .with(LabelKey::StorageOp, operation)
@@ -309,6 +336,11 @@ impl HostStorage {
             1.0,
             labels.with(LabelKey::Operation, operation),
         ));
+        let _ = self.metrics.try_record(MetricEvent::histogram(
+            MetricId::StorageBatchRows,
+            rows as f64,
+            labels,
+        ));
         if result.is_ok() {
             let _ = self.metrics.try_record(MetricEvent::counter(
                 MetricId::StorageRowsTotal,
@@ -316,6 +348,33 @@ impl HostStorage {
                 labels,
             ));
         } else {
+            let error_text = result
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if error_text.contains("busy") || error_text.contains("locked") {
+                let _ = self.metrics.try_record(MetricEvent::counter(
+                    MetricId::StorageBusyTotal,
+                    1.0,
+                    labels,
+                ));
+            }
+            if error_text.contains("timeout") || error_text.contains("timed out") {
+                let _ = self.metrics.try_record(MetricEvent::counter(
+                    MetricId::StorageTimeoutTotal,
+                    1.0,
+                    labels,
+                ));
+            }
+            if operation == "atomic_write" {
+                let _ = self.metrics.try_record(MetricEvent::counter(
+                    MetricId::StorageRollbackTotal,
+                    1.0,
+                    labels,
+                ));
+            }
             let _ = self.metrics.try_record(MetricEvent::counter(
                 MetricId::ErrorsTotal,
                 1.0,

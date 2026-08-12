@@ -4,9 +4,22 @@
 //! 私有构造。覆盖：DropNewest 不阻塞 / Block 零丢失 / N=1 保序 / reply_tx 回灌必达。
 
 use super::*;
+use crate::metrics::{MetricEvent, MetricId, RecordOutcome};
 use helix_core::tick::ReplyBytes;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
+
+#[derive(Default)]
+struct RecordingMetricSink(StdMutex<Vec<MetricEvent>>);
+
+impl AsyncMetricSink for RecordingMetricSink {
+    /// 保存 worker 对外可观察事件，测试不进入真实 exporter。
+    fn try_record(&self, event: MetricEvent) -> RecordOutcome {
+        self.0.lock().unwrap().push(event);
+        RecordOutcome::Accepted
+    }
+}
 
 /// ① HttpFire 满队列 DropNewest：泵不阻塞，溢出（最新来的）条目被丢，已入队的最终执行。
 #[tokio::test]
@@ -263,4 +276,50 @@ async fn test_bounded_spawner_reports_via_reply_tx() {
         Tick::PortReply { corr, .. } => assert_eq!(corr.raw(), 42),
         _ => panic!("期望 Tick::PortReply"),
     }
+}
+
+/// 记录型 sink 必须看见真实 queue residency、执行区间和最终归零 Gauge。
+#[tokio::test]
+async fn observed_spawner_exposes_queue_and_execution_boundaries() {
+    let metrics = Arc::new(RecordingMetricSink::default());
+    let (reply_tx, _reply_rx) = mpsc::unbounded_channel::<Tick>();
+    let sp = BoundedSpawner::new_observed(
+        1,
+        2,
+        Overflow::Block,
+        reply_tx,
+        metrics.clone(),
+        "persist",
+        move |_corr, _payload: u64| async move { PortOutcome::Ok(ReplyBytes::default()) },
+    );
+
+    sp.submit(Job {
+        corr: None,
+        payload: 7,
+    })
+    .await;
+    sp.shutdown().await;
+
+    let events = metrics.0.lock().unwrap();
+    for expected in [
+        MetricId::PoolQueueCapacity,
+        MetricId::PoolWorkers,
+        MetricId::PoolEnqueueBlockSeconds,
+        MetricId::PoolQueueResidencySeconds,
+        MetricId::PoolExecutionSeconds,
+        MetricId::PoolQueueDepth,
+        MetricId::PoolInflight,
+    ] {
+        assert!(
+            events.iter().any(|event| event.id == expected),
+            "observed pool 缺少 {:?}",
+            expected
+        );
+    }
+    assert!(events
+        .iter()
+        .any(|event| { event.id == MetricId::PoolQueueDepth && event.value == 0.0 }));
+    assert!(events
+        .iter()
+        .any(|event| { event.id == MetricId::PoolInflight && event.value == 0.0 }));
 }

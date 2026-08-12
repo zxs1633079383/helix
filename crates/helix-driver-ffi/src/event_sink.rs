@@ -78,6 +78,19 @@ impl BatchSink for FfiEventSink {
 
         let Some(cb) = self.vtable.on_domain_events_batch else {
             // host 未提供回调 → 事件无出口，丢弃本批 + warn（健壮性兜底，生产应填）。
+            if self.metrics.is_enabled() {
+                let labels = MetricLabels::one(LabelKey::Stage, "ffi");
+                let _ = self.metrics.try_record(MetricEvent::counter(
+                    MetricId::FfiCallbackErrorsTotal,
+                    1.0,
+                    labels,
+                ));
+                let _ = self.metrics.try_record(MetricEvent::counter(
+                    MetricId::FfiEventsDroppedTotal,
+                    events.len() as f64,
+                    labels,
+                ));
+            }
             tracing::warn!(
                 count = events.len(),
                 "CppHostVtable.on_domain_events_batch 为 None，丢弃本批领域事件"
@@ -106,6 +119,11 @@ impl BatchSink for FfiEventSink {
             ));
             let _ = self.metrics.try_record(MetricEvent::histogram(
                 MetricId::FfiBatchBytes,
+                scratch.len() as f64,
+                labels,
+            ));
+            let _ = self.metrics.try_record(MetricEvent::histogram(
+                MetricId::FfiBoundaryBytes,
                 scratch.len() as f64,
                 labels,
             ));
@@ -165,12 +183,36 @@ mod tests {
 
         assert!(captured.load(Ordering::Relaxed) > 0);
         let events = metrics.0.lock();
-        assert_eq!(events.len(), 4);
+        assert_eq!(events.len(), 5);
         assert_eq!(events[0].id, MetricId::FfiBatchEvents);
         assert_eq!(events[0].value, 2.0);
         assert_eq!(events[1].id, MetricId::FfiBatchBytes);
-        assert_eq!(events[2].id, MetricId::FfiCallbackDurationSeconds);
-        assert_eq!(events[3].id, MetricId::OperationsTotal);
-        assert_eq!(events[3].value, 2.0);
+        assert_eq!(events[2].id, MetricId::FfiBoundaryBytes);
+        assert_eq!(events[3].id, MetricId::FfiCallbackDurationSeconds);
+        assert_eq!(events[4].id, MetricId::OperationsTotal);
+        assert_eq!(events[4].value, 2.0);
+    }
+
+    /// 缺失 C++ 回调必须显式记录 callback error 与整批 dropped 事件。
+    #[test]
+    fn missing_callback_records_dropped_batch() {
+        let metrics = Arc::new(RecordingMetrics::default());
+        let vtable = CppHostVtable {
+            on_domain_events_batch: None,
+            now_ms: None,
+            ctx: std::ptr::null_mut(),
+        };
+        let sink = FfiEventSink::new(vtable).with_metric_sink(metrics.clone());
+        sink.emit(DomainEventBytes(Bytes::from_static(b"a")));
+        sink.emit(DomainEventBytes(Bytes::from_static(b"b")));
+        sink.flush();
+
+        let events = metrics.0.lock();
+        assert!(events
+            .iter()
+            .any(|event| event.id == MetricId::FfiCallbackErrorsTotal));
+        assert!(events
+            .iter()
+            .any(|event| { event.id == MetricId::FfiEventsDroppedTotal && event.value == 2.0 }));
     }
 }

@@ -56,6 +56,6 @@ sequenceDiagram
     E-->>Gate: controlled failure
     Gate-->>UI: error / empty state；不得伪造成功事件
   end
-  Note over IM,DB: 关键效果：channel.channelIsTop === 入参 top（true/false 双向可切），notifyProps.notify 与 orient 逐字段不变；groupedDialogs$ 置顶分组重排：置顶后该会话出现在置顶分组内；取消后回到按 lastPostAt 排序的普通分组原位（lastPostAt 本身不得被改写）
+  Note over IM,DB: 关键效果：channel.channelIsTop === 入参 top（true/false 双向可切），notifyProps（scalar）与 orient 逐字段不变；groupedDialogs$ 置顶分组重排：置顶后该会话出现在置顶分组内；取消后回到按 lastPostAt 排序的普通分组原位（lastPostAt 本身不得被改写）
   Note over UI,Web: 关键负向：top === undefined 时不得写入（先 filter undefined 再 spread）；不得顺带改写 notify / orient（changeChannelState 三字段互不干扰）
   Note over E,Sink: 出站事件集合：channelUpdate，UPDATE_CHANNEL，im:channel:update；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

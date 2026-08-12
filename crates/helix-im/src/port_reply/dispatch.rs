@@ -19,6 +19,35 @@ fn emit_dialog_list_failed(
     Ok(())
 }
 
+/// Decode the channel row returned after a notify write; sparse WS input is never used as the
+/// final event payload, so absent fields retain the durable values already in SQLite.
+fn notify_channel_update_from_reply(
+    channel_id: crate::state::ChannelId,
+    reply: &[u8],
+) -> Result<Option<serde_json::Value>, ImError> {
+    let rows: serde_json::Value = serde_json::from_slice(reply)
+        .map_err(|error| ImError::Parse(format!("notify channel readback: {error}")))?;
+    let Some(row) = rows.as_array().and_then(|items| {
+        items.iter().find(|item| {
+            item.get("id")
+                .or_else(|| item.get("channel_id"))
+                .or_else(|| item.get("channelId"))
+                .and_then(serde_json::Value::as_str)
+                == Some(channel_id.as_str())
+        })
+    }) else {
+        return Ok(None);
+    };
+    let shaped = crate::query::render_ready::channel::shape_channel_row(row);
+    let notify = shaped.get("notifyProps").and_then(serde_json::Value::as_str);
+    if !matches!(notify, Some("NORMAL" | "STRONG" | "IGNORE")) {
+        return Err(ImError::Parse(
+            "notify channel readback missing valid scalar notifyProps".to_string(),
+        ));
+    }
+    Ok(Some(shaped))
+}
+
 impl ImModule {
     /// 处理 PortReply（Persist/Http 的异步结果回报）。
     ///
@@ -469,6 +498,30 @@ impl ImModule {
                         corr = corr.raw(),
                         error = ?error,
                         "update_channel persistence failed; suppress MessageV3 updates"
+                    );
+                }
+            },
+
+            CorrelationContext::NotifyChannelPersist { channel_id } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    if let Some(update) =
+                        notify_channel_update_from_reply(channel_id, reply.0.as_ref())?
+                    {
+                        out.push(crate::event::channel::update(update)?.into_effect());
+                    } else {
+                        tracing::warn!(
+                            channel_id = channel_id.as_str(),
+                            corr = corr.raw(),
+                            "notify channel readback empty; skip MessageV3 update"
+                        );
+                    }
+                }
+                PortOutcome::Err(error) => {
+                    tracing::warn!(
+                        channel_id = channel_id.as_str(),
+                        corr = corr.raw(),
+                        error = ?error,
+                        "notify channel persistence failed; suppress MessageV3 update"
                     );
                 }
             },

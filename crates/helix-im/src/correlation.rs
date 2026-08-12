@@ -200,6 +200,10 @@ pub enum CorrelationContext {
         causation_id: Option<String>,
     },
 
+    /// notify-only `update_channel` writes the viewer projection and member mirror, then
+    /// emits only from the durable channel read-back; no sparse input is trusted as final state.
+    NotifyChannelPersist { channel_id: ChannelId },
+
     /// too_long 后 Helix 主动发起 getLatestPost 首屏重拉的 HTTP 回报。
     TooLongReload {
         channel_id: ChannelId,

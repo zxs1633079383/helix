@@ -202,6 +202,26 @@ impl RealHelixSession {
         remove_test_storage(&self.db_path);
         Ok(())
     }
+
+    /// 关闭 engine/WS 但保留本轮 SQLite 文件，供重启后的只读回读验收使用。
+    pub(crate) async fn close_preserving_db(mut self) -> Result<PathBuf, String> {
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            let _ = shutdown_tx.send(());
+        }
+        if let Some(engine) = self.engine.take() {
+            timeout(Duration::from_secs(15), engine)
+                .await
+                .map_err(|_| "real Helix engine graceful shutdown timed out".to_string())?
+                .map_err(|error| format!("real Helix engine task failed: {error}"))?;
+        }
+        if let Err(error) = self.actor_transport.close().await {
+            let text = error.to_string();
+            if !text.contains("closed connection") && !text.contains("connection is closed") {
+                return Err(format!("close real Helix actor WS: {error}"));
+            }
+        }
+        Ok(self.db_path)
+    }
 }
 
 /// 启动一条注册指定频道的真实 Helix native engine 会话，并等待 authenticated hello。
@@ -1279,6 +1299,54 @@ pub(crate) async fn wait_channel_member_nickname(
         if Instant::now() >= deadline {
             return Err(format!(
                 "channel_member ({channel_id}, {user_id}) did not reach nick_name={expected_nick_name:?}"
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// 等待 notify-only WS 写入 channel 与 channel_member 后的 SQLite 双层读回。
+pub(crate) async fn wait_channel_notify(
+    storage: &NativeStorage,
+    channel_id: &str,
+    user_id: &str,
+    expected_notify: &str,
+    wait_for: Duration,
+) -> Result<(Row, Row), String> {
+    let deadline = Instant::now() + wait_for;
+    loop {
+        let channel_rows = storage
+            .scan(ScanSpec {
+                table: "channel",
+                limit: Some(8),
+                filter: Some(("id", SqlValue::Text(channel_id.to_string()))),
+                order_by: &[],
+            })
+            .await
+            .map_err(|error| format!("scan channel notify row failed: {error}"))?;
+        let member_rows = storage
+            .scan(ScanSpec {
+                table: "channel_member",
+                limit: Some(8),
+                filter: Some(("channel_id", SqlValue::Text(channel_id.to_string()))),
+                order_by: &[],
+            })
+            .await
+            .map_err(|error| format!("scan channel_member notify row failed: {error}"))?;
+        if let (Some(channel), Some(member)) = (
+            channel_rows
+                .into_iter()
+                .find(|row| row_text(row, "notify_props").as_deref() == Some(expected_notify)),
+            member_rows.into_iter().find(|row| {
+                row_text(row, "user_id").as_deref() == Some(user_id)
+                    && row_text(row, "notify").as_deref() == Some(expected_notify)
+            }),
+        ) {
+            return Ok((channel, member));
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "channel/member notify rows did not reach {expected_notify:?}"
             ));
         }
         tokio::time::sleep(Duration::from_millis(100)).await;

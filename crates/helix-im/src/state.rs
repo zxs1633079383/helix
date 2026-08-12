@@ -507,6 +507,7 @@ impl ImState {
                     | CorrelationContext::HydrationCursorReadback { .. }
                     | CorrelationContext::OutboundIncrementHydration { .. }
                     | CorrelationContext::UpdateChannelDialogPersist { .. }
+                    | CorrelationContext::NotifyChannelPersist { .. }
                     | CorrelationContext::DialogListQuery { .. }
                     | CorrelationContext::SubtopicsQuery { .. }
                     | CorrelationContext::PostReadPersist { .. }

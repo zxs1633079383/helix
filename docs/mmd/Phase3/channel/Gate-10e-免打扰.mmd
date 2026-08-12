@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员对某个会话开启免打扰后，这个会话来新消息不再弹提醒，列表上出现静音标记，但未读数照常累计。
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=none；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=focused-unit；native-real=BLOCKED_PRECONDITION（运行中 Go notify route 返回 not found）；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: changeChannelState(payload)
     Gate->>Native: invokeAccepted("im_channel_member_notify", payload)
@@ -36,17 +36,13 @@ sequenceDiagram
   Go-->>WS: WS authority event or canonical result
   WS->>E: Tick::Inbound(authority bytes)
   E->>IM: apply authoritative event before settlement
-  IM->>Host: Effect::PersistAtomic(projection + cursor)
-  Host->>DB: transaction channel + members + cursor
+  IM->>Host: Effect::Persist{BatchUpdate channel.notify_props + BatchUpsert channel_member.notify + Get(channel)}
+  Host->>DB: ordered viewer-local writes then durable channel readback
   DB-->>Host: PortReply(PersistOk)
   Host->>E: Tick::PortReply(PersistOk)
-  E->>IM: release only matching authority corr
-  IM->>Host: Effect::Persist ScopedGet(readback)
-  Host->>DB: durable readback
-  DB-->>Host: PortReply(readback)
-  Host->>E: Tick::PortReply(readback)
-  E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（channelUpdate，UPDATE_CHANNEL，im:channel:update）
+  E->>IM: release only matching PersistOk corr
+  E->>IM: channel row readback is the projection source
+  IM->>Sink: Effect::Emit {event,data}（readback channelUpdate，im:channel:update）
   Sink-->>UI: Native im:__bus__ raw event → Angular projection
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
@@ -56,6 +52,6 @@ sequenceDiagram
     E-->>Gate: controlled failure
     Gate-->>UI: error / empty state；不得伪造成功事件
   end
-  Note over IM,DB: 关键效果：channel.notifyProps.notify === 入参 memberPreference.notify 且只可能为 NORMAL／STRONG／IGNORE；notifyProps 内其他键 spread 保留，channelIsTop / orient 不变；开启免打扰后该会话 unreadCount 保持原值，且后续新消息仍幂等 +1（免打扰只抑制提醒，不改未读账）
-  Note over UI,Web: 关键负向：免打扰不得清零 unreadCount：开启前后 unreadCount 必须逐值相等，后续新消息仍累计（只抑制提醒）；notify 缺失或不属于 NORMAL／STRONG／IGNORE 时必须显式报错，并保持 Storage、HTTP、WS、channelUpdate 全部零副作用
+  Note over IM,DB: 正式 MessageV3 输出：data.notifyProps === 入参 NORMAL／STRONG／IGNORE（scalar）；Go increment、SQLite render-ready 与当前 PC UI 均消费此形状。notify-only 另镜像 channel_member.notify，但不写 unreadCount / channelIsTop / 其他缺省字段
+  Note over UI,Web: 关键负向：免打扰不得清零 unreadCount：开启前后 unreadCount 必须逐值相等，后续新消息仍累计（只抑制提醒）；notify 缺失、非法或混入共享字段时 fail-closed，不发布 im:channel:update
   Note over E,Sink: 出站事件集合：channelUpdate，UPDATE_CHANNEL，im:channel:update；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

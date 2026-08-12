@@ -56,6 +56,6 @@ sequenceDiagram
     E-->>Gate: controlled failure
     Gate-->>UI: error / empty state；不得伪造成功事件
   end
-  Note over IM,DB: 关键效果：channel.orient === 入参 orient；允许空串清空，非空内容长度为 1-30 字；channelIsTop / notifyProps.notify / displayName / purpose 逐字段不变；会话列表排序与分组不变（导向不参与排序）
+  Note over IM,DB: 关键效果：channel.orient === 入参 orient；允许空串清空，非空内容长度为 1-30 字；channelIsTop / notifyProps（scalar）/ displayName / purpose 逐字段不变；会话列表排序与分组不变（导向不参与排序）
   Note over UI,Web: 关键负向：orient 缺失或超过 30 字必须显式报错；空串是合法清空，不得当作缺失字段忽略；不得顺带改写 top / notify；它们属于独立 viewer-local Command，绝不能被 orient 的全群广播覆盖
   Note over E,Sink: 出站事件集合：channelUpdate，UPDATE_CHANNEL，im:channel:update；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

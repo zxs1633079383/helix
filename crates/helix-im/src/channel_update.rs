@@ -32,6 +32,8 @@ pub struct ChannelUpdateProjection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemberChannelUpdate {
     pub user_id: String,
+    /// The current viewer's notification mode from the notify-only WS member patch.
+    pub notify: Option<String>,
     pub channel_is_top: Option<bool>,
     pub projection_revision: Option<u64>,
     pub unread_count: Option<i64>,
@@ -126,6 +128,7 @@ pub fn member_channel_from_update_channel(
 
     let mut projection = MemberChannelUpdate {
         user_id,
+        notify: None,
         channel_is_top: None,
         projection_revision: projection_revision(channel, data),
         unread_count: None,
@@ -145,6 +148,13 @@ pub fn member_channel_from_update_channel(
         msg_count_private: None,
         last_read_seq: None,
     };
+
+    // `update_channel` carries this member-scoped value as a short scalar; keep it
+    // separate from channel-wide fields so the caller can persist it on the composite key.
+    if let Some(v) = pick_notify(channel, data) {
+        row.push(("notify".to_string(), SqlValue::Text(v.clone())));
+        projection.notify = Some(v);
+    }
 
     if let Some(v) = pick_bool(channel, data, &["channelIsTop", "channel_is_top", "top"]) {
         row.push(("channel_is_top".to_string(), SqlValue::Integer(v as i64)));
@@ -280,6 +290,15 @@ fn pick_text(primary: &Value, fallback: &Value, keys: &[&str]) -> Option<String>
     })
 }
 
+/// Read only the three server-defined notification modes; malformed values are ignored here
+/// and rejected by the WS handler before any write effect is produced.
+fn pick_notify(primary: &Value, fallback: &Value) -> Option<String> {
+    pick_value(primary, fallback, &["notify"])
+        .and_then(Value::as_str)
+        .filter(|value| matches!(*value, "NORMAL" | "STRONG" | "IGNORE"))
+        .map(str::to_string)
+}
+
 /// 只读取后端绝对态的布尔值；字符串等宽松形态交给上层 intent gate 拒绝。
 fn pick_bool(primary: &Value, fallback: &Value, keys: &[&str]) -> Option<bool> {
     pick_value(primary, fallback, keys).and_then(Value::as_bool)
@@ -379,6 +398,24 @@ mod tests {
             projection.urgent_post_list,
             Some(vec!["post-90".to_string()])
         );
+    }
+
+    /// A notify-only member patch produces a composite-key row without inventing badge fields.
+    #[test]
+    fn parses_notify_only_member_patch() {
+        let channel_id = crate::state::test_channel_id(92);
+        let (row, projection) = member_channel_from_update_channel(
+            &serde_json::json!({"id": channel_id.as_str(), "userId": "viewer-92", "notify": "IGNORE"}),
+            channel_id,
+            "viewer-92",
+        )
+        .expect("notify-only member patch should be persisted");
+        assert!(row.iter().any(|(column, value)| {
+            column == "notify" && matches!(value, SqlValue::Text(mode) if mode == "IGNORE")
+        }));
+        assert_eq!(projection.notify.as_deref(), Some("IGNORE"));
+        assert_eq!(projection.unread_count, None);
+        assert_eq!(projection.channel_is_top, None);
     }
 
     /// A negative persisted urgent count is clamped before the channel update event is emitted.

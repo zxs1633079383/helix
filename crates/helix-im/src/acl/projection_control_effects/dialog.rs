@@ -151,6 +151,12 @@ pub fn member_channel_update_data(
     ) {
         object.insert("projectionRevision".to_string(), revision.into());
     }
+    if let (Some(notify), Some(object)) =
+        (projection.notify.as_deref(), channel_update.as_object_mut())
+    {
+        // MessageV3 keeps the production scalar shape used by Go increment and PC render-ready.
+        object.insert("notifyProps".to_string(), notify.into());
+    }
     let mut data = json!({
         "op": "dialog.patchByMember",
         "source": source,

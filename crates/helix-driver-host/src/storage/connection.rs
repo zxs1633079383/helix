@@ -34,10 +34,32 @@ pub(super) fn open_reader(target: &str) -> Result<Connection, PortError> {
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY
         | OpenFlags::SQLITE_OPEN_URI
         | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let conn = Connection::open_with_flags(target, flags).map_err(map_sqlite_err)?;
+    let reader_target = read_only_target(target);
+    let conn = Connection::open_with_flags(reader_target, flags).map_err(map_sqlite_err)?;
     conn.busy_timeout(std::time::Duration::from_millis(5000))
         .map_err(map_sqlite_err)?;
     Ok(conn)
+}
+
+/// 只读连接移除写模式参数，避免 SQLite 在 READ_ONLY 标志下拒绝 `mode=rwc`。
+fn read_only_target(target: &str) -> String {
+    let Some((path, query)) = target.split_once('?') else {
+        return target.to_string();
+    };
+
+    let read_query = query
+        .split('&')
+        .filter(|part| {
+            part.split_once('=')
+                .map_or(*part != "mode", |(key, _)| key != "mode")
+        })
+        .collect::<Vec<_>>();
+
+    if read_query.is_empty() {
+        path.to_string()
+    } else {
+        format!("{path}?{}", read_query.join("&"))
+    }
 }
 
 pub(super) fn target_supports_shared_readers(target: &str) -> bool {
@@ -84,4 +106,29 @@ pub(super) fn map_lock_err<T>(_: std::sync::PoisonError<T>) -> PortError {
 
 pub(super) fn map_join_err(e: tokio::task::JoinError) -> PortError {
     PortError::Storage(format!("sqlite blocking worker failed: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_only_target;
+
+    #[test]
+    fn read_only_target_drops_write_mode_but_keeps_other_uri_options() {
+        assert_eq!(
+            read_only_target("file:/tmp/tenant.db?mode=rwc"),
+            "file:/tmp/tenant.db"
+        );
+        assert_eq!(
+            read_only_target("file:/tmp/tenant.db?mode=rwc&cache=shared"),
+            "file:/tmp/tenant.db?cache=shared"
+        );
+        assert_eq!(
+            read_only_target("file:/tmp/tenant.db?cache=shared&mode=rwc"),
+            "file:/tmp/tenant.db?cache=shared"
+        );
+        assert_eq!(
+            read_only_target("file:/tmp/tenant.db"),
+            "file:/tmp/tenant.db"
+        );
+    }
 }

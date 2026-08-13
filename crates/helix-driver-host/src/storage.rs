@@ -170,6 +170,63 @@ impl HostStorage {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::HostStorage;
+
+    /// 为公开 HostStorage 入口生成隔离的真实文件库路径。
+    fn temp_db_path() -> PathBuf {
+        static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+        let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "helix-host-sqlite-uri-{}-{sequence}.db",
+            std::process::id()
+        ));
+        remove_temp_db(&path);
+        path
+    }
+
+    /// 删除主库和 WAL/SHM sidecar，避免回归测试污染下一次运行。
+    fn remove_temp_db(path: &Path) {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(path.with_extension("db-wal"));
+        let _ = std::fs::remove_file(path.with_extension("db-shm"));
+    }
+
+    #[tokio::test]
+    async fn sqlite_mode_rwc_writer_and_reader_share_the_public_target() {
+        let path = temp_db_path();
+        let url = format!("sqlite:{}?mode=rwc", path.display());
+        let storage = HostStorage::open_sqlite_url(&url)
+            .await
+            .expect("HostStorage should open the canonical target");
+        storage
+            .execute_raw(
+                "CREATE TABLE uri_regression (value INTEGER NOT NULL);\
+                 INSERT INTO uri_regression VALUES (73);",
+            )
+            .await
+            .expect("writer should persist through the public storage entry point");
+
+        let value = storage
+            .with_reader(|conn| {
+                conn.query_row("SELECT value FROM uri_regression", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .map_err(super::map_sqlite_err)
+            })
+            .await
+            .expect("reader pool should read the writer's file");
+        assert_eq!(value, 73);
+
+        drop(storage);
+        remove_temp_db(&path);
+    }
+}
+
 #[async_trait::async_trait]
 impl Storage for HostStorage {
     async fn batch_upsert(&self, spec: UpsertSpec) -> Result<(), PortError> {

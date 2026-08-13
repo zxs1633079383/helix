@@ -39,6 +39,8 @@ pub enum TimelineNavigationKind {
 /// 已通过 Go 与 durable read-back 的本地完整覆盖；消息数组本身不能单独构成命中。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimelineNavigationCoverage {
+    /// Coverage 所属父频道；消息变更时按频道失效，避免 locate 复用旧 row 快照。
+    pub channel_id: ChannelId,
     pub rows: Vec<Value>,
     pub has_older: bool,
     pub has_newer: bool,

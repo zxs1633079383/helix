@@ -1,7 +1,7 @@
 use crate::channel_update::PendingChannelUpdate;
 use crate::error::ImError;
 use crate::module::ImModule;
-use crate::state::{ChannelId, SendStatus, SyncTrigger, TemporaryId};
+use crate::state::{ChannelId, PendingSendReconciliation, SendStatus, SyncTrigger, TemporaryId};
 use helix_core::tick::PortOutcome;
 use helix_core::{Effect, EffectSink};
 
@@ -136,6 +136,7 @@ impl ImModule {
         wants_continuation: bool,
         channel_updates: Vec<PendingChannelUpdate>,
         pending_domain_events: Vec<Vec<u8>>,
+        pending_send_reconciliations: Vec<PendingSendReconciliation>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -181,6 +182,9 @@ impl ImModule {
                             window_token: "latest".to_string(),
                         },
                     );
+                for reconciliation in pending_send_reconciliations {
+                    self.reconcile_pending_send_after_sync(reconciliation, out);
+                }
                 for bytes in pending_domain_events {
                     out.push(Effect::Emit {
                         event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),

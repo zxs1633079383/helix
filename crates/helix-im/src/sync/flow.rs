@@ -431,6 +431,12 @@ impl ImModule {
                     &messages,
                     auth_user_id,
                 );
+                let pending_send_reconciliations =
+                    crate::acl::to_effect::pending_send_reconciliations(
+                        &events,
+                        &messages,
+                        auth_user_id,
+                    );
                 let observation = crate::sync::observability::SyncObservation::new(
                     corr.raw(),
                     track_id.clone(),
@@ -570,6 +576,11 @@ impl ImModule {
                             })
                             .collect()
                         },
+                        pending_send_reconciliations: if trigger == SyncTrigger::Hydration {
+                            Vec::new()
+                        } else {
+                            pending_send_reconciliations
+                        },
                     },
                 );
             }
@@ -662,6 +673,7 @@ impl ImModule {
                         wants_continuation: false,
                         channel_updates: Vec::new(),
                         pending_domain_events: Vec::new(),
+                        pending_send_reconciliations: Vec::new(),
                     },
                 );
             }

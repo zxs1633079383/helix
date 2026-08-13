@@ -24,6 +24,7 @@ pub use super::storage_effects::{
     RecoveryCoverage, RecoveryLedgerEntry,
 };
 pub(crate) use super::sync_effects::batch_upsert_events_with_messages_and_auth_observed;
+pub(crate) use super::sync_effects::pending_send_reconciliations;
 pub use super::sync_effects::{
     batch_upsert_events, batch_upsert_events_with_messages,
     batch_upsert_events_with_messages_and_auth, sync_channel_update_plans, sync_mutation_emits,

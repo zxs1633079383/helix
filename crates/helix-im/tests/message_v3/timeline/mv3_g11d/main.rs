@@ -734,48 +734,50 @@ fn g11d_locate_missing_identity_fails_before_persist() {
         .all(|effect| !matches!(effect, Effect::Persist { .. })));
 }
 
-/// 新 navigation token 取代旧 token 后，迟到的 HTTP 回包只能结算错误且不能写缓存。
+/// locate 等待 authority 时并发 latest 刷新不得让同 reqId 的真实回包失效。
 #[test]
-fn g11d_stale_locate_reply_cannot_overwrite_current_request() {
+fn g11d_latest_refresh_does_not_cancel_inflight_locate_request() {
     let mut harness =
         Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
     attach_latest_window(&mut harness);
     harness.step(
-        locate_command_with("srvfix00000000000000000003", "req-stale", "token-stale"),
+        locate_command_with(
+            "srvfix00000000000000000003",
+            "req-after-refresh",
+            "token-after-refresh",
+        ),
         6,
     );
-    let stale_http = only_http(&harness, "/posts/postContext");
+    let locate_http = only_http(&harness, "/posts/postContext");
+
+    // 模拟 UI 重进频道时发出的 latest refresh；它会替换同频道窗口但不拥有 locate reqId。
+    attach_latest_window(&mut harness);
     harness.step(
-        locate_command_with("srvfix00000000000000000003", "req-current", "token-current"),
-        7,
-    );
-    let current_http = only_http(&harness, "/posts/postContext");
-    harness.step(
-        port_reply_with_body(stale_http.raw(), enveloped(locate_posts())),
+        port_reply_with_body(locate_http.raw(), enveloped(locate_posts())),
         8,
     );
-    let stale_events = emitted_events(&harness);
-    assert_eq!(stale_events.len(), 1);
-    assert_eq!(stale_events[0]["data"]["req_id"], "req-stale");
-    assert!(stale_events[0]["data"].get("error").is_some());
-    assert!(harness
-        .sink
-        .as_slice()
-        .iter()
-        .all(|effect| !matches!(effect, Effect::Persist { .. })));
-
-    harness.step(
-        port_reply_with_body(current_http.raw(), enveloped(locate_posts())),
-        9,
+    let cache = only_cache_write(&harness);
+    harness.step(port_reply_with_body(cache.raw(), Bytes::new()), 9);
+    let durable = durable_rows_value();
+    let mut readback = only_exact_message_scan(&harness);
+    for index in 1..=5 {
+        harness.step(
+            port_reply_with_body(readback.0.raw(), single_durable_row(&durable, &readback.1)),
+            9 + index,
+        );
+        if index < 5 {
+            readback = only_exact_message_scan(&harness);
+        }
+    }
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["data"]["req_id"], "req-after-refresh");
+    assert!(events[0]["data"].get("error").is_none());
+    assert_eq!(
+        events[0]["data"]["body"]["targetPostId"],
+        "srvfix00000000000000000003"
     );
-    assert!(
-        harness
-            .sink
-            .as_slice()
-            .iter()
-            .any(|effect| matches!(effect, Effect::Persist { .. })),
-        "current token must continue to its own cache barrier"
-    );
+    assert_eq!(events[0]["data"]["body"]["targetIndex"], 2);
 }
 
 /// 已完成 Locate coverage 再次定位同一目标时只读本地 coverage，不重复请求 Go。

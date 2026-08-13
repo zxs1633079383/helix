@@ -1,7 +1,7 @@
 // 回归锚: Spec 047/T066-T067，G-15 创建话题。
 
 use bytes::Bytes;
-use helix_core::effect::Effect;
+use helix_core::effect::{Effect, SqlValue, StorageOp};
 use serde_json::{json, Value};
 
 #[path = "../../support/artifact.rs"]
@@ -79,6 +79,30 @@ fn run_success() -> TestResult<(Vec<Value>, Vec<Value>)> {
         common::port_reply_with_body(read.raw(), Bytes::from(rows)),
         1_700_001_510_003,
     );
+    let relation = correlation(harness.sink.as_slice())?;
+    let relation_has_parent_patch = harness.sink.as_slice().iter().any(|effect| {
+        let Effect::Persist { ops, .. } = effect else {
+            return false;
+        };
+        ops.iter().any(|op| {
+            let StorageOp::BatchUpdate(spec) = op else {
+                return false;
+            };
+            spec.table == "channel"
+                && spec.key_col == "id"
+                && spec.key_vals.len() == 1
+                && matches!(spec.key_vals.first(), Some(SqlValue::Text(topic)) if topic == TOPIC_ID)
+                && spec.patch.iter().any(|(column, value)| {
+                    column == "root_id"
+                        && matches!(value, SqlValue::Text(parent) if parent == PARENT_ID)
+                })
+        })
+    });
+    assert!(
+        relation_has_parent_patch,
+        "G-15 must persist topic channel.root_id before publishing events"
+    );
+    harness.step(common::port_reply_ok(relation.raw()), 1_700_001_510_004);
     let sender = events(harness.sink.as_slice());
     Ok((sender.clone(), sender))
 }
@@ -101,6 +125,8 @@ fn g15_emits_created_channel_then_updated_root_after_readback() -> TestResult<()
     assert_eq!(events[0]["data"]["unreadCount"], 0);
     assert_eq!(events[1]["event"], "im:post:updated");
     assert_eq!(events[1]["data"]["id"], ROOT_ID);
+    assert_eq!(events[1]["data"]["message"], "topic root");
+    assert_eq!(events[1]["data"]["eventSeq"], 41);
     assert_eq!(events[1]["data"]["topic"]["channelId"], TOPIC_ID);
     assert_eq!(events[1]["data"]["topic"]["participantCount"], 2);
     assert!(!events

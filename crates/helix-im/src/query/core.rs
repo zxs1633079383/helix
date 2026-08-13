@@ -636,6 +636,7 @@ fn render_dialog_row(row: serde_json::Value) -> serde_json::Value {
         ("user_id", "userId"),
         ("team_id", "teamId"),
         ("root_id", "rootId"),
+        ("root_post_id", "rootPostId"),
         ("member_count", "memberCount"),
         ("unread_count", "unreadCount"),
         ("mention_count", "mentionCount"),

@@ -155,7 +155,7 @@ impl ImModule {
         );
     }
 
-    /// 从持久化后的 root 行发布话题创建绝对态，拒绝用 HTTP 请求体补造字段。
+    /// 从持久化后的 root 行取得父频道，并先建立 topic channel.root_id 持久屏障。
     pub(super) fn handle_make_topic_thread_readback(
         &mut self,
         projection: MakeTopicProjection,
@@ -186,6 +186,55 @@ impl ImModule {
                 "make-topic root row has invalid parent channel".to_string(),
             )
         })?;
+        // HTTP make-topic 的首段 upsert 还不知道父频道；root durable readback 是唯一可信来源。
+        // 先把 root_id 写回 topic channel，再允许 channel_created/post_updated 对 UI 可见。
+        let relation_corr = self.alloc_corr_internal();
+        out.push(Effect::Persist {
+            corr: relation_corr,
+            ops: vec![StorageOp::BatchUpdate(BatchUpdateSpec {
+                table: "channel",
+                key_col: "id",
+                key_vals: vec![SqlValue::Text(
+                    projection.topic_channel_id.as_str().to_string(),
+                )],
+                patch: vec![(
+                    "root_id".to_string(),
+                    SqlValue::Text(channel_id.as_str().to_string()),
+                )],
+            })],
+        });
+        self.state.corr_map.insert(
+            relation_corr,
+            CorrelationContext::OutboundMakeTopicRelationPersist {
+                projection,
+                parent_channel_id: channel_id,
+                root_row: Box::new(root_row.clone()),
+            },
+        );
+        Ok(())
+    }
+
+    /// 关系补丁成功后，才从已读回的 durable root 发布话题创建绝对态。
+    pub(super) fn handle_make_topic_relation_persist_reply(
+        &mut self,
+        projection: MakeTopicProjection,
+        parent_channel_id: ChannelId,
+        root_row: Box<serde_json::Value>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), crate::error::ImError> {
+        if !matches!(outcome, PortOutcome::Ok(_)) {
+            out.push(crate::acl::to_effect::emit_topic_operation_status(
+                &projection.req_id,
+                &projection.root_message_id,
+                "remote-failed",
+                Some(projection.topic_channel_id.as_str()),
+                Some("relation-persist-failed"),
+                false,
+            ));
+            return Ok(());
+        }
+        let root_row = *root_row;
         let mut topic = root_row
             .get("topic")
             .and_then(|value| match value {
@@ -216,7 +265,7 @@ impl ImModule {
                 "id": projection.topic_channel_id.as_str(),
                 "type": "T",
                 "displayName": projection.display_name,
-                "rootId": parent_channel_id,
+                "rootId": parent_channel_id.as_str(),
                 "parentPostId": projection.root_message_id,
                 "members": members,
                 "memberCount": members.as_array().map_or(0, Vec::len),
@@ -226,7 +275,7 @@ impl ImModule {
             .into_effect(),
         );
 
-        let mut fields = crate::ws::parser::extract_post_fields(root_row);
+        let mut fields = crate::ws::parser::extract_post_fields(&root_row);
         if let Some(topic_object) = topic.as_object_mut() {
             topic_object
                 .entry("channelId".to_string())
@@ -236,9 +285,15 @@ impl ImModule {
                 .or_insert_with(|| serde_json::json!(members.as_array().map_or(0, Vec::len)));
         }
         fields.topic = topic.to_string();
+        // make-topic 已改变父频道中的 root row；旧 locate/older/newer coverage 含创建前快照，
+        // 必须在发布可见事件前按频道失效，后续导航才能重新取得 durable topic 绝对态。
+        self.state
+            .invalidate_recent_message_coverage(parent_channel_id);
+        self.state
+            .invalidate_timeline_navigation_coverage(parent_channel_id);
         // 根消息的 postUpdated 必须排在 channelCreated 之后，且只投影 durable root 的字段。
         out.push(crate::acl::to_effect::emit_post_updated_for_viewer(
-            channel_id,
+            parent_channel_id,
             projection.revision,
             projection.root_message_id.as_str(),
             &fields,

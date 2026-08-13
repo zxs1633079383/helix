@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 客户端 Helix native composition root 统一接入可选 OTLP Trace 与 Metrics；缺少环境变量时保持 Noop 且 `yarn start` 不因 Collector 不可达失败；聚焦 `cses-client/src-tauri/src/features/helix_im/{mod,runtime,observability}.rs` 与 `.env.example`，Helix core 不新增运行时依赖 | 赌注 高 | 可逆 是 | @2026-08-12T
+
+✅ DONE 客户端已在 `helix_im::runtime::spawn` 复用 Helix host 的 `HostOtelRuntime`、`TraceHooks`、`BoundedMetricRuntime` 和共享有界 `AsyncMetricSink`，覆盖 HTTP/WS/Storage/Event/Engine；debug `yarn start` 无变量时使用 Host 默认 Collector，release 无变量或显式关闭时 Noop。`cargo check --manifest-path src-tauri/Cargo.toml --lib`、可选布尔值聚焦单测、`tauri-dev-with-portable-helix.mjs --check`、`git diff --check` 通过；新 observability 文件热路径审计通过，桌面真实启动与 Collector 收包未在本轮执行，仍需真实运行态确认。
+
 🎯 EXPECT 完成 MessageV3 第一批 9 个运行态 Gate 与第二批 Pin/Search/Todo 9 个代码 Gate 的真实闭环；可证伪断言：① 第一批只在新的 run-owned 活跃频道上重取 Go `posts/create`/producer/WS、Helix projection、SQLite read-back 和 emit 证据，G03a、G11a/b/c/d/e/g/h、G07d 未取得逐跳终态前不得改成 PASS；② Pin G05f/g 必须证明 Go pin HTTP→WS `post_pin`→Helix `im:post:updated`→SQLite props 读回，Search G14a-c 必须证明 Angular/Helix/Go command/body/`im:read:result` 合同，Todo G15a-d 必须证明真实 mutation→Go WS→Helix 自动 `im:todo:updated` 投影；③ 不改动现有 Angular `src-tauri/Cargo.toml` 与 `visual/`、Helix artifacts，不泄露 DSN/凭据；④ 每个新增/修改函数有紧邻注释，Rust cargo 只在完整模块和最终验收运行，最终按批次提交但不 push | 赌注 高 | 可逆 是 | @2026-08-11T16:05:00+0800
 
 ✅ DONE 第一批 9 个与第二批 9 个已完成真实复验：G03a、G11a/b/c/d/e/g/h、G07d、G05f/g、G14a/b/c、G15a/b/c/d 的最新 `evidence.json` 全部为 PASS。84 Gate 最新汇总为 Phase1 `22/5/5/1`、Phase2 `16/0/0/4`、Phase3 `15/0/0/0`、Phase4 `16/0/0/0`，总计 `69 PASS / 5 BLOCKED_PRECONDITION / 5 NOT_VERIFIED / 5 NOT_APPLICABLE`。验证包含 focused Rust real-chain、Go pin/store/app tests、`go build ./...`、`go vet ./...`、`git diff --check`；缺口清单与 handoff 已同步到 `crates/helix-driver-native/tests/messageV3-domain/`，未启动 WDIO、未执行真实数据库 migration、未 push | @2026-08-11T17:10:00+0800
@@ -28,6 +32,23 @@
 
 ✅ DONE Phase1 三仓矩阵、33 Gate/3 Gap 对账、真实 WDIO runner 与 fail-closed summary 已落地；contract 4/4、Node syntax、diff check 通过，当前分支已拆为两批提交。真实业务 run 尚未启动：Go 8066 health=200，但 4544 已被现有 cses-client 占用，runner 按合同返回 `BLOCKED_PRECONDITION`，未把 health 或静态类当作业务 PASS | @2026-08-11T09:35:00+0800
 ⚡ DRIFT-PRED 实跑预期受现有 4544 监听进程阻断，未取得本轮 HTTP→WS→Native projection→DOM/storage 证据；释放 4544-4546 后须重跑至少 `send-core`，再决定 Phase1 全量是否可晋级 | @2026-08-11T09:35:00+0800
+🎯 EXPECT 按 Spec 047 manifest 将 P1-P4 的 22 个 Helix Gate 拆为 `docs/mmd/Phase -> Domain -> Gate` 目录并补齐细粒度时序图；可证伪断言：① 新增 22 个 Gate Mermaid 文件和一个索引，目录/文件名与 manifest 的 phase/domain/gate_id 一一对应；② 每张图都包含 cses-client Tauri/Angular 入站、helix-im Tick/Effect/PersistOk、Go HTTP/WS、Native/FFI/Web raw event 交付与当前证据边界；③ 不把 HTTP 2xx、accepted、Rust replay 或静态注册写成真实三端 Green；④ 只改 docs/mmd 与本条 SESSION，不改业务代码、Spec manifest 或现有发送消息参考图；⑤ Mermaid 文本结构、manifest 对账、路径检查与 `git diff --check` 通过 | 赌注 中 | 可逆 是 | @2026-08-11T10:00:00+0800
+
+✅ DONE 已新增 `docs/mmd/README.md` 与 22 张 Phase1-P4 Gate 时序图：P1=2、P2=9、P3=2、P4=9，manifest 对账 22/22；每图覆盖 cses-client/FFI/Web ingress、Tick/Effect/PortReply、SQLite/Go HTTP-WS、PersistOk/readback、Effect::Emit 与 raw bytes 交付，并保留 NOT_SYNCED_BY_SCOPE/NOT_VERIFIED 边界。Mermaid block、相对链接、非空文件与 `git diff --check` 通过；文档已提交 `da99c2a1`，未运行 Cargo/Go/WDIO/真实三端链路。
+
+🎯 EXPECT 修正指定 10 张 Gate Mermaid 的解析语法且保持流程语义不变；可证伪断言：① 只替换 Mermaid 消息文本中的非法 ASCII `->`/`;` 等语法字符，不改参与者、步骤、事件名或分支含义；② 指定 10/10 文件可由 Mermaid CLI 解析；③ `git diff --check` 通过，不修改其他 Gate 或业务代码 | 赌注 低 | 可逆 是 | @2026-08-11T10:30:00+0800
+
+✅ DONE 指定 10 张图已将消息文本中的 ASCII `->`/`;` 等 Mermaid 保留符号替换为等义 Unicode 文本，未改变流程步骤；Mermaid CLI 10/10 PASS，`git diff --check` PASS。未修改其他 Gate、业务代码或现有发送消息参考图；修正尚未单独提交。
+
+🎯 EXPECT 按 cses-client 的 MessageV3 84 Gate 机读分母重建 `docs/mmd/Phase1-4/Domain/Gate` 流程图；可证伪断言：① Phase1/2/3/4 分别生成 33/20/15/16 张、总计 84 张 Gate Mermaid；② 目录领域严格对应 manifest（P2=read/timeline/sync，P3=channel/channel_member，P4=pin/bookmark/search/todo/announcement）；③ 每张图包含客户端入口、Helix command 或 inbound 边界、Tick/Effect/PortReply、SQLite/Go HTTP/WS、PersistOk/Result/Emit 与当前 partial/none 证据边界；④ 删除旧的 22 Gate 错相目录文件但保留 `发送消息.mmd` 参考图和现有用户脏改；⑤ manifest 对账、Mermaid 解析和 `git diff --check` 通过 | 赌注 高 | 可逆 是 | @2026-08-11T11:00:00+0800
+
+✅ DONE 已按 cses-client manifest 重建 84 张 Gate 图：Phase1=33、Phase2=20（read/timeline/sync）、Phase3=15（channel/channel_member）、Phase4=16（pin/bookmark/search/todo/announcement）；旧 22 张错相目录图已移除，`发送消息.mmd` 保留为参考。manifest 目录对账 84/84，Mermaid CLI 11.16.0 解析 84/84 PASS；只读查询路径已收敛为 Command Result，当前 mock/helix partial、none、待定和断供仍按合同标注，未宣称真实三端 Green。
+
+🎯 EXPECT 为 `docs/mmd/` 建立渐进式披露规则并由项目根 `AGENTS.md` 路由；可证伪断言：① 新增 `docs/mmd/AGENTS.md`，明确 L0-L4 阅读顺序、84 Gate 真源、目录合同、边界和验证；② 根 `AGENTS.md` 与 `docs/mmd/README.md` 均直接指向局部规则；③ 不修改 84 张 Gate 图、生产代码或用户已有 staged 参考图；④ 链接、规则章节和 `git diff --check` 通过 | 赌注 低 | 可逆 是 | @2026-08-11T15:11:53+0800
+
+✅ DONE 已新增 `docs/mmd/AGENTS.md` 并在根 `AGENTS.md`、`docs/mmd/README.md` 建立入口；L0-L4 渐进式披露、84 Gate 分母、Phase/Domain、真源、负向事实和 Mermaid/manifest 验证合同均已固化。6 个局部链接、7 个必需规则章节和 `git diff --check` 通过；未修改 Gate 图、生产代码或根目录 `发送消息.mmd`。
+
+🎯 EXPECT Phase1 三仓真实链路测试按 `Phase1 → Domain → Gate` 分包落地；可证伪断言：① 只在独立 worktree `codex/messagev3-phase1-real-chain` 修改 Helix 测试/runner/证据文档，不改当前主工作树、Go/Angular 生产代码；② 默认无需用户配置环境变量，runner 自动发现 `localhost:8066` 与现有 Angular/Go 运行态，缺依赖时 fail-closed；③ 每个 Phase1 Domain/Gate 至少有独立测试类或明确 `GAP`，覆盖 HTTP ack、Storage persist/readback、WS callback、Helix `Effect::Emit` 与 Angular 接收读回；④ 任何 `PASS` 都必须有真实服务/DB/WS/UI 证据，Rust synthetic、Go httptest、Angular mock 只能标 `CONTRACT`/`FOCUSED`；⑤ 通过 `git diff --check`、聚焦 Rust/Go/Angular 测试后按 Phase1→Domain 批次提交，不自动 push | 赌注 高 | 可逆 是 | @2026-08-11T09:00:00+0800
 
 🎯 EXPECT 以独立 Search Gate 合同接通现有四个搜索命令；可证伪断言：① 仅修改 `helix-im` 现有 search outbound、三份聚焦测试、独立 Search 合同与本活账，不改冻结 Spec047、core 或任一 driver；② `im_search_post/user/channel/do` 均要求非空 `req_id`，拒绝 `user_id/team_id/company_id/sort`，并把 public snake_case 精确转换为 Go camelCase；③ post 支持有界筛选与 cursor，channel scope 缺 channel_id、无 keyword 且无筛选、非法时间或 page_size 均 fail-closed，另外三命令 keyword 必填；④ `im_search_do` 改为 read 并继续只通过既有 `im:read:result` 回灌，不新增事件、ABI、reducer 或缓存；⑤ focused test、`cargo check -p helix-im` 与 `git diff --check` 通过后独立提交且不 push | 赌注 高 | 可逆 是 | @2026-08-06T19:11:07+0800
 
@@ -425,3 +446,7 @@
 
 ✅ DONE 直接修正 Phase1 Upload 测试类且未启动 WDIO：G01c/d/e/g 以 Angular Java/fileDrive/OSS 完成后的稳定媒体引用真实打 Go `posts/create`，G03c 以 `postIds + channelIds` 真实转发，全部聚焦测试通过并取得 WS/Helix/SQLite/emit 子链；G02d 以 Helix planner 精确拒绝 67,108,865 bytes 并取得零副作用 PASS。最新账为 Phase1 21 PASS / 6 BLOCKED_PRECONDITION / 5 NOT_VERIFIED / 1 NOT_APPLICABLE，总计 51/23/5/5；媒体完整 Gate 仍因本轮未取 Java/fileDrive/OSS 字节级同轮证据保持 BLOCKED。@2026-08-11T15:20:00+0800
 ⚡ DRIFT-PRED 原先把 Go `/media/upload/prepare` 的 `media.type NOT NULL` 当作 Angular 媒体链根因；核对 Angular `FileService`、Java/fileDrive/OSS 与 Helix strict matrix 后改为稳定引用→Go post 子链，旧 Go-owned probe 保持忽略并降级为独立诊断 → 候选教训：媒体 Gate 必须先锁定真实上传 owner，再决定 Go 是字节平面还是 post consumer。@2026-08-11T15:20:00+0800
+
+🎯 EXPECT 修复 MV3-G10e notify-only `update_channel` 的 HTTP→Go WS→Helix PersistOk→SQLite→`im:channel:update` 收敛；可证伪断言：① `NORMAL/STRONG/IGNORE` 只更新当前 viewer 的通知字段，缺失/非法/混合 payload fail-closed 且不改 unread/top；② event 与 query 统一输出当前真实 scalar `notifyProps`；③ Helix focused/native G10e 回归和 `git diff --check` 通过，真实 iOS SDK 不具备时明确 BLOCKED_IOS_TOOLCHAIN，不伪造 artifact hash | 赌注 高 | 可逆 是 | @2026-08-12T00:00:00+0800
+✅ DONE 已修复 notify-only WS 的严格三态解析、channel/member 双层持久化、PersistOk 后 durable readback 事件与 scalar `notifyProps` 合同；Helix G10e 4/4、P4 WS 10/10、core 16+、三端 check、wasm、Native target 1/1 均通过。Native 真链本轮因运行中 Go `/api/cses/channel/member/change/notify` 返回 `status=failed,message=not found` 留在 `BLOCKED_PRECONDITION`；iOS SDK 不可用，未伪造 mobile artifact hash。@2026-08-12T00:00:00+0800
+⚡ DRIFT-PRED 真实运行态额外暴露 Go 8066 当前二进制未挂载 notify route，故 HTTP→Go DB 之后的 WS/Helix/SQLite 证据无法取得；需重启/部署含该 route 的 Go binary 后重跑 Native G10e，不把 Helix focused 或 HTTP health 当作跨仓 Green。@2026-08-12T00:00:00+0800

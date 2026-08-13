@@ -1,0 +1,50 @@
+
+sequenceDiagram
+participant UI as Angular UI
+participant Tauri as Tauri command
+participant Tick as Tick/Engine
+participant Core as helix-im
+participant Host as host driver
+participant DB as SQLite
+participant Go as Go IM Server
+participant Bus as im:__bus__
+
+UI->>Tauri: im_send_message(payload)
+Tauri->>Tick: Tick::Command(AppCommand)
+Tick->>Core: ExecutionShell::step
+Core->>Core: 校验、生成 temporary_id、构造 body
+Core->>Host: Effect::Persist(P1)
+Host->>DB: BatchUpsert message
+DB-->>Host: PortReply(P1, Ok)
+Host->>Core: Tick::PortReply(P1)
+Core->>Bus: Emit im:post:sending
+
+opt 已挂载 timeline
+Core->>Host: Persist(Scan message)
+Host-->>Core: PortReply(timeline)
+end
+
+Core->>Host: Effect::Http POST /posts/create
+Host->>Go: HTTP request
+Go-->>Host: HTTP 2xx admission
+Note over Core,Go: 仍然是 Sending，不是 Sent
+
+Go-->>Host: WS post echo
+Host->>Core: Tick::Inbound(post)
+
+par 发送对账
+Core->>Host: Persist(message temp/id/sent)
+Core->>Host: CancelTimer
+and MessageV3 G-01
+Core->>Host: PersistAtomic(message/channel/member/cursor)
+Host-->>Core: PortReply(G-01)
+Core->>Host: Persist(ScopedGet channel_member)
+Host-->>Core: PortReply(readback)
+Core->>Bus: Emit im:post:received(sendStatus=sent)
+end
+
+alt HTTP error or timeout
+Core->>Host: Persist(message temporary_id/unsend)
+Core->>Host: CancelTimer
+Core->>Bus: Emit im:post:send-failed
+end

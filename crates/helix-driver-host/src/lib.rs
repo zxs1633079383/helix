@@ -56,7 +56,9 @@ pub use owned_effect::{consume_effects, OwnedEffect};
 pub use reconnect::{spawn_reconnect_supervisor, ReconnectPolicy, ReconnectTraceSink};
 pub use spawner::{BoundedSpawner, Job, Overflow};
 pub use storage::HostStorage;
-pub use tick_ingress::{tick_ingress_channel, TickIngressReceiver, TickIngressSender};
+pub use tick_ingress::{
+    tick_ingress_channel, tick_ingress_channel_observed, TickIngressReceiver, TickIngressSender,
+};
 pub use timer::TimerRegistry;
 pub use trace::{
     CommandTraceQueue, TraceCarrier, TraceCarrierError, TraceHooks, TraceHooksImpl, TraceScope,

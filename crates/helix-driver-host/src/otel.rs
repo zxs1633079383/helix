@@ -1,9 +1,10 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 
+use crate::metrics::{AsyncMetricSink, NoopMetricSink};
 use crate::trace::{parse_trace_id, TraceCarrier};
 
 mod exporter;
@@ -59,15 +60,34 @@ struct RuntimeInner {
     last_span: Mutex<Option<HostSpanSnapshot>>,
     seq: AtomicU64,
     exporter: Option<Arc<OtlpExporter>>,
+    slow_threshold: Duration,
 }
 
 impl HostOtelRuntime {
     pub fn new(config: HostOtelConfig) -> Self {
+        Self::new_with_metric_sink(config, Arc::new(NoopMetricSink))
+    }
+
+    /// 构造 trace runtime 并把 exporter 自指标写入共享有界 Metrics sink。
+    pub fn new_with_metric_sink(config: HostOtelConfig, metrics: Arc<dyn AsyncMetricSink>) -> Self {
+        Self::new_with_metric_sink_and_slow_threshold(
+            config,
+            metrics,
+            Duration::from_millis(env_u64("HELIX_OTEL_SLOW_TRACE_MS", 250)),
+        )
+    }
+
+    /// 构造带显式慢 Trace 阈值的 runtime，供 YAML composition root 使用。
+    pub fn new_with_metric_sink_and_slow_threshold(
+        config: HostOtelConfig,
+        metrics: Arc<dyn AsyncMetricSink>,
+        slow_threshold: Duration,
+    ) -> Self {
         let exporter = if config.enabled
             && !config.endpoint.eq_ignore_ascii_case("noop")
             && !config.protocol.eq_ignore_ascii_case("noop")
         {
-            OtlpExporter::new(&config).map(Arc::new)
+            OtlpExporter::new(&config, metrics).map(Arc::new)
         } else {
             None
         };
@@ -78,22 +98,34 @@ impl HostOtelRuntime {
                 last_span: Mutex::new(None),
                 seq: AtomicU64::new(1),
                 exporter,
+                slow_threshold,
             }),
         }
     }
 
     pub fn from_env(default_service_name: &str) -> Self {
+        Self::from_env_with_metric_sink(default_service_name, Arc::new(NoopMetricSink))
+    }
+
+    /// 从可选环境变量构造 trace runtime，并注入 exporter 自指标 sink。
+    pub fn from_env_with_metric_sink(
+        default_service_name: &str,
+        metrics: Arc<dyn AsyncMetricSink>,
+    ) -> Self {
         let defaults = HostOtelConfig::default();
-        Self::new(HostOtelConfig {
-            enabled: env_flag("HELIX_OTEL_ENABLED", defaults.enabled),
-            service_name: std::env::var("HELIX_OTEL_SERVICE_NAME")
-                .or_else(|_| std::env::var("OTEL_SERVICE_NAME"))
-                .unwrap_or_else(|_| default_service_name.to_string()),
-            endpoint: std::env::var("HELIX_OTEL_ENDPOINT")
-                .or_else(|_| std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT"))
-                .unwrap_or(defaults.endpoint),
-            protocol: std::env::var("HELIX_OTEL_PROTOCOL").unwrap_or(defaults.protocol),
-        })
+        Self::new_with_metric_sink(
+            HostOtelConfig {
+                enabled: env_flag("HELIX_OTEL_ENABLED", defaults.enabled),
+                service_name: std::env::var("HELIX_OTEL_SERVICE_NAME")
+                    .or_else(|_| std::env::var("OTEL_SERVICE_NAME"))
+                    .unwrap_or_else(|_| default_service_name.to_string()),
+                endpoint: std::env::var("HELIX_OTEL_ENDPOINT")
+                    .or_else(|_| std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT"))
+                    .unwrap_or(defaults.endpoint),
+                protocol: std::env::var("HELIX_OTEL_PROTOCOL").unwrap_or(defaults.protocol),
+            },
+            metrics,
+        )
     }
 
     pub fn span(
@@ -189,7 +221,7 @@ impl HostOtelRuntime {
 
     fn export(
         &self,
-        snapshot: HostSpanSnapshot,
+        mut snapshot: HostSpanSnapshot,
         baggage: Option<String>,
         start_time: SystemTime,
         end_time: SystemTime,
@@ -197,6 +229,16 @@ impl HostOtelRuntime {
         let Some(exporter) = &self.inner.exporter else {
             return;
         };
+        let elapsed = end_time.duration_since(start_time).unwrap_or_default();
+        if elapsed >= self.inner.slow_threshold {
+            snapshot
+                .attributes
+                .push(("helix.slow".to_string(), "true".to_string()));
+            snapshot.attributes.push((
+                "helix.duration_ms".to_string(),
+                elapsed.as_millis().to_string(),
+            ));
+        }
         exporter.try_enqueue(snapshot, baggage, start_time, end_time);
     }
 }
@@ -257,6 +299,14 @@ fn env_flag(name: &str, default: bool) -> bool {
                 "1" | "true" | "TRUE" | "True" | "yes" | "YES" | "on" | "ON"
             )
         })
+        .unwrap_or(default)
+}
+
+/// 读取正整数环境覆盖；缺失或非法时保持可选默认值。
+fn env_u64(name: &str, default: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
         .unwrap_or(default)
 }
 

@@ -34,6 +34,7 @@ observability:
     serviceName: "helix-host-cli"
     endpoint: "http://opentelemetry-collector.monitoring.svc.cluster.local:4317"
     protocol: "grpc"
+    slowTraceThresholdMs: 250  # 可选；缺失默认 250ms，不影响本地启动
     sampler:
       type: "parentbased_traceidratio"
       ratio: 1.0

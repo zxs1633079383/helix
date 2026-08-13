@@ -46,4 +46,6 @@ pub use helix_driver_host::AuthTokenRegistry;
 pub use helix_driver_host::SharedHttpClient;
 // 共享本地文件上传器：host-cli / shell 通过 native 装配 `EngineConfig.uploader`，免直依 driver-host。
 pub use helix_driver_host::SharedFileUploader;
-pub use helix_driver_host::{tick_ingress_channel, TickIngressReceiver, TickIngressSender};
+pub use helix_driver_host::{
+    tick_ingress_channel, tick_ingress_channel_observed, TickIngressReceiver, TickIngressSender,
+};

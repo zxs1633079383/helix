@@ -22,6 +22,10 @@ pub enum LabelKey {
     StatusClass,
     ErrorKind,
     ExporterState,
+    Pool,
+    Consumer,
+    Overflow,
+    LifecycleState,
 }
 
 impl LabelKey {
@@ -47,6 +51,10 @@ impl LabelKey {
             Self::StatusClass => "status_class",
             Self::ErrorKind => "error_kind",
             Self::ExporterState => "exporter_state",
+            Self::Pool => "pool",
+            Self::Consumer => "consumer",
+            Self::Overflow => "overflow",
+            Self::LifecycleState => "lifecycle_state",
         }
     }
 }
@@ -72,6 +80,10 @@ pub const ALLOWED_LABEL_KEYS: &[LabelKey] = &[
     LabelKey::StatusClass,
     LabelKey::ErrorKind,
     LabelKey::ExporterState,
+    LabelKey::Pool,
+    LabelKey::Consumer,
+    LabelKey::Overflow,
+    LabelKey::LifecycleState,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -133,7 +145,7 @@ mod tests {
 
     #[test]
     fn whitelist_is_exact_and_excludes_high_cardinality_keys() {
-        assert_eq!(ALLOWED_LABEL_KEYS.len(), 20);
+        assert_eq!(ALLOWED_LABEL_KEYS.len(), 24);
         let names: Vec<_> = ALLOWED_LABEL_KEYS.iter().map(|key| key.as_str()).collect();
         for forbidden in [
             "runId",

@@ -20,5 +20,15 @@ groups:
         expr: histogram_quantile(0.95, sum by (service_name, platform, scenario, operation, le) (rate(otel_helix_http_request_duration_seconds_bucket[5m])))
       - record: otel:helix_http_duration:p99_5m
         expr: histogram_quantile(0.99, sum by (service_name, platform, scenario, operation, le) (rate(otel_helix_http_request_duration_seconds_bucket[5m])))
+      - record: otel:helix_tick_queue_wait:p95_5m
+        expr: histogram_quantile(0.95, sum by (service_name, platform, scenario, tick_kind, le) (rate(otel_helix_tick_queue_wait_seconds_bucket[5m])))
+      - record: otel:helix_pool_residency:p95_5m
+        expr: histogram_quantile(0.95, sum by (service_name, platform, scenario, pool, le) (rate(otel_helix_pool_queue_residency_seconds_bucket[5m])))
+      - record: otel:helix_pool_execution:p95_5m
+        expr: histogram_quantile(0.95, sum by (service_name, platform, scenario, pool, le) (rate(otel_helix_pool_execution_seconds_bucket[5m])))
+      - record: otel:helix_client_consumer_lag:rate5m
+        expr: sum by (service_name, platform, scenario, consumer) (rate(otel_helix_event_lagged_total[5m]))
+      - record: otel:helix_telemetry_drop:rate5m
+        expr: sum by (service_name, platform, scenario, __name__) (rate({__name__=~"otel_helix_(metrics|traces)_dropped_total"}[5m]))
       - record: otel:helix_correctness:increase30m
         expr: sum by (service_name, platform, scenario, __name__) (increase({__name__=~"otel_helix_(lost|duplicate|order_violation|wrong_channel|cursor_regression|projection_mismatch|persist_remaining|cleanup_residue)_total"}[30m]))

@@ -68,7 +68,31 @@ async fn lagged_records_metric() {
         sink.emit(DomainEventBytes(Bytes::from(vec![i])));
     }
     assert!(matches!(observed.recv().await, RecvOutcome::Lagged(_)));
-    assert_eq!(metrics.0.lock().unwrap()[0].id, MetricId::EventLaggedTotal);
+    assert!(metrics
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|event| event.id == MetricId::EventLaggedTotal));
+}
+
+/// observed receiver 应携带 consumer 标签并发布 receiver Gauge。
+#[tokio::test]
+async fn observed_receiver_records_bounded_consumer_identity() {
+    let metrics = Arc::new(RecordingMetrics::default());
+    let (sink, _rx) = NativeEventSink::new();
+    let sink = sink.with_metric_sink(metrics.clone());
+    let _observed = sink.subscribe_observed_as("tauri_bridge");
+
+    let events = metrics.0.lock().unwrap();
+    let receiver = events
+        .iter()
+        .find(|event| event.id == MetricId::EventReceiverCount)
+        .expect("订阅必须发布 receiver count");
+    assert!(receiver
+        .labels
+        .iter()
+        .any(|label| { label.key == LabelKey::Consumer && label.value == "tauri_bridge" }));
 }
 
 #[tokio::test]

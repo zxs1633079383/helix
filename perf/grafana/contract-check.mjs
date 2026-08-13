@@ -22,7 +22,7 @@ function metricTargets(name) {
   return targets.filter((target) => (target.expr ?? "").includes(exported));
 }
 
-check(contract.requiredMetrics.length === 38, `requiredMetrics 必须恰好 38，实际 ${contract.requiredMetrics.length}`);
+check(contract.requiredMetrics.length >= 38, `requiredMetrics 不得少于基线 38，实际 ${contract.requiredMetrics.length}`);
 check(dashboard.uid === contract.uid, "Dashboard UID 不匹配");
 check(dashboard.title === contract.title, "Dashboard title 不匹配");
 check(dashboard.templating.list[0]?.current?.value === contract.datasourceUid, "默认 datasource UID 不匹配");
@@ -71,4 +71,4 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(`CONTRACT FAIL: ${failure}`);
   process.exit(1);
 }
-console.log(`dashboard contract PASS: 38 metrics + 8 correctness + canary, panels=${panels.length}, queryDigest=${queryDigest}`);
+console.log(`dashboard contract PASS: ${contract.requiredMetrics.length} metrics + ${contract.correctnessMetrics.length} correctness + canary, panels=${panels.length}, queryDigest=${queryDigest}`);

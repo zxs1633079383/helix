@@ -8,22 +8,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use tokio::sync::mpsc;
-
-use helix_core::effect::{FileUploadRequest, HttpRequest};
-use helix_core::ports::{EventSink, FrameSender, Storage};
-use helix_core::Tick;
-
 use crate::engine::perf_metrics::EngineMetricRecorder;
 use crate::engine::TransportTable;
 use crate::metrics::{AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels};
 use crate::owned_effect::OwnedEffect;
 use crate::pools::{get_or_spawn_persist, PersistJobPayload};
-use crate::spawner::{BoundedSpawner, Job};
+use crate::spawner::{BoundedSpawner, FeedbackSink, Job};
 use crate::table_set_key;
 use crate::tick_ingress::EngineTickSender;
 use crate::timer::TimerRegistry;
 use crate::trace::TraceHooks;
+use helix_core::effect::{FileUploadRequest, HttpRequest};
+use helix_core::ports::{EventSink, FrameSender, Storage};
 
 /// 把一批 OwnedEffect 分流兑现（async，BoundedSpawner submit，Block 满时等待）。
 #[allow(clippy::too_many_arguments)]
@@ -36,7 +32,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
     http_fire_pool: &BoundedSpawner<HttpRequest>,
     event_sink: &Arc<E>,
     timer_registry: &mut TimerRegistry,
-    reply_tx: &mpsc::UnboundedSender<Tick>,
+    reply_tx: &FeedbackSink,
     persist_workers: &mut HashMap<String, BoundedSpawner<PersistJobPayload>>,
     transports: &TransportTable<Fs>,
     trace: &TraceHooks,
@@ -47,6 +43,8 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
     Fs: FrameSender + Send + 'static,
 {
     for effect in effects {
+        let effect_kind = dispatch_effect_kind(&effect);
+        let dispatch_started = perf_metrics.start_timer();
         perf_metrics.on_effect_dispatch(&effect);
         let metrics = perf_metrics.sink();
         match effect {
@@ -59,6 +57,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                     key,
                     Arc::clone(storage),
                     reply_tx.clone(),
+                    perf_metrics.sink_handle(),
                 );
                 // Block submit：队列满时 .await 阻塞主循环，背压传导到 tick_tx（不变量2）。
                 let queued_at = metrics.is_enabled().then(Instant::now);
@@ -88,6 +87,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                     key,
                     Arc::clone(storage),
                     reply_tx.clone(),
+                    perf_metrics.sink_handle(),
                 );
                 let queued_at = metrics.is_enabled().then(Instant::now);
                 sp.submit(Job {
@@ -116,6 +116,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                     key,
                     Arc::clone(storage),
                     reply_tx.clone(),
+                    perf_metrics.sink_handle(),
                 );
                 let queued_at = metrics.is_enabled().then(Instant::now);
                 sp.submit(Job {
@@ -184,10 +185,15 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                 mut frame,
             } => match transports.get(&transport) {
                 Some(t) => {
+                    let frame_len = frame.len();
+                    let send_started = metrics.is_enabled().then(Instant::now);
                     trace.on_ws_send(transport, &mut frame);
                     // 表内 `Arc<Fs>`（无外层锁）→ 直接 `t.send()`（`&self`）。并发 send 由
                     // sender 内部 state 锁串行化（既有锁，非本路径新增 per-Send 锁，守 HX-C005）。
-                    if let Err(e) = t.send(frame).await {
+                    let result = t.send(frame).await;
+                    record_ws_send(metrics, frame_len, send_started, result.is_ok());
+                    if let Err(e) = result {
+                        record_effect_dispatch_error(metrics, "ws_send_failed");
                         tracing::warn!(
                             transport_id = transport.raw(),
                             error = %e,
@@ -196,6 +202,8 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                     }
                 }
                 None => {
+                    record_ws_send(metrics, frame.len(), None, false);
+                    record_effect_dispatch_error(metrics, "ws_transport_missing");
                     record_operation(metrics, "ws_send", "error");
                     record_error(metrics, "ws_transport_missing");
                     tracing::warn!(
@@ -213,6 +221,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                 kind,
                 payload,
             } => {
+                record_effect_dispatch_error(metrics, "request_deferred");
                 record_error(metrics, "request_deferred");
                 tracing::warn!(
                     corr = corr.raw(),
@@ -226,7 +235,21 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
             OwnedEffect::Emit { event } => {
                 record_operation(metrics, "event_emit", "ok");
                 trace.on_event_emit(&event);
+                let emit_started = metrics.is_enabled().then(Instant::now);
                 event_sink.emit(event);
+                if let Some(started) = emit_started {
+                    let labels = MetricLabels::one(LabelKey::Stage, "event");
+                    let _ = metrics.try_record(MetricEvent::counter(
+                        MetricId::EventEmittedTotal,
+                        1.0,
+                        labels,
+                    ));
+                    let _ = metrics.try_record(MetricEvent::histogram(
+                        MetricId::EventEmitDurationSeconds,
+                        started.elapsed().as_secs_f64(),
+                        labels,
+                    ));
+                }
             }
 
             // ── ScheduleTimer（timer fires → 往 tick_tx 有界发送）─────────
@@ -241,6 +264,77 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                 timer_registry.cancel(id);
             }
         }
+        if let Some(started) = dispatch_started {
+            let _ = metrics.try_record(MetricEvent::histogram(
+                MetricId::EffectDispatchDurationSeconds,
+                started.elapsed().as_secs_f64(),
+                MetricLabels::one(LabelKey::Stage, "effect")
+                    .with(LabelKey::EffectKind, effect_kind),
+            ));
+        }
+    }
+}
+
+/// 记录 WS send 的吞吐、字节、耗时与结果，禁止 frame 内容进入标签。
+fn record_ws_send(
+    metrics: &dyn AsyncMetricSink,
+    frame_len: usize,
+    started: Option<Instant>,
+    success: bool,
+) {
+    if !metrics.is_enabled() {
+        return;
+    }
+    let labels = MetricLabels::one(LabelKey::Stage, "ws")
+        .with(LabelKey::Direction, "outbound")
+        .with(LabelKey::Status, if success { "ok" } else { "error" });
+    let _ = metrics.try_record(MetricEvent::counter(MetricId::WsFramesTotal, 1.0, labels));
+    let _ = metrics.try_record(MetricEvent::histogram(
+        MetricId::WsFrameBytes,
+        frame_len as f64,
+        labels,
+    ));
+    if let Some(started) = started {
+        let _ = metrics.try_record(MetricEvent::histogram(
+            MetricId::WsSendDurationSeconds,
+            started.elapsed().as_secs_f64(),
+            labels,
+        ));
+    }
+    if !success {
+        let _ = metrics.try_record(MetricEvent::counter(
+            MetricId::WsSendErrorsTotal,
+            1.0,
+            labels,
+        ));
+    }
+}
+
+/// 记录 Effect 在 host dispatch 边界失败的结构化分母。
+fn record_effect_dispatch_error(metrics: &dyn AsyncMetricSink, error_kind: &'static str) {
+    if metrics.is_enabled() {
+        let _ = metrics.try_record(MetricEvent::counter(
+            MetricId::EffectDispatchErrorsTotal,
+            1.0,
+            MetricLabels::one(LabelKey::Stage, "effect").with(LabelKey::ErrorKind, error_kind),
+        ));
+    }
+}
+
+/// 将 OwnedEffect 映射为冻结的 dispatch 标签，不分配调试字符串。
+fn dispatch_effect_kind(effect: &OwnedEffect) -> &'static str {
+    match effect {
+        OwnedEffect::Persist { .. } => "persist",
+        OwnedEffect::PersistAtomic { .. } => "persist_atomic",
+        OwnedEffect::PersistFire { .. } => "persist_fire",
+        OwnedEffect::Http { .. } => "http",
+        OwnedEffect::HttpFire { .. } => "http_fire",
+        OwnedEffect::UploadFile { .. } => "upload",
+        OwnedEffect::Send { .. } => "send",
+        OwnedEffect::Request { .. } => "request",
+        OwnedEffect::Emit { .. } => "emit",
+        OwnedEffect::ScheduleTimer { .. } => "schedule_timer",
+        OwnedEffect::CancelTimer { .. } => "cancel_timer",
     }
 }
 

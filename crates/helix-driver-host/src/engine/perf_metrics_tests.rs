@@ -8,10 +8,20 @@ use std::sync::Mutex;
 struct RecordingMetricSink(Mutex<Vec<MetricEvent>>);
 
 impl AsyncMetricSink for RecordingMetricSink {
+    /// 收集聚焦测试产生的指标事件，避免接入真实 exporter。
     fn try_record(&self, event: MetricEvent) -> RecordOutcome {
         self.0.lock().unwrap().push(event);
         RecordOutcome::Accepted
     }
+}
+
+/// Engine 指标记录器必须保持小对象，避免占满 Tokio worker 的默认任务栈。
+#[test]
+fn engine_metric_recorder_remains_small_on_tokio_task_stack() {
+    assert!(
+        std::mem::size_of::<EngineMetricRecorder>() <= 512,
+        "EngineMetricRecorder 不得把固定 correlation 表内联进 async task 栈"
+    );
 }
 
 #[test]

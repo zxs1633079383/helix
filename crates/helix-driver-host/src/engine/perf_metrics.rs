@@ -11,7 +11,8 @@ use crate::owned_effect::{EffectSummary, OwnedEffect};
 pub(crate) struct EngineMetricRecorder {
     sink: Arc<dyn AsyncMetricSink>,
     enabled: bool,
-    port_slots: [Option<PendingPort>; MAX_PENDING_PORTS],
+    /// 固定容量 correlation 表驻留堆上，避免把约 200 KiB 内联进 Tokio async task 栈。
+    port_slots: Box<[Option<PendingPort>]>,
     pending_ports: usize,
     connected_transports: usize,
     active_command_started: Option<Instant>,
@@ -41,7 +42,7 @@ impl EngineMetricRecorder {
         Self {
             sink,
             enabled,
-            port_slots: [None; MAX_PENDING_PORTS],
+            port_slots: vec![None; MAX_PENDING_PORTS].into_boxed_slice(),
             pending_ports: 0,
             connected_transports: 0,
             active_command_started: None,

@@ -174,3 +174,107 @@ fn s4_persist_err_does_not_advance_cursor() {
         h.module.cursor_for(channel_id(1))
     );
 }
+
+/// 回归锚：sync type=1 已把本端 post 写入 SQLite 后，必须走 PendingSend::reconcile。
+#[test]
+fn sync_persist_success_reconciles_local_pending_send() {
+    use helix_core::effect::Effect;
+    use helix_im::state::SendStatus;
+    use serde_json::json;
+
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    let initial = h.step(send_message_cmd(1, "tmp_sync", "from-sync"), 1_000);
+    let p1_corr = initial
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("send must register an optimistic persist");
+    h.step(port_reply_ok(p1_corr), 1_001);
+    assert_eq!(
+        h.module.pending_send_status("tmp_sync"),
+        Some(SendStatus::Sending)
+    );
+
+    let _ = h.step(inbound_event(1, 99, 1), 2_000);
+    let sync_corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, req } if req.url.ends_with("/channel/sync/notify") => Some(*corr),
+            _ => None,
+        })
+        .expect("gap recovery must dispatch sync/notify");
+    let server_id = sid(42);
+    let mut messages = serde_json::Map::new();
+    messages.insert(
+        server_id.clone(),
+        json!({
+            "id": server_id,
+            "temporaryId": "tmp_sync",
+            "channelId": cid(1),
+            "userId": "viewer-444",
+            "type": "TEXT",
+            "message": "from-sync",
+            "viewers": ["viewer-444"]
+        }),
+    );
+    let raw_reply = json!({
+        "status": "SUCCESS",
+        "data": {
+            "entries": [{
+                "channelId": cid(1),
+                "kind": "events",
+                "events": [{
+                    "channelId": cid(1),
+                    "eventSeq": 1,
+                    "eventType": 1,
+                    "msgId": sid(42)
+                }],
+                "messages": serde_json::Value::Object(messages),
+                "nextSeq": 1,
+                "resetTo": null
+            }]
+        }
+    });
+    let sync_effects = h.step(
+        port_reply_with_body(
+            sync_corr.raw(),
+            enveloped(bytes::Bytes::from(serde_json::to_vec(&raw_reply).unwrap())),
+        ),
+        3_000,
+    );
+    let persist_corr = sync_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::PersistAtomic(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("sync events must wait for one atomic local persist");
+    assert_eq!(
+        h.module.pending_send_status("tmp_sync"),
+        Some(SendStatus::Sending),
+        "sync must not settle the send before SQLite commit"
+    );
+
+    let committed = h.step(port_reply_ok(persist_corr), 3_001);
+    assert_eq!(
+        h.module.pending_send_status("tmp_sync"),
+        None,
+        "a durable sync fact must remove the pending send after reconcile"
+    );
+    assert!(
+        committed
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Persist(_))),
+        "sync reconcile must persist server id and sent status"
+    );
+    assert!(
+        committed
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::CancelTimer(_))),
+        "sync reconcile must cancel the original timeout"
+    );
+}

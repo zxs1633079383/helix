@@ -306,6 +306,7 @@ impl ImModule {
                 wants_continuation,
                 channel_updates,
                 pending_domain_events,
+                pending_send_reconciliations,
             } => self.handle_channel_persist_reply(
                 corr,
                 channel_id,
@@ -313,6 +314,7 @@ impl ImModule {
                 wants_continuation,
                 channel_updates,
                 pending_domain_events,
+                pending_send_reconciliations,
                 outcome,
                 out,
             )?,
@@ -1185,6 +1187,20 @@ impl ImModule {
 
             CorrelationContext::OutboundMakeTopicRootRead { projection } => {
                 self.handle_make_topic_thread_readback(projection, outcome, out)?;
+            }
+
+            CorrelationContext::OutboundMakeTopicRelationPersist {
+                projection,
+                parent_channel_id,
+                root_row,
+            } => {
+                self.handle_make_topic_relation_persist_reply(
+                    projection,
+                    parent_channel_id,
+                    root_row,
+                    outcome,
+                    out,
+                )?;
             }
 
             CorrelationContext::OutboundChannelSettings {

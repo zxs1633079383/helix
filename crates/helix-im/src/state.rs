@@ -20,7 +20,7 @@ pub use values::{
 mod correlation;
 pub use correlation::{
     ChannelLifecycleTransition, ChannelSettingsProjection, CorrelationContext,
-    HydrationPersistSnapshot, MakeTopicProjection, SyncTrigger,
+    HydrationPersistSnapshot, MakeTopicProjection, PendingSendReconciliation, SyncTrigger,
 };
 
 pub(crate) struct FileUploadProgressState {
@@ -559,6 +559,12 @@ impl ImState {
 
     pub(crate) fn invalidate_recent_message_coverage(&mut self, channel_id: ChannelId) {
         self.recent_message_coverage.remove(&channel_id);
+    }
+
+    /// 清除指定频道的分页/定位绝对窗口，防止消息突变后复用旧 durable row 快照。
+    pub(crate) fn invalidate_timeline_navigation_coverage(&mut self, channel_id: ChannelId) {
+        self.timeline_navigation_coverage
+            .retain(|_, coverage| coverage.channel_id != channel_id);
     }
 }
 

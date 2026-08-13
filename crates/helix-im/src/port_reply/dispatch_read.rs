@@ -106,6 +106,7 @@ impl ImModule {
         self.state.timeline_navigation_coverage.insert(
             state.coverage_key(),
             crate::timeline_navigation::TimelineNavigationCoverage {
+                channel_id: state.channel_id(),
                 rows: rows.to_vec(),
                 has_older: page.has_older,
                 has_newer: page.has_newer,
@@ -145,15 +146,8 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        // G11b-G11d 的 HTTP continuation 只由 owned corr/reqId/channel state 关联。
-        if locate_navigation_is_stale(&self.state.timeline_state, &state) {
-            tracing::debug!(
-                channel_id = state.channel_id().as_str(),
-                "ignoring stale timeline locate authority reply"
-            );
-            self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
-            return Ok(());
-        }
+        // G11b-G11d 的 HTTP continuation 只由 owned corr/reqId/channel state 关联；
+        // renderer 窗口 token 可能被并发 latest 刷新替换，不能据此否决仍有效的命令回包。
         let reply = match outcome {
             PortOutcome::Ok(reply) => reply,
             PortOutcome::Err(error) => {
@@ -311,14 +305,6 @@ impl ImModule {
         state: Box<crate::timeline_navigation::TimelineNavigationState>,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if locate_navigation_is_stale(&self.state.timeline_state, &state) {
-            tracing::debug!(
-                channel_id = state.channel_id().as_str(),
-                "ignoring stale timeline locate persist reply"
-            );
-            self.emit_timeline_navigation_failed_event(&state, 0, out)?;
-            return Ok(());
-        }
         let exact_keys = timeline_navigation_readback_keys(&state);
         if !exact_keys.is_empty() {
             // V3 authority 页内每条 identity 都单独读回，禁止频道最新页冒充本次结果。
@@ -402,14 +388,6 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if locate_navigation_is_stale(&self.state.timeline_state, &state) {
-            tracing::debug!(
-                channel_id = state.channel_id().as_str(),
-                "ignoring stale timeline locate durable readback"
-            );
-            self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
-            return Ok(());
-        }
         let expected_key = accepted_keys
             .get(next_index.saturating_sub(1))
             .ok_or_else(|| {
@@ -1839,23 +1817,6 @@ fn local_timeline_navigation_rows(
         | crate::timeline_navigation::TimelineNavigationKind::Newer { .. } => {
             Some(coverage.rows.clone())
         }
-    }
-}
-
-/// 判断 locate correlation 是否已被同窗口更新的 navigation token 淘汰。
-fn locate_navigation_is_stale(
-    timeline_state: &crate::timeline_state::TimelineState,
-    state: &crate::timeline_navigation::TimelineNavigationState,
-) -> bool {
-    match state.kind() {
-        crate::timeline_navigation::TimelineNavigationKind::Locate {
-            navigation_token, ..
-        } => !timeline_state.is_current_locate_navigation(
-            state.channel_id().as_str(),
-            state.window_token(),
-            navigation_token,
-        ),
-        _ => false,
     }
 }
 

@@ -103,6 +103,47 @@ pub fn sync_mutation_emits_with_auth(
     emits
 }
 
+/// 收集仅能在 sync 原子提交成功后结算的本端发送事实。
+///
+/// 只接受可见的 `PostUpsert`、非空 temporaryId 与合法 26 字符 server id；因此普通历史
+/// 回放、phantom 事件和他人消息不会越权覆盖本地发送态。
+pub(crate) fn pending_send_reconciliations(
+    events: &[EventEnvelope],
+    messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
+    auth_user_id: &str,
+) -> Vec<crate::state::PendingSendReconciliation> {
+    use crate::state::{PendingSendReconciliation, ServerId, TemporaryId};
+    use crate::sync_session::EventKind;
+
+    events
+        .iter()
+        .filter_map(|event| {
+            if !matches!(event.kind, EventKind::PostUpsert) {
+                return None;
+            }
+            let fields = event
+                .msg_id
+                .as_deref()
+                .and_then(|msg_id| messages.get(msg_id))?;
+            if fields.temporary_id.is_empty()
+                || !crate::channel_write::post_updates_from_fields(
+                    event.channel_id,
+                    fields,
+                    auth_user_id,
+                )
+                .visible
+            {
+                return None;
+            }
+            let server_id = ServerId::from_str(fields.id.as_str())?;
+            Some(PendingSendReconciliation {
+                temporary_id: TemporaryId(fields.temporary_id.clone()),
+                server_id,
+            })
+        })
+        .collect()
+}
+
 /// 批量 upsert EventEnvelope 列表（inline 内容路径：Snapshot / 直接事件态 / 测试帧）。
 pub fn batch_upsert_events(events: &[EventEnvelope]) -> Vec<StorageOp> {
     events

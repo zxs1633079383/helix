@@ -3,7 +3,7 @@
 //! `state.rs` 经 `#[path] mod` 引入 + `pub use` re-export → `crate::state::CorrelationContext`
 //! 调用点零改动。
 
-use super::{ChannelId, TemporaryId};
+use super::{ChannelId, ServerId, TemporaryId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MakeTopicProjection {
@@ -59,6 +59,13 @@ pub struct HydrationPersistSnapshot {
     pub was_increment_fetched: bool,
     pub was_need_sync_skip: bool,
     pub previous_about_me_len: usize,
+}
+
+/// Sync 落库成功后可安全结算的一条本地发送对账事实。
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingSendReconciliation {
+    pub temporary_id: TemporaryId,
+    pub server_id: ServerId,
 }
 
 /// 单一 corr 路由表的 value——一条在途异步操作（Persist / Http / Scan）回报时
@@ -141,6 +148,8 @@ pub enum CorrelationContext {
         channel_updates: Vec<crate::channel_update::PendingChannelUpdate>,
         /// sync HTTP 解析出的 mutation 投影；事务 ack 前不得发布。
         pending_domain_events: Vec<Vec<u8>>,
+        /// sync 事务成功后才能结算的本端 temporaryId → 服务端 id 对账事实。
+        pending_send_reconciliations: Vec<PendingSendReconciliation>,
     },
 
     /// type7 closed tombstone 的 `PersistAtomic` 回执。成功前不改变内存 cursor/terminal 状态，
@@ -501,6 +510,13 @@ pub enum CorrelationContext {
 
     /// G-15 durable root readback 只允许释放 topic MessageV3 事件。
     OutboundMakeTopicRootRead { projection: MakeTopicProjection },
+
+    /// G-15 durable root 已确认父频道后，先补齐 topic channel.root_id，再释放创建事件。
+    OutboundMakeTopicRelationPersist {
+        projection: MakeTopicProjection,
+        parent_channel_id: ChannelId,
+        root_row: Box<serde_json::Value>,
+    },
 
     /// 群设置/公告写回：服务端 SUCCESS 必须携带完整权威设置快照与 settingVersion。
     OutboundChannelSettings {

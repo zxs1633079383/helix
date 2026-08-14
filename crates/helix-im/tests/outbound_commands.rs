@@ -280,9 +280,10 @@ fn leave_keeps_request_id_in_transport_header_only() {
 }
 
 #[test]
+/// 成员增删的 correlation 只进入追踪头，body 保持 Go mutation 合同。
 fn member_change_build_body_with_real_endpoint() {
     // body 成形下沉 helix：壳传 {channel_id, team_id, self_id, join_user_ids}，helix 拼 joinUsers[]。
-    let (url, body) = one_http(run(
+    let (url, body, headers) = one_http_with_headers(run(
         "im_channel_member_change",
         json!({
             "channel_id": "ch_m",
@@ -290,6 +291,7 @@ fn member_change_build_body_with_real_endpoint() {
             "self_id": "me",
             "join_user_ids": ["u9", "me"],
             "leave_user_ids": [],
+            "req_id": "member-change-request-1",
         }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/member/change");
@@ -301,6 +303,10 @@ fn member_change_build_body_with_real_endpoint() {
     assert_eq!(body["joinUsers"][0]["teamId"], "t1");
     // 空 leave 集 → 字段省略（不发空数组）。
     assert!(body.get("leaveUsers").is_none());
+    assert!(body.get("req_id").is_none());
+    assert!(headers
+        .iter()
+        .any(|(key, value)| key == "Cses-Track-Id" && value == "member-change-request-1"));
 
     // 缺 channel_id → Err（边界零信任，不崩）。
     assert!(handle_outbound(
@@ -315,20 +321,30 @@ fn member_change_build_body_with_real_endpoint() {
 }
 
 #[test]
+/// 关闭与昵称命令映射真实端点，昵称 correlation 不污染业务 body。
 fn close_and_nickname_map_to_real_endpoints() {
     let (url, body) = one_http(run("im_channel_close", json!({ "channel_id": "ch5" })));
     assert_eq!(url, "http://x/api/cses/channel/close");
     assert_eq!(body["channelId"], "ch5");
 
     // nickname：含 user_id → 带 userId；nickname 允许任意（含空，Go 侧清空）
-    let (url, body) = one_http(run(
+    let (url, body, headers) = one_http_with_headers(run(
         "im_update_member_nickname",
-        json!({ "channel_id": "ch6", "nickname": "Bob", "user_id": "u2" }),
+        json!({
+            "channel_id": "ch6",
+            "nickname": "Bob",
+            "user_id": "u2",
+            "req_id": "nickname-request-1"
+        }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/member/change/nickname");
     assert_eq!(body["channelId"], "ch6");
     assert_eq!(body["nickname"], "Bob");
     assert_eq!(body["userId"], "u2");
+    assert!(body.get("req_id").is_none());
+    assert!(headers
+        .iter()
+        .any(|(key, value)| key == "Cses-Track-Id" && value == "nickname-request-1"));
 }
 
 #[test]

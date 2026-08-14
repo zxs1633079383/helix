@@ -19,6 +19,7 @@ pub struct ChannelSettingsProjection {
     pub channel_id: ChannelId,
     pub channel: serde_json::Value,
     pub display_name: Option<String>,
+    pub orient: Option<String>,
     pub purpose: String,
     pub header: String,
     pub setting_version: u64,
@@ -457,9 +458,20 @@ pub enum CorrelationContext {
     ChannelMemberUpdatePersist {
         channel_id: ChannelId,
         event_seq: Option<crate::state::Seq>,
-        raw_channel: Vec<u8>,
-        members: Vec<crate::render_ready_members::RenderMember>,
-        leaves: Vec<String>,
+        viewer_rejoined: bool,
+        causation_id: Option<String>,
+    },
+
+    /// 成员增删提交后读回频道行，随后以 durable channel_member 组装唯一绝对 roster。
+    ChannelMemberUpdateChannelReadback {
+        channel_id: ChannelId,
+        causation_id: Option<String>,
+    },
+
+    /// 成员增删最终成员表读回；禁止重新发布 WS sparse delta。
+    ChannelMemberUpdateReadback {
+        channel_id: ChannelId,
+        channel: Option<Box<serde_json::Value>>,
         causation_id: Option<String>,
     },
 

@@ -199,6 +199,8 @@ impl OutboundCommand for MemberChangeCommand {
     fn name(&self) -> &'static str {
         "im_channel_member_change"
     }
+
+    /// 接受可选 transport `req_id`，只用于 HTTP 追踪头且不进入成员变更 body。
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         require_exact_keys(
             args,
@@ -208,10 +210,14 @@ impl OutboundCommand for MemberChangeCommand {
                 "self_id",
                 "join_user_ids",
                 "leave_user_ids",
+                "req_id",
             ],
             self.name(),
         )?;
         require_string_fields(args, &["channel_id", "team_id", "self_id"], self.name())?;
+        if args.get("req_id").is_some() {
+            require_str(args, "req_id", self.name())?;
+        }
         let channel_id = require_str(args, "channel_id", self.name())?;
         let team_id = args.get("team_id").and_then(Value::as_str).unwrap_or("");
         let self_id = args.get("self_id").and_then(Value::as_str).unwrap_or("");
@@ -273,9 +279,18 @@ impl OutboundCommand for UpdateNicknameCommand {
     fn name(&self) -> &'static str {
         "im_update_member_nickname"
     }
+
+    /// 接受可选 transport `req_id`，保持昵称 mutation body 仍只有三个业务字段。
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
-        require_exact_keys(args, &["channel_id", "user_id", "nickname"], self.name())?;
+        require_exact_keys(
+            args,
+            &["channel_id", "user_id", "nickname", "req_id"],
+            self.name(),
+        )?;
         require_string_fields(args, &["channel_id", "user_id", "nickname"], self.name())?;
+        if args.get("req_id").is_some() {
+            require_str(args, "req_id", self.name())?;
+        }
         let channel_id = require_str(args, "channel_id", self.name())?;
         // nickname 允许空（trim 空→Go 侧清空昵称），但 user_id 必须显式透传。
         let nickname = args.get("nickname").and_then(Value::as_str).unwrap_or("");

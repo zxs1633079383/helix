@@ -594,6 +594,182 @@ impl ImModule {
         Ok(())
     }
 
+    /// 成员增删提交后先读回频道行，再扫描 durable roster，避免 sparse WS 回声成为 UI authority。
+    pub(super) fn handle_channel_member_update_channel_readback_reply(
+        &mut self,
+        channel_id: crate::state::ChannelId,
+        causation_id: Option<String>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let channel = match outcome {
+            PortOutcome::Ok(reply) => serde_json::from_slice::<serde_json::Value>(reply.0.as_ref())
+                .ok()
+                .and_then(|value| value.as_array().and_then(|rows| rows.first()).cloned())
+                .filter(|value| value.is_object()),
+            PortOutcome::Err(error) => {
+                tracing::warn!(
+                    channel_id = %channel_id.as_str(),
+                    error = ?error,
+                    "channel member update channel readback failed; continuing with roster-only projection"
+                );
+                None
+            }
+        };
+        let corr = self.alloc_corr_internal();
+        self.state.corr_map.insert(
+            corr,
+            crate::state::CorrelationContext::ChannelMemberUpdateReadback {
+                channel_id,
+                channel: channel.map(Box::new),
+                causation_id,
+            },
+        );
+        out.push(helix_core::Effect::Persist {
+            corr,
+            ops: vec![helix_core::effect::StorageOp::Scan(
+                helix_core::effect::ScanSpec {
+                    table: "channel_member",
+                    limit: None,
+                    filter: Some((
+                        "channel_id",
+                        helix_core::effect::SqlValue::Text(channel_id.as_str().to_string()),
+                    )),
+                    order_by: &[],
+                },
+            )],
+        });
+        Ok(())
+    }
+
+    /// 成员增删最终读回完整 roster，并只发布由 SQLite 事实组装的绝对成员投影。
+    pub(super) fn handle_channel_member_update_readback_reply(
+        &mut self,
+        channel_id: crate::state::ChannelId,
+        channel: Option<serde_json::Value>,
+        causation_id: Option<String>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let PortOutcome::Ok(reply) = outcome else {
+            tracing::warn!(channel_id = %channel_id.as_str(), "channel member update roster readback failed; suppressing projection");
+            return Ok(());
+        };
+        let Some(rows) = serde_json::from_slice::<serde_json::Value>(reply.0.as_ref())
+            .ok()
+            .and_then(|value| value.as_array().cloned())
+        else {
+            tracing::warn!(channel_id = %channel_id.as_str(), "channel member update roster readback invalid; suppressing projection");
+            return Ok(());
+        };
+        let mut members = Vec::new();
+        let mut admins = Vec::new();
+        let mut bosses = Vec::new();
+        let mut owner = serde_json::Value::Null;
+        let mut viewer_role = None;
+        for row in rows {
+            let Some(object) = row.as_object() else {
+                continue;
+            };
+            let Some(user_id) = object
+                .get("user_id")
+                .or_else(|| object.get("userId"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            let Some(team_id) = object
+                .get("team_id")
+                .or_else(|| object.get("teamId"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            let role = normalize_member_projection_role(
+                object
+                    .get("role")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("MEMBER"),
+            );
+            if !self.config.auth_user_id.is_empty() && user_id == self.config.auth_user_id {
+                viewer_role = Some(role);
+            }
+            let nick_name = object
+                .get("nick_name")
+                .or_else(|| object.get("nickName"))
+                .or_else(|| object.get("nickname"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let member = serde_json::json!({
+                "id": user_id,
+                "userId": user_id,
+                "teamId": team_id,
+                "nickName": nick_name,
+                "nickname": nick_name,
+                "role": role,
+            });
+            match role {
+                "OWNER" if owner.is_null() => owner = member,
+                "MANAGER" => admins.push(member),
+                "BOSS" => bosses.push(member),
+                _ => members.push(member),
+            }
+        }
+        let member_count =
+            members.len() + admins.len() + bosses.len() + usize::from(!owner.is_null());
+        let mut channel = channel.unwrap_or_else(|| {
+            serde_json::json!({
+                "id": channel_id.as_str(),
+                "channelId": channel_id.as_str(),
+            })
+        });
+        let Some(channel_object) = channel.as_object_mut() else {
+            tracing::warn!(channel_id = %channel_id.as_str(), "channel member update projection is not an object");
+            return Ok(());
+        };
+        channel_object.insert(
+            "id".to_string(),
+            serde_json::Value::String(channel_id.as_str().to_string()),
+        );
+        channel_object.insert(
+            "channelId".to_string(),
+            serde_json::Value::String(channel_id.as_str().to_string()),
+        );
+        channel_object.insert("members".to_string(), serde_json::Value::Array(members));
+        channel_object.insert("adminUsers".to_string(), serde_json::Value::Array(admins));
+        channel_object.insert("boss".to_string(), serde_json::Value::Array(bosses));
+        channel_object.insert("owner".to_string(), owner);
+        channel_object.insert(
+            "memberCount".to_string(),
+            serde_json::Value::from(member_count),
+        );
+        channel_object.insert("isMemberChange".to_string(), serde_json::Value::Bool(true));
+        // 本轮绝对 roster 必须覆盖扫描到的旧 snake_case 列，否则 render-ready 会优先读回旧名单。
+        remove_stale_member_projection_aliases(channel_object);
+        if let Some(role) = viewer_role {
+            channel_object.insert(
+                "role".to_string(),
+                serde_json::Value::String(role.to_string()),
+            );
+        } else if !self.config.auth_user_id.is_empty() {
+            channel_object.remove("role");
+        }
+        let channel = crate::query::render_ready::channel::shape_channel_row(&channel);
+        out.push(
+            crate::event::channel_member::updated(serde_json::json!({
+                "channelId": channel_id.as_str(),
+                "channel": channel,
+                "isMemberChange": true,
+                "projectionSource": "channel_member_update",
+                "causationId": causation_id,
+            }))?
+            .into_effect(),
+        );
+        Ok(())
+    }
+
     /// 将角色变更首段成员快照编译为只更新既有成员行的原子 upsert。
     pub(super) fn handle_channel_member_role_scan_reply(
         &mut self,
@@ -837,7 +1013,7 @@ impl ImModule {
             });
             match role {
                 "OWNER" if owner.is_null() => owner = member,
-                "ADMIN" => admins.push(member),
+                "MANAGER" => admins.push(member),
                 "BOSS" => bosses.push(member),
                 _ => members.push(member),
             }
@@ -871,6 +1047,8 @@ impl ImModule {
             serde_json::Value::from(member_count),
         );
         channel_object.insert("isMemberChange".to_string(), serde_json::Value::Bool(true));
+        // 角色 readback 是当前事实；整形前移除旧持久化别名，避免 admin_users 把 adminUsers 覆盖为空。
+        remove_stale_member_projection_aliases(channel_object);
         if let Some(role) = viewer_role {
             channel_object.insert(
                 "role".to_string(),
@@ -1230,13 +1408,22 @@ impl ImModule {
     }
 }
 
-/// 将成员表中的 raw role 收敛为频道 roster 的四种绝对角色。
+/// 将持久层 ADMIN/wire 别名收敛为 Angular roster 使用的四种业务角色。
 fn normalize_member_projection_role(role: &str) -> &'static str {
     match role.trim().to_ascii_uppercase().as_str() {
         "OWNER" | "CREATOR" => "OWNER",
         "BOSS" => "BOSS",
-        "ADMIN" | "MANAGER" | "MANGER" => "ADMIN",
+        "ADMIN" | "MANAGER" | "MANGER" => "MANAGER",
         _ => "MEMBER",
+    }
+}
+
+/// 移除已由本轮成员 readback 重建的持久层别名，保证 render-ready 选择最新 camelCase 字段。
+fn remove_stale_member_projection_aliases(
+    channel: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    for key in ["admin_users", "member_count"] {
+        channel.remove(key);
     }
 }
 
@@ -1259,6 +1446,32 @@ mod channel_sync_contract_tests {
             panic!("expected typed event");
         };
         serde_json::from_slice(event.0.as_ref()).expect("event JSON")
+    }
+
+    /// 管理员 wire/storage 别名不得越过 render-ready 边界暴露为 ADMIN。
+    #[test]
+    fn member_projection_role_uses_manager_business_vocabulary() {
+        assert_eq!(normalize_member_projection_role("ADMIN"), "MANAGER");
+        assert_eq!(normalize_member_projection_role("MANGER"), "MANAGER");
+        assert_eq!(normalize_member_projection_role("MANAGER"), "MANAGER");
+        assert_eq!(normalize_member_projection_role("CREATOR"), "OWNER");
+        assert_eq!(normalize_member_projection_role("MEMBER"), "MEMBER");
+    }
+
+    /// 新 roster 写入后不得被同一频道快照中的旧 snake_case 别名反向覆盖。
+    #[test]
+    fn member_projection_removes_stale_storage_aliases_before_rendering() {
+        let mut channel = serde_json::json!({
+            "admin_users": [],
+            "member_count": 2,
+            "adminUsers": [{ "userId": "manager-a", "role": "MANAGER" }],
+            "memberCount": 3,
+        });
+        remove_stale_member_projection_aliases(channel.as_object_mut().expect("channel object"));
+        let projected = crate::query::render_ready::channel::shape_channel_row(&channel);
+
+        assert_eq!(projected["adminUsers"][0]["userId"], "manager-a");
+        assert_eq!(projected["memberCount"], 3);
     }
 
     #[test]

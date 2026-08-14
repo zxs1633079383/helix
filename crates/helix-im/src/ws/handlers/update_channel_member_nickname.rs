@@ -28,7 +28,7 @@ impl WsMessageHandler for NicknameHandler {
 
     fn handle(
         &self,
-        _ctx: &mut ImWsContext<'_>,
+        ctx: &mut ImWsContext<'_>,
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -58,12 +58,25 @@ impl WsMessageHandler for NicknameHandler {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
 
-        out.push(crate::acl::to_effect_s1::update_member_nickname(
-            channel_id, user_id, nick_name,
-        ));
-        out.push(crate::acl::to_effect_s1::emit_member_nickname(
-            channel_id, user_id, nick_name,
-        ));
+        let event = crate::event::channel_member::nickname_updated(serde_json::json!({
+            "channelId": channel_id.as_str(),
+            "userId": user_id,
+            "nickName": nick_name,
+        }))?;
+        let corr = ctx.alloc_corr();
+        ctx.state.corr_map.insert(
+            corr,
+            crate::state::CorrelationContext::MessageV3Commit {
+                terminal_events: vec![event.into_bytes()],
+            },
+        );
+        // 同一 correlation 把单行昵称写和唯一 canonical 事件绑定，失败回执不得泄露成功投影。
+        out.push(helix_core::Effect::PersistAtomic {
+            corr,
+            ops: vec![crate::acl::to_effect_s1::update_member_nickname_op(
+                channel_id, user_id, nick_name,
+            )],
+        });
         Ok(())
     }
 }

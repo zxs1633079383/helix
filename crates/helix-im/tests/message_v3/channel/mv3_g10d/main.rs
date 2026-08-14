@@ -109,7 +109,10 @@ fn g10d_top_preference_persists_actor_scope_and_emits_once() -> Result<(), Strin
             .map(|(column, _)| column.as_str())
             .collect::<Vec<_>>();
         row_columns.sort_unstable();
-        assert_eq!(row_columns, ["channel_id", "channel_is_top", "user_id"]);
+        assert_eq!(
+            row_columns,
+            ["channel_id", "channel_is_top", "updated_at", "user_id"]
+        );
         assert!(row.iter().all(|(column, _)| column != "is_top"));
         assert!(row.iter().any(|(column, value)| {
             column == "channel_id"
@@ -122,6 +125,10 @@ fn g10d_top_preference_persists_actor_scope_and_emits_once() -> Result<(), Strin
         assert!(row.iter().any(|(column, value)| {
             column == "channel_is_top"
                 && matches!(value, helix_core::effect::SqlValue::Integer(value) if *value == top as i64)
+        }));
+        assert!(row.iter().any(|(column, value)| {
+            column == "updated_at"
+                && matches!(value, helix_core::effect::SqlValue::Integer(value) if *value == NOW_MS as i64)
         }));
         assert!(emitted(harness.sink.as_slice()).is_empty());
 
@@ -156,4 +163,53 @@ fn g10d_invalid_or_mixed_top_intent_has_zero_effects() {
         harness.step(frame, NOW_MS);
         assert!(harness.sink.as_slice().is_empty());
     }
+}
+
+/// 完整共享频道更新可携带 viewer 的 channelIsTop，但不得被误判成缺 actor 的置顶补丁。
+#[test]
+fn g10d_full_shared_update_with_top_reaches_channel_projection() -> Result<(), String> {
+    let mut harness = common::Harness::new_with_identity(&[], ACTOR_ID, "g10d-company", "", "", "");
+    harness.step(
+        top_frame(
+            None,
+            json!(false),
+            json!({
+                "displayName": "共享频道新名称",
+                "purpose": "共享频道新简介",
+                "orient": "共享频道新导向",
+                "owner": {"id": ACTOR_ID, "teamId": "g10d-company"},
+                "settingVersion": 2,
+                "updateAt": NOW_MS
+            }),
+        ),
+        NOW_MS,
+    );
+
+    let corr = persist_corr(harness.sink.as_slice())?;
+    harness.step(common::port_reply_ok(corr.raw()), NOW_MS + 1);
+
+    let events = emitted(harness.sink.as_slice());
+    let channel_updates = events
+        .iter()
+        .filter(|event| event["event"] == "im:channel:update")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        channel_updates.len(),
+        1,
+        "共享更新只应发一个 canonical channel 事件"
+    );
+    let channel = channel_updates
+        .first()
+        .copied()
+        .ok_or_else(|| "missing shared im:channel:update".to_string())?;
+    assert_eq!(channel["data"]["channelId"], CHANNEL_ID);
+    assert_eq!(channel["data"]["displayName"], "共享频道新名称");
+    assert_eq!(channel["data"]["purpose"], "共享频道新简介");
+    assert_eq!(channel["data"]["orient"], "共享频道新导向");
+    assert_eq!(channel["data"]["owner"]["userId"], ACTOR_ID);
+    assert_eq!(channel["data"]["channelIsTop"], false);
+    assert!(events
+        .iter()
+        .any(|event| event["event"] == "im:channel:settings-updated"));
+    Ok(())
 }

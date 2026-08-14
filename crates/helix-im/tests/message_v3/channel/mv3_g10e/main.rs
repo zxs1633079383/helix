@@ -146,18 +146,8 @@ fn g10e_notify_failure_does_not_emit() -> Result<(), String> {
     harness.step(common::port_reply_err(corr.raw()), NOW_MS + 1);
     assert!(emitted(harness.sink.as_slice()).is_empty());
 
-    let mut no_readback = common::Harness::new_with_identity(
-        &[],
-        ACTOR_ID,
-        COMPANY_ID,
-        "",
-        "",
-        "",
-    );
-    no_readback.step(
-        notify_frame(ACTOR_ID, json!("IGNORE"), json!({})),
-        NOW_MS,
-    );
+    let mut no_readback = common::Harness::new_with_identity(&[], ACTOR_ID, COMPANY_ID, "", "", "");
+    no_readback.step(notify_frame(ACTOR_ID, json!("IGNORE"), json!({})), NOW_MS);
     let corr = persist_corr(no_readback.sink.as_slice())?;
     no_readback.step(
         common::port_reply_with_body(corr.raw(), Bytes::from_static(b"[]")),

@@ -49,6 +49,50 @@ fn run_remaining_receiver() -> TestResult<(Vec<Value>, u64)> {
         },
         1_700_001_610_001,
     );
+    let channel_corr = harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .ok_or_else(|| "missing channel readback".to_string())?;
+    harness.step(
+        Tick::PortReply {
+            corr: channel_corr,
+            outcome: PortOutcome::Ok(ReplyBytes(Bytes::from(
+                serde_json::to_vec(&[json!({"id":CHANNEL_ID,"type":"P"})])
+                    .map_err(|error| error.to_string())?,
+            ))),
+        },
+        1_700_001_610_002,
+    );
+    let roster_corr = harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .ok_or_else(|| "missing roster readback".to_string())?;
+    harness.step(
+        Tick::PortReply {
+            corr: roster_corr,
+            outcome: PortOutcome::Ok(ReplyBytes(Bytes::from(
+                serde_json::to_vec(&[json!({
+                    "channel_id":CHANNEL_ID,
+                    "user_id":viewer,
+                    "team_id":"g16b-company",
+                    "role":"MEMBER",
+                    "nick_name":""
+                })])
+                .map_err(|error| error.to_string())?,
+            ))),
+        },
+        1_700_001_610_003,
+    );
     let events = harness
         .sink
         .as_slice()
@@ -67,7 +111,11 @@ fn g16b_emits_one_canonical_roster_for_remaining_receiver() -> TestResult<()> {
     let (events, _) = run_remaining_receiver()?;
     assert_eq!(events.len(), 1);
     assert_eq!(events[0]["event"], "im:channel:member-updated");
-    assert_eq!(events[0]["data"]["leaves"][0], LEAVER_ID);
+    assert_eq!(events[0]["data"]["channel"]["memberCount"], 1);
+    assert!(events[0]["data"]["channel"]
+        .to_string()
+        .find(LEAVER_ID)
+        .is_none());
     Ok(())
 }
 

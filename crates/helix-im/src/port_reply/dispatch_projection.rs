@@ -342,30 +342,7 @@ impl ImModule {
             "频道设置 authority 投影解析成功"
         );
         let persist_corr = self.alloc_corr_internal();
-        let mut row: Row = vec![
-            (
-                "id".to_string(),
-                SqlValue::Text(projection.channel_id.as_str().to_string()),
-            ),
-            (
-                "purpose".to_string(),
-                SqlValue::Text(projection.purpose.clone()),
-            ),
-            (
-                "header".to_string(),
-                SqlValue::Text(projection.header.clone()),
-            ),
-            (
-                "updated_at".to_string(),
-                SqlValue::Integer(projection.setting_version as i64),
-            ),
-        ];
-        if let Some(display_name) = projection.display_name.as_ref() {
-            row.push((
-                "display_name".to_string(),
-                SqlValue::Text(display_name.clone()),
-            ));
-        }
+        let row = channel_settings_row(&projection);
         out.push(Effect::Persist {
             corr: persist_corr,
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
@@ -460,6 +437,38 @@ impl ImModule {
     }
 }
 
+/// 将 Go authority 设置快照裁剪为 channel durable row；缺失可选字段时保持旧值。
+fn channel_settings_row(projection: &ChannelSettingsProjection) -> Row {
+    let mut row: Row = vec![
+        (
+            "id".to_string(),
+            SqlValue::Text(projection.channel_id.as_str().to_string()),
+        ),
+        (
+            "purpose".to_string(),
+            SqlValue::Text(projection.purpose.clone()),
+        ),
+        (
+            "header".to_string(),
+            SqlValue::Text(projection.header.clone()),
+        ),
+        (
+            "updated_at".to_string(),
+            SqlValue::Integer(projection.setting_version as i64),
+        ),
+    ];
+    if let Some(display_name) = projection.display_name.as_ref() {
+        row.push((
+            "display_name".to_string(),
+            SqlValue::Text(display_name.clone()),
+        ));
+    }
+    if let Some(orient) = projection.orient.as_ref() {
+        row.push(("orient".to_string(), SqlValue::Text(orient.clone())));
+    }
+    row
+}
+
 fn response_data(outcome: &PortOutcome) -> Option<serde_json::Value> {
     response_data_with_reason(outcome).ok()
 }
@@ -539,6 +548,10 @@ fn decode_settings_projection(
         .get("displayName")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
+    let orient = settings
+        .get("orient")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
     let purpose = settings
         .get("purpose")
         .and_then(serde_json::Value::as_str)
@@ -559,6 +572,7 @@ fn decode_settings_projection(
         channel_id,
         channel: data.clone(),
         display_name,
+        orient,
         purpose,
         header,
         setting_version,
@@ -568,7 +582,7 @@ fn decode_settings_projection(
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_settings_projection, response_data_with_reason};
+    use super::{channel_settings_row, decode_settings_projection, response_data_with_reason};
     use crate::state::ChannelId;
     use bytes::Bytes;
     use helix_core::tick::{PortOutcome, ReplyBytes};
@@ -622,6 +636,7 @@ mod tests {
                 "id": channel_id.as_str(),
                 "purpose": "purpose",
                 "header": "notice",
+                "orient": "delivery-quality",
                 "settingVersion": 17,
                 "canEditChannelSettings": true,
             })),
@@ -631,7 +646,13 @@ mod tests {
         assert_eq!(projection.setting_version, 17);
         assert_eq!(projection.purpose, "purpose");
         assert_eq!(projection.header, "notice");
+        assert_eq!(projection.orient.as_deref(), Some("delivery-quality"));
         assert_eq!(projection.causation_id.as_deref(), Some("op-settings-1"));
+        let row = channel_settings_row(&projection);
+        assert!(row.iter().any(|(column, value)| {
+            column == "orient"
+                && matches!(value, helix_core::effect::SqlValue::Text(value) if value == "delivery-quality")
+        }));
     }
 
     /// 缺少 purpose/header/version 的 HTTP 200 不能制造空 channel update。

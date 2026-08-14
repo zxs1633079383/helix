@@ -19,6 +19,31 @@ const TOP_KEYS: &[&str] = &["channelIsTop", "channel_is_top", "top"];
 const TOP_USER_KEYS: &[&str] = &["userId", "user_id", "memberUserId", "member_user_id"];
 const NOTIFY_MODES: &[&str] = &["NORMAL", "STRONG", "IGNORE"];
 
+/// 把 Go owner.id 兼容为 Angular authority 使用的 owner.userId，同时保留原 wire 字段。
+fn normalize_owner_projection(channel: &mut serde_json::Value) {
+    let Some(owner) = channel
+        .get_mut("owner")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    if owner.get("userId").is_some() {
+        return;
+    }
+    let Some(owner_id) = owner
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+    else {
+        return;
+    };
+    owner.insert(
+        "userId".to_string(),
+        serde_json::Value::String(owner_id),
+    );
+}
+
 /// 判断 update_channel 是否携带成员视角的置顶绝对态。
 fn has_top_intent(channel: &serde_json::Value, data: &serde_json::Value) -> bool {
     TOP_KEYS
@@ -254,6 +279,7 @@ impl WsMessageHandler for UpdateChannelHandler {
                     data,
                     channel_id,
                     ctx.auth_user_id,
+                    ctx.now_ms,
                 )
             else {
                 return Ok(());
@@ -282,16 +308,23 @@ impl WsMessageHandler for UpdateChannelHandler {
             return Ok(());
         }
 
-        // Go `change/top` 回推 `{id,userId,channelIsTop}`；它只属于 actor 的成员投影。
-        let top_intent = has_top_intent(channel, data);
+        // Go `change/top` 回推 `{id,userId,channelIsTop}`；完整共享频道快照也会携带
+        // `channelIsTop`，只有无共享字段的严格 actor shape 才属于成员投影。
+        let has_top = has_top_intent(channel, data);
+        let top_has_mixed_fields = has_top && top_intent_has_mixed_fields(channel, data);
+        let top_actor = has_top.then(|| top_intent_user_id(channel, data)).flatten();
+        if has_top && top_has_mixed_fields && top_actor.is_some() {
+            return Ok(());
+        }
+        let top_intent = has_top && !top_has_mixed_fields;
         if top_intent {
             let Some(top) = top_intent_value(channel, data) else {
                 return Ok(());
             };
-            let Some(user_id) = top_intent_user_id(channel, data) else {
+            let Some(user_id) = top_actor else {
                 return Ok(());
             };
-            if user_id != ctx.auth_user_id || top_intent_has_mixed_fields(channel, data) {
+            if user_id != ctx.auth_user_id {
                 return Ok(());
             }
             let _ = top;
@@ -326,6 +359,7 @@ impl WsMessageHandler for UpdateChannelHandler {
                 data,
                 channel_id,
                 ctx.auth_user_id,
+                ctx.now_ms,
             ) {
             if let Some(op) = crate::acl::to_effect::upsert_channel_member_channel_op(row) {
                 ops.push(op);
@@ -350,6 +384,7 @@ impl WsMessageHandler for UpdateChannelHandler {
                     .map(|seq| format!("update-channel-{}", seq.0))
             });
             let mut persisted_channel = channel.clone();
+            normalize_owner_projection(&mut persisted_channel);
             if let Some(object) = persisted_channel.as_object_mut() {
                 for key in ["settingVersion", "setting_version", "capabilitiesByRole"] {
                     if object.get(key).is_none() {

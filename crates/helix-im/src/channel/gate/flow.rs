@@ -42,6 +42,14 @@ impl Channel {
         self.last_sync_from_seq = None;
     }
 
+    /// 当前 viewer 被权威成员事件重新加入后恢复聚合，允许后续增量继续推进。
+    pub(crate) fn resume_after_rejoin(&mut self) {
+        self.terminal_event_seq = None;
+        self.buffer.clear();
+        self.gate = None;
+        self.last_sync_from_seq = None;
+    }
+
     /// 从启动 scan 恢复 closed tombstone。终态水位必须已经被 cursor 同批提交；否则宁可
     /// 不注册该 marker，也不能让一个超前 tombstone 绕过连续游标不变量。
     pub(crate) fn restore_terminal(&mut self, terminal_seq: Seq) -> bool {

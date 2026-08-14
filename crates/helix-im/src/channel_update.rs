@@ -105,10 +105,12 @@ impl PendingChannelUpdate {
     }
 }
 
+/// 将 viewer-local `update_channel` 权威态转换为带确定性更新时间的成员投影。
 pub fn member_channel_from_update_channel(
     data: &Value,
     channel_id: ChannelId,
     auth_user_id: &str,
+    now_ms: u64,
 ) -> Option<(Row, MemberChannelUpdate)> {
     let channel = data.get("channel").unwrap_or(data);
     let user_id = pick_text(
@@ -263,7 +265,14 @@ pub fn member_channel_from_update_channel(
         projection.last_read_seq = Some(v);
     }
 
-    (row.len() > 2).then_some((row, projection))
+    if row.len() <= 2 {
+        return None;
+    }
+    row.push((
+        "updated_at".to_string(),
+        SqlValue::Integer(now_ms.min(i64::MAX as u64) as i64),
+    ));
+    Some((row, projection))
 }
 
 mod decode;
@@ -388,7 +397,7 @@ mod tests {
             }
         });
 
-        let (row, projection) = member_channel_from_update_channel(&data, channel_id, "")
+        let (row, projection) = member_channel_from_update_channel(&data, channel_id, "", 90)
             .expect("member update should contain a user and urgent projection");
         assert!(row.iter().any(|(column, value)| {
             column == "urgent_mention_count" && matches!(value, SqlValue::Integer(0))
@@ -408,6 +417,7 @@ mod tests {
             &serde_json::json!({"id": channel_id.as_str(), "userId": "viewer-92", "notify": "IGNORE"}),
             channel_id,
             "viewer-92",
+            92,
         )
         .expect("notify-only member patch should be persisted");
         assert!(row.iter().any(|(column, value)| {

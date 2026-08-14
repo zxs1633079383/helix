@@ -145,7 +145,7 @@ fn build_simple_message_short_text_full() {
 }
 
 #[test]
-fn build_image_simple_message_keeps_frontend_prefix_and_caption() {
+fn build_legacy_image_simple_message_is_normalized_to_rich() {
     let mut input = base_input("配图说明", 1);
     input.msg_type = "IMAGE";
     input.props = json!({
@@ -153,7 +153,8 @@ fn build_image_simple_message_keeps_frontend_prefix_and_caption() {
         "imagePosition": "bottom"
     });
     let body = build_message_object(&input).unwrap();
-    assert_eq!(body["simpleMessage"], json!("[图片]配图说明"));
+    assert_eq!(body["type"], json!("RICH"));
+    assert_eq!(body["simpleMessage"], json!("[媒体]配图说明"));
 }
 
 #[test]
@@ -413,7 +414,7 @@ fn media_message_types_are_canonicalized_for_posts_create() {
     for (input, expected) in [
         ("rich", "RICH"),
         ("RICH", "RICH"),
-        ("IMAGE", "IMAGE"),
+        ("IMAGE", "RICH"),
         ("file", "FILE"),
         ("FILE", "FILE"),
     ] {

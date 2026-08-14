@@ -172,8 +172,7 @@ fn should_intercept_empty(text: &str, props: &Value) -> bool {
 /// 将兼容输入收敛为 Go 接受的正式 wire 类型。
 fn canonical_message_type(msg_type: &str) -> &str {
     match msg_type {
-        "rich" | "RICH" => "RICH",
-        "IMAGE" => "IMAGE",
+        "rich" | "RICH" | "IMAGE" => "RICH",
         "file" | "FILE" => "FILE",
         "" => "TEXT",
         other => other,
@@ -327,7 +326,7 @@ fn has_non_empty_str(object: &Map<String, Value>, key: &str) -> bool {
 
 fn simple_message(msg_type: &str, message: &str, props: &Value) -> String {
     let (prefix, content) = match msg_type {
-        "IMAGE" => ("[图片]", message),
+        "RICH" | "IMAGE" => ("[媒体]", message),
         "FILE" => (
             "[文件]",
             props

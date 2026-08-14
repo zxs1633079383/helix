@@ -46,8 +46,7 @@ pub fn build_upload_plan(
     mut props: Value,
 ) -> Result<UploadPlan, ImError> {
     let media = match msg_type {
-        "rich" | "RICH" => build_rich_plan(&mut props, true)?,
-        "IMAGE" => build_rich_plan(&mut props, false)?,
+        "rich" | "RICH" | "IMAGE" => build_rich_plan(&mut props)?,
         "file" | "FILE" | "AUDIO" | "VIDEO" => build_file_plan(message, &mut props)?,
         "TEMPLATE" => build_template_plan(&mut props)?,
         _ => Vec::new(),
@@ -69,8 +68,8 @@ pub fn build_upload_plan(
     })
 }
 
-/// 线性扫描富媒体项；RICH 接受图片和视频，兼容 IMAGE 只接受图片。
-fn build_rich_plan(props: &mut Value, allow_video: bool) -> Result<Vec<PlannedMedia>, ImError> {
+/// 线性扫描富媒体项；正式 RICH 接受图片和视频，旧 IMAGE 输入只作为同义入站处理。
+fn build_rich_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
     if props.get("file").is_some() {
         return Err(ImError::Parse(
             "rich message must not contain props.file".to_string(),
@@ -106,7 +105,7 @@ fn build_rich_plan(props: &mut Value, allow_video: bool) -> Result<Vec<PlannedMe
 
     let mut media = Vec::with_capacity(files.len());
     for (index, item) in files.iter_mut().enumerate() {
-        let target = rich_target(item, index, allow_video)?;
+        let target = rich_target(item, index)?;
         if is_stable_object_reference(item, "rich media")? {
             if item.get("bucket").and_then(Value::as_str) != Some(target.bucket()) {
                 return Err(ImError::Parse(
@@ -124,7 +123,7 @@ fn build_rich_plan(props: &mut Value, allow_video: bool) -> Result<Vec<PlannedMe
 }
 
 /// 以受校验的 MIME 主类型选择 RICH 的稳定 bucket 与上传目标。
-fn rich_target(node: &Value, index: usize, allow_video: bool) -> Result<UploadTarget, ImError> {
+fn rich_target(node: &Value, index: usize) -> Result<UploadTarget, ImError> {
     let content_type = node
         .pointer("/mediaInput/contentType")
         .or_else(|| node.get("contentType"))
@@ -134,17 +133,12 @@ fn rich_target(node: &Value, index: usize, allow_video: bool) -> Result<UploadTa
     if content_type.starts_with("image/") {
         return Ok(UploadTarget::RichImage { index });
     }
-    if allow_video && content_type.starts_with("video/") {
+    if content_type.starts_with("video/") {
         return Ok(UploadTarget::RichVideo { index });
     }
-    let expected = if allow_video {
-        "image/* or video/*"
-    } else {
-        "image/*"
-    };
-    Err(ImError::Parse(format!(
-        "rich media contentType must be {expected}"
-    )))
+    Err(ImError::Parse(
+        "rich media contentType must be image/* or video/*".to_string(),
+    ))
 }
 
 /// 构造单文件计划；已有稳定对象引用不进入上传链。
@@ -572,7 +566,7 @@ mod tests {
 
     /// 兼容 IMAGE 不接受视频，避免旧图片消息悄然改变 wire 语义。
     #[test]
-    fn legacy_image_rejects_video_items() {
+    fn legacy_image_input_uses_rich_video_plan() {
         let props = json!({
             "imagePosition": "bottom",
             "files": [{"mediaInput": {
@@ -581,8 +575,8 @@ mod tests {
             }}]
         });
 
-        let error = build_upload_plan("IMAGE", "", props).expect_err("IMAGE stays image-only");
-        assert!(error.to_string().contains("image/*"));
+        let plan = build_upload_plan("IMAGE", "", props).expect("legacy IMAGE uses RICH plan");
+        assert_eq!(plan.targets, vec![UploadTarget::RichVideo { index: 0 }]);
     }
 
     /// TEMPLATE/IMAGE 规划嵌套文件，TEMPLATE/TEXT 保持零媒体上传。
@@ -622,7 +616,7 @@ mod tests {
         };
         let nine = Value::Array((0..9).map(|_| image()).collect());
         let plan = build_upload_plan(
-            "IMAGE",
+            "RICH",
             "caption",
             json!({"imagePosition":"bottom", "files":nine}),
         )
@@ -633,7 +627,7 @@ mod tests {
         assert!(plan.props.get("textPosition").is_none());
 
         let legacy_error = build_upload_plan(
-            "IMAGE",
+            "RICH",
             "caption",
             json!({
                 "imagePosition": "bottom",
@@ -649,7 +643,7 @@ mod tests {
 
         let ten = Value::Array((0..10).map(|_| image()).collect());
         let error = build_upload_plan(
-            "IMAGE",
+            "RICH",
             "caption",
             json!({"imagePosition":"bottom", "files":ten}),
         )

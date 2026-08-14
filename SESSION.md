@@ -14,6 +14,11 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 完成 `IMAGE → RICH` 新写硬切并接通 PC/Mobile：可证伪断言：① Helix/Go 接受旧入站 `IMAGE` 时只规范化为 `RICH`，任何新 DB/WS/发送事实不再产出 `IMAGE`；② PC 图片与图片+视频选择合并为单条 `RICH props.files`，渲染端按文件 MIME 在同一网格显示图片或视频，同时保留历史 `IMAGE` 只读渲染；③ Mobile FFI 的 rich 回执只接受正式 `RICH`；④ 不改 TEMPLATE/IMAGE 子类型、不做数据库 DDL/历史行迁移、不改 Cloud-eye 通用历史索引语义；⑤ 聚焦测试、构建、diff check 与 Helix 热路径审计通过 | 赌注 高 | 可逆 是 | @2026-08-14T12:00:00+08:00
+
+✅ DONE `IMAGE → RICH` 新写硬切已完成：Helix 在发送构造和上传规划入口把旧 IMAGE 归一为 RICH，并让同一 `props.files` 按顺序承载图片/视频；Go 在 producer 与 consumer 两个入口归一积压 IMAGE，正式 Ent 枚举只保留 RICH；PC 选择层、上传、投影、渲染、摘要与 E2E G01c/G03c 合同统一 RICH，历史 IMAGE 仅保留读取渲染；Mobile QuickJS/C++ 改用 `RICH props.files` 并按正式 RICH 回执结算。Helix 聚焦用例与 check、Go 相关包测试/build/vet、PC 聚焦 Jest/66 条 WDIO 合同/build、Mobile 3 条聚焦 GTest、Cloud-eye PostEntryTest 和五仓 diff check 通过；未执行数据库 DDL、历史行迁移、真实设备或真实 HTTP/WS/DB 全链 | @2026-08-14T18:45:00+0800
+⚡ DRIFT-PRED PC 全量参考样本生成器与已收敛样本存在无关漂移，已只保留 G01c/G03c 的 RICH 字段变化；Helix 热路径脚本在 `topic_activity.rs` 报出的两处多 clone 与 HEAD 基线逐字一致，本次新增分支未引入分配 → 候选教训：生成器全量重写和全文件静态审计都要先与当前基线对照，再决定任务边界 | @2026-08-14T18:45:00+0800
+
 🎯 EXPECT 将正式 `RICH` wire 类型接入 Helix/Go/Cloud-eye，且暂不修改 PC/Mobile；可证伪断言：① Helix 不再把 `rich` 规范化为 `IMAGE`，同一 `props.files` 内 image/video 分别使用 `picture/attachment` bucket，全部完成前零 `posts/create`；② 只扩展 helix-im 媒体规划/重试/合同与测试，不改 helix-core/driver；③ Go `post/post_approval/post_schedule` 三套 PostType 接受 `RICH` 并保持 props 原样透传；④ Cloud-eye 明确将 `RICH` 投影为 `rich + image + video` contentTypes；⑤ 聚焦验证和热路径审计通过，PC/Mobile 保持未改与未验证 | 赌注 高 | 可逆 是 | @2026-08-14T11:17:59+08:00
 
 ✅ DONE `RICH` 已在 Helix 正式规范化并支持同一 `props.files` 的 image/video 混合上传：图片使用 `picture`、视频使用 `attachment`，旧 `IMAGE` 仍为图片专用；durable journal、重试目标和完成态 bucket 校验同步支持视频。Go 已新增 `PostTypeRich`，再生 Post/PostApproval/PostSchedule 的 Ent validator/schema，并以 API 测试证明 `RICH` 混合 props 到 SenderTopic 原序原字段透传；Cloud-eye 既有通用投影由新增回归测试证明输出 `rich,image,video`。Helix 聚焦测试、Go 聚焦测试/build/vet、Cloud-eye PostEntryTest 与三仓 diff check 通过；PC/Mobile、真实数据库约束、真实上传/WS/搜索运行态均未执行 | @2026-08-14T11:34:15+0800

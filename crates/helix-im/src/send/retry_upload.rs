@@ -16,14 +16,17 @@ struct RetryUploadCommand {
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum RetryUploadTarget {
     RichImage { index: usize },
+    RichVideo { index: usize },
     File,
     TemplateImage,
 }
 
 impl RetryUploadTarget {
+    /// 将零信任命令枚举收敛为内部上传目标。
     fn into_upload_target(self) -> UploadTarget {
         match self {
             Self::RichImage { index } => UploadTarget::RichImage { index },
+            Self::RichVideo { index } => UploadTarget::RichVideo { index },
             Self::File => UploadTarget::File,
             Self::TemplateImage => UploadTarget::TemplateImage,
         }
@@ -161,13 +164,14 @@ fn target_upload_mut<'a>(
         .ok_or_else(|| ImError::Parse("upload retry target missing upload".to_string()))
 }
 
+/// 为失败校验 O(1) 定位重试目标节点。
 fn target_node<'a>(props: &'a Value, target: &UploadTarget) -> Result<&'a Value, ImError> {
     match target {
-        UploadTarget::RichImage { index } => props
+        UploadTarget::RichImage { index } | UploadTarget::RichVideo { index } => props
             .get("files")
             .and_then(Value::as_array)
             .and_then(|files| files.get(*index))
-            .ok_or_else(|| ImError::Parse("missing rich image retry target".to_string())),
+            .ok_or_else(|| ImError::Parse("missing rich media retry target".to_string())),
         UploadTarget::File => props
             .get("file")
             .ok_or_else(|| ImError::Parse("missing file retry target".to_string())),
@@ -179,16 +183,17 @@ fn target_node<'a>(props: &'a Value, target: &UploadTarget) -> Result<&'a Value,
     }
 }
 
+/// 为状态复位 O(1) 定位可变重试目标节点。
 fn target_node_mut<'a>(
     props: &'a mut Value,
     target: &UploadTarget,
 ) -> Result<&'a mut Value, ImError> {
     match target {
-        UploadTarget::RichImage { index } => props
+        UploadTarget::RichImage { index } | UploadTarget::RichVideo { index } => props
             .get_mut("files")
             .and_then(Value::as_array_mut)
             .and_then(|files| files.get_mut(*index))
-            .ok_or_else(|| ImError::Parse("missing rich image retry target".to_string())),
+            .ok_or_else(|| ImError::Parse("missing rich media retry target".to_string())),
         UploadTarget::File => props
             .get_mut("file")
             .ok_or_else(|| ImError::Parse("missing file retry target".to_string())),

@@ -169,9 +169,11 @@ fn should_intercept_empty(text: &str, props: &Value) -> bool {
     !(has_valid_message || has_valid_props)
 }
 
+/// 将兼容输入收敛为 Go 接受的正式 wire 类型。
 fn canonical_message_type(msg_type: &str) -> &str {
     match msg_type {
-        "rich" | "IMAGE" => "IMAGE",
+        "rich" | "RICH" => "RICH",
+        "IMAGE" => "IMAGE",
         "file" | "FILE" => "FILE",
         "" => "TEXT",
         other => other,

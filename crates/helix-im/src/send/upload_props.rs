@@ -25,6 +25,7 @@ pub use state::{
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum UploadTarget {
     RichImage { index: usize },
+    RichVideo { index: usize },
     File,
     TemplateImage,
 }
@@ -34,6 +35,7 @@ impl UploadTarget {
     pub fn bucket(&self) -> &'static str {
         match self {
             Self::RichImage { .. } => "picture",
+            Self::RichVideo { .. } => "attachment",
             Self::File => "attachment",
             Self::TemplateImage => "picture",
         }

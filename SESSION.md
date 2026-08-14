@@ -14,6 +14,11 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 将正式 `RICH` wire 类型接入 Helix/Go/Cloud-eye，且暂不修改 PC/Mobile；可证伪断言：① Helix 不再把 `rich` 规范化为 `IMAGE`，同一 `props.files` 内 image/video 分别使用 `picture/attachment` bucket，全部完成前零 `posts/create`；② 只扩展 helix-im 媒体规划/重试/合同与测试，不改 helix-core/driver；③ Go `post/post_approval/post_schedule` 三套 PostType 接受 `RICH` 并保持 props 原样透传；④ Cloud-eye 明确将 `RICH` 投影为 `rich + image + video` contentTypes；⑤ 聚焦验证和热路径审计通过，PC/Mobile 保持未改与未验证 | 赌注 高 | 可逆 是 | @2026-08-14T11:17:59+08:00
+
+✅ DONE `RICH` 已在 Helix 正式规范化并支持同一 `props.files` 的 image/video 混合上传：图片使用 `picture`、视频使用 `attachment`，旧 `IMAGE` 仍为图片专用；durable journal、重试目标和完成态 bucket 校验同步支持视频。Go 已新增 `PostTypeRich`，再生 Post/PostApproval/PostSchedule 的 Ent validator/schema，并以 API 测试证明 `RICH` 混合 props 到 SenderTopic 原序原字段透传；Cloud-eye 既有通用投影由新增回归测试证明输出 `rich,image,video`。Helix 聚焦测试、Go 聚焦测试/build/vet、Cloud-eye PostEntryTest 与三仓 diff check 通过；PC/Mobile、真实数据库约束、真实上传/WS/搜索运行态均未执行 | @2026-08-14T11:34:15+0800
+⚡ DRIFT-PRED Cloud-eye 生产代码原本已通过未知类型降级和 `props.files` MIME 扫描支持 RICH，因此最小正确改动只有回归测试；Helix 审计脚本同时报告 `retry_send.rs`、`durable.rs`、`request.rs` 的既有多 clone 债务，本次新增规划/类型代码无新 clone，未越界重构旧热路径 → 候选教训：全文件热路径审计应区分本次 diff 与既有基线，否则兼容枚举扩展会被无关债务误判阻断 | @2026-08-14T11:34:15+0800
+
 🎯 EXPECT 客户端 Helix native composition root 统一接入可选 OTLP Trace 与 Metrics；缺少环境变量时保持 Noop 且 `yarn start` 不因 Collector 不可达失败；聚焦 `cses-client/src-tauri/src/features/helix_im/{mod,runtime,observability}.rs` 与 `.env.example`，Helix core 不新增运行时依赖 | 赌注 高 | 可逆 是 | @2026-08-12T
 
 ✅ DONE 客户端已在 `helix_im::runtime::spawn` 复用 Helix host 的 `HostOtelRuntime`、`TraceHooks`、`BoundedMetricRuntime` 和共享有界 `AsyncMetricSink`，覆盖 HTTP/WS/Storage/Event/Engine；debug `yarn start` 无变量时使用 Host 默认 Collector，release 无变量或显式关闭时 Noop。`cargo check --manifest-path src-tauri/Cargo.toml --lib`、可选布尔值聚焦单测、`tauri-dev-with-portable-helix.mjs --check`、`git diff --check` 通过；新 observability 文件热路径审计通过，桌面真实启动与 Collector 收包未在本轮执行，仍需真实运行态确认。

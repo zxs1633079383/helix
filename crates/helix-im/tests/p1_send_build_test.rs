@@ -411,7 +411,8 @@ fn build_from_command_type_id_default_when_absent() {
 #[test]
 fn media_message_types_are_canonicalized_for_posts_create() {
     for (input, expected) in [
-        ("rich", "IMAGE"),
+        ("rich", "RICH"),
+        ("RICH", "RICH"),
         ("IMAGE", "IMAGE"),
         ("file", "FILE"),
         ("FILE", "FILE"),

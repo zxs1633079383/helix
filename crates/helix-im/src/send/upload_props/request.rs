@@ -144,9 +144,11 @@ fn is_http_url(value: &str) -> bool {
     value.starts_with("http://") || value.starts_with("https://")
 }
 
+/// 为每个消息内媒体目标生成稳定且不冲突的客户端上传幂等键。
 pub fn client_upload_id(temporary_id: &str, target: &UploadTarget) -> String {
     match target {
         UploadTarget::RichImage { index } => format!("{temporary_id}:rich:{index}"),
+        UploadTarget::RichVideo { index } => format!("{temporary_id}:rich-video:{index}"),
         UploadTarget::File => format!("{temporary_id}:file"),
         UploadTarget::TemplateImage => format!("{temporary_id}:template:image"),
     }
@@ -233,21 +235,24 @@ pub fn file_upload_request(
     })
 }
 
+/// 富媒体共用消息级进度，单文件消息保留 5% 的宿主进度回调。
 fn progress_policy(target: &UploadTarget) -> FileUploadProgressPolicy {
     match target {
         UploadTarget::RichImage { .. } => FileUploadProgressPolicy::Disabled,
+        UploadTarget::RichVideo { .. } => FileUploadProgressPolicy::Disabled,
         UploadTarget::File => FileUploadProgressPolicy::PercentStep(5),
         UploadTarget::TemplateImage => FileUploadProgressPolicy::Disabled,
     }
 }
 
+/// 按已规划目标 O(1) 定位公开 props 中的媒体节点。
 fn target_node<'a>(props: &'a Value, target: &UploadTarget) -> Result<&'a Value, ImError> {
     match target {
-        UploadTarget::RichImage { index } => props
+        UploadTarget::RichImage { index } | UploadTarget::RichVideo { index } => props
             .get("files")
             .and_then(Value::as_array)
             .and_then(|files| files.get(*index))
-            .ok_or_else(|| ImError::Parse("missing rich image target".to_string())),
+            .ok_or_else(|| ImError::Parse("missing rich media target".to_string())),
         UploadTarget::File => props
             .get("file")
             .ok_or_else(|| ImError::Parse("missing file target".to_string())),

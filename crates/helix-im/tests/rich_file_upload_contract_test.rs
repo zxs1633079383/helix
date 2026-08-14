@@ -253,7 +253,7 @@ fn rich_two_images_initial_step_persists_uploading_props_and_defers_posts_create
 
     let spec = last_message_upsert(&h);
     let row = spec.rows.first().expect("message row");
-    assert_eq!(row_text(row, "type"), Some("IMAGE"));
+    assert_eq!(row_text(row, "type"), Some("RICH"));
     let props = props_from_spec(&spec);
     assert_eq!(props["files"][0]["upload"]["status"], "uploading");
     assert_eq!(props["files"][1]["upload"]["status"], "uploading");

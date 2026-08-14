@@ -209,7 +209,7 @@ impl ImModule {
 fn reply_preview(message_type: &str, text: &str) -> Value {
     match message_type.to_ascii_uppercase().as_str() {
         "DOCUMENT" => json!({"kind":"document","title":text}),
-        "IMAGE" | "VIDEO" | "AUDIO" | "FILE" | "MEDIA" => {
+        "RICH" | "IMAGE" | "VIDEO" | "AUDIO" | "FILE" | "MEDIA" => {
             json!({"kind":"media","mediaType":message_type.to_ascii_lowercase(),"fileName":text})
         }
         "NOTICE" | "SYSTEM" | "SYSTEN" => json!({"kind":"system","text":text}),

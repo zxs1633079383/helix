@@ -233,16 +233,17 @@ fn is_settled_reference(object: &serde_json::Map<String, Value>) -> bool {
         .all(|field| object.get(*field).and_then(Value::as_str).is_some())
 }
 
+/// 按已规划目标 O(1) 定位可变媒体节点。
 fn target_node_mut<'a>(
     props: &'a mut Value,
     target: &UploadTarget,
 ) -> Result<&'a mut Value, ImError> {
     match target {
-        UploadTarget::RichImage { index } => props
+        UploadTarget::RichImage { index } | UploadTarget::RichVideo { index } => props
             .get_mut("files")
             .and_then(Value::as_array_mut)
             .and_then(|files| files.get_mut(*index))
-            .ok_or_else(|| ImError::Parse("missing rich image target".to_string())),
+            .ok_or_else(|| ImError::Parse("missing rich media target".to_string())),
         UploadTarget::File => props
             .get_mut("file")
             .ok_or_else(|| ImError::Parse("missing file target".to_string())),

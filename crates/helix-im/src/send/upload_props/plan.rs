@@ -4,7 +4,7 @@ use serde_json::{json, Map, Value};
 
 const MEDIA_INPUT_FIELDS: [&str; 5] = ["localPath", "fileName", "contentType", "size", "sha256"];
 const MAX_MEDIA_SIZE: u64 = 64 << 20;
-const MAX_RICH_IMAGES: usize = 9;
+const MAX_RICH_MEDIA: usize = 9;
 const TRANSIENT_REFERENCE_FIELDS: [&str; 10] = [
     "uploadId",
     "uploadToken",
@@ -46,7 +46,7 @@ pub fn build_upload_plan(
     mut props: Value,
 ) -> Result<UploadPlan, ImError> {
     let media = match msg_type {
-        "rich" | "IMAGE" => build_rich_plan(&mut props)?,
+        "rich" | "RICH" | "IMAGE" => build_rich_plan(&mut props)?,
         "file" | "FILE" | "AUDIO" | "VIDEO" => build_file_plan(message, &mut props)?,
         "TEMPLATE" => build_template_plan(&mut props)?,
         _ => Vec::new(),
@@ -68,7 +68,7 @@ pub fn build_upload_plan(
     })
 }
 
-/// 线性扫描图片项，区分待上传 mediaInput 与已存在稳定对象。
+/// 线性扫描富媒体项；正式 RICH 接受图片和视频，旧 IMAGE 输入只作为同义入站处理。
 fn build_rich_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
     if props.get("file").is_some() {
         return Err(ImError::Parse(
@@ -94,26 +94,51 @@ fn build_rich_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
         .ok_or_else(|| ImError::Parse("rich message requires props.files".to_string()))?;
     if files.is_empty() {
         return Err(ImError::Parse(
-            "rich message requires at least one image".to_string(),
+            "rich message requires at least one media item".to_string(),
         ));
     }
-    if files.len() > MAX_RICH_IMAGES {
+    if files.len() > MAX_RICH_MEDIA {
         return Err(ImError::Parse(format!(
-            "rich message supports at most {MAX_RICH_IMAGES} images"
+            "rich message supports at most {MAX_RICH_MEDIA} media items"
         )));
     }
 
     let mut media = Vec::with_capacity(files.len());
-    for (index, image) in files.iter_mut().enumerate() {
-        if is_stable_object_reference(image, "rich image")? {
+    for (index, item) in files.iter_mut().enumerate() {
+        let target = rich_target(item, index)?;
+        if is_stable_object_reference(item, "rich media")? {
+            if item.get("bucket").and_then(Value::as_str) != Some(target.bucket()) {
+                return Err(ImError::Parse(
+                    "rich media bucket conflicts with contentType".to_string(),
+                ));
+            }
             continue;
         }
         media.push(PlannedMedia {
-            target: UploadTarget::RichImage { index },
-            input: extract_media(image, "rich image")?,
+            target,
+            input: extract_media(item, "rich media")?,
         });
     }
     Ok(media)
+}
+
+/// 以受校验的 MIME 主类型选择 RICH 的稳定 bucket 与上传目标。
+fn rich_target(node: &Value, index: usize) -> Result<UploadTarget, ImError> {
+    let content_type = node
+        .pointer("/mediaInput/contentType")
+        .or_else(|| node.get("contentType"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .ok_or_else(|| ImError::Parse("rich media requires contentType".to_string()))?;
+    if content_type.starts_with("image/") {
+        return Ok(UploadTarget::RichImage { index });
+    }
+    if content_type.starts_with("video/") {
+        return Ok(UploadTarget::RichVideo { index });
+    }
+    Err(ImError::Parse(
+        "rich media contentType must be image/* or video/*".to_string(),
+    ))
 }
 
 /// 构造单文件计划；已有稳定对象引用不进入上传链。
@@ -509,6 +534,51 @@ mod tests {
         }
     }
 
+    /// RICH 混合媒体按 MIME 分流到 picture/attachment，且仍属于同一上传计划。
+    #[test]
+    fn rich_image_and_video_use_distinct_stable_buckets() {
+        let props = json!({
+            "imagePosition": "bottom",
+            "files": [
+                {"mediaInput": {
+                    "localPath": "/tmp/a.png", "fileName": "a.png",
+                    "contentType": "image/png", "size": 3, "sha256": VALID_SHA256
+                }},
+                {"mediaInput": {
+                    "localPath": "/tmp/b.mp4", "fileName": "b.mp4",
+                    "contentType": "video/mp4", "size": 9, "sha256": VALID_SHA256
+                }}
+            ]
+        });
+
+        let plan = build_upload_plan("RICH", "caption", props).expect("mixed rich plan");
+
+        assert_eq!(
+            plan.targets,
+            vec![
+                UploadTarget::RichImage { index: 0 },
+                UploadTarget::RichVideo { index: 1 }
+            ]
+        );
+        assert_eq!(plan.targets[0].bucket(), "picture");
+        assert_eq!(plan.targets[1].bucket(), "attachment");
+    }
+
+    /// 兼容 IMAGE 不接受视频，避免旧图片消息悄然改变 wire 语义。
+    #[test]
+    fn legacy_image_input_uses_rich_video_plan() {
+        let props = json!({
+            "imagePosition": "bottom",
+            "files": [{"mediaInput": {
+                "localPath": "/tmp/b.mp4", "fileName": "b.mp4",
+                "contentType": "video/mp4", "size": 9, "sha256": VALID_SHA256
+            }}]
+        });
+
+        let plan = build_upload_plan("IMAGE", "", props).expect("legacy IMAGE uses RICH plan");
+        assert_eq!(plan.targets, vec![UploadTarget::RichVideo { index: 0 }]);
+    }
+
     /// TEMPLATE/IMAGE 规划嵌套文件，TEMPLATE/TEXT 保持零媒体上传。
     #[test]
     fn template_image_builds_nested_upload_plan_but_text_does_not() {
@@ -546,7 +616,7 @@ mod tests {
         };
         let nine = Value::Array((0..9).map(|_| image()).collect());
         let plan = build_upload_plan(
-            "IMAGE",
+            "RICH",
             "caption",
             json!({"imagePosition":"bottom", "files":nine}),
         )
@@ -557,7 +627,7 @@ mod tests {
         assert!(plan.props.get("textPosition").is_none());
 
         let legacy_error = build_upload_plan(
-            "IMAGE",
+            "RICH",
             "caption",
             json!({
                 "imagePosition": "bottom",
@@ -573,7 +643,7 @@ mod tests {
 
         let ten = Value::Array((0..10).map(|_| image()).collect());
         let error = build_upload_plan(
-            "IMAGE",
+            "RICH",
             "caption",
             json!({"imagePosition":"bottom", "files":ten}),
         )

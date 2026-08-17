@@ -73,6 +73,41 @@ fn vote_create_frame() -> Tick {
     ))
 }
 
+/// 构造带完整参与者集合和统计值的平均分 post_update authority 帧。
+fn average_update_frame(seq: u64) -> Tick {
+    Tick::Inbound(InboundBytes(
+        serde_json::to_vec(&json!({
+            "action": "post_update",
+            "data": {
+                "id": "srvavg00000000000000000001",
+                "channelId": common::cid(1),
+                "userId": "engagement-owner",
+                "type": "AVERAGE_SCORE",
+                "message": "score",
+                "simpleMessage": "score",
+                "createAt": 1_700_000_000_000_i64,
+                "updateAt": 1_700_000_000_001_i64,
+                "props": {
+                    "averageScore": {
+                        "id": "average-1",
+                        "state": 0,
+                        "minScore": 0,
+                        "maxScore": 100,
+                        "participants": [{"userId": "member-1", "score": 4.5}],
+                        "members": [{"userId": "member-1"}],
+                        "totalCount": 1,
+                        "averageScore": 4.5
+                    }
+                },
+                "quickReply": [],
+                "event_seq": seq
+            }
+        }))
+        .expect("average authority frame must serialize")
+        .into(),
+    ))
+}
+
 /// 读取当前批次唯一的 post_update 原子提交关联。
 fn atomic_corr(harness: &Harness) -> Correlation {
     harness
@@ -143,4 +178,33 @@ fn vote_post_then_update_does_not_regress_to_initial_empty_snapshot() {
         Some(1)
     );
     assert_eq!(event["data"]["props"]["vote"]["joinCount"], 1);
+}
+
+/// 平均分 post_update 成功投影必须保留 participants、members 和统计值的完整快照。
+#[test]
+fn average_score_post_update_keeps_full_participants_snapshot_after_atomic_commit() {
+    let mut harness = Harness::new_with_identity(&[1], "engagement-owner", "company-1", "", "", "");
+
+    harness.step(average_update_frame(1), 1_700_000_000_001);
+    let corr = atomic_corr(&harness);
+    harness.step(port_reply_ok(corr.raw()), 1_700_000_000_002);
+
+    let event = first_event(&harness);
+    assert_eq!(event["event"], "im:post:updated");
+    assert_eq!(event["data"]["type"], "AVERAGE_SCORE");
+    assert_eq!(event["data"]["props"]["averageScore"]["id"], "average-1");
+    assert_eq!(
+        event["data"]["props"]["averageScore"]["participants"]
+            .as_array()
+            .map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        event["data"]["props"]["averageScore"]["members"]
+            .as_array()
+            .map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(event["data"]["props"]["averageScore"]["totalCount"], 1);
+    assert_eq!(event["data"]["props"]["averageScore"]["averageScore"], 4.5);
 }

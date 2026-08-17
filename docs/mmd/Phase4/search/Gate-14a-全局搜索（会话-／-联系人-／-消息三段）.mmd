@@ -1,0 +1,25 @@
+%% Phase4 / search / MV3-G14a 全局搜索（会话 / 联系人 / 消息三段）
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/search/mv3-g14a/contract.json
+%% UI owners: src/pages/message-v3/components/dialog-search/dialog-search.component.ts::searchGlobal；src/pages/message-v3/components/windows/chat-historical-records-search-window/chat-historical-records-search.template.ts::searchGlobal
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员在顶部搜索框输入关键字，一屏内看到匹配的会话、联系人、消息三类结果，点任一条可跳转
+  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=none；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  UI->>Gate: searchGlobal + searchMessagesGrouped(payload)
+  Gate-->>UI: 当前客户端路由结果或受控空结果
+  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
+  Note over IM,DB: 关键效果：channels 段由 Go 在当前用户有权访问的频道全集中检索并分页返回；Angular 只按 Helix 投影渲染，不得用本地 channel Map 补搜、删选或重排；contacts 段由 Go 按当前用户可见范围检索，按 userId 去重并分页；每条携带可跳转/展示所需的权威标识，Angular 不从已加载频道成员反向拼结果
+  Note over UI,Web: 关键负向：空串或纯空白关键字必须三段皆空且成功返回（不抛错、不视为错误、不触发「搜索失败」提示）；limit 缺省必须由实现侧兜底（SEARCH_DEFAULT_LIMIT=50，硬顶 SEARCH_MAX_LIMIT），禁止无界返回
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

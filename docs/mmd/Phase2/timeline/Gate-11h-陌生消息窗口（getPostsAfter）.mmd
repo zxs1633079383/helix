@@ -1,0 +1,57 @@
+%% Phase2 / timeline / MV3-G11h 陌生消息窗口（getPostsAfter）
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/timeline/mv3-g11h/contract.json
+%% UI owners: src/pages/message-v3/service/message.service.ts:863::queryPostsById（返回 posts 形状，替代旧 imHttp /posts/getPostsAfterFromSegment）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员点外部通知 / 待办里的消息链接，即使从未加载过该会话也能直接定位到那条消息
+  Note over UI,Web: 当前覆盖状态：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: getPostsAfter(payload)
+    Gate->>Native: invokeAccepted("im_get_posts_after_index", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_get_posts_after_index", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_get_posts_after_index", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 只知 postId 时取其所在窗口 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /api/cses/posts/getPostsAfterIndex（已支持 V3 pageSize/direction/cursor；当前缺口：newer 排除目标）
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction message window + timeline cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM-->>E: Command Result {data}
+  E-->>Gate: PortReply(Result)
+  Gate-->>UI: render absolute snapshot or query result
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：由 Helix/Go 定位 postId 所属频道并返回该频道初始窗口，窗口最多 limit 条且首条为目标消息；Angular 不扫描全频道缓存推导所属频道或窗口；返回窗口首条即为目标消息本身（idx 起），调用方据此直接定位 + 高亮，无需二次 getPosts；找不到目标时返回空数组（graceful），调用方据此展示「消息不存在 / 已撤回」而非报错弹窗；定位到的频道若不在会话集合内，须由调用方接着走 loadChannelIncrement（G13b）补齐会话后再打开（本 Gate 只给消息窗口，不负责建会话）
+  Note over UI,Web: 关键负向：找不到目标时不得抛错，必须返回空数组（外部通知里的消息可能已被撤回 / 不可见）；不得要求调用方先知道 channelId（与 G11d 的唯一区别就是入参不带 channelId；一旦要求就退化成 G11d）；不得只返回目标单条（窗口语义：必须带上下文，否则跳过去是一条孤立消息）
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

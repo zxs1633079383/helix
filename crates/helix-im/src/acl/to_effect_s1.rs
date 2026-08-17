@@ -49,7 +49,7 @@ fn first_bool(data: &serde_json::Value, keys: &[&str]) -> Option<bool> {
     })
 }
 
-// ─── channel 维护事件（created / closed / member-updated / memberNickname）──────
+// ─── channel 维护事件（created / closed / member-updated / member-nickname）──────
 
 /// `channel_created` → `im:channel:created`（真源 channel.rs:569）。
 ///
@@ -105,7 +105,7 @@ pub fn emit_channel_closed(channel_id: ChannelId, delete_at: i64) -> Effect {
     )
 }
 
-/// 自己退群成功复用 channelClosed 事件，以 terminalReason 保留 left 的唯一终态语义。
+/// viewer-local 主动退群或被移出均复用 channelClosed，以 terminalReason 保留唯一 left 语义。
 pub fn emit_channel_left(channel_id: ChannelId) -> Effect {
     emit(
         "im:channel:closed",
@@ -163,10 +163,10 @@ pub fn emit_channel_settings_updated(
     ))
 }
 
-/// `update_channel_member_nickName` → `im:channel:memberNickname`（真源 channel.rs:757）。
+/// `update_channel_member_nickName` → `im:channel:member-nickname`（MessageV3 canonical event）。
 pub fn emit_member_nickname(channel_id: ChannelId, user_id: &str, nick_name: &str) -> Effect {
     emit(
-        "im:channel:memberNickname",
+        "im:channel:member-nickname",
         serde_json::json!({
             "channelId": channel_id.as_str(),
             "userId": user_id,
@@ -178,5 +178,6 @@ pub fn emit_member_nickname(channel_id: ChannelId, user_id: &str, nick_name: &st
 mod storage;
 pub use storage::{
     channel_set_cols, channel_set_cols_op, delete_channel_members, delete_channel_members_op,
-    update_member_nickname, upsert_channel_members, upsert_channel_members_op, MemberRow,
+    update_member_nickname, update_member_nickname_op, upsert_channel_members,
+    upsert_channel_members_op, MemberRow,
 };

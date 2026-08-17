@@ -2,11 +2,10 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use helix_core::effect::{FileUploadRequest, HttpRequest};
-use helix_core::Tick;
 use tokio::sync::mpsc;
 
 use crate::pools::PersistJobPayload;
-use crate::spawner::BoundedSpawner;
+use crate::spawner::{BoundedSpawner, StampedFeedback};
 
 const HTTP_DRAIN_LIMIT: Duration = Duration::from_secs(3);
 
@@ -15,7 +14,7 @@ pub(super) async fn drain_pools(
     upload_pool: BoundedSpawner<FileUploadRequest>,
     http_pool: BoundedSpawner<HttpRequest>,
     http_fire_pool: BoundedSpawner<HttpRequest>,
-    mut reply_rx: mpsc::UnboundedReceiver<Tick>,
+    mut reply_rx: mpsc::UnboundedReceiver<StampedFeedback>,
 ) {
     tracing::info!(
         "helix engine loop: tick_rx closed, draining {} persist + io pools",

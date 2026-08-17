@@ -1,5 +1,5 @@
 use helix_driver_host::{
-    tick_ingress_channel, AsyncMetricSink, AuthTokenRegistry, BoundedMetricRuntime,
+    tick_ingress_channel_observed, AsyncMetricSink, AuthTokenRegistry, BoundedMetricRuntime,
     CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, MetricRuntimeConfig, NoopMetricSink,
     TickIngressSender,
 };
@@ -139,7 +139,7 @@ fn create_handle(config: HostNetworkConfig, vtable: CppHostVtable) -> *mut Helix
         .unwrap_or_else(|| Arc::new(NoopMetricSink));
 
     // tick channel 容量 256：对齐 host-cli 入站背压点；满则 helix_command 返回 FFI_BUSY。
-    let (tick_tx, tick_rx) = tick_ingress_channel(256);
+    let (tick_tx, tick_rx) = tick_ingress_channel_observed(256, Arc::clone(&metrics));
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     // 只等待 pump 完成 storage/schema/ports 装配，不暴露同步业务查询旁路。
     let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<Result<(), ()>>(1);

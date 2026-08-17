@@ -1,0 +1,66 @@
+%% Phase1 / upload / MV3-G03c 图片预览内转发
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/upload/mv3-g03c/contract.json
+%% UI owners: src/pages/message-v3/service/messageContainerShared.service.ts::forwardImageToChannels
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant PS as Pending or local state
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员在图片大图预览里点转发并选目标群，目标群收到该图片的新消息
+  Note over UI,Web: 当前覆盖状态：mock=partial；helix=partial；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: sendMessage(payload)
+    Gate->>Native: invokeAccepted("im_send_message", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_send_message", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_send_message", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 从图片大图预览转发到会话 的入参，生成 corr_key/req_id
+  opt 媒体或附件前置阶段
+    IM->>Host: Effect::FileUpload prepare / put / complete
+    Host->>Go: 文件服务上传或签名地址请求
+    Go-->>Host: file reference / media URL
+    Host->>E: Tick::PortReply(upload)
+    E->>IM: 继续发送或在失败时早退
+  end
+  IM->>Host: Effect::Http POST /posts/create
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction message/media + channel + viewer member + cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM->>Sink: Effect::Emit {event,data}（postReceived，POST，channelUpdateByPost，UPDATE_CHANNEL）
+  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  Sink-->>FFI: FFI batch raw {event,data}
+  Sink-->>Web: Web EventBatch raw {event,data}
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：发送成功后发送者侧 channel.unreadCount 绝对归零（== 0，不是递减）；频道内其它可见成员的 getMemberUnread(channelId, otherUserId).unreadCount 相比发送前恰好 +1（幂等累加）；该值必须各侧独立计算，禁止用发送者数值推导；message.readBits 长度 == channel.members.length，位序 == channel.members 顺序，发送者对应位 == '1'；接收者对应位在其调用 postRead 之前恒为 '0'，不得因发送者已读而被置 '1'
+  Note over UI,Web: 关键负向：不得走 relayMessages（转发的不是原 post 而是预览里的 url）；不得因已有 url 而重新上传（uri/bucket 直接复用，/fileDrive/* 调用计数必须为 0）；多目标频道不得共用同一个 temporaryId（否则乐观回显互相 merge 覆盖）
+  Note over E,Sink: 出站事件集合：postReceived，POST，channelUpdateByPost，UPDATE_CHANNEL；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

@@ -550,6 +550,8 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
     );
     output.insert("boss".to_string(), json_field(row, &["boss"], json!([])));
     output.insert("owner".to_string(), json_field(row, &["owner"], json!({})));
+    // Go increment and notify-only WS both expose the viewer mode as one scalar string;
+    // retain that render-ready shape instead of inventing a nested notifyProps object.
     output.insert(
         "notifyProps".to_string(),
         json_field_or_value(row, &["notify_props", "notifyProps"], json!({})),

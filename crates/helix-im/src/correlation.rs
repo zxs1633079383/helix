@@ -3,7 +3,7 @@
 //! `state.rs` 经 `#[path] mod` 引入 + `pub use` re-export → `crate::state::CorrelationContext`
 //! 调用点零改动。
 
-use super::{ChannelId, TemporaryId};
+use super::{ChannelId, ServerId, TemporaryId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MakeTopicProjection {
@@ -19,6 +19,7 @@ pub struct ChannelSettingsProjection {
     pub channel_id: ChannelId,
     pub channel: serde_json::Value,
     pub display_name: Option<String>,
+    pub orient: Option<String>,
     pub purpose: String,
     pub header: String,
     pub setting_version: u64,
@@ -59,6 +60,13 @@ pub struct HydrationPersistSnapshot {
     pub was_increment_fetched: bool,
     pub was_need_sync_skip: bool,
     pub previous_about_me_len: usize,
+}
+
+/// Sync 落库成功后可安全结算的一条本地发送对账事实。
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingSendReconciliation {
+    pub temporary_id: TemporaryId,
+    pub server_id: ServerId,
 }
 
 /// 单一 corr 路由表的 value——一条在途异步操作（Persist / Http / Scan）回报时
@@ -141,6 +149,8 @@ pub enum CorrelationContext {
         channel_updates: Vec<crate::channel_update::PendingChannelUpdate>,
         /// sync HTTP 解析出的 mutation 投影；事务 ack 前不得发布。
         pending_domain_events: Vec<Vec<u8>>,
+        /// sync 事务成功后才能结算的本端 temporaryId → 服务端 id 对账事实。
+        pending_send_reconciliations: Vec<PendingSendReconciliation>,
     },
 
     /// type7 closed tombstone 的 `PersistAtomic` 回执。成功前不改变内存 cursor/terminal 状态，
@@ -199,6 +209,10 @@ pub enum CorrelationContext {
         member_channel: Option<Box<serde_json::Value>>,
         causation_id: Option<String>,
     },
+
+    /// notify-only `update_channel` writes the viewer projection and member mirror, then
+    /// emits only from the durable channel read-back; no sparse input is trusted as final state.
+    NotifyChannelPersist { channel_id: ChannelId },
 
     /// too_long 后 Helix 主动发起 getLatestPost 首屏重拉的 HTTP 回报。
     TooLongReload {
@@ -444,9 +458,20 @@ pub enum CorrelationContext {
     ChannelMemberUpdatePersist {
         channel_id: ChannelId,
         event_seq: Option<crate::state::Seq>,
-        raw_channel: Vec<u8>,
-        members: Vec<crate::render_ready_members::RenderMember>,
-        leaves: Vec<String>,
+        viewer_rejoined: bool,
+        causation_id: Option<String>,
+    },
+
+    /// 成员增删提交后读回频道行，随后以 durable channel_member 组装唯一绝对 roster。
+    ChannelMemberUpdateChannelReadback {
+        channel_id: ChannelId,
+        causation_id: Option<String>,
+    },
+
+    /// 成员增删最终成员表读回；禁止重新发布 WS sparse delta。
+    ChannelMemberUpdateReadback {
+        channel_id: ChannelId,
+        channel: Option<Box<serde_json::Value>>,
         causation_id: Option<String>,
     },
 
@@ -497,6 +522,13 @@ pub enum CorrelationContext {
 
     /// G-15 durable root readback 只允许释放 topic MessageV3 事件。
     OutboundMakeTopicRootRead { projection: MakeTopicProjection },
+
+    /// G-15 durable root 已确认父频道后，先补齐 topic channel.root_id，再释放创建事件。
+    OutboundMakeTopicRelationPersist {
+        projection: MakeTopicProjection,
+        parent_channel_id: ChannelId,
+        root_row: Box<serde_json::Value>,
+    },
 
     /// 群设置/公告写回：服务端 SUCCESS 必须携带完整权威设置快照与 settingVersion。
     OutboundChannelSettings {
@@ -656,10 +688,10 @@ pub enum CorrelationContext {
         state: Box<crate::timeline_navigation::TimelineNavigationState>,
     },
 
-    /// V3 older/newer 页按 authority identity 逐项 durable readback 的续接状态。
+    /// V3 older/newer/locate 页按 authority identity 逐项 durable readback 的续接状态。
     TimelineNavigationExactReadback {
         state: Box<crate::timeline_navigation::TimelineNavigationState>,
-        accepted_keys: Vec<String>,
+        accepted_keys: Vec<crate::timeline_navigation::TimelineNavigationReadbackKey>,
         next_index: usize,
         rows: Vec<serde_json::Value>,
     },

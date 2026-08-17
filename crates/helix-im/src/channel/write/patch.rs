@@ -25,6 +25,9 @@ pub fn collect_present(data: &serde_json::Value) -> Vec<ChannelCol> {
         ("root_id", "rootId"),
         ("root_post_id", "rootPostId"),
         ("notify_props", "notifyProps"),
+        // Go `update_channel` notify-only frames use the short member key `notify`;
+        // normalize it into the viewer-local channel projection column.
+        ("notify_props", "notify"),
         ("mention_permission", "mentionPermission"),
         ("notice_permission", "noticePermission"),
         ("top_permission", "topPermission"),
@@ -167,5 +170,14 @@ mod tests {
     #[test]
     fn collect_present_empty_s3() {
         assert!(collect_present(&serde_json::json!({})).is_empty());
+    }
+
+    /// The notify-only WS spelling must update the same scalar projection as increment sync.
+    #[test]
+    fn collect_present_accepts_notify_only_wire_key() {
+        let cols = collect_present(&serde_json::json!({"notify": "STRONG"}));
+        assert!(
+            matches!(val(&cols, "notify_props"), Some(SqlValue::Text(value)) if value == "STRONG")
+        );
     }
 }

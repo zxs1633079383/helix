@@ -103,6 +103,7 @@ pub struct EventReceiver {
     inner: broadcast::Receiver<DomainEventBytes>,
     lagged_total: u64,
     metrics: Arc<dyn AsyncMetricSink>,
+    consumer: &'static str,
 }
 
 impl EventReceiver {
@@ -112,11 +113,14 @@ impl EventReceiver {
             inner,
             lagged_total: 0,
             metrics: Arc::new(NoopMetricSink),
+            consumer: "unobserved",
         }
     }
 
-    fn with_metrics(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
+    /// 注入共享指标 sink 与冻结 consumer 名，禁止动态窗口 id 进入标签。
+    fn with_metrics(mut self, metrics: Arc<dyn AsyncMetricSink>, consumer: &'static str) -> Self {
         self.metrics = metrics;
+        self.consumer = consumer;
         self
     }
 
@@ -131,12 +135,23 @@ impl EventReceiver {
                     let _ = self.metrics.try_record(MetricEvent::counter(
                         MetricId::EventLaggedTotal,
                         n as f64,
-                        MetricLabels::one(LabelKey::Stage, "event"),
+                        MetricLabels::one(LabelKey::Stage, "event")
+                            .with(LabelKey::Consumer, self.consumer),
                     ));
                 }
                 RecvOutcome::Lagged(n)
             }
-            Err(broadcast::error::RecvError::Closed) => RecvOutcome::Closed,
+            Err(broadcast::error::RecvError::Closed) => {
+                if self.metrics.is_enabled() {
+                    let _ = self.metrics.try_record(MetricEvent::counter(
+                        MetricId::EventConsumerClosedTotal,
+                        1.0,
+                        MetricLabels::one(LabelKey::Stage, "event")
+                            .with(LabelKey::Consumer, self.consumer),
+                    ));
+                }
+                RecvOutcome::Closed
+            }
         }
     }
 
@@ -173,6 +188,7 @@ impl NativeEventSink {
         )
     }
 
+    /// 注入 host 共享有界指标出口，不改变 broadcast 容量或发送语义。
     pub fn with_metric_sink(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
         self.metrics = metrics;
         self
@@ -185,7 +201,21 @@ impl NativeEventSink {
 
     /// 订阅可观测接收端：lagged 不再静默（E7）。event_bus loop 应优先用这个。
     pub fn subscribe_observed(&self) -> EventReceiver {
-        EventReceiver::new(self.sender.subscribe()).with_metrics(Arc::clone(&self.metrics))
+        self.subscribe_observed_as("native")
+    }
+
+    /// 用冻结的低基数 consumer 名订阅，供 Grafana 分辨 Tauri bridge 与其他消费者。
+    pub fn subscribe_observed_as(&self, consumer: &'static str) -> EventReceiver {
+        let receiver = EventReceiver::new(self.sender.subscribe())
+            .with_metrics(Arc::clone(&self.metrics), consumer);
+        if self.metrics.is_enabled() {
+            let _ = self.metrics.try_record(MetricEvent::gauge(
+                MetricId::EventReceiverCount,
+                self.sender.receiver_count() as f64,
+                MetricLabels::one(LabelKey::Stage, "event").with(LabelKey::Consumer, consumer),
+            ));
+        }
+        receiver
     }
 
     /// 当前活跃订阅者数量（测试用）。

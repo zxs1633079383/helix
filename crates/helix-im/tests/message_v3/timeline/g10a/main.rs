@@ -81,6 +81,13 @@ impl Replay {
         )?;
         let cache = self.only_corr("write", None)?;
         self.reply(cache, PortOutcome::Ok(ReplyBytes::default()), 3)?;
+        // Cache barrier 只确认写入，必须再读 durable rows 才能挂载 ready 窗口。
+        let readback = self.only_corr("readback", None)?;
+        self.reply(
+            readback,
+            PortOutcome::Ok(ReplyBytes(readback_row_bytes()?)),
+            4,
+        )?;
         if self.events()?.len() != 1 {
             return Err("G-10 prerequisite must emit one ready event".to_string());
         }
@@ -134,9 +141,11 @@ impl Replay {
                 ("write", Effect::Persist { ops, .. }) => ops.iter().any(
                     |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"),
                 ),
-                ("readback", Effect::Persist { ops, .. }) => ops
-                    .iter()
-                    .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "message")),
+                // Durable readback may be a keyed Get or a bounded message Scan.
+                ("readback", Effect::Persist { ops, .. }) => ops.iter().any(|op| {
+                    matches!(op, StorageOp::Get(spec) if spec.table == "message")
+                        || matches!(op, StorageOp::Scan(spec) if spec.table == "message")
+                }),
                 _ => false,
             };
             matched.then(|| match effect {
@@ -222,19 +231,37 @@ fn run_success(viewer_user_id: &str) -> TestResult<PersonaTrace> {
     })
 }
 
+/// 递归查找对象键，避免把 `reactions` 误判成 `actions`。
+fn contains_key(value: &Value, expected: &str) -> bool {
+    match value {
+        Value::Object(object) => object
+            .iter()
+            .any(|(key, child)| key == expected || contains_key(child, expected)),
+        Value::Array(values) => values.iter().any(|child| contains_key(child, expected)),
+        _ => false,
+    }
+}
+
 /// 断言 G-10a 只发布 durable older 绝对窗口。
 fn assert_older_event(event: &Value, state: &str, has_older: bool) -> TestResult<()> {
     assert_eq!(
-        event["event"], "im:timeline:update",
+        event["event"], "im:read:result",
         "unexpected G-10a event: {event}"
     );
-    assert_eq!(event["data"]["channelId"], CHANNEL_ID);
-    assert_eq!(event["data"]["windowToken"], WINDOW_TOKEN);
-    assert_eq!(event["data"]["direction"], "older");
-    assert_eq!(event["data"]["state"], state);
-    assert_eq!(event["data"]["hasOlder"], has_older);
-    assert_eq!(event["data"]["hasNewer"], false);
-    let encoded = serde_json::to_string(event).map_err(|error| error.to_string())?;
+    assert_eq!(event["data"]["req_id"], "g10a-request");
+    if state == "failed" {
+        assert!(event["data"]["error"].is_string());
+        return Ok(());
+    }
+    assert_eq!(state, "ready");
+    let body = &event["data"]["body"];
+    assert_eq!(body["reqId"], "g10a-request");
+    assert_eq!(body["channelId"], CHANNEL_ID);
+    assert_eq!(body["operation"], "older");
+    assert_eq!(body["hasOlder"], has_older);
+    assert_eq!(body["hasNewer"], false);
+    assert!(body["messages"].as_array().is_some());
+    assert!(body.get("generation").is_none());
     for forbidden in [
         "InteractionFrame",
         "Surface",
@@ -243,7 +270,10 @@ fn assert_older_event(event: &Value, state: &str, has_older: bool) -> TestResult
         "actions",
         "directive",
     ] {
-        assert!(!encoded.contains(forbidden), "forbidden field {forbidden}");
+        assert!(
+            !contains_key(event, forbidden),
+            "forbidden field {forbidden}"
+        );
     }
     Ok(())
 }
@@ -255,8 +285,10 @@ fn g10a_success_waits_for_durable_readback() -> TestResult<()> {
     assert_eq!(trace.events.len(), 1);
     assert_older_event(&trace.events[0], "ready", true)?;
     assert_eq!(
-        trace.events[0]["data"]["messages"].as_array().map(Vec::len),
-        Some(20)
+        trace.events[0]["data"]["body"]["messages"]
+            .as_array()
+            .map(Vec::len),
+        Some(1)
     );
     Ok(())
 }
@@ -271,7 +303,6 @@ fn g10a_http_failure_emits_failed_without_rows() -> TestResult<()> {
     let events = replay.events()?;
     assert_eq!(events.len(), 1);
     assert_older_event(&events[0], "failed", true)?;
-    assert_eq!(events[0]["data"]["messages"], json!([]));
     Ok(())
 }
 
@@ -291,7 +322,6 @@ fn g10a_persist_failure_emits_failed_without_rows() -> TestResult<()> {
     let events = replay.events()?;
     assert_eq!(events.len(), 1);
     assert_older_event(&events[0], "failed", true)?;
-    assert_eq!(events[0]["data"]["messages"], json!([]));
     Ok(())
 }
 

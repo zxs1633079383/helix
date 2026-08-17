@@ -1,4 +1,4 @@
-//! MV3-G01c｜发送多图 IMAGE：多目标、逐文件绝对进度、按总字节加权的消息级进度、
+//! MV3-G01c｜发送多图 RICH：多目标、逐文件绝对进度、按总字节加权的消息级进度、
 //! 部分失败与选择性重试。
 //!
 //! 线型权威：`specs/003-messagev3-gate-inventory/gates/upload/mv3-g01c/*.json`。
@@ -45,7 +45,7 @@ fn two_image_tick(temporary_id: &str) -> Tick {
     send_message_cmd_json(json!({
         "channel_id": cid(1),
         "temporary_id": temporary_id,
-        "type": "IMAGE",
+        "type": "RICH",
         "text": "两张图片",
         "props": {
             "imagePosition": "bottom",
@@ -459,7 +459,7 @@ fn all_completions_emit_single_posts_create_with_full_progress() {
     let posts = http_with_suffix(&h, "/posts/create");
     assert_eq!(posts.len(), 1, "多图必须合并成一条消息、一次 posts/create");
     let body = &posts[0].1;
-    assert_eq!(body["type"], "IMAGE");
+    assert_eq!(body["type"], "RICH");
     assert_eq!(body["props"]["uploadProgress"], 100);
     for (index, file_id) in ["file-image-001", "file-image-002"].iter().enumerate() {
         let file = &body["props"]["files"][index];

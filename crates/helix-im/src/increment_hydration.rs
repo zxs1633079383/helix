@@ -105,6 +105,123 @@ impl ImModule {
             .ok_or_else(|| ImError::Parse("hydration read-back must be an array".to_string()))
     }
 
+    /// 从 Go G09d raw snapshot 冻结有序全角色 roster，并校验 memberCount 与唯一 user id。
+    fn ordered_hydration_roster(raw_increment: &[u8]) -> Result<Vec<serde_json::Value>, ImError> {
+        let data: serde_json::Value = serde_json::from_slice(raw_increment)
+            .map_err(|error| ImError::Parse(format!("hydration roster parse: {error}")))?;
+        let members = data
+            .get("members")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| ImError::Parse("hydration roster members missing".to_string()))?;
+        let member_count = data
+            .get("memberCount")
+            .or_else(|| data.get("member_count"))
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| ImError::Parse("hydration roster memberCount missing".to_string()))?;
+        if member_count as usize != members.len() || members.is_empty() {
+            return Err(ImError::Parse(
+                "hydration roster count mismatch or empty".to_string(),
+            ));
+        }
+        let mut seen = std::collections::HashSet::with_capacity(members.len());
+        let mut ordered = Vec::with_capacity(members.len());
+        for member in members {
+            let user_id = member
+                .get("userId")
+                .or_else(|| member.get("id"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ImError::Parse("hydration roster member id missing".to_string()))?;
+            if !seen.insert(user_id.to_string()) {
+                return Err(ImError::Parse(
+                    "hydration roster contains duplicate member".to_string(),
+                ));
+            }
+            ordered.push(serde_json::json!({
+                "userId": user_id,
+                "teamId": member.get("teamId").and_then(serde_json::Value::as_str).unwrap_or_default(),
+                "role": member.get("role").and_then(serde_json::Value::as_str).unwrap_or("MEMBER"),
+                "nickName": member.get("nickName").and_then(serde_json::Value::as_str).unwrap_or_default(),
+            }));
+        }
+        Ok(ordered)
+    }
+
+    /// 将 durable member rows 按冻结位序重建完整 channel roster，并拒绝租户/集合漂移。
+    fn attach_hydration_roster(
+        &self,
+        channel: &mut serde_json::Value,
+        durable_rows: &[serde_json::Value],
+        ordered: &[serde_json::Value],
+    ) -> Result<(), ImError> {
+        let mut durable = std::collections::HashMap::with_capacity(durable_rows.len());
+        for row in durable_rows {
+            let user_id = row
+                .get("user_id")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ImError::Parse("hydration durable member id missing".to_string()))?;
+            if row.get("team_id").and_then(serde_json::Value::as_str)
+                != Some(self.config.company_id.as_str())
+            {
+                return Err(ImError::Parse(
+                    "hydration durable member tenant mismatch".to_string(),
+                ));
+            }
+            if durable.insert(user_id, row).is_some() {
+                return Err(ImError::Parse(
+                    "hydration durable member duplicate".to_string(),
+                ));
+            }
+        }
+        if durable.len() != ordered.len() {
+            return Err(ImError::Parse(
+                "hydration durable roster count mismatch".to_string(),
+            ));
+        }
+        let object = channel
+            .as_object_mut()
+            .ok_or_else(|| ImError::Parse("hydration channel shape invalid".to_string()))?;
+        let mut admins = Vec::new();
+        let mut bosses = Vec::new();
+        let mut owner = serde_json::Value::Null;
+        let mut projected_members = Vec::with_capacity(ordered.len());
+        for member in ordered {
+            let user_id = member["userId"]
+                .as_str()
+                .ok_or_else(|| ImError::Parse("hydration ordered member invalid".to_string()))?;
+            let row = durable.get(user_id).ok_or_else(|| {
+                ImError::Parse("hydration durable roster set mismatch".to_string())
+            })?;
+            let role = row
+                .get("role")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("MEMBER");
+            let projected = serde_json::json!({
+                "userId": user_id,
+                "teamId": self.config.company_id,
+                "role": role,
+                "nickName": row.get("nick_name").and_then(serde_json::Value::as_str).unwrap_or_default(),
+            });
+            projected_members.push(projected.clone());
+            match role {
+                "ADMIN" | "MANAGER" => admins.push(projected.clone()),
+                "BOSS" => bosses.push(projected.clone()),
+                "OWNER" | "CREATOR" => owner = projected.clone(),
+                _ => {}
+            }
+        }
+        object.insert(
+            "members".to_string(),
+            serde_json::Value::Array(projected_members),
+        );
+        object.insert("adminUsers".to_string(), serde_json::Value::Array(admins));
+        object.insert("boss".to_string(), serde_json::Value::Array(bosses));
+        object.insert("owner".to_string(), owner);
+        object.insert("memberCount".to_string(), serde_json::json!(ordered.len()));
+        Ok(())
+    }
+
     /// 发送 channel row 读回，后续阶段均由 matching corr 串联。
     fn start_hydration_channel_readback(
         &mut self,
@@ -127,7 +244,7 @@ impl ImModule {
         );
     }
 
-    /// channel row 读回成功后，读取当前 viewer 的 member 绝对态。
+    /// channel row 读回成功后，扫描完整 durable roster 并在下一阶段验证 viewer。
     pub(crate) fn handle_hydration_channel_readback(
         &mut self,
         req_id: String,
@@ -167,12 +284,14 @@ impl ImModule {
         let corr = self.alloc_corr_internal();
         out.push(Effect::Persist {
             corr,
-            ops: vec![StorageOp::ScopedGet(helix_core::effect::ScopedGetSpec {
+            ops: vec![StorageOp::Scan(ScanSpec {
                 table: "channel_member",
-                scope_col: "channel_id",
-                scope_val: SqlValue::Text(channel_id.as_str().to_string()),
-                key_col: "user_id",
-                key_val: SqlValue::Text(self.config.auth_user_id.clone()),
+                limit: None,
+                filter: Some((
+                    "channel_id",
+                    SqlValue::Text(channel_id.as_str().to_string()),
+                )),
+                order_by: &[],
             })],
         });
         self.state.corr_map.insert(
@@ -201,16 +320,40 @@ impl ImModule {
                 "member read-back failed: {error:?}"
             ))),
         };
-        let Some(member) = (match rows {
-            Ok(mut rows) => rows.pop(),
+        let durable_rows = match rows {
+            Ok(rows) => rows,
             Err(error) => {
                 self.finish_hydration_error(&req_id, channel_id, &error.to_string(), out);
                 return Ok(());
             }
-        }) else {
+        };
+        let Some(member) = durable_rows
+            .iter()
+            .find(|row| {
+                row.get("user_id").and_then(serde_json::Value::as_str)
+                    == Some(self.config.auth_user_id.as_str())
+                    && row.get("team_id").and_then(serde_json::Value::as_str)
+                        == Some(self.config.company_id.as_str())
+            })
+            .cloned()
+        else {
             self.finish_hydration_error(&req_id, channel_id, "member read-back missing", out);
             return Ok(());
         };
+        let Some(ordered) = self
+            .state
+            .hydration_ordered_rosters
+            .get(&channel_id)
+            .cloned()
+        else {
+            self.finish_hydration_error(&req_id, channel_id, "ordered roster missing", out);
+            return Ok(());
+        };
+        let mut channel = *channel;
+        if let Err(error) = self.attach_hydration_roster(&mut channel, &durable_rows, &ordered) {
+            self.finish_hydration_error(&req_id, channel_id, &error.to_string(), out);
+            return Ok(());
+        }
         let corr = self.alloc_corr_internal();
         out.push(Effect::Persist {
             corr,
@@ -229,7 +372,7 @@ impl ImModule {
             CorrelationContext::HydrationMessagesReadback {
                 req_id,
                 channel_id,
-                channel,
+                channel: Box::new(channel),
                 member: Box::new(member),
             },
         );
@@ -332,6 +475,7 @@ impl ImModule {
             .hydration_emit_channel_increment
             .remove(&channel_id);
         self.state.hydration_req_ids.remove(&channel_id);
+        self.state.hydration_ordered_rosters.remove(&channel_id);
         if emit_channel_increment {
             out.push(
                 crate::event::MessageV3Event::new("im:channel:increment", (*channel).clone())?
@@ -365,6 +509,7 @@ impl ImModule {
         self.state
             .hydration_emit_channel_increment
             .remove(&channel_id);
+        self.state.hydration_ordered_rosters.remove(&channel_id);
         out.push(crate::read_relay::emit_read_error(req_id, reason));
     }
 
@@ -513,7 +658,17 @@ impl ImModule {
     ) -> Result<(), ImError> {
         match outcome {
             PortOutcome::Ok(_) => {
-                let _ = raw_increment;
+                let ordered_roster = match Self::ordered_hydration_roster(&raw_increment) {
+                    Ok(roster) => roster,
+                    Err(error) => {
+                        self.restore_hydration_snapshot(channel_id, &snapshot);
+                        self.finish_hydration_error(&req_id, channel_id, &error.to_string(), out);
+                        return Ok(());
+                    }
+                };
+                self.state
+                    .hydration_ordered_rosters
+                    .insert(channel_id, ordered_roster);
                 self.after_increment_persist(
                     channel_id,
                     req_id,

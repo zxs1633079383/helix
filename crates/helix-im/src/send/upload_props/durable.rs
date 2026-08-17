@@ -200,20 +200,29 @@ fn decode_row(row: &Value) -> Result<FailedMediaOp, ImError> {
     }
 }
 
+/// 将上传目标编码为兼容旧图片 journal 的稳定键。
 fn target_key(target: &UploadTarget) -> String {
     match target {
         UploadTarget::File => "file".to_string(),
         UploadTarget::RichImage { index } => format!("rich:{index}"),
+        UploadTarget::RichVideo { index } => format!("rich-video:{index}"),
         UploadTarget::TemplateImage => "template:image".to_string(),
     }
 }
 
+/// 从 durable journal 恢复图片、视频或单文件上传目标。
 fn parse_target(value: &str) -> Result<UploadTarget, ImError> {
     if value == "file" {
         return Ok(UploadTarget::File);
     }
     if value == "template:image" {
         return Ok(UploadTarget::TemplateImage);
+    }
+    if let Some(index) = value
+        .strip_prefix("rich-video:")
+        .and_then(|index| index.parse::<usize>().ok())
+    {
+        return Ok(UploadTarget::RichVideo { index });
     }
     value
         .strip_prefix("rich:")

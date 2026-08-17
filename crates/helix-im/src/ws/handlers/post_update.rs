@@ -81,7 +81,7 @@ pub(super) fn apply_post_update(
     };
     let has_template_confirmation =
         crate::event::post::has_template_confirmation(fields.props.as_str());
-    if !fields.quick_reply.is_empty()
+    if has_quick_reply_items(fields.quick_reply.as_str())
         || !fields.expedite_map.is_empty()
         || has_template_confirmation
     {
@@ -101,7 +101,7 @@ pub(super) fn apply_post_update(
         };
         if let Some(event) = admitted {
             let corr = ctx.alloc_corr();
-            if !event.fields.quick_reply.is_empty() {
+            if has_quick_reply_items(event.fields.quick_reply.as_str()) {
                 crate::port_reply::message_v3_reaction::queue_commit(ctx.state, corr, event, out);
             } else if !event.fields.expedite_map.is_empty() {
                 crate::port_reply::message_v3_urgent::queue_commit(ctx.state, corr, event, out);
@@ -180,5 +180,18 @@ inventory::submit! {
     WsHandlerRegistration {
         action: POST_UPDATE_ACTION,
         handler: &POST_UPDATE_HANDLER,
+    }
+}
+
+/// 只有含有实际 reaction 项时才进入 quick-reply 专用持久化路径；空数组属于完整 post 快照。
+fn has_quick_reply_items(raw: &str) -> bool {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return false;
+    }
+    match serde_json::from_str::<serde_json::Value>(raw) {
+        Ok(serde_json::Value::Array(items)) => !items.is_empty(),
+        Ok(serde_json::Value::Null) => false,
+        Ok(_) | Err(_) => true,
     }
 }

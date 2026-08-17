@@ -198,6 +198,44 @@ fn program_full_server_unread_present_not_omitted_s3() {
     assert!(matches!(get(&row, "header"), Some(SqlValue::Text(v)) if v == "h"));
 }
 
+/// 回归锚: 稀疏 T 频道快照不得清空 make-topic durable readback 已建立的父频道和根消息关系。
+#[test]
+fn program_full_topic_omits_empty_root_relation_columns() {
+    let data = serde_json::json!({
+        "id": "00000000000000000000000015",
+        "type": "T",
+        "rootId": "",
+        "rootPostId": "",
+    });
+    let (row, omit) = program_full(&data, "", 0).expect("valid topic channel");
+
+    assert!(matches!(get(&row, "root_id"), Some(SqlValue::Text(value)) if value.is_empty()));
+    assert!(matches!(get(&row, "root_post_id"), Some(SqlValue::Text(value)) if value.is_empty()));
+    assert!(omit.contains(&"root_id"));
+    assert!(omit.contains(&"root_post_id"));
+}
+
+/// 回归锚: T 频道带权威 root 字段时仍必须更新本地关系，不能被守卫误伤。
+#[test]
+fn program_full_topic_updates_non_empty_root_relation_columns() {
+    let data = serde_json::json!({
+        "id": "00000000000000000000000016",
+        "type": "T",
+        "rootId": "00000000000000000000000017",
+        "rootPostId": "00000000000000000000000018",
+    });
+    let (row, omit) = program_full(&data, "", 0).expect("valid topic channel");
+
+    assert!(
+        matches!(get(&row, "root_id"), Some(SqlValue::Text(value)) if value == "00000000000000000000000017")
+    );
+    assert!(
+        matches!(get(&row, "root_post_id"), Some(SqlValue::Text(value)) if value == "00000000000000000000000018")
+    );
+    assert!(!omit.contains(&"root_id"));
+    assert!(!omit.contains(&"root_post_id"));
+}
+
 /// 回归锚: S3 path1 —— 非法 id → None（边界零信任）。
 #[test]
 fn program_full_invalid_id_none_s3() {

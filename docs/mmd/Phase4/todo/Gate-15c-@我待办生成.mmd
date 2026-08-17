@@ -1,0 +1,47 @@
+%% Phase4 / todo / MV3-G15c @我待办生成
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/todo/mv3-g15c/contract.json
+%% UI owners: src/pages/message-v3/service/ipcEventHandler.service.ts::handlePostReceived；src/pages/message-v3/service/messageNotice.service.ts::createTodoListData
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员被 @ 后待办列表出现一条可手动清除的提醒，读完会话后自动清掉
+  Note over UI,Web: 当前覆盖状态：mock=partial；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: queryTodoList(payload)
+    Gate->>Native: invokeAccepted("im_query_todo_list", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_query_todo_list", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_query_todo_list", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 被 @ 生成可删待办 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /posts/queryTodoList
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM-->>E: Command Result {data}
+  E-->>Gate: PortReply(Result)
+  Gate-->>UI: render absolute snapshot or query result
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：被 @ 者侧派发 SEND_TODO_LIST_DATAid: $message.id_mention, channel, post, type: 'mention', canDel: true；判定读 isMentionMessage（mentions 数组 includes currentUserId），且必须在加急判定之后：isMention = (isUnReadExpedite ／／ isReadExpedite) ? false : isMentionMessage(...)
+  Note over UI,Web: 关键负向：canDel 必须为 true（区别于 G15a 的 false）：@ 提醒允许用户手动清；@所有人不得生成待办：mentions = [”all”] 不满足 includes(currentUserId)
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

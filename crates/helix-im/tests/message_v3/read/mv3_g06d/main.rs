@@ -116,8 +116,6 @@ fn assert_no_internal_receipt_fields(value: &Value) {
         "readers",
         "unreaders",
         "recipientUserIds",
-        "snapshotVersion",
-        "receiptKey",
     ] {
         assert!(
             value.get(field).is_none(),
@@ -194,11 +192,15 @@ fn ready_projection_preserves_order_counts_and_snapshot_id() {
             "channelId": CHANNEL_ID,
             "postId": POST_ID,
             "snapshotId": SNAPSHOT_ID,
+            "receiptKey": "snapshotId",
+            "state": "ready",
             "readUserIds": [READER_ID],
             "unreadUserIds": [UNREAD_ID],
             "readCount": 1,
             "unreadCount": 1,
-            "allRead": false
+            "allRead": false,
+            "authorExcluded": true,
+            "snapshotVersion": 1001
         })
     );
     assert_no_internal_receipt_fields(&receipts[0]);

@@ -84,24 +84,6 @@ fn only_message_scan(harness: &Harness) -> Correlation {
     corr
 }
 
-/// 从当前批次提取 newer 空页必须经过的空 Persist barrier。
-fn only_empty_persist(harness: &Harness) -> Correlation {
-    let mut correlations = harness
-        .sink
-        .as_slice()
-        .iter()
-        .filter_map(|effect| match effect {
-            Effect::Persist { corr, ops } if ops.is_empty() => Some(*corr),
-            _ => None,
-        });
-    let corr = correlations.next().expect("expected empty newer Persist");
-    assert!(
-        correlations.next().is_none(),
-        "expected one empty Persist only"
-    );
-    corr
-}
-
 /// 解出当前批次全部 Emit，验证关联查询不产生业务广播。
 fn emitted_events(harness: &Harness) -> Vec<Value> {
     harness
@@ -404,9 +386,6 @@ fn g11c_empty_newer_page_is_valid_terminal_without_broadcast() {
         7,
     );
     assert!(emitted_events(&harness).is_empty());
-    let empty_persist = only_empty_persist(&harness);
-    harness.step(port_reply_with_body(empty_persist.raw(), Bytes::new()), 8);
-    assert!(emitted_events(&harness).is_empty());
     let readback = only_message_scan(&harness);
     harness.step(
         port_reply_with_body(readback.raw(), Bytes::from_static(b"[]")),
@@ -585,12 +564,10 @@ fn g11c_non_empty_filtered_page_fails_closed_instead_of_retryable_empty_success(
         7,
     );
     assert!(emitted_events(&harness).is_empty(), "HTTP is not terminal");
-    let empty_persist = only_empty_persist(&harness);
-    harness.step(port_reply_with_body(empty_persist.raw(), Bytes::new()), 8);
     let readback = only_message_scan(&harness);
     harness.step(
         port_reply_with_body(readback.raw(), Bytes::from_static(b"[]")),
-        9,
+        8,
     );
     let events = emitted_events(&harness);
     assert_eq!(events.len(), 1, "filtered page must settle exactly once");

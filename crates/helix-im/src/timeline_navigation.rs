@@ -39,10 +39,21 @@ pub enum TimelineNavigationKind {
 /// 已通过 Go 与 durable read-back 的本地完整覆盖；消息数组本身不能单独构成命中。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimelineNavigationCoverage {
+    /// Coverage 所属父频道；消息变更时按频道失效，避免 locate 复用旧 row 快照。
+    pub channel_id: ChannelId,
     pub rows: Vec<Value>,
     pub has_older: bool,
     pub has_newer: bool,
     pub target_index: Option<usize>,
+    pub older_cursor: Option<Value>,
+    pub newer_cursor: Option<Value>,
+}
+
+/// Locate/分页 durable readback 使用的实际 SQLite message 主键列和值。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimelineNavigationReadbackKey {
+    pub column: &'static str,
+    pub value: String,
 }
 
 /// 一次跨 HTTP、PersistOk 与 readback 存活的 owned 导航状态。
@@ -353,19 +364,33 @@ impl TimelineNavigationState {
         let data = root.get("data").and_then(Value::as_object).ok_or_else(|| {
             ImError::Parse("timeline navigation response missing data".to_string())
         })?;
-        let rows = data
-            .get("posts")
-            .and_then(Value::as_array)
-            .cloned()
-            .ok_or_else(|| {
-                ImError::Parse("timeline navigation response missing posts".to_string())
-            })?;
-        validate_rows(&rows, self.channel_id.as_str())?;
+        // Go CommonRes uses `count:0, posts:null` for an empty navigation page;
+        // accept that explicit zero-card shape without weakening non-empty validation.
+        let (rows, empty_authority_page) = match data.get("posts") {
+            Some(Value::Array(rows)) => {
+                let rows = rows.clone();
+                (
+                    rows.clone(),
+                    data.get("count").and_then(Value::as_u64) == Some(0) && rows.is_empty(),
+                )
+            }
+            Some(Value::Null) if data.get("count").and_then(Value::as_u64) == Some(0) => {
+                (Vec::new(), true)
+            }
+            _ => {
+                return Err(ImError::Parse(
+                    "timeline navigation response missing posts".to_string(),
+                ))
+            }
+        };
+        let allow_id_fallback = matches!(&self.kind, TimelineNavigationKind::Locate { .. });
+        validate_rows(&rows, self.channel_id.as_str(), allow_id_fallback)?;
         match &self.kind {
             TimelineNavigationKind::Older { .. } => {
                 let has_more = data
                     .get("hasMore")
                     .and_then(Value::as_bool)
+                    .or_else(|| empty_authority_page.then_some(false))
                     .ok_or_else(|| {
                         ImError::Parse(
                             "timeline older response missing boolean hasMore".to_string(),
@@ -378,6 +403,7 @@ impl TimelineNavigationState {
                 let has_more = data
                     .get("hasMore")
                     .and_then(Value::as_bool)
+                    .or_else(|| empty_authority_page.then_some(false))
                     .ok_or_else(|| {
                         ImError::Parse(
                             "timeline newer response missing boolean hasMore".to_string(),
@@ -732,8 +758,8 @@ fn parse_v3_request(
     Ok((parsed.0, parsed.1, anchor_create_at, parsed.2, request_id))
 }
 
-/// 校验远端页严格按 `(createAt, temporaryId)` 升序且属于请求频道。
-fn validate_rows(rows: &[Value], channel_id: &str) -> Result<(), ImError> {
+/// 校验远端页属于请求频道且按稳定 `(createAt, identity)` 升序。
+fn validate_rows(rows: &[Value], channel_id: &str, allow_id_fallback: bool) -> Result<(), ImError> {
     let mut previous: Option<(i64, &str)> = None;
     for row in rows {
         let row_channel = row
@@ -746,20 +772,73 @@ fn validate_rows(rows: &[Value], channel_id: &str) -> Result<(), ImError> {
             .and_then(Value::as_i64)
             .filter(|value| *value > 0)
             .ok_or_else(|| ImError::Parse("timeline row missing createAt".to_string()))?;
-        let temporary_id = row
+        let identity = row
             .get("temporaryId")
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| ImError::Parse("timeline row missing temporaryId".to_string()))?;
+            .or_else(|| {
+                allow_id_fallback
+                    .then(|| row.get("id").and_then(Value::as_str))
+                    .flatten()
+                    .filter(|value| !value.is_empty())
+            })
+            .ok_or_else(|| {
+                ImError::Parse(if allow_id_fallback {
+                    "timeline row missing temporaryId/id".to_string()
+                } else {
+                    "timeline row missing temporaryId".to_string()
+                })
+            })?;
         if row_channel != channel_id {
             return Err(ImError::Parse("timeline row channel mismatch".to_string()));
         }
-        if previous.is_some_and(|key| key >= (create_at, temporary_id)) {
+        if previous.is_some_and(|key| key >= (create_at, identity)) {
             return Err(ImError::Parse(
                 "timeline rows must be strictly ordered by composite cursor".to_string(),
             ));
         }
-        previous = Some((create_at, temporary_id));
+        previous = Some((create_at, identity));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TimelineNavigationState;
+
+    /// Go 空页的显式 `count:0, posts:null` 必须结算为合法 older 终态。
+    #[test]
+    fn empty_authority_page_accepts_null_posts() {
+        let mut state = TimelineNavigationState::older_without_window(
+            crate::state::test_channel_id(11),
+            20,
+            "req-empty-older".to_string(),
+            "srvfix00000000000000000001".to_string(),
+            None,
+        );
+
+        state
+            .ingest_http_body(br#"{"status":"SUCCESS","data":{"count":0,"posts":null}}"#)
+            .expect("explicit zero-card page is a successful empty result");
+
+        assert!(state.rows().is_empty());
+        assert!(!state.page().has_older);
+        assert!(!state.page().has_more);
+    }
+
+    /// 非零 count 与 null posts 仍然失败，避免把畸形后端响应伪装为空页。
+    #[test]
+    fn non_empty_count_rejects_null_posts() {
+        let mut state = TimelineNavigationState::older_without_window(
+            crate::state::test_channel_id(12),
+            20,
+            "req-invalid-older".to_string(),
+            "srvfix00000000000000000001".to_string(),
+            None,
+        );
+
+        assert!(state
+            .ingest_http_body(br#"{"status":"SUCCESS","data":{"count":1,"posts":null}}"#)
+            .is_err());
+    }
 }

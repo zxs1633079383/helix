@@ -250,6 +250,13 @@ fn run_ready(viewer_user_id: &str, marker: &str) -> TestResult<PersonaTrace> {
     }
     let cache = replay.only_corr("persist")?;
     replay.reply(cache, PortOutcome::Ok(ReplyBytes::default()), 3)?;
+    // Cache barrier 只确认写入，随后必须读取 durable message rows 才能发布 ready。
+    let readback = replay.only_corr("persist")?;
+    replay.reply(
+        readback,
+        PortOutcome::Ok(ReplyBytes(local_rows_bytes(marker)?)),
+        4,
+    )?;
     let events = replay.events()?;
     Ok(PersonaTrace {
         events,
@@ -276,8 +283,27 @@ fn run_ready(viewer_user_id: &str, marker: &str) -> TestResult<PersonaTrace> {
                 "value": {"correlation": cache.raw(), "outcome": {"variant": "Ok"}},
                 "now_ms": CREATED_AT + 3
             }),
+            json!({
+                "kind": "PortReply",
+                "value": {"correlation": readback.raw(), "outcome": {
+                    "variant": "Ok",
+                    "body": {"rows": "20 durable message rows"}
+                }},
+                "now_ms": CREATED_AT + 4
+            }),
         ],
     })
+}
+
+/// 递归查找对象键，避免把 `reactions` 误判成 `actions`。
+fn contains_key(value: &Value, expected: &str) -> bool {
+    match value {
+        Value::Object(object) => object
+            .iter()
+            .any(|(key, child)| key == expected || contains_key(child, expected)),
+        Value::Array(values) => values.iter().any(|child| contains_key(child, expected)),
+        _ => false,
+    }
 }
 
 /// 断言 G-10 事件只携窗口状态和实际 post 行。
@@ -293,7 +319,6 @@ fn assert_ready_event(event: &Value, marker: &str) -> TestResult<()> {
         .ok_or_else(|| "G-10 messages must be an array".to_string())?;
     assert_eq!(messages.len(), 20);
     assert_eq!(messages[19]["message"], format!("{marker}-20"));
-    let encoded = serde_json::to_string(event).map_err(|error| error.to_string())?;
     for forbidden in [
         "InteractionFrame",
         "Surface",
@@ -302,7 +327,10 @@ fn assert_ready_event(event: &Value, marker: &str) -> TestResult<()> {
         "actions",
         "directive",
     ] {
-        assert!(!encoded.contains(forbidden), "forbidden field {forbidden}");
+        assert!(
+            !contains_key(event, forbidden),
+            "forbidden field {forbidden}"
+        );
     }
     Ok(())
 }
@@ -355,6 +383,12 @@ fn g10_local_recovery_avoids_remote_http() -> TestResult<()> {
     )?;
     let cache = replay.only_corr("persist")?;
     replay.reply(cache, PortOutcome::Ok(ReplyBytes::default()), 3)?;
+    let readback = replay.only_corr("persist")?;
+    replay.reply(
+        readback,
+        PortOutcome::Ok(ReplyBytes(local_rows_bytes("g10-recovery")?)),
+        4,
+    )?;
 
     let recovery_scan = replay.start_query()?;
     replay.reply(
@@ -381,13 +415,19 @@ fn g10_local_recovery_avoids_remote_http() -> TestResult<()> {
     Ok(())
 }
 
-/// G-10 两个 persona 分别从自身状态机得到无 wrapper 的同一可见窗口。
+/// G-10 两个 persona 分别从自身状态机得到独立的 viewer-local 窗口。
 #[test]
 fn g10_dual_persona_windows_are_independent() -> TestResult<()> {
     let sender = run_ready(SENDER_ID, "g10-dual")?;
     let receiver = run_ready(RECEIVER_ID, "g10-dual")?;
-    assert_eq!(sender.events, receiver.events);
-    assert_ready_event(&sender.events[0], "g10-dual")
+    assert_ready_event(&sender.events[0], "g10-dual")?;
+    assert_ready_event(&receiver.events[0], "g10-dual")?;
+    assert_ne!(sender.events, receiver.events);
+    assert_eq!(sender.events[0]["data"]["messages"][0]["isSelf"], false);
+    assert_eq!(sender.events[0]["data"]["messages"][1]["isSelf"], true);
+    assert_eq!(receiver.events[0]["data"]["messages"][0]["isSelf"], true);
+    assert_eq!(receiver.events[0]["data"]["messages"][1]["isSelf"], false);
+    Ok(())
 }
 
 /// Rust producer 在生成模式下写出 G-10 双 persona canonical artifact。

@@ -139,9 +139,15 @@ impl ImModule {
                 let navigation_token = navigation_token
                     .or_else(|| request_id.clone())
                     .unwrap_or_else(|| format!("locate:{target_message_id}"));
+                let window_token = format!("timeline:{}", channel_id.as_str());
+                self.state.timeline_state.begin_locate_navigation(
+                    channel_id.as_str(),
+                    window_token.as_str(),
+                    navigation_token.as_str(),
+                );
                 let state = crate::timeline_navigation::TimelineNavigationState::locate(
                     channel_id,
-                    format!("timeline:{}", navigation_token),
+                    window_token,
                     page_size,
                     request_id,
                     target_message_id,

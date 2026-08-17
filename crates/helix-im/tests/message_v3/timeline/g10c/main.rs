@@ -80,6 +80,13 @@ impl Replay {
         )?;
         let cache = self.only_corr("write", None)?;
         self.reply(cache, PortOutcome::Ok(ReplyBytes::default()), 3)?;
+        // Cache barrier 只确认写入，必须读取 durable rows 才能发布 ready。
+        let readback = self.only_corr("readback", None)?;
+        self.reply(
+            readback,
+            PortOutcome::Ok(ReplyBytes(local_rows_after_append()?)),
+            4,
+        )?;
         let events = self.events()?;
         if events.len() != 1 || events[0]["event"] != "im:timeline:ready" {
             return Err("G-10c prerequisite must attach one ready window".to_string());
@@ -138,9 +145,10 @@ impl Replay {
                 ("write", Effect::Persist { ops, .. }) => ops.iter().any(
                     |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"),
                 ),
-                ("readback", Effect::Persist { ops, .. }) => ops
-                    .iter()
-                    .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "message")),
+                ("readback", Effect::Persist { ops, .. }) => ops.iter().any(|op| {
+                    matches!(op, StorageOp::Get(spec) if spec.table == "message")
+                        || matches!(op, StorageOp::Scan(spec) if spec.table == "message")
+                }),
                 ("persist", Effect::Persist { .. }) => true,
                 _ => false,
             };

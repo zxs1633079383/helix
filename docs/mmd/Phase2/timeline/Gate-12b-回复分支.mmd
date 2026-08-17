@@ -1,0 +1,57 @@
+%% Phase2 / timeline / MV3-G12b 回复分支
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/timeline/mv3-g12b/contract.json
+%% UI owners: src/pages/message-v3/components/reply-root-message/reply-root-message.component.ts:114::queryReplyBranchMessage（首屏）；src/pages/message-v3/components/reply-root-message/reply-root-message.component.ts::加载更多（目标：由 offset 改为 pageNumber + pageSize）；src/pages/message-v3/service/message.service.ts::queryReplyBranchMessage（目标：透传 pageNumber / pageSize 并消费真实 hasMore）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员点某条回复的「查看对话」，按独立分页查看该一级回复下的往来，并依据真实 hasMore 继续加载
+  Note over UI,Web: 当前覆盖状态：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: getReplyBranch(payload)
+    Gate->>Native: invokeAccepted("im_get_reply_branch", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_get_reply_branch", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_get_reply_branch", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 展开一级回复下的分支 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /api/cses/posts/getReplyBranch（已真实返回 hasMore；当前缺最大 60 校验）
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction message window + timeline cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM-->>E: Command Result {data}
+  E-->>Gate: PortReply(Result)
+  Gate-->>UI: render absolute snapshot or query result
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：一个权威分支响应返回当前页 data 与真实 hasMore；data 只包含 replyFirstLevelId 锚定的分支，按 createAt 稳定升序且页内按 id ／／ temporaryId 去重；锚点语义固定为一级回复 id：同一次调用内不得混用 replyId 与 replyFirstLevelId 两套锚点；分支无子回复时返回 data:[],hasMore:false；hasMore=true 时客户端以同 replyFirstLevelId 请求下一 pageNumber，false 时停止加载；对端成员的 viewer-local 未读在本 Gate 前后完全相等（getMemberUnread(channelId, otherUserId).unreadCount 调用前后取值一致），读取动作绝不写对端未读
+  Note over UI,Web: 关键负向：不得混用两个锚点：用 replyId（根消息）调本 Gate 会捞出整个线程而非该分支，属语义污染；pageSize 缺省必须是 20，显式值只允许 1..60；当前 Go 无最大 60 校验不得冒充目标 PASS；不得丢弃 pageNumber/pageSize、继续使用 offset 作为 Port 合同、由 Angular 截断数组或硬编码 hasMore=false
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

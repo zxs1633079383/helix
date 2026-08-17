@@ -1,6 +1,9 @@
 use serde::Deserialize;
+use std::sync::Arc;
 
-use helix_driver_host::{HostOtelConfig, HostOtelRuntime, MetricRuntimeConfig};
+use helix_driver_host::{
+    AsyncMetricSink, HostOtelConfig, HostOtelRuntime, MetricRuntimeConfig, NoopMetricSink,
+};
 
 /// 可观测性配置（主路径仍是 helix.config.yaml，不走 env 真源）。
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -14,6 +17,11 @@ pub struct Observability {
 impl Observability {
     /// YAML 是 host-cli OTel 的唯一生产真源；这里是 composition-root 适配点。
     pub fn otel_runtime(&self) -> HostOtelRuntime {
+        self.otel_runtime_with_metrics(Arc::new(NoopMetricSink))
+    }
+
+    /// 用同一个有界 Metrics sink 装配 trace exporter 自观测，避免遥测故障成为盲区。
+    pub fn otel_runtime_with_metrics(&self, metrics: Arc<dyn AsyncMetricSink>) -> HostOtelRuntime {
         let config = self.otel.host_config();
         tracing::info!(
             enabled = config.enabled,
@@ -22,7 +30,11 @@ impl Observability {
             endpoint = %endpoint_for_log(&config.endpoint),
             "host-cli OTel 装配"
         );
-        HostOtelRuntime::new(config)
+        HostOtelRuntime::new_with_metric_sink_and_slow_threshold(
+            config,
+            metrics,
+            std::time::Duration::from_millis(self.otel.slow_trace_threshold_ms),
+        )
     }
 
     pub fn metrics_config(&self) -> MetricRuntimeConfig {
@@ -110,6 +122,8 @@ pub struct Otel {
     pub endpoint: String,
     #[serde(default = "d_otel_protocol")]
     pub protocol: String,
+    #[serde(rename = "slowTraceThresholdMs", default = "d_slow_trace_threshold_ms")]
+    pub slow_trace_threshold_ms: u64,
     #[serde(default)]
     pub sampler: OtelSampler,
     #[serde(default)]
@@ -123,10 +137,16 @@ impl Default for Otel {
             service_name: d_helix_service_name(),
             endpoint: d_otel_endpoint(),
             protocol: d_otel_protocol(),
+            slow_trace_threshold_ms: d_slow_trace_threshold_ms(),
             sampler: OtelSampler::default(),
             facets: OtelFacets::default(),
         }
     }
+}
+
+/// 默认 250ms 以上 Span 标记为慢 Trace，Grafana/Tempo 可直接过滤。
+fn d_slow_trace_threshold_ms() -> u64 {
+    250
 }
 
 impl Otel {

@@ -17,9 +17,9 @@ use helix_core::effect::TransportId;
 use helix_core::ExecutionShell;
 use helix_driver_host::TraceHooks;
 use helix_driver_native::{
-    run_engine_loop_with_transports_and_trace_stamped, tick_ingress_channel, AuthTokenRegistry,
-    EngineConfig, HostNetworkConfig, NativeEventSink, NativeHttp, NativeStorage, NativeTransport,
-    SharedFileUploader, SharedHttpClient, TransportTable,
+    run_engine_loop_with_transports_and_trace_stamped, tick_ingress_channel_observed,
+    AuthTokenRegistry, EngineConfig, HostNetworkConfig, NativeEventSink, NativeHttp, NativeStorage,
+    NativeTransport, SharedFileUploader, SharedHttpClient, TransportTable,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -45,9 +45,11 @@ async fn main() {
     };
     cfg.apply_env_overrides(); // debug 逃生口（release 为 no-op，彻底去 env）
     cfg.apply_cli_overrides(&cli); // 双账号 e2e：flag 覆盖 identity（最高优先级）
-    let otel = cfg.observability.otel_runtime();
     let metric_runtime = metric_runtime::HostMetricRuntime::start(&cfg);
     let metrics = metric_runtime.sink();
+    let otel = cfg
+        .observability
+        .otel_runtime_with_metrics(Arc::clone(&metrics));
 
     let ws_url = cfg.connection.ws_url.clone();
     // api base 含 /api/cses；default_api_base 承载 vote/score 第二网关。
@@ -214,7 +216,7 @@ async fn main() {
     }));
 
     // ── tick 通道（入站有界 cap=256）────────────────────────
-    let (tick_tx, tick_rx) = tick_ingress_channel(256);
+    let (tick_tx, tick_rx) = tick_ingress_channel_observed(256, Arc::clone(&metrics));
 
     // ── 主 WS transport ─────────────────────────────────────
     // TransportId 约定：0 = 主连接（多端口/第二模块用 1、2…，host 集中分配）。

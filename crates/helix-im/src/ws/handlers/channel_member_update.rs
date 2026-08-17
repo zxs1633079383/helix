@@ -60,15 +60,18 @@ impl WsMessageHandler for ChannelMemberUpdateHandler {
         }) {
             return Ok(());
         }
-        let ops = channel_full_and_member_ops(ctx, channel_id, data);
+        let viewer_rejoined = member_change_joins_user(data, ctx.auth_user_id);
+        let mut ops = channel_full_and_member_ops(ctx, channel_id, data);
+        // viewer-local left 是本地列；只有权威 join 明确重新加入自己时才在同一事务恢复 dialog。
+        if viewer_rejoined {
+            ops.push(crate::acl::to_effect_s1::channel_set_cols_op(
+                channel_id,
+                vec![("is_remove", helix_core::effect::SqlValue::Integer(0))],
+            ));
+        }
         if ops.is_empty() {
             return Ok(());
         }
-        let raw_channel = serde_json::to_vec(data).unwrap_or_default();
-        let members = crate::render_ready_members::members_from_rows(
-            crate::channel_write::collect_members(data),
-        );
-        let leaves = crate::channel_write::collect_member_leaves(data);
         if let Some(seq) = event_seq {
             ctx.state
                 .inflight_member_update_seqs
@@ -80,15 +83,31 @@ impl WsMessageHandler for ChannelMemberUpdateHandler {
             crate::state::CorrelationContext::ChannelMemberUpdatePersist {
                 channel_id,
                 event_seq,
-                raw_channel,
-                members,
-                leaves,
+                viewer_rejoined,
                 causation_id: event_seq.map(|seq| format!("channel-member-update:{}", seq.0)),
             },
         );
         out.push(Effect::PersistAtomic { corr, ops });
         Ok(())
     }
+}
+
+/// 判断成员增量是否由服务端明确把当前 viewer 重新加入该频道。
+fn member_change_joins_user(data: &serde_json::Value, user_id: &str) -> bool {
+    !user_id.is_empty()
+        && data
+            .get("memberChange")
+            .and_then(|change| change.get("join"))
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|join| {
+                join.iter().any(|member| {
+                    member
+                        .get("id")
+                        .or_else(|| member.get("userId"))
+                        .and_then(serde_json::Value::as_str)
+                        == Some(user_id)
+                })
+            })
 }
 
 /// S3 path1 全量 upsert + memberChange.join 成员行写（channel_created / channel_member_update

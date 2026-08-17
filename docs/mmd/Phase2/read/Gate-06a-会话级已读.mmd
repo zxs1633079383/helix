@@ -1,0 +1,58 @@
+%% Phase2 / read / MV3-G06a 会话级已读
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/read/mv3-g06a/contract.json
+%% UI owners: src/pages/message-v3/components/dialog-header/dialog-header.component.ts::allRead（「全部已读」按钮）；src/pages/message-v3/service/messageDialog.service.ts::updateDialogUnreadCount（UPDATE_UNREAD_COUNT，切会话路径 A）；src/pages/message-v3/service/messageDialog.service.ts::markDialogAsRead（点击 message-container，经 pendingChannelView.consume 守卫）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员点进会话或点「全部已读」，该会话的未读角标与 @ 计数一起清零
+  Note over UI,Web: 当前覆盖状态：mock=partial；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: channelsView(payload)
+    Gate->>Native: invokeAccepted("im_channels_view", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_channels_view", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_channels_view", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 整个会话标记已读 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /api/cses/channels/view
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction message read + viewer member + cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM->>Sink: Effect::Emit {event,data}（postRead，POST_READ，channelUpdate，UPDATE_CHANNEL）
+  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  Sink-->>FFI: FFI batch raw {event,data}
+  Sink-->>Web: Web EventBatch raw {event,data}
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：执行 channelsView 的当前 reader（Phase 1 receiver）在该频道的 unreadCount **绝对赋值为 0**（非 delta 递减）；重复调用幂等仍为 0；Go 在 channels/view 的同一事务中把 mentionCount / mentionCountRoot / mentionList / mentionUser 清零并回读绝对投影，Angular 原样替换后「N 条@」消失；只读依赖：groupedDialogs$ 比较器读 unreadCount 触发列表重渲；本 Gate 不得改写 lastPost / lastPostAt / 排序键；原消息作者（Phase 1 sender/actor）及其他未执行本次读取的成员，各自 getMemberUnread(channelId, userId).unreadCount / mentionCount 完全不变；不得复制或取反当前 reader 的归零结果
+  Note over UI,Web: 关键负向：下游 messageDialog.updateDialog 收 UPDATE_CHANNEL 后必须先 Object.entries(patch) filter undefined 再 spread，禁止 partial patch 把本地已有字段（members / lastPost / draft 等）清空；Angular 不得在 channelsView 返回前本地写 unreadCount / mentionCount，也不得按 channelIds 数量或旧值推导新值；唯一权威是 Go update_channel 的绝对计数；Angular 只提交 channelIds；字段归一化只能由 Helix 公共 client_api 执行一次，进入 Core/Outbound 时必须已是非空 channels:[id,isRoot:true]，并以同一 camelCase 对象数组直达 Go；禁止新增第二层 snake_case → camelCase Adapter
+  Note over E,Sink: 出站事件集合：postRead，POST_READ，channelUpdate，UPDATE_CHANNEL；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

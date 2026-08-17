@@ -44,12 +44,15 @@ const URGENT_PATCH_COLUMNS: [&str; 3] = ["expedite_map", "event_seq", "update_at
 /// 确认投影允许公开的字段全集；多一个或少一个都是契约破坏。
 const PROJECTION_KEYS: [&str; 5] = ["id", "channelId", "eventSeq", "updateAt", "expediteMap"];
 
-/// 会话级加急信号允许公开的字段全集（对齐参考包 `outbound-sample.json` sequence 2）。
-const CHANNEL_SIGNAL_KEYS: [&str; 4] = [
+/// 会话级加急信号允许公开的字段全集（当前成员投影合同）。
+const CHANNEL_SIGNAL_KEYS: [&str; 7] = [
     "channelId",
     "urgentPostList",
     "urgentCurrentName",
     "hasUrgentPost",
+    "userId",
+    "projectionAuthority",
+    "memberScope",
 ];
 
 /// 加急发起人显示名。
@@ -480,9 +483,9 @@ fn confirm_write_set_never_touches_content_read_or_channel_columns() {
     )));
 }
 
-/// INV-12：确认人与加急发起人各自独立回放，收敛到同一绝对态且不携带任何 viewer-local 字段。
+/// INV-12：消息绝对态一致，频道确认徽标按当前成员独立投影。
 #[test]
-fn confirm_dual_persona_replays_independently_to_the_same_absolute_state() {
+fn confirm_dual_persona_replays_independently_with_member_scoped_channel_signal() {
     let after = map_after_confirm();
 
     let mut confirmer = persona(CONFIRMER_ID);
@@ -490,13 +493,14 @@ fn confirm_dual_persona_replays_independently_to_the_same_absolute_state() {
     let mut requester = persona(REQUESTER_ID);
     let (_, requester_events) = apply_authority(&mut requester, 1, &after, CREATE_AT as u64);
 
-    // sequence 1 = im:post:updated（绝对 expediteMap），sequence 2 = im:channel:update（会话级加急信号）。
+    // sequence 1 = im:post:updated（绝对 expediteMap），sequence 2 = 当前成员的会话信号。
     assert_eq!(confirmer_events.len(), 2);
     assert_eq!(confirmer_events[0]["event"], "im:post:updated");
-    assert_eq!(
-        confirmer_events, requester_events,
-        "两个 persona 独立回放，终态必须一致且互不复制"
-    );
+    assert_eq!(confirmer_events[0], requester_events[0]);
+    assert_eq!(confirmer_events[1]["data"]["userId"], CONFIRMER_ID);
+    assert_eq!(confirmer_events[1]["data"]["hasUrgentPost"], json!(false));
+    assert_eq!(requester_events[1]["data"]["userId"], REQUESTER_ID);
+    assert_eq!(requester_events[1]["data"]["hasUrgentPost"], json!(false));
 
     // 投影字段集合精确匹配契约（多一个 viewer 字段或少一个绝对字段都算破坏）。
     let mut keys: Vec<&str> = confirmer_events[0]["data"]
@@ -595,7 +599,7 @@ fn confirm_view_is_derived_per_persona() {
 fn confirm_authority_emits_channel_urgent_signal_and_clears_it_when_settled() {
     let mut harness = persona(CONFIRMER_ID);
 
-    // ① 仍有未确认成员（PEER 未确认）→ 会话级加急信号保持点亮。
+    // ① 当前确认人已经确认，自己的会话徽标熄灭；仍未确认的 peer 视角继续点亮。
     let (_, partial) = apply_authority(&mut harness, 1, &map_after_confirm(), CREATE_AT as u64);
     assert_eq!(
         partial
@@ -605,9 +609,18 @@ fn confirm_authority_emits_channel_urgent_signal_and_clears_it_when_settled() {
         vec!["im:post:updated", "im:channel:update"],
         "确认终态出站序列必须是 post 绝对投影 → 会话级加急信号"
     );
-    assert_eq!(partial[1]["data"]["hasUrgentPost"], json!(true));
-    assert_eq!(partial[1]["data"]["urgentPostList"], json!([POST_ID]));
-    assert_eq!(partial[1]["data"]["urgentCurrentName"], REQUESTER_NAME);
+    assert_eq!(partial[1]["data"]["userId"], CONFIRMER_ID);
+    assert_eq!(partial[1]["data"]["hasUrgentPost"], json!(false));
+    assert_eq!(partial[1]["data"]["urgentPostList"], json!([]));
+    assert_eq!(partial[1]["data"]["urgentCurrentName"], "");
+
+    let mut peer_harness = persona(PEER_ID);
+    let (_, peer_partial) =
+        apply_authority(&mut peer_harness, 1, &map_after_confirm(), CREATE_AT as u64);
+    assert_eq!(peer_partial[1]["data"]["userId"], PEER_ID);
+    assert_eq!(peer_partial[1]["data"]["hasUrgentPost"], json!(true));
+    assert_eq!(peer_partial[1]["data"]["urgentPostList"], json!([POST_ID]));
+    assert_eq!(peer_partial[1]["data"]["urgentCurrentName"], REQUESTER_NAME);
 
     // ② 全员确认 → 闪电熄灭（参考包 mv3-g05d outbound-sample sequence 2 的绝对形态）。
     let settled = expedite_map(&[(CONFIRMER_ID, 1), (PEER_ID, 1), (SETTLED_ID, 1)]);
@@ -626,6 +639,7 @@ fn confirm_authority_emits_channel_urgent_signal_and_clears_it_when_settled() {
     expected.sort_unstable();
     assert_eq!(keys, expected, "会话级加急信号字段集合必须精确匹配参考包");
     assert_eq!(channel["channelId"], cid(CHANNEL_INDEX));
+    assert_eq!(channel["userId"], CONFIRMER_ID);
     assert_eq!(
         channel["urgentPostList"],
         json!([]),

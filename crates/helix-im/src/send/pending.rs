@@ -60,11 +60,29 @@ pub struct PendingSend {
     pub http_started: bool,
     /// 显式 retry 的 HTTP admission 后必须强制远端读回，避免服务端幂等确认不再广播 echo 时二次超时。
     pub authoritative_readback_after_http: bool,
+    /// 当前显式 retry 已完成的权威回读重试次数；只允许有界退避，避免读请求风暴。
+    pub authoritative_readback_attempt: u8,
+    /// 当前在途的权威回读退避 timer；命中 WS/HTTP authority 时必须显式取消。
+    pub authoritative_readback_timer: Option<TimerId>,
     /// 仍待成功的上传数；归零后才发 posts/create。
     pub remaining_uploads: usize,
     /// 上传失败闸。失败时 send status 同步进入 UnSend 供公开 VM 暴露 retry；
     /// 本字段继续区分“重试媒体阶段”与“重试 posts/create”。
     pub upload_failed: bool,
+}
+
+/// 权威回读最多额外发起五次查询；总退避小于发送 15s 终态 timer。
+pub(crate) const AUTHORITATIVE_READBACK_MAX_ATTEMPTS: u8 = 5;
+
+/// 根据 1-based attempt 选择有限指数退避，给 Go 异步 Pulsar 落库留出传播时间。
+pub(crate) fn authoritative_readback_backoff_ms(attempt: u8) -> u64 {
+    match attempt {
+        1 => 100,
+        2 => 250,
+        3 => 500,
+        4 => 1_000,
+        _ => 2_000,
+    }
 }
 
 impl PendingSend {
@@ -86,6 +104,8 @@ impl PendingSend {
             body: None,
             http_started: false,
             authoritative_readback_after_http: false,
+            authoritative_readback_attempt: 0,
+            authoritative_readback_timer: None,
             remaining_uploads: 0,
             upload_failed: false,
         }
@@ -235,6 +255,22 @@ impl PendingSend {
                 exclude_from_update: Vec::new(),
             })],
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 退避序列必须单调且总时长留在 15s 发送终态之前。
+    #[test]
+    fn authoritative_readback_backoff_is_bounded() {
+        let delays = (1..=AUTHORITATIVE_READBACK_MAX_ATTEMPTS)
+            .map(authoritative_readback_backoff_ms)
+            .collect::<Vec<_>>();
+        assert_eq!(delays, vec![100, 250, 500, 1_000, 2_000]);
+        assert!(delays.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(delays.iter().sum::<u64>() < 15_000);
     }
 }
 

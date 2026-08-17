@@ -20,6 +20,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:post:send-failed",
     "im:post:increment-failed",
     "im:messages:query_result",
+    "im:timeline:ready",
     "im:timeline:window",
     "im:timeline:update",
     "im:timeline:located",
@@ -37,10 +38,11 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:channel:schedule-canceled",
     "im:channel:member-updated",
     "im:channel:settings-updated",
-    "im:channel:memberNickname",
+    "im:channel:member-nickname",
     "im:channel:members",
     "im:channel:increment",
     "im:channel:replies",
+    "im:announcement:list-updated",
     "im:operation:status",
     "im:user:candidates",
     "im:read:result",
@@ -113,10 +115,12 @@ mod tests {
         assert!(events.iter().any(|e| e == "im:post:increment-failed"));
         assert!(events.iter().any(|e| e == "im:post:send-failed"));
         assert!(events.iter().any(|e| e == "im:timeline:window"));
+        assert!(events.iter().any(|e| e == "im:timeline:ready"));
         assert!(events.iter().any(|e| e == "im:operation:status"));
         assert!(events.iter().any(|e| e == "im:channel:member-updated"));
         assert!(!events.iter().any(|e| e == "im:channel:left"));
         assert!(events.iter().any(|e| e == "im:channel:increment"));
+        assert!(events.iter().any(|e| e == "im:announcement:list-updated"));
     }
 
     /// 证明 Phase 1 Post 词表包含单条撤回和批量绝对态 Upsert。

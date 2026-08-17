@@ -155,7 +155,7 @@ impl ImModule {
         );
     }
 
-    /// 从持久化后的 root 行发布话题创建绝对态，拒绝用 HTTP 请求体补造字段。
+    /// 从持久化后的 root 行取得父频道，并先建立 topic channel.root_id 持久屏障。
     pub(super) fn handle_make_topic_thread_readback(
         &mut self,
         projection: MakeTopicProjection,
@@ -186,6 +186,55 @@ impl ImModule {
                 "make-topic root row has invalid parent channel".to_string(),
             )
         })?;
+        // HTTP make-topic 的首段 upsert 还不知道父频道；root durable readback 是唯一可信来源。
+        // 先把 root_id 写回 topic channel，再允许 channel_created/post_updated 对 UI 可见。
+        let relation_corr = self.alloc_corr_internal();
+        out.push(Effect::Persist {
+            corr: relation_corr,
+            ops: vec![StorageOp::BatchUpdate(BatchUpdateSpec {
+                table: "channel",
+                key_col: "id",
+                key_vals: vec![SqlValue::Text(
+                    projection.topic_channel_id.as_str().to_string(),
+                )],
+                patch: vec![(
+                    "root_id".to_string(),
+                    SqlValue::Text(channel_id.as_str().to_string()),
+                )],
+            })],
+        });
+        self.state.corr_map.insert(
+            relation_corr,
+            CorrelationContext::OutboundMakeTopicRelationPersist {
+                projection,
+                parent_channel_id: channel_id,
+                root_row: Box::new(root_row.clone()),
+            },
+        );
+        Ok(())
+    }
+
+    /// 关系补丁成功后，才从已读回的 durable root 发布话题创建绝对态。
+    pub(super) fn handle_make_topic_relation_persist_reply(
+        &mut self,
+        projection: MakeTopicProjection,
+        parent_channel_id: ChannelId,
+        root_row: Box<serde_json::Value>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), crate::error::ImError> {
+        if !matches!(outcome, PortOutcome::Ok(_)) {
+            out.push(crate::acl::to_effect::emit_topic_operation_status(
+                &projection.req_id,
+                &projection.root_message_id,
+                "remote-failed",
+                Some(projection.topic_channel_id.as_str()),
+                Some("relation-persist-failed"),
+                false,
+            ));
+            return Ok(());
+        }
+        let root_row = *root_row;
         let mut topic = root_row
             .get("topic")
             .and_then(|value| match value {
@@ -216,7 +265,7 @@ impl ImModule {
                 "id": projection.topic_channel_id.as_str(),
                 "type": "T",
                 "displayName": projection.display_name,
-                "rootId": parent_channel_id,
+                "rootId": parent_channel_id.as_str(),
                 "parentPostId": projection.root_message_id,
                 "members": members,
                 "memberCount": members.as_array().map_or(0, Vec::len),
@@ -226,7 +275,7 @@ impl ImModule {
             .into_effect(),
         );
 
-        let mut fields = crate::ws::parser::extract_post_fields(root_row);
+        let mut fields = crate::ws::parser::extract_post_fields(&root_row);
         if let Some(topic_object) = topic.as_object_mut() {
             topic_object
                 .entry("channelId".to_string())
@@ -236,9 +285,15 @@ impl ImModule {
                 .or_insert_with(|| serde_json::json!(members.as_array().map_or(0, Vec::len)));
         }
         fields.topic = topic.to_string();
+        // make-topic 已改变父频道中的 root row；旧 locate/older/newer coverage 含创建前快照，
+        // 必须在发布可见事件前按频道失效，后续导航才能重新取得 durable topic 绝对态。
+        self.state
+            .invalidate_recent_message_coverage(parent_channel_id);
+        self.state
+            .invalidate_timeline_navigation_coverage(parent_channel_id);
         // 根消息的 postUpdated 必须排在 channelCreated 之后，且只投影 durable root 的字段。
         out.push(crate::acl::to_effect::emit_post_updated_for_viewer(
-            channel_id,
+            parent_channel_id,
             projection.revision,
             projection.root_message_id.as_str(),
             &fields,
@@ -287,30 +342,7 @@ impl ImModule {
             "频道设置 authority 投影解析成功"
         );
         let persist_corr = self.alloc_corr_internal();
-        let mut row: Row = vec![
-            (
-                "id".to_string(),
-                SqlValue::Text(projection.channel_id.as_str().to_string()),
-            ),
-            (
-                "purpose".to_string(),
-                SqlValue::Text(projection.purpose.clone()),
-            ),
-            (
-                "header".to_string(),
-                SqlValue::Text(projection.header.clone()),
-            ),
-            (
-                "updated_at".to_string(),
-                SqlValue::Integer(projection.setting_version as i64),
-            ),
-        ];
-        if let Some(display_name) = projection.display_name.as_ref() {
-            row.push((
-                "display_name".to_string(),
-                SqlValue::Text(display_name.clone()),
-            ));
-        }
+        let row = channel_settings_row(&projection);
         out.push(Effect::Persist {
             corr: persist_corr,
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
@@ -405,6 +437,38 @@ impl ImModule {
     }
 }
 
+/// 将 Go authority 设置快照裁剪为 channel durable row；缺失可选字段时保持旧值。
+fn channel_settings_row(projection: &ChannelSettingsProjection) -> Row {
+    let mut row: Row = vec![
+        (
+            "id".to_string(),
+            SqlValue::Text(projection.channel_id.as_str().to_string()),
+        ),
+        (
+            "purpose".to_string(),
+            SqlValue::Text(projection.purpose.clone()),
+        ),
+        (
+            "header".to_string(),
+            SqlValue::Text(projection.header.clone()),
+        ),
+        (
+            "updated_at".to_string(),
+            SqlValue::Integer(projection.setting_version as i64),
+        ),
+    ];
+    if let Some(display_name) = projection.display_name.as_ref() {
+        row.push((
+            "display_name".to_string(),
+            SqlValue::Text(display_name.clone()),
+        ));
+    }
+    if let Some(orient) = projection.orient.as_ref() {
+        row.push(("orient".to_string(), SqlValue::Text(orient.clone())));
+    }
+    row
+}
+
 fn response_data(outcome: &PortOutcome) -> Option<serde_json::Value> {
     response_data_with_reason(outcome).ok()
 }
@@ -484,6 +548,10 @@ fn decode_settings_projection(
         .get("displayName")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
+    let orient = settings
+        .get("orient")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
     let purpose = settings
         .get("purpose")
         .and_then(serde_json::Value::as_str)
@@ -504,6 +572,7 @@ fn decode_settings_projection(
         channel_id,
         channel: data.clone(),
         display_name,
+        orient,
         purpose,
         header,
         setting_version,
@@ -513,7 +582,7 @@ fn decode_settings_projection(
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_settings_projection, response_data_with_reason};
+    use super::{channel_settings_row, decode_settings_projection, response_data_with_reason};
     use crate::state::ChannelId;
     use bytes::Bytes;
     use helix_core::tick::{PortOutcome, ReplyBytes};
@@ -567,6 +636,7 @@ mod tests {
                 "id": channel_id.as_str(),
                 "purpose": "purpose",
                 "header": "notice",
+                "orient": "delivery-quality",
                 "settingVersion": 17,
                 "canEditChannelSettings": true,
             })),
@@ -576,7 +646,13 @@ mod tests {
         assert_eq!(projection.setting_version, 17);
         assert_eq!(projection.purpose, "purpose");
         assert_eq!(projection.header, "notice");
+        assert_eq!(projection.orient.as_deref(), Some("delivery-quality"));
         assert_eq!(projection.causation_id.as_deref(), Some("op-settings-1"));
+        let row = channel_settings_row(&projection);
+        assert!(row.iter().any(|(column, value)| {
+            column == "orient"
+                && matches!(value, helix_core::effect::SqlValue::Text(value) if value == "delivery-quality")
+        }));
     }
 
     /// 缺少 purpose/header/version 的 HTTP 200 不能制造空 channel update。

@@ -1,0 +1,48 @@
+%% Phase4 / todo / MV3-G15a 未读加急待办生成
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/todo/mv3-g15a/contract.json
+%% UI owners: src/pages/message-v3/service/ipcEventHandler.service.ts::handlePostReceived；src/pages/message-v3/service/messageNotice.service.ts::createTodoListData
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员被加急后，待办列表出现一条不可手动删除的待办，直到自己确认已读
+  Note over UI,Web: 当前覆盖状态：mock=partial；helix=partial；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: queryTodoList(payload)
+    Gate->>Native: invokeAccepted("im_query_todo_list", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_query_todo_list", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_query_todo_list", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 收到加急消息生成不可删待办 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /posts/queryTodoList
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Sink: Effect::Emit {event,data}（todoUpdated，INIT_TODO_LIST_DATA，im:todo:updated）
+  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  Sink-->>FFI: FFI batch raw {event,data}
+  Sink-->>Web: Web EventBatch raw {event,data}
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：接收者侧派发 SEND_TODO_LIST_DATAid: $message.id_expedite, channel, post: message, type: 'expedite', canDel: false，待办列表新增一条不可删项；加急发起者（sender）侧不产生任何待办项：自己不在 expediteMap.recipients 命中条件内，SEND_TODO_LIST_DATA 计数为 0
+  Note over UI,Web: 关键负向：canDel 必须为 false（未确认的加急不可被用户手动清除，否则加急闭环失效）；自发消息不得生成待办：sender 侧 SEND_TODO_LIST_DATA 计数恒为 0
+  Note over E,Sink: 出站事件集合：todoUpdated，INIT_TODO_LIST_DATA，im:todo:updated；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

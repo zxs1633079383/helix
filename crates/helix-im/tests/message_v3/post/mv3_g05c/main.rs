@@ -36,12 +36,15 @@ const BASE: &str = "http://x/api/cses";
 /// 加急投影允许公开的字段全集；多一个或少一个都是契约破坏。
 const PROJECTION_KEYS: [&str; 5] = ["id", "channelId", "eventSeq", "updateAt", "expediteMap"];
 
-/// 会话级加急信号允许公开的字段全集（对齐参考包 `outbound-sample.json` sequence 2）。
-const CHANNEL_SIGNAL_KEYS: [&str; 4] = [
+/// 会话级加急信号允许公开的字段全集（当前成员投影合同）。
+const CHANNEL_SIGNAL_KEYS: [&str; 7] = [
     "channelId",
     "urgentPostList",
     "urgentCurrentName",
     "hasUrgentPost",
+    "userId",
+    "projectionAuthority",
+    "memberScope",
 ];
 
 /// 加急写集允许触碰的 message 列全集（BatchUpdate patch 顺序即声明顺序）。
@@ -433,9 +436,9 @@ fn urgent_op_keys_the_message_row_and_clamps_event_seq() {
     assert_eq!(patch["update_at"], json!(CREATE_AT));
 }
 
-/// 终态投影只暴露绝对 expediteMap；任何 viewer-scoped 字段都不得泄漏进事件（INV-12）。
+/// 终态投影保持绝对消息态，频道信号按当前成员投影（INV-12）。
 #[test]
-fn urgent_projection_is_absolute_and_carries_no_viewer_scoped_field() {
+fn urgent_projection_keeps_absolute_post_and_member_scoped_channel_signal() {
     let map = expedite_map(&[(RECEIVER_ID, 0), (BYSTANDER_ID, 0)]);
 
     let mut sender = persona(ACTOR_ID);
@@ -443,12 +446,9 @@ fn urgent_projection_is_absolute_and_carries_no_viewer_scoped_field() {
     let mut receiver = persona(RECEIVER_ID);
     let (_, receiver_events) = apply_authority(&mut receiver, 1, &map, &map, CREATE_AT as u64);
 
-    // sequence 1 = im:post:updated（绝对 expediteMap），sequence 2 = im:channel:update（会话级加急信号）。
+    // sequence 1 是两个 persona 共有的绝对消息投影；sequence 2 只反映当前 viewer 的会话徽标。
     assert_eq!(sender_events.len(), 2);
-    assert_eq!(
-        sender_events, receiver_events,
-        "两个 persona 各自独立回放，必须收敛到同一份绝对态"
-    );
+    assert_eq!(sender_events[0], receiver_events[0]);
     let event = &sender_events[0];
     assert_eq!(event["event"], "im:post:updated");
     let mut keys: Vec<&str> = event["data"]
@@ -466,6 +466,16 @@ fn urgent_projection_is_absolute_and_carries_no_viewer_scoped_field() {
     assert_eq!(event["data"]["expediteMap"], map);
     assert_eq!(event["data"]["eventSeq"], json!(1));
     assert_eq!(event["data"]["updateAt"], json!(CREATE_AT + 10));
+
+    assert_eq!(sender_events[1]["data"]["userId"], ACTOR_ID);
+    assert_eq!(sender_events[1]["data"]["hasUrgentPost"], json!(false));
+    assert_eq!(sender_events[1]["data"]["urgentPostList"], json!([]));
+    assert_eq!(receiver_events[1]["data"]["userId"], RECEIVER_ID);
+    assert_eq!(receiver_events[1]["data"]["hasUrgentPost"], json!(true));
+    assert_eq!(
+        receiver_events[1]["data"]["urgentPostList"],
+        json!([POST_ID])
+    );
 
     let encoded = serde_json::to_string(event).unwrap();
     for forbidden in [
@@ -696,10 +706,8 @@ fn urgent_authority_emits_channel_urgent_signal_as_sequence_two() {
         vec!["im:post:updated", "im:channel:update"],
         "加急终态出站序列必须是 post 绝对投影 → 会话级加急信号"
     );
-    assert_eq!(
-        sender_events, receiver_events,
-        "会话级加急信号在两个 persona 下各自独立派生并收敛到同一份绝对态"
-    );
+    // 消息本体是绝对态；频道 signal 按当前成员隔离，不能要求两个 persona byte-exact。
+    assert_eq!(sender_events[0], receiver_events[0]);
 
     let channel = &sender_events[1]["data"];
     let mut keys: Vec<&str> = channel
@@ -713,13 +721,17 @@ fn urgent_authority_emits_channel_urgent_signal_as_sequence_two() {
     expected.sort_unstable();
     assert_eq!(keys, expected, "会话级加急信号字段集合必须精确匹配参考包");
     assert_eq!(channel["channelId"], cid(CHANNEL_INDEX));
+    assert_eq!(channel["urgentPostList"], json!([]));
+    assert_eq!(channel["urgentCurrentName"], "");
+    assert_eq!(channel["hasUrgentPost"], json!(false));
+    assert_eq!(channel["userId"], ACTOR_ID);
+    assert_eq!(receiver_events[1]["data"]["userId"], RECEIVER_ID);
+    assert_eq!(receiver_events[1]["data"]["hasUrgentPost"], json!(true));
     assert_eq!(
-        channel["urgentPostList"],
-        json!([POST_ID]),
-        "urgentPostList 是会话列表闪电/红框的权威源"
+        receiver_events[1]["data"]["urgentPostList"],
+        json!([POST_ID])
     );
-    assert_eq!(channel["urgentCurrentName"], ACTOR_NAME);
-    assert_eq!(channel["hasUrgentPost"], json!(true));
+    assert_eq!(receiver_events[1]["data"]["urgentCurrentName"], ACTOR_NAME);
     assert!(
         !serde_json::to_string(&sender_events[1])
             .unwrap()

@@ -17,6 +17,32 @@ use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler
 const UPDATE_CHANNEL_ACTION: &str = "update_channel";
 const TOP_KEYS: &[&str] = &["channelIsTop", "channel_is_top", "top"];
 const TOP_USER_KEYS: &[&str] = &["userId", "user_id", "memberUserId", "member_user_id"];
+const NOTIFY_MODES: &[&str] = &["NORMAL", "STRONG", "IGNORE"];
+
+/// 把 Go owner.id 兼容为 Angular authority 使用的 owner.userId，同时保留原 wire 字段。
+fn normalize_owner_projection(channel: &mut serde_json::Value) {
+    let Some(owner) = channel
+        .get_mut("owner")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    if owner.get("userId").is_some() {
+        return;
+    }
+    let Some(owner_id) = owner
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+    else {
+        return;
+    };
+    owner.insert(
+        "userId".to_string(),
+        serde_json::Value::String(owner_id),
+    );
+}
 
 /// 判断 update_channel 是否携带成员视角的置顶绝对态。
 fn has_top_intent(channel: &serde_json::Value, data: &serde_json::Value) -> bool {
@@ -74,6 +100,86 @@ fn top_intent_has_mixed_fields(channel: &serde_json::Value, data: &serde_json::V
         "channelIsTop",
         "channel_is_top",
         "top",
+    ];
+    let channel_mixed = channel
+        .as_object()
+        .map(|object| {
+            object
+                .keys()
+                .any(|key| !ALLOWED_CHANNEL_KEYS.contains(&key.as_str()))
+        })
+        .unwrap_or(true);
+    let data_mixed = if data.get("channel").is_some() {
+        data.as_object()
+            .map(|object| {
+                object
+                    .keys()
+                    .any(|key| !ALLOWED_DATA_KEYS.contains(&key.as_str()))
+            })
+            .unwrap_or(true)
+    } else {
+        false
+    };
+    channel_mixed || data_mixed
+}
+
+/// 判断 update_channel 是否携带当前 viewer 的通知状态补丁。
+fn has_notify_intent(channel: &serde_json::Value, data: &serde_json::Value) -> bool {
+    channel.get("notify").is_some() || data.get("notify").is_some()
+}
+
+/// 严格解析 Go 的通知枚举，并拒绝同一帧内相互冲突的内外层值。
+fn notify_intent_value(
+    channel: &serde_json::Value,
+    data: &serde_json::Value,
+) -> Result<Option<String>, ImError> {
+    let mut value: Option<String> = None;
+    for raw in [channel.get("notify"), data.get("notify")]
+        .into_iter()
+        .flatten()
+    {
+        let Some(candidate) = raw.as_str() else {
+            return Err(ImError::Parse(
+                "update_channel notify must be a string enum".to_string(),
+            ));
+        };
+        if !NOTIFY_MODES.contains(&candidate) {
+            return Err(ImError::Parse(format!(
+                "update_channel notify has invalid mode: {candidate}"
+            )));
+        }
+        if value.as_deref().is_some_and(|current| current != candidate) {
+            return Err(ImError::Parse(
+                "update_channel notify has conflicting values".to_string(),
+            ));
+        }
+        value = Some(candidate.to_string());
+    }
+    Ok(value)
+}
+
+/// 通知是当前 viewer 的单字段状态；混入频道共享字段时整帧拒绝，避免误写其它列。
+fn notify_intent_has_mixed_fields(channel: &serde_json::Value, data: &serde_json::Value) -> bool {
+    const ALLOWED_CHANNEL_KEYS: &[&str] = &[
+        "id",
+        "channelId",
+        "channel_id",
+        "userId",
+        "user_id",
+        "memberUserId",
+        "member_user_id",
+        "notify",
+    ];
+    const ALLOWED_DATA_KEYS: &[&str] = &[
+        "channel",
+        "id",
+        "channelId",
+        "channel_id",
+        "userId",
+        "user_id",
+        "memberUserId",
+        "member_user_id",
+        "notify",
     ];
     let channel_mixed = channel
         .as_object()
@@ -155,16 +261,70 @@ impl WsMessageHandler for UpdateChannelHandler {
             return Ok(());
         };
 
-        // Go `change/top` 回推 `{id,userId,channelIsTop}`；它只属于 actor 的成员投影。
-        let top_intent = has_top_intent(channel, data);
-        if top_intent {
-            let Some(top) = top_intent_value(channel, data) else {
+        // Go broadcasts `{id,userId,notify}` after the member transaction.  Treat it as a
+        // strict viewer-local patch and read the durable channel row back before emitting.
+        let notify_intent = has_notify_intent(channel, data);
+        if notify_intent {
+            let Some(notify) = notify_intent_value(channel, data)? else {
                 return Ok(());
             };
             let Some(user_id) = top_intent_user_id(channel, data) else {
                 return Ok(());
             };
-            if user_id != ctx.auth_user_id || top_intent_has_mixed_fields(channel, data) {
+            if user_id != ctx.auth_user_id || notify_intent_has_mixed_fields(channel, data) {
+                return Ok(());
+            }
+            let Some((row, _projection)) =
+                crate::channel_update::member_channel_from_update_channel(
+                    data,
+                    channel_id,
+                    ctx.auth_user_id,
+                    ctx.now_ms,
+                )
+            else {
+                return Ok(());
+            };
+            let mut ops = Vec::with_capacity(3);
+            let cols = crate::channel_write::collect_present(channel);
+            if let Some(op) = crate::acl::to_effect::update_channel_partial_op(channel_id, cols) {
+                ops.push(op);
+            }
+            if let Some(op) = crate::acl::to_effect::upsert_channel_member_channel_op(row) {
+                ops.push(op);
+            }
+            // `notify` is already validated above; this guards the impossible empty-op case
+            // if a future wire alias is added without a channel projection mapping.
+            if ops.is_empty() {
+                return Ok(());
+            }
+            ops.push(crate::acl::to_effect::get_channel_row_op(channel_id));
+            let corr = ctx.alloc_corr();
+            ctx.state.corr_map.insert(
+                corr,
+                crate::state::CorrelationContext::NotifyChannelPersist { channel_id },
+            );
+            out.push(helix_core::Effect::Persist { corr, ops });
+            let _ = notify;
+            return Ok(());
+        }
+
+        // Go `change/top` 回推 `{id,userId,channelIsTop}`；完整共享频道快照也会携带
+        // `channelIsTop`，只有无共享字段的严格 actor shape 才属于成员投影。
+        let has_top = has_top_intent(channel, data);
+        let top_has_mixed_fields = has_top && top_intent_has_mixed_fields(channel, data);
+        let top_actor = has_top.then(|| top_intent_user_id(channel, data)).flatten();
+        if has_top && top_has_mixed_fields && top_actor.is_some() {
+            return Ok(());
+        }
+        let top_intent = has_top && !top_has_mixed_fields;
+        if top_intent {
+            let Some(top) = top_intent_value(channel, data) else {
+                return Ok(());
+            };
+            let Some(user_id) = top_actor else {
+                return Ok(());
+            };
+            if user_id != ctx.auth_user_id {
                 return Ok(());
             }
             let _ = top;
@@ -199,6 +359,7 @@ impl WsMessageHandler for UpdateChannelHandler {
                 data,
                 channel_id,
                 ctx.auth_user_id,
+                ctx.now_ms,
             ) {
             if let Some(op) = crate::acl::to_effect::upsert_channel_member_channel_op(row) {
                 ops.push(op);
@@ -223,6 +384,7 @@ impl WsMessageHandler for UpdateChannelHandler {
                     .map(|seq| format!("update-channel-{}", seq.0))
             });
             let mut persisted_channel = channel.clone();
+            normalize_owner_projection(&mut persisted_channel);
             if let Some(object) = persisted_channel.as_object_mut() {
                 for key in ["settingVersion", "setting_version", "capabilitiesByRole"] {
                     if object.get(key).is_none() {

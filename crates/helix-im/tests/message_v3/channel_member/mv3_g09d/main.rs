@@ -14,7 +14,7 @@ const COMPANY: &str = "company-g09d";
 const CHANNEL: &str = "chfixx0000000000000000003d";
 
 // ADR-007 no-sync fixture; explicit req_id selects the Phase 3 canonical result path.
-const INCREMENT_BODY_B64: &str = "eyJkYXRhIjp7ImlkIjoiY2hmaXh4MDAwMDAwMDAwMDAwMDAwMDAwM2QiLCJ0ZWFtSWQiOiJjb21wYW55LWcwOWQiLCJkaXNwbGF5TmFtZSI6IkcwOWQiLCJsYXN0RXZlbnRTZXEiOjAsIm5lZWRTeW5jIjpmYWxzZSwibWVtYmVycyI6W3sidXNlcklkIjoidmlld2VyLWcwOWQiLCJyb2xlIjoiTUVNQkVSIn1dfX0=";
+const INCREMENT_BODY_B64: &str = "eyJkYXRhIjp7ImlkIjoiY2hmaXh4MDAwMDAwMDAwMDAwMDAwMDAwM2QiLCJ0ZWFtSWQiOiJjb21wYW55LWcwOWQiLCJkaXNwbGF5TmFtZSI6IkcwOWQiLCJsYXN0RXZlbnRTZXEiOjAsIm5lZWRTeW5jIjpmYWxzZSwibWVtYmVyQ291bnQiOjQsIm1lbWJlcnMiOlt7ImlkIjoiYm9zcy1nMDlkIiwidGVhbUlkIjoiY29tcGFueS1nMDlkIiwicm9sZSI6IkJPU1MifSx7ImlkIjoidmlld2VyLWcwOWQiLCJ0ZWFtSWQiOiJjb21wYW55LWcwOWQiLCJyb2xlIjoiTUVNQkVSIn0seyJpZCI6Im93bmVyLWcwOWQiLCJ0ZWFtSWQiOiJjb21wYW55LWcwOWQiLCJyb2xlIjoiQ1JFQVRPUiJ9LHsiaWQiOiJhZG1pbi1nMDlkIiwidGVhbUlkIjoiY29tcGFueS1nMDlkIiwicm9sZSI6Ik1BTkFHRVIifV0sImFkbWluVXNlcnMiOlt7ImlkIjoiYWRtaW4tZzA5ZCIsInRlYW1JZCI6ImNvbXBhbnktZzA5ZCJ9XSwiYm9zcyI6W3siaWQiOiJib3NzLWcwOWQiLCJ0ZWFtSWQiOiJjb21wYW55LWcwOWQifV0sIm93bmVyIjp7ImlkIjoib3duZXItZzA5ZCIsInRlYW1JZCI6ImNvbXBhbnktZzA5ZCJ9fX0=";
 const NULL_BODY_B64: &str = "eyJkYXRhIjpudWxsfQ==";
 
 /// 通过真实 ImModule::handle 回放 G09d 的 HTTP、durable read-back 和终态 Effect。
@@ -100,7 +100,7 @@ impl Replay {
         })
     }
 
-    /// 顺序回放 channel、member、message、cursor 四段 durable read-back。
+    /// 顺序回放 channel、完整 roster、message、cursor 四段 durable read-back。
     fn complete_readback(&mut self) -> Result<(), String> {
         for _ in 0..4 {
             let (corr, table) = self
@@ -127,6 +127,7 @@ impl Replay {
                     "team_id": COMPANY,
                     "user_id": VIEWER,
                     "members": "[]",
+                    "member_count": 4,
                     "unread_count": 3,
                 }]),
                 "channel_member" => json!([{
@@ -135,6 +136,21 @@ impl Replay {
                     "team_id": COMPANY,
                     "role": "MEMBER",
                     "unread_count": 3,
+                }, {
+                    "channel_id": CHANNEL,
+                    "user_id": "admin-g09d",
+                    "team_id": COMPANY,
+                    "role": "ADMIN",
+                }, {
+                    "channel_id": CHANNEL,
+                    "user_id": "boss-g09d",
+                    "team_id": COMPANY,
+                    "role": "BOSS",
+                }, {
+                    "channel_id": CHANNEL,
+                    "user_id": "owner-g09d",
+                    "team_id": COMPANY,
+                    "role": "OWNER",
                 }]),
                 "message" => json!([]),
                 "channel_event_cursor" => json!([{
@@ -202,10 +218,29 @@ fn hydration_hit_emits_one_increment_before_one_result() -> Result<(), String> {
     assert_eq!(events.len(), 2, "one canonical event plus one Result");
     assert_eq!(events[0]["event"], "im:channel:increment");
     assert!(events[0]["data"].is_object());
+    assert_eq!(events[0]["data"]["memberCount"], 4);
+    assert_eq!(
+        events[0]["data"]["members"].as_array().map(Vec::len),
+        Some(4)
+    );
+    assert_eq!(events[0]["data"]["members"][0]["userId"], "boss-g09d");
+    assert_eq!(events[0]["data"]["members"][1]["userId"], VIEWER);
+    assert_eq!(events[0]["data"]["members"][2]["userId"], "owner-g09d");
+    assert_eq!(events[0]["data"]["members"][3]["userId"], "admin-g09d");
+    assert_eq!(events[0]["data"]["owner"]["userId"], "owner-g09d");
+    assert_eq!(
+        events[0]["data"]["adminUsers"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(events[0]["data"]["boss"].as_array().map(Vec::len), Some(1));
     assert!(events[0]["data"].get("req_id").is_none());
     assert_eq!(events[1]["event"], "im:read:result");
     assert_eq!(events[1]["data"]["req_id"], req_id);
     assert_eq!(events[1]["data"]["body"]["channelId"], CHANNEL);
+    assert_eq!(
+        events[1]["data"]["body"]["channel"]["members"],
+        events[0]["data"]["members"]
+    );
     assert!(replay
         .sink
         .as_slice()

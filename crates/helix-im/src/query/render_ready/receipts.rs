@@ -129,21 +129,36 @@ fn project_row(item: &Value) -> Option<Value> {
         }
     }
     // 只允许公开合同字段；任何内部 DTO 字段都不能从输入对象复制到事件。
-    Some(json!({
+    let mut receipt = json!({
         "postId": post_id,
         "channelId": channel_id,
         "snapshotId": snapshot_id,
+        "receiptKey": "snapshotId",
+        "state": "ready",
         "readUserIds": read_user_ids,
         "unreadUserIds": unread_user_ids,
         "readCount": read_user_ids.len(),
         "unreadCount": unread_user_ids.len(),
         "allRead": unread_user_ids.is_empty(),
-    }))
+        "authorExcluded": true,
+    });
+    // 快照版本是服务端对账锚；缺失时保持兼容，但不伪造版本号。
+    if let Some(snapshot_version) = item.get("snapshotVersion").and_then(Value::as_i64) {
+        receipt["snapshotVersion"] = json!(snapshot_version);
+    }
+    Some(receipt)
 }
 
 /// 构造不泄漏 bitmap 的逐消息不可用终态，并保留诊断原因。
 fn unavailable_receipt(post_id: &str, channel_id: &str, snapshot_id: &str, error: &str) -> Value {
-    json!({
+    let receipt_key = if !snapshot_id.is_empty() {
+        Some("snapshotId")
+    } else if !channel_id.is_empty() {
+        Some("channelIdCreateAtFallback")
+    } else {
+        None
+    };
+    let mut receipt = json!({
         "postId": post_id,
         "channelId": channel_id,
         "snapshotId": snapshot_id,
@@ -154,7 +169,13 @@ fn unavailable_receipt(post_id: &str, channel_id: &str, snapshot_id: &str, error
         "readCount": 0,
         "unreadCount": 0,
         "allRead": false,
-    })
+        "authorExcluded": true,
+    });
+    // 诊断态也保留可对账的身份键，但不泄漏原始快照/bitmap。
+    if let Some(receipt_key) = receipt_key {
+        receipt["receiptKey"] = json!(receipt_key);
+    }
+    receipt
 }
 
 /// 将一条 render-ready 回执包装成冻结的 `im:post:readers` 事件。

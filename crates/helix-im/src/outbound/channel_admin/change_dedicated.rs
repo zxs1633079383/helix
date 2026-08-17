@@ -230,6 +230,12 @@ impl OutboundCommand for ViewChannelsCommand {
     fn name(&self) -> &'static str {
         "im_channels_view"
     }
+
+    /// `/channels/view` 是无 WS 回声的读命令，必须注册 PortReply 以回灌唯一 read result。
+    fn is_read(&self) -> bool {
+        true
+    }
+
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         // 只接收 client_api 已一次归一化的 `{id,isRoot:true}`，这里不再补字段或改 id。
         let channels = require_canonical_root_channels(args, self.name())?;

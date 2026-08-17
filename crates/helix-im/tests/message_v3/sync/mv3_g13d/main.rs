@@ -115,6 +115,7 @@ fn channel_row(
     root_id: &str,
     members: &[&str],
 ) -> Value {
+    let root_post_id = (channel_type == "T").then(|| format!("root-post-{id}"));
     json!({
         "id": id,
         "display_name": "G13d",
@@ -126,6 +127,7 @@ fn channel_row(
         ).expect("members fixture must serialize"),
         "member_count": members.len() as i64,
         "root_id": root_id,
+        "root_post_id": root_post_id,
         "created_at": 1_700_002_000_000_i64,
         "last_post_at": 1_700_002_000_000_i64,
         "is_top": 0,
@@ -242,6 +244,7 @@ fn query_subtopics_filters_parent_type_root_and_account_visibility() -> Result<(
     let item = &event["data"]["body"]["items"][0];
     assert_eq!(item["type"], "T");
     assert_eq!(item["rootId"], PARENT);
+    assert_eq!(item["rootPostId"], format!("root-post-{TOPIC_VISIBLE}"));
     assert!(item["members"].as_array().is_some_and(|members| {
         members
             .iter()

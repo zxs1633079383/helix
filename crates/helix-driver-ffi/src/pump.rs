@@ -140,7 +140,10 @@ pub fn run(args: PumpArgs) {
         let event_sink = Arc::new(
             FfiEventSink::new(args.vtable).with_metric_sink(Arc::clone(&args.metrics)),
         );
-        let otel = HostOtelRuntime::from_env("helix-driver-ffi");
+        let otel = HostOtelRuntime::from_env_with_metric_sink(
+            "helix-driver-ffi",
+            Arc::clone(&args.metrics),
+        );
 
         // ── http / ws ports（Rust 持有，共享 header registry）──────────
         let http = match SharedHttpClient::with_registry(args.config.clone(), args.headers.clone())

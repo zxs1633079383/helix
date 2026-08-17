@@ -12,7 +12,7 @@
 //! ## 与冻结投影的关系（契约只读·C004）
 //! 本投影是 **render-ready 渲染通道**（与 `im:read:result` §1.2 同性质·**不计入** 21 投影冻结集——
 //! 前端直绑、后端权威态由 `channel_member` DB 表兑现）。冻结的 `im:channel:member-updated`
-//! （`{channel_id, channel}`）/ `im:read:result`（`{req_id, body}`）/ `im:channel:memberNickname`
+//! （`{channel_id, channel}`）/ `im:read:result`（`{req_id, body}`）/ `im:channel:member-nickname`
 //! 三投影**保持原样**，其 ② 契约面照旧裁定——本投影**额外**emit，不改既有键集。
 
 use crate::acl::to_effect_s1::MemberRow;

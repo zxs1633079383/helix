@@ -1,7 +1,7 @@
-//! MV3-G11d：locate context 必须经 HTTP → Persist → bounded Scan 后返回唯一查询结果。
+//! MV3-G11d：locate context 必须经 HTTP → Persist → exact durable readback 后返回唯一查询结果。
 
 use bytes::Bytes;
-use helix_core::effect::{Effect, ScanOrder, StorageOp};
+use helix_core::effect::{Effect, SqlValue, StorageOp};
 use helix_core::Correlation;
 use serde_json::{json, Value};
 
@@ -11,6 +11,7 @@ mod common;
 use common::{cid, command_json, enveloped, port_reply_with_body, Harness};
 
 const CHANNEL: u64 = 0x11d;
+const OTHER_CHANNEL: u64 = 0x11e;
 const WINDOW: &str = "mv3-g11d-window";
 const REQUEST_ID: &str = "req-mv3-g11d-001";
 
@@ -60,7 +61,38 @@ fn only_cache_write(harness: &Harness) -> Correlation {
     corr
 }
 
-/// 从当前批次提取唯一 locate bounded message Scan correlation。
+/// 从当前批次提取唯一 locate exact message Scan correlation 与 durable identity。
+fn only_exact_message_scan(harness: &Harness) -> (Correlation, String) {
+    let mut matches = harness.sink.as_slice().iter().filter_map(|effect| {
+        let Effect::Persist { corr, ops } = effect else {
+            return None;
+        };
+        ops.iter().find_map(|op| {
+            let StorageOp::Scan(spec) = op else {
+                return None;
+            };
+            if spec.table != "message" || spec.limit != Some(1) {
+                return None;
+            }
+            match &spec.filter {
+                Some((column, SqlValue::Text(key)))
+                    if *column == "temporary_id" || *column == "id" =>
+                {
+                    Some((*corr, key.clone()))
+                }
+                _ => None,
+            }
+        })
+    });
+    let match_item = matches.next().expect("expected one exact message Scan");
+    assert!(
+        matches.next().is_none(),
+        "expected one exact message Scan only"
+    );
+    match_item
+}
+
+/// 从当前批次提取唯一 message Scan correlation，用于附着 latest 窗口。
 fn only_message_scan(harness: &Harness) -> Correlation {
     let mut correlations = harness
         .sink
@@ -168,8 +200,58 @@ fn locate_posts() -> Bytes {
     )
 }
 
+/// 构造缺失 temporaryId、只能以 server id 落库的 authority locate 页。
+fn id_fallback_locate_posts() -> Bytes {
+    let posts = (1..=3)
+        .map(|index| {
+            json!({
+                "id": format!("mv3-g11d-id-{index}"),
+                "channelId": cid(CHANNEL),
+                "userId": "mv3-g11d-author",
+                "type": "TEXT",
+                "message": format!("http-id-fallback-{index}"),
+                "viewers": ["all"],
+                "createAt": 1_700_001_500_000_i64 + i64::from(index),
+            })
+        })
+        .collect::<Vec<_>>();
+    Bytes::from(
+        serde_json::to_vec(&json!({
+            "status": "SUCCESS",
+            "data": {
+                "posts": posts,
+                "targetIndex": 1,
+                "hasOlder": false,
+                "hasNewer": false,
+            }
+        }))
+        .unwrap(),
+    )
+}
+
+/// 构造以 id 查询但同时带另一个 temporary_id 的 durable rows，验证实际列优先。
+fn id_fallback_durable_rows() -> Value {
+    Value::Array(
+        (1..=3)
+            .map(|index| {
+                json!({
+                    "id": format!("mv3-g11d-id-{index}"),
+                    "temporary_id": format!("durable-temp-{index}"),
+                    "channel_id": cid(CHANNEL),
+                    "user_id": "mv3-g11d-author",
+                    "type": "TEXT",
+                    "message": format!("durable-id-fallback-{index}"),
+                    "viewers": ["all"],
+                    "create_at": 1_700_001_500_000_i64 + i64::from(index),
+                    "send_status": "sent"
+                })
+            })
+            .collect(),
+    )
+}
+
 /// 构造读回的 durable rows，文本与 HTTP 故意不同以证明结果来自存储事实。
-fn durable_rows() -> Bytes {
+fn durable_rows_value() -> Value {
     let rows = (1..=5)
         .map(|index| {
             json!({
@@ -187,7 +269,42 @@ fn durable_rows() -> Bytes {
             })
         })
         .collect::<Vec<_>>();
-    Bytes::from(serde_json::to_vec(&rows).unwrap())
+    Value::Array(rows)
+}
+
+/// 从 durable fixture 中按 authority identity 返回一条精确读回记录。
+fn single_durable_row(rows: &Value, temporary_id: &str) -> Bytes {
+    single_durable_row_by_column(rows, "temporary_id", temporary_id)
+}
+
+/// 从 durable fixture 中按指定 SQLite 列返回一条精确读回记录。
+fn single_durable_row_by_column(rows: &Value, column: &str, value: &str) -> Bytes {
+    let row = rows
+        .as_array()
+        .and_then(|rows| {
+            rows.iter().find(|row| {
+                row.get(column)
+                    .and_then(Value::as_str)
+                    .is_some_and(|candidate| candidate == value)
+            })
+        })
+        .cloned()
+        .unwrap_or_else(|| panic!("missing durable fixture for {column}={value}"));
+    Bytes::from(serde_json::to_vec(&vec![row]).unwrap())
+}
+
+/// 构造重复且乱序的第一批 durable readback，验证最终窗口仍按 authority 顺序去重。
+fn durable_rows_out_of_order() -> Bytes {
+    let rows = durable_rows_value();
+    let values = rows.as_array().expect("durable fixture array");
+    Bytes::from(
+        serde_json::to_vec(&vec![
+            values[1].clone(),
+            values[0].clone(),
+            values[1].clone(),
+        ])
+        .unwrap(),
+    )
 }
 
 /// 构造 latest 的 Go rows，确保 locate 前有 attached timeline。
@@ -240,19 +357,24 @@ fn locate_command(target: u64) -> helix_core::Tick {
 
 /// 构造以 temporaryId 作为目标身份的 locate 请求，覆盖移动端真实调用形态。
 fn locate_command_for_target(target: &str) -> helix_core::Tick {
+    locate_command_with(target, REQUEST_ID, "g11d-current")
+}
+
+/// 构造可切换 reqId/navigationToken 的 locate 请求，供并发过期回归使用。
+fn locate_command_with(target: &str, request_id: &str, navigation_token: &str) -> helix_core::Tick {
     command_json(
         "im_locate_context",
         json!({
             "channel_id": cid(CHANNEL),
             "message_id": target,
             "page_size": 4,
-            "req_id": REQUEST_ID,
-            "navigationToken": "g11d-current"
+            "req_id": request_id,
+            "navigationToken": navigation_token
         }),
     )
 }
 
-/// temporaryId 目标必须沿用 HTTP → Persist → bounded Scan 的真实 locate 链路。
+/// temporaryId 目标必须沿用 HTTP → Persist → exact identity readback 的真实 locate 链路。
 #[test]
 fn g11d_context_accepts_temporary_id_target() {
     let mut harness =
@@ -278,8 +400,18 @@ fn g11d_context_accepts_temporary_id_target() {
         emitted_events(&harness).is_empty(),
         "PersistOk cannot settle locate"
     );
-    let readback = only_message_scan(&harness);
-    harness.step(port_reply_with_body(readback.raw(), durable_rows()), 9);
+    let durable = durable_rows_value();
+    let mut readback = only_exact_message_scan(&harness);
+    for index in 1..=5 {
+        assert_eq!(readback.1, format!("mv3-g11d-{index}"));
+        harness.step(
+            port_reply_with_body(readback.0.raw(), single_durable_row(&durable, &readback.1)),
+            8 + index,
+        );
+        if index < 5 {
+            readback = only_exact_message_scan(&harness);
+        }
+    }
     let events = emitted_events(&harness);
     assert_eq!(events.len(), 1, "one reqId has one terminal result");
     let body = &events[0]["data"]["body"];
@@ -288,7 +420,7 @@ fn g11d_context_accepts_temporary_id_target() {
     assert_eq!(body["messages"][2]["temporaryId"], "mv3-g11d-3");
 }
 
-/// Locate 成功必须是 HTTP → Persist → Scan → 一个 QueryMessagesResult，且不广播 timeline。
+/// Locate 成功必须是 HTTP → Persist → exact Scan → 一个 QueryMessagesResult，且不广播 timeline。
 #[test]
 fn g11d_context_waits_for_centered_durable_window() {
     let mut harness =
@@ -318,7 +450,8 @@ fn g11d_context_waits_for_centered_durable_window() {
         emitted_events(&harness).is_empty(),
         "PersistOk cannot settle locate"
     );
-    let readback = only_message_scan(&harness);
+    let (readback, identity) = only_exact_message_scan(&harness);
+    assert_eq!(identity, "mv3-g11d-1");
     let scan = harness
         .sink
         .as_slice()
@@ -332,13 +465,31 @@ fn g11d_context_waits_for_centered_durable_window() {
             }),
             _ => None,
         })
-        .expect("locate bounded Scan");
-    assert_eq!(scan.limit, Some(5));
-    assert_eq!(
-        scan.order_by,
-        &[ScanOrder::asc("create_at"), ScanOrder::asc("temporary_id")]
+        .expect("locate exact durable Scan");
+    assert_eq!(scan.limit, Some(1));
+    assert!(
+        scan.order_by.is_empty(),
+        "exact identity readback has no order"
     );
-    harness.step(port_reply_with_body(readback.raw(), durable_rows()), 9);
+    match &scan.filter {
+        Some((column, SqlValue::Text(key))) => {
+            assert_eq!(*column, "temporary_id");
+            assert_eq!(key, "mv3-g11d-1");
+        }
+        other => panic!("expected temporary_id exact filter, got {other:?}"),
+    }
+    let durable = durable_rows_value();
+    let mut current = (readback, identity);
+    for index in 1..=5 {
+        assert_eq!(current.1, format!("mv3-g11d-{index}"));
+        harness.step(
+            port_reply_with_body(current.0.raw(), single_durable_row(&durable, &current.1)),
+            8 + index,
+        );
+        if index < 5 {
+            current = only_exact_message_scan(&harness);
+        }
+    }
     let events = emitted_events(&harness);
     assert_eq!(events.len(), 1, "one reqId has one terminal result");
     assert_eq!(events[0]["event"], "im:read:result");
@@ -376,6 +527,307 @@ fn g11d_context_waits_for_centered_durable_window() {
             "forbidden locate output: {forbidden}"
         );
     }
+}
+
+/// 缺失 temporaryId 时，Locate 必须按实际 durable `id` 主键逐条读回。
+#[test]
+fn g11d_locate_falls_back_to_id_storage_key() {
+    let mut harness =
+        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    attach_latest_window(&mut harness);
+    harness.step(
+        locate_command_with("mv3-g11d-id-2", "req-mv3-g11d-id", "g11d-id"),
+        6,
+    );
+    let http = only_http(&harness, "/posts/postContext");
+    harness.step(
+        port_reply_with_body(http.raw(), enveloped(id_fallback_locate_posts())),
+        7,
+    );
+    let cache = only_cache_write(&harness);
+    harness.step(port_reply_with_body(cache.raw(), Bytes::new()), 8);
+    let (readback, identity) = only_exact_message_scan(&harness);
+    assert_eq!(identity, "mv3-g11d-id-1");
+    let scan = harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops } if *corr == readback => ops.iter().find_map(|op| {
+                let StorageOp::Scan(spec) = op else {
+                    return None;
+                };
+                Some(spec)
+            }),
+            _ => None,
+        })
+        .expect("id fallback exact Scan");
+    match &scan.filter {
+        Some((column, SqlValue::Text(key))) => {
+            assert_eq!(*column, "id");
+            assert_eq!(key, "mv3-g11d-id-1");
+        }
+        other => panic!("expected id exact filter, got {other:?}"),
+    }
+    let durable = id_fallback_durable_rows();
+    let mut current = (readback, identity);
+    for index in 1..=3 {
+        let expected = format!("mv3-g11d-id-{index}");
+        assert_eq!(current.1, expected);
+        harness.step(
+            port_reply_with_body(
+                current.0.raw(),
+                single_durable_row_by_column(&durable, "id", &current.1),
+            ),
+            8 + index,
+        );
+        if index < 3 {
+            current = only_exact_message_scan(&harness);
+        }
+    }
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["data"]["req_id"], "req-mv3-g11d-id");
+    assert_eq!(events[0]["data"]["body"]["targetIndex"], 1);
+    assert_eq!(
+        events[0]["data"]["body"]["messages"][1]["id"],
+        "mv3-g11d-id-2"
+    );
+}
+
+/// 重复/乱序 durable 回报不得重复发布结果，也不得改变 authority 的窗口顺序。
+#[test]
+fn g11d_locate_deduplicates_out_of_order_readback() {
+    let mut harness =
+        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    attach_latest_window(&mut harness);
+    harness.step(locate_command(3), 6);
+    let http = only_http(&harness, "/posts/postContext");
+    harness.step(
+        port_reply_with_body(http.raw(), enveloped(locate_posts())),
+        7,
+    );
+    let cache = only_cache_write(&harness);
+    harness.step(port_reply_with_body(cache.raw(), Bytes::new()), 8);
+    let (first, identity) = only_exact_message_scan(&harness);
+    assert_eq!(identity, "mv3-g11d-1");
+    harness.step(
+        port_reply_with_body(first.raw(), durable_rows_out_of_order()),
+        9,
+    );
+    let (mut readback, mut next_identity) = only_exact_message_scan(&harness);
+    assert_eq!(next_identity, "mv3-g11d-3");
+    let durable = durable_rows_value();
+    for index in 3..=5 {
+        assert_eq!(next_identity, format!("mv3-g11d-{index}"));
+        harness.step(
+            port_reply_with_body(readback.raw(), single_durable_row(&durable, &next_identity)),
+            9 + index,
+        );
+        if index < 5 {
+            (readback, next_identity) = only_exact_message_scan(&harness);
+        }
+    }
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1, "duplicate readback still has one terminal");
+    let messages = events[0]["data"]["body"]["messages"]
+        .as_array()
+        .expect("locate messages");
+    assert_eq!(messages.len(), 4);
+    let ids = messages
+        .iter()
+        .map(|message| message["id"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        vec![
+            "srvfix00000000000000000001",
+            "srvfix00000000000000000002",
+            "srvfix00000000000000000003",
+            "srvfix00000000000000000004",
+        ]
+    );
+}
+
+/// Locate authority 缺失目标时必须失败保旧，不能用其它 rows 猜测 targetIndex。
+#[test]
+fn g11d_locate_missing_target_fails_before_persist() {
+    let mut harness =
+        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    attach_latest_window(&mut harness);
+    harness.step(
+        locate_command_with("mv3-g11d-not-found", "req-missing", "missing"),
+        6,
+    );
+    let http = only_http(&harness, "/posts/postContext");
+    harness.step(
+        port_reply_with_body(http.raw(), enveloped(locate_posts())),
+        7,
+    );
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert!(events[0]["data"].get("error").is_some());
+    assert!(harness
+        .sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Persist { .. })));
+}
+
+/// Locate authority 任何跨频道 row 都必须失败，不能混入当前频道窗口。
+#[test]
+fn g11d_locate_cross_channel_fails_before_persist() {
+    let mut harness = Harness::new_with_store_mode(
+        &[CHANNEL, OTHER_CHANNEL],
+        helix_im::query::LocalStoreMode::Session,
+    );
+    attach_latest_window(&mut harness);
+    harness.step(locate_command(3), 6);
+    let http = only_http(&harness, "/posts/postContext");
+    let mut cross_channel: Value = serde_json::from_slice(locate_posts().as_ref()).unwrap();
+    cross_channel["data"]["posts"][0]["channelId"] = json!(cid(OTHER_CHANNEL));
+    harness.step(
+        port_reply_with_body(
+            http.raw(),
+            enveloped(Bytes::from(serde_json::to_vec(&cross_channel).unwrap())),
+        ),
+        7,
+    );
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert!(events[0]["data"].get("error").is_some());
+    assert!(harness
+        .sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Persist { .. })));
+}
+
+/// Locate authority 缺失 temporaryId 与 id 时必须 fail closed，不产生无身份缓存写入。
+#[test]
+fn g11d_locate_missing_identity_fails_before_persist() {
+    let mut harness =
+        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    attach_latest_window(&mut harness);
+    harness.step(locate_command(3), 6);
+    let http = only_http(&harness, "/posts/postContext");
+    let mut missing_identity: Value = serde_json::from_slice(locate_posts().as_ref()).unwrap();
+    let target = missing_identity["data"]["posts"][2]
+        .as_object_mut()
+        .expect("target object");
+    target.remove("temporaryId");
+    target.remove("id");
+    harness.step(
+        port_reply_with_body(
+            http.raw(),
+            enveloped(Bytes::from(serde_json::to_vec(&missing_identity).unwrap())),
+        ),
+        7,
+    );
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert!(events[0]["data"].get("error").is_some());
+    assert!(harness
+        .sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Persist { .. })));
+}
+
+/// locate 等待 authority 时并发 latest 刷新不得让同 reqId 的真实回包失效。
+#[test]
+fn g11d_latest_refresh_does_not_cancel_inflight_locate_request() {
+    let mut harness =
+        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    attach_latest_window(&mut harness);
+    harness.step(
+        locate_command_with(
+            "srvfix00000000000000000003",
+            "req-after-refresh",
+            "token-after-refresh",
+        ),
+        6,
+    );
+    let locate_http = only_http(&harness, "/posts/postContext");
+
+    // 模拟 UI 重进频道时发出的 latest refresh；它会替换同频道窗口但不拥有 locate reqId。
+    attach_latest_window(&mut harness);
+    harness.step(
+        port_reply_with_body(locate_http.raw(), enveloped(locate_posts())),
+        8,
+    );
+    let cache = only_cache_write(&harness);
+    harness.step(port_reply_with_body(cache.raw(), Bytes::new()), 9);
+    let durable = durable_rows_value();
+    let mut readback = only_exact_message_scan(&harness);
+    for index in 1..=5 {
+        harness.step(
+            port_reply_with_body(readback.0.raw(), single_durable_row(&durable, &readback.1)),
+            9 + index,
+        );
+        if index < 5 {
+            readback = only_exact_message_scan(&harness);
+        }
+    }
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["data"]["req_id"], "req-after-refresh");
+    assert!(events[0]["data"].get("error").is_none());
+    assert_eq!(
+        events[0]["data"]["body"]["targetPostId"],
+        "srvfix00000000000000000003"
+    );
+    assert_eq!(events[0]["data"]["body"]["targetIndex"], 2);
+}
+
+/// 已完成 Locate coverage 再次定位同一目标时只读本地 coverage，不重复请求 Go。
+#[test]
+fn g11d_repeated_locate_coverage_hit_avoids_go_http() {
+    let mut harness =
+        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    attach_latest_window(&mut harness);
+    harness.step(
+        locate_command_with("srvfix00000000000000000003", "req-first", "token-first"),
+        6,
+    );
+    let http = only_http(&harness, "/posts/postContext");
+    harness.step(
+        port_reply_with_body(http.raw(), enveloped(locate_posts())),
+        7,
+    );
+    let cache = only_cache_write(&harness);
+    harness.step(port_reply_with_body(cache.raw(), Bytes::new()), 8);
+    let durable = durable_rows_value();
+    let mut readback = only_exact_message_scan(&harness);
+    for index in 1..=5 {
+        assert_eq!(readback.1, format!("mv3-g11d-{index}"));
+        harness.step(
+            port_reply_with_body(readback.0.raw(), single_durable_row(&durable, &readback.1)),
+            8 + index,
+        );
+        if index < 5 {
+            readback = only_exact_message_scan(&harness);
+        }
+    }
+    assert_eq!(emitted_events(&harness).len(), 1);
+
+    harness.step(
+        locate_command_with(
+            "srvfix00000000000000000003",
+            "req-coverage",
+            "token-coverage",
+        ),
+        20,
+    );
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["data"]["req_id"], "req-coverage");
+    assert_eq!(events[0]["data"]["body"]["targetIndex"], 2);
+    assert!(harness
+        .sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Http { .. } | Effect::Persist { .. })));
 }
 
 /// 撤回目标在 authority 阶段 fail closed，只结算 error 并保留旧窗口。
@@ -493,7 +945,8 @@ fn g11d_hidden_predecessor_reindexes_visible_target() {
     );
     let cache = only_cache_write(&harness);
     harness.step(port_reply_with_body(cache.raw(), Bytes::new()), 8);
-    let readback = only_message_scan(&harness);
+    let (mut readback, mut identity) = only_exact_message_scan(&harness);
+    assert_eq!(identity, "mv3-g11d-visible-1");
     let durable = serde_json::json!([
         {
             "id": "srvfix00000000000000000001",
@@ -529,13 +982,20 @@ fn g11d_hidden_predecessor_reindexes_visible_target() {
             "send_status": "sent"
         }
     ]);
-    harness.step(
-        port_reply_with_body(
-            readback.raw(),
-            Bytes::from(serde_json::to_vec(&durable).unwrap()),
-        ),
-        9,
-    );
+    for expected in [
+        "mv3-g11d-visible-1",
+        "mv3-g11d-target-3",
+        "mv3-g11d-visible-4",
+    ] {
+        assert_eq!(identity, expected);
+        harness.step(
+            port_reply_with_body(readback.raw(), single_durable_row(&durable, &identity)),
+            9,
+        );
+        if expected != "mv3-g11d-visible-4" {
+            (readback, identity) = only_exact_message_scan(&harness);
+        }
+    }
     let events = emitted_events(&harness);
     assert_eq!(events.len(), 1);
     let body = &events[0]["data"]["body"];

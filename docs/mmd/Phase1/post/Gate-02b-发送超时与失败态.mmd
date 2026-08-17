@@ -1,0 +1,34 @@
+%% Phase1 / post / MV3-G02b 发送超时与失败态
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g02b/contract.json
+%% UI owners: src/pages/message-v3/service/message.service.ts::createSendTimeout（:217-241，sendMsg 调 Port 前无条件挂）；src/pages/message-v3/service/message.service.ts::clearSendTimeout
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant PS as Pending or local state
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  participant Ext as Other business host
+  Note over UI,Gate: 用户目标：网络异常时成员在 15 秒后看到消息显示红色失败标，并可点重发；失败消息停在原来的位置不上跳
+  Note over UI,Web: 当前覆盖状态：mock=missing；helix=partial；dual=no；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  UI->>Gate: 发送超时与失败态(payload)
+  Gate-->>UI: 当前客户端路由结果或受控空结果
+  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
+  alt 旧业务 Host 仍可用
+    Ext->>Go: POST /posts/create 非 2xx（非 Helix 链路）
+    Go-->>Ext: HTTP response / legacy result
+    Ext-->>UI: 旧链路结果（不纳入 Helix Gate Event）
+  else 当前入口隐藏、待定或断供
+    Note over Ext,Go: 当前合同要求 fail-closed；不伪造成功消息、不新增 Helix fallback
+  end
+  Note over IM,DB: 关键效果：sendingMessageTimeout: Map小于temporaryId, timer, actionMessage大于 挂载于调 Port 之前；15s 未收到 postReceived 则本地 dispatch POST...actionMessage, sendStatus:'unSend'；actionMessage.createAt === localCreateAt（发送时刻），renderService.error('消息发送失败，请检查网络后重试') 被调用一次；track step5 上报 progress「消息接收超时」且不带 errorMessage（后到的推送仍能闭合 Success）；失败消息保持在原插入位置（createAt 未变 → 排序不变 → 底部锚点补偿不失效）
+  Note over UI,Web: 关键负向：失败态绝不用失败发生时刻重写 createAt —— 必须沿用 localCreateAt（message.service.ts:191/206 + chatContentShared.mergePostIntoExisting:238-240 双重保障），否则失败消息被顶到列表底部之外；postReceived 到达后不得残留定时器（必须 clearSendTimeout，否则 15s 后仍会把成功消息刷成 unSend）；不得为本 Gate 伪造新的 ImGateEvent kind，缺失事件槽只能记在 openDecisions
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

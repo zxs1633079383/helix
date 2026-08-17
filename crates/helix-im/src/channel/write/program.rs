@@ -166,11 +166,18 @@ pub fn program_full(
     row.push(("draft", SqlValue::Text(String::new())));
     omit.push("draft");
     row.push(("role", SqlValue::Text(s("role").unwrap_or_default())));
-    row.push(("root_id", SqlValue::Text(s("rootId").unwrap_or_default())));
-    row.push((
-        "root_post_id",
-        SqlValue::Text(s("rootPostId").unwrap_or_default()),
-    ));
+    // make-topic 的 HTTP durable readback 会先建立 T 频道关系；随后到达的稀疏 WS 快照
+    // 不得用空 root 字段把该关系抹掉。非 T 频道继续遵循服务端全量覆盖语义。
+    for (column, field) in [("root_id", "rootId"), ("root_post_id", "rootPostId")] {
+        match s(field).filter(|value| !value.is_empty()) {
+            Some(value) => row.push((column, SqlValue::Text(value))),
+            None if ch_type == "T" => {
+                row.push((column, SqlValue::Text(String::new())));
+                omit.push(column);
+            }
+            None => row.push((column, SqlValue::Text(String::new()))),
+        }
+    }
     row.push((
         "notify_props",
         SqlValue::Text(s("notifyProps").unwrap_or_default()),

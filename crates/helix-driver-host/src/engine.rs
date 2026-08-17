@@ -37,8 +37,8 @@ use helix_core::{ExecutionShell, Tick};
 pub use crate::batch_sink::BatchSink;
 use crate::dispatch::dispatch_effects;
 use crate::owned_effect::consume_effect_batch;
-use crate::pools::{spawn_http_pool, spawn_upload_pool, PersistJobPayload};
-use crate::spawner::{BoundedSpawner, Overflow};
+use crate::pools::{spawn_http_pool_observed, spawn_upload_pool_observed, PersistJobPayload};
+use crate::spawner::{feedback_channel, BoundedSpawner, FeedbackSink, Overflow};
 use crate::tick_ingress::{EngineTickReceiver, EngineTickSender};
 use crate::timer::TimerRegistry;
 mod entrypoints;
@@ -105,38 +105,52 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
     let event_sink = deps.event_sink;
     let trace = deps.trace;
     let mut perf_metrics = EngineMetricRecorder::new(deps.metrics);
+    perf_metrics.on_engine_start();
     let rss_sampler = perf_metrics.spawn_rss_sampler();
     let http_n = deps.max_http_inflight.max(1);
-    let mut timer_registry = TimerRegistry::new();
+    let mut timer_registry = TimerRegistry::with_metrics(perf_metrics.sink_handle());
 
     // 独立 unbounded 回灌通道（不与入站 tick_rx 共用，永不堵塞写任务）。
-    let (reply_tx, mut reply_rx) = mpsc::unbounded_channel::<Tick>();
+    let (reply_tx, mut reply_rx) = feedback_channel();
+    let feedback_sink = FeedbackSink::Stamped(reply_tx.clone());
 
     // per-table-set Persist BoundedSpawner 映射（table_set_key → BoundedSpawner，N=1 保写序）。
     let mut persist_workers: HashMap<String, BoundedSpawner<PersistJobPayload>> = HashMap::new();
 
     // Http(必达)：N=http_n，Block 溢出（旧 Semaphore 并发闸收敛进 N 个 worker）。
-    let http_pool = spawn_http_pool(http_n, Arc::clone(&http), reply_tx.clone(), Overflow::Block);
-    let upload_pool = spawn_upload_pool(
+    let http_pool = spawn_http_pool_observed(
+        http_n,
+        Arc::clone(&http),
+        reply_tx.clone(),
+        Overflow::Block,
+        perf_metrics.sink_handle(),
+    );
+    let upload_pool = spawn_upload_pool_observed(
         http_n,
         Arc::clone(&uploader),
         reply_tx.clone(),
         Overflow::Block,
+        perf_metrics.sink_handle(),
     );
     // HttpFire(可丢)：N=http_n，DropNewest 溢出（满即丢当前条目，丢失靠 cursor-gate 重发自愈）。
     // ⚠️ 有意取舍：当前零生产者（IM 三 Http 均必达）；为类型对称 eager 建，N worker park 近零成本。
     // 拆除/重审触发：第二个业务模块接入时（见 native AGENTS.md「跨模块公平性」）。
-    let http_fire_pool = spawn_http_pool(
+    let http_fire_pool = spawn_http_pool_observed(
         http_n,
         Arc::clone(&http),
         reply_tx.clone(),
         Overflow::DropNewest,
+        perf_metrics.sink_handle(),
     );
 
     // 初始化：触发 on_start。
     let initial_batch = match shell.start() {
         Ok(effects) => consume_effect_batch(effects),
         Err(e) => {
+            perf_metrics.on_engine_stopped();
+            if let Some(rss_sampler) = rss_sampler {
+                rss_sampler.abort();
+            }
             tracing::error!("helix engine start failed: {}", e);
             return;
         }
@@ -157,7 +171,7 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
             &http_fire_pool,
             &event_sink,
             &mut timer_registry,
-            &reply_tx,
+            &feedback_sink,
             &mut persist_workers,
             &transports,
             &trace,
@@ -177,9 +191,14 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
     let mut shutdown_armed = true;
     let mut consecutive_replies = 0usize;
     loop {
+        let iteration_started = perf_metrics.start_timer();
         perf_metrics.record_queue_snapshot(tick_rx.len(), tick_rx.max_capacity());
         let forced_ingress = if consecutive_replies >= MAX_CONSECUTIVE_REPLIES {
-            tick_rx.try_recv().ok()
+            let forced = tick_rx.try_recv().ok();
+            if forced.is_some() {
+                perf_metrics.on_reply_fairness_forced();
+            }
+            forced
         } else {
             None
         };
@@ -190,7 +209,11 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
                 biased;
 
                 // 优先：PortReply 回灌
-                Some(reply) = reply_rx.recv() => (reply, None),
+                Some(feedback) = reply_rx.recv() => {
+                    let wait = feedback.enqueued_at.elapsed();
+                    perf_metrics.on_feedback_dequeued(&feedback.tick, wait, reply_rx.len());
+                    (feedback.tick, None)
+                },
 
                 // 紧随回灌：transport 注册（连接成功后投递的句柄进表）。
                 // insert 是 O(1) 内存操作、非 I/O，单独 continue 不进 step（守不变量2「主循环不等
@@ -284,6 +307,7 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
             Ok(effects) => consume_effect_batch(effects),
             Err(e) => {
                 perf_metrics.on_step_error(&metric_context);
+                perf_metrics.on_loop_iteration(iteration_started);
                 tracing::error!("engine step error: {}", e);
                 continue;
             }
@@ -300,7 +324,7 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
                 &http_fire_pool,
                 &event_sink,
                 &mut timer_registry,
-                &reply_tx,
+                &feedback_sink,
                 &mut persist_workers,
                 &transports,
                 &trace,
@@ -310,8 +334,9 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
             // 本 step 的 Emit 已全部 dispatch → 攒批 egress 一次过边界（HX-C007）。
             // owned 为空时无 Emit、无需 flush（避免空批跨 FFI 边界的无谓回调）。
             event_sink.flush();
-            perf_metrics.on_dispatch_complete(&metric_context);
         }
+        perf_metrics.on_dispatch_complete(&metric_context);
+        perf_metrics.on_loop_iteration(iteration_started);
     }
 
     let shutdown_started = perf_metrics.start_timer();
@@ -324,6 +349,7 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
     )
     .await;
     perf_metrics.on_shutdown(shutdown_started);
+    perf_metrics.on_engine_stopped();
     if let Some(rss_sampler) = rss_sampler {
         rss_sampler.abort();
     }

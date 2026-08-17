@@ -20,7 +20,7 @@ pub use values::{
 mod correlation;
 pub use correlation::{
     ChannelLifecycleTransition, ChannelSettingsProjection, CorrelationContext,
-    HydrationPersistSnapshot, MakeTopicProjection, SyncTrigger,
+    HydrationPersistSnapshot, MakeTopicProjection, PendingSendReconciliation, SyncTrigger,
 };
 
 pub(crate) struct FileUploadProgressState {
@@ -232,6 +232,9 @@ pub struct ImState {
     /// G09d canonical increment is released only after the same durable read-back as the Result.
     pub hydration_emit_channel_increment: HashSet<ChannelId>,
 
+    /// G09d HTTP authority 的有序成员全集；跨 Persist/sync 保留，durable scan 仅用于集合校验。
+    pub hydration_ordered_rosters: HashMap<ChannelId, Vec<serde_json::Value>>,
+
     /// 当前物理会话中已成功缓存的最近消息窗口；不替代同步 cursor。
     pub(crate) recent_message_coverage:
         HashMap<ChannelId, crate::query::local_first::RecentMessageCoverage>,
@@ -353,6 +356,7 @@ impl ImState {
             hydration_pending: HashSet::new(),
             hydration_req_ids: HashMap::new(),
             hydration_emit_channel_increment: HashSet::new(),
+            hydration_ordered_rosters: HashMap::new(),
             recent_message_coverage: HashMap::new(),
             message_query_generations: HashMap::new(),
             timeline_state: crate::timeline_state::TimelineState::default(),
@@ -398,6 +402,7 @@ impl ImState {
         self.hydration_pending.clear();
         self.hydration_req_ids.clear();
         self.hydration_emit_channel_increment.clear();
+        self.hydration_ordered_rosters.clear();
         self.reply_projection_revisions.clear();
         self.reply_projection_seen_ids.clear();
         self.reset_transport_query_session();
@@ -413,29 +418,36 @@ impl ImState {
     /// socket reconnects, so preserving projector state lets recovered durable facts publish the
     /// next V2 patch against the revision that is still mounted in the UI.
     pub(crate) fn reset_transport_query_session(&mut self) {
-        self.drop_query_session_correlations();
+        // 增量批次/transport reset 会让普通 timeline query 失效，但显式 retry 的
+        // authoritative readback 仍需消费迟到 HTTP 回包，否则 posts/create 已成功却
+        // 会丢掉 temporaryId 对账入口。
+        self.drop_query_session_correlations(true);
         self.announcement_reload_versions.clear();
         self.seen_post_read_deltas.clear();
     }
 
     /// 完整 query/session reset 同时撤销旧查询回包。
     fn reset_query_session_correlations(&mut self) {
-        self.drop_query_session_correlations();
+        self.drop_query_session_correlations(false);
         self.clear_pending_action_state();
     }
 
     /// 丢弃断线后不可再消费的 query correlation，并推进 session epoch 使迟到回包 fail closed。
-    fn drop_query_session_correlations(&mut self) {
+    fn drop_query_session_correlations(&mut self, preserve_authoritative_readback: bool) {
         self.recent_message_coverage.clear();
+        self.timeline_navigation_coverage.clear();
+        self.timeline_navigation_pending.clear();
         self.message_query_generations.clear();
-        self.corr_map.retain(|_, context| {
-            !matches!(
-                context,
-                CorrelationContext::MessageQueryLocal { .. }
-                    | CorrelationContext::MessageQueryRemote { .. }
-                    | CorrelationContext::MessageQueryCache { .. }
-                    | CorrelationContext::MessageQueryReadback { .. }
-            )
+        self.corr_map.retain(|_, context| match context {
+            CorrelationContext::MessageQueryRemote {
+                authoritative_send_readback,
+                ..
+            } if preserve_authoritative_readback => authoritative_send_readback.is_some(),
+            CorrelationContext::MessageQueryLocal { .. }
+            | CorrelationContext::MessageQueryRemote { .. }
+            | CorrelationContext::MessageQueryCache { .. }
+            | CorrelationContext::MessageQueryReadback { .. } => false,
+            _ => true,
         });
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
     }
@@ -468,6 +480,7 @@ impl ImState {
         self.hydration_pending.clear();
         self.hydration_req_ids.clear();
         self.hydration_emit_channel_increment.clear();
+        self.hydration_ordered_rosters.clear();
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
         self.subtopic_sync_active = None;
@@ -500,6 +513,7 @@ impl ImState {
                     | CorrelationContext::HydrationCursorReadback { .. }
                     | CorrelationContext::OutboundIncrementHydration { .. }
                     | CorrelationContext::UpdateChannelDialogPersist { .. }
+                    | CorrelationContext::NotifyChannelPersist { .. }
                     | CorrelationContext::DialogListQuery { .. }
                     | CorrelationContext::SubtopicsQuery { .. }
                     | CorrelationContext::PostReadPersist { .. }
@@ -551,6 +565,12 @@ impl ImState {
 
     pub(crate) fn invalidate_recent_message_coverage(&mut self, channel_id: ChannelId) {
         self.recent_message_coverage.remove(&channel_id);
+    }
+
+    /// 清除指定频道的分页/定位绝对窗口，防止消息突变后复用旧 durable row 快照。
+    pub(crate) fn invalidate_timeline_navigation_coverage(&mut self, channel_id: ChannelId) {
+        self.timeline_navigation_coverage
+            .retain(|_, coverage| coverage.channel_id != channel_id);
     }
 }
 

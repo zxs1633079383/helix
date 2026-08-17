@@ -4,7 +4,7 @@
 //! + §8 待核对点已坐实）。
 //!
 //! 行为真源：现网 `handlers/channel.rs:702 handle_member_nickname_update` →
-//! `channel_member_repo::update_nickname`（复合 PK UPDATE）→ emit `im:channel:memberNickname`。
+//! `channel_member_repo::update_nickname`（复合 PK UPDATE）→ emit `im:channel:member-nickname`。
 //!
 //! wire：`{channelId, userId, nickName}`。helix：`update_member_nickname`（复合 PK upsert，
 //! 冲突仅改 nick_name；本地缺成员行插占位，权威靠 path1 全量覆盖——见 to_effect_s1 裁决注释）。
@@ -28,7 +28,7 @@ impl WsMessageHandler for NicknameHandler {
 
     fn handle(
         &self,
-        _ctx: &mut ImWsContext<'_>,
+        ctx: &mut ImWsContext<'_>,
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -58,12 +58,25 @@ impl WsMessageHandler for NicknameHandler {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
 
-        out.push(crate::acl::to_effect_s1::update_member_nickname(
-            channel_id, user_id, nick_name,
-        ));
-        out.push(crate::acl::to_effect_s1::emit_member_nickname(
-            channel_id, user_id, nick_name,
-        ));
+        let event = crate::event::channel_member::nickname_updated(serde_json::json!({
+            "channelId": channel_id.as_str(),
+            "userId": user_id,
+            "nickName": nick_name,
+        }))?;
+        let corr = ctx.alloc_corr();
+        ctx.state.corr_map.insert(
+            corr,
+            crate::state::CorrelationContext::MessageV3Commit {
+                terminal_events: vec![event.into_bytes()],
+            },
+        );
+        // 同一 correlation 把单行昵称写和唯一 canonical 事件绑定，失败回执不得泄露成功投影。
+        out.push(helix_core::Effect::PersistAtomic {
+            corr,
+            ops: vec![crate::acl::to_effect_s1::update_member_nickname_op(
+                channel_id, user_id, nick_name,
+            )],
+        });
         Ok(())
     }
 }

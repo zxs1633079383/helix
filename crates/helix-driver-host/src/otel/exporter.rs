@@ -1,4 +1,7 @@
+use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
 use std::time::{Duration, SystemTime};
 
 use opentelemetry::trace::{
@@ -12,6 +15,7 @@ use parking_lot::Mutex;
 use tokio::sync::mpsc;
 
 use super::{HostOtelConfig, HostSpanSnapshot, TraceDirection};
+use crate::metrics::{AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels};
 
 const EXPORT_QUEUE_CAPACITY: usize = 1024;
 const EXPORT_BATCH_SIZE: usize = 64;
@@ -25,15 +29,16 @@ struct QueuedSpan {
     end_time: SystemTime,
 }
 
-#[derive(Debug)]
 pub(super) struct OtlpExporter {
     sender: Option<mpsc::Sender<QueuedSpan>>,
     dropped_spans: AtomicU64,
     runtime: Mutex<Option<tokio::runtime::Runtime>>,
+    metrics: Arc<dyn AsyncMetricSink>,
 }
 
 impl OtlpExporter {
-    pub(super) fn new(config: &HostOtelConfig) -> Option<Self> {
+    /// 构造独立 trace worker，并发布固定 queue capacity 与 running 状态。
+    pub(super) fn new(config: &HostOtelConfig, metrics: Arc<dyn AsyncMetricSink>) -> Option<Self> {
         let runtime = match tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .thread_name("helix-otel-export")
@@ -50,12 +55,26 @@ impl OtlpExporter {
         let exporter = init_exporter(&runtime, config)?;
         let scope = InstrumentationScope::builder(config.service_name.clone()).build();
         let (sender, receiver) = mpsc::channel(EXPORT_QUEUE_CAPACITY);
-        runtime.spawn(run_export_worker(receiver, exporter, scope));
+        runtime.spawn(run_export_worker(
+            receiver,
+            exporter,
+            scope,
+            Arc::clone(&metrics),
+        ));
+
+        record_gauge(
+            metrics.as_ref(),
+            MetricId::TracesQueueCapacity,
+            EXPORT_QUEUE_CAPACITY as f64,
+        );
+        record_gauge(metrics.as_ref(), MetricId::TracesQueueDepth, 0.0);
+        record_gauge(metrics.as_ref(), MetricId::TracesExporterState, 1.0);
 
         Some(Self {
             sender: Some(sender),
             dropped_spans: AtomicU64::new(0),
             runtime: Mutex::new(Some(runtime)),
+            metrics,
         })
     }
 
@@ -66,18 +85,35 @@ impl OtlpExporter {
         start_time: SystemTime,
         end_time: SystemTime,
     ) {
+        let slow = snapshot
+            .attributes
+            .iter()
+            .any(|(key, value)| key == "helix.slow" && value == "true");
         let queued = QueuedSpan {
             snapshot,
             baggage,
             start_time,
             end_time,
         };
-        let accepted = self
-            .sender
-            .as_ref()
-            .is_some_and(|sender| sender.try_send(queued).is_ok());
+        record_counter(self.metrics.as_ref(), MetricId::SpansCreatedTotal, 1.0);
+        record_counter(self.metrics.as_ref(), MetricId::SpansSampledTotal, 1.0);
+        if slow {
+            record_counter(self.metrics.as_ref(), MetricId::SlowSpansTotal, 1.0);
+        }
+        let accepted = self.sender.as_ref().is_some_and(|sender| {
+            let accepted = sender.try_send(queued).is_ok();
+            if accepted {
+                record_gauge(
+                    self.metrics.as_ref(),
+                    MetricId::TracesQueueDepth,
+                    (sender.max_capacity() - sender.capacity()) as f64,
+                );
+            }
+            accepted
+        });
         if !accepted {
             self.dropped_spans.fetch_add(1, Ordering::Relaxed);
+            record_counter(self.metrics.as_ref(), MetricId::TracesDroppedTotal, 1.0);
         }
     }
 
@@ -86,8 +122,19 @@ impl OtlpExporter {
     }
 }
 
+impl fmt::Debug for OtlpExporter {
+    /// Debug 只暴露健康统计，绝不打印 endpoint、headers 或 exporter 内部状态。
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OtlpExporter")
+            .field("dropped_spans", &self.dropped_span_count())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Drop for OtlpExporter {
     fn drop(&mut self) {
+        record_gauge(self.metrics.as_ref(), MetricId::TracesExporterState, 0.0);
         drop(self.sender.take());
         if let Some(runtime) = self.runtime.lock().take() {
             if tokio::runtime::Handle::try_current().is_ok() {
@@ -144,9 +191,36 @@ async fn run_export_worker(
     mut receiver: mpsc::Receiver<QueuedSpan>,
     exporter: opentelemetry_otlp::SpanExporter,
     scope: InstrumentationScope,
+    metrics: Arc<dyn AsyncMetricSink>,
 ) {
     let mut batch = Vec::with_capacity(EXPORT_BATCH_SIZE);
-    while let Some(first) = receiver.recv().await {
+    let mut health_tick = tokio::time::interval(Duration::from_secs(5));
+    health_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut last_success = None;
+    loop {
+        let first = tokio::select! {
+            queued = receiver.recv() => {
+                let Some(queued) = queued else {
+                    break;
+                };
+                queued
+            }
+            _ = health_tick.tick() => {
+                if let Some(last_success) = last_success {
+                    record_gauge(
+                        metrics.as_ref(),
+                        MetricId::TracesLastSuccessAgeSeconds,
+                        Instant::now().duration_since(last_success).as_secs_f64(),
+                    );
+                }
+                continue;
+            }
+        };
+        record_gauge(
+            metrics.as_ref(),
+            MetricId::TracesQueueDepth,
+            receiver.len() as f64,
+        );
         push_span(&mut batch, first, &scope);
         let flush_deadline = tokio::time::sleep(EXPORT_BATCH_DELAY);
         tokio::pin!(flush_deadline);
@@ -158,12 +232,19 @@ async fn run_export_worker(
                         break;
                     };
                     push_span(&mut batch, queued, &scope);
+                    record_gauge(
+                        metrics.as_ref(),
+                        MetricId::TracesQueueDepth,
+                        receiver.len() as f64,
+                    );
                 }
                 _ = &mut flush_deadline => break,
             }
         }
 
-        export_batch(&exporter, &mut batch).await;
+        if export_batch(&exporter, &mut batch, metrics.as_ref()).await {
+            last_success = Some(Instant::now());
+        }
     }
 }
 
@@ -179,15 +260,31 @@ fn push_span(batch: &mut Vec<SpanData>, queued: QueuedSpan, scope: &Instrumentat
     }
 }
 
-async fn export_batch(exporter: &opentelemetry_otlp::SpanExporter, batch: &mut Vec<SpanData>) {
+/// 在限定重试窗口内导出整批 Span，并同步 exporter 健康状态。
+async fn export_batch(
+    exporter: &opentelemetry_otlp::SpanExporter,
+    batch: &mut Vec<SpanData>,
+    metrics: &dyn AsyncMetricSink,
+) -> bool {
     if batch.is_empty() {
-        return;
+        return true;
     }
     let spans = std::mem::take(batch);
+    record_histogram(metrics, MetricId::TracesExportBatchSize, spans.len() as f64);
+    let started = Instant::now();
     let mut last_error = None;
     for attempt in 1..=8 {
         match exporter.export(spans.clone()).await {
-            Ok(()) => return,
+            Ok(()) => {
+                record_histogram(
+                    metrics,
+                    MetricId::TracesExportDurationSeconds,
+                    started.elapsed().as_secs_f64(),
+                );
+                record_gauge(metrics, MetricId::TracesLastSuccessAgeSeconds, 0.0);
+                record_gauge(metrics, MetricId::TracesExporterState, 1.0);
+                return true;
+            }
             Err(error) => {
                 last_error = Some(error);
                 tokio::time::sleep(Duration::from_millis(250 * attempt)).await;
@@ -195,12 +292,46 @@ async fn export_batch(exporter: &opentelemetry_otlp::SpanExporter, batch: &mut V
         }
     }
     if let Some(error) = last_error {
+        record_histogram(
+            metrics,
+            MetricId::TracesExportDurationSeconds,
+            started.elapsed().as_secs_f64(),
+        );
+        record_counter(metrics, MetricId::TracesExportErrorsTotal, 1.0);
+        record_gauge(metrics, MetricId::TracesExporterState, 2.0);
         tracing::warn!(
             error = %error,
             span_count = spans.len(),
             "helix otel span batch export failed after retries"
         );
     }
+    false
+}
+
+/// 记录 trace exporter Counter，保持固定 exporter 标签。
+fn record_counter(metrics: &dyn AsyncMetricSink, id: MetricId, value: f64) {
+    if metrics.is_enabled() {
+        let _ = metrics.try_record(MetricEvent::counter(id, value, exporter_labels()));
+    }
+}
+
+/// 记录 trace exporter Gauge，热路径只执行 try_record。
+fn record_gauge(metrics: &dyn AsyncMetricSink, id: MetricId, value: f64) {
+    if metrics.is_enabled() {
+        let _ = metrics.try_record(MetricEvent::gauge(id, value, exporter_labels()));
+    }
+}
+
+/// 记录 trace exporter Histogram，不等待 metrics exporter。
+fn record_histogram(metrics: &dyn AsyncMetricSink, id: MetricId, value: f64) {
+    if metrics.is_enabled() {
+        let _ = metrics.try_record(MetricEvent::histogram(id, value, exporter_labels()));
+    }
+}
+
+/// 返回冻结的 trace exporter 标签集合。
+fn exporter_labels() -> MetricLabels {
+    MetricLabels::one(LabelKey::Stage, "telemetry").with(LabelKey::Operation, "trace_export")
 }
 
 fn span_data_from_snapshot(

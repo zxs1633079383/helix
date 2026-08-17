@@ -174,6 +174,18 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 | `…/full-map/partials/9..12-gap-*.md` | **三态缺口** | posts/channel/user-misc/bot-agent 各域 covered/partial/missing 对照 |
 | [`crates/helix-im/docs/csesapi-migration/01-接口可达性清单.md`](crates/helix-im/docs/csesapi-migration/01-接口可达性清单.md) · [`02-迁移蓝图.md`](crates/helix-im/docs/csesapi-migration/02-迁移蓝图.md) | **可达性 + 蓝图** | 接口可达性逐条 + 迁移蓝图 |
 
+### 4.5.2 客户端 Phase → Domain → Gate 交互图（按需披露）
+
+涉及客户端 84 Gate、`docs/mmd/`、Mermaid 时序图或“客户端现在如何与 Helix 交互”的任务，
+进入局部规则 [`docs/mmd/AGENTS.md`](docs/mmd/AGENTS.md)。遵循 **L0 根指令 → L1 局部
+AGENTS → L2 README 分母/索引 → L3 单 Gate 图 → L4 客户端源码、contract、Helix 与运行态
+证据** 的渐进式披露顺序；根文件只负责路由，不复制 84 张图的正文。
+
+该目录以 cses-client 的 `gate-registry.json` 和 phase manifest 为客户端 84 Gate 真源；
+Helix Spec 047 的 30 个 producer Gate 仍只用于实现接缝核对，不能替代客户端分母。新增、
+移动或修改 Gate 图时，必须同时遵守局部 `AGENTS.md` 的目录、首部真源注释、负向事实和
+manifest/README/Mermaid 验证合同。
+
 ## 4.6 专家 Agent / Skill 注册表（按需调用 · 渐进式披露）
 
 > 仓内 agent 路由与约束订阅见 [`.agents/README.md`](.agents/README.md)。

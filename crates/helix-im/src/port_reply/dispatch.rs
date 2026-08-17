@@ -19,6 +19,37 @@ fn emit_dialog_list_failed(
     Ok(())
 }
 
+/// Decode the channel row returned after a notify write; sparse WS input is never used as the
+/// final event payload, so absent fields retain the durable values already in SQLite.
+fn notify_channel_update_from_reply(
+    channel_id: crate::state::ChannelId,
+    reply: &[u8],
+) -> Result<Option<serde_json::Value>, ImError> {
+    let rows: serde_json::Value = serde_json::from_slice(reply)
+        .map_err(|error| ImError::Parse(format!("notify channel readback: {error}")))?;
+    let Some(row) = rows.as_array().and_then(|items| {
+        items.iter().find(|item| {
+            item.get("id")
+                .or_else(|| item.get("channel_id"))
+                .or_else(|| item.get("channelId"))
+                .and_then(serde_json::Value::as_str)
+                == Some(channel_id.as_str())
+        })
+    }) else {
+        return Ok(None);
+    };
+    let shaped = crate::query::render_ready::channel::shape_channel_row(row);
+    let notify = shaped
+        .get("notifyProps")
+        .and_then(serde_json::Value::as_str);
+    if !matches!(notify, Some("NORMAL" | "STRONG" | "IGNORE")) {
+        return Err(ImError::Parse(
+            "notify channel readback missing valid scalar notifyProps".to_string(),
+        ));
+    }
+    Ok(Some(shaped))
+}
+
 impl ImModule {
     /// 处理 PortReply（Persist/Http 的异步结果回报）。
     ///
@@ -277,6 +308,7 @@ impl ImModule {
                 wants_continuation,
                 channel_updates,
                 pending_domain_events,
+                pending_send_reconciliations,
             } => self.handle_channel_persist_reply(
                 corr,
                 channel_id,
@@ -284,6 +316,7 @@ impl ImModule {
                 wants_continuation,
                 channel_updates,
                 pending_domain_events,
+                pending_send_reconciliations,
                 outcome,
                 out,
             )?,
@@ -469,6 +502,30 @@ impl ImModule {
                         corr = corr.raw(),
                         error = ?error,
                         "update_channel persistence failed; suppress MessageV3 updates"
+                    );
+                }
+            },
+
+            CorrelationContext::NotifyChannelPersist { channel_id } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    if let Some(update) =
+                        notify_channel_update_from_reply(channel_id, reply.0.as_ref())?
+                    {
+                        out.push(crate::event::channel::update(update)?.into_effect());
+                    } else {
+                        tracing::warn!(
+                            channel_id = channel_id.as_str(),
+                            corr = corr.raw(),
+                            "notify channel readback empty; skip MessageV3 update"
+                        );
+                    }
+                }
+                PortOutcome::Err(error) => {
+                    tracing::warn!(
+                        channel_id = channel_id.as_str(),
+                        corr = corr.raw(),
+                        error = ?error,
+                        "notify channel persistence failed; suppress MessageV3 update"
                     );
                 }
             },
@@ -951,6 +1008,7 @@ impl ImModule {
 
             CorrelationContext::OutboundLeave { channel_id } => match outcome {
                 PortOutcome::Ok(_) if lifecycle_http_succeeded(outcome) => {
+                    let auth_user_id = self.config.auth_user_id.as_str().to_string();
                     let persist_corr = self.alloc_corr_internal();
                     self.state.corr_map.insert(
                         persist_corr,
@@ -960,12 +1018,24 @@ impl ImModule {
                             causation_id: None,
                         },
                     );
+                    let mut ops = vec![crate::acl::to_effect_s1::channel_set_cols_op(
+                        channel_id,
+                        vec![("is_remove", helix_core::effect::SqlValue::Integer(1))],
+                    )];
+                    // 退出者不会再收到面向在群成员的 roster delta，故 HTTP 成功事务必须自行清掉本人的成员行。
+                    if !auth_user_id.is_empty() {
+                        if let Some(delete_member) =
+                            crate::acl::to_effect_s1::delete_channel_members_op(
+                                channel_id,
+                                vec![auth_user_id],
+                            )
+                        {
+                            ops.push(delete_member);
+                        }
+                    }
                     out.push(helix_core::Effect::Persist {
                         corr: persist_corr,
-                        ops: vec![crate::acl::to_effect_s1::channel_set_cols_op(
-                            channel_id,
-                            vec![("is_remove", helix_core::effect::SqlValue::Integer(1))],
-                        )],
+                        ops,
                     });
                 }
                 PortOutcome::Err(e) => {
@@ -1011,12 +1081,16 @@ impl ImModule {
             CorrelationContext::ChannelMemberUpdatePersist {
                 channel_id,
                 event_seq,
-                raw_channel,
-                members,
-                leaves,
+                viewer_rejoined,
                 causation_id,
             } => match outcome {
                 PortOutcome::Ok(_) => {
+                    // durable is_remove=0 成功后才解除 viewer-local terminal，失败时继续保持离场态。
+                    if viewer_rejoined {
+                        if let Some(channel) = self.state.channels.get_mut(&channel_id) {
+                            channel.resume_after_rejoin();
+                        }
+                    }
                     if let Some(seq) = event_seq {
                         self.state
                             .inflight_member_update_seqs
@@ -1025,29 +1099,26 @@ impl ImModule {
                             .committed_member_update_seqs
                             .insert((channel_id, seq));
                     }
-                    let member_values = members
-                        .into_iter()
-                        .map(|member| {
-                            serde_json::json!({
-                                "userId": member.member_id,
-                                "nickName": member.nickname,
-                                "admin": member.admin,
-                            })
-                        })
-                        .collect::<Vec<_>>();
-                    // A roster is the receiver's sole absolute member projection; per-user
-                    // leave events would create a second, divergent membership event family.
-                    out.push(
-                        crate::event::channel_member::updated(serde_json::json!({
-                            "channelId": channel_id.as_str(),
-                            "members": member_values,
-                            "leaves": leaves,
-                            "source": serde_json::from_slice::<serde_json::Value>(&raw_channel)
-                                .unwrap_or(serde_json::Value::Null),
-                        }))?
-                        .into_effect(),
+                    let corr = self.alloc_corr_internal();
+                    self.state.corr_map.insert(
+                        corr,
+                        CorrelationContext::ChannelMemberUpdateChannelReadback {
+                            channel_id,
+                            causation_id,
+                        },
                     );
-                    let _legacy_projection_context = causation_id;
+                    out.push(helix_core::Effect::Persist {
+                        corr,
+                        ops: vec![helix_core::effect::StorageOp::Get(
+                            helix_core::effect::GetSpec {
+                                table: "channel",
+                                key_col: "id",
+                                key_val: helix_core::effect::SqlValue::Text(
+                                    channel_id.as_str().to_string(),
+                                ),
+                            },
+                        )],
+                    });
                 }
                 PortOutcome::Err(error) => {
                     if let Some(seq) = event_seq {
@@ -1062,6 +1133,27 @@ impl ImModule {
                     );
                 }
             },
+
+            CorrelationContext::ChannelMemberUpdateChannelReadback {
+                channel_id,
+                causation_id,
+            } => self.handle_channel_member_update_channel_readback_reply(
+                channel_id,
+                causation_id,
+                outcome,
+                out,
+            )?,
+            CorrelationContext::ChannelMemberUpdateReadback {
+                channel_id,
+                channel,
+                causation_id,
+            } => self.handle_channel_member_update_readback_reply(
+                channel_id,
+                channel.map(|value| *value),
+                causation_id,
+                outcome,
+                out,
+            )?,
 
             CorrelationContext::ChannelMemberRoleScan {
                 channel_id,
@@ -1132,6 +1224,20 @@ impl ImModule {
 
             CorrelationContext::OutboundMakeTopicRootRead { projection } => {
                 self.handle_make_topic_thread_readback(projection, outcome, out)?;
+            }
+
+            CorrelationContext::OutboundMakeTopicRelationPersist {
+                projection,
+                parent_channel_id,
+                root_row,
+            } => {
+                self.handle_make_topic_relation_persist_reply(
+                    projection,
+                    parent_channel_id,
+                    root_row,
+                    outcome,
+                    out,
+                )?;
             }
 
             CorrelationContext::OutboundChannelSettings {

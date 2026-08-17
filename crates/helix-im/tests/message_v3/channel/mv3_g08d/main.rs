@@ -3,7 +3,7 @@ mod common;
 #[path = "../../support/phase1_reference.rs"]
 mod phase1_reference;
 
-use helix_core::effect::Effect;
+use helix_core::effect::{Effect, StorageOp};
 use helix_core::tick::{PortOutcome, ReplyBytes};
 use helix_core::Tick;
 use serde_json::{json, Value};
@@ -51,15 +51,34 @@ fn run_leave() -> Result<Vec<Value>, String> {
         },
         1_700_001_600_021,
     );
-    let persist_corr = harness
+    let (persist_corr, deletes_viewer_member) = harness
         .sink
         .as_slice()
         .iter()
         .find_map(|effect| match effect {
-            Effect::Persist { corr, .. } => Some(*corr),
+            Effect::Persist { corr, ops } => Some((
+                *corr,
+                ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        StorageOp::BatchDelete(spec)
+                            if spec.table == "channel_member"
+                                && spec.scope_col == "channel_id"
+                                && spec.key_col == "user_id"
+                                && matches!(
+                                    spec.key_vals.as_slice(),
+                                    [helix_core::effect::SqlValue::Text(user_id)]
+                                        if user_id == "g08d-actor"
+                                )
+                    )
+                }),
+            )),
             _ => None,
         })
         .ok_or_else(|| "missing leave persistence barrier".to_string())?;
+    if !deletes_viewer_member {
+        return Err("leave persist must delete the authenticated viewer member row".to_string());
+    }
     if harness
         .sink
         .as_slice()

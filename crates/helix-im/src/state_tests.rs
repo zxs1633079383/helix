@@ -1,6 +1,7 @@
 //! `state.rs` 的 Id26 测试与同 crate fixture。
 
-use super::{ChannelId, Id26, ServerId};
+use super::{ChannelId, Id26, ImState, ServerId};
+use crate::timeline_navigation::TimelineNavigationCoverage;
 
 /// 生成确定性的 26 位测试频道 ID。
 pub(crate) fn test_channel_id(n: u64) -> ChannelId {
@@ -56,4 +57,35 @@ fn test_id_factories_are_deterministic() {
     assert_eq!(test_channel_id(1), test_channel_id(1));
     assert_ne!(test_channel_id(1), test_channel_id(2));
     assert_eq!(test_server_id(1), test_server_id(1));
+}
+
+/// 验证消息突变只失效所属频道的 locate/page coverage，不波及其他频道窗口。
+#[test]
+fn timeline_navigation_coverage_invalidation_is_channel_scoped() {
+    let changed = test_channel_id(21);
+    let untouched = test_channel_id(22);
+    let coverage = |channel_id| TimelineNavigationCoverage {
+        channel_id,
+        rows: vec![serde_json::json!({"id": "root", "topic": {}})],
+        has_older: false,
+        has_newer: false,
+        target_index: Some(0),
+        older_cursor: None,
+        newer_cursor: None,
+    };
+    let mut state = ImState::new();
+    state
+        .timeline_navigation_coverage
+        .insert("changed:locate:root:60".to_string(), coverage(changed));
+    state
+        .timeline_navigation_coverage
+        .insert("untouched:locate:root:60".to_string(), coverage(untouched));
+
+    state.invalidate_timeline_navigation_coverage(changed);
+
+    assert_eq!(state.timeline_navigation_coverage.len(), 1);
+    assert!(state
+        .timeline_navigation_coverage
+        .values()
+        .all(|entry| entry.channel_id == untouched));
 }

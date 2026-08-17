@@ -260,6 +260,7 @@ fn read_bit_index_maps_to_the_member_at_the_same_position() {
 fn receipt_lists_are_not_sorted_by_the_projection() {
     let reversed = json!([{
         "postId": POST_ID,
+        "channelId": cid(CHANNEL_IX),
         "authorUserId": AUTHOR_ID,
         "snapshotId": SNAPSHOT_ID,
         "snapshotVersion": 1001,
@@ -281,6 +282,8 @@ fn snapshot_id_is_the_authoritative_receipt_key() {
     // 缺 snapshotId → fail-closed，不得用 memberIds 兜出一个"看起来对"的回执。
     let missing_snapshot = json!([{
         "postId": POST_ID,
+        "channelId": cid(CHANNEL_IX),
+        "createAt": 1_700_000_000_000_i64,
         "authorUserId": AUTHOR_ID,
         "snapshotVersion": 1001,
         "memberIds": [AUTHOR_ID, READER_ID, UNREAD_ID],
@@ -299,6 +302,7 @@ fn batch_rows_fail_closed_independently() {
     let mixed = json!([
         {
             "postId": "post-template-bad",
+            "channelId": cid(CHANNEL_IX),
             "authorUserId": AUTHOR_ID,
             "snapshotId": "snapshot-bad",
             "snapshotVersion": 1002,
@@ -307,6 +311,7 @@ fn batch_rows_fail_closed_independently() {
         },
         {
             "postId": POST_ID,
+            "channelId": cid(CHANNEL_IX),
             "authorUserId": AUTHOR_ID,
             "snapshotId": SNAPSHOT_ID,
             "snapshotVersion": 1001,

@@ -153,6 +153,7 @@ impl HttpRequester for SharedHttpClient {
         if !self.metrics.is_enabled() {
             return self.execute(req).await;
         }
+        let request_bytes = req.body.as_ref().map_or(0, Bytes::len);
         let started = Instant::now();
         let inflight = self.inflight.fetch_add(1, Ordering::Relaxed) + 1;
         record_http_gauge(self.metrics.as_ref(), inflight);
@@ -176,10 +177,39 @@ impl HttpRequester for SharedHttpClient {
             started.elapsed().as_secs_f64(),
             labels,
         ));
+        let _ = self.metrics.try_record(MetricEvent::histogram(
+            MetricId::HttpRequestBytes,
+            request_bytes as f64,
+            labels,
+        ));
+        if let Ok(response) = &result {
+            let status_labels = labels.with(LabelKey::StatusClass, status_class(response.status));
+            let _ = self.metrics.try_record(MetricEvent::histogram(
+                MetricId::HttpResponseBytes,
+                response.body.len() as f64,
+                status_labels,
+            ));
+            let _ = self.metrics.try_record(MetricEvent::counter(
+                MetricId::HttpStatusTotal,
+                1.0,
+                status_labels,
+            ));
+        }
         let _ =
             self.metrics
                 .try_record(MetricEvent::counter(MetricId::OperationsTotal, 1.0, labels));
         if failed {
+            if result
+                .as_ref()
+                .err()
+                .is_some_and(|error| error.to_string().to_ascii_lowercase().contains("timeout"))
+            {
+                let _ = self.metrics.try_record(MetricEvent::counter(
+                    MetricId::HttpTimeoutTotal,
+                    1.0,
+                    labels,
+                ));
+            }
             let error_kind = if result.is_err() {
                 "http_request_failed"
             } else {
@@ -195,6 +225,19 @@ impl HttpRequester for SharedHttpClient {
     }
 }
 
+/// 把 HTTP status 映射为固定低基数 class 标签。
+fn status_class(status: u16) -> &'static str {
+    match status {
+        100..=199 => "1xx",
+        200..=299 => "2xx",
+        300..=399 => "3xx",
+        400..=499 => "4xx",
+        500..=599 => "5xx",
+        _ => "other",
+    }
+}
+
+/// 发布当前 HTTP 实际在途请求数。
 fn record_http_gauge(metrics: &dyn AsyncMetricSink, inflight: usize) {
     let _ = metrics.try_record(MetricEvent::gauge(
         MetricId::HttpInflight,

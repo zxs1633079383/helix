@@ -1,0 +1,58 @@
+%% Phase2 / read / MV3-G06d readBits 位图与未读成员列表
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/read/mv3-g06d/contract.json
+%% UI owners: src/pages/message-v3/service/im-gate/mock/mockImGate.service.ts::buildSelfReadBits（写侧，:314，调用点 :624）；src/pages/message-v3/service/im-gate/mock/mockImGate.service.ts::postRead（读侧推进，:1027）；src/pages/message-v3/components/message-status/message-status.component.ts::readResult（读侧消费：直接消费有序 readUserIds / unreadUserIds）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：发送者点自己消息下的「未读 N 人」，看到具体是哪些人还没读
+  Note over UI,Web: 当前覆盖状态：mock=partial；helix=partial；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: sendMessage + postRead + getPostReaders(payload)
+    Gate->>Native: invokeAccepted("im_send_message + im_post_read + im_post_read_list", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_send_message + im_post_read + im_post_read_list", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_send_message + im_post_read + im_post_read_list", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 已读位图的生成与消费 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /api/cses/posts/create + POST /api/cses/post/read + POST /api/cses/post/read/list
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction message read + viewer member + cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM->>Sink: Effect::Emit {event,data}（postReceived，POST，postRead，POST_READ，postReaders）
+  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  Sink-->>FFI: FFI batch raw {event,data}
+  Sink-->>Web: Web EventBatch raw {event,data}
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：Go 创建消息时持久化 snapshotId，并以该快照原始顺序过滤 viewers、剔除全部 author 项得到 receiverIds；成员后续增删、前端当前 channel.members 顺序均不得改变该消息的 receipt 序列；Go 内部 bitmap 长度严格等于 receiverIds.length，创建时全为 false；author 不占位且没有 self=1 规则。Helix 投影为有序 readUserIds / unreadUserIds 后删除 bitmap，Angular 永远看不到 readBits；Go 读侧只在相同 snapshotId 的 receiverIds 中命中当前 reader 时推进其内部位；作者、不可见成员、非 receiver、重复已读均不改变 bitmap，Angular 只收到同 snapshotId 的 readerUserId 增量；「未读 N 人」由 snapshotId 对应的有序 unreadUserIds 直接渲染，列表永远不含 author；不得由任一侧 channel.unreadCount 或当前成员列表反推
+  Note over UI,Web: 关键负向：Angular 的 Port 入参、ImGateEvent、ChatMessage receipt 投影、组件输入与本地持久化不得出现 readBits / memberIds / readerIds；发现即 Gate 失败；不得以当前 channel.members、owner+boss+members+adminUsers 去重结果或 [...viewers,selfId] 构造 receipt 位序；唯一权威是消息创建时 snapshotId 对应的 receiver snapshot 原始顺序；author 必须从 receiverIds 中全部剔除，既不占 bitmap 位也不得出现在 readUserIds / unreadUserIds；不得再保留 self 位恒为 1 的旧规则
+  Note over E,Sink: 出站事件集合：postReceived，POST，postRead，POST_READ，postReaders；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

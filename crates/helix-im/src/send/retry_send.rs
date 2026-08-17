@@ -218,7 +218,7 @@ fn retry_from_memory(
         let media_body = pending.body.as_ref().is_some_and(|body| {
             matches!(
                 body.get("type").and_then(Value::as_str),
-                Some("file" | "FILE" | "rich" | "IMAGE")
+                Some("file" | "FILE" | "rich" | "RICH" | "IMAGE")
             )
         });
         if media_body && pending.remaining_uploads == 0 && pending.status != SendStatus::UnSend {
@@ -267,6 +267,7 @@ fn retry_failed_media(
         .collect::<Vec<_>>();
     keys.sort_by_key(|(_, target)| match target {
         UploadTarget::RichImage { index } => (0u8, *index),
+        UploadTarget::RichVideo { index } => (0u8, *index),
         UploadTarget::File => (1u8, 0usize),
         UploadTarget::TemplateImage => (2u8, 0usize),
     });
@@ -712,10 +713,11 @@ pub(crate) fn handle_rehydrate_reply(
     )
 }
 
+/// 识别需要 durable 上传完成门禁的消息类型。
 fn is_media_body(body: &Value) -> bool {
     matches!(
         body.get("type").and_then(Value::as_str),
-        Some("file" | "FILE" | "rich" | "IMAGE")
+        Some("file" | "FILE" | "rich" | "RICH" | "IMAGE")
     )
 }
 
@@ -728,18 +730,37 @@ fn media_body_is_fully_completed(body: &Value) -> bool {
         Some("file" | "FILE") => props
             .get("file")
             .is_some_and(|node| completed_media_node(node, "attachment")),
-        Some("rich" | "IMAGE") => {
+        Some("IMAGE") => props
+            .get("files")
+            .and_then(Value::as_array)
+            .is_some_and(|files| {
+                !files.is_empty()
+                    && files
+                        .iter()
+                        .all(|node| completed_media_node(node, "picture"))
+            }),
+        Some("rich" | "RICH") => {
             props
                 .get("files")
                 .and_then(Value::as_array)
                 .is_some_and(|files| {
                     !files.is_empty()
-                        && files
-                            .iter()
-                            .all(|node| completed_media_node(node, "picture"))
+                        && files.iter().all(|node| {
+                            rich_bucket(node)
+                                .is_some_and(|bucket| completed_media_node(node, bucket))
+                        })
                 })
         }
         _ => true,
+    }
+}
+
+/// 从 RICH 节点的 MIME 主类型推导完成态必须使用的稳定 bucket。
+fn rich_bucket(node: &Value) -> Option<&'static str> {
+    match node.get("contentType").and_then(Value::as_str) {
+        Some(value) if value.starts_with("image/") => Some("picture"),
+        Some(value) if value.starts_with("video/") => Some("attachment"),
+        _ => None,
     }
 }
 
@@ -830,6 +851,11 @@ fn continue_retry(
     let timeout_timer = module.alloc_timer();
     let persist_corr = module.alloc_corr_internal();
     let connection_id = module.state.connection_id.clone();
+    let previous_authoritative_readback_timer = module
+        .state
+        .pending_sends
+        .get(&temporary_id)
+        .and_then(|pending| pending.authoritative_readback_timer);
     let pending = module
         .state
         .pending_sends
@@ -839,6 +865,8 @@ fn continue_retry(
     pending.timeout_timer = timeout_timer;
     pending.http_started = false;
     pending.authoritative_readback_after_http = true;
+    pending.authoritative_readback_attempt = 0;
+    pending.authoritative_readback_timer = None;
     pending.body = Some(body.clone());
     if request_id.is_some() {
         pending.timeline_readback.causation_id = request_id;
@@ -859,6 +887,9 @@ fn continue_retry(
             "sending",
         )],
     });
+    if let Some(timer_id) = previous_authoritative_readback_timer {
+        out.push(Effect::CancelTimer { id: timer_id });
+    }
     out.push(
         crate::event::post::sending_from_local_body(
             channel_id.as_str(),

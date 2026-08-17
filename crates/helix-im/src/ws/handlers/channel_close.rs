@@ -1,11 +1,12 @@
-//! `channel_close` action handler（关闭频道：delete_at + is_active 置位，spec §S1）。
+//! `channel_close` action handler（普通关闭或 viewer-local left 终态，spec §S1）。
 //!
 //! 行为真源：现网 `handlers/channel.rs:575 handle_close` → `Channel::update_fields(delete_at,
 //! is_active=false)` → emit `im:channel:closed{channelId, deleteAt}`。
 //!
-//! wire（`CloseChannelData` types.rs:374）：`channelId` / `deleteAt`。helix：定点列 patch
-//! （`channel_set_cols`：UPDATE channel SET delete_at=?, is_active=0 WHERE id=?）。本地无此行
-//! → 0 行命中 no-op（幂等）。spec §S3.4 纯本地字段 is_remove 不在此路径动。
+//! wire（`CloseChannelData` types.rs:374）：普通关闭使用 `channelId` / `deleteAt`；被管理者
+//! 移出时复用同一 action，并携带 `terminalReason=left`。普通关闭定点写 `delete_at` +
+//! `is_active=0`；viewer-local 离场原子写 `is_remove=1` 并删除当前 viewer 的成员行，
+//! 两者均在 PersistOk 后才发布终态。
 
 use helix_core::effect::SqlValue;
 use helix_core::{Effect, EffectSink};
@@ -25,7 +26,7 @@ impl WsMessageHandler for ChannelCloseHandler {
         CHANNEL_CLOSE_ACTION
     }
 
-    /// 将可信 close tombstone 放入 G16 原子持久屏障，提交前不发布终态事件。
+    /// 将可信 close/left tombstone 放入原子持久屏障，提交前不发布终态事件。
     fn handle(
         &self,
         ctx: &mut ImWsContext<'_>,
@@ -50,25 +51,48 @@ impl WsMessageHandler for ChannelCloseHandler {
             .and_then(serde_json::Value::as_i64)
             .unwrap_or(0);
 
+        let is_viewer_left = data
+            .get("terminalReason")
+            .or_else(|| data.get("terminal_reason"))
+            .and_then(serde_json::Value::as_str)
+            == Some("left");
+        let (transition, cols) = if is_viewer_left {
+            (
+                crate::state::ChannelLifecycleTransition::Left,
+                vec![("is_remove", SqlValue::Integer(1))],
+            )
+        } else {
+            (
+                crate::state::ChannelLifecycleTransition::Closed { delete_at },
+                vec![
+                    ("delete_at", SqlValue::Integer(delete_at)),
+                    ("is_active", SqlValue::Integer(0)),
+                ],
+            )
+        };
+
         let corr = ctx.alloc_corr();
         ctx.state.corr_map.insert(
             corr,
             crate::state::CorrelationContext::ChannelLifecyclePersist {
                 channel_id,
-                transition: crate::state::ChannelLifecycleTransition::Closed { delete_at },
+                transition,
                 causation_id: None,
             },
         );
-        out.push(Effect::PersistAtomic {
-            corr,
-            ops: vec![crate::acl::to_effect_s1::channel_set_cols_op(
+        let mut ops = vec![crate::acl::to_effect_s1::channel_set_cols_op(
+            channel_id, cols,
+        )];
+        // 被踢 viewer 的终态必须同时清除自己的本地成员投影；普通 close 与无身份回放不产生删行意图。
+        if is_viewer_left && !ctx.auth_user_id.is_empty() {
+            if let Some(delete_member) = crate::acl::to_effect_s1::delete_channel_members_op(
                 channel_id,
-                vec![
-                    ("delete_at", SqlValue::Integer(delete_at)),
-                    ("is_active", SqlValue::Integer(0)),
-                ],
-            )],
-        });
+                vec![ctx.auth_user_id.to_string()],
+            ) {
+                ops.push(delete_member);
+            }
+        }
+        out.push(Effect::PersistAtomic { corr, ops });
         Ok(())
     }
 }

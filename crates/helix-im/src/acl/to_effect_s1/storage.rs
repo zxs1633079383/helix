@@ -117,7 +117,11 @@ pub fn delete_channel_members_op(
 /// 与现网唯一差异：本地缺该成员行时 helix **插一条占位**（PK + nick_name，role 取表 DEFAULT
 /// 'MEMBER'），现网则跳过——下次 path1 全量 memberChange 覆盖补齐其余列，权威收敛一致
 /// （对齐「成员关系以 increment 全量为准」）。复杂度 O(1)（单行 upsert WHERE 复合 PK）。
-pub fn update_member_nickname(channel_id: ChannelId, user_id: &str, nick_name: &str) -> Effect {
+pub fn update_member_nickname_op(
+    channel_id: ChannelId,
+    user_id: &str,
+    nick_name: &str,
+) -> StorageOp {
     let row: Row = vec![
         (
             "channel_id".to_string(),
@@ -129,13 +133,18 @@ pub fn update_member_nickname(channel_id: ChannelId, user_id: &str, nick_name: &
             SqlValue::Text(nick_name.to_string()),
         ),
     ];
+    StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel_member",
+        rows: vec![row],
+        conflict_key: Some("channel_id,user_id"),
+        // 冲突时仅改 nick_name：排除其余列（占位插入路径才写它们的 DEFAULT/行内值）。
+        exclude_from_update: vec!["team_id", "role"],
+    })
+}
+
+/// 为无需终态事件的兼容调用方保留 fire-and-forget 昵称写入口。
+pub fn update_member_nickname(channel_id: ChannelId, user_id: &str, nick_name: &str) -> Effect {
     Effect::PersistFire {
-        ops: vec![StorageOp::BatchUpsert(UpsertSpec {
-            table: "channel_member",
-            rows: vec![row],
-            conflict_key: Some("channel_id,user_id"),
-            // 冲突时仅改 nick_name：排除其余列（占位插入路径才写它们的 DEFAULT/行内值）。
-            exclude_from_update: vec!["team_id", "role"],
-        })],
+        ops: vec![update_member_nickname_op(channel_id, user_id, nick_name)],
     }
 }

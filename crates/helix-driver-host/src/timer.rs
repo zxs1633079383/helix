@@ -19,8 +19,14 @@
 use helix_core::Tick;
 use helix_core::TimerId;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
 use tokio::task::JoinHandle;
 
+use crate::metrics::{
+    AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels, NoopMetricSink,
+};
 use crate::tick_ingress::EngineTickSender;
 
 pub struct TimerRegistry {
@@ -29,6 +35,8 @@ pub struct TimerRegistry {
     /// unbounded 对齐本 crate「回灌必达走 unbounded」不变量（避免回灌阻塞产生背压死锁）。
     done_tx: tokio::sync::mpsc::UnboundedSender<TimerId>,
     done_rx: tokio::sync::mpsc::UnboundedReceiver<TimerId>,
+    metrics: Arc<dyn AsyncMetricSink>,
+    active: Arc<AtomicUsize>,
 }
 
 impl Default for TimerRegistry {
@@ -39,12 +47,21 @@ impl Default for TimerRegistry {
 
 impl TimerRegistry {
     pub fn new() -> Self {
+        Self::with_metrics(Arc::new(NoopMetricSink))
+    }
+
+    /// 构造带 host 指标的 timer 注册表；sink 只允许非阻塞 try_record。
+    pub(crate) fn with_metrics(metrics: Arc<dyn AsyncMetricSink>) -> Self {
         let (done_tx, done_rx) = tokio::sync::mpsc::unbounded_channel();
-        Self {
+        let registry = Self {
             handles: HashMap::new(),
             done_tx,
             done_rx,
-        }
+            metrics,
+            active: Arc::new(AtomicUsize::new(0)),
+        };
+        record_timer_gauge(registry.metrics.as_ref(), 0);
+        registry
     }
 
     /// 惰性回收已自然到期的 one-shot timer 条目：非阻塞排空 done 通道，把已完成 id
@@ -71,13 +88,41 @@ impl TimerRegistry {
         // 防止下方 insert 的新 handle 被同批旧 done 信号误删——见 reap 护栏）。
         self.reap();
         // 先取消已有同 id timer（ScheduleTimer 可覆盖）
-        self.cancel(id);
+        self.cancel_with_reason(id, "replaced");
 
         let done_tx = self.done_tx.clone();
+        let metrics = Arc::clone(&self.metrics);
+        let active = Arc::clone(&self.active);
+        let due_at = Instant::now() + tokio::time::Duration::from_millis(after_ms);
+        let current = active.fetch_add(1, Ordering::Relaxed) + 1;
+        record_timer_gauge(metrics.as_ref(), current);
+        record_timer_counter(metrics.as_ref(), MetricId::TimerScheduledTotal, "scheduled");
         let handle = tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_millis(after_ms)).await;
+            record_timer_histogram(
+                metrics.as_ref(),
+                MetricId::TimerLatenessSeconds,
+                Instant::now().saturating_duration_since(due_at),
+            );
+            let delivery_started = Instant::now();
             // send 失败（接收端已关闭）静默忽略（正常关机场景）
-            tick_tx.send(Tick::Timer(id)).await.ok();
+            let delivered = tick_tx.send(Tick::Timer(id)).await.is_ok();
+            record_timer_histogram(
+                metrics.as_ref(),
+                MetricId::TimerDeliveryWaitSeconds,
+                delivery_started.elapsed(),
+            );
+            if delivered {
+                record_timer_counter(metrics.as_ref(), MetricId::TimerFiredTotal, "delivered");
+            } else {
+                record_timer_counter(
+                    metrics.as_ref(),
+                    MetricId::TimerDeliveryFailedTotal,
+                    "closed",
+                );
+            }
+            let current = decrement_saturating(active.as_ref());
+            record_timer_gauge(metrics.as_ref(), current);
             // fire 完毕，回灌自身 id 供 registry 惰性回收；registry 已 drop 时静默忽略。
             done_tx.send(id).ok();
         });
@@ -86,10 +131,21 @@ impl TimerRegistry {
 
     /// 取消 timer（幂等，id 不存在时静默忽略）。
     pub fn cancel(&mut self, id: TimerId) {
+        self.cancel_with_reason(id, "explicit");
+    }
+
+    /// 取消指定 timer，并把覆盖与显式取消区分为稳定 status 标签。
+    fn cancel_with_reason(&mut self, id: TimerId, reason: &'static str) {
         // 先惰性回收（必须先于本次 remove 对 handles 的读写，与 schedule 同护栏）。
         self.reap();
         if let Some(h) = self.handles.remove(&id) {
+            if h.is_finished() {
+                return;
+            }
             h.abort();
+            let current = decrement_saturating(self.active.as_ref());
+            record_timer_gauge(self.metrics.as_ref(), current);
+            record_timer_counter(self.metrics.as_ref(), MetricId::TimerCancelledTotal, reason);
         }
     }
 
@@ -113,13 +169,69 @@ impl Drop for TimerRegistry {
     }
 }
 
+/// 记录 timer 低基数 Counter，不携带 TimerId。
+fn record_timer_counter(metrics: &dyn AsyncMetricSink, id: MetricId, status: &'static str) {
+    if metrics.is_enabled() {
+        let _ = metrics.try_record(MetricEvent::counter(
+            id,
+            1.0,
+            MetricLabels::one(LabelKey::Stage, "timer").with(LabelKey::Status, status),
+        ));
+    }
+}
+
+/// 记录 timer 耗时直方图，禁止把 timer payload 带入标签。
+fn record_timer_histogram(metrics: &dyn AsyncMetricSink, id: MetricId, value: std::time::Duration) {
+    if metrics.is_enabled() {
+        let _ = metrics.try_record(MetricEvent::histogram(
+            id,
+            value.as_secs_f64(),
+            MetricLabels::one(LabelKey::Stage, "timer"),
+        ));
+    }
+}
+
+/// 发布当前活跃 timer 数量。
+fn record_timer_gauge(metrics: &dyn AsyncMetricSink, active: usize) {
+    if metrics.is_enabled() {
+        let _ = metrics.try_record(MetricEvent::gauge(
+            MetricId::TimerActive,
+            active as f64,
+            MetricLabels::one(LabelKey::Stage, "timer"),
+        ));
+    }
+}
+
+/// 原子饱和递减，处理 cancel 与自然 fire 的竞争边界。
+fn decrement_saturating(value: &AtomicUsize) -> usize {
+    value
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            Some(current.saturating_sub(1))
+        })
+        .unwrap_or_default()
+        .saturating_sub(1)
+}
+
 // ─── 单元测试 ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metrics::RecordOutcome;
     use helix_core::effect::TimerId;
+    use std::sync::Mutex;
     use tokio::sync::mpsc;
+
+    #[derive(Default)]
+    struct RecordingMetricSink(Mutex<Vec<MetricEvent>>);
+
+    impl AsyncMetricSink for RecordingMetricSink {
+        /// 保存 timer 外部指标事件，不启动真实 exporter。
+        fn try_record(&self, event: MetricEvent) -> RecordOutcome {
+            self.0.lock().unwrap().push(event);
+            RecordOutcome::Accepted
+        }
+    }
 
     #[tokio::test]
     async fn test_timer_fires_after_delay() {
@@ -213,5 +325,39 @@ mod tests {
             0,
             "one-shot timer should be reaped from handles after natural fire"
         );
+    }
+
+    /// timer 自然触发必须闭合 scheduled、fired、lateness、delivery 与 active Gauge。
+    #[tokio::test]
+    async fn observed_timer_records_lifecycle_without_timer_id_label() {
+        let metrics = Arc::new(RecordingMetricSink::default());
+        let (tx, mut rx) = mpsc::channel::<Tick>(8);
+        let mut registry = TimerRegistry::with_metrics(metrics.clone());
+
+        registry.schedule(TimerId::from_raw(321), 1, EngineTickSender::Raw(tx));
+        tokio::time::timeout(tokio::time::Duration::from_millis(200), rx.recv())
+            .await
+            .expect("timer 应在窗口内触发")
+            .expect("timer channel 应保持打开");
+        tokio::task::yield_now().await;
+
+        let events = metrics.0.lock().unwrap();
+        for expected in [
+            MetricId::TimerScheduledTotal,
+            MetricId::TimerFiredTotal,
+            MetricId::TimerLatenessSeconds,
+            MetricId::TimerDeliveryWaitSeconds,
+            MetricId::TimerActive,
+        ] {
+            assert!(
+                events.iter().any(|event| event.id == expected),
+                "timer 缺少 {:?}",
+                expected
+            );
+        }
+        assert!(events
+            .iter()
+            .filter(|event| event.id == MetricId::TimerActive)
+            .any(|event| event.value == 0.0));
     }
 }

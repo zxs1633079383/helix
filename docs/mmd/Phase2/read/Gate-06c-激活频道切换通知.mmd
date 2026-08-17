@@ -1,0 +1,25 @@
+%% Phase2 / read / MV3-G06c 激活频道切换通知
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/read/mv3-g06c/contract.json
+%% UI owners: src/pages/message-v3/service/messageChatGlobal.service.ts::setCurrentDialog（切会话第 3 步）；src/pages/message-v3/service/messageChatGlobal.service.ts::initCurrentDialogState
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员切到另一个会话，切换生命周期继续完成且不会因激活通知失败被中断；是否已读只由显式已读链路结算
+  Note over UI,Web: 当前覆盖状态：mock=partial；helix=not_applicable；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  UI->>Gate: setActiveChannel(payload)
+  Gate-->>UI: 当前客户端路由结果或受控空结果
+  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
+  Note over IM,DB: 关键效果：setActiveChannel 前后当前用户在 previousChannelId 与 activeChannelId 的 unreadCount / mentionCount 完全不变；后续只允许由 G06a/G06b 的 Go update_channel 绝对投影改变；本 Gate 不读写 draft，也不复制 SaveDraft / RestoreDraft；切走前保存与切入后恢复只由 DialogSwitchService 既有步骤各执行一次；其他成员在该频道的 getMemberUnread(channelId, otherUserId).unreadCount / mentionCount 完全不变
+  Note over UI,Web: 关键负向：失败不得中断切会话主流程：契约要求 graceful resolve，任何情况都不抛错（切换第 3 步失败不得让第 4 步不执行）；previousChannelId 为 null（首次进入）不得报错；activeChannelId 未知（陌生频道）不得抛错，也不得凭空造频道
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

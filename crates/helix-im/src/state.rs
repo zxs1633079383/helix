@@ -10,7 +10,8 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 mod values;
 pub use values::{
-    ChannelId, ConnState, Cursor, Id26, InflightSync, SendStatus, Seq, ServerId, TemporaryId,
+    is_canonical_post_id, ChannelId, ConnState, Cursor, Id26, InflightSync, SendStatus, Seq,
+    ServerId, TemporaryId,
 };
 
 // ─── CorrelationContext ───────────────────────────────────────────────────────

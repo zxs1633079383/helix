@@ -177,6 +177,26 @@ fn g12a_projection_is_root_and_viewer_isolated_and_keeps_authority_page() {
 }
 
 #[test]
+fn g12a_projection_ignores_empty_legacy_root_id_and_uses_reply_id() {
+    let mut body = replies_body();
+    body["data"]["replies"] = json!([{
+        "id": "reply-empty-root",
+        "temporaryId": "tmp-empty-root",
+        "rootId": "",
+        "replyId": ROOT,
+        "parentId": ROOT,
+        "channelId": CHANNEL,
+        "message": "reply with empty legacy root",
+        "viewers": [VIEWER],
+        "createAt": 1700000001000_i64
+    }]);
+
+    let projection = project_replies_page(&request(2, 20), &body, VIEWER).unwrap();
+    assert_eq!(projection.replies.len(), 1);
+    assert_eq!(projection.replies[0]["id"], "reply-empty-root");
+}
+
+#[test]
 fn g12a_missing_has_more_is_not_silent_success() {
     let mut body = replies_body();
     body["data"].as_object_mut().unwrap().remove("hasMore");

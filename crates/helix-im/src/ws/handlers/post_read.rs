@@ -232,7 +232,9 @@ fn has_minimal_identity_fields(data: &Value) -> bool {
 
 /// 解析严格四字段 G06b delta；字段集合超出 canonical 形状时 fail closed。
 fn minimal_post_read_fields(data: &Value, post_id: &str) -> Option<(String, String)> {
-    crate::state::ServerId::from_str(post_id)?;
+    if !crate::state::is_canonical_post_id(post_id) {
+        return None;
+    }
     let object = data.as_object()?;
     const ALLOWED: [&str; 4] = ["channelId", "postId", "snapshotId", "readerUserId"];
     if object.keys().any(|key| !ALLOWED.contains(&key.as_str())) {

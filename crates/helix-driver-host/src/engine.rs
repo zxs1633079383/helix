@@ -322,15 +322,6 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
             .with_capability(LifecycleCapability::Effect, true)
             .with_capability(LifecycleCapability::Ws, !transports.is_empty());
         let context = context.with_span_parent(inherited_span_parent);
-        if !context.has_capability(LifecycleCapability::Ws) {
-            trace.emit_lifecycle_status_with_reason(
-                &context,
-                crate::lifecycle::LifecycleStage::T3,
-                Some(LifecycleCapability::Ws),
-                crate::lifecycle::LifecycleStatus::NotApplicable,
-                Some("transport_absent"),
-            );
-        }
         let (_trace_scope, context) = trace.start_tick_with_context(&tick, &context);
         let now_ms = clock.now_ms();
         let step_started = perf_metrics.start_timer();

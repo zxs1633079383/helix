@@ -48,7 +48,7 @@ impl OutboundCommand for PostReadCommand {
                 let post = post.as_str().ok_or_else(|| {
                     ImError::Parse(format!("{}: posts 只能包含字符串", self.name()))
                 })?;
-                if crate::state::ServerId::from_str(post).is_none() {
+                if !crate::state::is_canonical_post_id(post) {
                     return Err(ImError::Parse(format!(
                         "{}: posts 只能包含 canonical post id",
                         self.name()

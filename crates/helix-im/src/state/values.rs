@@ -77,6 +77,14 @@ impl ServerId {
     }
 }
 
+/// 判断服务端 post 主键；兼容 Java cses 的 24 位 ID 与 Go/Mattermost 的 26 位 ID。
+pub fn is_canonical_post_id(s: &str) -> bool {
+    matches!(s.len(), 24 | 26)
+        && s.as_bytes()
+            .iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+}
+
 /// Helix 铸造并持有的临时消息 ID（乐观落库 PK / HTTP / echo 对账锚）。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TemporaryId(pub String);

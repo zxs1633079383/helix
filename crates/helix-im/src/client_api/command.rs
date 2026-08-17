@@ -396,8 +396,7 @@ fn validate_canonical_post_read(obj: &Map<String, Value>) -> Result<(), ImError>
     if posts.iter().any(|post| {
         post.as_str()
             .filter(|value| value.trim() == *value)
-            .and_then(crate::state::ServerId::from_str)
-            .is_none()
+            .is_none_or(|value| !crate::state::is_canonical_post_id(value))
     }) {
         return Err(ImError::Parse(
             "im_post_read: posts 只能包含 canonical post id".to_string(),
@@ -567,6 +566,35 @@ mod tests {
                     body,
                     json!({"channelId":test_channel_id(1),"posts":[test_post_id(1),test_post_id(2)]})
                 );
+            }
+            other => panic!("expected Http, got {other:?}"),
+        }
+    }
+
+    /// Java cses createVote 返回的 24 位 post id 必须贯穿到 Go `/post/read`。
+    #[test]
+    fn post_read_public_intent_accepts_java_post_id() {
+        let command = build_command(
+            "im_post_read",
+            br#"{"channelId":"chfixx0000000000000000001d","postIds":["6a80e31f9aac148da3e2c219"]}"#,
+        )
+        .expect("build Java post read command");
+        let effects = crate::outbound::handle_outbound(
+            command.name.as_ref(),
+            command.payload.as_ref(),
+            "http://im/api/cses",
+            "http://default",
+            Some("conn-1"),
+            Correlation::from_raw(11),
+        )
+        .expect("dispatch Java post read");
+
+        match &effects[0] {
+            Effect::Http { req, .. } => {
+                let body: Value =
+                    serde_json::from_slice(req.body.as_ref().expect("post read body").as_ref())
+                        .expect("decode post read body");
+                assert_eq!(body["posts"], json!(["6a80e31f9aac148da3e2c219"]));
             }
             other => panic!("expected Http, got {other:?}"),
         }

@@ -128,3 +128,28 @@ readback 同时记录 `msg_id`、`temporary_id`、`channel_id`、`event_seq`、`
 
 当前验证仅覆盖 Rust 编译和确定性单测；真实登录、离线同步、SQLite/PG/WAL 读回分析仍须在
 用户明确报告“离线同步已完成”后进行，不能把本地测试当作真实链路结论。
+# 2026-08-15 投票/平均分 post_update 解析观测
+
+- `ws/handlers/post_update.rs` 对 `VOTE` 与 `AVERAGE_SCORE` 只记录脱敏结构摘要：消息 ID、类型、props 字节数、实体是否存在、选项/成员与参与明细数量、状态值。
+- 该日志用于把 Go 的完整 `post_update` 帧与 Helix parser 输入关联，不输出正文、成员姓名、评分明细或凭证；Angular/WDIO 仍以 `PersistAtomic` 与 DOM 证据为准。
+
+# 2026-08-16 投票/平均分 post echo 缺口结算
+
+- `ws/handlers/post.rs` 仍以 channel gate 的严格 `cursor + 1` 为游标权威；非本人乱序事件继续
+  buffer/backfill，禁止通过投影旁路推进 cursor。
+- 本人 `post` echo 若 `event_seq > cursor + 1`，由
+  `ws/handlers/post_echo_settle.rs::post_echo_gap_settle` 先做幂等 message upsert 与
+  `im:post:received` 完整快照投影，使 VOTE/AVERAGE_SCORE 创建卡片能够结算；该旁路不推进 cursor，
+  后续 sync/gate flush 仍负责补齐缺口并再次幂等落库/投影。
+- 该补偿只基于 Helix 已判定的本人 echo（temporary_id pending send 或 sender=user），不接受客户端
+  自报身份，也不合成或重算 vote/score 统计字段。当前 Rust 单测覆盖 gap echo、非 echo 与连续事件
+  三个边界；真实 Go WS、SQLite PersistAtomic、Angular DOM 和双 persona 仍需跨仓 lane 复验。
+
+# 2026-08-16 投票/平均分完整 post_update 分支
+
+- `ws/handlers/post_update.rs::should_use_message_v3_compact_update` 对 `VOTE` 与
+  `AVERAGE_SCORE` 强制走完整快照解析/投影路径；即使 `quickReply` 为空数组被 JSON 编码为非空
+  字符串，也不能误入 reaction/urgent/template 的精简 read-back 分支。
+- 其他消息类型继续保留原有 `quickReply`、`expediteMap` 与模板确认的精简语义；该修复只收窄
+  互动消息的分支条件。Rust helper 回归和真实 single-real lane 已证明 `type/props` 及
+  `items/participants` 能到达 Tauri `im:post:updated` 与 Angular 卡片。

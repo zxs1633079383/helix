@@ -11,7 +11,7 @@
 
 use helix_core::EffectSink;
 
-use crate::state::{CorrelationContext, ServerId, TemporaryId};
+use crate::state::{CorrelationContext, Seq, ServerId, TemporaryId};
 use crate::sync_session::EventEnvelope;
 
 use super::super::{ImWsContext, WsFrame};
@@ -59,6 +59,37 @@ pub(super) fn is_echo_frame(
         }
     }
     false
+}
+
+/// 为本人乱序 `post` echo 生成投影与消息幂等落库，不推进 channel cursor。
+///
+/// WS 事件可能早于频道缺口补齐到达；此处只让当前用户的完整快照先进入本地
+/// message/DOM，严格游标仍由 gate + sync 的连续 `+1` 提交负责，避免把缺口误判为已同步。
+pub(super) fn post_echo_gap_settle(
+    event: &EventEnvelope,
+    is_echo: bool,
+    expected: Seq,
+) -> Option<(helix_core::Effect, helix_core::Effect)> {
+    if !is_echo || event.seq.0 <= expected.0 {
+        return None;
+    }
+    let msg_id_ref = event
+        .msg_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .unwrap_or(event.fields.id.as_str());
+    Some((
+        helix_core::Effect::PersistFire {
+            ops: vec![crate::channel::event_to_storage_op(event)],
+        },
+        crate::acl::to_effect::emit_post_received_for_viewer(
+            event.channel_id,
+            event.seq.0,
+            msg_id_ref,
+            &event.fields,
+            event.viewer_user_id.as_str(),
+        ),
+    ))
 }
 
 /// `post` 帧的发送对账（BLOCKING 修复）。
@@ -137,6 +168,46 @@ pub(super) fn reconcile_post_echo(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn out_of_order_self_echo_settles_projection_without_advancing_cursor() {
+        let event = EventEnvelope::new(
+            crate::state::test_channel_id(9),
+            Seq(22),
+            crate::sync_session::EventKind::PostUpsert,
+            crate::sync_session::PostFields {
+                id: "post-gap-echo".to_string(),
+                msg_type: "VOTE".to_string(),
+                props: r#"{"vote":{"state":0,"items":[],"options":[]}}"#.to_string(),
+                ..Default::default()
+            },
+        )
+        .with_msg_id(Some("post-gap-echo".to_string()))
+        .with_viewer_user_id("viewer-1");
+
+        let (persist, emit) = post_echo_gap_settle(&event, true, Seq(2))
+            .expect("本人乱序 echo 必须先结算 message 与 projection");
+        assert!(
+            matches!(persist, helix_core::Effect::PersistFire { ops } if ops.iter().any(|op| {
+                format!("{op:?}").contains("message")
+            }))
+        );
+        assert!(matches!(emit, helix_core::Effect::Emit { event }
+            if String::from_utf8_lossy(event.0.as_ref()).contains("im:post:received")
+                && String::from_utf8_lossy(event.0.as_ref()).contains("post-gap-echo")));
+    }
+
+    #[test]
+    fn non_echo_or_contiguous_post_does_not_bypass_gate() {
+        let event = EventEnvelope::new(
+            crate::state::test_channel_id(10),
+            Seq(3),
+            crate::sync_session::EventKind::PostUpsert,
+            crate::sync_session::PostFields::default(),
+        );
+        assert!(post_echo_gap_settle(&event, false, Seq(1)).is_none());
+        assert!(post_echo_gap_settle(&event, true, Seq(3)).is_none());
+    }
 
     #[test]
     fn self_echo_terminal_persist_does_not_schedule_latest_timeline_refresh() {

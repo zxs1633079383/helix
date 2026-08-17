@@ -1,6 +1,6 @@
 //! `state.rs` 的 Id26 测试与同 crate fixture。
 
-use super::{ChannelId, Id26, ImState, ServerId};
+use super::{is_canonical_post_id, ChannelId, Id26, ImState, ServerId};
 use crate::timeline_navigation::TimelineNavigationCoverage;
 
 /// 生成确定性的 26 位测试频道 ID。
@@ -48,6 +48,28 @@ fn id26_rejects_invalid_ascii_alphabet() {
         "5ffd465e263864787b87aa012A",
     ] {
         assert!(Id26::from_str(value).is_none(), "must reject {value:?}");
+    }
+}
+
+/// Java cses 的 24 位 post 与 Go/Mattermost 的 26 位 post 都属于可上行主键。
+#[test]
+fn canonical_post_id_accepts_java_24_and_go_26() {
+    assert!(is_canonical_post_id("6a80e31f9aac148da3e2c219"));
+    assert!(is_canonical_post_id("5ffd465e263864787b87aa0123"));
+}
+
+/// 临时键、错误长度和非小写字母数字必须继续被已读边界拒绝。
+#[test]
+fn canonical_post_id_rejects_temporary_or_invalid_values() {
+    let invalid = ["helix_tmp_0000000000000001_0000000000000001"];
+    for value in invalid {
+        assert!(!is_canonical_post_id(value), "must reject {value:?}");
+    }
+    for value in ["a".repeat(23), "a".repeat(25), "A".repeat(24)] {
+        assert!(
+            !is_canonical_post_id(value.as_str()),
+            "must reject {value:?}"
+        );
     }
 }
 

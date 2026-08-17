@@ -167,8 +167,8 @@
 
 | 功能点 | 壳 invoke | helix outbound | 出网 HTTP | UC | 类 |
 |---|---|---|---|---|---|
-| 投票建/投/读/关/删 | `im_vote_create`/`_do`/`_read`/`_close`/`_delete` | 同名 | `vote/{createVote,vote,readVote,closeVote,deleteVote}` | 8.x | 写+读 |
-| 平均分建/参与/读/关/删 | `im_average_publish`/`_attend`/`_read`/`_close`/`_delete` | 同名 | `average/{publish,attend,read,close,delete}` | 8.x | 写+读 |
+| 投票建/投/读/关/删/改截止/加成员 | `im_vote_create`/`_do`/`_read`/`_close`/`_delete`/`_update_finish_time`/`_add_members` | 同名 | `vote/{createVote,vote,readVote,closeVote,deleteVote,updateFinishTime,addMembersToVote}` | 8.x | 写+读 |
+| 平均分建/参与/读/关/删/改截止/加成员 | `im_average_publish`/`_attend`/`_read`/`_close`/`_delete`/`_modify_cutoff`/`_add_member` | 同名 | `average/{publish,attend,read,close,delete,modifyCutoff,addMember}` | 8.x | 写+读 |
 
 ### 1.I 不在 UI 驱动集（引擎注册但 loopforge 无 invoke · 排除测试）
 

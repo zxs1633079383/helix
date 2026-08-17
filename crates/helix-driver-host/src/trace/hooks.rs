@@ -154,11 +154,19 @@ impl TraceHooks {
             return (scope, context.clone());
         };
 
+        let mut root_attributes =
+            lifecycle_attributes(context, LifecycleStage::T1, None, LifecycleStatus::Started);
+        if let Tick::Command(command) = tick {
+            root_attributes.push((
+                "helix.command.name",
+                bounded_command_name(command.name.as_ref()),
+            ));
+        }
         let root_scope = runtime.span_with_attributes(
             "helix.message.lifecycle",
             TraceDirection::Internal,
             carrier.as_ref(),
-            lifecycle_attributes(context, LifecycleStage::T1, None, LifecycleStatus::Started),
+            root_attributes,
         );
         let root_child_parent = root_scope.child_carrier();
         let step_scope = runtime.span_with_attributes(
@@ -510,6 +518,12 @@ fn lifecycle_attributes(
 }
 
 const FULL_DEBUG_PAYLOAD_LIMIT: usize = 64 * 1024;
+const COMMAND_NAME_LIMIT: usize = 256;
+
+/// 将 command 名限制为低成本 Trace 属性，避免用户可控名称无限增长。
+fn bounded_command_name(value: &str) -> String {
+    value.chars().take(COMMAND_NAME_LIMIT).collect()
+}
 
 /// 将 full_debug 字符串限制在有界单条事件内，超限只保留前缀和长度标记。
 fn bounded_debug_string(value: &str) -> String {
@@ -593,4 +607,16 @@ impl TraceHooksImpl for NoopTraceHooks {
     fn on_ws_send(&self, _: TransportId, _: &mut Bytes) {}
 
     fn on_event_emit(&self, _: &DomainEventBytes) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bounded_command_name;
+
+    /// command name 进入 Trace 前必须保持可见且有界。
+    #[test]
+    fn command_name_is_bounded_for_trace_attributes() {
+        assert_eq!(bounded_command_name("im:post:sending"), "im:post:sending");
+        assert_eq!(bounded_command_name(&"x".repeat(300)).len(), 256);
+    }
 }

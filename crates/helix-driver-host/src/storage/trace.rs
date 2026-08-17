@@ -5,6 +5,7 @@ use rusqlite::types::Value;
 use serde_json::json;
 
 use crate::base64_encode;
+use crate::lifecycle::LifecycleContext;
 use crate::otel::{HostOtelRuntime, HostSpanScope, TraceDirection};
 use crate::trace::TraceCarrier;
 use helix_core::Correlation;
@@ -15,6 +16,8 @@ const SQL_TRACE_MAX_BYTES: usize = 16 * 1024;
 pub struct StorageTraceContext {
     runtime: HostOtelRuntime,
     carrier: Option<TraceCarrier>,
+    tick_id: Option<u64>,
+    parent_tick_id: Option<u64>,
 }
 
 /// Persist worker 的结构化诊断上下文；即使 OTel 未启用，也保留 corr/track 关联。
@@ -34,8 +37,24 @@ impl StorageOperationContext {
 }
 
 impl StorageTraceContext {
+    /// 创建无 lifecycle 关联的兼容 storage trace context。
     pub fn new(runtime: HostOtelRuntime, carrier: Option<TraceCarrier>) -> Self {
-        Self { runtime, carrier }
+        Self {
+            runtime,
+            carrier,
+            tick_id: None,
+            parent_tick_id: None,
+        }
+    }
+
+    /// 创建携带 Tick correlation 的 storage trace context。
+    pub fn from_lifecycle(runtime: HostOtelRuntime, context: &LifecycleContext) -> Self {
+        Self {
+            runtime,
+            carrier: context.otel_parent().cloned(),
+            tick_id: Some(context.tick_id()),
+            parent_tick_id: context.parent_tick_id(),
+        }
     }
 }
 
@@ -173,6 +192,7 @@ fn metadata_mtime_ms(metadata: Option<&std::fs::Metadata>) -> u128 {
         .unwrap_or(0)
 }
 
+/// 创建 SQLite query span；参数值仅在 full_debug 明确授权时进入属性。
 pub(super) fn trace_sql<'a>(
     trace: &'a Option<StorageTraceContext>,
     operation: &'static str,
@@ -185,10 +205,27 @@ pub(super) fn trace_sql<'a>(
         ("db.system", "sqlite".to_string()),
         ("db.operation", operation.to_string()),
         ("db.statement", bounded_attr(statement)),
-        ("db.parameters", sql_params_attr(table, params)),
+        (
+            "db.parameters",
+            if context.runtime.is_full_debug() {
+                sql_params_attr(table, params, true)
+            } else {
+                "[REDACTED]".to_string()
+            },
+        ),
     ];
     if let Some(table) = table {
         attrs.push(("db.sql.table", table.to_string()));
+    }
+    if let Some(tick_id) = context.tick_id {
+        attrs.push(("helix.tick_id", tick_id.to_string()));
+        attrs.push((
+            "helix.parent_tick_id",
+            context
+                .parent_tick_id
+                .map_or_else(|| "none".to_string(), |value| value.to_string()),
+        ));
+        attrs.push(("helix.lifecycle.stage", "T4".to_string()));
     }
     Some(context.runtime.span_with_attributes(
         "helix.storage.sqlite.query",
@@ -216,10 +253,12 @@ fn sql_params_json(params: &[Value]) -> String {
     serde_json::to_string(&json_values).unwrap_or_else(|_| "[]".to_string())
 }
 
-fn sql_params_attr(table: Option<&str>, params: &[Value]) -> String {
-    if table == Some("pending_media") {
+/// Render SQL parameters only for an explicitly authorized full_debug capture; safe mode never emits raw values.
+fn sql_params_attr(table: Option<&str>, params: &[Value], allow_sensitive: bool) -> String {
+    if !allow_sensitive {
         return "[REDACTED]".to_string();
     }
+    let _ = table;
     bounded_attr(&sql_params_json(params))
 }
 
@@ -245,20 +284,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pending_media_parameters_are_redacted_while_regular_tables_remain_observable() {
+    /// safe capture 对所有表统一隐藏原始参数，full_debug 才允许有界回放。
+    fn safe_sql_parameters_are_redacted_for_every_table() {
         let params = vec![
             Value::Text("/tmp/private.pdf".to_string()),
             Value::Text("https://signed.example/put?token=secret".to_string()),
             Value::Text("Authorization: secret".to_string()),
         ];
 
-        let redacted = sql_params_attr(Some("pending_media"), &params);
+        let redacted = sql_params_attr(Some("pending_media"), &params, false);
         assert_eq!(redacted, "[REDACTED]");
         assert!(!redacted.contains("private.pdf"));
         assert!(!redacted.contains("token=secret"));
 
-        let regular = sql_params_attr(Some("message"), &params);
-        assert!(regular.contains("private.pdf"));
-        assert!(regular.contains("token=secret"));
+        let regular = sql_params_attr(Some("message"), &params, false);
+        assert_eq!(regular, "[REDACTED]");
+        assert!(!regular.contains("private.pdf"));
+        assert!(!regular.contains("token=secret"));
+
+        let full_debug = sql_params_attr(Some("pending_media"), &params, true);
+        assert!(full_debug.contains("private.pdf"));
+        assert!(full_debug.contains("token=secret"));
     }
 }

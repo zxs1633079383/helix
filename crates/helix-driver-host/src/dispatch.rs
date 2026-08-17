@@ -10,6 +10,9 @@ use std::time::Instant;
 
 use crate::engine::perf_metrics::EngineMetricRecorder;
 use crate::engine::TransportTable;
+use crate::lifecycle::{
+    LifecycleCapability, LifecycleContext, LifecycleStage, LifecycleStatus, LifecycleTracker,
+};
 use crate::metrics::{AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels};
 use crate::owned_effect::OwnedEffect;
 use crate::pools::{get_or_spawn_persist, PersistJobPayload};
@@ -23,6 +26,7 @@ use helix_core::ports::{EventSink, FrameSender, Storage};
 
 /// 把一批 OwnedEffect 分流兑现（async，BoundedSpawner submit，Block 满时等待）。
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
 pub(crate) async fn dispatch_effects<S, E, Fs>(
     effects: Vec<OwnedEffect>,
     tick_tx: &EngineTickSender,
@@ -42,15 +46,63 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
     E: EventSink,
     Fs: FrameSender + Send + 'static,
 {
+    let context = LifecycleContext::new(0, None, None);
+    dispatch_effects_with_context(
+        effects,
+        tick_tx,
+        storage,
+        http_pool,
+        upload_pool,
+        http_fire_pool,
+        event_sink,
+        timer_registry,
+        reply_tx,
+        persist_workers,
+        transports,
+        trace,
+        perf_metrics,
+        &context,
+        None,
+    )
+    .await;
+}
+
+/// 在显式 lifecycle context 下分流兑现效果，并登记有限的父 Tick 关联。
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn dispatch_effects_with_context<S, E, Fs>(
+    effects: Vec<OwnedEffect>,
+    tick_tx: &EngineTickSender,
+    storage: &Arc<S>,
+    http_pool: &BoundedSpawner<HttpRequest>,
+    upload_pool: &BoundedSpawner<FileUploadRequest>,
+    http_fire_pool: &BoundedSpawner<HttpRequest>,
+    event_sink: &Arc<E>,
+    timer_registry: &mut TimerRegistry,
+    reply_tx: &FeedbackSink,
+    persist_workers: &mut HashMap<String, BoundedSpawner<PersistJobPayload>>,
+    transports: &TransportTable<Fs>,
+    trace: &TraceHooks,
+    perf_metrics: &mut EngineMetricRecorder,
+    context: &LifecycleContext,
+    lifecycle_tracker: Option<&LifecycleTracker>,
+) where
+    S: Storage + Send + Sync + 'static,
+    E: EventSink,
+    Fs: FrameSender + Send + 'static,
+{
     for effect in effects {
         let effect_kind = dispatch_effect_kind(&effect);
+        if let Some(tracker) = lifecycle_tracker {
+            tracker.remember_effect(&effect, context);
+        }
+        trace.on_effect_dispatch_with_context(context, effect_kind);
         let dispatch_started = perf_metrics.start_timer();
         perf_metrics.on_effect_dispatch(&effect);
         let metrics = perf_metrics.sink();
         match effect {
             // ── Persist（带 corr，写完后通过 reply_tx 回报）────────────────
             OwnedEffect::Persist { corr, ops } => {
-                trace.on_storage_dispatch(Some(corr), &ops);
+                trace.on_storage_dispatch_with_context(context, Some(corr), &ops);
                 let key = table_set_key(&ops);
                 let sp = get_or_spawn_persist(
                     persist_workers,
@@ -66,7 +118,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                     payload: PersistJobPayload {
                         ops,
                         atomic: false,
-                        trace: trace.storage_trace_context(),
+                        trace: trace.storage_trace_context_with_context(context),
                     },
                 })
                 .await;
@@ -80,7 +132,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
 
             // ── PersistAtomic（带 corr，跨 StorageOp 同一事务）────────────────
             OwnedEffect::PersistAtomic { corr, ops } => {
-                trace.on_storage_dispatch(Some(corr), &ops);
+                trace.on_storage_dispatch_with_context(context, Some(corr), &ops);
                 let key = table_set_key(&ops);
                 let sp = get_or_spawn_persist(
                     persist_workers,
@@ -95,7 +147,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                     payload: PersistJobPayload {
                         ops,
                         atomic: true,
-                        trace: trace.storage_trace_context(),
+                        trace: trace.storage_trace_context_with_context(context),
                     },
                 })
                 .await;
@@ -109,7 +161,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
 
             // ── PersistFire（fire-and-forget，不产出 PortReply）────────────
             OwnedEffect::PersistFire { ops } => {
-                trace.on_storage_dispatch(None, &ops);
+                trace.on_storage_dispatch_with_context(context, None, &ops);
                 let key = table_set_key(&ops);
                 let sp = get_or_spawn_persist(
                     persist_workers,
@@ -124,7 +176,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                     payload: PersistJobPayload {
                         ops,
                         atomic: false,
-                        trace: trace.storage_trace_context(),
+                        trace: trace.storage_trace_context_with_context(context),
                     },
                 })
                 .await;
@@ -138,7 +190,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
 
             // ── Http（必达，Block 溢出，带 corr 回报，走 reply_tx）──────────
             OwnedEffect::Http { corr, mut req } => {
-                trace.on_http_dispatch(Some(corr), &mut req);
+                trace.on_http_dispatch_with_context(context, Some(corr), &mut req);
                 let queued_at = metrics.is_enabled().then(Instant::now);
                 http_pool
                     .submit(Job {
@@ -151,7 +203,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
 
             // ── UploadFile（必达，Block 溢出，带 corr 回报，走 reply_tx）────────
             OwnedEffect::UploadFile { corr, req } => {
-                trace.on_upload_dispatch(Some(corr), &req);
+                trace.on_upload_dispatch_with_context(context, Some(corr), &req);
                 upload_pool
                     .submit(Job {
                         corr: Some(corr),
@@ -162,7 +214,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
 
             // ── HttpFire（可丢，DropNewest 溢出，无 corr 不回报）────────────
             OwnedEffect::HttpFire { mut req } => {
-                trace.on_http_dispatch(None, &mut req);
+                trace.on_http_dispatch_with_context(context, None, &mut req);
                 let queued_at = metrics.is_enabled().then(Instant::now);
                 http_fire_pool
                     .submit(Job {
@@ -187,7 +239,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                 Some(t) => {
                     let frame_len = frame.len();
                     let send_started = metrics.is_enabled().then(Instant::now);
-                    trace.on_ws_send(transport, &mut frame);
+                    trace.on_ws_send_with_context(context, transport, &mut frame);
                     // 表内 `Arc<Fs>`（无外层锁）→ 直接 `t.send()`（`&self`）。并发 send 由
                     // sender 内部 state 锁串行化（既有锁，非本路径新增 per-Send 锁，守 HX-C005）。
                     let result = t.send(frame).await;
@@ -206,6 +258,17 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                     record_effect_dispatch_error(metrics, "ws_transport_missing");
                     record_operation(metrics, "ws_send", "error");
                     record_error(metrics, "ws_transport_missing");
+                    trace.emit_lifecycle_status_with_reason(
+                        context,
+                        LifecycleStage::T3,
+                        Some(LifecycleCapability::Ws),
+                        if context.has_capability(LifecycleCapability::Ws) {
+                            LifecycleStatus::Error
+                        } else {
+                            LifecycleStatus::NotApplicable
+                        },
+                        Some("transport_unregistered"),
+                    );
                     tracing::warn!(
                         transport_id = transport.raw(),
                         frame_len = frame.len(),
@@ -234,7 +297,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
             // ── Emit（同步非阻塞）─────────────────────────────────────────
             OwnedEffect::Emit { event } => {
                 record_operation(metrics, "event_emit", "ok");
-                trace.on_event_emit(&event);
+                trace.on_event_emit_with_context(context, &event);
                 let emit_started = metrics.is_enabled().then(Instant::now);
                 event_sink.emit(event);
                 if let Some(started) = emit_started {

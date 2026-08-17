@@ -57,10 +57,20 @@ pub struct HostOtelRuntime {
 #[derive(Debug)]
 struct RuntimeInner {
     config: HostOtelConfig,
+    full_debug: bool,
+    debug_identity: Mutex<Option<TraceIdentity>>,
     last_span: Mutex<Option<HostSpanSnapshot>>,
     seq: AtomicU64,
     exporter: Option<Arc<OtlpExporter>>,
     slow_threshold: Duration,
+}
+
+/// 受控 Trace 上下文中的当前用户标识；永不进入 Metrics label 或业务载荷。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TraceIdentity {
+    pub user_name: Option<String>,
+    pub user_id: Option<String>,
+    pub company_id: Option<String>,
 }
 
 impl HostOtelRuntime {
@@ -83,6 +93,35 @@ impl HostOtelRuntime {
         metrics: Arc<dyn AsyncMetricSink>,
         slow_threshold: Duration,
     ) -> Self {
+        Self::new_with_metric_sink_and_slow_threshold_and_capture_mode(
+            config,
+            metrics,
+            slow_threshold,
+            env_full_debug(),
+        )
+    }
+
+    /// 构造带显式 full_debug 开关的 runtime，供宿主配置和 focused contract 使用。
+    pub fn new_with_metric_sink_and_capture_mode(
+        config: HostOtelConfig,
+        metrics: Arc<dyn AsyncMetricSink>,
+        full_debug: bool,
+    ) -> Self {
+        Self::new_with_metric_sink_and_slow_threshold_and_capture_mode(
+            config,
+            metrics,
+            Duration::from_millis(env_u64("HELIX_OTEL_SLOW_TRACE_MS", 250)),
+            full_debug,
+        )
+    }
+
+    /// 共享的 runtime 构造实现；敏感 capture 状态只在实例内保存。
+    fn new_with_metric_sink_and_slow_threshold_and_capture_mode(
+        config: HostOtelConfig,
+        metrics: Arc<dyn AsyncMetricSink>,
+        slow_threshold: Duration,
+        full_debug: bool,
+    ) -> Self {
         let exporter = if config.enabled
             && !config.endpoint.eq_ignore_ascii_case("noop")
             && !config.protocol.eq_ignore_ascii_case("noop")
@@ -95,6 +134,8 @@ impl HostOtelRuntime {
         Self {
             inner: Arc::new(RuntimeInner {
                 config,
+                full_debug,
+                debug_identity: Mutex::new(None),
                 last_span: Mutex::new(None),
                 seq: AtomicU64::new(1),
                 exporter,
@@ -137,6 +178,7 @@ impl HostOtelRuntime {
         self.span_with_attributes(name, direction, carrier, Vec::new())
     }
 
+    /// 创建显式 parent 的 span，并在 full_debug 模式附加受控身份属性。
     pub fn span_with_attributes(
         &self,
         name: &'static str,
@@ -155,16 +197,22 @@ impl HostOtelRuntime {
             .and_then(|value| value.traceparent.as_deref())
             .and_then(parse_trace_id)
             .unwrap_or_else(|| self.next_trace_id());
+        let mut normalized_attributes = attributes
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value))
+            .collect::<Vec<_>>();
+        if self.inner.full_debug {
+            if let Some(identity) = self.inner.debug_identity.lock().clone() {
+                append_identity_attributes(&mut normalized_attributes, &identity);
+            }
+        }
         let snapshot = HostSpanSnapshot {
             name,
             direction,
             trace_id: Some(trace_id),
             span_id,
             parent_span_id,
-            attributes: attributes
-                .into_iter()
-                .map(|(key, value)| (key.to_string(), value))
-                .collect(),
+            attributes: normalized_attributes,
             exported: self.inner.exporter.is_some(),
         };
 
@@ -186,6 +234,25 @@ impl HostOtelRuntime {
 
     pub fn is_enabled(&self) -> bool {
         self.inner.config.enabled
+    }
+
+    /// 返回是否明确开启 full_debug；默认 safe，避免敏感字段意外进入 OTLP。
+    pub fn is_full_debug(&self) -> bool {
+        self.inner.full_debug
+    }
+
+    /// 设置 full_debug Trace 的当前用户上下文；调用方不得传入 token/cookie 等凭据。
+    pub fn set_debug_identity(
+        &self,
+        user_name: Option<String>,
+        user_id: Option<String>,
+        company_id: Option<String>,
+    ) {
+        *self.inner.debug_identity.lock() = Some(TraceIdentity {
+            user_name: bounded_identity(user_name),
+            user_id: bounded_identity(user_id),
+            company_id: bounded_identity(company_id),
+        });
     }
 
     pub fn config(&self) -> &HostOtelConfig {
@@ -243,6 +310,26 @@ impl HostOtelRuntime {
     }
 }
 
+/// 将身份属性限制为稳定、短字符串，并保持空值不进入 OTLP。
+fn bounded_identity(value: Option<String>) -> Option<String> {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.chars().take(256).collect())
+}
+
+/// 把用户身份挂在每个 full_debug span 上，避免依赖全局 active carrier。
+fn append_identity_attributes(attributes: &mut Vec<(String, String)>, identity: &TraceIdentity) {
+    if let Some(value) = &identity.user_name {
+        attributes.push(("helix.context.user_name".to_string(), value.clone()));
+    }
+    if let Some(value) = &identity.user_id {
+        attributes.push(("helix.context.user_id".to_string(), value.clone()));
+    }
+    if let Some(value) = &identity.company_id {
+        attributes.push(("helix.context.company_id".to_string(), value.clone()));
+    }
+}
+
 #[derive(Debug)]
 pub struct HostSpanScope {
     runtime: HostOtelRuntime,
@@ -252,6 +339,18 @@ pub struct HostSpanScope {
 }
 
 impl HostSpanScope {
+    /// 为同一 Trace 创建显式 child parent；调用方必须把返回值放入本地上下文。
+    pub fn child_carrier(&self) -> Option<TraceCarrier> {
+        let snapshot = self.snapshot.as_ref()?;
+        let trace_id = snapshot.trace_id.as_ref()?;
+        let traceparent = format!("00-{trace_id}-{}-01", snapshot.span_id);
+        Some(TraceCarrier {
+            traceparent: Some(traceparent),
+            baggage: self.baggage.clone(),
+            raw_json: None,
+        })
+    }
+
     pub fn trace_id_for_test(&self) -> Option<String> {
         self.snapshot
             .as_ref()
@@ -300,6 +399,13 @@ fn env_flag(name: &str, default: bool) -> bool {
             )
         })
         .unwrap_or(default)
+}
+
+/// 仅由显式运行时开关启用敏感 Trace capture，未知值一律回到 safe。
+fn env_full_debug() -> bool {
+    std::env::var("HELIX_TRACE_CAPTURE_MODE")
+        .map(|value| value.trim().eq_ignore_ascii_case("full_debug"))
+        .unwrap_or(false)
 }
 
 /// 读取正整数环境覆盖；缺失或非法时保持可选默认值。

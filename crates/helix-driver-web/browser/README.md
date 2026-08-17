@@ -36,4 +36,10 @@ python3 -m http.server 4173 --directory crates/helix-driver-web
 
 ```bash
 node --test crates/helix-driver-web/browser/helix-browser-adapter.test.mjs
+node --test crates/helix-driver-web/browser/message-lifecycle-recorder.test.mjs
 ```
+
+MessageLifecycle 的 Web/WASM 只保留 `MessageLifecycleRecorder` seam，供 bootstrap/WDIO 显式写入
+T1 与 T2/T3/T4/T5 的结构化状态。它是 metadata-only、容量有界的 deterministic recorder，不
+创建 OTLP exporter、不读取 message/body/headers/SQL，也不把缺失 HTTP 或 WS 转成伪造 span；本
+阶段的 WASM exporter 不实现。

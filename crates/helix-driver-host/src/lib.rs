@@ -7,6 +7,7 @@ pub mod engine;
 pub mod http_cross;
 pub mod http_envelope;
 pub mod instrument;
+pub mod lifecycle;
 pub mod local_store;
 pub mod metrics;
 pub mod network;
@@ -35,6 +36,11 @@ pub use engine::{
 pub use http_cross::{AuthTokenRegistry, CrossCuttingHttp, HttpOutcomeObserver};
 pub use http_envelope::{base64_encode, run_http_envelope};
 pub use instrument::RecordingSink;
+pub use lifecycle::{
+    LifecycleCapability, LifecycleContext, LifecycleObservation, LifecycleStage, LifecycleState,
+    LifecycleStatus, LifecycleTraceSink, LifecycleTraceStats, LifecycleTracker, TickId,
+    LIFECYCLE_LINK_CAPACITY, LIFECYCLE_TRACE_QUEUE_CAPACITY,
+};
 pub use local_store::{
     BackendScope, LocalStoreError, LocalStoreIdentity, LocalStoreLocator, LocalStorePaths,
 };
@@ -51,7 +57,7 @@ pub use network::{
 pub use ops::{
     classify_port_error, execute_storage_ops, execute_storage_ops_atomic, table_set_key,
 };
-pub use otel::{HostOtelConfig, HostOtelRuntime, HostSpanSnapshot, TraceDirection};
+pub use otel::{HostOtelConfig, HostOtelRuntime, HostSpanSnapshot, TraceDirection, TraceIdentity};
 pub use owned_effect::{consume_effects, OwnedEffect};
 pub use reconnect::{spawn_reconnect_supervisor, ReconnectPolicy, ReconnectTraceSink};
 pub use spawner::{BoundedSpawner, Job, Overflow};

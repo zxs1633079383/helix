@@ -27,7 +27,8 @@ use std::sync::Arc;
 
 use parking_lot::RwLock; // 无 poison：panic 不静默丢 token（对齐 network.rs HostHeaderRegistry）
 
-use crate::otel::{HostOtelRuntime, TraceDirection};
+use crate::base64_encode;
+use crate::otel::{HostOtelRuntime, HostSpanScope, TraceDirection};
 use crate::trace::TraceCarrier;
 use helix_core::auth::{apply_auth_intent, AuthKind};
 use helix_core::effect::{DomainEventBytes, HttpRequest, HttpResponse};
@@ -146,33 +147,136 @@ where
     H: HttpRequester,
     E: EventSink,
 {
+    /// 执行鉴权后的 HTTP 请求，并把 response/error 作为 request span 的显式子节点。
     async fn request(&self, req: HttpRequest) -> Result<HttpResponse, PortError> {
         let (prepared, _kind) = self.apply_auth(req);
         let url = prepared.url.clone();
         let carrier = TraceCarrier::from_headers(&prepared.headers);
-        let _scope = self.otel.as_ref().map(|runtime| {
-            runtime.span(
+        let request_scope = self.otel.as_ref().map(|runtime| {
+            runtime.span_with_attributes(
                 "helix.http.request",
                 TraceDirection::Outbound,
                 carrier.as_ref(),
+                full_debug_http_attributes(runtime, &prepared),
             )
         });
+        let response_parent = request_scope
+            .as_ref()
+            .and_then(HostSpanScope::child_carrier)
+            .or_else(|| carrier.clone());
 
         let outcome = self.inner.request(prepared).await;
         let _response_scope = match &outcome {
             Ok(response) => self.otel.as_ref().map(|runtime| {
+                let mut attributes =
+                    vec![("http.response.status_code", response.status.to_string())];
+                if runtime.is_full_debug() {
+                    attributes.push((
+                        "helix.debug.http.response_headers",
+                        bounded_debug_string(
+                            &serde_json::to_string(&response.headers)
+                                .unwrap_or_else(|_| "[]".to_string()),
+                        ),
+                    ));
+                    attributes.push((
+                        "helix.debug.http.response_body_base64",
+                        bounded_debug_bytes(&response.body),
+                    ));
+                }
                 runtime.span_with_attributes(
                     "helix.http.response",
                     TraceDirection::Inbound,
-                    carrier.as_ref(),
-                    vec![("http.response.status_code", response.status.to_string())],
+                    response_parent.as_ref(),
+                    attributes,
                 )
             }),
-            Err(_) => None,
+            Err(error) => self.otel.as_ref().map(|runtime| {
+                runtime.span_with_attributes(
+                    "helix.http.response",
+                    TraceDirection::Inbound,
+                    response_parent.as_ref(),
+                    vec![("helix.http.error_kind", error_kind(error).to_string())],
+                )
+            }),
         };
         if let Some(event) = (self.outcome_observer)(&url, &outcome) {
             self.event_sink.emit(event);
         }
         outcome
     }
+}
+
+/// 将 HTTP 失败折叠成低基数错误类别，不把响应正文或凭据写入 Trace。
+fn error_kind(error: &PortError) -> &'static str {
+    match error {
+        PortError::Storage(_) => "storage",
+        PortError::Transport(_) => "transport",
+        PortError::Http(_) => "http",
+        PortError::Clock(_) => "clock",
+        PortError::IdSource(_) => "id_source",
+        PortError::Other(_) => "other",
+    }
+}
+
+const FULL_DEBUG_PAYLOAD_LIMIT: usize = 64 * 1024;
+
+/// safe 模式返回空属性；full_debug 才将鉴权后请求送入受控 OTLP span。
+fn full_debug_http_attributes(
+    runtime: &HostOtelRuntime,
+    request: &HttpRequest,
+) -> Vec<(&'static str, String)> {
+    if !runtime.is_full_debug() {
+        return Vec::new();
+    }
+    let mut attributes = vec![
+        (
+            "helix.debug.http.request_headers",
+            bounded_debug_string(
+                &serde_json::to_string(&request.headers).unwrap_or_else(|_| "[]".to_string()),
+            ),
+        ),
+        (
+            "helix.debug.http.request_url",
+            bounded_debug_string(&request.url),
+        ),
+        (
+            "helix.debug.http.request_method",
+            bounded_debug_string(&request.method),
+        ),
+    ];
+    if let Some(body) = &request.body {
+        attributes.push((
+            "helix.debug.http.request_body_base64",
+            bounded_debug_bytes(body),
+        ));
+    }
+    attributes
+}
+
+/// 限制 full_debug 文本长度，避免一个异常请求撑爆 exporter queue。
+fn bounded_debug_string(value: &str) -> String {
+    if value.len() <= FULL_DEBUG_PAYLOAD_LIMIT {
+        return value.to_string();
+    }
+    let boundary = value
+        .char_indices()
+        .map(|(index, _)| index)
+        .take_while(|index| *index <= FULL_DEBUG_PAYLOAD_LIMIT)
+        .last()
+        .unwrap_or(0);
+    format!(
+        "{}...[truncated {} bytes]",
+        &value[..boundary],
+        value.len() - boundary
+    )
+}
+
+/// 将二进制响应限制并编码为可携带的受控 Debug 属性。
+fn bounded_debug_bytes(bytes: &[u8]) -> String {
+    let shown = bytes.len().min(FULL_DEBUG_PAYLOAD_LIMIT);
+    let mut value = base64_encode(&bytes[..shown]);
+    if shown < bytes.len() {
+        value.push_str(&format!("...[truncated {} bytes]", bytes.len() - shown));
+    }
+    value
 }

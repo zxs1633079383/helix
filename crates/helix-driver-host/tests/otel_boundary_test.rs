@@ -14,7 +14,7 @@ use helix_driver_host::trace::{
 };
 use helix_driver_host::{
     AuthTokenRegistry, CommandTraceQueue, CrossCuttingHttp, HostOtelConfig, HostOtelRuntime,
-    HostStorage, TraceCarrier, TraceDirection, TraceHooks,
+    HostStorage, LifecycleContext, TraceCarrier, TraceDirection, TraceHooks,
 };
 
 #[test]
@@ -29,7 +29,6 @@ fn host_otel_runtime_extracts_traceparent_and_starts_child_span() {
         r#"{"traceparent":"00-00000000000000000000000000000001-0000000000000002-01","baggage":"client=test"}"#,
     )
     .expect("carrier");
-
     let scope = runtime.span(
         "helix.command.accept",
         TraceDirection::Inbound,
@@ -90,8 +89,8 @@ fn trace_hooks_consume_command_trace_sidecar_at_host_boundary() {
     let _scope = hooks.on_tick_start(&tick);
 
     let span = runtime.last_span_for_test().expect("span");
-    assert_eq!(span.name, "helix.command.accept");
-    assert_eq!(span.direction, TraceDirection::Inbound);
+    assert_eq!(span.name, "helix.core.step");
+    assert_eq!(span.direction, TraceDirection::Internal);
     assert_eq!(
         span.trace_id.as_deref(),
         Some("00000000000000000000000000000002")
@@ -99,7 +98,7 @@ fn trace_hooks_consume_command_trace_sidecar_at_host_boundary() {
 }
 
 #[test]
-fn nested_tick_scope_restores_outer_command_trace_for_http_dispatch() {
+fn explicit_tick_context_keeps_command_trace_for_http_dispatch() {
     let queue = CommandTraceQueue::default();
     let traceparent = "00-00000000000000000000000000000011-0000000000000011-01";
     queue.push_slot(Some(
@@ -111,8 +110,10 @@ fn nested_tick_scope_restores_outer_command_trace_for_http_dispatch() {
     let command_tick = Tick::Command(AppCommand::new("im_send", Bytes::from_static(b"{}")));
     let background_tick = Tick::Timer(TimerId::from_raw(7));
 
-    let command_scope = hooks.on_tick_start(&command_tick);
-    let background_scope = hooks.on_tick_start(&background_tick);
+    let command_context = hooks.context_for_tick(&command_tick, 1, None, None);
+    let background_context = hooks.context_for_tick(&background_tick, 2, None, None);
+    let command_scope = hooks.on_tick_start_with_context(&command_tick, &command_context);
+    let background_scope = hooks.on_tick_start_with_context(&background_tick, &background_context);
     drop(background_scope);
 
     let mut req = HttpRequest {
@@ -121,7 +122,8 @@ fn nested_tick_scope_restores_outer_command_trace_for_http_dispatch() {
         headers: Vec::new(),
         body: None,
     };
-    hooks.on_http_dispatch(None, &mut req);
+    // carrier 必须由调用方显式传回，不能依赖已被移除的 active carrier。
+    hooks.on_http_dispatch_with_context(&command_context, None, &mut req);
     drop(command_scope);
 
     assert_eq!(
@@ -131,6 +133,144 @@ fn nested_tick_scope_restores_outer_command_trace_for_http_dispatch() {
             .map(|(_, value)| value.as_str()),
         Some(traceparent)
     );
+}
+
+#[test]
+fn lifecycle_children_are_parented_to_the_same_t1_root() {
+    let runtime = HostOtelRuntime::new(HostOtelConfig {
+        enabled: true,
+        service_name: "helix-test".to_string(),
+        endpoint: "noop".to_string(),
+        protocol: "noop".to_string(),
+    });
+    let hooks = TraceHooks::noop().with_otel(runtime.clone());
+    let context = LifecycleContext::new(41, None, None)
+        .with_capability(helix_driver_host::LifecycleCapability::Http, true);
+    let (scope, context) = hooks.start_tick_with_context(
+        &Tick::Command(AppCommand::new("send_message", Bytes::from_static(b"{}"))),
+        &context,
+    );
+    let t1_parent = context
+        .span_parent()
+        .and_then(|carrier| carrier.traceparent.as_deref())
+        .expect("T1 child parent carrier");
+    let t1_span_id = t1_parent[36..52].to_string();
+
+    let mut request = HttpRequest {
+        method: "POST".to_string(),
+        url: "https://example.test/messages".to_string(),
+        headers: Vec::new(),
+        body: None,
+    };
+    hooks.on_http_dispatch_with_context(&context, None, &mut request);
+    let http_span = runtime.last_span_for_test().expect("HTTP dispatch span");
+    assert_eq!(http_span.name, "helix.http.dispatch");
+    assert_eq!(
+        http_span.parent_span_id.as_deref(),
+        Some(t1_span_id.as_str())
+    );
+    drop(scope);
+}
+
+#[test]
+fn full_debug_switch_is_the_only_path_for_sensitive_http_attributes() {
+    let runtime = HostOtelRuntime::new_with_metric_sink_and_capture_mode(
+        HostOtelConfig {
+            enabled: true,
+            service_name: "helix-test".to_string(),
+            endpoint: "noop".to_string(),
+            protocol: "noop".to_string(),
+        },
+        Arc::new(helix_driver_host::NoopMetricSink),
+        true,
+    );
+    let hooks = TraceHooks::noop().with_otel(runtime.clone());
+    let context = LifecycleContext::new(42, None, None)
+        .with_capability(helix_driver_host::LifecycleCapability::Http, true);
+    let (scope, context) = hooks.start_tick_with_context(
+        &Tick::Command(AppCommand::new("send_message", Bytes::from_static(b"{}"))),
+        &context,
+    );
+    let mut request = HttpRequest {
+        method: "POST".to_string(),
+        url: "https://example.test/messages?token=secret".to_string(),
+        headers: vec![("Authorization".to_string(), "Bearer secret".to_string())],
+        body: Some(Bytes::from_static(br#"{"text":"hello"}"#)),
+    };
+    hooks.on_http_dispatch_with_context(&context, None, &mut request);
+    let span = runtime.last_span_for_test().expect("full debug span");
+    assert!(span
+        .attributes
+        .iter()
+        .any(|(key, value)| key == "helix.debug.http.url" && value.contains("token=secret")));
+    assert!(span.attributes.iter().any(|(key, value)| {
+        key == "helix.debug.http.headers" && value.contains("Bearer secret")
+    }));
+    drop(scope);
+}
+
+#[test]
+fn full_debug_trace_carries_non_credential_user_context_without_metrics_labels() {
+    let runtime = HostOtelRuntime::new_with_metric_sink_and_capture_mode(
+        HostOtelConfig {
+            enabled: true,
+            service_name: "helix-test".to_string(),
+            endpoint: "noop".to_string(),
+            protocol: "noop".to_string(),
+        },
+        Arc::new(helix_driver_host::NoopMetricSink),
+        true,
+    );
+    runtime.set_debug_identity(
+        Some("Alice".to_string()),
+        Some("user-42".to_string()),
+        Some("company-7".to_string()),
+    );
+
+    let _scope = runtime.span("helix.message.lifecycle", TraceDirection::Internal, None);
+    let span = runtime.last_span_for_test().expect("identity span");
+    assert!(span
+        .attributes
+        .iter()
+        .any(|(key, value)| key == "helix.context.user_name" && value == "Alice"));
+    assert!(span
+        .attributes
+        .iter()
+        .any(|(key, value)| key == "helix.context.user_id" && value == "user-42"));
+    assert!(span
+        .attributes
+        .iter()
+        .any(|(key, value)| key == "helix.context.company_id" && value == "company-7"));
+    assert!(span
+        .attributes
+        .iter()
+        .all(|(key, _)| !key.starts_with("prometheus.")));
+}
+
+#[test]
+fn safe_trace_does_not_carry_user_context_even_when_configured() {
+    let runtime = HostOtelRuntime::new_with_metric_sink_and_capture_mode(
+        HostOtelConfig {
+            enabled: true,
+            service_name: "helix-test".to_string(),
+            endpoint: "noop".to_string(),
+            protocol: "noop".to_string(),
+        },
+        Arc::new(helix_driver_host::NoopMetricSink),
+        false,
+    );
+    runtime.set_debug_identity(
+        Some("Alice".to_string()),
+        Some("user-42".to_string()),
+        Some("company-7".to_string()),
+    );
+
+    let _scope = runtime.span("helix.message.lifecycle", TraceDirection::Internal, None);
+    let span = runtime.last_span_for_test().expect("safe span");
+    assert!(span
+        .attributes
+        .iter()
+        .all(|(key, _)| !key.starts_with("helix.context.")));
 }
 
 #[derive(Default)]
@@ -227,6 +367,7 @@ fn crosscutting_http_default_constructor_is_true_noop() {
 }
 
 #[tokio::test]
+/// HTTP response span 必须挂在 request span 下并保留状态属性。
 async fn crosscutting_http_starts_response_span_with_status() {
     let runtime = HostOtelRuntime::new(HostOtelConfig {
         enabled: true,
@@ -264,6 +405,11 @@ async fn crosscutting_http_starts_response_span_with_status() {
         span.trace_id.as_deref(),
         Some("00000000000000000000000000000004")
     );
+    assert_ne!(
+        span.parent_span_id.as_deref(),
+        Some("0000000000000005"),
+        "response must be a child of helix.http.request, not a sibling of it"
+    );
     assert!(span
         .attributes
         .iter()
@@ -282,6 +428,7 @@ async fn sqlite_storage_span_carries_trace_context_statement_and_params() {
         r#"{"traceparent":"00-00000000000000000000000000000008-0000000000000009-01","baggage":"client=test"}"#,
     )
     .expect("carrier");
+    let lifecycle = LifecycleContext::new(17, Some(9), Some(carrier.clone()));
     let storage =
         HostStorage::open_sqlite_url("sqlite:file:helix_sql_trace?mode=memory&cache=shared")
             .await
@@ -295,7 +442,7 @@ async fn sqlite_storage_span_carries_trace_context_statement_and_params() {
         .expect("create table");
 
     with_storage_trace_context(
-        StorageTraceContext::new(runtime.clone(), Some(carrier)),
+        StorageTraceContext::from_lifecycle(runtime.clone(), &lifecycle),
         async {
             storage
                 .batch_upsert(UpsertSpec {
@@ -331,7 +478,15 @@ async fn sqlite_storage_span_carries_trace_context_statement_and_params() {
     assert!(span
         .attributes
         .iter()
-        .any(|(k, v)| k == "db.parameters" && v.contains("hello trace")));
+        .any(|(k, v)| k == "db.parameters" && v == "[REDACTED]"));
+    assert!(span
+        .attributes
+        .iter()
+        .any(|(k, v)| k == "helix.tick_id" && v == "17"));
+    assert!(span
+        .attributes
+        .iter()
+        .any(|(k, v)| k == "helix.parent_tick_id" && v == "9"));
 }
 
 #[test]

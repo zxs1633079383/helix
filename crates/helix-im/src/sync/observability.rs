@@ -40,6 +40,182 @@ macro_rules! offline_sync_error {
     };
 }
 
+/// IM 侧只依赖的 lifecycle 阶段标签；driver 负责把它映射到真实 trace。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SyncLifecycleStage {
+    T1,
+    T2,
+    T3,
+    T4,
+    T5,
+}
+
+impl SyncLifecycleStage {
+    /// 返回跨端对账使用的稳定阶段标签。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::T1 => "T1",
+            Self::T2 => "T2",
+            Self::T3 => "T3",
+            Self::T4 => "T4",
+            Self::T5 => "T5",
+        }
+    }
+
+    /// 将阶段映射到固定数组槽位，保持快照读取为 O(1)。
+    const fn index(self) -> usize {
+        match self {
+            Self::T1 => 0,
+            Self::T2 => 1,
+            Self::T3 => 2,
+            Self::T4 => 3,
+            Self::T5 => 4,
+        }
+    }
+}
+
+/// IM 侧 lifecycle 的状态值；网络能力缺失必须表达为 not_applicable。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SyncLifecycleStatus {
+    Pending,
+    Started,
+    Ok,
+    Error,
+    Skipped,
+    NotApplicable,
+}
+
+impl SyncLifecycleStatus {
+    /// 返回小写状态标签，避免诊断边界依赖 Debug 输出。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Started => "started",
+            Self::Ok => "ok",
+            Self::Error => "error",
+            Self::Skipped => "skipped",
+            Self::NotApplicable => "not_applicable",
+        }
+    }
+}
+
+/// IM 业务层可携带的最小 lifecycle 快照；不含 HTTP body、WS frame 或用户正文。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyncLifecycleContext {
+    tick_id: u64,
+    parent_tick_id: Option<u64>,
+    stages: [SyncLifecycleStatus; 5],
+    capabilities: [bool; 4],
+    capability_status: [SyncLifecycleStatus; 4],
+}
+
+impl SyncLifecycleContext {
+    /// 创建 T1 根快照；能力默认关闭，防止业务层伪造网络证据。
+    pub fn new(tick_id: u64, parent_tick_id: Option<u64>) -> Self {
+        Self {
+            tick_id,
+            parent_tick_id,
+            stages: [
+                SyncLifecycleStatus::Started,
+                SyncLifecycleStatus::Skipped,
+                SyncLifecycleStatus::Skipped,
+                SyncLifecycleStatus::Skipped,
+                SyncLifecycleStatus::Skipped,
+            ],
+            capabilities: [false; 4],
+            capability_status: [SyncLifecycleStatus::NotApplicable; 4],
+        }
+    }
+
+    /// 返回一次 sync 快照的独立 tick id。
+    pub const fn tick_id(&self) -> u64 {
+        self.tick_id
+    }
+
+    /// 返回可证明的上游 tick id。
+    pub const fn parent_tick_id(&self) -> Option<u64> {
+        self.parent_tick_id
+    }
+
+    /// 读取阶段状态，不修改当前快照。
+    pub const fn stage_status(&self, stage: SyncLifecycleStage) -> SyncLifecycleStatus {
+        self.stages[stage.index()]
+    }
+
+    /// 返回新快照并更新一个阶段状态。
+    pub fn with_stage_status(
+        &self,
+        stage: SyncLifecycleStage,
+        status: SyncLifecycleStatus,
+    ) -> Self {
+        let mut next = self.clone();
+        next.stages[stage.index()] = status;
+        next
+    }
+
+    /// 返回网络/持久化能力是否存在；具体能力枚举保持协议字符串稳定。
+    pub fn capability_status(&self, capability: &str) -> SyncLifecycleStatus {
+        let index = match capability {
+            "http" => 0,
+            "ws" => 1,
+            "persist" => 2,
+            "effect" => 3,
+            _ => return SyncLifecycleStatus::NotApplicable,
+        };
+        self.capability_status[index]
+    }
+
+    /// 设置能力存在性；关闭能力时状态自动收敛到 not_applicable。
+    pub fn with_capability(&self, capability: &str, enabled: bool) -> Self {
+        let Some(index) = ["http", "ws", "persist", "effect"]
+            .iter()
+            .position(|value| *value == capability)
+        else {
+            return self.clone();
+        };
+        let mut next = self.clone();
+        next.capabilities[index] = enabled;
+        next.capability_status[index] = if enabled {
+            SyncLifecycleStatus::Skipped
+        } else {
+            SyncLifecycleStatus::NotApplicable
+        };
+        next
+    }
+
+    /// 返回新快照并更新能力状态；not_applicable 同时关闭该能力。
+    pub fn with_capability_status(&self, capability: &str, status: SyncLifecycleStatus) -> Self {
+        let Some(index) = ["http", "ws", "persist", "effect"]
+            .iter()
+            .position(|value| *value == capability)
+        else {
+            return self.clone();
+        };
+        let mut next = self.clone();
+        next.capabilities[index] = status != SyncLifecycleStatus::NotApplicable;
+        next.capability_status[index] = status;
+        next
+    }
+
+    /// 返回能力是否存在；未知能力视为不存在。
+    pub fn has_capability(&self, capability: &str) -> bool {
+        let Some(index) = ["http", "ws", "persist", "effect"]
+            .iter()
+            .position(|value| *value == capability)
+        else {
+            return false;
+        };
+        self.capabilities[index]
+    }
+}
+
+impl Default for SyncLifecycleContext {
+    /// 创建无上游的 synthetic root，供纯业务合同测试使用。
+    fn default() -> Self {
+        Self::new(0, None)
+    }
+}
+
 /// 纯离线 sync 诊断配置；默认关闭且不参与业务语义。
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SyncDiagnosticsConfig {
@@ -365,5 +541,63 @@ mod tests {
         };
         assert!(config.target_matches(None, Some(&fields)));
         assert!(!config.target_matches(Some("other"), None));
+    }
+
+    #[test]
+    fn lifecycle_context_keeps_t1_to_t5_and_tick_parent_explicit() {
+        let root = SyncLifecycleContext::new(41, None).with_capability("http", true);
+        let next = root
+            .with_stage_status(SyncLifecycleStage::T3, SyncLifecycleStatus::Started)
+            .with_stage_status(SyncLifecycleStage::T4, SyncLifecycleStatus::Skipped);
+        let child = SyncLifecycleContext::new(42, Some(root.tick_id()));
+
+        assert_eq!(next.tick_id(), 41);
+        assert_eq!(next.parent_tick_id(), None);
+        assert_eq!(child.parent_tick_id(), Some(41));
+        assert_eq!(
+            next.stage_status(SyncLifecycleStage::T3),
+            SyncLifecycleStatus::Started
+        );
+        assert_eq!(
+            next.stage_status(SyncLifecycleStage::T4),
+            SyncLifecycleStatus::Skipped
+        );
+        assert_eq!(
+            next.capability_status("ws"),
+            SyncLifecycleStatus::NotApplicable
+        );
+        assert_eq!(next.capability_status("http"), SyncLifecycleStatus::Skipped);
+    }
+
+    #[test]
+    fn lifecycle_capability_matrix_does_not_promote_absent_network_to_ok() {
+        let no_network = SyncLifecycleContext::new(1, None);
+        let http_only = no_network.with_capability("http", true);
+        let ws_only = no_network.with_capability("ws", true);
+
+        assert_eq!(
+            no_network.capability_status("http"),
+            SyncLifecycleStatus::NotApplicable
+        );
+        assert_eq!(
+            no_network.capability_status("ws"),
+            SyncLifecycleStatus::NotApplicable
+        );
+        assert_eq!(
+            http_only.capability_status("http"),
+            SyncLifecycleStatus::Skipped
+        );
+        assert_eq!(
+            http_only.capability_status("ws"),
+            SyncLifecycleStatus::NotApplicable
+        );
+        assert_eq!(
+            ws_only.capability_status("ws"),
+            SyncLifecycleStatus::Skipped
+        );
+        assert_eq!(
+            ws_only.capability_status("http"),
+            SyncLifecycleStatus::NotApplicable
+        );
     }
 }

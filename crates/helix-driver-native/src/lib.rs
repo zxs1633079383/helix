@@ -49,3 +49,9 @@ pub use helix_driver_host::SharedFileUploader;
 pub use helix_driver_host::{
     tick_ingress_channel, tick_ingress_channel_observed, TickIngressReceiver, TickIngressSender,
 };
+// lifecycle context 由 host engine 生成，native 只 re-export 合同，不引入 exporter/WASM 实现。
+pub use helix_driver_host::{
+    LifecycleCapability, LifecycleContext, LifecycleObservation, LifecycleStage, LifecycleState,
+    LifecycleStatus, LifecycleTraceSink, LifecycleTraceStats, LifecycleTracker, TickId,
+    LIFECYCLE_LINK_CAPACITY, LIFECYCLE_TRACE_QUEUE_CAPACITY,
+};

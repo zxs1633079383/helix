@@ -9,4 +9,6 @@ pub(crate) mod pong_batch;
 pub mod scheduler;
 pub mod session;
 
-pub use observability::SyncDiagnosticsConfig;
+pub use observability::{
+    SyncDiagnosticsConfig, SyncLifecycleContext, SyncLifecycleStage, SyncLifecycleStatus,
+};

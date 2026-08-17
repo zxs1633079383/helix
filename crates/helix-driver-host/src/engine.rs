@@ -35,8 +35,11 @@ use helix_core::ports::{Clock, FileUploader, FrameSender, HttpRequester, Storage
 use helix_core::{ExecutionShell, Tick};
 
 pub use crate::batch_sink::BatchSink;
-use crate::dispatch::dispatch_effects;
-use crate::owned_effect::consume_effect_batch;
+use crate::dispatch::dispatch_effects_with_context;
+use crate::lifecycle::{
+    LifecycleCapability, LifecycleContext, LifecycleStage, LifecycleStatus, LifecycleTracker,
+};
+use crate::owned_effect::{consume_effect_batch, OwnedEffect};
 use crate::pools::{spawn_http_pool_observed, spawn_upload_pool_observed, PersistJobPayload};
 use crate::spawner::{feedback_channel, BoundedSpawner, FeedbackSink, Overflow};
 use crate::tick_ingress::{EngineTickReceiver, EngineTickSender};
@@ -109,6 +112,7 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
     let rss_sampler = perf_metrics.spawn_rss_sampler();
     let http_n = deps.max_http_inflight.max(1);
     let mut timer_registry = TimerRegistry::with_metrics(perf_metrics.sink_handle());
+    let lifecycle_tracker = LifecycleTracker::default();
 
     // 独立 unbounded 回灌通道（不与入站 tick_rx 共用，永不堵塞写任务）。
     let (reply_tx, mut reply_rx) = feedback_channel();
@@ -162,7 +166,13 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
 
     // 与主循环同门控：有初始 effect 才 dispatch + flush（避免空批跨 FFI 边界的无谓回调）。
     if !initial_batch.effects.is_empty() {
-        dispatch_effects(
+        let initial_context = LifecycleContext::new(0, None, None)
+            .with_capability(LifecycleCapability::Http, true)
+            .with_capability(LifecycleCapability::Persist, true)
+            .with_capability(LifecycleCapability::Effect, true)
+            .with_capability(LifecycleCapability::Ws, !transports.is_empty());
+        emit_missing_lifecycle_capabilities(&trace, &initial_context, &initial_batch.effects);
+        dispatch_effects_with_context(
             initial_batch.effects,
             &tick_tx,
             &storage,
@@ -176,6 +186,8 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
             &transports,
             &trace,
             &mut perf_metrics,
+            &initial_context,
+            Some(&lifecycle_tracker),
         )
         .await;
         // start() 那批 Emit 已 dispatch 完成 → 攒批 egress（HX-C007）。native no-op。
@@ -300,7 +312,26 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
             }
         }
 
-        let _trace_scope = trace.on_tick_start(&tick);
+        let tick_id = lifecycle_tracker.next_tick_id();
+        let (parent_tick_id, inherited_carrier, inherited_span_parent) =
+            lifecycle_tracker.parent_for_tick(&tick);
+        let context = trace
+            .context_for_tick(&tick, tick_id, parent_tick_id, inherited_carrier)
+            .with_capability(LifecycleCapability::Http, true)
+            .with_capability(LifecycleCapability::Persist, true)
+            .with_capability(LifecycleCapability::Effect, true)
+            .with_capability(LifecycleCapability::Ws, !transports.is_empty());
+        let context = context.with_span_parent(inherited_span_parent);
+        if !context.has_capability(LifecycleCapability::Ws) {
+            trace.emit_lifecycle_status_with_reason(
+                &context,
+                crate::lifecycle::LifecycleStage::T3,
+                Some(LifecycleCapability::Ws),
+                crate::lifecycle::LifecycleStatus::NotApplicable,
+                Some("transport_absent"),
+            );
+        }
+        let (_trace_scope, context) = trace.start_tick_with_context(&tick, &context);
         let now_ms = clock.now_ms();
         let step_started = perf_metrics.start_timer();
         let batch = match shell.step(tick, now_ms) {
@@ -312,10 +343,19 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
                 continue;
             }
         };
+        let context = context.with_capability(
+            LifecycleCapability::Ws,
+            context.has_capability(LifecycleCapability::Ws)
+                || batch
+                    .effects
+                    .iter()
+                    .any(|effect| matches!(effect, OwnedEffect::Send { .. })),
+        );
+        emit_missing_lifecycle_capabilities(&trace, &context, &batch.effects);
         perf_metrics.on_step_complete(&metric_context, step_started, batch.summary);
 
         if !batch.effects.is_empty() {
-            dispatch_effects(
+            dispatch_effects_with_context(
                 batch.effects,
                 &tick_tx,
                 &storage,
@@ -329,6 +369,8 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
                 &transports,
                 &trace,
                 &mut perf_metrics,
+                &context,
+                Some(&lifecycle_tracker),
             )
             .await;
             // 本 step 的 Emit 已全部 dispatch → 攒批 egress 一次过边界（HX-C007）。
@@ -357,4 +399,71 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
     tracing::info!(
         "helix engine loop exited (persists drained; 必达 upload/http drained or aborted at limit)"
     );
+}
+
+/// 为本 Tick 没有实际执行的能力槽位写入 not_applicable，不创建伪造网络 Span。
+fn emit_missing_lifecycle_capabilities(
+    trace: &crate::trace::TraceHooks,
+    context: &LifecycleContext,
+    effects: &[OwnedEffect],
+) {
+    let has_http = effects.iter().any(|effect| {
+        matches!(
+            effect,
+            OwnedEffect::Http { .. }
+                | OwnedEffect::HttpFire { .. }
+                | OwnedEffect::UploadFile { .. }
+        )
+    });
+    let has_ws = effects
+        .iter()
+        .any(|effect| matches!(effect, OwnedEffect::Send { .. }));
+    let has_persist = effects.iter().any(|effect| {
+        matches!(
+            effect,
+            OwnedEffect::Persist { .. }
+                | OwnedEffect::PersistAtomic { .. }
+                | OwnedEffect::PersistFire { .. }
+        )
+    });
+    let has_event = effects
+        .iter()
+        .any(|effect| matches!(effect, OwnedEffect::Emit { .. }));
+
+    if !has_http {
+        trace.emit_lifecycle_status_with_reason(
+            context,
+            LifecycleStage::T2,
+            Some(LifecycleCapability::Http),
+            LifecycleStatus::NotApplicable,
+            Some("http_effect_absent"),
+        );
+    }
+    if !has_ws {
+        trace.emit_lifecycle_status_with_reason(
+            context,
+            LifecycleStage::T3,
+            Some(LifecycleCapability::Ws),
+            LifecycleStatus::NotApplicable,
+            Some("ws_effect_absent"),
+        );
+    }
+    if !has_persist {
+        trace.emit_lifecycle_status_with_reason(
+            context,
+            LifecycleStage::T4,
+            Some(LifecycleCapability::Persist),
+            LifecycleStatus::NotApplicable,
+            Some("persist_effect_absent"),
+        );
+    }
+    if !has_event {
+        trace.emit_lifecycle_status_with_reason(
+            context,
+            LifecycleStage::T5,
+            Some(LifecycleCapability::Effect),
+            LifecycleStatus::NotApplicable,
+            Some("event_effect_absent"),
+        );
+    }
 }

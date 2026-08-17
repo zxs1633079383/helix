@@ -3,6 +3,10 @@ use std::sync::Arc;
 use bytes::Bytes;
 use parking_lot::Mutex;
 
+use crate::lifecycle::{
+    LifecycleCapability, LifecycleContext, LifecycleStage, LifecycleStatus, LifecycleTraceSink,
+};
+use crate::otel::{HostOtelConfig, HostOtelRuntime};
 use helix_core::effect::{
     Correlation, DomainEventBytes, FileUploadRequest, HttpRequest, StorageOp, TransportId,
 };
@@ -179,5 +183,35 @@ fn trace_hooks_consume_command_sidecars_in_tick_order() {
             None,
             Some("00-00000000000000000000000000000002-0000000000000003-01".to_string())
         ]
+    );
+}
+
+#[test]
+fn absent_ws_reports_not_applicable_without_creating_network_span() {
+    let runtime = HostOtelRuntime::new(HostOtelConfig {
+        enabled: true,
+        service_name: "helix-test".to_string(),
+        endpoint: "noop".to_string(),
+        protocol: "noop".to_string(),
+    });
+    let (sink, mut observations) = LifecycleTraceSink::channel();
+    let hooks = TraceHooks::noop()
+        .with_otel(runtime.clone())
+        .with_lifecycle_sink(sink);
+    let context = LifecycleContext::new(9, None, None);
+
+    hooks.emit_lifecycle_status(
+        &context,
+        LifecycleStage::T4,
+        Some(LifecycleCapability::Ws),
+        LifecycleStatus::NotApplicable,
+    );
+
+    let observation = observations.try_recv().expect("status observation");
+    assert_eq!(observation.status, LifecycleStatus::NotApplicable);
+    assert_eq!(observation.capability, Some(LifecycleCapability::Ws));
+    assert_eq!(
+        runtime.last_span_for_test().map(|span| span.name),
+        Some("helix.lifecycle.status")
     );
 }

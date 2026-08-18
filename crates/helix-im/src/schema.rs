@@ -199,6 +199,17 @@ pub const IM_SCHEMA: &[&'static str] = &[
         schedule_status TEXT NOT NULL DEFAULT '',\
         schedule_revision INTEGER NOT NULL DEFAULT 0\
     )",
+    // 只在 UPDATE 未显式推进 updated_at 时补齐数据库时间；调用方显式传入的时间保持不变。
+    // `IF NOT EXISTS` 让每次启动都能修复已有 Helix tenant.db，而无需删库重建。
+    "CREATE TRIGGER IF NOT EXISTS trg_channel_auto_update_at\n\
+AFTER UPDATE ON channel\n\
+FOR EACH ROW\n\
+WHEN NEW.updated_at = OLD.updated_at\n\
+BEGIN\n\
+    UPDATE channel\n\
+    SET updated_at = MAX(OLD.updated_at + 1, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER))\n\
+    WHERE id = OLD.id;\n\
+END",
     // G08 authority fact; channel columns above are a denormalized read model for one-step recovery.
     "CREATE TABLE IF NOT EXISTS channel_schedule (\
         channel_id TEXT PRIMARY KEY,\

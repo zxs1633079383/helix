@@ -194,6 +194,7 @@ async fn run_export_worker(
     metrics: Arc<dyn AsyncMetricSink>,
 ) {
     let mut batch = Vec::with_capacity(EXPORT_BATCH_SIZE);
+    let mut export_success_logged = false;
     let mut health_tick = tokio::time::interval(Duration::from_secs(5));
     health_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last_success = None;
@@ -242,7 +243,14 @@ async fn run_export_worker(
             }
         }
 
-        if export_batch(&exporter, &mut batch, metrics.as_ref()).await {
+        if export_batch(
+            &exporter,
+            &mut batch,
+            metrics.as_ref(),
+            &mut export_success_logged,
+        )
+        .await
+        {
             last_success = Some(Instant::now());
         }
     }
@@ -265,6 +273,7 @@ async fn export_batch(
     exporter: &opentelemetry_otlp::SpanExporter,
     batch: &mut Vec<SpanData>,
     metrics: &dyn AsyncMetricSink,
+    export_success_logged: &mut bool,
 ) -> bool {
     if batch.is_empty() {
         return true;
@@ -276,6 +285,14 @@ async fn export_batch(
     for attempt in 1..=8 {
         match exporter.export(spans.clone()).await {
             Ok(()) => {
+                if !*export_success_logged {
+                    tracing::info!(
+                        marker = "HELIX_OTEL_EXPORT_OK",
+                        span_count = spans.len(),
+                        "HELIX_OTEL_EXPORT_OK"
+                    );
+                    *export_success_logged = true;
+                }
                 record_histogram(
                     metrics,
                     MetricId::TracesExportDurationSeconds,

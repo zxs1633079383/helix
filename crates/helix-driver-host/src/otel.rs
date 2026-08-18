@@ -236,6 +236,11 @@ impl HostOtelRuntime {
         self.inner.config.enabled
     }
 
+    /// 返回 OTLP exporter 是否已完成本地装配；该状态不替代首批网络导出成功证据。
+    pub fn is_exporter_ready(&self) -> bool {
+        self.inner.config.enabled && self.inner.exporter.is_some()
+    }
+
     /// 返回是否明确开启 full_debug；默认 safe，避免敏感字段意外进入 OTLP。
     pub fn is_full_debug(&self) -> bool {
         self.inner.full_debug

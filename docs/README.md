@@ -163,6 +163,7 @@ PC Angular / Mobile QuickJS-Flutter / Web renderer
 | 真机 curl | [`crates/helix-im/docs/csesapi-migration/真机curl真源.md`](../crates/helix-im/docs/csesapi-migration/真机curl真源.md) |
 | API 全量图谱 | [`crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md`](../crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md) |
 | FFI 合同 | [`crates/helix-driver-ffi/docs/`](../crates/helix-driver-ffi/docs/) |
+| Helix Runtime Metrics | [`Metrics/Prometheus指标说明.md`](./Metrics/Prometheus指标说明.md) | 当前分支 116 个 Runtime 指标的分类、语义、OTLP/Prometheus 链路和验收查询 |
 | 性能实测 | [`reports/helix-并发承压评估-2026-06-11.md`](./reports/helix-并发承压评估-2026-06-11.md) |
 | 提交规范 | [`COMMIT_CONVENTION.md`](./COMMIT_CONVENTION.md) |
 

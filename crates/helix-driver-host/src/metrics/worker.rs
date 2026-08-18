@@ -138,6 +138,14 @@ async fn export_batch<E: BatchMetricExporter>(
     );
     if result.is_ok() {
         *self_cursor = next_cursor;
+        if !self_cursor.export_success_logged {
+            tracing::info!(
+                marker = "HELIX_METRICS_EXPORT_OK",
+                event_count,
+                "HELIX_METRICS_EXPORT_OK"
+            );
+            self_cursor.export_success_logged = true;
+        }
         circuit.on_success();
         stats.batches.fetch_add(1, Ordering::Relaxed);
         stats.events.fetch_add(event_count, Ordering::Relaxed);
@@ -164,6 +172,7 @@ struct SelfMetricCursor {
     dropped: u64,
     circuit_dropped: u64,
     errors: u64,
+    export_success_logged: bool,
 }
 
 #[derive(Default)]
@@ -262,6 +271,7 @@ fn append_self_metrics(
         dropped: snapshot.dropped_total,
         circuit_dropped,
         errors: snapshot.export_errors_total,
+        export_success_logged: cursor.export_success_logged,
     }
 }
 

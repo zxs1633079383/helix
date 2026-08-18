@@ -162,8 +162,8 @@ impl TraceHooks {
                 bounded_command_name(command.name.as_ref()),
             ));
         }
-        let root_scope = runtime.span_with_attributes(
-            "helix.message.lifecycle",
+        let root_scope = runtime.span_with_owned_name(
+            tick_root_span_name(tick),
             TraceDirection::Internal,
             carrier.as_ref(),
             root_attributes,
@@ -181,7 +181,7 @@ impl TraceHooks {
             .chain(TraceScope::with_guard(step_scope))
             .chain(scope);
 
-        // 入站 WebSocket 本身是 T3；根 span 仍保持统一 MessageLifecycle 名称。
+        // 入站 WebSocket 本身是 T3；T1 根使用稳定的 Tick 类型名称。
         if matches!(tick, Tick::Inbound(_)) {
             self.emit_lifecycle_status(
                 &updated_context,
@@ -520,6 +520,24 @@ fn lifecycle_attributes(
 const FULL_DEBUG_PAYLOAD_LIMIT: usize = 64 * 1024;
 const COMMAND_NAME_LIMIT: usize = 256;
 
+/// 为 T1 生成有界 Span 名称；命令名只来自受控 Tick，不携带业务 payload。
+fn tick_root_span_name(tick: &Tick) -> String {
+    match tick {
+        Tick::Command(command) => {
+            format!(
+                "helix.command.{}",
+                bounded_command_name(command.name.as_ref())
+            )
+        }
+        Tick::Inbound(_) => "helix.tick.inbound".to_string(),
+        Tick::PortReply { .. } => "helix.tick.port_reply".to_string(),
+        Tick::PortProgress { .. } => "helix.tick.port_progress".to_string(),
+        Tick::Timer(_) => "helix.tick.timer".to_string(),
+        Tick::Connected(_) => "helix.tick.connected".to_string(),
+        Tick::Disconnected(_) => "helix.tick.disconnected".to_string(),
+    }
+}
+
 /// 将 command 名限制为低成本 Trace 属性，避免用户可控名称无限增长。
 fn bounded_command_name(value: &str) -> String {
     value.chars().take(COMMAND_NAME_LIMIT).collect()
@@ -611,7 +629,22 @@ impl TraceHooksImpl for NoopTraceHooks {
 
 #[cfg(test)]
 mod tests {
-    use super::bounded_command_name;
+    use bytes::Bytes;
+    use helix_core::tick::AppCommand;
+    use helix_core::Tick;
+
+    use super::{bounded_command_name, tick_root_span_name};
+
+    /// Command Tick 的根 Span 名称必须带 Helix 命名空间和受控命令名。
+    #[test]
+    fn command_tick_root_span_uses_namespaced_command_name() {
+        let tick = Tick::Command(AppCommand::new(
+            "im:post:sending",
+            Bytes::from_static(b"{}"),
+        ));
+
+        assert_eq!(tick_root_span_name(&tick), "helix.command.im:post:sending");
+    }
 
     /// command name 进入 Trace 前必须保持可见且有界。
     #[test]

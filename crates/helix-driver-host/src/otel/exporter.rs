@@ -390,7 +390,7 @@ fn span_data_from_snapshot(
         parent_span_id,
         parent_span_is_remote: parent_span_id != SpanId::INVALID,
         span_kind: span_kind_for_direction(snapshot.direction),
-        name: snapshot.name.into(),
+        name: snapshot.name.clone().into(),
         start_time,
         end_time,
         attributes,

@@ -186,6 +186,7 @@ fn trace_hooks_consume_command_sidecars_in_tick_order() {
     );
 }
 
+/// T4 缺少 WS 能力时只记录状态，不创建网络 Span。
 #[test]
 fn absent_ws_reports_not_applicable_without_creating_network_span() {
     let runtime = HostOtelRuntime::new(HostOtelConfig {
@@ -212,6 +213,6 @@ fn absent_ws_reports_not_applicable_without_creating_network_span() {
     assert_eq!(observation.capability, Some(LifecycleCapability::Ws));
     assert_eq!(
         runtime.last_span_for_test().map(|span| span.name),
-        Some("helix.lifecycle.status")
+        Some("helix.lifecycle.status".to_string())
     );
 }

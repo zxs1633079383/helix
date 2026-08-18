@@ -40,7 +40,7 @@ pub enum TraceDirection {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostSpanSnapshot {
-    pub name: &'static str,
+    pub name: String,
     pub direction: TraceDirection,
     pub trace_id: Option<String>,
     pub span_id: String,
@@ -182,6 +182,17 @@ impl HostOtelRuntime {
     pub fn span_with_attributes(
         &self,
         name: &'static str,
+        direction: TraceDirection,
+        carrier: Option<&TraceCarrier>,
+        attributes: Vec<(&'static str, String)>,
+    ) -> HostSpanScope {
+        self.span_with_owned_name(name.to_string(), direction, carrier, attributes)
+    }
+
+    /// 创建允许运行时生成但已由调用方约束范围的 Span 名称。
+    pub(crate) fn span_with_owned_name(
+        &self,
+        name: String,
         direction: TraceDirection,
         carrier: Option<&TraceCarrier>,
         attributes: Vec<(&'static str, String)>,
@@ -362,8 +373,11 @@ impl HostSpanScope {
             .and_then(|snapshot| snapshot.trace_id.clone())
     }
 
-    pub fn name_for_test(&self) -> &'static str {
-        self.snapshot.as_ref().map_or("", |snapshot| snapshot.name)
+    /// 读取测试用 Span 名称，不暴露 exporter 或业务载荷。
+    pub fn name_for_test(&self) -> &str {
+        self.snapshot
+            .as_ref()
+            .map_or("", |snapshot| snapshot.name.as_str())
     }
 }
 

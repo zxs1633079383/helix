@@ -20,6 +20,7 @@ impl super::ImModule {
             "post_chain_create"
                 | "post_chain_publish"
                 | "post_chain_append"
+                | "post_chain_update_draft"
                 | "post_chain_reconcile"
                 | "post_chain_close"
                 | "post_chain_retract"

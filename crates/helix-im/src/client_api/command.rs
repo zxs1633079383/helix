@@ -154,6 +154,10 @@ pub const COMMAND_ALIASES: &[CommandAlias] = &[
         core: "post_chain_create",
     },
     CommandAlias {
+        public: "post_chain_update_draft",
+        core: "post_chain_update_draft",
+    },
+    CommandAlias {
         public: "post_chain_publish",
         core: "post_chain_publish",
     },
@@ -184,6 +188,10 @@ pub const COMMAND_ALIASES: &[CommandAlias] = &[
     CommandAlias {
         public: "im_post_chain_create",
         core: "post_chain_create",
+    },
+    CommandAlias {
+        public: "im_post_chain_update_draft",
+        core: "post_chain_update_draft",
     },
     CommandAlias {
         public: "im_post_chain_publish",

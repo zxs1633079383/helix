@@ -55,37 +55,7 @@ impl ChainHarness {
         event_name: &str,
         mutation_id: Option<&str>,
     ) -> Result<Value, ChainRunError> {
-        let req_id = payload
-            .get("req_id")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        self.actor
-            .command(command, payload)
-            .await
-            .map_err(ChainRunError::Blocked)?;
-        let event = self
-            .actor
-            .wait_event(
-                event_name,
-                |envelope| {
-                    if let Some(req_id) = req_id.as_deref() {
-                        return data_string(envelope, &["req_id"]).as_deref() == Some(req_id);
-                    }
-                    mutation_id
-                        .map(|value| {
-                            data_string(envelope, &["clientMutationId", "client_mutation_id"])
-                                .as_deref()
-                                == Some(value)
-                        })
-                        .unwrap_or(true)
-                },
-                CHAIN_TIMEOUT,
-            )
-            .await
-            .map_err(ChainRunError::Blocked)?;
-        serde_json::from_slice(event.0.as_ref()).map_err(|error| {
-            ChainRunError::Failed(format!("{event_name} event JSON failed: {error}"))
-        })
+        command_event_on(&mut self.actor, command, payload, event_name, mutation_id).await
     }
 
     /// 等待 observer raw WS 的 canonical post_chain frame，并校验 action/chain/mutation。
@@ -134,6 +104,45 @@ impl ChainHarness {
             (Err(actor), Err(observer)) => Err(format!("{actor}; {observer}")),
         }
     }
+}
+
+/// 向任意真实 Helix session 注入 command，并等待同一 mutation/req_id 的 terminal event。
+async fn command_event_on(
+    session: &mut RealHelixSession,
+    command: &'static str,
+    payload: Value,
+    event_name: &str,
+    mutation_id: Option<&str>,
+) -> Result<Value, ChainRunError> {
+    let req_id = payload
+        .get("req_id")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    session
+        .command(command, payload)
+        .await
+        .map_err(ChainRunError::Blocked)?;
+    let event = session
+        .wait_event(
+            event_name,
+            |envelope| {
+                if let Some(req_id) = req_id.as_deref() {
+                    return data_string(envelope, &["req_id"]).as_deref() == Some(req_id);
+                }
+                mutation_id
+                    .map(|value| {
+                        data_string(envelope, &["clientMutationId", "client_mutation_id"])
+                            .as_deref()
+                            == Some(value)
+                    })
+                    .unwrap_or(true)
+            },
+            CHAIN_TIMEOUT,
+        )
+        .await
+        .map_err(ChainRunError::Blocked)?;
+    serde_json::from_slice(event.0.as_ref())
+        .map_err(|error| ChainRunError::Failed(format!("{event_name} event JSON failed: {error}")))
 }
 
 /// 运行一个独立文字接龙 Gate；每个 Gate 自己创建频道、SQLite 和证据目录。
@@ -306,16 +315,100 @@ async fn execute_declaration(
     finish_gate(result, cleanup)
 }
 
-/// 通过 publish 断言 revision、状态冻结、HTTP authority、WS frame 和 mutation 账本。
+/// 通过草稿更新/版本冲突再 publish 断言 revision、HTTP authority、WS frame 和账本。
 async fn execute_publish(context: &AuthContext, channel_id: &str) -> Result<Value, ChainRunError> {
     let mut harness = ChainHarness::start(context, channel_id).await?;
     let result = async {
         let (chain_id, _) = create_chain(&mut harness, channel_id).await?;
+        let update_mutation = run_token("chain-update-draft");
+        let update = harness
+            .command_event(
+                "post_chain_update_draft",
+                update_draft_payload(
+                    channel_id,
+                    &chain_id,
+                    &update_mutation,
+                    "chain-device-a",
+                    1,
+                    "Native 文字接龙（已修改）",
+                    "Phase5 native gate updated",
+                    1_800_000_000_000,
+                ),
+                "im:post_chain:draft",
+                Some(&update_mutation),
+            )
+            .await?;
+        assert_chain_summary(&harness.actor.storage, &chain_id, "DRAFT", 0, 2).await?;
+        assert_chain_draft_fields(
+            &harness.actor.storage,
+            &chain_id,
+            "Native 文字接龙（已修改）",
+            "Phase5 native gate updated",
+            1_800_000_000_000,
+        )
+        .await?;
+        assert_mutation(&harness.actor.storage, &update_mutation, "CONFIRMED").await?;
+
+        let duplicate_update = harness
+            .command_event(
+                "post_chain_update_draft",
+                update_draft_payload(
+                    channel_id,
+                    &chain_id,
+                    &update_mutation,
+                    "chain-device-a",
+                    1,
+                    "Native 文字接龙（已修改）",
+                    "Phase5 native gate updated",
+                    1_800_000_000_000,
+                ),
+                "im:post_chain:draft",
+                Some(&update_mutation),
+            )
+            .await?;
+        if duplicate_update
+            .pointer("/data/chainSummary/revision")
+            .and_then(Value::as_i64)
+            != Some(2)
+        {
+            return Err(ChainRunError::Failed(format!(
+                "duplicate draft update returned unexpected revision: {duplicate_update}"
+            )));
+        }
+
+        let stale_mutation = run_token("chain-update-stale");
+        let stale = harness
+            .command_event(
+                "post_chain_update_draft",
+                update_draft_payload(
+                    channel_id,
+                    &chain_id,
+                    &stale_mutation,
+                    "chain-device-a",
+                    1,
+                    "stale",
+                    "must reject",
+                    1_900_000_000_000,
+                ),
+                "im:post_chain:draft",
+                Some(&stale_mutation),
+            )
+            .await?;
+        if data_string(&stale, &["errorCode", "error_code"]).as_deref()
+            != Some("CHAIN_REVISION_CONFLICT")
+        {
+            return Err(ChainRunError::Failed(format!(
+                "stale draft update did not expose CHAIN_REVISION_CONFLICT: {stale}"
+            )));
+        }
+        assert_mutation(&harness.actor.storage, &stale_mutation, "REJECTED").await?;
+        assert_chain_summary(&harness.actor.storage, &chain_id, "DRAFT", 0, 2).await?;
+
         let mutation = run_token("chain-publish");
         let event = harness
             .command_event(
                 "post_chain_publish",
-                publish_payload(channel_id, &chain_id, &mutation, "chain-device-a", 1),
+                publish_payload(channel_id, &chain_id, &mutation, "chain-device-a", 2),
                 "im:post_chain:publish",
                 Some(&mutation),
             )
@@ -323,13 +416,15 @@ async fn execute_publish(context: &AuthContext, channel_id: &str) -> Result<Valu
         let raw = harness
             .raw_event("im:post_chain:publish", &chain_id, Some(&mutation))
             .await?;
-        assert_chain_summary(&harness.actor.storage, &chain_id, "PUBLISHED", 0, 2).await?;
+        assert_chain_summary(&harness.actor.storage, &chain_id, "PUBLISHED", 0, 3).await?;
         assert_mutation(&harness.actor.storage, &mutation, "CONFIRMED").await?;
         Ok(json!({
             "chain_id": chain_id,
             "event_id": extract_id(&event, &["eventId", "event_id"]),
             "raw_ws_action": raw.pointer("/data/action"),
-            "checks": ["revision=2", "published", "raw_ws", "sqlite_mutation"]
+            "update_event": update.get("event"),
+            "stale_error": stale.pointer("/data/errorCode"),
+            "checks": ["draft_update", "draft_fields", "draft_idempotent_retry", "stale_revision_rejected", "revision=3", "published", "raw_ws", "sqlite_mutation"]
         }))
     }
     .await;
@@ -621,12 +716,47 @@ async fn execute_multi_device(
         if actor_entry != observer_entry {
             return Err(ChainRunError::Failed(format!("device entry mismatch: {actor_entry} != {observer_entry}")));
         }
+        let read_req_id = run_token("chain-device-late-join-get");
+        let observer_read = command_event_on(
+            &mut observer,
+            "post_chain_get",
+            get_payload(channel_id, &chain_id, "chain-device-b", &read_req_id, 20),
+            "im:read:result",
+            None,
+        )
+        .await?;
+        assert_read_success(&observer_read)?;
+        if extract_id(&observer_read, &["entryId", "entry_id"]).as_deref()
+            != Some(observer_entry.as_str())
+            || !contains_field_value(&observer_read, "text", "双设备同步")
+        {
+            return Err(ChainRunError::Failed(format!(
+                "observer late-join GET missing appended entry: {observer_read}"
+            )));
+        }
+        let reconcile_event = command_event_on(
+            &mut observer,
+            "post_chain_reconcile",
+            reconcile_payload(channel_id, &chain_id, &mutation, "chain-device-b"),
+            "im:post_chain:reconcile",
+            Some(&mutation),
+        )
+        .await?;
+        if data_string(&reconcile_event, &["clientMutationId", "client_mutation_id"])
+            .as_deref()
+            != Some(mutation.as_str())
+        {
+            return Err(ChainRunError::Failed(format!(
+                "observer reconcile returned wrong mutation: {reconcile_event}"
+            )));
+        }
         assert_chain_summary(&harness.actor.storage, &chain_id, "PUBLISHED", 1, 2).await?;
         assert_chain_summary(&observer.storage, &chain_id, "PUBLISHED", 1, 2).await?;
+        assert_mutation(&observer.storage, &mutation, "CONFIRMED").await?;
         scan_chain_row(&observer.storage, "chain_entry", "entry_id", &observer_entry)
             .await
             .map_err(ChainRunError::Failed)?;
-        Ok(json!({"chain_id": chain_id, "entry_id": actor_entry, "checks": ["two_helix_sessions", "same_event_entry", "actor_sqlite", "observer_sqlite"]}))
+        Ok(json!({"chain_id": chain_id, "entry_id": actor_entry, "late_join_read_req_id": read_req_id, "reconcile_mutation": mutation, "checks": ["two_helix_sessions", "same_event_entry", "late_join_get", "reconcile", "actor_sqlite", "observer_sqlite"]}))
     }
     .await;
     let observer_cleanup = observer.close().await;
@@ -789,6 +919,28 @@ async fn assert_chain_summary(
     Ok(())
 }
 
+/// 断言草稿字段已在 Helix 本地摘要投影中原子更新，避免只验证事件 payload。
+async fn assert_chain_draft_fields(
+    storage: &NativeStorage,
+    chain_id: &str,
+    title: &str,
+    description: &str,
+    deadline_at: i64,
+) -> Result<(), ChainRunError> {
+    let row = scan_chain_row(storage, "chain_summary", "chain_id", chain_id)
+        .await
+        .map_err(ChainRunError::Failed)?;
+    if row_text(&row, "title").as_deref() != Some(title)
+        || row_text(&row, "description").as_deref() != Some(description)
+        || row_i64(&row, "deadline_at") != Some(deadline_at)
+    {
+        return Err(ChainRunError::Failed(format!(
+            "chain draft fields mismatch: {row:?}"
+        )));
+    }
+    Ok(())
+}
+
 /// 断言单 mutation 的 CONFIRMED/REJECTED durable 状态。
 async fn assert_mutation(
     storage: &NativeStorage,
@@ -863,6 +1015,29 @@ fn publish_payload(
     json!({"channel_id": channel_id, "chain_id": chain_id, "expected_revision": revision, "client_mutation_id": mutation, "device_id": device_id})
 }
 
+/// 构造发布前草稿稀疏更新 payload，expectedRevision 由 Gate 显式控制。
+fn update_draft_payload(
+    channel_id: &str,
+    chain_id: &str,
+    mutation: &str,
+    device_id: &str,
+    revision: i64,
+    title: &str,
+    description: &str,
+    deadline_at: i64,
+) -> Value {
+    json!({
+        "channel_id": channel_id,
+        "chain_id": chain_id,
+        "title": title,
+        "description": description,
+        "deadline_at": deadline_at,
+        "expected_revision": revision,
+        "client_mutation_id": mutation,
+        "device_id": device_id
+    })
+}
+
 /// 构造 TEXT append payload，显式发送空 attachments 而不发送 categoryIds。
 fn append_payload(
     channel_id: &str,
@@ -897,6 +1072,20 @@ fn contains_key(value: &Value, key: &str) -> bool {
             .iter()
             .any(|(name, child)| name == key || contains_key(child, key)),
         Value::Array(items) => items.iter().any(|child| contains_key(child, key)),
+        _ => false,
+    }
+}
+
+/// 递归断言 authority 树中字段值，防止 read relay 只返回摘要而缺少正文。
+fn contains_field_value(value: &Value, key: &str, expected: &str) -> bool {
+    match value {
+        Value::Object(object) => object.iter().any(|(name, child)| {
+            (name == key && child.as_str() == Some(expected))
+                || contains_field_value(child, key, expected)
+        }),
+        Value::Array(items) => items
+            .iter()
+            .any(|child| contains_field_value(child, key, expected)),
         _ => false,
     }
 }

@@ -111,13 +111,17 @@ impl super::ImModule {
         authority: ChainAuthority,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if authority.event_id.as_ref().is_some_and(|event_id| {
-            self.state.seen_chain_event_ids.contains(event_id)
-                || self.state.pending_chain_event_ids.contains(event_id)
-        }) {
+        if request.command != "post_chain_reconcile"
+            && authority.event_id.as_ref().is_some_and(|event_id| {
+                self.state.seen_chain_event_ids.contains(event_id)
+                    || self.state.pending_chain_event_ids.contains(event_id)
+            })
+        {
             return Ok(());
         }
         if request.command != "post_chain_get"
+            && request.command != "post_chain_reconcile"
+            && request.command != "post_chain_update_draft"
             && authority.event_seq.is_none()
             && authority.revision > 0
             && self
@@ -166,10 +170,14 @@ impl super::ImModule {
             self.state.pending_chain_event_ids.insert(event_id.clone());
         }
         let corr = self.alloc_corr_internal();
-        let event_name = authority
-            .event_type
-            .clone()
-            .unwrap_or_else(|| request.command.clone());
+        let event_name = if request.command == "post_chain_reconcile" {
+            chain::success_event_name(&request.command).to_string()
+        } else {
+            authority
+                .event_type
+                .clone()
+                .unwrap_or_else(|| request.command.clone())
+        };
         self.state.corr_map.insert(
             corr,
             CorrelationContext::ChainPersist {

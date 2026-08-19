@@ -11,7 +11,8 @@
 //! cargo test -p helix-driver-native --test message_v3_domain -- --nocapture --test-threads=1
 //! ```
 //!
-//! 默认不读取环境变量。测试会自动寻找现有 `cses-client/.wdio/credentials.local.json`，
+//! 默认不读取环境变量；仅可用 `HELIX_MAIN_API_BASE` 覆盖登录服务 DNS，便于本地真实链
+//! 对齐 release 配置。测试会自动寻找现有 `cses-client/.wdio/credentials.local.json`，
 //! 登录三个共享租户账号；Go 8066、登录服务或对象存储不可达时显式失败为
 //! `BLOCKED_PRECONDITION/NOT_VERIFIED`，不会把 health 200、HTTP admission 或 fake WS 当成 PASS。
 
@@ -53,6 +54,14 @@ pub(crate) const MAIN_API_BASE: &str = "http://cses-server-paas25-test.cses.svc.
 pub(crate) const GO_HEALTH_URL: &str = "http://127.0.0.1:8066/api/cses/health";
 pub(crate) const CREDENTIALS_RELATIVE: &str =
     "angular/visual/cses-client/.wdio/credentials.local.json";
+
+/// 返回 driver-native 登录服务地址；默认沿用 pre 集群 DNS，只允许测试进程覆盖。
+pub(crate) fn main_api_base() -> String {
+    std::env::var("HELIX_MAIN_API_BASE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| MAIN_API_BASE.to_string())
+}
 
 pub(crate) static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 pub(crate) static AUTH_CONTEXT: OnceCell<Result<Arc<AuthContext>, String>> = OnceCell::const_new();
@@ -292,7 +301,7 @@ async fn start_real_helix_session_as_at(
     let mut im_config = ImConfig::default();
     im_config.ws_url = ws_url.to_string();
     im_config.api_base_url = http_base.to_string();
-    im_config.default_api_base_url = MAIN_API_BASE.to_string();
+    im_config.default_api_base_url = main_api_base();
     im_config.auth_user_id = persona.user_id.clone();
     im_config.company_id = persona.company_id.clone();
     im_config.user_name = persona.user_name.clone();
@@ -586,7 +595,8 @@ pub(crate) async fn login_account(
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "credential account has no mobile; skipping unusable account".to_string())?;
-    let http = anonymous_http(MAIN_API_BASE).await?;
+    let main_api_base = main_api_base();
+    let http = anonymous_http(&main_api_base).await?;
     for (name, value) in [
         ("appType", "bct"),
         ("device", "IOS"),
@@ -605,7 +615,7 @@ pub(crate) async fn login_account(
     let observation = request_json(
         &http,
         "POST",
-        &format!("{MAIN_API_BASE}/User/login"),
+        &format!("{main_api_base}/User/login"),
         Some(json!({ "userName": mobile, "password": account.password })),
         "login",
     )
@@ -1601,7 +1611,7 @@ pub(crate) async fn run_helix_send(
     let mut config = ImConfig::default();
     config.ws_url = GO_WS_URL.to_string();
     config.api_base_url = GO_HTTP_BASE.to_string();
-    config.default_api_base_url = MAIN_API_BASE.to_string();
+    config.default_api_base_url = main_api_base();
     config.auth_user_id = context.actor.user_id.clone();
     config.company_id = context.actor.company_id.clone();
     config.user_name = context.actor.user_name.clone();
@@ -1764,7 +1774,7 @@ pub(crate) async fn run_helix_send_failure(
     let mut config = ImConfig::default();
     config.ws_url = GO_WS_URL.to_string();
     config.api_base_url = GO_HTTP_BASE.to_string();
-    config.default_api_base_url = MAIN_API_BASE.to_string();
+    config.default_api_base_url = main_api_base();
     config.auth_user_id = context.actor.user_id.clone();
     config.company_id = context.actor.company_id.clone();
     config.send_timeout_ms = 2_000;

@@ -39,6 +39,7 @@ macro_rules! chain_command {
 }
 
 chain_command!(CreateChainCommand, "post_chain_create");
+chain_command!(UpdateChainDraftCommand, "post_chain_update_draft");
 chain_command!(PublishChainCommand, "post_chain_publish");
 chain_command!(AppendChainCommand, "post_chain_append");
 chain_command!(GetChainCommand, "post_chain_get");

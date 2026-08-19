@@ -11,6 +11,7 @@ use serde_json::{json, Map, Value};
 /// 文字接龙公开命令闭集；别名在 client_api 边界收敛到这些 canonical 名称。
 pub const COMMANDS: &[&str] = &[
     "post_chain_create",
+    "post_chain_update_draft",
     "post_chain_publish",
     "post_chain_append",
     "post_chain_get",
@@ -80,6 +81,9 @@ pub struct ChainSummary {
     pub channel_id: String,
     pub mode: String,
     pub status: String,
+    pub title: String,
+    pub description: String,
+    pub deadline_at: i64,
     pub total_messages: i64,
     pub participant_count: i64,
     pub last_seq: i64,
@@ -296,6 +300,19 @@ pub(crate) fn wire_body(command: &str, args: &Value) -> Result<(&'static str, Va
             copy_optional(&mut body, object, "description", "description");
             copy_optional(&mut body, object, "deadline_at", "deadlineAt");
             "post-chain/create"
+        }
+        "post_chain_update_draft" => {
+            copy_optional(&mut body, object, "title", "title");
+            copy_optional(&mut body, object, "description", "description");
+            copy_optional(&mut body, object, "deadline_at", "deadlineAt");
+            copy_required(
+                &mut body,
+                object,
+                "expected_revision",
+                "expectedRevision",
+                command,
+            )?;
+            "post-chain/update-draft"
         }
         "post_chain_publish" => {
             copy_optional(&mut body, object, "expected_revision", "expectedRevision");
@@ -552,6 +569,9 @@ pub(crate) fn persist_ops(
                 ("channel_id".to_string(), text(&summary.channel_id)),
                 ("mode".to_string(), text(&summary.mode)),
                 ("status".to_string(), text(&summary.status)),
+                ("title".to_string(), text(&summary.title)),
+                ("description".to_string(), text(&summary.description)),
+                ("deadline_at".to_string(), integer(summary.deadline_at)),
                 (
                     "total_messages".to_string(),
                     integer(summary.total_messages),
@@ -739,6 +759,7 @@ pub(crate) fn event_bytes(
 pub(crate) fn success_event_name(command: &str) -> &'static str {
     match command {
         "post_chain_create" => "im:post_chain:draft",
+        "post_chain_update_draft" => "im:post_chain:draft",
         "post_chain_publish" => "im:post_chain:publish",
         "post_chain_append" => "im:post_chain:upsert",
         "post_chain_get" => "im:post_chain:upsert",
@@ -797,6 +818,18 @@ fn validate_keys(command: &str, object: &Map<String, Value>) -> Result<(), ImErr
             "title",
             "description",
             "deadline_at",
+            "client_mutation_id",
+            "device_id",
+            "operation_id",
+            "req_id",
+        ],
+        "post_chain_update_draft" => &[
+            "channel_id",
+            "chain_id",
+            "title",
+            "description",
+            "deadline_at",
+            "expected_revision",
             "client_mutation_id",
             "device_id",
             "operation_id",
@@ -961,7 +994,9 @@ fn parse_authority(
     let event_seq = event
         .and_then(|item| find_u64(item, &["eventSeq", "event_seq"]).map(Seq))
         .or(response_event_seq)
-        .or_else(|| find_u64(value, &["eventSeq", "event_seq"]).map(Seq));
+        .or_else(|| find_u64(value, &["eventSeq", "event_seq"]).map(Seq))
+        // Reconcile/draft authority uses eventSeq=0 as an explicit non-channel-event marker.
+        .filter(|seq| seq.0 > 0);
     let event_type = event
         .and_then(|item| find_local_string(item, &["action", "eventType", "event_type"]))
         .or_else(|| find_string(value, &["eventType", "event_type", "action"]));
@@ -1130,6 +1165,9 @@ fn parse_summary(value: &Value, chain_id: &str, channel_id: &str) -> Option<Chai
         channel_id: string_or(value, &["channelId", "channel_id"], channel_id),
         mode: string_or(value, &["mode"], "TEXT"),
         status: string_or(value, &["status"], "DRAFT"),
+        title: string_or(value, &["title"], ""),
+        description: string_or(value, &["description"], ""),
+        deadline_at: integer_or(value, &["deadlineAt", "deadline_at"], 0),
         total_messages: integer_or(value, &["totalMessages", "total_messages"], 0),
         participant_count: integer_or(value, &["participantCount", "participant_count"], 0),
         last_seq: integer_or(value, &["lastSeq", "last_seq"], 0),
@@ -1199,6 +1237,9 @@ fn summary_value(value: &ChainSummary) -> Value {
         "channelId": value.channel_id,
         "mode": value.mode,
         "status": value.status,
+        "title": value.title,
+        "description": value.description,
+        "deadlineAt": value.deadline_at,
         "totalMessages": value.total_messages,
         "participantCount": value.participant_count,
         "lastSeq": value.last_seq,
@@ -1430,6 +1471,28 @@ mod tests {
         assert!(read_body.get("lastEventSeq").is_none());
     }
 
+    /// 草稿更新必须保持 TEXT 字段白名单并把乐观版本传给 Go authority。
+    #[test]
+    fn update_draft_wire_body_carries_patch_and_revision() {
+        let args = json!({
+            "channel_id": "channel-1",
+            "chain_id": "chain-1",
+            "title": "updated",
+            "description": "draft",
+            "deadline_at": 123,
+            "expected_revision": 1,
+            "client_mutation_id": "m-update",
+            "operation_id": "op-update"
+        });
+        let (path, body) = wire_body("post_chain_update_draft", &args).expect("update body");
+        assert_eq!(path, "post-chain/update-draft");
+        assert_eq!(body["title"], "updated");
+        assert_eq!(body["description"], "draft");
+        assert_eq!(body["deadlineAt"], 123);
+        assert_eq!(body["expectedRevision"], 1);
+        assert!(body.get("categoryIds").is_none());
+    }
+
     /// authority 编译必须同时落摘要、entry、window、viewer 与 mutation rows。
     #[test]
     fn authority_compiles_to_chain_projection_ops() {
@@ -1481,6 +1544,46 @@ mod tests {
         );
         assert_eq!(event["data"]["textWindow"]["tailEntryIds"], json!([]));
         assert!(event["data"].get("window").is_none());
+    }
+
+    /// reconcile/draft 的 eventSeq=0 只能表示本地权威，不得进入公共频道 cursor gate。
+    #[test]
+    fn zero_event_seq_is_not_a_channel_cursor() {
+        let request = ChainRequest {
+            command: "post_chain_reconcile".to_string(),
+            channel_id: "channel-1".to_string(),
+            chain_id: "chain-1".to_string(),
+            client_mutation_id: Some("m-1".to_string()),
+            operation_id: Some("op-1".to_string()),
+            device_id: Some("device-1".to_string()),
+            payload: json!({}),
+        };
+        let authority = parse_authority(
+            &json!({
+                "chainSummary": {
+                    "chainId": "chain-1",
+                    "channelId": "channel-1",
+                    "totalMessages": 1,
+                    "participantCount": 1,
+                    "lastSeq": 1,
+                    "revision": 2
+                },
+                "event": {
+                    "eventSeq": 0,
+                    "action": "im:post_chain:reconcile"
+                }
+            }),
+            &request,
+            None,
+            None,
+        )
+        .expect("reconcile authority");
+
+        assert_eq!(
+            authority.event_type.as_deref(),
+            Some("im:post_chain:reconcile")
+        );
+        assert!(authority.event_seq.is_none());
     }
 
     /// 拒绝事件不能写裸 chainId，但必须在 mutation 下保留可路由的聚合身份。

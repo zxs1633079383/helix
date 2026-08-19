@@ -21,7 +21,9 @@ crates/helix-driver-native/tests/messageV3-domain/Phase5/Chain/Text/CHAIN-TXT-G0
 
 共享 harness 从公开 `Tick::Command` 进入 `helix-im`，由真实 `NativeHttp`、`NativeTransport`、`NativeStorage`、`NativeEventSink` 驱动 18066。写 Gate 覆盖 Go HTTP CommonRes、`im:post_chain:*` raw WS、Helix projection、SQLite `chain_*` read-back 和 run-owned channel/SQLite 清理；查询 Gate 按 `req_id` 精确消费 `im:read:result`，避免把启动阶段其他读结果误认成接龙结果。G03 还检查双 append 的唯一 seq/entry 与 reconcile 幂等，TXT-G02 检查两个 Helix session 的同一 entry 和各自 SQLite。
 
-本地 SQLite 表已存在于当前 Helix HEAD 的 `crates/helix-im/src/schema.rs`：`chain_summary`、`chain_entry`、`chain_window`、`chain_mutation`、`chain_viewer` 及索引；本轮没有新增本地 DDL。
+本地 SQLite 表仍为 `chain_summary`、`chain_entry`、`chain_window`、`chain_mutation`、`chain_viewer` 及索引；本轮没有新增表，只为 `chain_summary` 增加 `title`、`description`、`deadline_at` 三个 additive 列及迁移，旧库可按已有重复列兼容策略升级。
+
+Go 已补齐 `POST /post-chain/update-draft`：在 PostgreSQL `chain` 行锁内校验 creator、DRAFT 状态和 `expectedRevision`，原子更新摘要及公告快照，重复 mutation 幂等返回，草稿更新不广播公共频道事件。`sql/008_chain_text.up.sql` 已在本地真实 PostgreSQL 执行并核对五张表、摘要字段和索引；本地 SQLite 不需要新增表结构。
 
 Docker 运行态复用此前 `make docker-up-clean` 拉起的容器：`cses-im-local-cses-im-server-1` 映射 `18066 -> 8066`，db/redis/pulsar healthy；host 8066 未被本轮占用。health 200 只记录可达，不作业务 Gate PASS。
 
@@ -33,7 +35,9 @@ cargo test -p helix-driver-native --test message_v3_domain phase5_chain_text -- 
 
 该命令可完成编译并运行 8 个 Gate；Gate 测试按照项目合同将真实前置缺失写入 `BLOCKED_PRECONDITION`，因此 cargo 的 `8 passed` 只表示 harness 没有 panic，最终账目必须读取 `artifacts/messagev3-phase5-real-chain/**/evidence.json`。本轮曾捕获并修正 raw WS action matcher（Go 顶层 action 是 `im:post_chain:*`，不是 `post_chain`），但当前复验因登录服务 `cses-server-paas25-test.cses.svc.cluster.local:3399` DNS 不可解析，无法取得三账号同租户上下文；最新证据应按 `BLOCKED_PRECONDITION` 处理，不能宣称 8 个真实业务 Gate 已 PASS。
 
-另外，当前 Go/Helix 基线尚未实现合同中列出的 `post_chain_update_draft` Command/HTTP route；因此 G02 当前验证的是 create→publish/revision/freeze 链，不能把“草稿编辑与 revision conflict”宣称为已完成 Gate。TXT-G02 当前验证双 Helix session 的实时同一 Entry 与 SQLite 对账，`post_chain_get` 晚加入补齐和未知结果 `post_chain_reconcile` 仍需登录服务恢复后补齐断言。
+登录服务 DNS 不是 Go IM 服务提供：Angular 的 canonical pre 地址来自 `release.json` 的 `cses-server-paas25-test.cses.svc.cluster.local:3399`，本地测试可用 `HELIX_MAIN_API_BASE` 覆盖为可解析的 Java CSES 地址；Go 18066 只提供接龙 HTTP/WS。driver-native 默认仍使用 canonical pre DNS，覆盖变量只用于测试前置，不能把 DNS 不可解析归因于 Go 链路。
+
+CHAIN-COM-G02 已完成草稿编辑、字段落库、同 mutation 幂等重试、旧 revision 冲突拒绝、publish revision=3、raw WS 和 SQLite mutation 断言；CHAIN-TXT-G02 已完成双 Helix session、同一 entry、late-join `post_chain_get`、`post_chain_reconcile`、actor/observer SQLite 对账。reconcile/draft 的 `eventSeq=0` 被明确视为非公共频道序号，不再误入 channel cursor gate。
 
 ## 本轮交付
 
@@ -75,6 +79,16 @@ go vet ./...
 ```
 
 ## 证据状态
+
+本轮最新 Phase5 真实证据：
+
+```text
+CHAIN-COM-G02: PASS（draft_update、draft_fields、draft_idempotent_retry、stale_revision_rejected、published、raw_ws、sqlite_mutation）
+CHAIN-TXT-G01: PASS（mode=TEXT、no_category_ids、head_tail_window、sqlite_entry）
+CHAIN-TXT-G02: PASS（two_helix_sessions、same_event_entry、late_join_get、reconcile、actor_sqlite、observer_sqlite）
+```
+
+对应证据位于 `artifacts/messagev3-phase5-real-chain/**/Phase5/Chain/Text/CHAIN-TXT-G0{1,2}/evidence.json`；必须以 `status` 字段为准，不能只看 cargo 的退出码。
 
 按每个注册 Gate 选择最新 `artifacts/messagev3-phase1-4-real-chain/**/evidence.json` 后：
 

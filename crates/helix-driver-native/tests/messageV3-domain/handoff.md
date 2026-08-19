@@ -33,6 +33,8 @@ cargo test -p helix-driver-native --test message_v3_domain phase5_chain_text -- 
 
 该命令可完成编译并运行 8 个 Gate；Gate 测试按照项目合同将真实前置缺失写入 `BLOCKED_PRECONDITION`，因此 cargo 的 `8 passed` 只表示 harness 没有 panic，最终账目必须读取 `artifacts/messagev3-phase5-real-chain/**/evidence.json`。本轮曾捕获并修正 raw WS action matcher（Go 顶层 action 是 `im:post_chain:*`，不是 `post_chain`），但当前复验因登录服务 `cses-server-paas25-test.cses.svc.cluster.local:3399` DNS 不可解析，无法取得三账号同租户上下文；最新证据应按 `BLOCKED_PRECONDITION` 处理，不能宣称 8 个真实业务 Gate 已 PASS。
 
+另外，当前 Go/Helix 基线尚未实现合同中列出的 `post_chain_update_draft` Command/HTTP route；因此 G02 当前验证的是 create→publish/revision/freeze 链，不能把“草稿编辑与 revision conflict”宣称为已完成 Gate。TXT-G02 当前验证双 Helix session 的实时同一 Entry 与 SQLite 对账，`post_chain_get` 晚加入补齐和未知结果 `post_chain_reconcile` 仍需登录服务恢复后补齐断言。
+
 ## 本轮交付
 
 本轮完成了用户指定的两批共 18 个 Gate：

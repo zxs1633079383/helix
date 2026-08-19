@@ -21,6 +21,7 @@ use crate::metrics::{
     AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels, NoopMetricSink,
 };
 use crate::tick_ingress::TickIngressSender;
+use crate::trace::TraceCarrier;
 
 // URL/header 工具裂分到 sibling（按职责，structure-gate §1）。`use *` 复用 6 个 pub(super) helper。
 #[path = "network_util.rs"]
@@ -43,9 +44,14 @@ pub(crate) enum InboundTickSender {
 
 impl InboundTickSender {
     async fn send(&self, tick: Tick) -> Result<(), Tick> {
+        self.send_with_trace(tick, None).await
+    }
+
+    /// 将 WS envelope 中提取的 carrier 与入站 Tick 一起送入 stamped ingress。
+    async fn send_with_trace(&self, tick: Tick, carrier: Option<TraceCarrier>) -> Result<(), Tick> {
         match self {
             Self::Raw(tx) => tx.send(tick).await.map_err(|error| error.0),
-            Self::Stamped(tx) => tx.send(tick).await,
+            Self::Stamped(tx) => tx.send_with_trace(tick, carrier).await,
         }
     }
 }
@@ -329,8 +335,9 @@ impl SharedWsClient {
                     // 读任务独立持 stream 半边、不碰 send 锁，故不与 send 抢锁（A2）。
                     Some((_, tick_tx)) => match frame {
                         Ok(bytes) => {
+                            let carrier = TraceCarrier::from_ws_frame(&bytes);
                             if tick_tx
-                                .send(Tick::Inbound(InboundBytes(bytes)))
+                                .send_with_trace(Tick::Inbound(InboundBytes(bytes)), carrier)
                                 .await
                                 .is_err()
                             {

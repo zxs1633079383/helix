@@ -7,13 +7,16 @@ use tokio::sync::mpsc;
 use crate::metrics::{
     AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels, NoopMetricSink,
 };
+use crate::trace::TraceCarrier;
 
+/// 将 Tick、入队等待起点和可选 trace carrier 作为一个不可拆分的入站元素。
 struct StampedTick {
     tick: Tick,
     enqueued_at: Instant,
+    carrier: Option<TraceCarrier>,
 }
 
-/// 生产 tick 入站发送端：时间戳和 Tick 同在一个有界 mpsc 元素内。
+/// 生产 tick 入站发送端：时间戳、Tick 和可选 carrier 同在一个有界 mpsc 元素内。
 ///
 /// `reserve` 成功后才取时间戳，因此等待值严格表示“实际入队 → engine 消费”；
 /// 不增加旁路队列，也不改变原 channel 容量和背压点。
@@ -44,7 +47,17 @@ pub fn tick_ingress_channel_observed(
 }
 
 impl TickIngressSender {
+    /// 兼容无 trace carrier 的业务入站，统一复用带上下文的发送路径。
     pub async fn send(&self, tick: Tick) -> Result<(), Tick> {
+        self.send_with_trace(tick, None).await
+    }
+
+    /// 将可选 WS trace carrier 与 Tick 原子放入同一个有界元素，避免旁路队列错配。
+    pub async fn send_with_trace(
+        &self,
+        tick: Tick,
+        carrier: Option<TraceCarrier>,
+    ) -> Result<(), Tick> {
         let started = self.metrics.is_enabled().then(Instant::now);
         let kind = tick_kind(&tick);
         let is_command = matches!(tick, Tick::Command(_));
@@ -58,12 +71,23 @@ impl TickIngressSender {
         permit.send(StampedTick {
             tick,
             enqueued_at: Instant::now(),
+            carrier,
         });
         self.record_accepted(kind, is_command, started);
         Ok(())
     }
 
+    /// 兼容无 trace carrier 的非阻塞入站，保持原有队列语义。
     pub fn try_send(&self, tick: Tick) -> Result<(), mpsc::error::TrySendError<Tick>> {
+        self.try_send_with_trace(tick, None)
+    }
+
+    /// 非阻塞版本的带 carrier 入站；队满时 carrier 随 Tick 一起返回，绝不泄漏。
+    pub(crate) fn try_send_with_trace(
+        &self,
+        tick: Tick,
+        carrier: Option<TraceCarrier>,
+    ) -> Result<(), mpsc::error::TrySendError<Tick>> {
         let started = self.metrics.is_enabled().then(Instant::now);
         let kind = tick_kind(&tick);
         let is_command = matches!(tick, Tick::Command(_));
@@ -81,6 +105,7 @@ impl TickIngressSender {
         permit.send(StampedTick {
             tick,
             enqueued_at: Instant::now(),
+            carrier,
         });
         self.record_accepted(kind, is_command, started);
         Ok(())
@@ -149,21 +174,25 @@ fn tick_kind(tick: &Tick) -> &'static str {
 }
 
 impl TickIngressReceiver {
-    pub(crate) async fn recv(&mut self) -> Option<(Tick, Duration)> {
+    /// 接收一个带入队等待时间和可选 trace carrier 的 stamped Tick。
+    pub async fn recv(&mut self) -> Option<(Tick, Duration, Option<TraceCarrier>)> {
         self.rx
             .recv()
             .await
-            .map(|item| (item.tick, item.enqueued_at.elapsed()))
+            .map(|item| (item.tick, item.enqueued_at.elapsed(), item.carrier))
     }
 
     pub(crate) fn len(&self) -> usize {
         self.rx.len()
     }
 
-    pub(crate) fn try_recv(&mut self) -> Result<(Tick, Duration), mpsc::error::TryRecvError> {
+    /// 非阻塞接收 stamped Tick，并原子取出同一元素上的 carrier。
+    pub fn try_recv(
+        &mut self,
+    ) -> Result<(Tick, Duration, Option<TraceCarrier>), mpsc::error::TryRecvError> {
         self.rx
             .try_recv()
-            .map(|item| (item.tick, item.enqueued_at.elapsed()))
+            .map(|item| (item.tick, item.enqueued_at.elapsed(), item.carrier))
     }
 
     pub(crate) fn max_capacity(&self) -> usize {
@@ -200,10 +229,13 @@ pub(crate) enum EngineTickReceiver {
 }
 
 impl EngineTickReceiver {
-    pub(crate) async fn recv(&mut self) -> Option<(Tick, Option<Duration>)> {
+    pub(crate) async fn recv(&mut self) -> Option<(Tick, Option<Duration>, Option<TraceCarrier>)> {
         match self {
-            Self::Raw(rx) => rx.recv().await.map(|tick| (tick, None)),
-            Self::Stamped(rx) => rx.recv().await.map(|(tick, wait)| (tick, Some(wait))),
+            Self::Raw(rx) => rx.recv().await.map(|tick| (tick, None, None)),
+            Self::Stamped(rx) => rx
+                .recv()
+                .await
+                .map(|(tick, wait, carrier)| (tick, Some(wait), carrier)),
         }
     }
 
@@ -216,10 +248,12 @@ impl EngineTickReceiver {
 
     pub(crate) fn try_recv(
         &mut self,
-    ) -> Result<(Tick, Option<Duration>), mpsc::error::TryRecvError> {
+    ) -> Result<(Tick, Option<Duration>, Option<TraceCarrier>), mpsc::error::TryRecvError> {
         match self {
-            Self::Raw(rx) => rx.try_recv().map(|tick| (tick, None)),
-            Self::Stamped(rx) => rx.try_recv().map(|(tick, wait)| (tick, Some(wait))),
+            Self::Raw(rx) => rx.try_recv().map(|tick| (tick, None, None)),
+            Self::Stamped(rx) => rx
+                .try_recv()
+                .map(|(tick, wait, carrier)| (tick, Some(wait), carrier)),
         }
     }
 
@@ -235,9 +269,30 @@ impl EngineTickReceiver {
 mod tests {
     use super::*;
     use crate::metrics::RecordOutcome;
+    use crate::trace::TraceCarrier;
     use helix_core::effect::TimerId;
     use helix_core::tick::AppCommand;
     use std::sync::Mutex;
+
+    /// WS 入站 carrier 必须和 Tick 在同一有界队列元素中保持顺序。
+    #[tokio::test]
+    async fn stamped_ingress_preserves_ws_trace_carrier() {
+        let (tx, mut rx) = tick_ingress_channel(1);
+        let carrier = TraceCarrier::from_json_str(
+            r#"{"traceparent":"00-00000000000000000000000000000001-0000000000000002-01"}"#,
+        )
+        .expect("carrier");
+
+        tx.send_with_trace(
+            Tick::Inbound(helix_core::tick::InboundBytes::from_static(b"{}")),
+            Some(carrier.clone()),
+        )
+        .await
+        .expect("ingress send");
+
+        let (_, _, received) = rx.recv().await.expect("stamped tick");
+        assert_eq!(received, Some(carrier));
+    }
 
     #[derive(Default)]
     struct RecordingMetricSink(Mutex<Vec<MetricEvent>>);
@@ -261,7 +316,7 @@ mod tests {
             Err(mpsc::error::TrySendError::Full(_))
         ));
         tokio::time::sleep(Duration::from_millis(5)).await;
-        let (_, wait) = rx.recv().await.expect("stamped tick");
+        let (_, wait, _) = rx.recv().await.expect("stamped tick");
         assert!(wait >= Duration::from_millis(5));
         assert_eq!(rx.max_capacity(), 1, "stamping 不得引入第二缓冲区");
     }

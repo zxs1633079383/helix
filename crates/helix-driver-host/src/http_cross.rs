@@ -160,12 +160,18 @@ where
                 full_debug_http_attributes(runtime, &prepared),
             )
         });
-        let response_parent = request_scope
-            .as_ref()
-            .and_then(HostSpanScope::child_carrier)
-            .or_else(|| carrier.clone());
-
         let outcome = self.inner.request(prepared).await;
+        // 优先使用 Go 响应携带的服务端 Span；没有响应头时仍回退到本地 request child。
+        let response_parent = match &outcome {
+            Ok(response) => TraceCarrier::from_response_headers(&response.headers),
+            Err(_) => None,
+        }
+        .or_else(|| {
+            request_scope
+                .as_ref()
+                .and_then(HostSpanScope::child_carrier)
+        })
+        .or_else(|| carrier.clone());
         let _response_scope = match &outcome {
             Ok(response) => self.otel.as_ref().map(|runtime| {
                 let mut attributes =

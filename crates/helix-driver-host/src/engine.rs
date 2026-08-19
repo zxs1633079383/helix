@@ -214,7 +214,7 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
         } else {
             None
         };
-        let (tick, queue_wait) = if let Some(queued) = forced_ingress {
+        let (tick, queue_wait, ingress_carrier) = if let Some(queued) = forced_ingress {
             queued
         } else {
             tokio::select! {
@@ -224,7 +224,7 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
                 Some(feedback) = reply_rx.recv() => {
                     let wait = feedback.enqueued_at.elapsed();
                     perf_metrics.on_feedback_dequeued(&feedback.tick, wait, reply_rx.len());
-                    (feedback.tick, None)
+                    (feedback.tick, None, None)
                 },
 
                 // 紧随回灌：transport 注册（连接成功后投递的句柄进表）。
@@ -316,7 +316,12 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
         let (parent_tick_id, inherited_carrier, inherited_span_parent) =
             lifecycle_tracker.parent_for_tick(&tick);
         let context = trace
-            .context_for_tick(&tick, tick_id, parent_tick_id, inherited_carrier)
+            .context_for_tick(
+                &tick,
+                tick_id,
+                parent_tick_id,
+                ingress_carrier.or(inherited_carrier),
+            )
             .with_capability(LifecycleCapability::Http, true)
             .with_capability(LifecycleCapability::Persist, true)
             .with_capability(LifecycleCapability::Effect, true)

@@ -34,6 +34,73 @@ fn trace_carrier_parses_w3c_json() {
     assert!(carrier.raw_json.as_deref().unwrap().contains("traceparent"));
 }
 
+/// WS envelope 的 tracing carrier 必须能进入 host ingress，而不是停留在业务 data 中。
+#[test]
+fn trace_carrier_extracts_w3c_parent_from_ws_envelope() {
+    let carrier = TraceCarrier::from_ws_frame(
+        br#"{"v":1,"action":"post","tracing":{"traceparent":"00-00000000000000000000000000000001-0000000000000002-01","csesTrackId":"track-1"}}"#,
+    )
+    .expect("valid WS tracing envelope");
+
+    assert_eq!(
+        carrier.traceparent.as_deref(),
+        Some("00-00000000000000000000000000000001-0000000000000002-01")
+    );
+}
+
+/// WS 入站的 T1 根 Span 必须沿用 envelope 的 trace id，而不是重新起根 Trace。
+#[test]
+fn ws_envelope_carrier_keeps_t1_trace_id() {
+    let runtime = HostOtelRuntime::new(HostOtelConfig {
+        enabled: true,
+        service_name: "helix-test".to_string(),
+        endpoint: "noop".to_string(),
+        protocol: "noop".to_string(),
+    });
+    let hooks = TraceHooks::noop().with_otel(runtime.clone());
+    let carrier = TraceCarrier::from_ws_frame(
+        br#"{"tracing":{"traceparent":"00-00000000000000000000000000000001-0000000000000002-01"}}"#,
+    )
+    .expect("valid WS tracing envelope");
+    let tick = Tick::Inbound(helix_core::tick::InboundBytes::from_static(b"{}"));
+    let context = hooks.context_for_tick(&tick, 17, None, Some(carrier));
+
+    let (_scope, _) = hooks.start_tick_with_context(&tick, &context);
+
+    assert_eq!(
+        runtime.last_span_for_test().and_then(|span| span.trace_id),
+        Some("00000000000000000000000000000001".to_string())
+    );
+}
+
+/// 跨 Tick 续接时，已保存的内部 T1 parent 必须优先于空的外部 carrier。
+#[test]
+fn inherited_span_parent_keeps_t1_trace_id_across_tick_roots() {
+    let runtime = HostOtelRuntime::new(HostOtelConfig {
+        enabled: true,
+        service_name: "helix-test".to_string(),
+        endpoint: "noop".to_string(),
+        protocol: "noop".to_string(),
+    });
+    let hooks = TraceHooks::noop().with_otel(runtime);
+    let parent = TraceCarrier::from_json_str(
+        r#"{"traceparent":"00-00000000000000000000000000000001-0000000000000002-01"}"#,
+    )
+    .expect("valid parent carrier");
+    let tick = Tick::Inbound(helix_core::tick::InboundBytes::from_static(b"{}"));
+    let context = LifecycleContext::new(18, None, None).with_span_parent(Some(parent));
+
+    let (_scope, updated) = hooks.start_tick_with_context(&tick, &context);
+
+    assert_eq!(
+        updated
+            .span_parent()
+            .and_then(|carrier| carrier.traceparent.as_deref())
+            .and_then(parse_trace_id),
+        Some("00000000000000000000000000000001".to_string())
+    );
+}
+
 #[test]
 fn trace_carrier_rejects_invalid_w3c_traceparent_json() {
     for traceparent in [
@@ -111,6 +178,25 @@ fn trace_carrier_drops_invalid_or_oversized_headers() {
         ),
     ];
     assert_eq!(TraceCarrier::from_headers(&oversized), None);
+}
+
+/// HTTP 响应使用独立头名，不能误把请求头的 traceparent 作为服务端 Span。
+#[test]
+fn trace_carrier_parses_response_traceparent_header() {
+    let carrier = TraceCarrier::from_response_headers(&[
+        (
+            "X-CSES-Traceparent".to_string(),
+            "00-00000000000000000000000000000001-0000000000000002-01".to_string(),
+        ),
+        ("baggage".to_string(), "tenant=im".to_string()),
+    ])
+    .expect("response carrier");
+
+    assert_eq!(
+        carrier.traceparent.as_deref(),
+        Some("00-00000000000000000000000000000001-0000000000000002-01")
+    );
+    assert_eq!(carrier.baggage.as_deref(), Some("tenant=im"));
 }
 
 #[test]

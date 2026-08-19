@@ -142,13 +142,14 @@ impl TraceHooks {
         self.start_tick_with_context(tick, context).0
     }
 
-    /// 创建 T1 根及其本地 core step，并返回带内部 parent 的不可变 Tick context。
+    /// 创建 T1 根及其本地 core step，并优先复用已保存的内部 parent，避免跨 Tick 重新开 Trace。
     pub fn start_tick_with_context(
         &self,
         tick: &Tick,
         context: &LifecycleContext,
     ) -> (TraceScope, LifecycleContext) {
         let carrier = context.carrier().cloned();
+        let span_parent = context.otel_parent().cloned();
         let scope = self.inner.on_tick_start(tick, carrier.clone());
         let Some(runtime) = self.otel.as_ref() else {
             return (scope, context.clone());
@@ -165,7 +166,7 @@ impl TraceHooks {
         let root_scope = runtime.span_with_owned_name(
             tick_root_span_name(tick),
             TraceDirection::Internal,
-            carrier.as_ref(),
+            span_parent.as_ref(),
             root_attributes,
         );
         let root_child_parent = root_scope.child_carrier();

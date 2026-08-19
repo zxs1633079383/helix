@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const TRACE_CARRIER_JSON_MAX_BYTES: usize = 16 * 1024;
@@ -77,6 +77,45 @@ impl TraceCarrier {
             raw_json: None,
         })
     }
+
+    /// 从 Go HTTP 响应的 `X-CSES-Traceparent` 读取服务端 Span 上下文。
+    pub fn from_response_headers(headers: &[(String, String)]) -> Option<Self> {
+        let traceparent = headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("x-cses-traceparent"))
+            .and_then(|(_, value)| bounded_traceparent(value));
+        let baggage = headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("baggage"))
+            .and_then(|(_, value)| bounded_baggage(value));
+
+        if traceparent.is_none() && baggage.is_none() {
+            return None;
+        }
+
+        Some(Self {
+            traceparent,
+            baggage,
+            raw_json: None,
+        })
+    }
+
+    /// 从 Go WS envelope 的顶层 `tracing` carrier 提取 W3C 上下文。
+    ///
+    /// 只解析有界 JSON 和标准 traceparent/baggage；业务 data、track id 与消息正文不进入
+    /// OTel carrier，避免把业务关联字段误当成 trace context。
+    pub fn from_ws_frame(frame: &[u8]) -> Option<Self> {
+        if frame.len() > TRACE_CARRIER_JSON_MAX_BYTES {
+            return None;
+        }
+        let envelope = serde_json::from_slice::<WsEnvelopeWire>(frame).ok()?;
+        let tracing = envelope.tracing?;
+        if tracing.traceparent.is_none() && tracing.baggage.is_none() {
+            return None;
+        }
+        let raw = serde_json::to_string(&tracing).ok()?;
+        Self::from_json_str(&raw).ok()
+    }
 }
 
 #[derive(Debug, Error)]
@@ -93,12 +132,18 @@ pub enum TraceCarrierError {
     InvalidTraceparent,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct TraceCarrierWire {
     #[serde(default)]
     traceparent: Option<String>,
     #[serde(default)]
     baggage: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WsEnvelopeWire {
+    #[serde(default)]
+    tracing: Option<TraceCarrierWire>,
 }
 
 pub(crate) fn parse_trace_id(traceparent: &str) -> Option<String> {

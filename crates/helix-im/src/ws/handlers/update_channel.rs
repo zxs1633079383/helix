@@ -38,10 +38,7 @@ fn normalize_owner_projection(channel: &mut serde_json::Value) {
     else {
         return;
     };
-    owner.insert(
-        "userId".to_string(),
-        serde_json::Value::String(owner_id),
-    );
+    owner.insert("userId".to_string(), serde_json::Value::String(owner_id));
 }
 
 /// 判断 update_channel 是否携带成员视角的置顶绝对态。

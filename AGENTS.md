@@ -109,6 +109,38 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 > 配套「共享编译缓存」：helix 是非 Tauri 纯 Rust → 用 **sccache**（artifact 缓存·分支无关·不 thrash）；
 > **禁 `CARGO_TARGET_DIR` 跨 worktree 共享**（不同分支不同代码 → 来回切全量重编，反向变慢，见全局 performance.md）。
 
+### 3.2 每个新增 Command 的 TDD 前置与生命周期闸门（强制）
+
+新增或修改任何业务 `Command` 前，必须先在公开 seam 写出会失败的测试，再实现最小代码；禁止先写生产实现、最后补一个只验证 Effect 形状的测试。TDD 循环固定为：
+
+```text
+契约/生命周期表 → 红（focused test 必须先失败）
+→ 绿（只实现当前切片）→ 重跑成功路径与失败路径
+→ 重构 → 生命周期/证据复核
+```
+
+每个 Command 必须登记以下内容（缺一项不得称为完成）：
+
+- **入口**：command 名称、payload/schema、调用方和 `Tick::Command`/公开 handler seam；
+- **分类**：本地确定性、远程读、远程写、WS/事件驱动；不适用的生命周期阶段必须明确写 `N/A`，不能省略；
+- **成功终态**：明确的 `DomainEvent`/result、持久化状态或确定性 Effect；
+- **失败终态**：输入校验、HTTP/WS/PortError、业务 `status != SUCCESS`、Persist 错误、超时和取消各自的终态；
+- **关联与清理**：`corr`/`req_id`/temporary id 的注册、回灌、重复/迟到响应幂等，以及 `pending`、timer、`corr_map`、worker/WS 的释放；
+- **证据等级**：focused、local integration、real Go/native chain、UI/DOM 等级分开记录，不互相替代。
+
+最低测试集合：
+
+1. 路由与有效输入：Command 能被公开入口接收，并产生契约规定的第一批 Effect；
+2. 非法输入与未知命令：fail-closed，不产生伪成功或残留 pending；
+3. 成功生命周期：每个异步 Effect 都有对应 PortReply/Inbound 回灌，只有达到真实终态后才 Emit success/result；
+4. 失败生命周期：HTTP/WS/业务失败、Persist 失败、timeout 至少各有可证伪断言；
+5. 幂等与顺序：重复、迟到、断线后回灌不能重复 Emit、重复写入或倒退状态；
+6. 资源生命周期：成功、失败、超时、取消后均无 `corr_map`/pending/timer/transport 泄漏；
+7. 真实边界（适用于触达外部服务的 Command）：同轮保留 HTTP/WS、Helix projection、SQLite/持久化和 EventSink 证据；
+8. 清理：测试只清理本轮 run-owned 资源，不能 truncate 共享库或把 health/HTTP 200 作为业务 PASS。
+
+`helix-im` 的 focused seam、Command/PortReply 规则由 [`crates/helix-im/tests/AGENTS.md`](crates/helix-im/tests/AGENTS.md) 继续约束；Native 真实链和 G01a 八步模板由 [`crates/helix-driver-native/tests/AGENTS.md`](crates/helix-driver-native/tests/AGENTS.md) 约束。任何新增 Command 如果没有对应生命周期测试、失败测试和清理证据，状态只能是 `PARTIAL`/`BLOCKED`，不得合并为 Green。
+
 ---
 
 ## 4. 长运行任务约束 / Harness Engineering

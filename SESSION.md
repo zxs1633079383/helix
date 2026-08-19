@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 将新增 Command 的 TDD 前置与完整生命周期固化到根 `AGENTS.md` 和 `crates/helix-driver-native/tests/AGENTS.md`；可证伪断言：① 每个新 Command 明确入口、分类、成功/失败终态、corr/req_id/pending/timer 清理和证据等级；② Native 测试规则固定 G01a 八步并要求 focused red→green、真实 HTTP/WS（适用时）、本地持久化/read-back、terminal EventSink 与 cleanup；③ 不修改业务实现、不把 HTTP 200/health/mock/replay 冒充 PASS；④ 两份 AGENTS 链接、章节、`git diff --check` 通过 | 赌注 中 | 可逆 是 | @2026-08-19T
+
+✅ DONE 根 `AGENTS.md` 已增加每个 Command 的 TDD 前置、成功/失败/幂等/清理最低集合；新增 Native tests `AGENTS.md` 固化 G01a 八步、命令分类、真实边界、证据字段和反模式；`git diff --check`、章节/路径检查通过，未修改业务代码、未运行 Cargo，既有 `update_channel.rs` 与 `artifacts/` 脏改动保持原样 | @2026-08-19T
+
 🎯 EXPECT 完成 `IMAGE → RICH` 新写硬切并接通 PC/Mobile：可证伪断言：① Helix/Go 接受旧入站 `IMAGE` 时只规范化为 `RICH`，任何新 DB/WS/发送事实不再产出 `IMAGE`；② PC 图片与图片+视频选择合并为单条 `RICH props.files`，渲染端按文件 MIME 在同一网格显示图片或视频，同时保留历史 `IMAGE` 只读渲染；③ Mobile FFI 的 rich 回执只接受正式 `RICH`；④ 不改 TEMPLATE/IMAGE 子类型、不做数据库 DDL/历史行迁移、不改 Cloud-eye 通用历史索引语义；⑤ 聚焦测试、构建、diff check 与 Helix 热路径审计通过 | 赌注 高 | 可逆 是 | @2026-08-14T12:00:00+08:00
 
 ✅ DONE `IMAGE → RICH` 新写硬切已完成：Helix 在发送构造和上传规划入口把旧 IMAGE 归一为 RICH，并让同一 `props.files` 按顺序承载图片/视频；Go 在 producer 与 consumer 两个入口归一积压 IMAGE，正式 Ent 枚举只保留 RICH；PC 选择层、上传、投影、渲染、摘要与 E2E G01c/G03c 合同统一 RICH，历史 IMAGE 仅保留读取渲染；Mobile QuickJS/C++ 改用 `RICH props.files` 并按正式 RICH 回执结算。Helix 聚焦用例与 check、Go 相关包测试/build/vet、PC 聚焦 Jest/66 条 WDIO 合同/build、Mobile 3 条聚焦 GTest、Cloud-eye PostEntryTest 和五仓 diff check 通过；未执行数据库 DDL、历史行迁移、真实设备或真实 HTTP/WS/DB 全链 | @2026-08-14T18:45:00+0800

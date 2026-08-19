@@ -13,6 +13,7 @@
 ## Repo-local Skills
 
 - `$helix-command-driver-host-test`（`.agents/skills/helix-command-driver-host-test/SKILL.md`）：为新增或修改 Command 接入 `helix-driver-host`/Native real-chain 测试，按 TDD、共享 adapter、证据分层和 run-owned 清理执行。
+- `$messagev3-cross-layer-emit-diagnosis`（`.agents/skills/messagev3-cross-layer-emit-diagnosis/SKILL.md`）：沿 Angular → Ipc → Helix → Go HTTP/WS → Persist/Projection → EventSink → Angular 逐跳定位事件或字段丢失，并指导 TDD 修复与证据分层。
 
 ## Helix 特殊边界
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "MessageV3 跨层 Emit 排查"
+  short_description: "沿 Angular 到 Go WS 逐跳定位事件丢失"
+  default_prompt: "使用 $messagev3-cross-layer-emit-diagnosis 逐跳定位 MessageV3 事件为何没有到达 Angular。"

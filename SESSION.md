@@ -1,3 +1,5 @@
+🎯 EXPECT 在 `helix-driver-native` 新增 Phase5/Chain/Common 与 Phase5/Chain/Text 的 8 个文字接龙 Gate 入口并注册到 `message_v3_domain`；可证伪断言：① `CHAIN-COM-G01..G06` 与 `CHAIN-TXT-G01..G02` 每个都有独立 `main.rs`，不存在仅用静态注册冒充通过；② 真实测试从公开 Command 入口验证 HTTP/WS、Helix projection、SQLite durable read-back、Native EventSink 和清理；③ `helix-driver-host` 不承载文字接龙业务 reducer；④ 本地 SQLite 若缺 chain 表，只补最小 schema/migration；⑤ Go 通过 `make docker-up-clean` 运行在 18066，所有缺失真实前置明确写 `BLOCKED_PRECONDITION`/`NOT_VERIFIED`，不伪造 PASS | 赌注 高 | 可逆 是 | @2026-08-19T
+
 ## EXPECT（2026-07-24：G02/G04/G05/G06/G07/G08/G10/G13/G14/G15 FrameV2 全 GN 文档）
 
 - 产出根级字段与验收总索引，以及 10 个 GN 各自的字段类图、主链路时序、Frame 接受值、字段级合同、三端验收合同与 handoff。

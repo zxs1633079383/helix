@@ -1,5 +1,5 @@
-//! MessageV3 Phase1-4 按 Phase→Domain→Gate 拆分的真实 Rust 集成测试入口。
-//! 84 个 Gate 全部默认执行真实适配器探测；缺少真实前置时写
+//! MessageV3 Phase1-4 与 Phase5 Chain/Text 按 Phase→Domain→Gate 拆分的真实 Rust 集成测试入口。
+//! 84 个既有 Gate 加 8 个文字接龙 Gate 全部默认执行真实适配器探测；缺少真实前置时写
 //! `BLOCKED_PRECONDITION`/`NOT_VERIFIED`/`NOT_APPLICABLE` 证据，不以 `#[ignore]` 掩盖缺口。
 
 #[path = "messageV3-domain/shared/mod.rs"]
@@ -173,3 +173,20 @@ mod phase4_todo_g15b;
 mod phase4_todo_g15c;
 #[path = "messageV3-domain/Phase4/Todo/G15d/main.rs"]
 mod phase4_todo_g15d;
+
+#[path = "messageV3-domain/Phase5/Chain/Common/CHAIN-COM-G01/main.rs"]
+mod phase5_chain_text_com_g01;
+#[path = "messageV3-domain/Phase5/Chain/Common/CHAIN-COM-G02/main.rs"]
+mod phase5_chain_text_com_g02;
+#[path = "messageV3-domain/Phase5/Chain/Common/CHAIN-COM-G03/main.rs"]
+mod phase5_chain_text_com_g03;
+#[path = "messageV3-domain/Phase5/Chain/Common/CHAIN-COM-G04/main.rs"]
+mod phase5_chain_text_com_g04;
+#[path = "messageV3-domain/Phase5/Chain/Common/CHAIN-COM-G05/main.rs"]
+mod phase5_chain_text_com_g05;
+#[path = "messageV3-domain/Phase5/Chain/Common/CHAIN-COM-G06/main.rs"]
+mod phase5_chain_text_com_g06;
+#[path = "messageV3-domain/Phase5/Chain/Text/CHAIN-TXT-G01/main.rs"]
+mod phase5_chain_text_txt_g01;
+#[path = "messageV3-domain/Phase5/Chain/Text/CHAIN-TXT-G02/main.rs"]
+mod phase5_chain_text_txt_g02;

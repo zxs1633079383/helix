@@ -1,14 +1,37 @@
-# MessageV3 Phase1-4 真实 Gate 交接
+# MessageV3 Phase1-4 与 Phase5 文字接龙真实 Gate 交接
 
 ## 交接对象
 
-- Helix worktree：`/System/Volumes/Data/workspace/worktrees/messagev3-phase1-real-chain/helix`
-- Helix 分支：`codex/messagev3-phase1-real-chain`
-- Go 源码：`/System/Volumes/Data/workspace/golang/cses-im-server-MessageV3-helix`
+- Helix worktree：`/System/Volumes/Data/workspace/worktrees/messagev3-text-chain-20260819/helix`
+- Helix 分支：`codex/messagev3-text-chain-helix-20260819`
+- Go 源码：`/System/Volumes/Data/workspace/worktrees/messagev3-text-chain-20260819/go-server`
 - Angular 真源：`/System/Volumes/Data/workspace/angular/visual/cses-client`
-- Go HTTP：`http://127.0.0.1:8066/api/cses`
-- Go WS：`ws://127.0.0.1:8066/api/v4/websocket`
+- 既有 Phase1-4 Go HTTP/WS：`http://127.0.0.1:8066/api/cses` / `ws://127.0.0.1:8066/api/v4/websocket`
+- Phase5 文字接龙 Go HTTP/WS：`http://127.0.0.1:18066/api/cses` / `ws://127.0.0.1:18066/api/v4/websocket`
 - 推送状态：未 push；运行证据目录未加入 Git
+
+## Phase5 文字接龙交付
+
+新增并注册 8 个 Native Gate：
+
+```text
+crates/helix-driver-native/tests/messageV3-domain/Phase5/Chain/Common/CHAIN-COM-G01..G06/main.rs
+crates/helix-driver-native/tests/messageV3-domain/Phase5/Chain/Text/CHAIN-TXT-G01..G02/main.rs
+```
+
+共享 harness 从公开 `Tick::Command` 进入 `helix-im`，由真实 `NativeHttp`、`NativeTransport`、`NativeStorage`、`NativeEventSink` 驱动 18066。写 Gate 覆盖 Go HTTP CommonRes、`im:post_chain:*` raw WS、Helix projection、SQLite `chain_*` read-back 和 run-owned channel/SQLite 清理；查询 Gate 按 `req_id` 精确消费 `im:read:result`，避免把启动阶段其他读结果误认成接龙结果。G03 还检查双 append 的唯一 seq/entry 与 reconcile 幂等，TXT-G02 检查两个 Helix session 的同一 entry 和各自 SQLite。
+
+本地 SQLite 表已存在于当前 Helix HEAD 的 `crates/helix-im/src/schema.rs`：`chain_summary`、`chain_entry`、`chain_window`、`chain_mutation`、`chain_viewer` 及索引；本轮没有新增本地 DDL。
+
+Docker 运行态复用此前 `make docker-up-clean` 拉起的容器：`cses-im-local-cses-im-server-1` 映射 `18066 -> 8066`，db/redis/pulsar healthy；host 8066 未被本轮占用。health 200 只记录可达，不作业务 Gate PASS。
+
+## Phase5 验证边界
+
+```bash
+cargo test -p helix-driver-native --test message_v3_domain phase5_chain_text -- --nocapture --test-threads=1
+```
+
+该命令可完成编译并运行 8 个 Gate；Gate 测试按照项目合同将真实前置缺失写入 `BLOCKED_PRECONDITION`，因此 cargo 的 `8 passed` 只表示 harness 没有 panic，最终账目必须读取 `artifacts/messagev3-phase5-real-chain/**/evidence.json`。本轮曾捕获并修正 raw WS action matcher（Go 顶层 action 是 `im:post_chain:*`，不是 `post_chain`），但当前复验因登录服务 `cses-server-paas25-test.cses.svc.cluster.local:3399` DNS 不可解析，无法取得三账号同租户上下文；最新证据应按 `BLOCKED_PRECONDITION` 处理，不能宣称 8 个真实业务 Gate 已 PASS。
 
 ## 本轮交付
 

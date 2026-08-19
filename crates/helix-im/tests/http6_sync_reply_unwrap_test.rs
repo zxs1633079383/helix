@@ -9,7 +9,7 @@
 //! ## Go-independent / 可证伪（双向断言）
 //!
 //! 不连真 Go：直接在 sync-pull corr 上灌信封字节 / 把同信封喂裸 parser，对比行为——
-//! - **ADR-007 信封**（driver 2xx 实际回灌形态，common::sync_envelope 已包）经 handle_sync_reply
+//! - **ADR-007 2xx 成功信封**（driver 实际回灌形态，common::sync_envelope 已包）经 handle_sync_reply
 //!   解信封 + base64 decode → Persist；Persist Ok 后 Emit（>0）并推进 cursor。
 //!   证「解信封修复真把数据放行」且不绕过 G-S2/G-S3 持久屏障。
 //! - **同一信封若不解层、直喂 parse_sync_response** → status=200(int) 非 SUCCESS-string 跳过、

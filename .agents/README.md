@@ -10,6 +10,10 @@
 - agent 报告必须满足 `.agents/schemas/agent-report.schema.json`：`agent/status/changed_files/evidence/unverified/risks`。
 - `.agents/runs/` 与 `.agents/tmp/` 是运行时目录，不进 git。
 
+## Repo-local Skills
+
+- `$helix-command-driver-host-test`（`.agents/skills/helix-command-driver-host-test/SKILL.md`）：为新增或修改 Command 接入 `helix-driver-host`/Native real-chain 测试，按 TDD、共享 adapter、证据分层和 run-owned 清理执行。
+
 ## Helix 特殊边界
 
 - `helix-core` 永远只接受运行时无关、sans-IO、业务无关的任务。

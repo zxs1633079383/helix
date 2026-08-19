@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 新增仓内 `$helix-command-driver-host-test` Skill，让其他 Command 可复用 G01a 的 driver-host/Native 测试装配；可证伪断言：① Skill frontmatter、`agents/openai.yaml`、引用矩阵和 `.agents/README.md` 入口齐全；② 明确 TDD 红测、共享 adapter、真实链八步、FOCUSED/LOCAL_INTEGRATION/REAL_NATIVE_CHAIN/UI_DOM 分层、失败分类和 run-owned cleanup；③ 不复制业务实现、HTTP/WS/SQLite harness，不把 HTTP 200/health/EventSink 单点冒充 real-chain PASS；④ `quick_validate.py` 与 `git diff --check` 通过，既有 `artifacts/` 脏目录保持不变 | 赌注 中 | 可逆 是 | @2026-08-19T
+
+✅ DONE `$helix-command-driver-host-test` 已落地到 `.agents/skills/`，包含中文工作流、`agents/openai.yaml`、Command→driver-host adapter/证据矩阵，并在 `.agents/README.md` 注册；覆盖 TDD 红测、G01a 八步、真实 HTTP/WS/SQLite/EventSink 边界、失败分类、幂等和 cleanup。`quick_validate.py` 通过临时 `uv --with pyyaml` 环境验证，Ruby YAML、无尾随空白和 `git diff --check` 通过；未修改业务代码或既有 `artifacts/`。系统 Python 缺少 PyYAML，已保留该环境限制 | @2026-08-19T
+
 🎯 EXPECT 将新增 Command 的 TDD 前置与完整生命周期固化到根 `AGENTS.md` 和 `crates/helix-driver-native/tests/AGENTS.md`；可证伪断言：① 每个新 Command 明确入口、分类、成功/失败终态、corr/req_id/pending/timer 清理和证据等级；② Native 测试规则固定 G01a 八步并要求 focused red→green、真实 HTTP/WS（适用时）、本地持久化/read-back、terminal EventSink 与 cleanup；③ 不修改业务实现、不把 HTTP 200/health/mock/replay 冒充 PASS；④ 两份 AGENTS 链接、章节、`git diff --check` 通过 | 赌注 中 | 可逆 是 | @2026-08-19T
 
 ✅ DONE 根 `AGENTS.md` 已增加每个 Command 的 TDD 前置、成功/失败/幂等/清理最低集合；新增 Native tests `AGENTS.md` 固化 G01a 八步、命令分类、真实边界、证据字段和反模式；`git diff --check`、章节/路径检查通过，未修改业务代码、未运行 Cargo，既有 `update_channel.rs` 与 `artifacts/` 脏改动保持原样 | @2026-08-19T

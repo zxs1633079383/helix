@@ -1,0 +1,4 @@
+interface:
+  display_name: "Command Driver-Host 测试接入"
+  short_description: "为新 Command 接入 Native/Go 生命周期测试"
+  default_prompt: "使用 $helix-command-driver-host-test 为新 Command 接入 driver-host 生命周期测试。"

@@ -182,6 +182,10 @@ fn build_message_v3_created_projection(
             "mentionPermission",
             "noticePermission",
             "topPermission",
+            "picture",
+            "pictureType",
+            "userId",
+            "type",
             "source",
             "createAt",
             "createBy",
@@ -191,7 +195,12 @@ fn build_message_v3_created_projection(
             };
             if matches!(
                 field,
-                "mentionPermission" | "noticePermission" | "topPermission"
+                "mentionPermission"
+                    | "noticePermission"
+                    | "topPermission"
+                    | "pictureType"
+                    | "userId"
+                    | "type"
             ) && !value.is_string()
             {
                 continue;
@@ -255,14 +264,17 @@ mod tests {
     use crate::state::ChannelId;
     use serde_json::json;
 
-    /// 建群事件投影必须保留 Go authority 的来源与创建审计字段。
+    /// 建群事件投影必须保留 Go authority 的类型、头像、来源、身份与创建审计字段。
     #[test]
     fn created_projection_preserves_source_and_creator_fields() {
         let channel_id = ChannelId::from_str("ch00000000000000000000000a").unwrap();
         let channel = json!({
             "id": channel_id.as_str(),
             "type": "P",
+            "userId": "444",
             "displayName": "破坏者的快速会议",
+            "pictureType": "USER",
+            "picture": {"userIds": ["444"]},
             "createAt": 1787120607046_i64,
             "createBy": "444",
             "source": {
@@ -275,6 +287,10 @@ mod tests {
 
         let projection = build_message_v3_created_projection(channel_id, &channel, &[]);
 
+        assert_eq!(projection["type"], "P");
+        assert_eq!(projection["userId"], "444");
+        assert_eq!(projection["pictureType"], "USER");
+        assert_eq!(projection["picture"]["userIds"], json!(["444"]));
         assert_eq!(projection["source"]["type"], "meeting");
         assert_eq!(projection["createAt"], 1787120607046_i64);
         assert_eq!(projection["createBy"], "444");

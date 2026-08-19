@@ -38,12 +38,15 @@ fn channel_authority() -> Value {
     json!({
         "id": common::cid(808),
         "type": "P",
+        "userId": ACTOR_ID,
         "displayName": "Phase 1 验收群",
         "mentionPermission": "MANAGER",
         "noticePermission": "MANAGER",
         "topPermission": "MANAGER",
         "teamId": "company-phase1",
         "createAt": NOW_MS,
+        "pictureType": "USER",
+        "picture": {"userIds": [ACTOR_ID]},
         "owner": {
             "id": ACTOR_ID,
             "role": "OWNER",
@@ -101,17 +104,21 @@ fn channel_created_inbound() -> Tick {
     )))
 }
 
-/// 断言提交后的 created 投影完全符合 Angular 直接 Upsert 的绝对态。
+/// 断言提交后的 created 投影完全符合 Angular 直接 Upsert 的绝对态与头像字段契约。
 fn assert_created_projection(event: &Value) {
     assert_eq!(
         event["data"],
         json!({
             "id": common::cid(808),
             "type": "P",
+            "userId": ACTOR_ID,
             "displayName": "Phase 1 验收群",
             "mentionPermission": "MANAGER",
             "noticePermission": "MANAGER",
             "topPermission": "MANAGER",
+            "createAt": NOW_MS,
+            "pictureType": "USER",
+            "picture": {"userIds": [ACTOR_ID]},
             "memberIds": [ACTOR_ID, RECEIVER_A_ID, RECEIVER_B_ID],
             "memberCount": 3,
             "members": [

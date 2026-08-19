@@ -26,6 +26,7 @@ pub fn accepts_tick(tick: &Tick) -> bool {
                     | "im_sync_channels"
             )
                 || crate::commands::is_outbound(cmd.name.as_ref())
+                || crate::chain::is_command(cmd.name.as_ref())
                 // query 族（im_load_older_context / dialog_list 等纯读投影命令）：handle 分发
                 // 有臂（module.rs `is_query(name)` 分支），但此 accepts 闸原漏放行 → accept()==false
                 // 静默丢弃整族（Round-5 e2e 揪出 UC-2.2 上拉历史不可达·单测直调纯逻辑绕过本闸故漏网）。

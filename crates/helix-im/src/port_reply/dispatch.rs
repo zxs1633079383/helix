@@ -218,6 +218,39 @@ impl ImModule {
         };
 
         match ctx {
+            CorrelationContext::ChainHttp { request } => {
+                self.handle_chain_http_reply(*request, outcome, out)?;
+            }
+            CorrelationContext::ChainPersist {
+                request,
+                authority,
+                event_name,
+                mutation_state,
+                error_code,
+            } => self.handle_chain_persist_reply(
+                *request,
+                *authority,
+                event_name,
+                mutation_state,
+                error_code,
+                outcome,
+                out,
+            )?,
+            CorrelationContext::ChainMutationPersist {
+                request,
+                state,
+                entry_id,
+                error_code,
+                retry_reconcile,
+            } => self.handle_chain_mutation_persist_reply(
+                *request,
+                state,
+                entry_id,
+                error_code,
+                retry_reconcile,
+                outcome,
+                out,
+            )?,
             // MessageV3 terminal events 只在同一业务写真实提交后释放一次。
             CorrelationContext::MessageV3Commit { terminal_events } => {
                 if matches!(outcome, PortOutcome::Ok(_)) {
@@ -308,6 +341,7 @@ impl ImModule {
                 wants_continuation,
                 channel_updates,
                 pending_domain_events,
+                pending_chain_event_ids,
                 pending_send_reconciliations,
             } => self.handle_channel_persist_reply(
                 corr,
@@ -316,6 +350,7 @@ impl ImModule {
                 wants_continuation,
                 channel_updates,
                 pending_domain_events,
+                pending_chain_event_ids,
                 pending_send_reconciliations,
                 outcome,
                 out,
@@ -326,12 +361,14 @@ impl ImModule {
                 terminal_seq,
                 trigger,
                 pending_domain_events,
+                pending_chain_event_ids,
             } => self.handle_channel_terminal_persist_reply(
                 corr,
                 channel_id,
                 terminal_seq,
                 trigger,
                 pending_domain_events,
+                pending_chain_event_ids,
                 outcome,
                 out,
             )?,

@@ -17,6 +17,7 @@ use crate::state::{ChannelId, ConnState, CorrelationContext, ImState, SendStatus
 use helix_core::effect::TimerId;
 use helix_core::{CoreError, EffectSink, Module, Tick};
 
+mod chain;
 mod trait_impl;
 
 /// Driver 向 sans-I/O IM 模块同步当前 host 身份的内部命令。
@@ -194,6 +195,25 @@ impl ImModule {
     /// 查询 pending_sends 数量（测试用）
     pub fn pending_send_count(&self) -> usize {
         self.state.pending_sends.len()
+    }
+
+    /// 查询文字接龙 mutation 的本地状态，供 bridge 映射稳定状态而非重算业务事实。
+    pub fn chain_mutation_state(
+        &self,
+        client_mutation_id: &str,
+    ) -> Option<crate::chain::ChainMutationState> {
+        self.state
+            .chain_mutations
+            .get(client_mutation_id)
+            .map(|mutation| mutation.state)
+    }
+
+    /// 查询由 Helix 生成的稳定 operationId，供 reconcile 继续使用同一业务操作。
+    pub fn chain_operation_id(&self, client_mutation_id: &str) -> Option<&str> {
+        self.state
+            .chain_mutations
+            .get(client_mutation_id)
+            .map(|mutation| mutation.operation_id.as_str())
     }
 
     /// B4：全局在途 sync 数 + 待 dispatch 队列长（HX-C011 证伪性质测试结构化断言用）。

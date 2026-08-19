@@ -450,6 +450,30 @@ impl ImModule {
                         auth_user_id,
                         Some(&observation),
                     );
+                // Chain facts arrive inside the same channel-event payload as ordinary message
+                // facts. Extend this write set before the cursor op so a replay can never commit
+                // the channel sequence without its canonical chain projection.
+                let mut chain_domain_events = Vec::new();
+                let mut pending_chain_event_ids = Vec::new();
+                for event in &events {
+                    if let Some(projection) = crate::chain::synced_projection(event)? {
+                        let duplicate = projection.event_id.as_ref().is_some_and(|event_id| {
+                            self.state.seen_chain_event_ids.contains(event_id)
+                                || self.state.pending_chain_event_ids.contains(event_id)
+                        });
+                        if duplicate {
+                            continue;
+                        }
+                        persist_ops.extend(projection.ops);
+                        if let Some(event_id) = projection.event_id.clone() {
+                            self.state.pending_chain_event_ids.insert(event_id.clone());
+                            pending_chain_event_ids.push(event_id);
+                        }
+                        if trigger != SyncTrigger::Hydration {
+                            chain_domain_events.push(projection.event);
+                        }
+                    }
+                }
                 if trigger != SyncTrigger::Hydration {
                     for pending in &channel_updates {
                         persist_ops.push(crate::acl::to_effect::bump_channel_unread_op(
@@ -550,6 +574,22 @@ impl ImModule {
                     needs_continuation,
                     "recovery atomic write dispatched"
                 );
+                let mut pending_domain_events = if trigger == SyncTrigger::Hydration {
+                    Vec::new()
+                } else {
+                    crate::acl::to_effect::sync_mutation_emits_with_auth(
+                        &events,
+                        &messages,
+                        auth_user_id,
+                    )
+                    .into_iter()
+                    .filter_map(|effect| match effect {
+                        Effect::Emit { event } => Some(event.0.as_ref().to_vec()),
+                        _ => None,
+                    })
+                    .collect()
+                };
+                pending_domain_events.extend(chain_domain_events);
                 self.state.corr_map.insert(
                     persist_corr,
                     CorrelationContext::ChannelPersist {
@@ -561,21 +601,8 @@ impl ImModule {
                         } else {
                             channel_updates
                         },
-                        pending_domain_events: if trigger == SyncTrigger::Hydration {
-                            Vec::new()
-                        } else {
-                            crate::acl::to_effect::sync_mutation_emits_with_auth(
-                                &events,
-                                &messages,
-                                auth_user_id,
-                            )
-                            .into_iter()
-                            .filter_map(|effect| match effect {
-                                Effect::Emit { event } => Some(event.0.as_ref().to_vec()),
-                                _ => None,
-                            })
-                            .collect()
-                        },
+                        pending_domain_events,
+                        pending_chain_event_ids,
                         pending_send_reconciliations: if trigger == SyncTrigger::Hydration {
                             Vec::new()
                         } else {
@@ -673,6 +700,7 @@ impl ImModule {
                         wants_continuation: false,
                         channel_updates: Vec::new(),
                         pending_domain_events: Vec::new(),
+                        pending_chain_event_ids: Vec::new(),
                         pending_send_reconciliations: Vec::new(),
                     },
                 );
@@ -790,6 +818,27 @@ impl ImModule {
                 &pending.update,
             ));
         }
+        // Terminal batches can contain ordinary chain events before type7. Keep their durable
+        // projection in the same transaction as the prefix messages and terminal tombstone.
+        let mut chain_domain_events = Vec::new();
+        let mut pending_chain_event_ids = Vec::new();
+        for event in prefix {
+            if let Some(projection) = crate::chain::synced_projection(event)? {
+                let duplicate = projection.event_id.as_ref().is_some_and(|event_id| {
+                    self.state.seen_chain_event_ids.contains(event_id)
+                        || self.state.pending_chain_event_ids.contains(event_id)
+                });
+                if duplicate {
+                    continue;
+                }
+                ops.extend(projection.ops);
+                if let Some(event_id) = projection.event_id.clone() {
+                    self.state.pending_chain_event_ids.insert(event_id.clone());
+                    pending_chain_event_ids.push(event_id);
+                }
+                chain_domain_events.push(projection.event);
+            }
+        }
         ops.push(crate::acl::to_effect::terminal_tombstone_and_cursor_op(
             channel_id,
             terminal_seq,
@@ -819,6 +868,7 @@ impl ImModule {
                     Effect::Emit { event } => Some(event.0.as_ref().to_vec()),
                     _ => None,
                 })
+                .chain(chain_domain_events)
                 .collect();
         out.push(Effect::PersistAtomic {
             corr: persist_corr,
@@ -856,6 +906,7 @@ impl ImModule {
                 terminal_seq,
                 trigger,
                 pending_domain_events,
+                pending_chain_event_ids,
             },
         );
         Ok(())

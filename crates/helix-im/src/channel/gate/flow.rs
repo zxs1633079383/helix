@@ -205,6 +205,26 @@ impl Channel {
         }
     }
 
+    /// 复用频道既有 eventSeq gate：连续返回 true，旧帧丢弃，缺口只 arm 原 gate。
+    pub(crate) fn admit_chain_event_seq(
+        &mut self,
+        event_seq: Seq,
+        effects: &mut EffectSink,
+    ) -> bool {
+        if self.is_terminal() {
+            return false;
+        }
+        let expected = Seq(self.cursor.value().0.saturating_add(1));
+        match event_seq.cmp(&expected) {
+            std::cmp::Ordering::Equal => true,
+            std::cmp::Ordering::Less => false,
+            std::cmp::Ordering::Greater => {
+                self.arm_gate_if_needed(effects);
+                false
+            }
+        }
+    }
+
     /// matching PersistOk 后推进 cursor，并交出下一条已连续的缓冲事件。
     pub(crate) fn commit_message_v3_post(&mut self, committed_seq: Seq) -> Option<EventEnvelope> {
         if committed_seq != Seq(self.cursor.value().0.saturating_add(1))
@@ -276,13 +296,17 @@ impl Channel {
     /// 1. 从 pending_commits 取出 target_seq
     /// 2. commit_cursor（MAX guard）
     /// 3. 把下一条实时事件交给 MessageV3 correlated persistence，禁止在此绕回 fire-and-forget。
-    pub fn on_persist_ok(&mut self, corr: Correlation) -> Result<Option<EventEnvelope>, ImError> {
+    pub fn on_persist_ok(
+        &mut self,
+        corr: Correlation,
+    ) -> Result<(bool, Option<EventEnvelope>), ImError> {
         if let Some(target_seq) = self.pending_commits.remove(&corr) {
-            self.commit_cursor(target_seq)?;
+            let committed = self.commit_cursor(target_seq)?;
             let next_seq = Seq(self.cursor.value().0.saturating_add(1));
-            return Ok(self.buffer.remove(&next_seq));
+            let next_buffered = committed.then(|| self.buffer.remove(&next_seq)).flatten();
+            return Ok((committed, next_buffered));
         }
-        Ok(None)
+        Ok((false, None))
     }
 
     // ─── 私有方法 ──────────────────────────────────────────────────────────────

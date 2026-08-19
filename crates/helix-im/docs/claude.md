@@ -153,3 +153,25 @@ readback 同时记录 `msg_id`、`temporary_id`、`channel_id`、`event_seq`、`
 - 其他消息类型继续保留原有 `quickReply`、`expediteMap` 与模板确认的精简语义；该修复只收窄
   互动消息的分支条件。Rust helper 回归和真实 single-real lane 已证明 `type/props` 及
   `items/participants` 能到达 Tauri `im:post:updated` 与 Angular 卡片。
+
+# 2026-08-19 文字接龙离线回放投影
+
+`sync/notify` 的 `ChannelEvent.payload` 若带 `im:post_chain:*` action，会由
+`chain::synced_projection` 复用 WS/HTTP 同一套 authority parser，生成
+`chain_summary`、`chain_entry`、`chain_window` 和 confirmed mutation 写集；这些 `StorageOp`
+与普通消息、recovery ledger、coverage、channel cursor 一起进入单个 `PersistAtomic`。只有
+`PersistOk` 后才加入 `pending_domain_events`，因此 eventSeq 缺口恢复不会出现“cursor 已前进但
+接龙窗口未落库”的半状态。Hydration 仍只持久化，不向渲染端重复 Emit；type7 终态前缀也沿用同一
+原子边界。
+
+非接龙 payload 继续走既有消息同步路径；接龙 action 缺少 channel/chain authority 或频道身份不一致
+时 fail-closed，保留原 cursor 以便后续重试。单测覆盖 canonical `textWindow`、普通 payload 旁路和
+malformed chain 拒绝。以上为 Helix 单元/静态证据，不代表真实 Go/PG/WS/SQLite/Angular DOM 验收。
+
+# 2026-08-19 文字接龙 Persist/cursor 竞态
+
+HTTP/WS 接龙 authority 的 `PersistAtomic` 成功不等于频道 cursor 一定仍可连续提交；若并发同步或
+重复帧已改变 cursor，`commit_contiguous_after_atomic` 会拒绝该提交。此时必须清除本次
+`pending_chain_event_ids`（以及可能残留的 `seen` 标记），抑制当前 Emit 并等待后续 sync 重放，不能
+留下永久 pending 去重状态。同步普通批次和 type7 终态路径也只在 cursor commit 成功后把 chain event
+从 pending 移入 seen。

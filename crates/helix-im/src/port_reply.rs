@@ -9,6 +9,7 @@ mod dispatch_channel_create;
 mod dispatch_core;
 mod dispatch_projection;
 mod dispatch_read;
+pub(crate) mod message_v3_chain;
 pub(crate) mod message_v3_post;
 pub(crate) mod message_v3_reaction;
 mod message_v3_read;

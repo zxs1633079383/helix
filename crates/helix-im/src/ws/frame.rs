@@ -30,10 +30,22 @@ impl WsFrame {
     /// WS-1：惰性从已解析 root 取 action `&str`——删 action 字段，不每帧堆分配 String（HX-C005
     /// `&'static str` 字面纪律）。借用 `&self.root`，唯一消费方在同步 dispatch 内，借用安全。
     ///
-    /// 显式 `action` 字段优先；无 action 的心跳 ACK 合成 `PONG_ACTION`，其余帧拒绝。
+    /// 显式 `action` 字段优先；接龙 action 归一化到共享 handler，无 action 的心跳 ACK 合成
+    /// `PONG_ACTION`，其余帧拒绝。
     pub(crate) fn action(&self) -> Result<&str, ImError> {
         if let Some(action) = self.root.get("action").and_then(serde_json::Value::as_str) {
+            if action.starts_with("im:post_chain:") {
+                return Ok("post_chain");
+            }
             return Ok(action);
+        }
+        if self
+            .root
+            .get("eventType")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|event_type| event_type.starts_with("im:post_chain:"))
+        {
+            return Ok("post_chain");
         }
         if self.is_pong_frame() {
             return Ok(PONG_ACTION);
@@ -89,6 +101,11 @@ impl WsFrame {
             .and_then(serde_json::Value::as_u64)
             .or_else(|| {
                 self.data()
+                    .and_then(|data| data.get("eventSeq"))
+                    .and_then(serde_json::Value::as_u64)
+            })
+            .or_else(|| {
+                self.data()
                     .and_then(|data| data.get("props"))
                     .and_then(|props| props.get("channel_event_seq"))
                     .and_then(serde_json::Value::as_u64)
@@ -103,6 +120,7 @@ impl WsFrame {
                     .and_then(|data| data.get("seq"))
                     .and_then(serde_json::Value::as_u64)
             })
+            .or_else(|| self.root.get("seq").and_then(serde_json::Value::as_u64))
             .or_else(|| {
                 self.root
                     .get("eventSeq")
@@ -126,5 +144,29 @@ impl WsFrame {
     pub(crate) fn event_seq_required(&self) -> Result<Seq, ImError> {
         self.event_seq()
             .ok_or_else(|| ImError::InvalidWsFrame("missing event_seq".to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Go 的 canonical chain envelope 带 im:post_chain:* action 时必须路由到共享 handler。
+    #[test]
+    fn normalizes_post_chain_action_and_camel_event_seq() {
+        let frame = WsFrame::parse(br#"{"action":"im:post_chain:upsert","data":{"eventSeq":17}}"#)
+            .expect("chain frame");
+
+        assert_eq!(frame.action().expect("chain action"), "post_chain");
+        assert_eq!(frame.event_seq(), Some(Seq(17)));
+    }
+
+    /// WebSocketEventJSON 的 envelope sequence 位于根 seq 时仍必须进入 channel gate。
+    #[test]
+    fn reads_root_sequence_from_canonical_event_envelope() {
+        let frame =
+            WsFrame::parse(br#"{"action":"im:post_chain:upsert","seq":23}"#).expect("chain frame");
+
+        assert_eq!(frame.event_seq(), Some(Seq(23)));
     }
 }

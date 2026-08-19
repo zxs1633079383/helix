@@ -25,7 +25,7 @@ pub(crate) struct WsHandlerRegistration {
 
 inventory::collect!(WsHandlerRegistration);
 
-const EXPECTED_WS_HANDLER_COUNT: usize = 28;
+const EXPECTED_WS_HANDLER_COUNT: usize = 29;
 
 static WS_HANDLER_MAP: OnceLock<
     Result<HashMap<&'static str, &'static dyn WsMessageHandler>, ImError>,

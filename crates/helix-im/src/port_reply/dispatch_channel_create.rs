@@ -177,10 +177,26 @@ fn build_message_v3_created_projection(
     });
     // 权限三件套是 Go 建群默认事实，created 投影必须保留，避免 UI 把群主权限误判为关闭。
     if let Some(projection_object) = projection.as_object_mut() {
-        for permission in ["mentionPermission", "noticePermission", "topPermission"] {
-            if let Some(value) = channel.get(permission).filter(|value| value.is_string()) {
-                projection_object.insert(permission.to_string(), value.clone());
+        // 建群事件同时保留权限、来源与审计字段，供 Angular 首次渲染直接消费。
+        for field in [
+            "mentionPermission",
+            "noticePermission",
+            "topPermission",
+            "source",
+            "createAt",
+            "createBy",
+        ] {
+            let Some(value) = channel.get(field) else {
+                continue;
+            };
+            if matches!(
+                field,
+                "mentionPermission" | "noticePermission" | "topPermission"
+            ) && !value.is_string()
+            {
+                continue;
             }
+            projection_object.insert(field.to_string(), value.clone());
         }
     }
     projection
@@ -231,4 +247,36 @@ fn decode_created_channel(reply: &ReplyBytes) -> Result<serde_json::Value, ImErr
         });
     }
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_message_v3_created_projection;
+    use crate::state::ChannelId;
+    use serde_json::json;
+
+    /// 建群事件投影必须保留 Go authority 的来源与创建审计字段。
+    #[test]
+    fn created_projection_preserves_source_and_creator_fields() {
+        let channel_id = ChannelId::from_str("ch00000000000000000000000a").unwrap();
+        let channel = json!({
+            "id": channel_id.as_str(),
+            "type": "P",
+            "displayName": "破坏者的快速会议",
+            "createAt": 1787120607046_i64,
+            "createBy": "444",
+            "source": {
+                "id": "6a854bde3a8c7230f3223f20",
+                "title": "破坏者的快速会议",
+                "type": "meeting"
+            },
+            "owner": {"id": "444"}
+        });
+
+        let projection = build_message_v3_created_projection(channel_id, &channel, &[]);
+
+        assert_eq!(projection["source"]["type"], "meeting");
+        assert_eq!(projection["createAt"], 1787120607046_i64);
+        assert_eq!(projection["createBy"], "444");
+    }
 }

@@ -4,6 +4,25 @@ use crate::sync_session::EventEnvelope;
 use helix_core::effect::StorageOp;
 use helix_core::Effect;
 
+/// 判断 type=2 是否只是接龙声明公告的历史回放。
+///
+/// 接龙声明的 canonical 事实由 `synced_projection` 写入 `chain_*` 表并通过
+/// `chainProjection` 事件投影；它不是普通消息编辑。新租户库没有对应 `message` 行时，
+/// 若继续生成全量 type=2 UPDATE，会触发 host 的严格 0 行回滚，连带丢失接龙投影。
+fn is_chain_declaration(fields: &crate::sync_session::PostFields) -> bool {
+    if !fields.msg_type.eq_ignore_ascii_case("ANNOUNCEMENT") {
+        return false;
+    }
+    let Ok(props) = serde_json::from_str::<serde_json::Value>(&fields.props) else {
+        return false;
+    };
+    props.get("chain").is_some()
+        || props
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| value.eq_ignore_ascii_case("chain"))
+}
+
 /// C3：逐 sync 事件产出 mutation 事件 Effect（真源 dispatch table post.rs:1157-1448）。
 pub fn sync_mutation_emits(
     events: &[EventEnvelope],
@@ -267,6 +286,27 @@ pub(crate) fn batch_upsert_events_with_messages_and_auth_observed(
             EventKind::PostEdit => {
                 if let Some(id) = msg_id {
                     if let Some(fields) = messages.get(id) {
+                        if is_chain_declaration(fields) {
+                            if let Some(context) = observation
+                                .filter(|context| context.target_matches(Some(id), Some(fields)))
+                            {
+                                tracing::info!(
+                                    hop = "sync.event.skipped",
+                                    corr = context.corr,
+                                    track_id = context.track_id.as_str(),
+                                    channel_id = ev.channel_id.as_str(),
+                                    event_seq = ev.seq.0,
+                                    event_type = ev.kind.type_num(),
+                                    msg_id = id,
+                                    source = context.source,
+                                    operation_id = operation_id.as_deref().unwrap_or_default(),
+                                    message_map_hit = true,
+                                    reason = "chain_declaration_projected_by_chain_event",
+                                    "type=2 接龙声明由 canonical chain projection 投影，跳过普通 message patch"
+                                );
+                            }
+                            continue;
+                        }
                         let op = crate::channel::edit_content_op(id, fields);
                         if let Some(context) = observation
                             .filter(|context| context.target_matches(Some(id), Some(fields)))

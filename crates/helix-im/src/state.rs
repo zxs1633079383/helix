@@ -125,6 +125,18 @@ pub struct ImState {
     /// 按变体 `match` 分发；一 corr 恰一变体，互斥由一 key 一 value + corr 全局唯一（见枚举不变量）保证。
     pub corr_map: HashMap<helix_core::Correlation, CorrelationContext>,
 
+    /// 文字接龙 mutation 的内存状态；终态只在 matching PersistOk 后更新。
+    pub(crate) chain_mutations: HashMap<String, crate::chain::ChainMutation>,
+
+    /// 已通过 durable projection 的 chain eventId；重复 WS authority 不再重放。
+    pub(crate) seen_chain_event_ids: HashSet<String>,
+
+    /// 已进入 PersistAtomic 但尚未收到 PersistOk 的 chain eventId；拦截 HTTP/WS 竞态重复写入。
+    pub(crate) pending_chain_event_ids: HashSet<String>,
+
+    /// 每条链已提交的 authority revision；旧回包在进入 PersistAtomic 前丢弃。
+    pub(crate) chain_revisions: HashMap<String, i64>,
+
     /// 同一回复根的最新请求 revision；旧 HTTP 回报不得覆盖新投影。
     pub reply_projection_revisions: HashMap<String, u64>,
 
@@ -325,6 +337,10 @@ impl ImState {
             media_recovery_ready: false,
             media_retry_inflight: HashSet::new(),
             corr_map: HashMap::new(),
+            chain_mutations: HashMap::new(),
+            seen_chain_event_ids: HashSet::new(),
+            pending_chain_event_ids: HashSet::new(),
+            chain_revisions: HashMap::new(),
             reply_projection_revisions: HashMap::new(),
             reply_projection_seen_ids: HashMap::new(),
             backoff_timer: None,
@@ -402,6 +418,9 @@ impl ImState {
         self.hydration_ordered_rosters.clear();
         self.reply_projection_revisions.clear();
         self.reply_projection_seen_ids.clear();
+        self.seen_chain_event_ids.clear();
+        self.pending_chain_event_ids.clear();
+        self.chain_revisions.clear();
         self.reset_transport_query_session();
     }
 
@@ -470,6 +489,10 @@ impl ImState {
         self.committed_member_update_seqs.clear();
         self.inflight_member_role_updates.clear();
         self.committed_post_reads.clear();
+        self.chain_mutations.clear();
+        self.seen_chain_event_ids.clear();
+        self.pending_chain_event_ids.clear();
+        self.chain_revisions.clear();
         self.announcement_versions.clear();
         self.announcement_reload_versions.clear();
         self.sync_scheduler.reset();
@@ -492,6 +515,9 @@ impl ImState {
             !matches!(
                 context,
                 CorrelationContext::ChannelPersist { .. }
+                    | CorrelationContext::ChainHttp { .. }
+                    | CorrelationContext::ChainPersist { .. }
+                    | CorrelationContext::ChainMutationPersist { .. }
                     | CorrelationContext::ChannelTerminalPersist { .. }
                     | CorrelationContext::MessageV3RevokeChannelPersist { .. }
                     | CorrelationContext::MessageV3RevokeChannelReadback

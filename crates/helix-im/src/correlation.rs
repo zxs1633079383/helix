@@ -84,6 +84,29 @@ pub struct PendingSendReconciliation {
 // （非 key），`PartialEq` 供 ws/registry 测试 `assert_eq!`，`Eq` 无用处（grep 实证）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum CorrelationContext {
+    /// 文字接龙 HTTP transport 回报；只在 response authority 解析后进入 PersistAtomic。
+    ChainHttp {
+        request: Box<crate::chain::ChainRequest>,
+    },
+
+    /// 文字接龙 authority 的统一 durable barrier；PersistOk 后才推进 cursor/Emit。
+    ChainPersist {
+        request: Box<crate::chain::ChainRequest>,
+        authority: Box<crate::chain::ChainAuthority>,
+        event_name: String,
+        mutation_state: Option<crate::chain::ChainMutationState>,
+        error_code: Option<String>,
+    },
+
+    /// RECONCILING/REJECTED mutation 状态自身的 durable barrier。
+    ChainMutationPersist {
+        request: Box<crate::chain::ChainRequest>,
+        state: crate::chain::ChainMutationState,
+        entry_id: Option<String>,
+        error_code: Option<String>,
+        retry_reconcile: bool,
+    },
+
     /// MessageV3 业务写提交屏障；只有 matching PersistOk 才按原顺序释放事件。
     MessageV3Commit { terminal_events: Vec<Vec<u8>> },
 
@@ -155,6 +178,8 @@ pub enum CorrelationContext {
         channel_updates: Vec<crate::channel_update::PendingChannelUpdate>,
         /// sync HTTP 解析出的 mutation 投影；事务 ack 前不得发布。
         pending_domain_events: Vec<Vec<u8>>,
+        /// 已预留的 chain eventId；与 WS authority 共用 in-flight 去重集合。
+        pending_chain_event_ids: Vec<String>,
         /// sync 事务成功后才能结算的本端 temporaryId → 服务端 id 对账事实。
         pending_send_reconciliations: Vec<PendingSendReconciliation>,
     },
@@ -167,6 +192,8 @@ pub enum CorrelationContext {
         trigger: SyncTrigger,
         /// 同一权威批次中 terminal 前的可见消息投影；与 tombstone 共用原子回执。
         pending_domain_events: Vec<Vec<u8>>,
+        /// 已预留的 chain eventId；PersistOk 后转入 durable seen 集合。
+        pending_chain_event_ids: Vec<String>,
     },
 
     /// hello increment 全批 channel/member/cursor 事务回报。

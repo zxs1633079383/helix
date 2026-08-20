@@ -13,6 +13,7 @@ impl ImModule {
         terminal_seq: crate::state::Seq,
         trigger: SyncTrigger,
         pending_domain_events: Vec<Vec<u8>>,
+        pending_chain_event_ids: Vec<String>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -25,8 +26,15 @@ impl ImModule {
                         .get_mut(&channel_id)
                         .is_some_and(|channel| channel.commit_terminal_after_atomic(terminal_seq));
                     if committed {
+                        for event_id in pending_chain_event_ids {
+                            self.state.pending_chain_event_ids.remove(&event_id);
+                            self.state.seen_chain_event_ids.insert(event_id);
+                        }
                         self.finish_increment_hydration(channel_id, out)?;
                     } else {
+                        for event_id in pending_chain_event_ids {
+                            self.state.pending_chain_event_ids.remove(&event_id);
+                        }
                         self.fail_hydration_for_channel(
                             channel_id,
                             "hydration terminal cursor mismatch",
@@ -35,6 +43,9 @@ impl ImModule {
                     }
                 }
                 PortOutcome::Err(_) => {
+                    for event_id in pending_chain_event_ids {
+                        self.state.pending_chain_event_ids.remove(&event_id);
+                    }
                     self.fail_hydration_for_channel(
                         channel_id,
                         "hydration terminal persist failed",
@@ -54,6 +65,16 @@ impl ImModule {
                     .get_mut(&channel_id)
                     .is_some_and(|channel| channel.commit_terminal_after_atomic(terminal_seq));
                 self.state.pong_gap_batch.finish_persist(corr, committed);
+                if committed {
+                    for event_id in pending_chain_event_ids {
+                        self.state.pending_chain_event_ids.remove(&event_id);
+                        self.state.seen_chain_event_ids.insert(event_id);
+                    }
+                } else {
+                    for event_id in pending_chain_event_ids {
+                        self.state.pending_chain_event_ids.remove(&event_id);
+                    }
+                }
                 if !committed {
                     tracing::error!(
                         channel_id = channel_id.as_str(),
@@ -136,6 +157,7 @@ impl ImModule {
         wants_continuation: bool,
         channel_updates: Vec<PendingChannelUpdate>,
         pending_domain_events: Vec<Vec<u8>>,
+        pending_chain_event_ids: Vec<String>,
         pending_send_reconciliations: Vec<PendingSendReconciliation>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
@@ -146,15 +168,26 @@ impl ImModule {
             PortOutcome::Ok(_) => {
                 let has_durable_message_changes = !pending_domain_events.is_empty();
                 let hydration_already_pending = self.state.hydration_pending.contains(&channel_id);
-                let next_buffered = if let Some(ch) = self.state.channels.get_mut(&channel_id) {
-                    ch.on_persist_ok(corr)?
-                } else {
-                    None
-                };
+                let (committed, next_buffered) =
+                    if let Some(ch) = self.state.channels.get_mut(&channel_id) {
+                        ch.on_persist_ok(corr)?
+                    } else {
+                        (false, None)
+                    };
                 if let Some(event) = next_buffered {
                     self.queue_next_message_v3_event(event, out)?;
                 }
                 self.state.pong_gap_batch.finish_persist(corr, true);
+                if committed {
+                    for event_id in pending_chain_event_ids {
+                        self.state.pending_chain_event_ids.remove(&event_id);
+                        self.state.seen_chain_event_ids.insert(event_id);
+                    }
+                } else {
+                    for event_id in pending_chain_event_ids {
+                        self.state.pending_chain_event_ids.remove(&event_id);
+                    }
+                }
                 let committed_seq = self
                     .state
                     .channels
@@ -182,16 +215,21 @@ impl ImModule {
                             window_token: "latest".to_string(),
                         },
                     );
-                for reconciliation in pending_send_reconciliations {
-                    self.reconcile_pending_send_after_sync(reconciliation, out);
-                }
-                for bytes in pending_domain_events {
-                    out.push(Effect::Emit {
-                        event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
-                    });
+                if committed {
+                    for reconciliation in pending_send_reconciliations {
+                        self.reconcile_pending_send_after_sync(reconciliation, out);
+                    }
+                    for bytes in pending_domain_events {
+                        out.push(Effect::Emit {
+                            event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
+                        });
+                    }
                 }
                 // PersistAtomic 是写屏障；仅读回受影响频道行，避免恢复批次退化为全表扫描。
-                if (!recovery_active || recovery_channel_attached) && !pong_batch_active {
+                if committed
+                    && (!recovery_active || recovery_channel_attached)
+                    && !pong_batch_active
+                {
                     if let Some(pending) = channel_updates.into_iter().last() {
                         let readback_corr = self.alloc_corr_internal();
                         let pending =
@@ -214,14 +252,15 @@ impl ImModule {
                     .get(&channel_id)
                     .map(|channel| channel.cursor.value())
                     .unwrap_or(crate::state::Seq(0));
-                if trigger != SyncTrigger::Hydration {
+                if committed && trigger != SyncTrigger::Hydration {
                     out.push(crate::acl::to_effect::emit_sync_state_with_trigger(
                         channel_id,
                         committed_seq,
                         trigger,
                     ));
                 }
-                if recovery_active
+                if committed
+                    && recovery_active
                     && self
                         .state
                         .recovery_session
@@ -241,7 +280,7 @@ impl ImModule {
                     self.maybe_continue_sync(channel_id, trigger, out);
                 } else {
                     self.finish_increment_hydration(channel_id, out)?;
-                    if has_durable_message_changes && !hydration_already_pending {
+                    if committed && has_durable_message_changes && !hydration_already_pending {
                         // 已提交消息使最近窗口缓存失效，随后从本地权威事实刷新已 attach 时间线。
                         self.state.invalidate_recent_message_coverage(channel_id);
                         self.refresh_attached_latest_timeline(channel_id, None, out)?;
@@ -251,6 +290,9 @@ impl ImModule {
             }
             PortOutcome::Err(e) => {
                 self.state.pong_gap_batch.finish_persist(corr, false);
+                for event_id in pending_chain_event_ids {
+                    self.state.pending_chain_event_ids.remove(&event_id);
+                }
                 tracing::warn!(
                     hop = "sync.persist_failed",
                     channel_id = channel_id.as_str(),

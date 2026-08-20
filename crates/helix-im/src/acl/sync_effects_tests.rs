@@ -331,6 +331,31 @@ fn sync_type2_patch_columns_follow_actual_optional_fields() {
     assert_eq!(columns(base), vec!["type", "message", "props"]);
 }
 
+/// 新租户回放接龙声明时只走 chain projection，不能把缺失的公告行当作普通 type=2 编辑。
+#[test]
+fn sync_chain_declaration_skips_message_patch() {
+    let mut messages = HashMap::new();
+    messages.insert(
+        MSG.to_string(),
+        PostFields {
+            id: MSG.to_string(),
+            msg_type: "ANNOUNCEMENT".to_string(),
+            message: "文字接龙".to_string(),
+            props: serde_json::json!({
+                "type": "chain",
+                "chain": { "chainId": "chain-1", "mode": "TEXT" }
+            })
+            .to_string(),
+            ..PostFields::default()
+        },
+    );
+
+    assert!(
+        batch_upsert_events_with_messages_and_auth(&[edit_ev(5)], &messages, "").is_empty(),
+        "接龙公告必须由 chainProjection 承载，不能生成 message type=2 patch"
+    );
+}
+
 /// type=3/type=6 的 StorageOp 必须保持单列 patch，不能夹带正文、回复或加急字段。
 #[test]
 fn sync_type3_and_type6_storage_ops_are_single_column_patches() {

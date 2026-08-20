@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-//! MessageV3 Phase1 的 Rust→真实 Go 8066 集成测试。
+//! MessageV3 Phase1-5 的 Rust→真实 Go 集成测试。
 //!
 //! 这不是 fake server、fixture 回放或 Node 编排器：测试通过 native driver 的真实
 //! `NativeHttp`、`NativeTransport`、`NativeStorage` 和 `NativeEventSink`，把 Helix
@@ -11,12 +11,15 @@
 //! cargo test -p helix-driver-native --test message_v3_domain -- --nocapture --test-threads=1
 //! ```
 //!
-//! 默认不读取环境变量。测试会自动寻找现有 `cses-client/.wdio/credentials.local.json`，
+//! 默认不读取环境变量；仅可用 `HELIX_MAIN_API_BASE` 覆盖登录服务 DNS，便于本地真实链
+//! 对齐 release 配置。测试会自动寻找现有 `cses-client/.wdio/credentials.local.json`，
 //! 登录三个共享租户账号；Go 8066、登录服务或对象存储不可达时显式失败为
 //! `BLOCKED_PRECONDITION/NOT_VERIFIED`，不会把 health 200、HTTP admission 或 fake WS 当成 PASS。
 
 use bytes::Bytes;
-use helix_core::effect::{DomainEventBytes, HttpRequest, Row, ScanSpec, SqlValue, TransportId};
+use helix_core::effect::{
+    DomainEventBytes, HttpRequest, Row, ScanOrder, ScanSpec, SqlValue, TransportId,
+};
 use helix_core::ports::{HttpRequester, Storage};
 use helix_core::tick::{AppCommand, Tick};
 use helix_core::ExecutionShell;
@@ -29,7 +32,7 @@ use helix_driver_native::{
 use helix_im::{ImConfig, ImModule, IM_SCHEMA, IM_SCHEMA_MIGRATIONS};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -38,20 +41,38 @@ use tokio::sync::{broadcast, mpsc, oneshot, Mutex, OnceCell};
 use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
+mod chain;
+pub(crate) use chain::run_text_chain_gate;
+
 pub(crate) const GO_HTTP_BASE: &str = "http://127.0.0.1:8066/api/cses";
 pub(crate) const GO_WS_URL: &str = "ws://127.0.0.1:8066/api/v4/websocket";
+/// Phase5 Go 容器专用端点；保留既有 Phase1-4 的 8066 合同不变。
+pub(crate) const CHAIN_GO_HTTP_BASE: &str = "http://127.0.0.1:18066/api/cses";
+/// Phase5 Go 容器专用 WS 端点；host 8066 不属于本轮验证资源。
+pub(crate) const CHAIN_GO_WS_URL: &str = "ws://127.0.0.1:18066/api/v4/websocket";
 pub(crate) const MAIN_API_BASE: &str = "http://cses-server-paas25-test.cses.svc.cluster.local:3399";
 pub(crate) const GO_HEALTH_URL: &str = "http://127.0.0.1:8066/api/cses/health";
 pub(crate) const CREDENTIALS_RELATIVE: &str =
     "angular/visual/cses-client/.wdio/credentials.local.json";
 
+/// 返回 driver-native 登录服务地址；默认沿用 pre 集群 DNS，只允许测试进程覆盖。
+pub(crate) fn main_api_base() -> String {
+    std::env::var("HELIX_MAIN_API_BASE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| MAIN_API_BASE.to_string())
+}
+
 pub(crate) static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 pub(crate) static AUTH_CONTEXT: OnceCell<Result<Arc<AuthContext>, String>> = OnceCell::const_new();
+pub(crate) static CHAIN_AUTH_CONTEXT: OnceCell<Result<Arc<AuthContext>, String>> =
+    OnceCell::const_new();
 pub(crate) static REMOTE_LOCK: OnceCell<Mutex<()>> = OnceCell::const_new();
 
 const CHANNEL_FIXTURE_WAIT_SECS: u64 = 30;
 const CHANNEL_FIXTURE_FRESHNESS_MS: i64 = 10 * 60 * 1000;
 const CHANNEL_FIXTURE_SNAPSHOT_END_MS: i64 = 9_000_000_000_000;
+const CHAIN_ENTRY_ORDER: &[ScanOrder] = &[ScanOrder::asc("seq")];
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct CredentialFile {
@@ -92,6 +113,52 @@ pub(crate) struct HttpObservation {
 pub(crate) struct RawWs {
     pub(crate) transport: Arc<NativeTransport>,
     pub(crate) ticks: mpsc::Receiver<Tick>,
+    pending: VecDeque<Value>,
+}
+
+const MAX_PENDING_WS_FRAMES: usize = 256;
+
+impl RawWs {
+    /// 从缓存帧中取出当前等待器可消费的第一帧，保留跨 action 的乱序广播。
+    fn take_pending<F>(&mut self, actions: &[&str], predicate: &F) -> Option<Value>
+    where
+        F: Fn(&Value) -> bool,
+    {
+        let index = self.pending.iter().position(|frame| {
+            let action = frame.get("action").and_then(Value::as_str);
+            actions.iter().any(|candidate| Some(*candidate) == action) && predicate(frame)
+        })?;
+        self.pending.remove(index)
+    }
+
+    /// 接收并解析一帧真实 WS 入站 JSON，忽略 transport 控制帧和非 JSON 数据。
+    async fn receive_frame(&mut self) -> Result<Value, String> {
+        loop {
+            let tick = self
+                .ticks
+                .recv()
+                .await
+                .ok_or_else(|| "real Go WS tick channel closed".to_string())?;
+            let Tick::Inbound(bytes) = tick else {
+                continue;
+            };
+            let Ok(frame) = serde_json::from_slice::<Value>(bytes.as_bytes()) else {
+                continue;
+            };
+            return Ok(frame);
+        }
+    }
+
+    /// 缓存当前等待器不能消费但后续 action 可能需要的业务帧，并限制内存上界。
+    fn remember(&mut self, frame: Value) {
+        if frame.get("action").and_then(Value::as_str).is_none() {
+            return;
+        }
+        if self.pending.len() >= MAX_PENDING_WS_FRAMES {
+            self.pending.pop_front();
+        }
+        self.pending.push_back(frame);
+    }
 }
 
 #[derive(Clone)]
@@ -234,18 +301,53 @@ pub(crate) async fn start_real_helix_session(
 
 /// 启动以指定真实登录身份连接 Go WS 的 native engine，用于双用户 Gate 的 author/reader 断言。
 pub(crate) async fn start_real_helix_session_as(
-    _context: &AuthContext,
+    context: &AuthContext,
     persona: &Persona,
     channel_ids: &[&str],
 ) -> Result<RealHelixSession, String> {
+    start_real_helix_session_as_at(context, persona, channel_ids, GO_HTTP_BASE, GO_WS_URL).await
+}
+
+/// 启动 Phase5 文字接龙专用的 18066 native engine，不改变既有 8066 Gate。
+pub(crate) async fn start_chain_helix_session(
+    context: &AuthContext,
+    channel_ids: &[&str],
+) -> Result<RealHelixSession, String> {
+    start_chain_helix_session_as(context, &context.actor, channel_ids).await
+}
+
+/// 以指定登录身份启动 18066 文字接龙 native engine，供双设备同步 Gate 使用。
+pub(crate) async fn start_chain_helix_session_as(
+    context: &AuthContext,
+    persona: &Persona,
+    channel_ids: &[&str],
+) -> Result<RealHelixSession, String> {
+    start_real_helix_session_as_at(
+        context,
+        persona,
+        channel_ids,
+        CHAIN_GO_HTTP_BASE,
+        CHAIN_GO_WS_URL,
+    )
+    .await
+}
+
+/// 按给定 Go HTTP/WS 端点装配完整 Native 生命周期；业务仍只在 helix-im 内执行。
+async fn start_real_helix_session_as_at(
+    _context: &AuthContext,
+    persona: &Persona,
+    channel_ids: &[&str],
+    http_base: &str,
+    ws_url: &str,
+) -> Result<RealHelixSession, String> {
     let (storage, db_path) = open_test_storage().await?;
     let (event_sink, events) = NativeEventSink::new();
-    let http = go_http(persona).await?;
+    let http = go_http_at(persona, http_base, ws_url).await?;
 
     let mut im_config = ImConfig::default();
-    im_config.ws_url = GO_WS_URL.to_string();
-    im_config.api_base_url = GO_HTTP_BASE.to_string();
-    im_config.default_api_base_url = MAIN_API_BASE.to_string();
+    im_config.ws_url = ws_url.to_string();
+    im_config.api_base_url = http_base.to_string();
+    im_config.default_api_base_url = main_api_base();
     im_config.auth_user_id = persona.user_id.clone();
     im_config.company_id = persona.company_id.clone();
     im_config.user_name = persona.user_name.clone();
@@ -267,7 +369,7 @@ pub(crate) async fn start_real_helix_session_as(
     let transport_raw =
         100u32.saturating_add((RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed) % 10_000) as u32);
     let mut actor_transport = NativeTransport::new(
-        GO_WS_URL,
+        ws_url,
         TransportId::from_raw(transport_raw),
         Some(tick_tx.clone()),
     )
@@ -358,6 +460,26 @@ pub(crate) async fn remote_setup() -> (tokio::sync::MutexGuard<'static, ()>, Arc
     (guard, context)
 }
 
+/// 串行化并准备 Phase5 的 18066 真实账号上下文；不触发既有 8066 health 检查。
+pub(crate) async fn remote_setup_chain() -> (tokio::sync::MutexGuard<'static, ()>, Arc<AuthContext>)
+{
+    let guard = REMOTE_LOCK
+        .get_or_init(|| async { Mutex::new(()) })
+        .await
+        .lock()
+        .await;
+    let context = CHAIN_AUTH_CONTEXT
+        .get_or_init(|| async {
+            discover_auth_context_at(CHAIN_GO_HTTP_BASE, "http://127.0.0.1:18066/api/cses/health")
+                .await
+                .map(Arc::new)
+        })
+        .await
+        .clone()
+        .unwrap_or_else(|error| panic!("BLOCKED_PRECONDITION/NOT_VERIFIED: {error}"));
+    (guard, context)
+}
+
 /// 在固定候选路径中寻找 Angular 现有凭据，不从环境变量或用户输入读取 secret。
 pub(crate) fn discover_credentials_path() -> Result<PathBuf, String> {
     let mut candidates = vec![PathBuf::from(
@@ -378,7 +500,12 @@ pub(crate) fn discover_credentials_path() -> Result<PathBuf, String> {
 
 /// 创建一个没有身份头的 HTTP client，用于 Go health 或主登录接口。
 pub(crate) async fn anonymous_http(base: &str) -> Result<NativeHttp, String> {
-    NativeHttp::with_config(HostNetworkConfig::new(base, GO_WS_URL))
+    anonymous_http_at(base, GO_WS_URL).await
+}
+
+/// 构造不带身份头的 HTTP client，并显式绑定对应 WS 端点。
+pub(crate) async fn anonymous_http_at(base: &str, ws_url: &str) -> Result<NativeHttp, String> {
+    NativeHttp::with_config(HostNetworkConfig::new(base, ws_url))
         .map_err(|error| format!("NativeHttp init failed for {base}: {error}"))
 }
 
@@ -514,7 +641,8 @@ pub(crate) async fn login_account(
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "credential account has no mobile; skipping unusable account".to_string())?;
-    let http = anonymous_http(MAIN_API_BASE).await?;
+    let main_api_base = main_api_base();
+    let http = anonymous_http(&main_api_base).await?;
     for (name, value) in [
         ("appType", "bct"),
         ("device", "IOS"),
@@ -533,7 +661,7 @@ pub(crate) async fn login_account(
     let observation = request_json(
         &http,
         "POST",
-        &format!("{MAIN_API_BASE}/User/login"),
+        &format!("{main_api_base}/User/login"),
         Some(json!({ "userName": mobile, "password": account.password })),
         "login",
     )
@@ -546,6 +674,14 @@ pub(crate) async fn login_account(
 
 /// 自动从现有账号池找出同一 companyId 下的 actor/observer/third 三个身份。
 pub(crate) async fn discover_auth_context() -> Result<AuthContext, String> {
+    discover_auth_context_at(GO_HTTP_BASE, GO_HEALTH_URL).await
+}
+
+/// 从指定 Go 端点验证 health 后寻找三个共享租户账号，避免 Phase5 误连 8066。
+pub(crate) async fn discover_auth_context_at(
+    go_http_base: &str,
+    go_health_url: &str,
+) -> Result<AuthContext, String> {
     let credentials_path = discover_credentials_path()?;
     let content = std::fs::read_to_string(&credentials_path)
         .map_err(|error| format!("read credentials file failed: {error}"))?;
@@ -555,11 +691,11 @@ pub(crate) async fn discover_auth_context() -> Result<AuthContext, String> {
         return Err("credentials account pool must contain at least three accounts".to_string());
     }
 
-    let health = anonymous_http(GO_HTTP_BASE).await?;
-    let health_response = request_json(&health, "GET", GO_HEALTH_URL, None, "health").await?;
+    let health = anonymous_http_at(go_http_base, go_health_base_to_ws(go_health_url)).await?;
+    let health_response = request_json(&health, "GET", go_health_url, None, "health").await?;
     if health_response.status != 200 {
         return Err(format!(
-            "Go 8066 health returned HTTP {}",
+            "Go health {go_health_url} returned HTTP {}",
             health_response.status
         ));
     }
@@ -604,9 +740,27 @@ pub(crate) async fn discover_auth_context() -> Result<AuthContext, String> {
     Err("could not find three logged-in accounts sharing one companyId".to_string())
 }
 
+/// 将本轮 health URL 的 HTTP 端口映射为 NativeHttp 所需的 WS URL。
+fn go_health_base_to_ws(health_url: &str) -> &str {
+    if health_url == GO_HEALTH_URL {
+        GO_WS_URL
+    } else {
+        CHAIN_GO_WS_URL
+    }
+}
+
 /// 构造带 Go 身份头的 native HTTP client；HTTP actor 与 body userId 必须保持一致。
 pub(crate) async fn go_http(persona: &Persona) -> Result<NativeHttp, String> {
-    let http = NativeHttp::with_config(HostNetworkConfig::new(GO_HTTP_BASE, GO_WS_URL))
+    go_http_at(persona, GO_HTTP_BASE, GO_WS_URL).await
+}
+
+/// 构造绑定指定 Go 端点的身份 HTTP client，供 Phase5 使用 18066。
+pub(crate) async fn go_http_at(
+    persona: &Persona,
+    http_base: &str,
+    ws_url: &str,
+) -> Result<NativeHttp, String> {
+    let http = NativeHttp::with_config(HostNetworkConfig::new(http_base, ws_url))
         .map_err(|error| format!("Go NativeHttp init failed: {error}"))?;
     for (name, value) in [
         ("Cookieid", persona.cookie_id.as_str()),
@@ -643,10 +797,18 @@ pub(crate) fn ws_headers(persona: &Persona) -> Vec<(String, String)> {
 
 /// 打开真实 Go WS，先完成 upgrade/activation，再由调用方消费 Connected 与 hello。
 pub(crate) async fn open_raw_ws(persona: &Persona, raw_id: u32) -> Result<RawWs, String> {
+    open_raw_ws_at(persona, raw_id, GO_WS_URL).await
+}
+
+/// 打开指定 Go 端点的原始 WS，用于证明真实 fan-out frame 而不是本地 EventSink。
+pub(crate) async fn open_raw_ws_at(
+    persona: &Persona,
+    raw_id: u32,
+    ws_url: &str,
+) -> Result<RawWs, String> {
     let (tick_tx, ticks) = mpsc::channel(256);
-    let mut transport =
-        NativeTransport::new(GO_WS_URL, TransportId::from_raw(raw_id), Some(tick_tx))
-            .with_handshake_headers(ws_headers(persona));
+    let mut transport = NativeTransport::new(ws_url, TransportId::from_raw(raw_id), Some(tick_tx))
+        .with_handshake_headers(ws_headers(persona));
     let activation = transport
         .connect()
         .await
@@ -658,10 +820,11 @@ pub(crate) async fn open_raw_ws(persona: &Persona, raw_id: u32) -> Result<RawWs,
     Ok(RawWs {
         transport: Arc::new(transport),
         ticks,
+        pending: VecDeque::new(),
     })
 }
 
-/// 等待指定 action 的真实 Go WS frame；Connected/噪音帧被消费但不会被当业务成功。
+/// 等待指定 action 的真实 Go WS frame；乱序业务帧会留在 RawWs 缓存中，不被静默丢弃。
 pub(crate) async fn wait_ws_action<F>(
     ws: &mut RawWs,
     action: &str,
@@ -673,20 +836,14 @@ where
 {
     timeout(timeout_duration, async {
         loop {
-            let tick = ws
-                .ticks
-                .recv()
-                .await
-                .ok_or_else(|| "real Go WS tick channel closed".to_string())?;
-            let Tick::Inbound(bytes) = tick else {
-                continue;
-            };
-            let Ok(frame) = serde_json::from_slice::<Value>(bytes.as_bytes()) else {
-                continue;
-            };
+            if let Some(frame) = ws.take_pending(&[action], &predicate) {
+                return Ok(frame);
+            }
+            let frame = ws.receive_frame().await?;
             if frame.get("action").and_then(Value::as_str) == Some(action) && predicate(&frame) {
                 return Ok(frame);
             }
+            ws.remember(frame);
         }
     })
     .await
@@ -705,21 +862,15 @@ where
 {
     timeout(timeout_duration, async {
         loop {
-            let tick = ws
-                .ticks
-                .recv()
-                .await
-                .ok_or_else(|| "real Go WS tick channel closed".to_string())?;
-            let Tick::Inbound(bytes) = tick else {
-                continue;
-            };
-            let Ok(frame) = serde_json::from_slice::<Value>(bytes.as_bytes()) else {
-                continue;
-            };
+            if let Some(frame) = ws.take_pending(actions, &predicate) {
+                return Ok(frame);
+            }
+            let frame = ws.receive_frame().await?;
             let action = frame.get("action").and_then(Value::as_str);
             if actions.iter().any(|candidate| Some(*candidate) == action) && predicate(&frame) {
                 return Ok(frame);
             }
+            ws.remember(frame);
         }
     })
     .await
@@ -904,6 +1055,7 @@ fn validate_active_member_snapshot(
 /// 在 channel/create 后等待精确频道 read-back 与 active member snapshot 同时稳定。
 async fn wait_active_channel_fixture(
     http: &NativeHttp,
+    http_base: &str,
     channel_id: &str,
     display_name: &str,
     required_user_ids: &BTreeSet<String>,
@@ -914,7 +1066,7 @@ async fn wait_active_channel_fixture(
         let channel_result = request_json(
             http,
             "POST",
-            &format!("{GO_HTTP_BASE}/channel/query"),
+            &format!("{http_base}/channel/query"),
             Some(json!({
                 "id": channel_id,
                 "pageNumber": 1,
@@ -953,7 +1105,7 @@ async fn wait_active_channel_fixture(
         let snapshot_check = request_json(
             http,
             "POST",
-            &format!("{GO_HTTP_BASE}/channel/member/snapshot"),
+            &format!("{http_base}/channel/member/snapshot"),
             Some(json!({
                 "channelId": channel_id,
                 "startTime": 0,
@@ -996,7 +1148,21 @@ async fn finish_run_owned_channel<T>(
 
 /// 以 canonical channel/create body 创建 run-owned 私有群聊。
 pub(crate) async fn create_channel(context: &AuthContext) -> Result<String, String> {
-    let http = go_http(&context.actor).await?;
+    create_channel_at(context, GO_HTTP_BASE, GO_WS_URL).await
+}
+
+/// 在指定 Go 端点创建三成员 run-owned 频道，Phase5 绑定 18066。
+pub(crate) async fn create_chain_channel(context: &AuthContext) -> Result<String, String> {
+    create_channel_at(context, CHAIN_GO_HTTP_BASE, CHAIN_GO_WS_URL).await
+}
+
+/// 创建并验证指定端点上的 run-owned 频道及成员快照。
+async fn create_channel_at(
+    context: &AuthContext,
+    http_base: &str,
+    ws_url: &str,
+) -> Result<String, String> {
+    let http = go_http_at(&context.actor, http_base, ws_url).await?;
     let display_name = resource_name("channel");
     let started_at = unix_now_ms();
     let body = json!({
@@ -1008,7 +1174,7 @@ pub(crate) async fn create_channel(context: &AuthContext) -> Result<String, Stri
     let observation = request_json(
         &http,
         "POST",
-        &format!("{GO_HTTP_BASE}/channel/create"),
+        &format!("{http_base}/channel/create"),
         Some(body),
         "channel-create",
     )
@@ -1026,17 +1192,42 @@ pub(crate) async fn create_channel(context: &AuthContext) -> Result<String, Stri
         context.observer.user_id.clone(),
         context.third.user_id.clone(),
     ]);
-    wait_active_channel_fixture(&http, &channel_id, &display_name, &required_user_ids).await?;
+    wait_active_channel_fixture(
+        &http,
+        http_base,
+        &channel_id,
+        &display_name,
+        &required_user_ids,
+    )
+    .await?;
     Ok(channel_id)
 }
 
 /// 只关闭本测试刚创建的频道；不执行全库 truncate/flush。
 pub(crate) async fn close_channel(context: &AuthContext, channel_id: &str) -> Result<(), String> {
-    let http = go_http(&context.actor).await?;
+    close_channel_at(context, channel_id, GO_HTTP_BASE, GO_WS_URL).await
+}
+
+/// 关闭 Phase5 本轮 18066 上创建的 run-owned 频道。
+pub(crate) async fn close_chain_channel(
+    context: &AuthContext,
+    channel_id: &str,
+) -> Result<(), String> {
+    close_channel_at(context, channel_id, CHAIN_GO_HTTP_BASE, CHAIN_GO_WS_URL).await
+}
+
+/// 通过指定 Go 端点关闭单个本轮频道，拒绝全库清理。
+async fn close_channel_at(
+    context: &AuthContext,
+    channel_id: &str,
+    http_base: &str,
+    ws_url: &str,
+) -> Result<(), String> {
+    let http = go_http_at(&context.actor, http_base, ws_url).await?;
     let observation = request_json(
         &http,
         "POST",
-        &format!("{GO_HTTP_BASE}/channel/close"),
+        &format!("{http_base}/channel/close"),
         Some(json!({ "channelId": channel_id })),
         "channel-close",
     )
@@ -1393,6 +1584,52 @@ pub(crate) fn row_text(row: &Row, column: &str) -> Option<String> {
         })
 }
 
+/// 读取整型投影列，供 Chain revision/seq/count 的行级断言使用。
+pub(crate) fn row_i64(row: &Row, column: &str) -> Option<i64> {
+    row.iter()
+        .find_map(|(name, value)| match (name.as_str(), value) {
+            (name, SqlValue::Integer(number)) if name == column => Some(*number),
+            _ => None,
+        })
+}
+
+/// 按唯一键读取文字接龙 durable projection，避免用全表扫描掩盖持久化缺失。
+pub(crate) async fn scan_chain_row(
+    storage: &NativeStorage,
+    table: &'static str,
+    key_column: &'static str,
+    key: &str,
+) -> Result<Row, String> {
+    let rows = storage
+        .scan(ScanSpec {
+            table,
+            limit: Some(4),
+            filter: Some((key_column, SqlValue::Text(key.to_string()))),
+            order_by: &[],
+        })
+        .await
+        .map_err(|error| format!("scan {table}.{key_column} failed: {error}"))?;
+    rows.into_iter()
+        .next()
+        .ok_or_else(|| format!("{table} row {key_column}={key} not found after PersistOk"))
+}
+
+/// 读取同一文字接龙的全部 Entry，按 durable seq 排序验证无重复/无洞。
+pub(crate) async fn scan_chain_entries(
+    storage: &NativeStorage,
+    chain_id: &str,
+) -> Result<Vec<Row>, String> {
+    storage
+        .scan(ScanSpec {
+            table: "chain_entry",
+            limit: Some(256),
+            filter: Some(("chain_id", SqlValue::Text(chain_id.to_string()))),
+            order_by: CHAIN_ENTRY_ORDER,
+        })
+        .await
+        .map_err(|error| format!("scan chain_entry for {chain_id} failed: {error}"))
+}
+
 /// 按真实 engine 装配一次完整 send，返回 HTTP→WS→SQLite→emit 的逐跳证据。
 pub(crate) async fn run_helix_send(
     context: &AuthContext,
@@ -1409,7 +1646,7 @@ pub(crate) async fn run_helix_send(
     let mut config = ImConfig::default();
     config.ws_url = GO_WS_URL.to_string();
     config.api_base_url = GO_HTTP_BASE.to_string();
-    config.default_api_base_url = MAIN_API_BASE.to_string();
+    config.default_api_base_url = main_api_base();
     config.auth_user_id = context.actor.user_id.clone();
     config.company_id = context.actor.company_id.clone();
     config.user_name = context.actor.user_name.clone();
@@ -1572,7 +1809,7 @@ pub(crate) async fn run_helix_send_failure(
     let mut config = ImConfig::default();
     config.ws_url = GO_WS_URL.to_string();
     config.api_base_url = GO_HTTP_BASE.to_string();
-    config.default_api_base_url = MAIN_API_BASE.to_string();
+    config.default_api_base_url = main_api_base();
     config.auth_user_id = context.actor.user_id.clone();
     config.company_id = context.actor.company_id.clone();
     config.send_timeout_ms = 2_000;
@@ -1828,8 +2065,13 @@ pub(crate) fn write_gate_evidence(
     status: &str,
     details: Value,
 ) -> Result<PathBuf, String> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../artifacts/messagev3-phase1-4-real-chain");
+    let root_name = if phase == "Phase5" {
+        "messagev3-phase5-real-chain"
+    } else {
+        "messagev3-phase1-4-real-chain"
+    };
+    let root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../artifacts/{root_name}"));
     let run_id = format!("{}-{}", run_token("evidence"), std::process::id());
     let path = root.join(&run_id).join(phase).join(domain).join(gate);
     std::fs::create_dir_all(&path)

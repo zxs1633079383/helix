@@ -147,6 +147,80 @@ pub const COMMAND_ALIASES: &[CommandAlias] = &[
         public: "im_company_exit",
         core: "im_team_quit",
     },
+    // 文字接龙 Phase 5：公开名与 Helix canonical outbound 名同名；im_ 前缀别名仅为
+    // 迁移期兼容，业务字段仍在 chain builder 中 fail-closed 收敛。
+    CommandAlias {
+        public: "post_chain_create",
+        core: "post_chain_create",
+    },
+    CommandAlias {
+        public: "post_chain_update_draft",
+        core: "post_chain_update_draft",
+    },
+    CommandAlias {
+        public: "post_chain_publish",
+        core: "post_chain_publish",
+    },
+    CommandAlias {
+        public: "post_chain_append",
+        core: "post_chain_append",
+    },
+    CommandAlias {
+        public: "post_chain_get",
+        core: "post_chain_get",
+    },
+    CommandAlias {
+        public: "post_chain_reconcile",
+        core: "post_chain_reconcile",
+    },
+    CommandAlias {
+        public: "post_chain_close",
+        core: "post_chain_close",
+    },
+    CommandAlias {
+        public: "post_chain_retract",
+        core: "post_chain_retract",
+    },
+    CommandAlias {
+        public: "post_chain_mark_read",
+        core: "post_chain_mark_read",
+    },
+    CommandAlias {
+        public: "im_post_chain_create",
+        core: "post_chain_create",
+    },
+    CommandAlias {
+        public: "im_post_chain_update_draft",
+        core: "post_chain_update_draft",
+    },
+    CommandAlias {
+        public: "im_post_chain_publish",
+        core: "post_chain_publish",
+    },
+    CommandAlias {
+        public: "im_post_chain_append",
+        core: "post_chain_append",
+    },
+    CommandAlias {
+        public: "im_post_chain_get",
+        core: "post_chain_get",
+    },
+    CommandAlias {
+        public: "im_post_chain_reconcile",
+        core: "post_chain_reconcile",
+    },
+    CommandAlias {
+        public: "im_post_chain_close",
+        core: "post_chain_close",
+    },
+    CommandAlias {
+        public: "im_post_chain_retract",
+        core: "post_chain_retract",
+    },
+    CommandAlias {
+        public: "im_post_chain_mark_read",
+        core: "post_chain_mark_read",
+    },
 ];
 
 pub fn command_alias(public: &str) -> Option<&'static str> {

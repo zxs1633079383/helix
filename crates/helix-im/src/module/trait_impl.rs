@@ -134,6 +134,14 @@ impl Module for ImModule {
                             source: Box::new(e),
                         })?;
                 }
+                // 文字接龙命令拥有独立的 correlation/authority barrier，不能落入通用 fire-and-forget。
+                name if crate::chain::is_command(name) => {
+                    self.handle_chain_command(name, cmd.payload.as_ref(), out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
+                }
                 // Tier 1 outbound 自驱动命令（read/revoke/leave/schedule/cancel/create/makeTopic）：
                 // 纯 HTTP-fire，业务契约在 crate::commands（endpoint 锚现网真源）。
                 name if crate::commands::is_outbound(name) => {

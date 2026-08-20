@@ -21,6 +21,7 @@ crates/helix-driver-ffi/smoke/build/
 
 # 本地 Gate 入站/出站原始证据可能含运行态数据，不进入 Git。
 **/.v1/
+/artifacts/messagev3-phase5-real-chain/
 
 # Python extension runtime caches
 __pycache__/

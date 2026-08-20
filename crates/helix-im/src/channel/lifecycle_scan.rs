@@ -111,12 +111,13 @@ impl ImModule {
                     None
                 }
             };
-            // register_channel 幂等：若已存在则不覆盖（Connected 路径可能已注册）
+            // Connected/WS 可能先注册 cursor=0；扫描权威必须单调恢复已持久水位。
             let channel = self
                 .state
                 .channels
                 .entry(channel_id)
                 .or_insert_with(|| crate::channel::Channel::new(channel_id, cursor));
+            restore_scanned_cursor(channel, Seq(cursor));
             if let Some(terminal_seq) = terminal_seq {
                 if !channel.restore_terminal(terminal_seq) {
                     tracing::error!(
@@ -238,6 +239,11 @@ fn parse_latest_message_update_at(bytes: &[u8]) -> i64 {
         .unwrap_or(0)
 }
 
+/// 把启动扫描的持久游标单调合并到抢先注册的频道，禁止回退运行期已推进水位。
+fn restore_scanned_cursor(channel: &mut crate::channel::Channel, persisted: Seq) {
+    channel.cursor.try_advance(persisted);
+}
+
 /// 读取 channel 投影中的整数列，拒绝布尔/浮点等非契约值。
 fn as_i64(value: &serde_json::Value) -> Option<i64> {
     value
@@ -257,4 +263,33 @@ fn as_bool(value: &serde_json::Value) -> Option<bool> {
                 _ => None,
             })
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// WS 抢先注册的零游标必须被启动扫描恢复，否则后续接龙事件会永久落入 gap。
+    #[test]
+    fn startup_scan_restores_cursor_for_pre_registered_channel() {
+        let channel_id =
+            ChannelId::from_str("12345678901234567890123456").expect("valid channel id");
+        let mut channel = crate::channel::Channel::new(channel_id, 0);
+
+        restore_scanned_cursor(&mut channel, Seq(19));
+
+        assert_eq!(channel.cursor.value(), Seq(19));
+    }
+
+    /// 启动扫描晚到时不得把运行期已提交 cursor 回退到旧水位。
+    #[test]
+    fn startup_scan_never_regresses_live_cursor() {
+        let channel_id =
+            ChannelId::from_str("12345678901234567890123456").expect("valid channel id");
+        let mut channel = crate::channel::Channel::new(channel_id, 23);
+
+        restore_scanned_cursor(&mut channel, Seq(19));
+
+        assert_eq!(channel.cursor.value(), Seq(23));
+    }
 }

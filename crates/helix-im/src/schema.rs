@@ -80,6 +80,31 @@ pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
         identity_cols: &["account_id", "handle"],
         scope_col: Some("account_id"),
     },
+    SparseTableSpec {
+        table: "chain_summary",
+        identity_cols: &["chain_id"],
+        scope_col: Some("channel_id"),
+    },
+    SparseTableSpec {
+        table: "chain_entry",
+        identity_cols: &["entry_id"],
+        scope_col: Some("chain_id"),
+    },
+    SparseTableSpec {
+        table: "chain_window",
+        identity_cols: &["chain_id"],
+        scope_col: Some("chain_id"),
+    },
+    SparseTableSpec {
+        table: "chain_mutation",
+        identity_cols: &["client_mutation_id"],
+        scope_col: None,
+    },
+    SparseTableSpec {
+        table: "chain_viewer",
+        identity_cols: &["viewer_key"],
+        scope_col: Some("chain_id"),
+    },
 ];
 
 /// IM 业务 schema（DDL 当数据）。host-cli 启动 migrate 后 loop execute_raw 叠加。
@@ -376,6 +401,54 @@ END",
         PRIMARY KEY (temporary_id, target_key)\
     )",
     "CREATE INDEX IF NOT EXISTS idx_pending_media_temporary_id ON pending_media(temporary_id)",
+    // 文字接龙最小 durable projection；JSON window 列只存 Helix 编码的 id 数组。
+    "CREATE TABLE IF NOT EXISTS chain_summary (\
+        chain_id TEXT PRIMARY KEY,\
+        channel_id TEXT NOT NULL DEFAULT '',\
+        mode TEXT NOT NULL DEFAULT 'TEXT',\
+        status TEXT NOT NULL DEFAULT 'DRAFT',\
+        title TEXT NOT NULL DEFAULT '',\
+        description TEXT NOT NULL DEFAULT '',\
+        deadline_at INTEGER NOT NULL DEFAULT 0,\
+        total_messages INTEGER NOT NULL DEFAULT 0,\
+        participant_count INTEGER NOT NULL DEFAULT 0,\
+        last_seq INTEGER NOT NULL DEFAULT 0,\
+        revision INTEGER NOT NULL DEFAULT 0\
+    )",
+    "CREATE TABLE IF NOT EXISTS chain_entry (\
+        entry_id TEXT PRIMARY KEY,\
+        chain_id TEXT NOT NULL DEFAULT '',\
+        post_id TEXT NOT NULL DEFAULT '',\
+        author_id TEXT NOT NULL DEFAULT '',\
+        seq INTEGER NOT NULL DEFAULT 0,\
+        text TEXT NOT NULL DEFAULT '',\
+        created_at INTEGER NOT NULL DEFAULT 0,\
+        status TEXT NOT NULL DEFAULT 'ACTIVE'\
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_chain_entry_chain_seq ON chain_entry(chain_id, seq)",
+    "CREATE TABLE IF NOT EXISTS chain_window (\
+        chain_id TEXT PRIMARY KEY,\
+        head_ids TEXT NOT NULL DEFAULT '[]',\
+        tail_ids TEXT NOT NULL DEFAULT '[]',\
+        hidden_count INTEGER NOT NULL DEFAULT 0,\
+        middle_cursor TEXT NOT NULL DEFAULT '',\
+        has_more INTEGER NOT NULL DEFAULT 0\
+    )",
+    "CREATE TABLE IF NOT EXISTS chain_mutation (\
+        client_mutation_id TEXT PRIMARY KEY,\
+        operation_id TEXT NOT NULL DEFAULT '',\
+        state TEXT NOT NULL DEFAULT 'PENDING',\
+        entry_id TEXT NOT NULL DEFAULT '',\
+        error_code TEXT NOT NULL DEFAULT ''\
+    )",
+    "CREATE TABLE IF NOT EXISTS chain_viewer (\
+        viewer_key TEXT PRIMARY KEY,\
+        chain_id TEXT NOT NULL DEFAULT '',\
+        device_id TEXT NOT NULL DEFAULT '',\
+        last_event_seq INTEGER NOT NULL DEFAULT 0,\
+        last_read_at INTEGER NOT NULL DEFAULT 0\
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_chain_viewer_chain_device ON chain_viewer(chain_id, device_id)",
 ];
 
 /// 旧库 additive migration：`CREATE TABLE IF NOT EXISTS` 不会给既有 `message` /
@@ -434,8 +507,21 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE channel_member ADD COLUMN channel_is_top INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN notify TEXT NOT NULL DEFAULT 'NORMAL'",
     "ALTER TABLE channel_event_cursor ADD COLUMN terminal_event_seq INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE chain_summary ADD COLUMN title TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE chain_summary ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE chain_summary ADD COLUMN deadline_at INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE chain_summary ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE chain_summary ADD COLUMN creator_snapshot TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE chain_entry ADD COLUMN author_snapshot TEXT NOT NULL DEFAULT '{}'",
     "CREATE TABLE IF NOT EXISTS channel_event_ledger (tenant_id TEXT NOT NULL, channel_id TEXT NOT NULL, event_seq INTEGER NOT NULL, event_kind TEXT NOT NULL, message_id TEXT, event_hash TEXT NOT NULL, coverage_id TEXT NOT NULL, applied_at_ms INTEGER NOT NULL, PRIMARY KEY (tenant_id, channel_id, event_seq))",
     "CREATE INDEX IF NOT EXISTS idx_channel_event_ledger_coverage ON channel_event_ledger(tenant_id, channel_id, coverage_id)",
     "CREATE TABLE IF NOT EXISTS channel_sync_coverage (coverage_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, channel_id TEXT NOT NULL, from_seq INTEGER NOT NULL, to_seq INTEGER NOT NULL, event_count INTEGER NOT NULL, facts_hash TEXT NOT NULL, correlation_id TEXT NOT NULL, commit_state TEXT NOT NULL CHECK (commit_state = 'committed'), committed_at_ms INTEGER NOT NULL, UNIQUE (tenant_id, channel_id, from_seq, to_seq))",
     "CREATE INDEX IF NOT EXISTS idx_channel_sync_coverage_range ON channel_sync_coverage(tenant_id, channel_id, from_seq, to_seq)",
+    "CREATE TABLE IF NOT EXISTS chain_summary (chain_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL DEFAULT '', mode TEXT NOT NULL DEFAULT 'TEXT', status TEXT NOT NULL DEFAULT 'DRAFT', title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', deadline_at INTEGER NOT NULL DEFAULT 0, creator_snapshot TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL DEFAULT 0, total_messages INTEGER NOT NULL DEFAULT 0, participant_count INTEGER NOT NULL DEFAULT 0, last_seq INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS chain_entry (entry_id TEXT PRIMARY KEY, chain_id TEXT NOT NULL DEFAULT '', post_id TEXT NOT NULL DEFAULT '', author_id TEXT NOT NULL DEFAULT '', author_snapshot TEXT NOT NULL DEFAULT '{}', seq INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ACTIVE')",
+    "CREATE INDEX IF NOT EXISTS idx_chain_entry_chain_seq ON chain_entry(chain_id, seq)",
+    "CREATE TABLE IF NOT EXISTS chain_window (chain_id TEXT PRIMARY KEY, head_ids TEXT NOT NULL DEFAULT '[]', tail_ids TEXT NOT NULL DEFAULT '[]', hidden_count INTEGER NOT NULL DEFAULT 0, middle_cursor TEXT NOT NULL DEFAULT '', has_more INTEGER NOT NULL DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS chain_mutation (client_mutation_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'PENDING', entry_id TEXT NOT NULL DEFAULT '', error_code TEXT NOT NULL DEFAULT '')",
+    "CREATE TABLE IF NOT EXISTS chain_viewer (viewer_key TEXT PRIMARY KEY, chain_id TEXT NOT NULL DEFAULT '', device_id TEXT NOT NULL DEFAULT '', last_event_seq INTEGER NOT NULL DEFAULT 0, last_read_at INTEGER NOT NULL DEFAULT 0)",
+    "CREATE INDEX IF NOT EXISTS idx_chain_viewer_chain_device ON chain_viewer(chain_id, device_id)",
 ];

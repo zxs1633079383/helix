@@ -1,6 +1,6 @@
 # MessageV3 Phase1-4 与 Phase5 文字接龙真实 Gate 交接
 
-## 2026-08-19 当前文字接龙交接（本节为最新真源）
+## 2026-08-20 当前文字接龙交接（本节为最新真源）
 
 ```text
 AGENT_HANDOFF/v1
@@ -72,14 +72,12 @@ reducer 失败。
 
 ### 当前工作树边界
 
-- Helix branch：`codex/messagev3-text-chain-helix-20260819`，HEAD `c3d6069465e4250609f05eb6012e42faf7cb5c3b`。
-- 当前尚未提交的 Helix 修改：`crates/helix-im/src/chain.rs`、
-  `crates/helix-im/src/port_reply/message_v3_chain.rs`、
-  `crates/helix-driver-native/tests/messageV3-domain/shared/chain.rs`、
-  `crates/helix-driver-native/tests/messageV3-domain/shared/mod.rs`。
+- Helix branch：`codex/messagev3-text-chain-helix-20260819`，HEAD `fb7a3296f44a`；Chain/Gate
+  修复、回归测试与本 handoff 已提交。Tag `0820-textt-chain` 保留在提交前快照。
 - 本轮未 push、未把运行证据目录加入 Git；未改变 Go host `8066`，接龙验证仍使用
   `18066 -> container 8066`。
-- Angular 生产组件/投影消费者未在本轮修改；因此尚无 Phase5 DOM/像素级验收证据。
+- Angular Phase5 真实 UI/DOM 结果记录在客户端最终 Report；Helix 侧仍不把 DOM 证据扩大为
+  SQLite durable read-back 或 Figma 像素级验收。
 
 ## 交接对象
 

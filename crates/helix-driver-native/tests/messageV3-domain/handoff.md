@@ -18,28 +18,28 @@ first-failure: none（本轮已修复并复验 CHAIN-COM-G03）
 真实链 `PASS`。最新全量命令为：
 
 ```bash
-HELIX_MAIN_API_BASE=http://api3-dev.jinqidongli.com \
+HELIX_MAIN_API_BASE=http://127.0.0.1:3399 \
   cargo test -p helix-driver-native --test message_v3_domain phase5_chain_text \
   -- --nocapture --test-threads=1
 ```
 
-结果为 `8 passed; 0 failed`（1.84s）。Gate 业务账目必须读取同一轮生成的
+结果为 `8 passed; 0 failed`（1.96s）。Gate 业务账目必须读取同一轮生成的
 `artifacts/messagev3-phase5-real-chain/**/evidence.json`：
 
 | Gate | 最新业务状态 | 证据 |
 | --- | --- | --- |
-| CHAIN-COM-G01 | PASS | `hx-p1-evidence-81190-15-81190/.../CHAIN-COM-G01/evidence.json` |
-| CHAIN-COM-G02 | PASS | `hx-p1-evidence-81190-26-81190/.../CHAIN-COM-G02/evidence.json` |
-| CHAIN-COM-G03 | PASS | `hx-p1-evidence-81190-38-81190/.../CHAIN-COM-G03/evidence.json` |
-| CHAIN-COM-G04 | PASS | `hx-p1-evidence-81190-53-81190/.../CHAIN-COM-G04/evidence.json` |
-| CHAIN-COM-G05 | PASS | `hx-p1-evidence-81190-63-81190/.../CHAIN-COM-G05/evidence.json` |
-| CHAIN-COM-G06 | PASS | `hx-p1-evidence-81190-78-81190/.../CHAIN-COM-G06/evidence.json` |
-| CHAIN-TXT-G01 | PASS | `hx-p1-evidence-81190-88-81190/.../CHAIN-TXT-G01/evidence.json` |
-| CHAIN-TXT-G02 | PASS | `hx-p1-evidence-81190-100-81190/.../CHAIN-TXT-G02/evidence.json` |
+| CHAIN-COM-G01 | PASS | `hx-p1-evidence-7620-13-7620/.../CHAIN-COM-G01/evidence.json` |
+| CHAIN-COM-G02 | PASS | `hx-p1-evidence-7620-24-7620/.../CHAIN-COM-G02/evidence.json` |
+| CHAIN-COM-G03 | PASS | `hx-p1-evidence-7620-36-7620/.../CHAIN-COM-G03/evidence.json` |
+| CHAIN-COM-G04 | PASS | `hx-p1-evidence-7620-51-7620/.../CHAIN-COM-G04/evidence.json` |
+| CHAIN-COM-G05 | PASS | `hx-p1-evidence-7620-61-7620/.../CHAIN-COM-G05/evidence.json` |
+| CHAIN-COM-G06 | PASS | `hx-p1-evidence-7620-76-7620/.../CHAIN-COM-G06/evidence.json` |
+| CHAIN-TXT-G01 | PASS | `hx-p1-evidence-7620-86-7620/.../CHAIN-TXT-G01/evidence.json` |
+| CHAIN-TXT-G02 | PASS | `hx-p1-evidence-7620-99-7620/.../CHAIN-TXT-G02/evidence.json` |
 
-G03 本轮同时取得双 append 的真实 HTTP/WS、唯一 seq/entry、SQLite read-back 和 reconcile 幂等
-证据；此前失败由 driver-native raw WS helper 丢弃乱序业务帧造成，不是 Go 持久化或 Helix
-reducer 失败。
+G03 本轮同时取得同一 actor 双 append 的真实 HTTP/WS、稳定 `entryId/postId/seq`、SQLite 单
+ACTIVE 行和 reconcile 幂等证据；首次为 `new(type=1)`，再次覆盖为 `edit(type=2)`。此前失败由
+driver-native raw WS helper 丢弃乱序业务帧造成，不是 Go 持久化或 Helix reducer 失败。
 
 ### 9 个 command 与 Gate 覆盖
 
@@ -72,8 +72,8 @@ reducer 失败。
 
 ### 当前工作树边界
 
-- Helix branch：`codex/messagev3-text-chain-helix-20260819`，HEAD `fb7a3296f44a`；Chain/Gate
-  修复、回归测试与本 handoff 已提交。Tag `0820-textt-chain` 保留在提交前快照。
+- Helix branch：`codex/messagev3-text-chain-helix-20260819`；本节描述当前未提交收口变更，最终
+  HEAD 以本轮提交后 `git rev-parse HEAD` 为准。Tag `0820-textt-chain` 保留在提交前快照。
 - 本轮未 push、未把运行证据目录加入 Git；未改变 Go host `8066`，接龙验证仍使用
   `18066 -> container 8066`。
 - Angular Phase5 真实 UI/DOM 结果记录在客户端最终 Report；Helix 侧仍不把 DOM 证据扩大为
@@ -102,7 +102,10 @@ crates/helix-driver-native/tests/messageV3-domain/Phase5/Chain/Text/CHAIN-TXT-G0
 
 本地 SQLite 表仍为 `chain_summary`、`chain_entry`、`chain_window`、`chain_mutation`、`chain_viewer` 及索引；本轮没有新增表，只为 `chain_summary` 增加 `title`、`description`、`deadline_at` 三个 additive 列及迁移，旧库可按已有重复列兼容策略升级。
 
-Go 已补齐 `POST /post-chain/update-draft`：在 PostgreSQL `chain` 行锁内校验 creator、DRAFT 状态和 `expectedRevision`，原子更新摘要及公告快照，重复 mutation 幂等返回，草稿更新不广播公共频道事件。`sql/008_chain_text.up.sql` 已在本地真实 PostgreSQL 执行并核对五张表、摘要字段和索引；本地 SQLite 不需要新增表结构。
+Go 已补齐 `POST /post-chain/update-draft`：在 PostgreSQL `chain` 行锁内校验 creator、DRAFT 状态和
+`expectedRevision`，原子更新 Chain 与 `TEXT_CHAIN` 声明 Post 快照，不依赖 Announcement、
+不读写 `post_announcements`；重复 mutation 幂等返回，草稿更新不广播公共频道事件。Docker 初始化
+已加载 `008_chain_text` 与 `009_chain_text_native_type_and_author_upsert`；本地 SQLite 不需要新增表。
 
 Docker 运行态复用此前 `make docker-up-clean` 拉起的容器：`cses-im-local-cses-im-server-1` 映射 `18066 -> 8066`，db/redis/pulsar healthy；host 8066 未被本轮占用。health 200 只记录可达，不作业务 Gate PASS。
 
@@ -115,8 +118,8 @@ cargo test -p helix-driver-native --test message_v3_domain phase5_chain_text -- 
 该命令可完成编译并运行 8 个 Gate；Gate 测试仍按照项目合同将真实前置缺失写入
 `BLOCKED_PRECONDITION`，因此最终账目必须读取同一轮
 `artifacts/messagev3-phase5-real-chain/**/evidence.json`。本轮通过
-`HELIX_MAIN_API_BASE=http://api3-dev.jinqidongli.com` 建立三账号同租户上下文，最新 run
-`81190` 的 8 个业务 Gate 均为 `PASS`；host 端口仍为 `18066`，未占用 8066。
+`HELIX_MAIN_API_BASE=http://127.0.0.1:3399` 建立三账号同租户上下文，最新 run
+`7620` 的 8 个业务 Gate 均为 `PASS`；host 端口仍为 `18066`，未占用 8066。
 
 登录服务 DNS 不是 Go IM 服务提供：Angular 的 canonical pre 地址来自 `release.json` 的 `cses-server-paas25-test.cses.svc.cluster.local:3399`，本地测试可用 `HELIX_MAIN_API_BASE` 覆盖为可解析的 Java CSES 地址；Go 18066 只提供接龙 HTTP/WS。driver-native 默认仍使用 canonical pre DNS，覆盖变量只用于测试前置，不能把 DNS 不可解析归因于 Go 链路。
 
@@ -163,7 +166,7 @@ go vet ./...
 
 ## 证据状态
 
-本轮最新 Phase5 真实证据（run `81190`）：
+本轮最新 Phase5 真实证据（run `7620`）：
 
 ```text
 CHAIN-COM-G02: PASS（draft_update、draft_fields、draft_idempotent_retry、stale_revision_rejected、published、raw_ws、sqlite_mutation）

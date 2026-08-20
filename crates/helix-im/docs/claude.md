@@ -164,6 +164,11 @@ readback 同时记录 `msg_id`、`temporary_id`、`channel_id`、`event_seq`、`
 接龙窗口未落库”的半状态。Hydration 仍只持久化，不向渲染端重复 Emit；type7 终态前缀也沿用同一
 原子边界。
 
+文字接龙协议硬切为原生 `TEXT_CHAIN`，不解析 `ANNOUNCEMENT + props.chain`。同作者 upsert 必须
+保留 Go authority 的同一 `entryId/postId/seq`；首次发布/参与的 channel event 为 `new=1`，再次
+覆盖为 `edit=2`。这些是 authority parser、离线 replay 与 SQLite projection 的共同不变量，Host
+和 Angular 不参与计算。
+
 非接龙 payload 继续走既有消息同步路径；接龙 action 缺少 channel/chain authority 或频道身份不一致
 时 fail-closed，保留原 cursor 以便后续重试。单测覆盖 canonical `textWindow`、普通 payload 旁路和
 malformed chain 拒绝。以上为 Helix 单元/静态证据，不代表真实 Go/PG/WS/SQLite/Angular DOM 验收。

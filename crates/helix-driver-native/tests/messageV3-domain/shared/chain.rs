@@ -432,7 +432,7 @@ async fn execute_publish(context: &AuthContext, channel_id: &str) -> Result<Valu
     finish_gate(result, cleanup)
 }
 
-/// 让同一 actor 连续注入两个 append，再以 mutation/revision/seq 读回证明行锁和幂等。
+/// 让同一 actor 连续注入两个 append，再证明作者级 upsert 保留稳定 Entry/Post/seq。
 async fn execute_concurrent_append(
     context: &AuthContext,
     channel_id: &str,
@@ -442,34 +442,76 @@ async fn execute_concurrent_append(
         let (chain_id, _) = create_and_publish(&mut harness, channel_id).await?;
         let first = run_token("chain-append-a");
         let second = run_token("chain-append-b");
-        harness
-            .actor
-            .command(
+        let first_event = harness
+            .command_event(
                 "post_chain_append",
                 append_payload(channel_id, &chain_id, "第一条", &first, "chain-device-a"),
+                "im:post_chain:upsert",
+                Some(&first),
             )
-            .await
-            .map_err(ChainRunError::Blocked)?;
-        harness
-            .actor
-            .command(
+            .await?;
+        let first_raw = harness
+            .raw_event("im:post_chain:upsert", &chain_id, Some(&first))
+            .await?;
+        let second_event = harness
+            .command_event(
                 "post_chain_append",
                 append_payload(channel_id, &chain_id, "第二条", &second, "chain-device-a"),
+                "im:post_chain:upsert",
+                Some(&second),
             )
-            .await
-            .map_err(ChainRunError::Blocked)?;
-        let _events =
-            wait_mutation_events(&mut harness.actor, &[first.as_str(), second.as_str()]).await?;
+            .await?;
+        let second_raw = harness
+            .raw_event("im:post_chain:upsert", &chain_id, Some(&second))
+            .await?;
+        let event_identities = [&first_event, &second_event]
+            .iter()
+            .map(|event| chain_entry_identity(event))
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        if event_identities.len() != 1 {
+            return Err(ChainRunError::Failed(format!(
+                "same author append changed entry/post/seq identity: {event_identities:?}"
+            )));
+        }
+        let raw_identities = [&first_raw, &second_raw]
+            .iter()
+            .map(|event| chain_entry_identity(event))
+            .collect::<Result<BTreeSet<_>, _>>()?;
         for mutation in [&first, &second] {
-            harness
-                .raw_event("im:post_chain:upsert", &chain_id, Some(mutation))
-                .await?;
             assert_mutation(&harness.actor.storage, mutation, "CONFIRMED").await?;
+        }
+        if raw_identities != event_identities {
+            return Err(ChainRunError::Failed(format!(
+                "EventSink/raw WS upsert identity mismatch: event={event_identities:?}, raw={raw_identities:?}"
+            )));
         }
         let rows = scan_chain_entries(&harness.actor.storage, &chain_id)
             .await
             .map_err(ChainRunError::Failed)?;
-        assert_seq_rows(&rows, 2)?;
+        assert_seq_rows(&rows, 1)?;
+        let stable_entry_id = row_text(&rows[0], "entry_id")
+            .ok_or_else(|| ChainRunError::Failed("upsert row missing entry_id".to_string()))?;
+        let stable_post_id = row_text(&rows[0], "post_id")
+            .ok_or_else(|| ChainRunError::Failed("upsert row missing post_id".to_string()))?;
+        let stable_seq = row_i64(&rows[0], "seq")
+            .ok_or_else(|| ChainRunError::Failed("upsert row missing seq".to_string()))?;
+        if row_text(&rows[0], "author_id").as_deref() != Some(context.actor.user_id.as_str())
+            || row_text(&rows[0], "status").as_deref() != Some("ACTIVE")
+        {
+            return Err(ChainRunError::Failed(format!(
+                "upsert row is not the actor ACTIVE entry: {:?}",
+                rows[0]
+            )));
+        }
+        if !event_identities.contains(&(
+            stable_entry_id.clone(),
+            stable_post_id.clone(),
+            stable_seq,
+        )) {
+            return Err(ChainRunError::Failed(format!(
+                "event/storage entry identity mismatch: events={event_identities:?}, row={rows:?}"
+            )));
+        }
         let reconcile = run_token("chain-reconcile");
         let reconcile_event = harness
             .command_event(
@@ -482,14 +524,26 @@ async fn execute_concurrent_append(
         let after_duplicate = scan_chain_entries(&harness.actor.storage, &chain_id)
             .await
             .map_err(ChainRunError::Failed)?;
-        assert_seq_rows(&after_duplicate, 2)?;
+        assert_seq_rows(&after_duplicate, 1)?;
+        if row_text(&after_duplicate[0], "entry_id").as_deref() != Some(stable_entry_id.as_str())
+            || row_text(&after_duplicate[0], "post_id").as_deref()
+                != Some(stable_post_id.as_str())
+            || row_i64(&after_duplicate[0], "seq") != Some(stable_seq)
+        {
+            return Err(ChainRunError::Failed(format!(
+                "reconcile changed stable upsert identity: {after_duplicate:?}"
+            )));
+        }
         Ok(json!({
             "chain_id": chain_id,
             "mutations": [first, second],
             "entry_count": rows.len(),
+            "stable_entry_id": stable_entry_id,
+            "stable_post_id": stable_post_id,
+            "stable_seq": stable_seq,
             "reconcile_mutation": reconcile,
             "reconcile_event": data_string(&reconcile_event, &["clientMutationId"]),
-            "checks": ["two_commands", "unique_seq", "unique_entry", "idempotent_reconcile"]
+            "checks": ["two_commands", "author_upsert", "stable_entry", "stable_post", "stable_seq", "idempotent_reconcile"]
         }))
     }
     .await;
@@ -497,13 +551,26 @@ async fn execute_concurrent_append(
     finish_gate(result, cleanup)
 }
 
-/// 追加多条文本并用 middleCursor/limit 读取窗口，验证隐藏数量和本地 window row。
+/// 用同一作者多次更新验证窗口读取不会把作者级 upsert 误报成多条 Entry。
 async fn execute_window(context: &AuthContext, channel_id: &str) -> Result<Value, ChainRunError> {
     let mut harness = ChainHarness::start(context, channel_id).await?;
     let result = async {
         let (chain_id, _) = create_and_publish(&mut harness, channel_id).await?;
         for text in ["窗口一", "窗口二", "窗口三", "窗口四", "窗口五"] {
             append_one(&mut harness, channel_id, &chain_id, text, "chain-device-a").await?;
+        }
+        let entries = scan_chain_entries(&harness.actor.storage, &chain_id)
+            .await
+            .map_err(ChainRunError::Failed)?;
+        assert_seq_rows(&entries, 1)?;
+        if row_text(&entries[0], "author_id").as_deref() != Some(context.actor.user_id.as_str())
+            || row_text(&entries[0], "status").as_deref() != Some("ACTIVE")
+            || row_text(&entries[0], "text").as_deref() != Some("窗口五")
+        {
+            return Err(ChainRunError::Failed(format!(
+                "window author upsert did not retain only the latest ACTIVE text: {:?}",
+                entries[0]
+            )));
         }
         let req_id = run_token("chain-window-get");
         let read = harness
@@ -525,13 +592,18 @@ async fn execute_window(context: &AuthContext, channel_id: &str) -> Result<Value
         if hidden < 0 {
             return Err(ChainRunError::Failed("textWindow.hiddenCount is negative".to_string()));
         }
+        if hidden != 0 {
+            return Err(ChainRunError::Failed(format!(
+                "single-author window unexpectedly reports hidden entries: {window}"
+            )));
+        }
         let stored = scan_chain_row(&harness.actor.storage, "chain_window", "chain_id", &chain_id)
             .await
             .map_err(ChainRunError::Failed)?;
         if row_text(&stored, "head_ids").is_none() || row_text(&stored, "tail_ids").is_none() {
             return Err(ChainRunError::Failed("chain_window lacks head/tail durable columns".to_string()));
         }
-        Ok(json!({"chain_id": chain_id, "entry_count": 5, "hidden_count": hidden, "checks": ["limit", "middle_cursor", "sqlite_window"]}))
+        Ok(json!({"chain_id": chain_id, "entry_count": entries.len(), "hidden_count": hidden, "checks": ["author_upsert_window", "latest_text", "hidden_count_zero", "sqlite_window"]}))
     }
     .await;
     let cleanup = harness.close().await;
@@ -697,26 +769,35 @@ async fn execute_multi_device(
         let _actor_publish = harness
             .command_event("post_chain_publish", publish_payload, "im:post_chain:publish", Some(&publish_mutation))
             .await?;
-        let _observer_publish = observer
-            .wait_event("im:post_chain:publish", |envelope| data_string(envelope, &["clientMutationId"]).as_deref() == Some(publish_mutation.as_str()), CHAIN_TIMEOUT)
-            .await
-            .map_err(ChainRunError::Blocked)?;
+        let observer_hydrate_req = run_token("chain-device-hydrate-get");
+        let observer_hydrate = command_event_on(
+            &mut observer,
+            "post_chain_get",
+            get_payload(
+                channel_id,
+                &chain_id,
+                "chain-device-b",
+                &observer_hydrate_req,
+                20,
+            ),
+            "im:read:result",
+            None,
+        )
+        .await?;
+        assert_read_success(&observer_hydrate)?;
         let mutation = run_token("chain-device-append");
         let actor_append = harness
             .command_event("post_chain_append", append_payload(channel_id, &chain_id, "双设备同步", &mutation, "chain-device-a"), "im:post_chain:upsert", Some(&mutation))
             .await?;
-        let observer_append = observer
-            .wait_event("im:post_chain:upsert", |envelope| data_string(envelope, &["clientMutationId"]).as_deref() == Some(mutation.as_str()), CHAIN_TIMEOUT)
-            .await
-            .map_err(ChainRunError::Blocked)?;
+        let observer_raw = harness
+            .raw_event("im:post_chain:upsert", &chain_id, Some(&mutation))
+            .await?;
         let actor_entry = extract_id(&actor_append, &["entryId", "entry_id"])
             .ok_or_else(|| ChainRunError::Failed("actor append has no entryId".to_string()))?;
-        let observer_json: Value = serde_json::from_slice(observer_append.0.as_ref())
-            .map_err(|error| ChainRunError::Failed(format!("observer event JSON failed: {error}")))?;
-        let observer_entry = extract_id(&observer_json, &["entryId", "entry_id"])
-            .ok_or_else(|| ChainRunError::Failed("observer append has no entryId".to_string()))?;
-        if actor_entry != observer_entry {
-            return Err(ChainRunError::Failed(format!("device entry mismatch: {actor_entry} != {observer_entry}")));
+        let raw_entry = extract_id(&observer_raw, &["entryId", "entry_id"])
+            .ok_or_else(|| ChainRunError::Failed("observer raw WS has no entryId".to_string()))?;
+        if actor_entry != raw_entry {
+            return Err(ChainRunError::Failed(format!("actor/raw WS entry mismatch: {actor_entry} != {raw_entry}")));
         }
         let read_req_id = run_token("chain-device-late-join-get");
         let observer_read = command_event_on(
@@ -728,8 +809,9 @@ async fn execute_multi_device(
         )
         .await?;
         assert_read_success(&observer_read)?;
-        if extract_id(&observer_read, &["entryId", "entry_id"]).as_deref()
-            != Some(observer_entry.as_str())
+        let observer_entry = extract_id(&observer_read, &["entryId", "entry_id"])
+            .ok_or_else(|| ChainRunError::Failed("observer GET has no entryId".to_string()))?;
+        if observer_entry != actor_entry
             || !contains_field_value(&observer_read, "text", "双设备同步")
         {
             return Err(ChainRunError::Failed(format!(
@@ -758,7 +840,7 @@ async fn execute_multi_device(
         scan_chain_row(&observer.storage, "chain_entry", "entry_id", &observer_entry)
             .await
             .map_err(ChainRunError::Failed)?;
-        Ok(json!({"chain_id": chain_id, "entry_id": actor_entry, "late_join_read_req_id": read_req_id, "reconcile_mutation": mutation, "checks": ["two_helix_sessions", "same_event_entry", "late_join_get", "reconcile", "actor_sqlite", "observer_sqlite"]}))
+        Ok(json!({"chain_id": chain_id, "entry_id": actor_entry, "hydrate_read_req_id": observer_hydrate_req, "late_join_read_req_id": read_req_id, "reconcile_mutation": mutation, "checks": ["two_helix_sessions", "observer_get_hydrate", "actor_event_sink", "observer_raw_ws", "same_event_entry", "late_join_get", "reconcile", "actor_sqlite", "observer_sqlite"]}))
     }
     .await;
     let observer_cleanup = observer.close().await;
@@ -976,6 +1058,42 @@ fn assert_seq_rows(rows: &[Row], expected_len: usize) -> Result<(), ChainRunErro
         }
     }
     Ok(())
+}
+
+/// 从任意 EventSink/WS authority 中严格提取稳定的 Entry/Post/seq 身份。
+fn chain_entry_identity(event: &Value) -> Result<(String, String, i64), ChainRunError> {
+    recursive_chain_entry_identity(event).ok_or_else(|| {
+        ChainRunError::Failed(
+            "chain upsert event missing one coherent entryId/postId/seq object".to_string(),
+        )
+    })
+}
+
+/// 只在同一 Entry 对象内取身份，避免把频道 eventSeq 误当成接龙 seq。
+fn recursive_chain_entry_identity(value: &Value) -> Option<(String, String, i64)> {
+    if let Value::Object(object) = value {
+        let entry_id = object
+            .get("entryId")
+            .or_else(|| object.get("entry_id"))
+            .and_then(Value::as_str);
+        let post_id = object
+            .get("postId")
+            .or_else(|| object.get("post_id"))
+            .and_then(Value::as_str);
+        let seq = object.get("seq").and_then(|value| {
+            value
+                .as_i64()
+                .or_else(|| value.as_str().and_then(|text| text.parse::<i64>().ok()))
+        });
+        if let (Some(entry_id), Some(post_id), Some(seq)) = (entry_id, post_id, seq) {
+            return Some((entry_id.to_string(), post_id.to_string(), seq));
+        }
+        return object.values().find_map(recursive_chain_entry_identity);
+    }
+    if let Value::Array(items) = value {
+        return items.iter().find_map(recursive_chain_entry_identity);
+    }
+    None
 }
 
 /// 从 draft/publish/append event 的嵌套 authority 提取 ChainId。

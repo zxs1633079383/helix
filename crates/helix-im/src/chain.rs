@@ -84,6 +84,9 @@ pub struct ChainSummary {
     pub title: String,
     pub description: String,
     pub deadline_at: i64,
+    pub creator_snapshot: Value,
+    /// Go chain.create_at 的 canonical 时间锚，供消息声明进入时间线时稳定排序。
+    pub created_at: i64,
     pub total_messages: i64,
     pub participant_count: i64,
     pub last_seq: i64,
@@ -97,6 +100,7 @@ pub struct ChainEntry {
     pub chain_id: String,
     pub post_id: String,
     pub author_id: String,
+    pub author_snapshot: Value,
     pub seq: i64,
     pub text: String,
     pub created_at: i64,
@@ -299,6 +303,7 @@ pub(crate) fn wire_body(command: &str, args: &Value) -> Result<(&'static str, Va
             copy_optional(&mut body, object, "title", "title");
             copy_optional(&mut body, object, "description", "description");
             copy_optional(&mut body, object, "deadline_at", "deadlineAt");
+            copy_optional(&mut body, object, "user_snapshot", "userSnapshot");
             "post-chain/create"
         }
         "post_chain_update_draft" => {
@@ -331,6 +336,7 @@ pub(crate) fn wire_body(command: &str, args: &Value) -> Result<(&'static str, Va
                 )));
             }
             body.insert("attachments".to_string(), attachments);
+            copy_optional(&mut body, object, "user_snapshot", "userSnapshot");
             "post-chain/append"
         }
         "post_chain_get" => {
@@ -573,6 +579,11 @@ pub(crate) fn persist_ops(
                 ("description".to_string(), text(&summary.description)),
                 ("deadline_at".to_string(), integer(summary.deadline_at)),
                 (
+                    "creator_snapshot".to_string(),
+                    json_text(&summary.creator_snapshot),
+                ),
+                ("created_at".to_string(), integer(summary.created_at)),
+                (
                     "total_messages".to_string(),
                     integer(summary.total_messages),
                 ),
@@ -602,6 +613,10 @@ pub(crate) fn persist_ops(
                         ("chain_id".to_string(), text(&entry.chain_id)),
                         ("post_id".to_string(), text(&entry.post_id)),
                         ("author_id".to_string(), text(&entry.author_id)),
+                        (
+                            "author_snapshot".to_string(),
+                            json_text(&entry.author_snapshot),
+                        ),
                         ("seq".to_string(), integer(entry.seq)),
                         ("text".to_string(), text(&entry.text)),
                         ("created_at".to_string(), integer(entry.created_at)),
@@ -848,6 +863,7 @@ fn validate_keys(command: &str, object: &Map<String, Value>) -> Result<(), ImErr
             "client_mutation_id",
             "device_id",
             "operation_id",
+            "user_snapshot",
             "req_id",
         ],
         "post_chain_update_draft" => &[
@@ -880,6 +896,7 @@ fn validate_keys(command: &str, object: &Map<String, Value>) -> Result<(), ImErr
             "client_mutation_id",
             "device_id",
             "operation_id",
+            "user_snapshot",
             "req_id",
         ],
         "post_chain_get" => &[
@@ -1195,6 +1212,17 @@ fn parse_summary(value: &Value, chain_id: &str, channel_id: &str) -> Option<Chai
         title: string_or(value, &["title"], ""),
         description: string_or(value, &["description"], ""),
         deadline_at: integer_or(value, &["deadlineAt", "deadline_at"], 0),
+        creator_snapshot: value
+            .get("creatorSnapshot")
+            .or_else(|| value.get("creator_snapshot"))
+            .filter(|snapshot| snapshot.is_object())
+            .cloned()
+            .unwrap_or_else(|| json!({})),
+        created_at: integer_or(
+            value,
+            &["createdAt", "createAt", "created_at", "create_at"],
+            0,
+        ),
         total_messages: integer_or(value, &["totalMessages", "total_messages"], 0),
         participant_count: integer_or(value, &["participantCount", "participant_count"], 0),
         last_seq: integer_or(value, &["lastSeq", "last_seq"], 0),
@@ -1210,6 +1238,14 @@ fn parse_entry(value: &Value, chain_id: &str) -> Option<ChainEntry> {
         chain_id: string_or(value, &["chainId", "chain_id"], chain_id),
         post_id: string_or(value, &["postId", "post_id"], ""),
         author_id: string_or(value, &["authorId", "author_id", "userId", "user_id"], ""),
+        author_snapshot: value
+            .get("authorSnapshot")
+            .or_else(|| value.get("author_snapshot"))
+            .or_else(|| value.get("userSnapshot"))
+            .or_else(|| value.get("user_snapshot"))
+            .filter(|snapshot| snapshot.is_object())
+            .cloned()
+            .unwrap_or_else(|| json!({})),
         seq: integer_or(value, &["seq"], 0),
         text: string_or(value, &["text", "message"], ""),
         created_at: integer_or(value, &["createdAt", "created_at"], 0),
@@ -1267,6 +1303,8 @@ fn summary_value(value: &ChainSummary) -> Value {
         "title": value.title,
         "description": value.description,
         "deadlineAt": value.deadline_at,
+        "creatorSnapshot": value.creator_snapshot,
+        "createdAt": value.created_at,
         "totalMessages": value.total_messages,
         "participantCount": value.participant_count,
         "lastSeq": value.last_seq,
@@ -1281,6 +1319,7 @@ fn entry_value(value: &ChainEntry) -> Value {
         "chainId": value.chain_id,
         "postId": value.post_id,
         "authorId": value.author_id,
+        "authorSnapshot": value.author_snapshot,
         "seq": value.seq,
         "text": value.text,
         "createdAt": value.created_at,
@@ -1449,7 +1488,8 @@ mod tests {
         let args = json!({
             "channel_id": "channel-1",
             "client_mutation_id": "m-1",
-            "mode": "TEXT"
+            "mode": "TEXT",
+            "user_snapshot": {"userId":"u-1","userName":"张三","deptName":"研发部"}
         });
         let request =
             request_from_command("post_chain_create", &serde_json::to_vec(&args).unwrap())
@@ -1457,6 +1497,7 @@ mod tests {
         assert!(request.chain_id.starts_with("chain-"));
         let (_, body) = wire_body("post_chain_create", &args).expect("create body");
         assert_eq!(body["chainId"], request.chain_id);
+        assert_eq!(body["userSnapshot"]["userName"], "张三");
     }
 
     /// TEXT append 的 wire body 只发送最小业务字段并拒绝 categoryIds。
@@ -1468,10 +1509,12 @@ mod tests {
             "text":"hello",
             "attachments":[],
             "client_mutation_id":"m-1",
-            "operation_id":"op-1"
+            "operation_id":"op-1",
+            "user_snapshot":{"userId":"u-1","userName":"张三","deptName":"研发部"}
         });
         let (_, body) = wire_body("post_chain_append", &args).expect("append body");
         assert_eq!(body["operationId"], "op-1");
+        assert_eq!(body["userSnapshot"]["deptName"], "研发部");
         assert!(body.get("categoryIds").is_none());
     }
 
@@ -1534,8 +1577,8 @@ mod tests {
         };
         let authority = parse_authority(
             &json!({
-                "chainSummary":{"chainId":"chain-1","channelId":"channel-1","totalMessages":1,"participantCount":1,"lastSeq":1,"revision":1},
-                "chainEntry":{"entryId":"entry-1","chainId":"chain-1","seq":1,"text":"hello"},
+                "chainSummary":{"chainId":"chain-1","channelId":"channel-1","createdAt":1700000000,"totalMessages":1,"participantCount":1,"lastSeq":1,"revision":1},
+                "chainEntry":{"entryId":"entry-1","chainId":"chain-1","seq":1,"text":"hello","authorSnapshot":{"userId":"u-1","userName":"张三","deptName":"研发部"}},
                 "window":{"chainId":"chain-1","headIds":["entry-1"],"tailIds":[],"hiddenCount":0,"hasMore":false},
                 "viewer":{"chainId":"chain-1","deviceId":"device-1","lastEventSeq":2,"lastReadAt":3}
             }),
@@ -1554,6 +1597,18 @@ mod tests {
         assert!(ops
             .iter()
             .any(|op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "chain_summary")));
+        assert!(ops.iter().any(|op| matches!(op, StorageOp::BatchUpsert(spec)
+            if spec.table == "chain_summary"
+                && spec.rows.iter().any(|row| row.iter().any(|(column, value)|
+                    column == "created_at"
+                        && matches!(value, SqlValue::Integer(created_at) if *created_at == 1700000000))))));
+        assert!(ops.iter().any(|op| {
+            matches!(op, StorageOp::BatchUpsert(spec)
+                if spec.table == "chain_entry"
+                    && spec.rows.iter().any(|row| row.iter().any(|(column, value)|
+                        column == "author_snapshot"
+                            && matches!(value, SqlValue::Text(snapshot) if snapshot.contains("张三")))))
+        }));
         let bytes = event_bytes(
             "im:post_chain:upsert",
             &request,
@@ -1570,6 +1625,14 @@ mod tests {
             json!(["entry-1"])
         );
         assert_eq!(event["data"]["textWindow"]["tailEntryIds"], json!([]));
+        assert_eq!(
+            event["data"]["chainEntry"]["authorSnapshot"]["userName"],
+            "张三"
+        );
+        assert_eq!(
+            event["data"]["chainSummary"]["createdAt"],
+            json!(1700000000)
+        );
         assert!(event["data"].get("window").is_none());
     }
 

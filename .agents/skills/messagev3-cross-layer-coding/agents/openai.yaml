@@ -1,0 +1,4 @@
+interface:
+  display_name: "MessageV3 跨层编码"
+  short_description: "跨 Go、Helix、Driver 与 Angular 实现 MessageV3"
+  default_prompt: "使用 $messagev3-cross-layer-coding 按契约、TDD 和逐跳证据实现这个 MessageV3 跨层需求。"

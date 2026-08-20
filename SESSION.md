@@ -14,6 +14,12 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 新增仓内 `$messagev3-cross-layer-coding` Skill，专门把 MessageV3 跨层需求从契约冻结推进到 TDD、逐层实现、真实链和分层交付；可证伪断言：① 新目录含合法 `SKILL.md` 与 `agents/openai.yaml`，并在 `.agents/README.md` 注册；② 明确 Angular 只提交 intent/消费绝对 projection，Helix 拥有业务事实与 PersistOk 屏障，driver 只做 I/O/批量交付，Go wire/远端持久化责任可追溯；③ 固化红→绿、字段 ledger、失败矩阵、跨仓文件租约、REAL_NATIVE_CHAIN 与 run-owned cleanup，不允许 fallback/HTTP 200/单点 EventSink 冒充完成；④ `quick_validate.py`、YAML、路径、无尾随空白和 `git diff --check` 通过；⑤ 不修改现有排查 Skill、业务代码或 `artifacts/` | 赌注 中 | 可逆 是 | @2026-08-20T
+
+✅ DONE 通用 `$messagev3-cross-layer-coding` 已落地并提交 `9e6bc60e`：覆盖任意 Gate 的 Projection/Emit 编码、TDD、owner 边界、真实链八步、失败分类和清理；不绑定 `post_read`，只保留 read/receipt 作为示例。Skill 校验、YAML、引用路径、无尾随空白和 staged diff check 通过；未运行业务 Cargo/Go/Angular 测试，当前 G06b 源码、其余 SESSION 记录和 artifacts 继续保留为其他任务 dirty。
+
+🎯 EXPECT 将 G06b `post_read` 从作者侧四字段 delta 收敛为 Go 权威、Helix 完整处理、Angular 仅消费绝对 receipt projection；可证伪断言：① Go 作者定向 WS 帧包含 `snapshotId/authorUserId/readerUserId/memberIds/readMap` 且不伪造绝对 projection；② Helix 只在 matching PersistOk 后 Emit `im:post:readers`，并输出 `readUserIds/unreadUserIds/readCount/unreadCount/allRead`；③ Angular 不再根据 `readerUserId` 做差集、刷新或缺基线兜底；④ Go/Helix/Angular focused seam 均有失败→通过证据；⑤ 不触碰既有 `artifacts/`、客户端脏改和无关分支；赌注 高 | 可逆 是 | @2026-08-20T
+
 🎯 EXPECT 新增仓内 `$helix-command-driver-host-test` Skill，让其他 Command 可复用 G01a 的 driver-host/Native 测试装配；可证伪断言：① Skill frontmatter、`agents/openai.yaml`、引用矩阵和 `.agents/README.md` 入口齐全；② 明确 TDD 红测、共享 adapter、真实链八步、FOCUSED/LOCAL_INTEGRATION/REAL_NATIVE_CHAIN/UI_DOM 分层、失败分类和 run-owned cleanup；③ 不复制业务实现、HTTP/WS/SQLite harness，不把 HTTP 200/health/EventSink 单点冒充 real-chain PASS；④ `quick_validate.py` 与 `git diff --check` 通过，既有 `artifacts/` 脏目录保持不变 | 赌注 中 | 可逆 是 | @2026-08-19T
 
 ✅ DONE `$helix-command-driver-host-test` 已落地到 `.agents/skills/`，包含中文工作流、`agents/openai.yaml`、Command→driver-host adapter/证据矩阵，并在 `.agents/README.md` 注册；覆盖 TDD 红测、G01a 八步、真实 HTTP/WS/SQLite/EventSink 边界、失败分类、幂等和 cleanup。`quick_validate.py` 通过临时 `uv --with pyyaml` 环境验证，Ruby YAML、无尾随空白和 `git diff --check` 通过；未修改业务代码或既有 `artifacts/`。系统 Python 缺少 PyYAML，已保留该环境限制 | @2026-08-19T

@@ -11,6 +11,48 @@ use crate::state::{ChannelId, Seq};
 use helix_core::EffectSink;
 
 impl ImModule {
+    /// 解析本地 message 水位，并用 hello 时冻结的 cursor 快照触发一次 increment HTTP。
+    pub(crate) fn handle_increment_message_timestamp_scan_reply(
+        &mut self,
+        connection_id: Option<String>,
+        cursors: Vec<(ChannelId, Seq)>,
+        outcome: &helix_core::tick::PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if self.state.conn != crate::state::ConnState::Connected
+            || self.state.connection_id.as_deref() != connection_id.as_deref()
+        {
+            tracing::debug!(
+                expected_connection_id = ?connection_id,
+                active_connection_id = ?self.state.connection_id,
+                "ignoring stale increment message timestamp scan reply"
+            );
+            return Ok(());
+        }
+
+        let timestamp = match outcome {
+            helix_core::tick::PortOutcome::Ok(reply) => {
+                parse_latest_message_update_at(reply.0.as_ref())
+            }
+            helix_core::tick::PortOutcome::Err(error) => {
+                tracing::warn!(
+                    error = ?error,
+                    "message watermark scan failed; increment timestamp falls back to zero"
+                );
+                0
+            }
+        };
+        let increment_corr = self.alloc_corr_internal();
+        out.push(crate::acl::to_effect::increment_http_trigger(
+            &self.config.api_base_url,
+            timestamp,
+            &cursors,
+            increment_corr,
+            self.state.connection_id.as_deref(),
+        ));
+        Ok(())
+    }
+
     /// E4 / S2：处理 on_start Scan{channel_event_cursor} 的 PortReply
     ///
     /// `channel_event_cursor` 是 advance_cursor 写入的实际表（channel_id TEXT PK,
@@ -170,6 +212,30 @@ impl ImModule {
         self.finish_startup_scan(out);
         Ok(())
     }
+}
+
+/// 从 message 扫描首行读取 update_at；空行、畸形值和负数都回退为 0。
+fn parse_latest_message_update_at(bytes: &[u8]) -> i64 {
+    if bytes.is_empty() {
+        return 0;
+    }
+    let rows: Vec<serde_json::Value> = match serde_json::from_slice(bytes) {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                raw = %String::from_utf8_lossy(bytes),
+                "message watermark scan JSON parse failed; using timestamp zero"
+            );
+            return 0;
+        }
+    };
+
+    rows.first()
+        .and_then(|row| row.get("update_at"))
+        .and_then(serde_json::Value::as_i64)
+        .filter(|timestamp| *timestamp >= 0)
+        .unwrap_or(0)
 }
 
 /// 读取 channel 投影中的整数列，拒绝布尔/浮点等非契约值。

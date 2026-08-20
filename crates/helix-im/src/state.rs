@@ -497,6 +497,7 @@ impl ImState {
                     | CorrelationContext::MessageV3RevokeChannelReadback
                     | CorrelationContext::SyncPull { .. }
                     | CorrelationContext::ScanChannelProjections
+                    | CorrelationContext::IncrementMessageTimestampScan { .. }
                     | CorrelationContext::TooLongReload { .. }
                     | CorrelationContext::TooLongReloadPersist { .. }
                     | CorrelationContext::IncrementBatchPersist { .. }

@@ -14,6 +14,8 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 将 hello 后 `channels/load/increment` 的 timestamp 改为 tenant-local `message.update_at` 最大值；可证伪断言：① hello 先产生 `Scan(message, limit=1, ORDER BY update_at DESC)`，scan 回包后 HTTP body 的 `timestamp` 等于首行 `update_at`，空/失败回包为 0；② 现有 `cursors[{channelId,fromSeq}]` 内容与顺序保持不变；③ 启动投影未完成时的既有 bootstrap retry 仍只在 `finish_startup_scan` 触发，且也重新读取 message watermark；④ 只改 Helix increment/相关 correlation 与 focused tests，不改 Go、客户端或既有 `artifacts/`；⑤ 聚焦 Rust 测试与 `git diff --check` 通过 | 赌注 高 | 可逆 是 | @2026-08-20T
+
 🎯 EXPECT 新增仓内 `$messagev3-cross-layer-coding` Skill，专门把 MessageV3 跨层需求从契约冻结推进到 TDD、逐层实现、真实链和分层交付；可证伪断言：① 新目录含合法 `SKILL.md` 与 `agents/openai.yaml`，并在 `.agents/README.md` 注册；② 明确 Angular 只提交 intent/消费绝对 projection，Helix 拥有业务事实与 PersistOk 屏障，driver 只做 I/O/批量交付，Go wire/远端持久化责任可追溯；③ 固化红→绿、字段 ledger、失败矩阵、跨仓文件租约、REAL_NATIVE_CHAIN 与 run-owned cleanup，不允许 fallback/HTTP 200/单点 EventSink 冒充完成；④ `quick_validate.py`、YAML、路径、无尾随空白和 `git diff --check` 通过；⑤ 不修改现有排查 Skill、业务代码或 `artifacts/` | 赌注 中 | 可逆 是 | @2026-08-20T
 
 ✅ DONE 通用 `$messagev3-cross-layer-coding` 已落地并提交 `9e6bc60e`：覆盖任意 Gate 的 Projection/Emit 编码、TDD、owner 边界、真实链八步、失败分类和清理；不绑定 `post_read`，只保留 read/receipt 作为示例。Skill 校验、YAML、引用路径、无尾随空白和 staged diff check 通过；未运行业务 Cargo/Go/Angular 测试，当前 G06b 源码、其余 SESSION 记录和 artifacts 继续保留为其他任务 dirty。

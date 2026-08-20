@@ -99,6 +99,7 @@ pub(crate) fn dispatch_ws(
 
 #[cfg(test)]
 mod tests {
+    use helix_core::effect::StorageOp;
     use helix_core::{Effect, EffectSink};
 
     use crate::channel::Channel;
@@ -398,7 +399,7 @@ mod tests {
         );
 
         let mut saw_established = false;
-        let mut saw_increment_http = false;
+        let mut saw_message_timestamp_scan = false;
         for effect in out.as_slice() {
             match effect {
                 Effect::Emit { event } => {
@@ -407,28 +408,32 @@ mod tests {
                         body.contains("im:connection:established") && body.contains("CONN_REG");
                     assert!(!body.contains("im:channels:loaded"));
                 }
-                Effect::Http { corr, req } => {
-                    saw_increment_http = true;
+                Effect::Persist { corr, ops } => {
+                    saw_message_timestamp_scan = true;
                     assert_eq!(corr.raw(), 91);
-                    assert_eq!(req.method, "POST");
-                    assert!(req.url.ends_with("/channels/load/increment"));
-                    assert!(
-                        req.headers
-                            .iter()
-                            .any(|(key, value)| key == "connectionId" && value == "CONN_REG"),
-                        "increment HTTP should carry connectionId header, got: {:?}",
-                        req.headers
+                    let [StorageOp::Scan(spec)] = ops.as_slice() else {
+                        panic!("hello watermark must be one message Scan");
+                    };
+                    assert_eq!(spec.table, "message");
+                    assert_eq!(spec.limit, Some(1));
+                    assert_eq!(spec.order_by.len(), 1);
+                    assert_eq!(spec.order_by[0].column, "update_at");
+                    assert_eq!(
+                        spec.order_by[0].direction,
+                        helix_core::effect::SortDirection::Desc
                     );
-                    let body: serde_json::Value =
-                        serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
-                    assert_eq!(body["cursors"][0]["channelId"], channel_id.as_str());
-                    assert_eq!(body["cursors"][0]["fromSeq"], Seq(42).0);
+                }
+                Effect::Http { .. } => {
+                    panic!("hello must wait for the message watermark scan before HTTP");
                 }
                 _ => {}
             }
         }
         assert!(saw_established, "missing connection established emit");
-        assert!(saw_increment_http, "missing increment HTTP trigger");
+        assert!(
+            saw_message_timestamp_scan,
+            "missing message watermark scan before increment HTTP"
+        );
     }
 
     #[test]

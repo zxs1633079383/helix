@@ -301,6 +301,16 @@ impl ImModule {
                 }
             },
 
+            CorrelationContext::IncrementMessageTimestampScan {
+                connection_id,
+                cursors,
+            } => self.handle_increment_message_timestamp_scan_reply(
+                connection_id,
+                cursors,
+                outcome,
+                out,
+            )?,
+
             // 路由：channel sync Persist 回报（cursor 推进 + E3 续拉）
             CorrelationContext::ChannelPersist {
                 channel_id,

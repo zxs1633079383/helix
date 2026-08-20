@@ -107,9 +107,16 @@ fn scan_reply_registers_channels_and_syncs_on_connected() {
         connected_effects
     );
 
-    // A4+B-rest：收到 hello → 握手完成 → 触发 1 个 increment HTTP（带 3 个已加载 channel 游标），
+    // A4+B-rest：收到 hello 先扫描本地 message 水位；回报后触发 1 个 increment HTTP（带 3 个已加载 channel 游标），
     // 不再逐 channel resync。scan 载入 channel 的正确性由 scan_reply_loads_correct_cursors 覆盖。
     h.step(hello_inbound("CONN_1"), 300);
+    assert!(http_reqs(&h.sink).is_empty());
+    let timestamp_scan_corr =
+        message_timestamp_scan_corr(&h.sink).expect("hello should emit a message watermark scan");
+    h.step(
+        port_reply_with_body(timestamp_scan_corr, bytes::Bytes::from_static(br#"[]"#)),
+        310,
+    );
     let reqs = http_reqs(&h.sink);
     assert_eq!(
         reqs.len(),
@@ -141,9 +148,16 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
         .expect("on_start should emit Persist(Scan)");
 
     // A4：先 Connected（→Connecting）再 hello（→Connected 握手完成）。
-    // B-rest：即使 channels 空，hello 也触发 1 个 increment HTTP（空 cursors）——旧「空→0 Http」前提不再成立。
+    // B-rest：即使 channels 空，hello 也先扫描本地 message 水位，再发 1 个 increment HTTP（空 cursors）。
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
     h.step(hello_inbound("CONN_1"), 150);
+    let timestamp_scan_corr =
+        message_timestamp_scan_corr(&h.sink).expect("hello should emit a message watermark scan");
+    assert!(http_reqs(&h.sink).is_empty());
+    h.step(
+        port_reply_with_body(timestamp_scan_corr, bytes::Bytes::from_static(br#"[]"#)),
+        160,
+    );
     let hello_reqs = http_reqs(&h.sink);
     assert_eq!(
         hello_reqs.len(),
@@ -155,6 +169,12 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
         hello_reqs[0].1.ends_with("/channels/load/increment"),
         "hello 须触发 increment HTTP，got: {}",
         hello_reqs[0].1
+    );
+    assert_eq!(
+        h.last_http_body()
+            .expect("empty message scan increment body")["timestamp"],
+        0,
+        "empty local message scan must send timestamp 0"
     );
 
     // 然后 cursor scan 回报（已握手完成/Connected）；删除过滤完成后再补发 bootstrap/sync。
@@ -172,6 +192,29 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
         ),
         250,
     );
+    let projection_reqs = http_reqs(&h.sink);
+    let timestamp_scan_corr = message_timestamp_scan_corr(&h.sink)
+        .expect("startup retry should scan the local message watermark");
+    assert_eq!(
+        projection_reqs
+            .iter()
+            .filter(|(_, url)| url.ends_with("/channels/load/increment"))
+            .count(),
+        0,
+        "startup retry must wait for the second message watermark scan"
+    );
+    assert_eq!(
+        projection_reqs
+            .iter()
+            .filter(|(_, url)| url.ends_with("/channel/sync/notify"))
+            .count(),
+        3,
+        "channel projection scan should still emit 3 sync Http effects"
+    );
+    let retry_effects = h.step(
+        port_reply_with_body(timestamp_scan_corr, bytes::Bytes::from_static(br#"[]"#)),
+        260,
+    );
     let reqs = http_reqs(&h.sink);
     let increment_count = reqs
         .iter()
@@ -181,10 +224,20 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
         .iter()
         .filter(|(_, url)| url.ends_with("/channel/sync/notify"))
         .count();
-    assert_eq!(
-        (increment_count, sync_count),
-        (1, 3),
-        "channel projection scan should retry increment once and emit 3 sync Http, got reqs={reqs:?}, effects={projection_effects:?}"
+    assert_eq!((increment_count, sync_count), (1, 0));
+    assert!(
+        retry_effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Http(_))),
+        "message watermark scan reply should emit the retry increment Http"
+    );
+    assert!(
+        projection_effects
+            .iter()
+            .filter(|effect| matches!(effect, EffectKind::Http(_)))
+            .count()
+            >= 3,
+        "projection scan should retain the three sync effects"
     );
 }
 
@@ -205,13 +258,26 @@ fn scan_reply_after_empty_hello_retries_increment_with_loaded_cursors() {
 
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
     h.step(hello_inbound("CONN_1"), 150);
+    let hello_timestamp_scan_corr =
+        message_timestamp_scan_corr(&h.sink).expect("hello should emit a message watermark scan");
+    h.step(
+        port_reply_with_body(
+            hello_timestamp_scan_corr,
+            bytes::Bytes::from_static(br#"[]"#),
+        ),
+        160,
+    );
     let hello_body = h
         .last_http_body()
-        .expect("hello should emit increment HTTP");
+        .expect("message watermark scan should emit increment HTTP");
     assert_eq!(
         hello_body["cursors"].as_array().map(Vec::len),
         Some(0),
         "pre-scan hello reproduces the empty-cursor bootstrap race"
+    );
+    assert_eq!(
+        hello_body["timestamp"], 0,
+        "empty local message scan must send timestamp 0"
     );
 
     let scan_body = scan_reply(&[(1, 10), (2, 20), (3, 30)]);
@@ -220,12 +286,24 @@ fn scan_reply_after_empty_hello_retries_increment_with_loaded_cursors() {
         .into_iter()
         .next()
         .expect("cursor scan should schedule channel projection scan");
-    let reply_effects = h.step(
+    let projection_effects = h.step(
         port_reply_with_body(
             projection_scan_corr,
             channel_projection_scan_reply(&[(1, false, 10), (2, false, 20), (3, false, 30)]),
         ),
         250,
+    );
+    let timestamp_scan_corr = message_timestamp_scan_corr(&h.sink)
+        .expect("startup retry should scan the local message watermark");
+    assert!(
+        projection_effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Http(_))),
+        "projection scan should emit the three channel sync effects"
+    );
+    let reply_effects = h.step(
+        port_reply_with_body(timestamp_scan_corr, bytes::Bytes::from_static(br#"[]"#)),
+        260,
     );
     let reqs: Vec<_> = h
         .sink
@@ -252,7 +330,7 @@ fn scan_reply_after_empty_hello_retries_increment_with_loaded_cursors() {
         reply_effects
             .iter()
             .any(|e| matches!(e, EffectKind::Http(_))),
-        "scan reply should emit retry/sync Http effects"
+        "message watermark scan reply should emit retry Http effect"
     );
 }
 
@@ -323,9 +401,15 @@ fn channel_projection_scan_error_keeps_startup_sync_fail_closed() {
     );
     h.step(Tick::Connected(TransportId::from_raw(0)), 200);
     h.step(hello_inbound("CONN_SCAN_ERROR"), 250);
+    let timestamp_scan_corr =
+        message_timestamp_scan_corr(&h.sink).expect("hello should emit a message watermark scan");
+    h.step(
+        port_reply_with_body(timestamp_scan_corr, bytes::Bytes::from_static(br#"[]"#)),
+        260,
+    );
     let body = h
         .last_http_body()
-        .expect("hello should emit increment HTTP");
+        .expect("message watermark scan should emit increment HTTP");
     assert_eq!(
         body["cursors"].as_array().map(Vec::len),
         Some(0),

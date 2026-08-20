@@ -42,14 +42,28 @@ fn inc(channel_num: u64, last_event_seq: u64, need_sync: bool, raw: &str) -> Inc
 
 #[test]
 fn hello_triggers_increment_http_not_resync() {
-    // 预注册 channel=1（已知游标 0）——hello 后 increment HTTP 应带其游标。
+    // 预注册 channel=1（已知游标 0）；启动投影尚未完成时，hello 仍按既有闸门发送空 cursor 快照。
     let mut h = Harness::new(&[1]);
     h.start(0);
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
 
-    let effects = h.step(hello_inbound("CONN_INC"), 200);
+    let hello_effects = h.step(hello_inbound("CONN_INC"), 200);
 
-    // 应恰好一个 Http，是 increment 触发（POST .../channels/load/increment），不是 sync/notify。
+    assert!(
+        http_reqs(&h.sink).is_empty(),
+        "hello must wait for the local message watermark scan before HTTP"
+    );
+    let timestamp_scan_corr =
+        message_timestamp_scan_corr(&h.sink).expect("hello should emit a message watermark scan");
+    h.step(
+        port_reply_with_body(
+            timestamp_scan_corr,
+            bytes::Bytes::from_static(br#"[{"update_at":1726000123}]"#),
+        ),
+        210,
+    );
+
+    // message scan 回报后应恰好一个 Http，是 increment 触发（POST .../channels/load/increment），不是 sync/notify。
     let reqs = http_reqs(&h.sink);
     assert_eq!(
         reqs.len(),
@@ -69,9 +83,15 @@ fn hello_triggers_increment_http_not_resync() {
         "hello 后不得直接 resync（sync/notify），got url: {}",
         url
     );
+    let body = h.last_http_body().expect("increment HTTP body");
+    assert_eq!(body["timestamp"], 1_726_000_123);
+    assert_eq!(body["cursors"].as_array().map(Vec::len), Some(0));
 
     // hello 只发布连接事实；channels:loaded 必须等 global end 的本地事务成功。
-    let emit_count = effects.iter().filter(|e| **e == EffectKind::Emit).count();
+    let emit_count = hello_effects
+        .iter()
+        .filter(|e| **e == EffectKind::Emit)
+        .count();
     assert_eq!(
         emit_count, 1,
         "hello 只能 emit established，got {emit_count} emits"

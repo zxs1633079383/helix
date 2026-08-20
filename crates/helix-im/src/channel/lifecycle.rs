@@ -30,6 +30,25 @@ impl ImModule {
         cursors
     }
 
+    /// hello 增量请求前读取本地 message 水位；HTTP 只在对应 Scan 回报后组装。
+    pub(crate) fn queue_increment_timestamp_scan(
+        &mut self,
+        cursors: Vec<(ChannelId, Seq)>,
+        out: &mut EffectSink,
+    ) {
+        let scan_corr = self.alloc_corr_internal();
+        self.state.corr_map.insert(
+            scan_corr,
+            CorrelationContext::IncrementMessageTimestampScan {
+                connection_id: self.state.connection_id.clone(),
+                cursors,
+            },
+        );
+        out.push(crate::acl::to_effect::increment_message_timestamp_scan(
+            scan_corr,
+        ));
+    }
+
     /// 处理 Timer 触发
     pub(crate) fn handle_timer(
         &mut self,
@@ -248,18 +267,11 @@ impl ImModule {
         ));
 
         // B-rest：触发 increment HTTP（带已知 channel 游标）。HTTP 仅 ack 无数据。
-        let conn_id = self.state.connection_id.clone();
         let cursors = self.channel_cursors();
         self.state.pending_increment_bootstrap_after_scan = cursors.is_empty();
-        let inc_corr = self.alloc_corr_internal();
-        out.push(crate::acl::to_effect::increment_http_trigger(
-            &self.config.api_base_url,
-            &cursors,
-            inc_corr,
-            conn_id.as_deref(),
-        ));
+        self.queue_increment_timestamp_scan(cursors, out);
         tracing::info!(
-            "helix-im: hello handshake complete, increment HTTP triggered; loaded waits for batch persist"
+            "helix-im: hello handshake complete, local message watermark scan started before increment HTTP"
         );
     }
 
@@ -318,17 +330,8 @@ impl ImModule {
             && self.state.pending_increment_bootstrap_after_scan
         {
             self.state.pending_increment_bootstrap_after_scan = false;
-            if !self.state.channels.is_empty() {
-                let conn_id = self.state.connection_id.clone();
-                let cursors = self.channel_cursors();
-                let inc_corr = self.alloc_corr_internal();
-                out.push(crate::acl::to_effect::increment_http_trigger(
-                    &self.config.api_base_url,
-                    &cursors,
-                    inc_corr,
-                    conn_id.as_deref(),
-                ));
-            }
+            let cursors = self.channel_cursors();
+            self.queue_increment_timestamp_scan(cursors, out);
         }
 
         if self.state.conn == ConnState::Connected {

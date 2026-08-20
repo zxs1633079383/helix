@@ -8,7 +8,7 @@
 //! use common::*;
 //! ```
 
-use helix_core::effect::{Correlation, TimerId};
+use helix_core::effect::{Correlation, StorageOp, TimerId};
 use helix_core::tick::{AppCommand, InboundBytes, PortOutcome, ReplyBytes};
 use helix_core::{Effect, EffectSink, Tick};
 use helix_im::module::ImConfig;
@@ -196,6 +196,23 @@ impl Harness {
             .map(EffectKind::from_effect)
             .collect()
     }
+}
+
+/// 从当前 effect sink 找到 hello 触发的本地 message 水位扫描 correlation。
+#[allow(dead_code)]
+pub fn message_timestamp_scan_corr(sink: &EffectSink) -> Option<u64> {
+    for effect in sink.as_slice() {
+        let Effect::Persist { corr, ops } = effect else {
+            continue;
+        };
+        let [StorageOp::Scan(spec)] = ops.as_slice() else {
+            continue;
+        };
+        if spec.table == "message" && spec.limit == Some(1) {
+            return Some(corr.raw());
+        }
+    }
+    None
 }
 
 // ─── 辅助构造器 ──────────────────────────────────────────────────────────────

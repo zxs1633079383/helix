@@ -136,6 +136,12 @@ pub enum CorrelationContext {
     /// on_start `Scan(channel)` 回报：把已删除/已关闭频道标记为 terminal 后再启动补偿。
     ScanChannelProjections,
 
+    /// hello increment 前的本地 message 水位扫描；回报后才组装带 timestamp 的 HTTP 请求。
+    IncrementMessageTimestampScan {
+        connection_id: Option<String>,
+        cursors: Vec<(ChannelId, crate::state::Seq)>,
+    },
+
     /// channel sync **Persist** 回报：推进 cursor，并把下一条连续实时事件交回 MessageV3 写屏障。
     /// （取代旧 `corr_to_channel` + `continuation_pending` 两张表——续拉意图降为本变体的
     /// `wants_continuation` 标志，因为它本就与同一 `persist_corr` 绑定，不是独立路由类别。）

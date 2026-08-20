@@ -59,15 +59,19 @@ impl WsMessageHandler for HelloHandler {
         };
         cursors.sort_unstable_by_key(|(id, _)| *id);
         ctx.state.pending_increment_bootstrap_after_scan = cursors.is_empty();
-        let inc_corr = ctx.alloc_corr();
-        out.push(crate::acl::to_effect::increment_http_trigger(
-            ctx.api_base_url,
-            &cursors,
-            inc_corr,
-            Some(connection_id),
+        let timestamp_scan_corr = ctx.alloc_corr();
+        ctx.state.corr_map.insert(
+            timestamp_scan_corr,
+            CorrelationContext::IncrementMessageTimestampScan {
+                connection_id: Some(connection_id.to_string()),
+                cursors,
+            },
+        );
+        out.push(crate::acl::to_effect::increment_message_timestamp_scan(
+            timestamp_scan_corr,
         ));
         tracing::info!(
-            "helix-im: hello handshake complete, increment HTTP triggered; loaded waits for batch persist"
+            "helix-im: hello handshake complete, local message watermark scan started before increment HTTP"
         );
 
         Ok(())

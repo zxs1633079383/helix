@@ -107,6 +107,12 @@ fn connected_triggers_proactive_resync_for_each_channel() {
     // A4：Connected 只置 Connecting；B-rest：hello 后触发 1 个 increment HTTP（非逐 channel resync）
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
     h.step(hello_inbound("CONN_1"), 600);
+    let timestamp_scan_corr =
+        message_timestamp_scan_corr(&h.sink).expect("hello should emit a message watermark scan");
+    h.step(
+        port_reply_with_body(timestamp_scan_corr, bytes::Bytes::from_static(br#"[]"#)),
+        610,
+    );
     let reqs = http_reqs(&h.sink);
     assert_eq!(
         reqs.len(),
@@ -227,6 +233,12 @@ fn terminal_channel_is_omitted_from_hello_increment_cursors() {
     h.start(0);
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
     h.step(hello_inbound("CONN_TERMINAL"), 600);
+    let timestamp_scan_corr =
+        message_timestamp_scan_corr(&h.sink).expect("hello should emit a message watermark scan");
+    h.step(
+        port_reply_with_body(timestamp_scan_corr, bytes::Bytes::from_static(br#"[]"#)),
+        610,
+    );
 
     let body = h
         .last_http_body()
@@ -261,7 +273,13 @@ fn connected_each_channel_gets_different_corr() {
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
 
     // B-rest：hello 只发 1 个 increment HTTP（corr 唯一性移到 global-end sync 路径验证）
-    let effects = h.step(hello_inbound("CONN_1"), 600);
+    h.step(hello_inbound("CONN_1"), 600);
+    let timestamp_scan_corr =
+        message_timestamp_scan_corr(&h.sink).expect("hello should emit a message watermark scan");
+    let effects = h.step(
+        port_reply_with_body(timestamp_scan_corr, bytes::Bytes::from_static(br#"[]"#)),
+        610,
+    );
     let hello_http = effects
         .iter()
         .filter(|e| matches!(e, EffectKind::Http(_)))
@@ -321,11 +339,23 @@ fn disconnected_then_reconnect_triggers_new_resync() {
     h.start(0);
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
     h.step(hello_inbound("CONN_1"), 600); // 首次握手
+    let first_scan_corr = message_timestamp_scan_corr(&h.sink)
+        .expect("first hello should emit a message watermark scan");
+    h.step(
+        port_reply_with_body(first_scan_corr, bytes::Bytes::from_static(br#"[]"#)),
+        610,
+    );
     h.step(Tick::Disconnected(TransportId::from_raw(0)), 1000);
 
     // 第二次连接 + 重新握手（hello 带新 connectionId）→ B-rest：1 个 increment HTTP
     h.step(Tick::Connected(TransportId::from_raw(0)), 2000);
     h.step(hello_inbound("CONN_2"), 2100);
+    let second_scan_corr = message_timestamp_scan_corr(&h.sink)
+        .expect("reconnect hello should emit a message watermark scan");
+    h.step(
+        port_reply_with_body(second_scan_corr, bytes::Bytes::from_static(br#"[]"#)),
+        2110,
+    );
     let reqs = http_reqs(&h.sink);
     assert_eq!(
         reqs.len(),

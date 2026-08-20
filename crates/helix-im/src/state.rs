@@ -289,9 +289,6 @@ pub struct ImState {
     /// 已发起但尚未收到绝对列表的公告重拉版本；抑制重复/旧 changed 通知。
     pub(crate) announcement_reload_versions: BTreeMap<ChannelId, u64>,
 
-    /// 当前 transport 会话已发布的 G06b `(channel, post, snapshot, reader)` 增量去重键。
-    pub(crate) seen_post_read_deltas: HashSet<(ChannelId, String, String, String)>,
-
     /// coverage 会话代号；hello/disconnect 递增，旧回包不得污染新会话。
     pub(crate) query_session_epoch: u64,
 }
@@ -376,7 +373,6 @@ impl ImState {
             committed_post_reads: BTreeMap::new(),
             announcement_versions: BTreeMap::new(),
             announcement_reload_versions: BTreeMap::new(),
-            seen_post_read_deltas: HashSet::new(),
             query_session_epoch: 0,
         }
     }
@@ -424,7 +420,6 @@ impl ImState {
         // 会丢掉 temporaryId 对账入口。
         self.drop_query_session_correlations(true);
         self.announcement_reload_versions.clear();
-        self.seen_post_read_deltas.clear();
     }
 
     /// 完整 query/session reset 同时撤销旧查询回包。

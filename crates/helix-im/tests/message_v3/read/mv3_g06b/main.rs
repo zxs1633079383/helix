@@ -1,14 +1,14 @@
-// MessageV3 MV3-G06b：最小 post_read ID delta 与 G14 legacy 隔离。
+// MessageV3 MV3-G06b：post_read authority → PersistOk → absolute receipt projection。
 
 use bytes::Bytes;
-use helix_core::effect::{Effect, StorageOp, TransportId};
+use helix_core::effect::{Effect, StorageOp};
 use helix_core::tick::{InboundBytes, Tick};
 use serde_json::{json, Value};
 
 #[path = "../../../common.rs"]
 mod common;
 
-use common::{cid, sid, Harness};
+use common::{cid, port_reply_ok, sid, Harness};
 
 /// 构造真实 Go `post_read` WS authority 帧。
 fn inbound_post_read(data: Value) -> Tick {
@@ -44,7 +44,7 @@ fn persist_ops(harness: &Harness) -> Option<Vec<StorageOp>> {
         })
 }
 
-/// 构造 G06b 的四字段 canonical ID delta。
+/// 构造已废弃的四字段形态，验证 Helix 不再为 delta 提供投影兜底。
 fn minimal_delta(channel_id: &str, post_id: &str, snapshot_id: &str, reader_id: &str) -> Value {
     json!({
         "channelId": channel_id,
@@ -136,9 +136,9 @@ fn g06b_public_command_rejects_noncanonical_inputs() {
     }
 }
 
-/// 最小 G06b 帧只产生一次同字段 `im:post:read` ID delta，不落库、不推进 cursor。
+/// 四字段 delta 不再是作者 receipt 合同；必须 fail-closed，不能让 Angular 依赖本地差集。
 #[test]
-fn g06b_minimal_frame_emits_one_id_delta_without_persist() {
+fn g06b_minimal_frame_is_rejected_without_projection_fallback() {
     let channel_id = cid(11);
     let post_id = sid(11);
     let mut harness = Harness::new_with_identity(&[11], "g06b-reader", "g06b-company", "", "", "");
@@ -151,24 +151,41 @@ fn g06b_minimal_frame_emits_one_id_delta_without_persist() {
         )),
         1_700_001_406_000,
     );
+    assert!(emitted_events(&harness).is_empty());
+    assert!(persist_ops(&harness).is_none());
+    assert!(harness.sink.as_slice().is_empty());
+}
+
+/// Go `post_read` authority 经 PersistOk 后由 Helix 生成作者可消费的绝对 projection。
+#[test]
+fn g06b_authority_frame_emits_absolute_readers_projection_after_persist() {
+    let channel_id = cid(11);
+    let post_id = sid(11);
+    let mut harness = Harness::new_with_identity(&[11], "g14-author", "g06b-company", "", "", "");
+    harness.step(
+        inbound_post_read(legacy_authority(&channel_id, &post_id)),
+        1_700_001_406_002,
+    );
+    assert!(emitted_events(&harness).is_empty());
+    let persist_corr = harness.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { corr, .. } => Some(*corr),
+        _ => None,
+    }).expect("authority must wait for PersistOk");
+    harness.step(port_reply_ok(persist_corr.raw()), 1_700_001_406_003);
     let events = emitted_events(&harness);
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0]["event"], "im:post:read");
-    assert_eq!(
-        events[0]["data"],
-        json!({
-            "channelId": channel_id,
-            "postId": post_id,
-            "snapshotId": "snapshot-1",
-            "readerUserId": "g06b-reader"
-        })
-    );
-    assert!(persist_ops(&harness).is_none());
-    assert!(harness
-        .sink
-        .as_slice()
-        .iter()
-        .all(|effect| matches!(effect, Effect::Emit { .. })));
+    assert_eq!(events[0]["event"], "im:post:readers");
+    assert_eq!(events[0]["data"]["postId"], post_id);
+    assert_eq!(events[0]["data"]["channelId"], channel_id);
+    assert_eq!(events[0]["data"]["snapshotId"], "g14-snapshot");
+    assert_eq!(events[0]["data"]["readUserIds"], json!(["g14-reader"]));
+    assert_eq!(events[0]["data"]["unreadUserIds"], json!(["g14-other"]));
+    assert_eq!(events[0]["data"]["readCount"], 1);
+    assert_eq!(events[0]["data"]["unreadCount"], 1);
+    assert_eq!(events[0]["data"]["allRead"], false);
+    for forbidden in ["readBits", "memberIds", "readerIds"] {
+        assert!(events[0]["data"].get(forbidden).is_none(), "projection leaked {forbidden}");
+    }
 }
 
 /// 缺字段或 forbidden 字段的混合帧必须终止，不得降级到旧位图 Persist。
@@ -181,6 +198,8 @@ fn g06b_missing_or_forbidden_fields_are_noop() {
         json!({"channelId": cid(11), "postId": sid(11), "snapshotId": "snapshot"}),
         json!({"channelId": cid(11), "postId": sid(11), "snapshotId": "snapshot", "readerUserId": "reader", "readBits": "1"}),
         json!({"channelId": cid(11), "postId": sid(11), "snapshotId": "snapshot", "readerUserId": "reader", "memberIds": ["reader"]}),
+        json!({"channelId": cid(11), "postId": sid(11), "authorUserId": "author", "readerUserId": "reader", "snapshotId": "snapshot", "memberIds": ["reader", "other"], "readMap": "1"}),
+        json!({"channelId": cid(11), "postId": sid(11), "authorUserId": "author", "readerUserId": "reader", "snapshotId": "snapshot", "memberIds": ["reader", "reader"], "readMap": "11"}),
     ];
     for data in cases {
         let mut harness = Harness::new_with_identity(&[11], "reader", "company", "", "", "");
@@ -192,15 +211,15 @@ fn g06b_missing_or_forbidden_fields_are_noop() {
     }
 }
 
-/// 同一四元组 O(1) 去重，但不同 snapshot/reader 必须继续发布独立增量。
+/// 不含完整 authority 的重复 delta 永不建立任何本地 receipt 状态。
 #[test]
-fn g06b_replay_dedupes_only_same_snapshot_and_reader() {
+fn g06b_replay_of_minimal_delta_never_creates_state() {
     let channel_id = cid(11);
     let post_id = sid(11);
     let mut harness = Harness::new_with_identity(&[11], "reader-a", "company", "", "", "");
     let first = minimal_delta(&channel_id, &post_id, "snapshot-1", "reader-a");
     harness.step(inbound_post_read(first.clone()), 1_700_001_406_010);
-    assert_eq!(emitted_events(&harness).len(), 1);
+    assert!(emitted_events(&harness).is_empty());
     harness.step(inbound_post_read(first), 1_700_001_406_011);
     assert!(harness.sink.as_slice().is_empty());
 
@@ -213,7 +232,7 @@ fn g06b_replay_dedupes_only_same_snapshot_and_reader() {
         )),
         1_700_001_406_012,
     );
-    assert_eq!(emitted_events(&harness).len(), 1);
+    assert!(emitted_events(&harness).is_empty());
     harness.step(
         inbound_post_read(minimal_delta(
             &channel_id,
@@ -223,27 +242,7 @@ fn g06b_replay_dedupes_only_same_snapshot_and_reader() {
         )),
         1_700_001_406_013,
     );
-    assert_eq!(emitted_events(&harness).len(), 1);
-
-    harness.step(
-        Tick::Disconnected(TransportId::from_raw(1)),
-        1_700_001_406_014,
-    );
-    assert!(harness.sink.as_slice().is_empty());
-    harness.step(
-        inbound_post_read(minimal_delta(
-            &channel_id,
-            &post_id,
-            "snapshot-1",
-            "reader-a",
-        )),
-        1_700_001_406_015,
-    );
-    assert_eq!(
-        emitted_events(&harness).len(),
-        1,
-        "transport reset clears G06b dedupe"
-    );
+    assert!(emitted_events(&harness).is_empty());
 }
 
 /// G14 带 `readMap/memberIds` 的 legacy authority 仍独立进入原 Persist 链。

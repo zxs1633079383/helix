@@ -32,7 +32,7 @@ use helix_driver_native::{
 use helix_im::{ImConfig, ImModule, IM_SCHEMA, IM_SCHEMA_MIGRATIONS};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -113,6 +113,52 @@ pub(crate) struct HttpObservation {
 pub(crate) struct RawWs {
     pub(crate) transport: Arc<NativeTransport>,
     pub(crate) ticks: mpsc::Receiver<Tick>,
+    pending: VecDeque<Value>,
+}
+
+const MAX_PENDING_WS_FRAMES: usize = 256;
+
+impl RawWs {
+    /// 从缓存帧中取出当前等待器可消费的第一帧，保留跨 action 的乱序广播。
+    fn take_pending<F>(&mut self, actions: &[&str], predicate: &F) -> Option<Value>
+    where
+        F: Fn(&Value) -> bool,
+    {
+        let index = self.pending.iter().position(|frame| {
+            let action = frame.get("action").and_then(Value::as_str);
+            actions.iter().any(|candidate| Some(*candidate) == action) && predicate(frame)
+        })?;
+        self.pending.remove(index)
+    }
+
+    /// 接收并解析一帧真实 WS 入站 JSON，忽略 transport 控制帧和非 JSON 数据。
+    async fn receive_frame(&mut self) -> Result<Value, String> {
+        loop {
+            let tick = self
+                .ticks
+                .recv()
+                .await
+                .ok_or_else(|| "real Go WS tick channel closed".to_string())?;
+            let Tick::Inbound(bytes) = tick else {
+                continue;
+            };
+            let Ok(frame) = serde_json::from_slice::<Value>(bytes.as_bytes()) else {
+                continue;
+            };
+            return Ok(frame);
+        }
+    }
+
+    /// 缓存当前等待器不能消费但后续 action 可能需要的业务帧，并限制内存上界。
+    fn remember(&mut self, frame: Value) {
+        if frame.get("action").and_then(Value::as_str).is_none() {
+            return;
+        }
+        if self.pending.len() >= MAX_PENDING_WS_FRAMES {
+            self.pending.pop_front();
+        }
+        self.pending.push_back(frame);
+    }
 }
 
 #[derive(Clone)]
@@ -774,10 +820,11 @@ pub(crate) async fn open_raw_ws_at(
     Ok(RawWs {
         transport: Arc::new(transport),
         ticks,
+        pending: VecDeque::new(),
     })
 }
 
-/// 等待指定 action 的真实 Go WS frame；Connected/噪音帧被消费但不会被当业务成功。
+/// 等待指定 action 的真实 Go WS frame；乱序业务帧会留在 RawWs 缓存中，不被静默丢弃。
 pub(crate) async fn wait_ws_action<F>(
     ws: &mut RawWs,
     action: &str,
@@ -789,20 +836,14 @@ where
 {
     timeout(timeout_duration, async {
         loop {
-            let tick = ws
-                .ticks
-                .recv()
-                .await
-                .ok_or_else(|| "real Go WS tick channel closed".to_string())?;
-            let Tick::Inbound(bytes) = tick else {
-                continue;
-            };
-            let Ok(frame) = serde_json::from_slice::<Value>(bytes.as_bytes()) else {
-                continue;
-            };
+            if let Some(frame) = ws.take_pending(&[action], &predicate) {
+                return Ok(frame);
+            }
+            let frame = ws.receive_frame().await?;
             if frame.get("action").and_then(Value::as_str) == Some(action) && predicate(&frame) {
                 return Ok(frame);
             }
+            ws.remember(frame);
         }
     })
     .await
@@ -821,21 +862,15 @@ where
 {
     timeout(timeout_duration, async {
         loop {
-            let tick = ws
-                .ticks
-                .recv()
-                .await
-                .ok_or_else(|| "real Go WS tick channel closed".to_string())?;
-            let Tick::Inbound(bytes) = tick else {
-                continue;
-            };
-            let Ok(frame) = serde_json::from_slice::<Value>(bytes.as_bytes()) else {
-                continue;
-            };
+            if let Some(frame) = ws.take_pending(actions, &predicate) {
+                return Ok(frame);
+            }
+            let frame = ws.receive_frame().await?;
             let action = frame.get("action").and_then(Value::as_str);
             if actions.iter().any(|candidate| Some(*candidate) == action) && predicate(&frame) {
                 return Ok(frame);
             }
+            ws.remember(frame);
         }
     })
     .await

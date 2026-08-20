@@ -469,9 +469,10 @@ impl ImModule {
                             self.state.pending_chain_event_ids.insert(event_id.clone());
                             pending_chain_event_ids.push(event_id);
                         }
-                        if trigger != SyncTrigger::Hydration {
-                            chain_domain_events.push(projection.event);
-                        }
+                        // 接龙声明不是普通 message 行：新租户 hydration 可能只有 type=2
+                        // 公告更新，但 canonical chain_* 已能完整还原。PersistAtomic 成功后
+                        // 仍需把 chainProjection 发给客户端，否则初次打开永远没有声明卡。
+                        chain_domain_events.push(projection.event);
                     }
                 }
                 if trigger != SyncTrigger::Hydration {

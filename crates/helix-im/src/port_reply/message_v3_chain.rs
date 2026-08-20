@@ -122,6 +122,7 @@ impl super::ImModule {
         if request.command != "post_chain_get"
             && request.command != "post_chain_reconcile"
             && request.command != "post_chain_update_draft"
+            && request.command != "post_chain_mark_read"
             && authority.event_seq.is_none()
             && authority.revision > 0
             && self

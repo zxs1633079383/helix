@@ -703,6 +703,15 @@ pub(crate) fn event_bytes(
     if let Some(value) = &request.operation_id {
         data.insert("operationId".to_string(), json!(value));
     }
+    // Read-like chain commands need req_id on the terminal event for Host/driver correlation.
+    if let Some(req_id) = request
+        .payload
+        .get("req_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        data.insert("req_id".to_string(), json!(req_id));
+    }
     if let Some(state) = state {
         data.insert("state".to_string(), json!(state.as_str()));
     }
@@ -718,6 +727,9 @@ pub(crate) fn event_bytes(
         }
         if let Some(summary) = &authority.summary {
             data.insert("chainSummary".to_string(), summary_value(summary));
+        }
+        if let Some(declaration_post_id) = find_declaration_post_id(&authority.raw) {
+            data.insert("declarationPostId".to_string(), json!(declaration_post_id));
         }
         if let Some(entry) = &authority.entry {
             data.insert("chainEntry".to_string(), entry_value(entry));
@@ -753,6 +765,21 @@ pub(crate) fn event_bytes(
     }))
     .map_err(|error| ImError::Serialize(error.to_string()))?;
     Ok(bytes)
+}
+
+/// 从 Go authority 的摘要或 data 外壳保留声明 Post 身份，供消息时间线投影复用。
+fn find_declaration_post_id(value: &Value) -> Option<String> {
+    let candidates = [
+        Some(value),
+        value.get("data"),
+        value.get("chainSummary"),
+        value.get("chain_summary"),
+        value.get("data").and_then(|data| data.get("chainSummary")),
+        value.get("data").and_then(|data| data.get("chain_summary")),
+    ];
+    candidates.into_iter().flatten().find_map(|candidate| {
+        find_local_string(candidate, &["declarationPostId", "declaration_post_id"])
+    })
 }
 
 /// 由 command 决定 HTTP 成功后的 canonical 事件名。
@@ -1544,6 +1571,66 @@ mod tests {
         );
         assert_eq!(event["data"]["textWindow"]["tailEntryIds"], json!([]));
         assert!(event["data"].get("window").is_none());
+    }
+
+    /// read_cursor terminal events must preserve the request correlation key.
+    #[test]
+    fn read_cursor_event_preserves_req_id() {
+        let request = ChainRequest {
+            command: "post_chain_mark_read".to_string(),
+            channel_id: "channel-1".to_string(),
+            chain_id: "chain-1".to_string(),
+            client_mutation_id: None,
+            operation_id: None,
+            device_id: Some("device-1".to_string()),
+            payload: json!({"req_id": "read-1"}),
+        };
+        let bytes = event_bytes("im:post_chain:read_cursor", &request, None, None, None)
+            .expect("read cursor event bytes");
+        let event: Value = serde_json::from_slice(&bytes).expect("read cursor event JSON");
+        assert_eq!(event["data"]["req_id"], "read-1");
+    }
+
+    /// publish 投影必须保留 Go 声明 Post 身份，供客户端把 Chain 卡片接入消息时间线。
+    #[test]
+    fn publish_event_preserves_declaration_post_id() {
+        let request = ChainRequest {
+            command: "post_chain_publish".to_string(),
+            channel_id: "channel-1".to_string(),
+            chain_id: "chain-1".to_string(),
+            client_mutation_id: Some("m-publish".to_string()),
+            operation_id: Some("op-publish".to_string()),
+            device_id: None,
+            payload: json!({}),
+        };
+        let authority = parse_authority(
+            &json!({
+                "chainSummary": {
+                    "chainId": "chain-1",
+                    "channelId": "channel-1",
+                    "declarationPostId": "post-chain-1",
+                    "status": "PUBLISHED"
+                },
+                "event": {
+                    "eventSeq": 3,
+                    "action": "im:post_chain:publish"
+                }
+            }),
+            &request,
+            None,
+            None,
+        )
+        .expect("publish authority");
+        let bytes = event_bytes(
+            "im:post_chain:publish",
+            &request,
+            Some(&authority),
+            Some(ChainMutationState::Confirmed),
+            None,
+        )
+        .expect("publish event bytes");
+        let event: Value = serde_json::from_slice(&bytes).expect("publish event JSON");
+        assert_eq!(event["data"]["declarationPostId"], "post-chain-1");
     }
 
     /// reconcile/draft 的 eventSeq=0 只能表示本地权威，不得进入公共频道 cursor gate。

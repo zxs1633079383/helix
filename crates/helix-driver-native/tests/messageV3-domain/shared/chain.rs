@@ -515,8 +515,10 @@ async fn execute_window(context: &AuthContext, channel_id: &str) -> Result<Value
             )
             .await?;
         assert_read_success(&read)?;
+        // Chain read relay carries the unwrapped WindowResult; retain the legacy CommonRes path.
         let window = read
-            .pointer("/data/body/data/textWindow")
+            .pointer("/data/body/textWindow")
+            .or_else(|| read.pointer("/data/body/data/textWindow"))
             .or_else(|| read.pointer("/data/body/data"))
             .ok_or_else(|| ChainRunError::Failed("post_chain_get missing textWindow projection".to_string()))?;
         let hidden = window.get("hiddenCount").and_then(Value::as_i64).unwrap_or_default();

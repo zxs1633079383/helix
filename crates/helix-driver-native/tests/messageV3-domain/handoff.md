@@ -1,5 +1,86 @@
 # MessageV3 Phase1-4 与 Phase5 文字接龙真实 Gate 交接
 
+## 2026-08-19 当前文字接龙交接（本节为最新真源）
+
+```text
+AGENT_HANDOFF/v1
+state: REAL_CHAIN_TEXT_PASS
+domain: Chain/Text
+driver-native: 8 个 Phase5 Gate 已执行
+business-evidence: 8 PASS / 0 BLOCKED_PRECONDITION
+first-failure: none（本轮已修复并复验 CHAIN-COM-G03）
+```
+
+### 当前结论
+
+9 个 canonical command 都已经进入 driver-native 的 Gate 映射并被真实 harness 调用；本轮并发
+追加后的真实 Go WS 乱序帧已被保留并按 mutation 精确消费，8 个文字接龙相关业务 Gate 均取得
+真实链 `PASS`。最新全量命令为：
+
+```bash
+HELIX_MAIN_API_BASE=http://api3-dev.jinqidongli.com \
+  cargo test -p helix-driver-native --test message_v3_domain phase5_chain_text \
+  -- --nocapture --test-threads=1
+```
+
+结果为 `8 passed; 0 failed`（1.84s）。Gate 业务账目必须读取同一轮生成的
+`artifacts/messagev3-phase5-real-chain/**/evidence.json`：
+
+| Gate | 最新业务状态 | 证据 |
+| --- | --- | --- |
+| CHAIN-COM-G01 | PASS | `hx-p1-evidence-81190-15-81190/.../CHAIN-COM-G01/evidence.json` |
+| CHAIN-COM-G02 | PASS | `hx-p1-evidence-81190-26-81190/.../CHAIN-COM-G02/evidence.json` |
+| CHAIN-COM-G03 | PASS | `hx-p1-evidence-81190-38-81190/.../CHAIN-COM-G03/evidence.json` |
+| CHAIN-COM-G04 | PASS | `hx-p1-evidence-81190-53-81190/.../CHAIN-COM-G04/evidence.json` |
+| CHAIN-COM-G05 | PASS | `hx-p1-evidence-81190-63-81190/.../CHAIN-COM-G05/evidence.json` |
+| CHAIN-COM-G06 | PASS | `hx-p1-evidence-81190-78-81190/.../CHAIN-COM-G06/evidence.json` |
+| CHAIN-TXT-G01 | PASS | `hx-p1-evidence-81190-88-81190/.../CHAIN-TXT-G01/evidence.json` |
+| CHAIN-TXT-G02 | PASS | `hx-p1-evidence-81190-100-81190/.../CHAIN-TXT-G02/evidence.json` |
+
+G03 本轮同时取得双 append 的真实 HTTP/WS、唯一 seq/entry、SQLite read-back 和 reconcile 幂等
+证据；此前失败由 driver-native raw WS helper 丢弃乱序业务帧造成，不是 Go 持久化或 Helix
+reducer 失败。
+
+### 9 个 command 与 Gate 覆盖
+
+| command | Gate 覆盖 |
+| --- | --- |
+| `post_chain_create` | COM-G01 及各 Gate setup |
+| `post_chain_update_draft` | COM-G02 |
+| `post_chain_publish` | COM-G02、COM-G03/04/05、TXT-G01/G02 setup |
+| `post_chain_append` | COM-G03、COM-G05、TXT-G01、TXT-G02 |
+| `post_chain_get` | COM-G01、COM-G04、TXT-G02 |
+| `post_chain_reconcile` | COM-G03、TXT-G02 |
+| `post_chain_close` | COM-G06 |
+| `post_chain_retract` | COM-G06 |
+| `post_chain_mark_read` | COM-G06 |
+
+因此当前是“9 个 command 覆盖齐全，文字接龙相关真实 Gate 8/8”，但这不扩张为分类接龙或 Acceptance Gate 已通过。
+
+### 本轮新增修复与验证
+
+- `post_chain_mark_read` 的 HTTP authority 会复用已发布 Chain 摘要 revision；Helix 原先把它误
+  当成重复 Chain 事实，revision 去重提前跳过 `PersistAtomic`，所以 G06 一直等不到
+  `im:post_chain:read_cursor`。现已把 read-cursor 从 revision 去重条件排除，并保留 `req_id`
+  到 terminal event；G06 已取得真实 `mark_read/retract/close/closed_append_rejected` PASS。
+- G04 的 `post_chain_get` read relay 当前返回解包的 `WindowResult`，测试断言现兼容
+  `/data/body/textWindow`，同时保留旧 CommonRes 路径回退，避免假失败。
+- 修复 driver-native `RawWs` action matcher：不匹配当前等待器的带 action 业务帧进入有界
+  `VecDeque`，后续等待按 action/predicate 消费，解决并发 append B→A 到达时 B 被丢弃的竞态。
+- 新增 `read_cursor_event_preserves_req_id` Helix 单测；已通过：
+  `cargo test -p helix-im chain::tests::read_cursor_event_preserves_req_id -- --nocapture`。
+
+### 当前工作树边界
+
+- Helix branch：`codex/messagev3-text-chain-helix-20260819`，HEAD `c3d6069465e4250609f05eb6012e42faf7cb5c3b`。
+- 当前尚未提交的 Helix 修改：`crates/helix-im/src/chain.rs`、
+  `crates/helix-im/src/port_reply/message_v3_chain.rs`、
+  `crates/helix-driver-native/tests/messageV3-domain/shared/chain.rs`、
+  `crates/helix-driver-native/tests/messageV3-domain/shared/mod.rs`。
+- 本轮未 push、未把运行证据目录加入 Git；未改变 Go host `8066`，接龙验证仍使用
+  `18066 -> container 8066`。
+- Angular 生产组件/投影消费者未在本轮修改；因此尚无 Phase5 DOM/像素级验收证据。
+
 ## 交接对象
 
 - Helix worktree：`/System/Volumes/Data/workspace/worktrees/messagev3-text-chain-20260819/helix`
@@ -33,7 +114,11 @@ Docker 运行态复用此前 `make docker-up-clean` 拉起的容器：`cses-im-l
 cargo test -p helix-driver-native --test message_v3_domain phase5_chain_text -- --nocapture --test-threads=1
 ```
 
-该命令可完成编译并运行 8 个 Gate；Gate 测试按照项目合同将真实前置缺失写入 `BLOCKED_PRECONDITION`，因此 cargo 的 `8 passed` 只表示 harness 没有 panic，最终账目必须读取 `artifacts/messagev3-phase5-real-chain/**/evidence.json`。本轮曾捕获并修正 raw WS action matcher（Go 顶层 action 是 `im:post_chain:*`，不是 `post_chain`），但当前复验因登录服务 `cses-server-paas25-test.cses.svc.cluster.local:3399` DNS 不可解析，无法取得三账号同租户上下文；最新证据应按 `BLOCKED_PRECONDITION` 处理，不能宣称 8 个真实业务 Gate 已 PASS。
+该命令可完成编译并运行 8 个 Gate；Gate 测试仍按照项目合同将真实前置缺失写入
+`BLOCKED_PRECONDITION`，因此最终账目必须读取同一轮
+`artifacts/messagev3-phase5-real-chain/**/evidence.json`。本轮通过
+`HELIX_MAIN_API_BASE=http://api3-dev.jinqidongli.com` 建立三账号同租户上下文，最新 run
+`81190` 的 8 个业务 Gate 均为 `PASS`；host 端口仍为 `18066`，未占用 8066。
 
 登录服务 DNS 不是 Go IM 服务提供：Angular 的 canonical pre 地址来自 `release.json` 的 `cses-server-paas25-test.cses.svc.cluster.local:3399`，本地测试可用 `HELIX_MAIN_API_BASE` 覆盖为可解析的 Java CSES 地址；Go 18066 只提供接龙 HTTP/WS。driver-native 默认仍使用 canonical pre DNS，覆盖变量只用于测试前置，不能把 DNS 不可解析归因于 Go 链路。
 
@@ -80,10 +165,11 @@ go vet ./...
 
 ## 证据状态
 
-本轮最新 Phase5 真实证据：
+本轮最新 Phase5 真实证据（run `81190`）：
 
 ```text
 CHAIN-COM-G02: PASS（draft_update、draft_fields、draft_idempotent_retry、stale_revision_rejected、published、raw_ws、sqlite_mutation）
+CHAIN-COM-G03: PASS（concurrent_append、unique_seq、unique_entry、idempotent_reconcile、raw_ws、sqlite_mutation）
 CHAIN-TXT-G01: PASS（mode=TEXT、no_category_ids、head_tail_window、sqlite_entry）
 CHAIN-TXT-G02: PASS（two_helix_sessions、same_event_entry、late_join_get、reconcile、actor_sqlite、observer_sqlite）
 ```

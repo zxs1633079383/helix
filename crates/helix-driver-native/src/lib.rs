@@ -31,7 +31,8 @@ pub use engine_loop::{
 pub use event_sink::{
     bus_event_name, to_bus_envelope, EventReceiver, NativeEventSink, RecvOutcome, BUS_CHANNEL,
 };
-pub use http::NativeHttp;
+// 候选 WDIO 真实验收通过此窄接口装配一次性 posts/create 故障，不改变生产调用路径。
+pub use http::{configure_wdio_fail_next_post_create, NativeHttp};
 pub use storage::NativeStorage;
 pub use transport::NativeTransport;
 // TimerRegistry 已下沉 host（pump 核统一）；native re-export 保持公开路径兼容。

@@ -11,6 +11,7 @@
 //!   host-cli 走裸 `Plain` 出站，横切语义未生效；M2 host 装配层（host-cli / Tauri shell）
 //!   登录态就绪后改调 `with_crosscut` 接横切层（drift-review dbe1b74..7e9f3ca finding①）。
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use helix_core::effect::{HttpRequest, HttpResponse};
@@ -25,6 +26,24 @@ use crate::event_sink::NativeEventSink;
 
 /// 出站横切层具体类型（native 装配：内层 `SharedHttpClient` + `NativeEventSink` 回报通道）。
 type NativeCrossHttp = CrossCuttingHttp<SharedHttpClient, NativeEventSink>;
+
+/// Candidate-only one-shot failure switch; production callers never arm this test seam.
+static WDIO_FAIL_NEXT_POST_CREATE: AtomicBool = AtomicBool::new(false);
+
+/// Arm or clear the coarse-real candidate's next `/posts/create` failure.
+pub fn configure_wdio_fail_next_post_create(armed: bool) {
+    WDIO_FAIL_NEXT_POST_CREATE.store(armed, Ordering::SeqCst);
+}
+
+/// Consume the candidate fault only for the real post-create write, never for readback/media.
+fn consume_wdio_post_create_fault(req: &HttpRequest) -> bool {
+    if !req.method.eq_ignore_ascii_case("POST") || !req.url.contains("/posts/create") {
+        return false;
+    }
+    WDIO_FAIL_NEXT_POST_CREATE
+        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+}
 
 /// Compatibility wrapper for PC/Tauri code.
 ///
@@ -132,6 +151,11 @@ impl NativeHttp {
 #[async_trait::async_trait]
 impl HttpRequester for NativeHttp {
     async fn request(&self, req: HttpRequest) -> Result<HttpResponse, PortError> {
+        if consume_wdio_post_create_fault(&req) {
+            return Err(PortError::Transport(
+                "wdio coarse-real injected posts/create failure".to_string(),
+            ));
+        }
         match &self.inner {
             HttpInner::Plain(c) => c.request(req).await,
             HttpInner::Cross(c) => c.request(req).await,

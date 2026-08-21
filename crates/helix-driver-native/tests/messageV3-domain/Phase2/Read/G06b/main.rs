@@ -3,7 +3,7 @@ use serde_json::json;
 use tokio::time::Duration;
 
 /// MV3-G06b：双 persona 真实发送 post 后，经 Helix `im_post_read`、Go HTTP/WS、SQLite
-/// exact-post read-back 与作者侧 `im:post:read` 终态形成一条可审计链。
+/// exact-post read-back 与作者侧 `im:post:readers` 终态形成一条可审计链。
 #[tokio::test]
 async fn mv3_g06b_real_chain() {
     let (_guard, context) = shared::remote_setup().await;
@@ -63,7 +63,7 @@ async fn mv3_g06b_real_chain() {
         .unwrap_or_else(|error| panic!("MV3-G06b command failed: {error}"));
     let read_event = author
         .wait_event(
-            "im:post:read",
+            "im:post:readers",
             |envelope| {
                 shared::data_string(envelope, &["postId", "post_id"]).as_deref()
                     == Some(post_id.as_str())
@@ -90,7 +90,7 @@ async fn mv3_g06b_real_chain() {
             "command": "im_post_read",
             "go_http": "/api/cses/post/read",
             "go_ws": "post_read (consumed by author NativeTransport)",
-            "helix_event": "im:post:read",
+            "helix_event": "im:post:readers",
             "persist": ["message.send_status=sent", "message.read_bits read-back"],
             "temporary_id": temporary_id,
             "post_id": post_id,

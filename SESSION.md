@@ -1,3 +1,5 @@
+🎯 EXPECT 用 Rust 小白可复述的方式梳理 `crates/helix-driver-native/tests/messageV3-domain/Phase1/Post/G01a/main.rs` 发送链；可证伪断言：① 课程明确 Cargo target→G01a→shared helper→Tick/Effect→HTTP/WS/SQLite/EventSink→cleanup 的每一跳；② 每个断言都标明能证明与不能证明什么；③ 明确当前未启动 Go/WS/Native，结论保持 `UNVERIFIED`，不把 evidence 中静态 `status=SUCCESS` 写入冒充 HTTP 回包；④ 只新增 teach 教学资产与 SESSION 预期，不修改 Helix 业务代码或既有 artifacts | 赌注 中 | 可逆 是 | @2026-08-21T
+
 🎯 EXPECT Helix 消费原生 `TEXT_CHAIN` 与同作者接龙 Upsert；可证伪断言：① HTTP/WS Post 与 postUpdate 不再依赖 ANNOUNCEMENT 语义；② 相同 entry_id 的后续权威投影覆盖 SQLite 现有行而非追加；③ PersistOk 后才 Emit，客户端只消费权威绝对态；④ driver-native 聚焦合同与真实 18066 链路对账通过 | 赌注 高 | 可逆 是 | @2026-08-20T17:00:00+08:00
 
 🎯 EXPECT 在 `helix-driver-native` 新增 Phase5/Chain/Common 与 Phase5/Chain/Text 的 8 个文字接龙 Gate 入口并注册到 `message_v3_domain`；可证伪断言：① `CHAIN-COM-G01..G06` 与 `CHAIN-TXT-G01..G02` 每个都有独立 `main.rs`，不存在仅用静态注册冒充通过；② 真实测试从公开 Command 入口验证 HTTP/WS、Helix projection、SQLite durable read-back、Native EventSink 和清理；③ `helix-driver-host` 不承载文字接龙业务 reducer；④ 本地 SQLite 若缺 chain 表，只补最小 schema/migration；⑤ Go 通过 `make docker-up-clean` 运行在 18066，所有缺失真实前置明确写 `BLOCKED_PRECONDITION`/`NOT_VERIFIED`，不伪造 PASS | 赌注 高 | 可逆 是 | @2026-08-19T

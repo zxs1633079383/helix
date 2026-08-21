@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Helix 消息发送链速查</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <div class="eyebrow">Helix / MessageV3 / Quick Reference</div>
+  <h1>消息发送链速查</h1>
+  <p class="lede">一眼区分“用户想发”“本地正在发”“服务器已接收”和“MessageV3 终态事件”，再对上 G01a 测试的每个断言。</p>
+  <p><a href="../lessons/0001-tick-command-to-sent.html">回到第 1 课：从 Tick::Command 到 sent →</a></p>
+
+  <div class="callout">
+    <strong>一句话：</strong>HTTP 2xx 只是 admission；WS <code>post</code> echo 带回服务器 <code>id</code> 后，Helix 才把本地行收敛为 <code>send_status = "sent"</code>，并在 MessageV3 原子提交与 read-back 后发布 <code>im:post:received</code>。
+  </div>
+
+  <h2>状态表</h2>
+  <table>
+    <thead><tr><th>阶段</th><th>内存</th><th>持久化 / 事件</th><th>离开条件</th></tr></thead>
+    <tbody>
+      <tr><td>命令刚进来</td><td><code>PendingSend::Local</code></td><td>等待 P1 <code>Persist</code>；尚无 sending event</td><td>P1 <code>PortReply::Ok</code></td></tr>
+      <tr><td><code>sending</code></td><td><code>SendStatus::Sending</code></td><td><code>message.send_status="sending"</code>；emit <code>im:post:sending</code></td><td>WS <code>post</code> echo，或失败/超时</td></tr>
+      <tr><td>HTTP admission</td><td>仍是 <code>Sending</code></td><td>HTTP 2xx 不发布 sent</td><td>等待 WS echo / 权威 read-back</td></tr>
+      <tr><td><code>sent</code> 起点</td><td><code>Sent</code>，移出 pending</td><td>按 <code>temporaryId</code> 写 <code>send_status="sent"</code>、服务端 <code>id</code>；取消 timer</td><td>MessageV3 <code>PersistAtomic</code> + viewer read-back</td></tr>
+      <tr><td>终态事件</td><td>不再是 pending</td><td><code>im:post:received</code>，data 带 <code>sendStatus="sent"</code></td><td>交给 EventSink / bus</td></tr>
+      <tr><td>失败</td><td><code>UnSend</code></td><td><code>send_status="unsend"</code>；emit <code>im:post:send-failed</code></td><td>用户 retry 或迟到事实按合同收敛</td></tr>
+    </tbody>
+  </table>
+
+  <h2>最短源码地图</h2>
+  <ol class="source-list">
+    <li><a href="../crates/helix-core/src/tick.rs">tick.rs</a>：<code>Tick::Command</code>、<code>PortReply</code>、<code>AppCommand</code>。</li>
+    <li><a href="../crates/helix-im/src/module/trait_impl.rs">module/trait_impl.rs</a>：命令名分支到 <code>handle_send_message</code>。</li>
+    <li><a href="../crates/helix-im/src/send/flow.rs">send/flow.rs</a>：P1 optimistic persist、pending、HTTP、timer。</li>
+    <li><a href="../crates/helix-im/src/port_reply/dispatch_core.rs">port_reply/dispatch_core.rs</a>：P1 Ok 后进入 sending；HTTP reply 不直接宣布 sent。</li>
+    <li><a href="../crates/helix-im/src/ws/handlers/post_echo_settle.rs">post_echo_settle.rs</a>：按 temporaryId 对账、写 sent、取消 timer、清理 pending/corr。</li>
+    <li><a href="../crates/helix-im/src/port_reply/message_v3_post.rs">message_v3_post.rs</a>：PersistAtomic、read-back、received emit。</li>
+  </ol>
+
+  <h2>G01a 运行顺序</h2>
+  <pre><code>G01a main.rs
+  → assert_isolated_send
+  → remote_setup / create_channel
+  → run_helix_send
+      observer raw WS hello
+      actor NativeTransport + Engine + SQLite
+      Tick::Command(im_send_message)
+      im:post:sending + SQLite sending
+      observer WS post(temporaryId)
+      im:post:received(temporaryId)
+      SQLite sent
+      NativeEventSink → 内存 bus envelope
+      shutdown / close WS / delete SQLite
+  → channel/close</code></pre>
+
+  <h2>断言边界</h2>
+  <table>
+    <thead><tr><th>看到</th><th>可以说</th><th>还不能说</th></tr></thead>
+    <tbody>
+      <tr><td><code>im:post:sending</code> + SQLite <code>sending</code></td><td>optimistic P1 已持久化</td><td>Go 已成功</td></tr>
+      <tr><td>observer WS <code>post</code></td><td>Go 给 observer 广播了 post</td><td>Helix actor 已消费</td></tr>
+      <tr><td><code>im:post:received</code></td><td>Helix EventSink 收到终态事件</td><td>Tauri/Angular/DOM 已收到</td></tr>
+      <tr><td>SQLite <code>sent</code></td><td>本地 durable 行已收敛</td><td>HTTP body <code>status=SUCCESS</code> 已被本测试直接断言</td></tr>
+      <tr><td><code>to_bus_envelope</code></td><td>内存转换后的 channel 名正确</td><td>真实 <code>app.emit("im:__bus__")</code></td></tr>
+      <tr><td>evidence <code>status=PASS</code></td><td>本函数所有现有检查通过时写出记录</td><td>补足缺失边界；静态字符串不是 raw HTTP 证据</td></tr>
+    </tbody>
+  </table>
+
+  <h2>三个诊断问题</h2>
+  <ul>
+    <li>看到了 HTTP 2xx，为什么不能写成 sent？因为它没有服务器 post 的权威 <code>id</code> 和 WS delivery 事实。</li>
+    <li>为什么同时保留 <code>id</code> 和 <code>temporaryId</code>？前者是服务器主键，后者是本地乐观行与 echo 的对账锚点。</li>
+    <li>为什么 received 不能在 PersistAtomic 前 emit？否则 UI 看见成功，但本地 durable 事实可能还没提交。</li>
+  </ul>
+</main>
+</body>
+</html>

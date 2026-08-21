@@ -141,25 +141,23 @@ async fn existing_message_table_adds_reply_count_before_event_persist() {
 /// HX-C005 后：EventEnvelope 携带 PostFields（不再持 raw JSON）；落库路径 `event_to_upsert_op`
 /// 直接读 fields。本助手直接构造 fields，等价于 parser 从 ChannelEvent wire 提取后的结果。
 fn post_event(channel: u64, seq: u64, temporary_id: &str, id: &str, text: &str) -> EventEnvelope {
-    let fields = PostFields {
-        temporary_id: temporary_id.to_string(),
-        id: id.to_string(),
-        channel_id: cid(channel),
-        user_id: "user-zhang".to_string(),
-        msg_type: "P".to_string(),
-        message: text.to_string(),
-        simple_message: text.to_string(),
-        props: serde_json::json!({ "channel_event_seq": seq }).to_string(),
-        create_at: 1_700_000_000_000_i64 + seq as i64,
-        // C2：PostFields 新增 read_bits 字段（type6 已读位 / type1 落库列）。本助手不测已读，留空。
-        read_bits: String::new(),
-        // A3：viewers（可见性受众）；本助手不测未读门控，留空 Vec。
-        viewers: Vec::new(),
-        mentions: Vec::new(),
-        expedite_map: String::new(),
-        user_snapshot: String::new(),
-        ..Default::default()
-    };
+    let mut fields = PostFields::default();
+    fields.temporary_id = temporary_id.to_string();
+    fields.id = id.to_string();
+    fields.channel_id = cid(channel);
+    fields.user_id = "user-zhang".to_string();
+    fields.msg_type = "P".to_string();
+    fields.message = text.to_string();
+    fields.simple_message = text.to_string();
+    fields.props = serde_json::json!({ "channel_event_seq": seq }).to_string();
+    fields.create_at = 1_700_000_000_000_i64 + seq as i64;
+    // C2：PostFields 新增 read_bits 字段（type6 已读位 / type1 落库列）。本助手不测已读，留空。
+    fields.read_bits = String::new();
+    // A3：viewers（可见性受众）；本助手不测未读门控，留空 Vec。
+    fields.viewers = Vec::new();
+    fields.mentions = Vec::new();
+    fields.expedite_map = String::new();
+    fields.user_snapshot = String::new();
     EventEnvelope::new(channel_id(channel), Seq(seq), EventKind::PostUpsert, fields)
 }
 
@@ -703,14 +701,12 @@ async fn atomic_type2_zero_rows_roll_back_cursor_and_existing_row_updates() {
         .await
         .expect("seed type=2 row");
 
-    let edited = PostFields {
-        id: "post-type2".to_string(),
-        msg_type: "TEXT".to_string(),
-        message: "after".to_string(),
-        props: "{\"edited\":true}".to_string(),
-        expedite_map: "{\"678\":true}".to_string(),
-        ..PostFields::default()
-    };
+    let mut edited = PostFields::default();
+    edited.id = "post-type2".to_string();
+    edited.msg_type = "TEXT".to_string();
+    edited.message = "after".to_string();
+    edited.props = "{\"edited\":true}".to_string();
+    edited.expedite_map = "{\"678\":true}".to_string();
     let existing = helix_im::channel::edit_content_op("post-type2", &edited);
     let committed = execute_storage_ops_atomic(
         &storage,
@@ -777,12 +773,10 @@ async fn atomic_type2_zero_rows_roll_back_cursor_and_existing_row_updates() {
 async fn event_without_temporary_id_falls_back_to_id_as_pk() {
     let storage = storage_with_im_schema().await;
     // 无 temporary_id（他人消息），仅有 id —— event_to_upsert_op 走 PK 回退到 id。
-    let fields = PostFields {
-        id: "server-post-id-only".to_string(),
-        channel_id: cid(7),
-        message: "from someone else".to_string(),
-        ..Default::default()
-    };
+    let mut fields = PostFields::default();
+    fields.id = "server-post-id-only".to_string();
+    fields.channel_id = cid(7);
+    fields.message = "from someone else".to_string();
     let ev = EventEnvelope::new(channel_id(7), Seq(3), EventKind::PostUpsert, fields);
 
     let op = event_to_upsert_op(&ev);

@@ -1,3 +1,5 @@
+🎯 EXPECT 全局搜索新私聊在 Helix 持久成功后无感跳转；可证伪断言：① `im_create_channel` 只返回 accepted，Angular 不把它当频道；② `im:channel:created` 在 PersistOk 后带同一 `requestId`；③ 前端只用该权威投影的非空频道 ID 缓存并切换；④ 已有私聊直接切换不受影响；验证 `dialogSwitch.service.test.ts` 与 `message_v3_g08a` | 赌注 高 | 可逆 是 | @2026-08-24T
+
 🎯 EXPECT 用 Rust 小白可复述的方式梳理 `crates/helix-driver-native/tests/messageV3-domain/Phase1/Post/G01a/main.rs` 发送链；可证伪断言：① 课程明确 Cargo target→G01a→shared helper→Tick/Effect→HTTP/WS/SQLite/EventSink→cleanup 的每一跳；② 每个断言都标明能证明与不能证明什么；③ 明确当前未启动 Go/WS/Native，结论保持 `UNVERIFIED`，不把 evidence 中静态 `status=SUCCESS` 写入冒充 HTTP 回包；④ 只新增 teach 教学资产与 SESSION 预期，不修改 Helix 业务代码或既有 artifacts | 赌注 中 | 可逆 是 | @2026-08-21T
 
 🎯 EXPECT Helix 消费原生 `TEXT_CHAIN` 与同作者接龙 Upsert；可证伪断言：① HTTP/WS Post 与 postUpdate 不再依赖 ANNOUNCEMENT 语义；② 相同 entry_id 的后续权威投影覆盖 SQLite 现有行而非追加；③ PersistOk 后才 Emit，客户端只消费权威绝对态；④ driver-native 聚焦合同与真实 18066 链路对账通过 | 赌注 高 | 可逆 是 | @2026-08-20T17:00:00+08:00

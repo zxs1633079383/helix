@@ -100,7 +100,7 @@ impl ImModule {
         channel_id: ChannelId,
         channel: serde_json::Value,
         member_rows: Vec<serde_json::Value>,
-        _causation_id: Option<String>,
+        causation_id: Option<String>,
         outcome: &PortOutcome,
         _now_ms: u64,
         out: &mut EffectSink,
@@ -109,8 +109,14 @@ impl ImModule {
         match outcome {
             PortOutcome::Ok(_) => {
                 self.state.committed_channel_creates.insert(channel_id);
-                let created =
+                let mut created =
                     build_message_v3_created_projection(channel_id, &channel, &member_rows);
+                if let (Some(request_id), Some(object)) = (causation_id, created.as_object_mut()) {
+                    object.insert(
+                        "tracing".to_string(),
+                        serde_json::json!({ "requestId": request_id }),
+                    );
+                }
                 let members = build_message_v3_members(&member_rows);
                 out.push(crate::event::channel::created(created)?.into_effect());
                 out.push(

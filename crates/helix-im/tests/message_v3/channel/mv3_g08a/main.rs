@@ -106,8 +106,12 @@ fn channel_created_inbound() -> Tick {
 
 /// 断言提交后的 created 投影完全符合 Angular 直接 Upsert 的绝对态与头像字段契约。
 fn assert_created_projection(event: &Value) {
+    let mut data = event["data"].clone();
+    data.as_object_mut()
+        .expect("created data must be an object")
+        .remove("tracing");
     assert_eq!(
-        event["data"],
+        data,
         json!({
             "id": common::cid(808),
             "type": "P",
@@ -199,10 +203,9 @@ fn sender_create_is_http_then_persist_then_absolute_projection() {
         })
         .unwrap_or_else(|| panic!("missing persist correlation: {:?}", harness.sink.as_slice()));
     harness.step(port_reply_ok(persist_corr), NOW_MS + 2);
-    assert_created_projection(&emitted_event(
-        harness.sink.as_slice(),
-        "im:channel:created",
-    ));
+    let created = emitted_event(harness.sink.as_slice(), "im:channel:created");
+    assert_created_projection(&created);
+    assert_eq!(created["data"]["tracing"]["requestId"], "req-mv3-g08a-001");
 }
 
 /// 接收者消费同一 WS authority 时保持成员顺序，且重复帧不重复发布。
@@ -223,6 +226,31 @@ fn receiver_ws_projection_is_ordered_and_idempotent() {
     assert!(
         duplicate.is_empty(),
         "committed channel_created must be idempotent"
+    );
+}
+
+/// 新频道 WS 回声若先于 HTTP 回包到达，仍必须保留服务端 envelope 的关联 ID。
+#[test]
+fn receiver_ws_projection_carries_server_track_id() {
+    let frame = json!({
+        "action": "channel_created",
+        "data": channel_authority(),
+        "tracing": {"csesTrackId": "req-ws-channel-create"}
+    });
+    let mut harness = Harness::new_with_identity(&[], RECEIVER_A_ID, "company-phase1", "", "", "");
+    harness.step(
+        Tick::Inbound(InboundBytes(Bytes::from(
+            serde_json::to_vec(&frame).expect("channel_created frame must serialize"),
+        ))),
+        NOW_MS,
+    );
+    let persist_corr = correlation_of(harness.sink.as_slice(), "persist");
+    harness.step(port_reply_ok(persist_corr), NOW_MS + 1);
+
+    let created = emitted_event(harness.sink.as_slice(), "im:channel:created");
+    assert_eq!(
+        created["data"]["tracing"]["requestId"],
+        "req-ws-channel-create"
     );
 }
 

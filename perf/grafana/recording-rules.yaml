@@ -32,3 +32,40 @@ groups:
         expr: sum by (service_name, platform, scenario, __name__) (rate({__name__=~"otel_helix_(metrics|traces)_dropped_total"}[5m]))
       - record: otel:helix_correctness:increase30m
         expr: sum by (service_name, platform, scenario, __name__) (increase({__name__=~"otel_helix_(lost|duplicate|order_violation|wrong_channel|cursor_regression|projection_mismatch|persist_remaining|cleanup_residue)_total"}[30m]))
+  - name: messagev3-business-reliability
+    interval: 30s
+    rules:
+      - record: im:message_persist_success_ratio
+        expr: sum by (job) (rate(im_message_persist_terminal_total{result="success"}[5m])) / sum by (job) (rate(im_message_persist_terminal_total[5m]))
+      - record: im:delivery_outbox_success_ratio
+        expr: sum by (job) (increase(im_delivery_outbox_lifecycle_total{stage="mark_delivered",result="success"}[1h])) / sum by (job) (increase(im_delivery_outbox_lifecycle_total{stage="created",result="success"}[1h]))
+      - record: im:recipient_enqueue_success_ratio
+        expr: sum by (job) (rate(im_ws_hub_delivery_events_total{result="enqueued"}[5m])) / sum by (job) (rate(im_ws_hub_delivery_events_total{result=~"enqueued|slow_consumer"}[5m]))
+      - record: im:client_ack_success_ratio
+        expr: sum by (job, platform) (rate(im_message_client_ack_total{result="success"}[5m])) / sum by (job, platform) (rate(im_message_client_ack_total[5m]))
+      - record: helix:im_projection_success_ratio
+        expr: sum by (job, platform) (rate(otel_helix_im_projection_terminal_total{status="success"}[5m])) / sum by (job, platform) (rate(otel_helix_im_projection_terminal_total[5m]))
+      - record: helix:im_sync_session_success_ratio
+        expr: sum by (job, platform) (rate(otel_helix_im_sync_session_total{status="success"}[5m])) / sum by (job, platform) (rate(otel_helix_im_sync_session_total[5m]))
+      - record: helix:im_sync_anomaly_ratio
+        expr: sum by (job, platform) (rate(otel_helix_im_sync_anomaly_total{status="error"}[5m])) / sum by (job, platform) (rate(otel_helix_im_sync_session_total[5m]))
+      - record: helix:im_recovery_success_ratio
+        expr: sum by (job, platform) (rate(otel_helix_im_recovery_session_total{status="success"}[5m])) / sum by (job, platform) (rate(otel_helix_im_recovery_session_total[5m]))
+      - record: helix:im_unread_mismatch_ratio
+        expr: sum by (job, platform) (rate(otel_helix_im_unread_reconcile_total{status="mismatch"}[5m])) / sum by (job, platform) (rate(otel_helix_im_unread_reconcile_total[5m]))
+      - record: helix:im_message_correctness_error_ratio
+        expr: sum by (job, platform) (rate(otel_helix_im_message_correctness_total{status="error"}[5m])) / sum by (job, platform) (rate(otel_helix_im_message_correctness_total[5m]))
+      - record: helix:im_command_terminal_success_ratio
+        expr: sum by (job, platform, operation) (rate(otel_helix_im_command_terminal_total{status="success"}[5m])) / sum by (job, platform, operation) (rate(otel_helix_im_command_terminal_total[5m]))
+      - record: im:message_remote_persist_duration:p50_5m
+        expr: histogram_quantile(0.50, sum by (job, le) (rate(im_message_lifecycle_duration_seconds_bucket{stage="remote_persist",result="success"}[5m])))
+      - record: im:message_remote_persist_duration:p95_5m
+        expr: histogram_quantile(0.95, sum by (job, le) (rate(im_message_lifecycle_duration_seconds_bucket{stage="remote_persist",result="success"}[5m])))
+      - record: im:message_remote_persist_duration:p99_5m
+        expr: histogram_quantile(0.99, sum by (job, le) (rate(im_message_lifecycle_duration_seconds_bucket{stage="remote_persist",result="success"}[5m])))
+      - record: helix:message_projection_duration:p50_5m
+        expr: histogram_quantile(0.50, sum by (job, platform, le) (rate(otel_helix_command_to_projection_emit_seconds_bucket[5m])))
+      - record: helix:message_projection_duration:p95_5m
+        expr: histogram_quantile(0.95, sum by (job, platform, le) (rate(otel_helix_command_to_projection_emit_seconds_bucket[5m])))
+      - record: helix:message_projection_duration:p99_5m
+        expr: histogram_quantile(0.99, sum by (job, platform, le) (rate(otel_helix_command_to_projection_emit_seconds_bucket[5m])))

@@ -31,10 +31,12 @@ macro_rules! metric_registry {
         pub enum MetricId { $( $variant ),+ }
 
         impl MetricId {
+            /// 返回稳定的指标描述符，供 exporter 与合同测试共享同一名称和类型。
             pub const fn descriptor(self) -> &'static MetricDescriptor {
                 &ALL_METRICS[self as usize]
             }
 
+            /// 返回指标当前是否具备诚实的常驻采集 seam。
             pub const fn availability(self) -> MetricAvailability {
                 match self {
                     Self::AllocCountPerOp | Self::AllocBytesPerOp => MetricAvailability::ProfileOnly,
@@ -68,6 +70,7 @@ macro_rules! metric_registry {
                     | Self::CommandToWsEchoSeconds
                     | Self::CommandToAuthoritativePersistSeconds
                     | Self::CommandToProjectionConsumeSeconds
+					| Self::ImUnreadReconcileTotal
                     | Self::CorrelationTrackerOverflowTotal
                     | Self::CorrelationTrackerTimeoutTotal
                     | Self::CorrelationTrackerDuplicateTotal
@@ -207,6 +210,13 @@ metric_registry! {
     EventBatchSize => ("helix_event_batch_size", Histogram, "1"),
     EventEmittedTotal => ("helix_event_emitted_total", Counter, "1"),
     EventEmitDurationSeconds => ("helix_event_emit_duration_seconds", Histogram, "s"),
+    ImProjectionTerminalTotal => ("helix_im_projection_terminal_total", Counter, "1"),
+    ImSyncSessionTotal => ("helix_im_sync_session_total", Counter, "1"),
+    ImSyncAnomalyTotal => ("helix_im_sync_anomaly_total", Counter, "1"),
+    ImRecoverySessionTotal => ("helix_im_recovery_session_total", Counter, "1"),
+    ImUnreadReconcileTotal => ("helix_im_unread_reconcile_total", Counter, "1"),
+    ImMessageCorrectnessTotal => ("helix_im_message_correctness_total", Counter, "1"),
+    ImCommandTerminalTotal => ("helix_im_command_terminal_total", Counter, "1"),
     EventEmitToConsumeSeconds => ("helix_event_emit_to_consume_seconds", Histogram, "s"),
     EventReceiverCount => ("helix_event_receiver_count", Gauge, "1"),
     EventConsumerDurationSeconds => ("helix_event_consumer_duration_seconds", Histogram, "s"),

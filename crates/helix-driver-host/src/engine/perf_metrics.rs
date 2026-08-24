@@ -5,7 +5,10 @@ use helix_core::tick::PortOutcome;
 use helix_core::Tick;
 
 use super::rss::process_resident_memory_bytes;
-use crate::metrics::{AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels};
+use crate::metrics::{
+    record_im_command_terminal_event, AsyncMetricSink, LabelKey, MetricEvent, MetricId,
+    MetricLabels,
+};
 use crate::owned_effect::{EffectSummary, OwnedEffect};
 
 pub(crate) struct EngineMetricRecorder {
@@ -17,6 +20,7 @@ pub(crate) struct EngineMetricRecorder {
     connected_transports: usize,
     active_command_started: Option<Instant>,
     active_from_port_reply: bool,
+    active_command_terminal_recorded: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -37,6 +41,7 @@ pub(super) struct TickMetricContext {
 }
 
 impl EngineMetricRecorder {
+    /// 创建固定容量、默认无活动 Command lineage 的 Engine 指标记录器。
     pub(crate) fn new(sink: Arc<dyn AsyncMetricSink>) -> Self {
         let enabled = sink.is_enabled();
         Self {
@@ -47,6 +52,7 @@ impl EngineMetricRecorder {
             connected_transports: 0,
             active_command_started: None,
             active_from_port_reply: false,
+            active_command_terminal_recorded: false,
         }
     }
 
@@ -97,6 +103,7 @@ impl EngineMetricRecorder {
         self.gauge(MetricId::TickQueueCapacity, capacity as f64, labels);
     }
 
+    /// 打开一个 Tick 指标上下文，并在 Command/PortReply 边界恢复真实异步 lineage。
     pub(super) fn on_tick(
         &mut self,
         tick: &Tick,
@@ -107,6 +114,7 @@ impl EngineMetricRecorder {
         }
         self.active_command_started = None;
         self.active_from_port_reply = false;
+        self.active_command_terminal_recorded = false;
         if let Some(queue_wait) = queue_wait {
             self.histogram(
                 MetricId::TickQueueWaitSeconds,
@@ -187,6 +195,7 @@ impl EngineMetricRecorder {
                     }
                     self.active_command_started = Some(command_started);
                     self.active_from_port_reply = true;
+                    self.active_command_terminal_recorded = false;
                 }
             } else {
                 self.counter(
@@ -301,8 +310,10 @@ impl EngineMetricRecorder {
         }
         self.active_command_started = None;
         self.active_from_port_reply = false;
+        self.active_command_terminal_recorded = false;
     }
 
+    /// 记录 Effect 与 Command 生命周期里程碑，首个稳定 Emit 才闭合一次业务终态。
     pub(crate) fn on_effect_dispatch(&mut self, effect: &OwnedEffect) {
         if let Some(command_started) = self.active_command_started {
             match effect {
@@ -311,15 +322,22 @@ impl EngineMetricRecorder {
                     command_started.elapsed().as_secs_f64(),
                     MetricLabels::one(LabelKey::Stage, "command_lifecycle"),
                 ),
-                OwnedEffect::Emit { .. } => self.histogram(
-                    if self.active_from_port_reply {
-                        MetricId::CommandToProjectionEmitSeconds
-                    } else {
-                        MetricId::CommandToImmediateProjectionSeconds
-                    },
-                    command_started.elapsed().as_secs_f64(),
-                    MetricLabels::one(LabelKey::Stage, "command_lifecycle"),
-                ),
+                OwnedEffect::Emit { event } => {
+                    self.histogram(
+                        if self.active_from_port_reply {
+                            MetricId::CommandToProjectionEmitSeconds
+                        } else {
+                            MetricId::CommandToImmediateProjectionSeconds
+                        },
+                        command_started.elapsed().as_secs_f64(),
+                        MetricLabels::one(LabelKey::Stage, "command_lifecycle"),
+                    );
+                    if !self.active_command_terminal_recorded
+                        && record_im_command_terminal_event(self.sink.as_ref(), event)
+                    {
+                        self.active_command_terminal_recorded = true;
+                    }
+                }
                 _ => {}
             }
         }

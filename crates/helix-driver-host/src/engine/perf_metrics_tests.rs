@@ -1,5 +1,7 @@
 use super::*;
 use crate::metrics::{NoopMetricSink, RecordOutcome};
+use bytes::Bytes;
+use helix_core::effect::DomainEventBytes;
 use helix_core::effect::{Correlation, TimerId};
 use helix_core::tick::ReplyBytes;
 use std::sync::Mutex;
@@ -100,6 +102,34 @@ fn port_reply_closes_cross_tick_command_stage() {
     assert!(events
         .iter()
         .any(|event| event.id == MetricId::CommandToHttpResponseSeconds));
+}
+
+/// command_terminal_requires_local_command_lineage 防止远端同名 projection 被误算为本地 Command 成功。
+#[test]
+fn command_terminal_requires_local_command_lineage() {
+    let metrics = Arc::new(RecordingMetricSink::default());
+    let mut recorder = EngineMetricRecorder::new(metrics.clone());
+    let event = DomainEventBytes(Bytes::from_static(
+        br#"{"event":"im:post:received","data":{}}"#,
+    ));
+
+    recorder.on_effect_dispatch(&OwnedEffect::Emit {
+        event: event.clone(),
+    });
+    recorder.active_command_started = Some(Instant::now());
+    recorder.on_effect_dispatch(&OwnedEffect::Emit {
+        event: event.clone(),
+    });
+    recorder.on_effect_dispatch(&OwnedEffect::Emit { event });
+
+    let events = metrics.0.lock().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.id == MetricId::ImCommandTerminalTotal)
+            .count(),
+        1,
+    );
 }
 
 #[test]

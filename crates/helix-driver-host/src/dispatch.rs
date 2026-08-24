@@ -13,7 +13,9 @@ use crate::engine::TransportTable;
 use crate::lifecycle::{
     LifecycleCapability, LifecycleContext, LifecycleStage, LifecycleStatus, LifecycleTracker,
 };
-use crate::metrics::{AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels};
+use crate::metrics::{
+    record_im_business_event, AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels,
+};
 use crate::owned_effect::OwnedEffect;
 use crate::pools::{get_or_spawn_persist, PersistJobPayload};
 use crate::spawner::{BoundedSpawner, FeedbackSink, Job};
@@ -299,6 +301,7 @@ pub(crate) async fn dispatch_effects_with_context<S, E, Fs>(
                 record_operation(metrics, "event_emit", "ok");
                 trace.on_event_emit_with_context(context, &event);
                 let emit_started = metrics.is_enabled().then(Instant::now);
+                record_im_business_event(metrics, &event);
                 event_sink.emit(event);
                 if let Some(started) = emit_started {
                     let labels = MetricLabels::one(LabelKey::Stage, "event");

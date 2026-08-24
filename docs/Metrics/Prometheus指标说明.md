@@ -1,10 +1,10 @@
 # Helix Runtime Prometheus 指标说明
 
-> **当前基线**：`reactor/MessageV3-helix`，revision `c9946174`，核对日期：2026-08-18。
+> **当前基线**：`reactor/MessageV3-helix`，核对日期：2026-08-24。
 >
-> 本文只描述当前代码中 `MetricAvailability::Runtime` 的指标。当前注册表共有 **169** 个
-> 指标，其中 **116 个 Runtime**；另外 40 个是 `Planned`、11 个是 `HarnessOnly`、2 个是
-> `ProfileOnly`。这里的 116 是“常规运行时允许采集”的精确分母，不表示每个业务路径在每个
+> 本文只描述当前代码中 `MetricAvailability::Runtime` 的指标。当前注册表共有 **176** 个
+> 指标，其中 **122 个 Runtime**；另外 41 个是 `Planned`、11 个是 `HarnessOnly`、2 个是
+> `ProfileOnly`。这里的 122 是“常规运行时允许采集”的精确分母，不表示每个业务路径在每个
 > 抓取窗口都会产生样本。
 >
 > 指标目录与可用性真源是 [`registry.rs`](../../crates/helix-driver-host/src/metrics/registry.rs)。
@@ -34,11 +34,11 @@ OTLP Metrics pipeline 在 [`otlp.rs`](../../crates/helix-driver-host/src/metrics
 
 | availability | 数量 | 是否属于本文 | 说明 |
 |---|---:|---|---|
-| `Runtime` | **116** | 是 | 正常 host/native/FFI 运行中可由真实 adapter 记录 |
-| `Planned` | 40 | 否 | 名称/单位合同已登记，当前没有完整生产采集 seam |
+| `Runtime` | **122** | 是 | 正常 host/native/FFI 运行中可由真实 adapter 记录 |
+| `Planned` | 41 | 否 | 名称/单位合同已登记，当前没有完整生产采集 seam |
 | `HarnessOnly` | 11 | 否 | 只在有限时长压测或正确性 Harness 收尾时发布 |
 | `ProfileOnly` | 2 | 否 | 只在 allocator/profile 模式发布 |
-| 注册总数 | **169** | 否 | schema/catalog 总量 |
+| 注册总数 | **176** | 否 | schema/catalog 总量 |
 
 旧测试中的 `ALL_METRIC_IDS.len() > 100` 与 `production_metric_ids().count() > 80` 只是下限断言，
 不能当作当前精确数量。
@@ -80,13 +80,14 @@ Prometheus `/api/v1/metadata` 的真实名称为准，本文列出的 `helix_*` 
 | WebSocket | 10 | `engine/perf_metrics.rs`、`dispatch.rs` |
 | Command milestone | 5 | `engine/perf_metrics.rs` |
 | Event bus | 7 | `dispatch.rs`、native/FFI event sink |
+| MessageV3 业务终态 | 6 | `metrics/business.rs`、`dispatch.rs` |
 | Timer | 7 | `timer.rs` |
 | FFI | 7 | `helix-driver-ffi/src/event_sink.rs`、`api/command.rs` |
 | Process 与 shutdown | 3 | `engine/perf_metrics.rs` |
 | Metrics exporter 自观测 | 8 | `metrics/runtime.rs`、`metrics/worker.rs` |
 | Trace exporter 自观测 | 11 | `otel/exporter.rs` |
 | Telemetry canary | 1 | `metrics/worker.rs` |
-| **合计** | **116** | |
+| **合计** | **122** | |
 
 ## 3. 各 Runtime 指标说明
 
@@ -235,6 +236,23 @@ Port correlation 表使用固定容量和 O(1) 槽位，不把 `corr_key` 放进
 | `helix_event_receiver_count` | Gauge / `1` | 当前 Event bus receiver 数量。 |
 | `helix_event_consumer_closed_total` | Counter / `1` | Consumer 发现 broadcast channel closed 的次数。 |
 
+### 3.8.1 MessageV3 业务终态（6 Runtime + 1 Planned）
+
+采集 owner：[`business.rs`](../../crates/helix-driver-host/src/metrics/business.rs)、
+[`dispatch.rs`](../../crates/helix-driver-host/src/dispatch.rs)。采集点位于稳定
+`OwnedEffect::Emit` 边界，仅按固定事件名映射低基数终态；不解析或导出消息正文、用户 ID、频道 ID、
+消息 ID 与 correlation key。未知事件和中间态不产生伪终态。
+
+| Prometheus 指标 | availability | 类型 / 单位 | 对应功能 |
+|---|---|---|---|
+| `helix_im_projection_terminal_total` | Runtime | Counter / `1` | Helix 权威投影成功或失败终态，按固定 `operation/status/error_kind` 分解。 |
+| `helix_im_sync_session_total` | Runtime | Counter / `1` | 同步会话稳定成功或异常终态；不能用“开始拉取”代替成功。 |
+| `helix_im_sync_anomaly_total` | Runtime | Counter / `1` | `too_long`、increment apply 失败等同步异常。 |
+| `helix_im_recovery_session_total` | Runtime | Counter / `1` | offline recovery、gap repair、channel hydration 的真实完成终态。 |
+| `helix_im_message_correctness_total` | Runtime | Counter / `1` | 生产路径实际检测到的 duplicate/order/gap 等正确性结果。 |
+| `helix_im_command_terminal_total` | Runtime | Counter / `1` | 业务 Command 稳定成功或失败终态；不统计 admission accepted。 |
+| `helix_im_unread_reconcile_total` | Planned | Counter / `1` | 必须在同 scope 获得远端绝对未读值与本地绝对值后才可记录 match/mismatch；当前不造样本。 |
+
 ### 3.9 Timer（7）
 
 采集 owner：[`timer.rs`](../../crates/helix-driver-host/src/timer.rs)。
@@ -323,7 +341,7 @@ FFI 指标只观察批量边界和 callback 健康，不把单个事件或用户
 
 下列指标已在 registry 中登记，但本文件不把它们写成常规 Prometheus 运行指标：
 
-- `Planned` 40 个：例如 HTTP cancelled、storage pool/WAL/checkpoint、WS reconnect/decode、
+- `Planned` 41 个：例如未读权威对账、HTTP cancelled、storage pool/WAL/checkpoint、WS reconnect/decode、
   command-to-projection consume、FFI command duration、process uptime、shutdown timeout 等。
 - `HarnessOnly` 11 个：`helix_lost_total`、`helix_duplicate_total`、顺序/频道/cursor/projection
   正确性及压测吞吐指标；它们只在有界验收窗口发布。
@@ -331,8 +349,8 @@ FFI 指标只观察批量边界和 callback 健康，不把单个事件或用户
 
 另一个尚未合入当前 `reactor/MessageV3-helix` 基线的 full_debug 变更增加了
 `helix_traces_debug_queue_depth`、`helix_traces_debug_queue_capacity`、
-`helix_traces_debug_chunks_dropped_total` 三个指标；合入后应把本文分母从 169/116 更新为
-172/119，并补充对应的独立 debug chunk/drop 语义。当前 revision 不应提前把它们写成已暴露指标。
+`helix_traces_debug_chunks_dropped_total` 三个指标；合入后应把本文分母从 176/122 更新为
+179/125，并补充对应的独立 debug chunk/drop 语义。当前基线不应提前把它们写成已暴露指标。
 
 ## 5. 最小 Prometheus 验收查询
 

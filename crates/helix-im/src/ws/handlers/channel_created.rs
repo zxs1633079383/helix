@@ -44,10 +44,13 @@ impl WsMessageHandler for ChannelCreatedHandler {
             return Ok(());
         };
 
-        let causation_id = data
-            .get("reqId")
-            .or_else(|| data.get("req_id"))
-            .and_then(serde_json::Value::as_str)
+        let causation_id = frame
+            .cses_track_id()
+            .or_else(|| {
+                data.get("reqId")
+                    .or_else(|| data.get("req_id"))
+                    .and_then(serde_json::Value::as_str)
+            })
             .filter(|value| !value.is_empty())
             .map(str::to_string);
         super::channel_member_update::queue_channel_create_persist(

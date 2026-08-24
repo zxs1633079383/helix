@@ -1,6 +1,4 @@
-🎯 EXPECT 修复 Helix `post_pin` → `emit_post_updated` 投影边界；可证伪断言：① 裸 `{postId,channelId,operation}` 只持久化 pinned，不产生伪造的 fat `im:post:updated`；② NOTICE `props.content` 携带完整目标 post 时，置顶投影保留 `createAt/createdAt` 与原消息字段并只覆盖 `props.pinned`；③ 缺失完整目标时间戳时不输出非法 fat 投影；④ 只修改 Helix post pin 代码、聚焦测试与本条 SESSION，不改 Go/Angular/artifacts；⑤ `cargo test -p helix-im --test p4_ws_events_test -- --nocapture`、库内 pin 测试与 `git diff --check` 通过 | 赌注 高 | 可逆 是 | @2026-08-24T12:14:10+08:00
-
-✅ DONE `post_pin` 投影边界已收敛：裸三字段 `post_pin` 只执行幂等 pinned 持久化，不再用 `PostFields::default()` 产生 `createAt=0` 的 fat update；NOTICE `props.content` 改用完整目标 PostFields，保留正文/props/createAt/updateAt 并覆盖 pinned，目标缺时间戳时 fail closed。TDD 红测先复现两处失败，随后 `p4_ws_events_test` 12/12 通过，`cargo check -p helix-im` 与变更文件 `rustfmt --check` 通过；`cargo fmt --all -- --check` 仍被两个既有无关文件漂移阻塞，Go/Angular/真实 Native 链未运行 | @2026-08-24T12:20:00+08:00
+🎯 EXPECT 全局搜索新私聊在 Helix 持久成功后无感跳转；可证伪断言：① `im_create_channel` 只返回 accepted，Angular 不把它当频道；② `im:channel:created` 在 PersistOk 后带同一 `requestId`；③ 前端只用该权威投影的非空频道 ID 缓存并切换；④ 已有私聊直接切换不受影响；验证 `dialogSwitch.service.test.ts` 与 `message_v3_g08a` | 赌注 高 | 可逆 是 | @2026-08-24T
 
 🎯 EXPECT 用 Rust 小白可复述的方式梳理 `crates/helix-driver-native/tests/messageV3-domain/Phase1/Post/G01a/main.rs` 发送链；可证伪断言：① 课程明确 Cargo target→G01a→shared helper→Tick/Effect→HTTP/WS/SQLite/EventSink→cleanup 的每一跳；② 每个断言都标明能证明与不能证明什么；③ 明确当前未启动 Go/WS/Native，结论保持 `UNVERIFIED`，不把 evidence 中静态 `status=SUCCESS` 写入冒充 HTTP 回包；④ 只新增 teach 教学资产与 SESSION 预期，不修改 Helix 业务代码或既有 artifacts | 赌注 中 | 可逆 是 | @2026-08-21T
 

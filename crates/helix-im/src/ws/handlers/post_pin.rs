@@ -1,14 +1,14 @@
 //! `post_pin` action handler（置顶/取消置顶）。
 //!
 //! cses-im-server 当前真实帧为 `{postId, channelId, operation}`，HTTP 写入成功后广播
-//! `post_pin`。本 handler 将其转成 message 行元数据 patch + render-ready
-//! `im:post:updated`，前端只直绑 `data-pinned`，不做乐观合成。
+//! `post_pin`。该帧没有完整 PostFields，因此本 handler 只持久化 pinned patch；完整的
+//! render-ready `im:post:updated` 必须由同时产生的 NOTICE `props.content` 投影，不能用
+//! `PostFields::default()` 伪造 `createAt` 等时间线字段。
 
 use helix_core::EffectSink;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
-use crate::sync_session::PostFields;
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
@@ -60,22 +60,10 @@ impl WsMessageHandler for PostPinHandler {
             return Ok(());
         };
 
+        // 裸 post_pin 没有正文与时间戳，只写 pinned；完整 fat projection 由 NOTICE 负责。
         out.push(helix_core::Effect::PersistFire {
             ops: vec![crate::channel::pin_state_op(post_id, pinned)],
         });
-
-        let fields = PostFields {
-            id: post_id.to_string(),
-            channel_id: channel_id.as_str().to_string(),
-            props: serde_json::json!({ "pinned": pinned }).to_string(),
-            ..PostFields::default()
-        };
-        out.push(crate::acl::to_effect::emit_post_updated(
-            channel_id,
-            frame.event_seq().map(|seq| seq.0).unwrap_or(0),
-            post_id,
-            &fields,
-        ));
         Ok(())
     }
 }

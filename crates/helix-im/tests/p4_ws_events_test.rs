@@ -48,6 +48,17 @@ fn emit_names(sink: &helix_core::EffectSink) -> Vec<String> {
         .collect()
 }
 
+/// 返回当前批次发布的领域事件 payload，供跨层字段合同断言使用。
+fn emit_payloads(sink: &helix_core::EffectSink) -> Vec<serde_json::Value> {
+    sink.as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).ok(),
+            _ => None,
+        })
+        .collect()
+}
+
 // ─── ① 19 事件全集：每个 wire action 经 registry 正常路由（不冒 UnsupportedWsAction）────
 //
 // 真源 19 事件常量（full-map partials/5 §1）。`post`(#1) 与 bot/agent post(#19) 同 action 值。
@@ -134,7 +145,7 @@ fn p4_new_actions_are_graceful_noop() {
     );
 }
 
-/// `post_pin` 只接受 Go authority 的 add/remove，并将其归一为 pinned patch。
+/// 裸 `post_pin` 只接受 Go authority 的 add/remove，并只持久化 pinned patch。
 #[test]
 fn post_pin_accepts_only_add_or_remove_operation() {
     let cid1 = cid(1);
@@ -160,9 +171,12 @@ fn post_pin_accepts_only_add_or_remove_operation() {
         .as_slice()
         .iter()
         .any(|effect| matches!(effect, Effect::PersistFire { .. })));
-    assert!(emit_names(&h.sink)
-        .iter()
-        .any(|name| name == "im:post:updated"));
+    assert!(
+        !emit_payloads(&h.sink)
+            .iter()
+            .any(|payload| payload.get("event") == Some(&json!("im:post:updated"))),
+        "sparse post_pin must not fabricate a fat im:post:updated projection"
+    );
 
     dispatch(
         &mut h,
@@ -182,6 +196,104 @@ fn post_pin_accepts_only_add_or_remove_operation() {
     assert!(
         h.sink.as_slice().is_empty(),
         "unknown operation must not mutate pinned state"
+    );
+}
+
+/// NOTICE 的完整目标 post 才是置顶消息 fat projection 的字段来源。
+#[test]
+fn post_pin_notice_projection_preserves_target_create_at() {
+    let cid1 = cid(1);
+    let target = json!({
+        "id": sid(2),
+        "channelId": cid1,
+        "userId": sid(3),
+        "type": "TEXT",
+        "message": "保留正文",
+        "simpleMessage": "保留正文",
+        "createAt": 1_700_000_000_123_i64,
+        "updateAt": 1_700_000_000_456_i64,
+        "props": { "source": "target" }
+    });
+    let mut h = Harness::new(&[1]);
+
+    dispatch(
+        &mut h,
+        json!({
+            "v": 1,
+            "action": "post",
+            "data": {
+                "channelId": cid1,
+                "event_seq": 1,
+                "id": sid(4),
+                "temporaryId": sid(4),
+                "userId": "SYS",
+                "type": "NOTICE",
+                "message": "置顶了一条消息",
+                "simpleMessage": "置顶了一条消息",
+                "createAt": 1_700_000_000_999_i64,
+                "props": {
+                    "type": "addPostPin",
+                    "content": target.to_string()
+                }
+            }
+        }),
+        1_000,
+    )
+    .expect("pin NOTICE must route");
+
+    let projection = emit_payloads(&h.sink)
+        .into_iter()
+        .find(|payload| payload.get("event") == Some(&json!("im:post:updated")))
+        .expect("pin NOTICE must produce the full post update projection");
+    let data = &projection["data"];
+    assert_eq!(data["id"], json!(sid(2)));
+    assert_eq!(data["createAt"], json!(1_700_000_000_123_i64));
+    assert_eq!(data["createdAt"], json!(1_700_000_000_123_i64));
+    assert_eq!(data["updateAt"], json!(1_700_000_000_456_i64));
+    assert_eq!(data["message"], json!("保留正文"));
+    assert_eq!(data["props"]["source"], json!("target"));
+    assert_eq!(data["pinned"], json!(true));
+}
+
+/// 缺少目标 createAt 时置顶通知必须 fail closed，不能再制造零时间锚。
+#[test]
+fn post_pin_notice_without_target_create_at_skips_fat_projection() {
+    let cid1 = cid(1);
+    let target = json!({
+        "id": sid(2),
+        "channelId": cid1,
+        "type": "TEXT",
+        "message": "缺少时间"
+    });
+    let mut h = Harness::new(&[1]);
+
+    dispatch(
+        &mut h,
+        json!({
+            "v": 1,
+            "action": "post",
+            "data": {
+                "channelId": cid1,
+                "event_seq": 1,
+                "id": sid(4),
+                "type": "NOTICE",
+                "message": "置顶了一条消息",
+                "createAt": 1_700_000_000_999_i64,
+                "props": {
+                    "type": "addPostPin",
+                    "content": target.to_string()
+                }
+            }
+        }),
+        1_000,
+    )
+    .expect("pin NOTICE without target createAt must route");
+
+    assert!(
+        !emit_payloads(&h.sink)
+            .iter()
+            .any(|payload| payload.get("event") == Some(&json!("im:post:updated"))),
+        "missing target createAt must not emit an invalid fat projection"
     );
 }
 

@@ -75,6 +75,45 @@ fn program_full_emits_54_cols_with_guards_omitted_s3() {
     ));
 }
 
+/// 回归锚: 完整权威帧携带 owner 时必须更新主表 owner，而不是保留冲突行旧值。
+#[test]
+fn program_full_owner_present_updates_and_is_not_omitted_s3() {
+    let data = serde_json::json!({
+        "id": "00000000000000000000000020",
+        "owner": {
+            "id": "owner-new",
+            "teamId": "team-1"
+        }
+    });
+    let (row, omit) = program_full(&data, "", 0).expect("valid id");
+
+    assert!(matches!(
+        get(&row, "owner"),
+        Some(SqlValue::Text(value))
+            if value == r#"{"id":"owner-new","teamId":"team-1"}"#
+    ));
+    assert!(
+        !omit.contains(&"owner"),
+        "权威 owner 存在时必须进入冲突更新集"
+    );
+}
+
+/// 回归锚: 稀疏帧缺少 owner 时必须保留既有值，不能用占位对象擦除。
+#[test]
+fn program_full_owner_absent_preserves_existing_on_conflict_s3() {
+    let data = serde_json::json!({
+        "id": "00000000000000000000000021",
+        "displayName": "稀疏更新"
+    });
+    let (row, omit) = program_full(&data, "", 0).expect("valid id");
+
+    assert!(matches!(
+        get(&row, "owner"),
+        Some(SqlValue::Text(value)) if value == "{}"
+    ));
+    assert!(omit.contains(&"owner"));
+}
+
 /// 回归锚: S3 path1 —— increment 负 urgentCount 不得持久化为负值。
 #[test]
 fn program_full_clamps_negative_urgent_count_s3() {

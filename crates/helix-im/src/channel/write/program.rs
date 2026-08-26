@@ -11,8 +11,8 @@ use helix_core::effect::SqlValue;
 /// `now_ms`：`created_at`/`updated_at` 缺省回退（确定性，由 host 经 Clock 注入）。
 ///
 /// **守卫列**（`unread_count`/`unread_post_id`/`purpose`）+ **本地列**（`is_remove`/`draft`）+
-/// **占位列**（members/owner/admin_users/boss）：server `None`/本地维护 时进 `omit` 返回——
-/// 上层 upsert 的 ON CONFLICT 更新集排除它们（既有值保留 = "回退本地"；新行取行内字面值/默认）。
+/// **占位列**（members/admin_users/boss）始终进 `omit`；owner 仅在 server 缺失时进 `omit`——
+/// 明确 owner 会参与 ON CONFLICT 更新，稀疏帧则保留既有值。
 /// 返回 `(rows, omit_on_conflict)`。id 非法（缺 / 非 26 字符）→ None（边界零信任）。
 pub fn program_full(
     data: &serde_json::Value,
@@ -122,16 +122,18 @@ pub fn program_full(
         "updated_at",
         SqlValue::Integer(i("updateAt").unwrap_or(now_ms as i64)),
     ));
-    // members/owner/admin_users/boss：path1 主表落字面量空值（真源 channel_repo.rs:214-217），
-    // 成员真值进独立 channel_member 表。owned 占位 + 不进 ON CONFLICT 更新集（保留既有空值语义）。
-    for (col, dflt) in [
-        ("members", ""),
-        ("owner", "{}"),
-        ("admin_users", "[]"),
-        ("boss", "[]"),
-    ] {
+    // members/admin_users/boss 仍由独立 channel_member 表承载真值，主表只保留兼容占位。
+    for (col, dflt) in [("members", ""), ("admin_users", "[]"), ("boss", "[]")] {
         row.push((col, SqlValue::Text(dflt.to_string())));
         omit.push(col);
+    }
+    // owner 明确到达时必须参与冲突更新；稀疏帧缺失时才保留主表既有值。
+    match data.get("owner").filter(|value| !value.is_null()) {
+        Some(owner) => row.push(("owner", SqlValue::Text(owner.to_string()))),
+        None => {
+            row.push(("owner", SqlValue::Text("{}".to_string())));
+            omit.push("owner");
+        }
     }
     row.push(("source", SqlValue::Text(j("source", ""))));
     // target_users 仅 DM（type=="D"）写否则空串（真源 channel_state.rs:254-262）。

@@ -66,6 +66,23 @@ pub fn received(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:post:received", data)
 }
 
+/// 构造客户端 ACK 的真实 HTTP 终态，供 Host 在 Emit 边界沉淀成功率。
+pub fn client_ack_terminal(
+    platform: crate::module::ClientPlatform,
+    succeeded: bool,
+) -> Result<MessageV3Event, crate::ImError> {
+    super::encode(
+        if succeeded {
+            "im:post:client-ack-succeeded"
+        } else {
+            "im:post:client-ack-failed"
+        },
+        serde_json::json!({
+            "platform": platform.as_str(),
+        }),
+    )
+}
+
 /// 从 durable message row 生成 G-14a 模板确认绝对态。
 pub fn template_update_from_row(
     row: &helix_core::effect::Row,

@@ -26,6 +26,26 @@ mod trait_impl;
 /// header/profile 边界向业务 payload 注入身份。
 pub const RUNTIME_IDENTITY_COMMAND: &str = "__helix_runtime_identity";
 
+/// 产生本地权威投影 ACK 的宿主平台，固定枚举避免指标标签基数失控。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ClientPlatform {
+    #[default]
+    Native,
+    Ffi,
+    Web,
+}
+
+impl ClientPlatform {
+    /// 返回 Go ACK 合同和指标共用的稳定低基数字符串。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Native => "native",
+            Self::Ffi => "ffi",
+            Self::Web => "web",
+        }
+    }
+}
+
 /// IM 业务模块配置
 pub struct ImConfig {
     /// WS endpoint（如 "wss://api.example.com/ws"）
@@ -43,6 +63,8 @@ pub struct ImConfig {
     pub user_name: String,
     pub org_name: String,
     pub dept_name: String,
+    /// 当前宿主平台；只用于三端 ACK 归属，不接受业务 payload 覆盖。
+    pub client_platform: ClientPlatform,
     pub ping_interval_ms: u64,
     pub send_timeout_ms: u64,
     /// 由 host 注入的纯离线 sync 诊断配置，默认关闭。
@@ -73,6 +95,7 @@ impl Default for ImConfig {
             user_name: String::new(),
             org_name: String::new(),
             dept_name: String::new(),
+            client_platform: ClientPlatform::Native,
             ping_interval_ms: 8_000,
             send_timeout_ms: 15_000,
             offline_sync_diagnostics: crate::sync::SyncDiagnosticsConfig::disabled(),

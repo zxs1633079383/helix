@@ -46,6 +46,7 @@ fn harness_with_seed(channel_num: u64, seed_cursor: u64) -> Harness {
         user_name: String::new(),
         org_name: String::new(),
         dept_name: String::new(),
+        client_platform: Default::default(),
         offline_sync_diagnostics: Default::default(),
     };
     let mut module = ImModule::new(config);
@@ -473,6 +474,7 @@ fn post_frame_unregistered_channel_auto_registers_and_persists() {
         user_name: String::new(),
         org_name: String::new(),
         dept_name: String::new(),
+        client_platform: Default::default(),
         offline_sync_diagnostics: Default::default(),
     };
     let mut h = Harness {
@@ -533,6 +535,7 @@ fn echo_reconciles_even_when_channel_unregistered() {
         user_name: String::new(),
         org_name: String::new(),
         dept_name: String::new(),
+        client_platform: Default::default(),
         offline_sync_diagnostics: Default::default(),
     };
     let mut h = Harness {

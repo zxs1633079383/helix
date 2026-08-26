@@ -476,6 +476,23 @@ impl ImModule {
             .remove(&channel_id);
         self.state.hydration_req_ids.remove(&channel_id);
         self.state.hydration_ordered_rosters.remove(&channel_id);
+        let unread_reconcile = self
+            .state
+            .hydration_authority_unreads
+            .remove(&channel_id)
+            .and_then(|authority| {
+                member
+                    .get("unread_count")
+                    .or_else(|| member.get("unreadCount"))
+                    .and_then(serde_json::Value::as_i64)
+                    .map(|local| {
+                        serde_json::json!({
+                            "authority": authority,
+                            "local": local,
+                            "status": if authority == local { "match" } else { "mismatch" },
+                        })
+                    })
+            });
         if emit_channel_increment {
             out.push(
                 crate::event::MessageV3Event::new("im:channel:increment", (*channel).clone())?
@@ -491,6 +508,7 @@ impl ImModule {
                 "messages": *messages,
                 "cursor": cursor,
                 "completion": "hydrated",
+                "unreadReconcile": unread_reconcile,
             }),
         ));
         Ok(())
@@ -510,6 +528,7 @@ impl ImModule {
             .hydration_emit_channel_increment
             .remove(&channel_id);
         self.state.hydration_ordered_rosters.remove(&channel_id);
+        self.state.hydration_authority_unreads.remove(&channel_id);
         out.push(crate::read_relay::emit_read_error(req_id, reason));
     }
 
@@ -585,6 +604,15 @@ impl ImModule {
                         ));
                         return Ok(());
                     };
+                    if let Some(authority_unread) = data
+                        .get("unreadCount")
+                        .or_else(|| data.get("unread_count"))
+                        .and_then(serde_json::Value::as_i64)
+                    {
+                        self.state
+                            .hydration_authority_unreads
+                            .insert(increment.channel_id, authority_unread);
+                    }
                     let snapshot = self.hydration_snapshot(increment.channel_id);
                     let persist_corr = self.alloc_corr_internal();
                     let has_persist =

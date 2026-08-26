@@ -71,6 +71,7 @@ impl WebConfig {
             user_name: self.user_name.clone(),
             org_name: self.org_name.clone(),
             dept_name: self.dept_name.clone(),
+            client_platform: helix_im::ClientPlatform::Web,
             ping_interval_ms: self.ping_interval_ms,
             send_timeout_ms: self.send_timeout_ms,
             offline_sync_diagnostics: Default::default(),

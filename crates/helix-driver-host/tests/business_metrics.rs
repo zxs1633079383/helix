@@ -61,6 +61,14 @@ fn post_received_records_projection_without_assuming_command_lineage() {
         .expect("metrics lock")
         .iter()
         .any(|event| event.id == MetricId::ImCommandTerminalTotal));
+    assert!(has_event(
+        &sink,
+        MetricId::ImMessageCorrectnessTotal,
+        &[
+            (LabelKey::Operation, "message_projection"),
+            (LabelKey::Status, "success"),
+        ],
+    ));
 }
 
 /// sync_events_record_one_session_terminal_and_bounded_anomaly_kind 验证成功与 TooLong 不混口径。
@@ -115,6 +123,25 @@ fn recovery_event_records_real_terminal() {
     ));
 }
 
+/// client_ack_events_record_transport_and_business_terminal 锁定 ACK 成败来自真实 HTTP 回报。
+#[test]
+fn client_ack_events_record_transport_and_business_terminal() {
+    let sink = RecordingMetrics::default();
+    record_im_business_event(&sink, &event_bytes("im:post:client-ack-succeeded"));
+    record_im_business_event(&sink, &event_bytes("im:post:client-ack-failed"));
+
+    assert!(has_event(
+        &sink,
+        MetricId::ImClientAckTerminalTotal,
+        &[(LabelKey::Status, "success")],
+    ));
+    assert!(has_event(
+        &sink,
+        MetricId::ImClientAckTerminalTotal,
+        &[(LabelKey::Status, "error")],
+    ));
+}
+
 /// intermediate_and_unknown_events_do_not_create_false_terminals 防止 ready/page/未知事件污染分母。
 #[test]
 fn intermediate_and_unknown_events_do_not_create_false_terminals() {
@@ -131,11 +158,22 @@ fn intermediate_and_unknown_events_do_not_create_false_terminals() {
     assert!(sink.events.lock().expect("metrics lock").is_empty());
 }
 
-/// unread_reconcile_stays_planned_without_authority_comparison_seam 防止单侧未读被伪装成对账。
+/// unread_reconcile_records_only_explicit_authority_comparison 验证 durable read-back 携带的双侧绝对值才进入指标。
 #[test]
-fn unread_reconcile_stays_planned_without_authority_comparison_seam() {
+fn unread_reconcile_records_only_explicit_authority_comparison() {
+    let sink = RecordingMetrics::default();
+    let event = DomainEventBytes(Bytes::from_static(
+        br#"{"event":"im:read:result","data":{"body":{"unreadReconcile":{"authority":3,"local":3,"status":"match"}}}}"#,
+    ));
+    record_im_business_event(&sink, &event);
+
     assert_eq!(
         MetricId::ImUnreadReconcileTotal.availability(),
-        helix_driver_host::MetricAvailability::Planned,
+        helix_driver_host::MetricAvailability::Runtime,
     );
+    assert!(has_event(
+        &sink,
+        MetricId::ImUnreadReconcileTotal,
+        &[(LabelKey::Status, "match")],
+    ));
 }

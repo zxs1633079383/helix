@@ -1,20 +1,20 @@
 # MessageV3 十二项业务指标交接
 
-更新时间：2026-08-24
+更新时间：2026-08-26
 
 ## AGENT_HANDOFF/v1
 
 ```text
 AGENT_HANDOFF/v1
-state: partial
+state: dev_runtime_green_with_coverage_debt
 repository: helix + cses-im-server
-helix_commit: 1cb96f9a
-goserver_commit: 0522b45
+helix_commit: 本文件所在提交
+goserver_commit: 9b6f153 + 4b08bf4
 grafana_uid: messagev3-business-reliability
-runtime_atomic_metrics: 10/12
-planned_without_samples: client_ack, unread_reconcile
-real_evidence: NOT_RUN
-next_owner: client-ack protocol owner -> unread reconciliation owner -> real telemetry verifier
+runtime_atomic_metrics: 12/12
+planned_without_samples: none_in_dev_view
+real_evidence: DEV_NATIVE_AND_GOSERVER_PASS_2026-08-26
+next_owner: local GoLand runtime upgrader -> recovery/correctness/command coverage owner -> GitOps owner
 stop: 不得把 Socket 写成功、ping/pong、单侧未读、面板存在或 HTTP 200 冒充业务终态
 ```
 
@@ -54,15 +54,15 @@ flowchart LR
 | 1 | 消息远端落库成功率 | Runtime，已接入 | `im_message_persist_terminal_total` | 消息远端落库成功率 |
 | 2 | Outbox 最终投递成功率 | Runtime，窗口近似 | `im_delivery_outbox_lifecycle_total` | Outbox 最终投递成功率 |
 | 3 | 服务端每接收人入队成功率 | Runtime，已复用 | `im_ws_hub_delivery_events_total` | 每接收人入队成功率 |
-| 4 | 客户端真实 ACK 送达率 | Planned，无生产样本 | `im_message_client_ack_total` 仅注册 | 客户端真实 ACK 送达率 |
+| 4 | 客户端真实 ACK 送达率 | Runtime，dev/native 已产生真样本 | Helix `otel_helix_im_client_ack_terminal_total` + Go `im_message_client_ack_total` | 客户端真实 ACK 送达率 / Go ACK 接收成功率 |
 | 5 | Helix 本地权威投影成功率 | Runtime，已接入 | `otel_helix_im_projection_terminal_total` | Helix 本地权威投影成功率 |
 | 6 | 消息端到端延迟 P50/P95/P99 | Partial，当前是两段延迟 | Go lifecycle histogram + Helix command→projection histogram | 消息关键阶段延迟 P50/P95/P99 |
 | 7 | 同步会话成功率 | Runtime，已接入稳定事件 | `otel_helix_im_sync_session_total` | 同步会话成功率 |
 | 8 | 同步异常会话率 | Runtime，当前覆盖 TooLong/increment failure | `otel_helix_im_sync_anomaly_total` | 同步异常会话率 |
 | 9 | 离线/断线恢复成功率 | Partial，成功终态已接入，失败分母待补 | `otel_helix_im_recovery_session_total` | 离线 / 断线恢复成功率 |
-| 10 | 未读对账不一致率 | Planned，无生产样本 | `helix_im_unread_reconcile_total` 为 Planned | 未读对账不一致率 |
-| 11 | 消息丢失、重复、乱序率 | Partial，当前常驻覆盖 gap/repair | `otel_helix_im_message_correctness_total` | 消息丢失 / 重复 / 乱序率 |
-| 12 | 所有业务 Command 终态成功率 | Partial，Helix stable event + Go send_message | Helix/Go Command terminal counters | 业务 Command 终态成功率 |
+| 10 | 未读对账不一致率 | Runtime，dev/native 已产生同 scope 真对账 | `otel_helix_im_unread_reconcile_total` | 未读对账不一致率 |
+| 11 | 消息丢失、重复、乱序率 | Runtime 基线已接入，完整三类检测覆盖仍 Partial | `otel_helix_im_message_correctness_total` | 消息丢失 / 重复 / 乱序率 |
+| 12 | 所有业务 Command 终态成功率 | Runtime，当前面板以 Go `send_message` 真终态为准；全 Command 覆盖仍 Partial | `im_business_command_terminal_total` | 业务 Command 终态成功率 |
 
 “面板已存在”只表示展示合同已冻结，不表示生产分子、分母和真实链证据都已闭合。Planned 指标在
 Grafana 中必须显示“待接入 / 无真实终态数据”，不得使用 `or vector(1)` 伪造 100%。
@@ -161,10 +161,10 @@ Grafana 查询 `im:recipient_enqueue_success_ratio{job=~"$go_job"}`。这个指�
 
 ### 3.4 客户端真实 ACK 送达率
 
-Owner：客户端 + Helix + GoServer。当前状态为 Planned。
+Owner：客户端 + Helix + GoServer。当前状态为 Runtime。
 
-Go 已注册 `im_message_client_ack_total{platform,result}` 和 observer，但生产代码没有调用点；因此
-当前 PromQL 和 Grafana 面板应返回无数据：
+Helix 只在消息权威投影持久成功后调用 ACK HTTP；Go 校验会话、消息可见性和 Redis 幂等身份后记录
+终态。ACK identity 为 `postId:eventSeq`，非法探针不进入真实 ACK 分母：
 
 ```promql
 sum by (job, platform) (
@@ -176,13 +176,13 @@ sum by (job, platform) (
 )
 ```
 
-完成真实 ACK 必须新增独立协议 Gate：
+当前真实 ACK Gate：
 
 1. Helix 只在消息权威投影持久成功后产生 ACK action；
 2. ACK 携带稳定 message identity、幂等 ack identity、platform 和必要 audience 信息；
 3. Go 校验 ACK 归属与幂等性；
 4. 收到合法 ACK 记录 `result="success"`；
-5. 服务端对已发送但在截止时间内没有 ACK 的消息闭合 `timeout/error` 终态；
+5. HTTP 或 Go 业务失败在 Helix 闭合失败终态；服务端主动截止超时分母仍是后续覆盖债务；
 6. 重复和迟到 ACK 不重复增加分母或成功分子；
 7. Native、FFI、Web 分别验证断线重放和进程重启场景。
 
@@ -321,15 +321,15 @@ transport unavailable、persist error 各增加唯一恢复失败终态与资源
 
 ### 3.10 未读对账不一致率
 
-Owner：Helix authority reconciliation。当前状态为 Planned，registry 明确标为 Planned。
+Owner：Helix authority reconciliation。当前状态为 Runtime。
 
-目标原子指标：
+原子指标：
 
 ```promql
 otel_helix_im_unread_reconcile_total{status="match|mismatch",error_kind}
 ```
 
-目标计算：
+当前计算（零 mismatch 时用真实全量分母生成零值，不用常量补绿）：
 
 ```promql
 sum by (job, platform) (
@@ -341,9 +341,10 @@ sum by (job, platform) (
 )
 ```
 
-完成条件：必须在同一 tenant、viewer、channel 和 authority snapshot 上同时获得远端绝对未读值与
-本地绝对未读值，比较后只记录一次 match/mismatch。不得用单侧 unread 增减事件、UI badge 或
-readBits 局部 patch 代替权威对账。
+实现点位于单频道 hydration 的最终 durable cursor read-back：先保存 Go 返回的 `unreadCount`，再读取
+同一 channel/member 的本地 `unread_count`，把 `{authority,local,status}` 写入
+`im:read:result.data.body.unreadReconcile`，host 只在这个显式终态记录一次 match/mismatch。单侧 unread
+增减事件、UI badge 或 readBits 局部 patch 均不进入该指标。
 
 ### 3.11 消息丢失、重复、乱序率
 
@@ -355,10 +356,11 @@ Owner：Helix sync/cursor/projection。
 otel_helix_im_message_correctness_total{operation,status,error_kind}
 ```
 
-当前映射只有：
+当前映射包括：
 
 - `im:sync:too_long` → `status="error", error_kind="gap"`；
 - `im:sync:gap-repaired` → `status="success", error_kind="gap_repaired"`。
+- `im:post:received` → `operation="message_projection", status="success"`，作为真实权威投影分母。
 
 当前面板计算：
 
@@ -402,19 +404,19 @@ im_business_command_terminal_total{
 }
 ```
 
-Grafana 当前采用 Helix rule：
+Grafana 当前采用 Go 的业务终态原子指标，并只统计当前 `up == 1` 的实例：
 
 ```promql
-sum by (job, platform, operation) (
-  rate(otel_helix_im_command_terminal_total{status="success"}[5m])
+sum by (job, environment, operation) (
+  increase(im_business_command_terminal_total{result="success"}[1h])
 )
 /
-sum by (job, platform, operation) (
-  rate(otel_helix_im_command_terminal_total[5m])
+sum by (job, environment, operation) (
+  increase(im_business_command_terminal_total[1h])
 )
 ```
 
-查询名为 `helix:im_command_terminal_success_ratio`。当前不代表所有历史 Go API；下一 owner 应按
+当前 dev 面板真实覆盖 `operation="send_message"`，不代表所有历史 Go API；下一 owner 应按
 Spec 047 Gate registry 逐个登记 command → success event → failure event → timeout/cancel/cleanup，只有
 分母齐全的 operation 才能进入 SLO。
 
@@ -427,8 +429,9 @@ Dashboard 固定合同：
 - datasource uid：`prometheus`；
 - 时间范围：最近 6 小时；
 - 自动刷新：30 秒；
-- 变量：`$go_job`、`$helix_job`；
-- 11 个 Stat 面板 + 1 个 Timeseries 延迟面板。
+- 变量：`$go_job`、`$go_environment`、`$helix_job`、`$helix_environment`；
+- 默认环境：Go=`dev`、Helix=`dev`，避免把仍运行旧二进制的 local GoLand 目标混入 dev 验收；
+- 12 个核心 Stat 面板 + 远端落库吞吐和关键阶段延迟面板。
 
 ### 4.1 本地生成和合同检查
 
@@ -455,7 +458,9 @@ promtool check rules \
 kubectl diff -f deploy/k8s/cses-im-v2/messagev3-business-recording-rules.yaml
 ```
 
-当前开发机完成了 `kubectl kustomize`，但没有 `promtool`，也没有实际 apply 到集群。
+2026-08-26 已实际 apply 到 dev 集群 `monitoring/messagev3-business-reliability`，对象 generation=4，
+release label 为 `prometheus-stack-dev`。Go recording rule 均通过 `up == 1` 过滤当前存活实例，避免旧 Pod
+历史 series 污染当前比例。
 
 ### 4.3 导入 Grafana
 
@@ -473,7 +478,11 @@ jq -n --slurpfile dashboard \
     "$HELIX_GRAFANA_URL/api/dashboards/db"
 ```
 
-本轮只生成和验证 JSON，没有向真实 Grafana 执行写操作。
+2026-08-26 已通过已登录 Grafana Import 页面执行 Overwrite，并在浏览器逐卡回读。
+
+dev 真链入口：
+
+`http://193.168.2.155:30300/d/messagev3-business-reliability/messagev3-e4b89a-e58aa1-e58faf-e99da0-e680a7?orgId=1&from=now-6h&to=now&timezone=browser&var-go_job=$__all&var-go_environment=dev&var-helix_job=$__all&var-helix_environment=dev&refresh=30s`
 
 ## 5. 无数据与异常值排查
 
@@ -534,4 +543,63 @@ jq -n --slurpfile dashboard \
 - 所有 Spec 047 Command 的 success/error/timeout/cancel 覆盖；
 - 真实 PrometheusRule apply、Collector 查询和 Grafana API 回读。
 
-在这些缺口关闭前，整体状态保持 `PARTIAL / REAL_EVIDENCE_NOT_RUN`。
+以上为 2026-08-24 的历史停止状态；当前运行态结论以紧随其后的 2026-08-26 验收为准。
+
+## 8. 2026-08-26 dev 真实运行态验收
+
+本节替代上方 2026-08-24 的历史停止状态。当前结论是：**dev 面板运行态全绿，指标覆盖仍有明确债务**。
+“全绿”表示当前已接入检测点的真实分子/分母健康，不表示尚未纳入分母的故障类型已经被证明不存在。
+
+### 8.1 GoServer 当前实例
+
+- namespace / Pod：`cses-dev/cses-im-server-85bd4d9db-nqxr5`；
+- image：`harbor.jinqidongli.com/ci/cses-im-server:dev-business-metrics-4b08bf4`；
+- Prometheus target：`job="cses-im-server", environment="dev", instance="10.233.69.10:8066", up=1`；
+- 真链累计：`im_business_command_terminal_total{operation="send_message",result="success"}=8`；
+- recording rule：`im:message_persist_success_ratio=1`；
+- recording rule：`im:message_remote_persist_inserted_per_second≈0.0070`；Grafana 最近 6 小时当前观测为
+  `0.0105 ops/s`，随 5 分钟滑窗实时变化；
+- 当前 deployment 的 Secret mount 和 Argo ignore-difference 是运行态 overlay，尚未回写部署 Git 真源，
+  后续发布 owner 必须消除这项 GitOps 债务。
+
+### 8.2 Helix dev/native 当前实例
+
+同一 dev channel 执行三次 hydration 和三次真实发送后，Prometheus 原始样本为：
+
+```text
+otel_helix_im_unread_reconcile_total{status="match"} = 3
+otel_helix_im_message_correctness_total{operation="message_projection",status="success"} = 3
+helix:im_client_ack_success_ratio = 1
+helix:im_projection_success_ratio = 1
+helix:im_unread_mismatch_ratio = 0
+helix:im_message_correctness_error_ratio = 0
+```
+
+Helix 日志同时出现 `unread reconcile terminal recorded status="match"`、`im:post:received` 和
+`im:post:client-ack-succeeded`。因此未读 0% 和正确性 0% 都来自真实增长的全量分母，不是
+`vector(0)`、面板 no-value 或静态常量。
+
+### 8.3 Grafana 浏览器逐卡结果
+
+默认 `go_environment=dev`、`helix_environment=dev` 后，浏览器 DOM 回读的十二项核心值为：
+
+```text
+100%  消息远端落库成功率 / Outbox 最终投递成功率 / 每接收人入队成功率
+100%  客户端真实 ACK 送达率 / Go ACK 接收成功率 / Helix 本地权威投影成功率
+100%  同步会话成功率 / 离线或断线恢复成功率 / 业务 Command 终态成功率
+0%    同步异常会话率 / 未读对账不一致率 / 消息丢失重复乱序率
+```
+
+十二项均有真实终态样本；错误率为 0% 时绿色是正确语义。吞吐面板同时展示“真实新增消息/秒”和
+“成功事务/秒”，不再用 `noValue=0` 冒充零流量。
+
+### 8.4 仍未伪装为完成的覆盖债务
+
+- local Prometheus target 仍连接用户 GoLand 启动的旧 GoServer，`up=1` 但不含本轮新指标；本轮没有
+  越权停止或替换用户进程，因此 dev 是默认验收环境，local 不是当前全绿证据；
+- recovery 的 timeout/cancel/retry-exhausted 失败终态尚未覆盖完整；
+- correctness 已有权威 projection 正常分母和 gap 错误检测，但 lost/duplicate/out-of-order 三类生产
+  检测点仍需继续补齐；
+- Command 面板当前真实覆盖 Go `send_message`，不是 89 个 Helix Command 的全量 SLO；
+- 真正逐消息端到端 P50/P95/P99 仍需 trace/exemplar 贯穿 ACK，当前面板诚实展示远端落库与 Helix
+  投影两个可闭合阶段。

@@ -278,6 +278,9 @@ impl ImModule {
                 outcome,
                 out,
             )?,
+            CorrelationContext::MessageV3ClientAck { platform } => {
+                self.handle_message_v3_client_ack_reply(platform, outcome, out)?;
+            }
             CorrelationContext::MessageV3RevokeChannelPersist { channel_id } => {
                 self.handle_message_v3_revoke_channel_persist_reply(channel_id, outcome, out);
             }

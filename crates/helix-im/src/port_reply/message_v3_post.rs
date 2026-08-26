@@ -4,7 +4,7 @@ use crate::error::ImError;
 use crate::module::ImModule;
 use crate::state::{CorrelationContext, ImState};
 use crate::sync_session::EventEnvelope;
-use helix_core::effect::{Correlation, Effect, SqlValue};
+use helix_core::effect::{Correlation, Effect, HttpRequest, SqlValue};
 use helix_core::tick::PortOutcome;
 use helix_core::EffectSink;
 
@@ -120,6 +120,7 @@ impl ImModule {
         let Some(channel) = channel_update_from_member_readback(outcome)? else {
             return Ok(());
         };
+        self.queue_message_v3_client_ack(&received_data, out)?;
         let received = crate::event::post::received(received_data)?;
         out.push(received.into_effect());
         out.push(channel.into_effect());
@@ -130,6 +131,77 @@ impl ImModule {
         }
         Ok(())
     }
+
+    /// 本地原子提交与 viewer 读回都成功后，发起带回报的真实客户端 ACK。
+    fn queue_message_v3_client_ack(
+        &mut self,
+        received_data: &serde_json::Value,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let post_id = received_data
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| ImError::Parse("client ACK missing post id".to_string()))?;
+        let event_seq = received_data
+            .get("eventSeq")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| ImError::Parse("client ACK missing event seq".to_string()))?;
+        let platform = self.config.client_platform;
+        let body = serde_json::to_vec(&serde_json::json!({
+            "postId": post_id,
+            "ackId": format!("{post_id}:{event_seq}"),
+            "platform": platform.as_str(),
+        }))
+        .map_err(|error| ImError::Parse(format!("client ACK body: {error}")))?;
+        let corr = self.alloc_corr_internal();
+        self.state
+            .corr_map
+            .insert(corr, CorrelationContext::MessageV3ClientAck { platform });
+        let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+        headers.extend(crate::acl::sync_http_effects::session_auth_headers(
+            self.state.connection_id.as_deref(),
+        ));
+        out.push(Effect::Http {
+            corr,
+            req: HttpRequest {
+                method: "POST".to_string(),
+                url: format!("{}/post/clientAck", self.config.api_base_url),
+                headers,
+                body: Some(bytes::Bytes::from(body)),
+            },
+        });
+        Ok(())
+    }
+
+    /// ACK 回报必须同时满足 transport 2xx 与 Go `status=SUCCESS` 才记录成功。
+    pub(super) fn handle_message_v3_client_ack_reply(
+        &mut self,
+        platform: crate::module::ClientPlatform,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let succeeded = client_ack_succeeded(outcome);
+        out.push(crate::event::post::client_ack_terminal(platform, succeeded)?.into_effect());
+        Ok(())
+    }
+}
+
+/// 校验 ACK 的 HTTP 信封与 Go 业务状态，拒绝 transport-ok/business-failed 假成功。
+fn client_ack_succeeded(outcome: &PortOutcome) -> bool {
+    let PortOutcome::Ok(reply) = outcome else {
+        return false;
+    };
+    let Ok(raw) =
+        crate::http_envelope::unwrap_success_envelope(reply.0.as_ref(), "message client ACK")
+    else {
+        return false;
+    };
+    serde_json::from_slice::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|response| response.get("status").cloned())
+        .and_then(|status| status.as_str().map(str::to_owned))
+        .is_some_and(|status| status.eq_ignore_ascii_case("SUCCESS"))
 }
 
 /// 从当前 viewer 的复合键读回构造唯一 channel 绝对态事件。

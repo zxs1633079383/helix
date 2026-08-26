@@ -111,13 +111,17 @@ fn build_pipeline(config: &MetricRuntimeConfig) -> Result<OtlpPipeline, MetricEx
                 "deployment.environment",
                 bounded_value(
                     &config.deployment_environment,
-                    &["local", "test", "pre", "prod"],
+                    &["local", "test", "dev", "pre", "prod"],
                     "unknown",
                 ),
             ),
             KeyValue::new(
                 "platform",
-                bounded_value(&config.platform, &["host", "native", "ffi"], "unknown"),
+                bounded_value(
+                    &config.platform,
+                    &["host", "native", "ffi", "web"],
+                    "unknown",
+                ),
             ),
             KeyValue::new(
                 "scenario",

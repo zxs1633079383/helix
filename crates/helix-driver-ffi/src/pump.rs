@@ -240,6 +240,7 @@ pub fn run(args: PumpArgs) {
                 api_base_url: args.config.api_base_url.clone(),
                 // 第二网关 base 由前端显式注入；媒体控制面据此直连 Java。
                 default_api_base_url: args.config.default_api_base_url.clone(),
+                client_platform: helix_im::ClientPlatform::Ffi,
                 ..Default::default()
             },
             LocalStoreMode::Durable,

@@ -70,7 +70,6 @@ macro_rules! metric_registry {
                     | Self::CommandToWsEchoSeconds
                     | Self::CommandToAuthoritativePersistSeconds
                     | Self::CommandToProjectionConsumeSeconds
-					| Self::ImUnreadReconcileTotal
                     | Self::CorrelationTrackerOverflowTotal
                     | Self::CorrelationTrackerTimeoutTotal
                     | Self::CorrelationTrackerDuplicateTotal
@@ -214,6 +213,7 @@ metric_registry! {
     ImSyncSessionTotal => ("helix_im_sync_session_total", Counter, "1"),
     ImSyncAnomalyTotal => ("helix_im_sync_anomaly_total", Counter, "1"),
     ImRecoverySessionTotal => ("helix_im_recovery_session_total", Counter, "1"),
+    ImClientAckTerminalTotal => ("helix_im_client_ack_terminal_total", Counter, "1"),
     ImUnreadReconcileTotal => ("helix_im_unread_reconcile_total", Counter, "1"),
     ImMessageCorrectnessTotal => ("helix_im_message_correctness_total", Counter, "1"),
     ImCommandTerminalTotal => ("helix_im_command_terminal_total", Counter, "1"),

@@ -513,3 +513,7 @@
 ✅ DONE 已新增 `scripts/publish_crates.py`：默认 patch +1，支持 minor/major/显式版本，发布前校验 tracked clean、crate 内无未跟踪文件、四包同步版本、双许可证、当前版本可解析与目标版本未占用；按 core→im→host→native 逐包 dry-run、上传并等待 registry。首次上传前失败按字节恢复四份 manifest 与 Cargo.lock，上传后失败保留新版本并报告 PARTIAL；不会输出 token 或执行 commit/tag/push。4 个纯函数/真实 manifest 回归通过，`--plan --allow-dirty-plan` 已确认 0.1.0 四包可解析且 0.1.1 四包未占用，未实际发布 0.1.1，`git diff --check` 通过。@2026-08-26T19:05:00+0800
 
 ⚡ DRIFT-PRED `gate-fast` 因历史 Cargo 边界 diff 自动升级完整 gate，三端 check、wasm 与 clippy 通过后，在既有 `helix-driver-ffi` 空库异步 dialog query 测试失败（26/27）；失败文件与本次发布脚本 diff 无交集，按非 release 停止扩张规则保留为独立基线债务，不修改 FFI 生产代码。@2026-08-26T19:10:00+0800
+
+🎯 EXPECT 收敛 MessageV3 业务可靠性面板的真实采集与展示；可证伪断言：① dev Prometheus 同时保留 `environment=local|dev` 两类 UP target，recording rule 不丢环境标签；② 远端落库成功率来自事务终态 counter，新增远端成功落库每秒量且不把 dedup 冒充物理新增；③ ACK、同步、恢复、未读、正确性和 Command 面板只有真实生产终态样本才变绿，不使用常量或 `or vector(1)`；④ Dashboard 不再显示“待接入”，缺真实协议/流量的能力必须完成跨端采样或如实保持非绿；⑤ Go、Helix、PrometheusRule 与 Dashboard 分批聚焦验证并保留既有 dirty/untracked | 赌注 高 | 可逆 是 | @2026-08-26T20:30:00+0800
+
+✅ DONE dev 真链已闭环：Go 当前 Pod 的远端事务、物理新增、Outbox、入队、ACK 与 Command 终态进入 Prometheus；Helix dev/native 的 ACK、投影、同步、恢复、同 scope 未读对账和正确性分母均有增长样本；PrometheusRule generation=4；Grafana 默认 dev 浏览器逐卡回读为 9 项成功率 100% 与 3 项异常率 0%，远端落库吞吐显示真实 ops/s。local target 保留但仍是用户 GoLand 旧二进制，未越权替换；恢复失败类型、三类 correctness、全 Command 和逐消息 E2E 延迟仍按覆盖债务记录。@2026-08-26T20:22:13+0800

@@ -123,6 +123,11 @@ pub enum CorrelationContext {
         causation_id: Option<String>,
     },
 
+    /// 本地权威投影 ACK 的 HTTP 终态；回报只生成可观测事件，不改变消息事实。
+    MessageV3ClientAck {
+        platform: crate::module::ClientPlatform,
+    },
+
     /// G-04 update_channel.lastPost 已进入 channel/current-viewer member 原子写集。
     MessageV3RevokeChannelPersist { channel_id: ChannelId },
 

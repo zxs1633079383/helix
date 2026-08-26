@@ -22,8 +22,29 @@ pub fn record_im_business_event(metrics: &dyn AsyncMetricSink, event: &DomainEve
                 "success",
                 "none",
             );
+            record_terminal(
+                metrics,
+                MetricId::ImMessageCorrectnessTotal,
+                "message_projection",
+                "success",
+                "none",
+            );
         }
         b"im:post:send-failed" => {}
+        b"im:post:client-ack-succeeded" => record_terminal(
+            metrics,
+            MetricId::ImClientAckTerminalTotal,
+            "client_ack",
+            "success",
+            "none",
+        ),
+        b"im:post:client-ack-failed" => record_terminal(
+            metrics,
+            MetricId::ImClientAckTerminalTotal,
+            "client_ack",
+            "error",
+            "ack_failed",
+        ),
         b"im:post:increment-failed" => {
             record_terminal(
                 metrics,
@@ -148,6 +169,39 @@ pub fn record_im_business_event(metrics: &dyn AsyncMetricSink, event: &DomainEve
         | b"im:post_chain:retract"
         | b"im:post_chain:read_cursor" => record_projection(metrics, "post_chain"),
         b"im:post_chain:append_rejected" => {}
+        b"im:read:result" => record_unread_reconcile(metrics, event),
+        _ => {}
+    }
+}
+
+/// record_unread_reconcile 只接受 hydration 终态中同一 authority snapshot 的双侧绝对值结果。
+fn record_unread_reconcile(metrics: &dyn AsyncMetricSink, event: &DomainEventBytes) {
+    let Ok(payload) = serde_json::from_slice::<serde_json::Value>(event.0.as_ref()) else {
+        return;
+    };
+    let Some(status) = payload
+        .pointer("/data/body/unreadReconcile/status")
+        .and_then(serde_json::Value::as_str)
+    else {
+        tracing::debug!("unread reconcile terminal absent from read result");
+        return;
+    };
+    tracing::info!(status, "unread reconcile terminal recorded");
+    match status {
+        "match" => record_terminal(
+            metrics,
+            MetricId::ImUnreadReconcileTotal,
+            "unread_reconcile",
+            "match",
+            "none",
+        ),
+        "mismatch" => record_terminal(
+            metrics,
+            MetricId::ImUnreadReconcileTotal,
+            "unread_reconcile",
+            "mismatch",
+            "unread_mismatch",
+        ),
         _ => {}
     }
 }

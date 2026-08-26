@@ -248,6 +248,9 @@ pub struct ImState {
     /// G09d HTTP authority 的有序成员全集；跨 Persist/sync 保留，durable scan 仅用于集合校验。
     pub hydration_ordered_rosters: HashMap<ChannelId, Vec<serde_json::Value>>,
 
+    /// G09d HTTP authority 的当前 viewer 未读绝对值；仅保留到同轮 durable read-back 对账完成。
+    pub hydration_authority_unreads: HashMap<ChannelId, i64>,
+
     /// 当前物理会话中已成功缓存的最近消息窗口；不替代同步 cursor。
     pub(crate) recent_message_coverage:
         HashMap<ChannelId, crate::query::local_first::RecentMessageCoverage>,
@@ -371,6 +374,7 @@ impl ImState {
             hydration_req_ids: HashMap::new(),
             hydration_emit_channel_increment: HashSet::new(),
             hydration_ordered_rosters: HashMap::new(),
+            hydration_authority_unreads: HashMap::new(),
             recent_message_coverage: HashMap::new(),
             message_query_generations: HashMap::new(),
             timeline_state: crate::timeline_state::TimelineState::default(),
@@ -416,6 +420,7 @@ impl ImState {
         self.hydration_req_ids.clear();
         self.hydration_emit_channel_increment.clear();
         self.hydration_ordered_rosters.clear();
+        self.hydration_authority_unreads.clear();
         self.reply_projection_revisions.clear();
         self.reply_projection_seen_ids.clear();
         self.seen_chain_event_ids.clear();
@@ -500,6 +505,7 @@ impl ImState {
         self.hydration_req_ids.clear();
         self.hydration_emit_channel_increment.clear();
         self.hydration_ordered_rosters.clear();
+        self.hydration_authority_unreads.clear();
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
         self.subtopic_sync_active = None;

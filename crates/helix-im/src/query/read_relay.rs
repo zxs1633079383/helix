@@ -10,8 +10,7 @@
 //! - **不丢 req_id**：成功 `{req_id, body}` / 失败 `{req_id, error}`——失败也回灌让前端 reject，不挂起。
 //! - **非投影**：body 形态随 endpoint 变（不冻结字段集，与 21 投影集分离，见 projection-schema §1.2）。
 
-use bytes::Bytes;
-use helix_core::effect::{DomainEventBytes, Effect};
+use helix_core::effect::Effect;
 
 /// 读族 HTTP 成功回报 → emit `im:read:result{req_id, body}`（body = 后端响应体透传）。
 ///
@@ -39,13 +38,9 @@ pub fn emit_read_error(req_id: &str, error: &str) -> Effect {
 
 /// 内部：把 `data` 包成 `im:read:result` 信封 Effect::Emit（成功/失败共用 channel）。
 fn emit_read(data: serde_json::Value) -> Effect {
-    let payload = serde_json::json!({ "event": "im:read:result", "data": data });
-    let bytes = Bytes::from(
-        serde_json::to_vec(&payload).expect("emit_read: static JSON shape must serialize"),
-    );
-    Effect::Emit {
-        event: DomainEventBytes(bytes),
-    }
+    crate::event::MessageV3Event::new("im:read:result", data)
+        .expect("emit_read: data is always an object")
+        .into_effect()
 }
 
 /// spec06 缺陷A — 从读族命令 payload 抠前端 bridge 注入的 `req_id`（非空字符串）。
@@ -69,6 +64,17 @@ mod tests {
             Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).unwrap(),
             _ => panic!("expected Emit"),
         }
+    }
+
+    /// read_result_uses_canonical_event_first_envelope 保证 Host 的无分配分类器可读取读终态。
+    #[test]
+    fn read_result_uses_canonical_event_first_envelope() {
+        let Effect::Emit { event } = emit_read_body("rq-prefix", serde_json::json!({})) else {
+            panic!("expected Emit");
+        };
+        assert!(event
+            .0
+            .starts_with(b"{\"event\":\"im:read:result\",\"data\":"));
     }
 
     #[test]

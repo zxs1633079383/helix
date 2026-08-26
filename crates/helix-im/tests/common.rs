@@ -132,6 +132,7 @@ impl Harness {
             user_name: user_name.to_string(),
             org_name: org_name.to_string(),
             dept_name: dept_name.to_string(),
+            client_platform: helix_im::ClientPlatform::Native,
             offline_sync_diagnostics: Default::default(),
         };
         let mut module = ImModule::new(config);

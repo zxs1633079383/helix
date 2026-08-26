@@ -64,6 +64,22 @@ fn correlated_persist(effects: &[Effect], atomic: bool) -> Option<(Correlation, 
     })
 }
 
+/// 从当前 Effect batch 读取唯一 ACK HTTP，并解出其业务请求体。
+fn correlated_client_ack(effects: &[Effect]) -> Option<(Correlation, Value)> {
+    effects.iter().find_map(|effect| {
+        let Effect::Http { corr, req } = effect else {
+            return None;
+        };
+        if !req.url.ends_with("/post/clientAck") {
+            return None;
+        }
+        let body = req.body.as_ref()?;
+        serde_json::from_slice(body.as_ref())
+            .ok()
+            .map(|body| (*corr, body))
+    })
+}
+
 /// 返回写集涉及的表，证明 message/channel/member/cursor 同一原子提交。
 fn write_tables(ops: &[StorageOp]) -> BTreeSet<&'static str> {
     ops.iter()
@@ -198,8 +214,32 @@ fn run_persona(viewer_id: &str, initial_unread: i64) -> TestResult<PersonaTrace>
         },
         CREATE_AT as u64 + 2,
     );
+    let (ack_corr, ack_body) = correlated_client_ack(harness.sink.as_slice())
+        .ok_or_else(|| "missing durable client ACK HTTP".to_string())?;
+    assert_eq!(ack_body["postId"], POST_ID);
+    assert_eq!(ack_body["ackId"], format!("{POST_ID}:1"));
+    assert_eq!(ack_body["platform"], "native");
+    let events = emitted_events(harness.sink.as_slice());
+    harness.step(
+        Tick::PortReply {
+            corr: ack_corr,
+            outcome: PortOutcome::Ok(helix_core::tick::ReplyBytes(common::enveloped(
+                Bytes::from(
+                    serde_json::to_vec(&json!({
+                        "status": "SUCCESS",
+                        "data": {"recorded": true}
+                    }))
+                    .map_err(|error| error.to_string())?,
+                ),
+            ))),
+        },
+        CREATE_AT as u64 + 3,
+    );
+    let ack_events = emitted_events(harness.sink.as_slice());
+    assert_eq!(ack_events.len(), 1);
+    assert_eq!(ack_events[0]["event"], "im:post:client-ack-succeeded");
     Ok(PersonaTrace {
-        events: emitted_events(harness.sink.as_slice()),
+        events,
         ticks: vec![
             json!({"kind": "Inbound", "value": inbound, "now_ms": CREATE_AT}),
             json!({"kind": "PortReply", "value": {"correlation": persist_corr.raw(), "outcome": {"variant": "Ok"}}, "now_ms": CREATE_AT + 1}),

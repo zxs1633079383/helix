@@ -472,12 +472,15 @@ pub fn project_subtopic_items(
     let Ok(serde_json::Value::Array(rows)) = serde_json::from_slice(reply_bytes) else {
         return Vec::new();
     };
-    let parent_visible = rows.iter().any(|row| {
+    let Some(parent_row) = rows.iter().find(|row| {
         channel_row_id(row) == Some(parent_channel_id) && dialog_row_visible(row, scope)
-    });
-    if !parent_visible {
+    }) else {
         return Vec::new();
-    }
+    };
+    let parent_sync_watermark = parent_row
+        .get("subtopics_loaded_at")
+        .or_else(|| parent_row.get("subtopicsLoadedAt"))
+        .cloned();
     let mut seen = std::collections::HashSet::new();
     rows.into_iter()
         .filter(|row| dialog_row_visible(row, scope))
@@ -485,8 +488,15 @@ pub fn project_subtopic_items(
         .filter(|row| channel_row_root_id(row) == Some(parent_channel_id))
         .filter_map(|row| {
             let id = channel_row_id(&row)?;
-            seen.insert(id.to_string())
-                .then(|| render_subtopic_row(row))
+            seen.insert(id.to_string()).then(|| {
+                let mut rendered = render_subtopic_row(row);
+                if let (Some(watermark), Some(object)) =
+                    (&parent_sync_watermark, rendered.as_object_mut())
+                {
+                    object.insert("subtopicsLoadedAt".to_string(), watermark.clone());
+                }
+                rendered
+            })
         })
         .collect()
 }
@@ -537,6 +547,11 @@ fn render_subtopic_row(row: serde_json::Value) -> serde_json::Value {
         .or_else(|| row.get("userId"))
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
+    let creator_id = row
+        .get("create_by")
+        .or_else(|| row.get("createBy"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
     let mut rendered = render_dialog_row(row);
     let Some(owner_id) = owner_id else {
         return rendered;
@@ -554,9 +569,16 @@ fn render_subtopic_row(row: serde_json::Value) -> serde_json::Value {
             .and_then(serde_json::Value::as_str)
             == Some(owner_id.as_str())
     }) {
-        members.push(serde_json::json!({ "userId": owner_id }));
+        members.push(serde_json::json!({ "userId": owner_id.clone() }));
     }
     if let Some(object) = rendered.as_object_mut() {
+        object.insert("userId".to_string(), serde_json::Value::String(owner_id));
+        if let Some(creator_id) = creator_id {
+            object.insert(
+                "createBy".to_string(),
+                serde_json::Value::String(creator_id),
+            );
+        }
         object.insert("members".to_string(), serde_json::Value::Array(members));
         let member_count = object
             .get("members")

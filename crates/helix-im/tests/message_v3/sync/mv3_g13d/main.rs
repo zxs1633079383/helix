@@ -254,6 +254,57 @@ fn query_subtopics_filters_parent_type_root_and_account_visibility() -> Result<(
     Ok(())
 }
 
+/// 子话题投影继承父频道的增量同步水位，避免客户端把已完成同步误判为未就绪。
+#[test]
+fn query_subtopics_projects_parent_sync_watermark_onto_children() -> Result<(), String> {
+    let mut replay = Replay::new();
+    let corr = replay.query(PARENT, "req-g13d-watermark")?;
+    let mut parent = channel_row(PARENT, COMPANY, VIEWER, "P", "", &[VIEWER]);
+    parent["subtopics_loaded_at"] = json!(1_700_002_000_123_i64);
+    let mut topic = channel_row(
+        TOPIC_VISIBLE,
+        COMPANY,
+        "topic-owner",
+        "T",
+        PARENT,
+        &[VIEWER],
+    );
+    topic["subtopics_loaded_at"] = json!(0);
+
+    replay.reply_ok(corr, json!([parent, topic]))?;
+
+    assert_single_typed_result(&replay, "req-g13d-watermark", &[TOPIC_VISIBLE]);
+    let event = replay.events().pop().expect("one result");
+    assert_eq!(
+        event["data"]["body"]["items"][0]["subtopicsLoadedAt"],
+        1_700_002_000_123_i64
+    );
+    Ok(())
+}
+
+/// 纯数字字符串身份不能被 JSON text 解码成 number，否则创建人筛选会漏掉真实话题。
+#[test]
+fn query_subtopics_preserves_numeric_creator_ids_as_strings() -> Result<(), String> {
+    let mut replay = Replay::new();
+    let corr = replay.query(PARENT, "req-g13d-creator-id")?;
+    let mut topic = channel_row(TOPIC_VISIBLE, COMPANY, "444", "T", PARENT, &[VIEWER]);
+    topic["create_by"] = json!("444");
+    replay.reply_ok(
+        corr,
+        json!([
+            channel_row(PARENT, COMPANY, VIEWER, "P", "", &[VIEWER]),
+            topic,
+        ]),
+    )?;
+
+    assert_single_typed_result(&replay, "req-g13d-creator-id", &[TOPIC_VISIBLE]);
+    let event = replay.events().pop().expect("one result");
+    let item = &event["data"]["body"]["items"][0];
+    assert_eq!(item["userId"], "444");
+    assert_eq!(item["createBy"], "444");
+    Ok(())
+}
+
 /// 父频道不可见时，即使 topic 行本身可见，也必须 fail-closed 为空。
 #[test]
 fn query_subtopics_requires_visible_parent() -> Result<(), String> {

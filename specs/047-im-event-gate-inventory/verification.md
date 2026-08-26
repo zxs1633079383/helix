@@ -21,7 +21,7 @@ PC 与 Mobile 本版本均为 `NOT_SYNCED_BY_SCOPE`。WDIO、Mobile GTest、真�
 | `cargo check` core/im/native/FFI/Web | `PASS` | `evidence/p7-final-validation.txt` |
 | `cargo test -p helix-im --quiet` | `PASS` | 194 个 lib 测试及全部 integration target 通过；11 个既有 ignored 用例未晋级为证据 |
 | 30 个 MessageV3 Gate 独立 target | `PASS` | migration manifest 中 30/30 target 唯一注册并由全量测试执行 |
-| `cargo test -p helix-core` | `PASS` | 16 个 lib、6 个 integration、1 个 doctest 通过；1 个 doctest ignored |
+| `cargo test -p cses-helix-core` | `PASS` | 16 个 lib、6 个 integration、1 个 doctest 通过；1 个 doctest ignored |
 | `cargo test -p helix-driver-ffi --quiet` | `PASS` | FFI lib 与全部 integration target 通过 |
 | Web `wasm32-unknown-unknown` build | `PASS` | `helix-driver-web` 构建完成 |
 | core runtime dependency scan | `PASS` | `tokio/sqlx/reqwest/web-sys/tauri` 命中为 0 |
@@ -60,9 +60,9 @@ PC 与 Mobile 本版本均为 `NOT_SYNCED_BY_SCOPE`。WDIO、Mobile GTest、真�
 
 ## Required Runs
 
-- **V-001**: `cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-web`
+- **V-001**: `cargo check -p cses-helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-web`
 - **V-002**: `cargo test -p helix-im --quiet`
-- **V-003**: `cargo test -p helix-core`
+- **V-003**: `cargo test -p cses-helix-core`
 - **V-004**: `cargo test -p helix-driver-ffi --quiet`
 - **V-005**: `cargo build --target wasm32-unknown-unknown -p helix-driver-web`
 - **V-006**: `node specs/047-im-event-gate-inventory/scripts/generate-v1-evidence.mjs`

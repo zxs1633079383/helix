@@ -1,7 +1,17 @@
 [package]
-name    = "helix-core"
-version = "0.1.0"
-edition = "2021"
+name        = "cses-helix-core"
+version     = "0.1.0"
+edition     = "2021"
+authors     = ["CSES Team"]
+license     = "MIT OR Apache-2.0"
+description = "运行时无关的确定性业务内核与 sans-IO 执行壳"
+repository  = "https://git.yundiz.com/cses/go/helix"
+readme      = "README.md"
+include     = ["/src/**", "/README.md"]
+
+[lib]
+# 发布包改名不改变稳定的 Rust crate import 名称。
+name = "helix_core"
 
 # helix-core 是三栖共享的纯库，crate-type 默认 rlib
 # ❌ 绝对不含：tokio / sqlx / reqwest / tokio-tungstenite / rusqlite / web-sys / tauri

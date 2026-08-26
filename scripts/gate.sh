@@ -16,22 +16,22 @@ git diff --check
 git diff --cached --check
 
 echo "▶ [2/12] 三端 Rust cargo check（PC native + Flutter FFI + Web）"
-cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host -p helix-driver-web --quiet
+cargo check -p cses-helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host -p helix-driver-web --quiet
 
 echo "▶ [3/12] Web wasm final build（HX-C003：必须完成链接）"
 cargo build --target wasm32-unknown-unknown -p helix-driver-web --quiet
 
 echo "▶ [4/12] clippy（host 五 crate + Web 双目标 strict）"
-cargo clippy -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host --quiet -- -D warnings 2>/dev/null \
-  || cargo clippy -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host --quiet
+cargo clippy -p cses-helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host --quiet -- -D warnings 2>/dev/null \
+  || cargo clippy -p cses-helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host --quiet
 cargo clippy -p helix-driver-web --all-targets --no-deps --quiet -- -D warnings
 cargo clippy --target wasm32-unknown-unknown -p helix-driver-web --no-deps --quiet -- -D warnings
 
 echo "▶ [5/12] 测试（六 crate：core/im/native/host/ffi/web）"
-cargo test -p helix-core -p helix-im -p helix-driver-native -p helix-driver-host -p helix-driver-ffi -p helix-driver-web --quiet
+cargo test -p cses-helix-core -p helix-im -p helix-driver-native -p helix-driver-host -p helix-driver-ffi -p helix-driver-web --quiet
 
 echo "▶ [6/12] core 零运行时闸门（HX-C001）"
-if cargo tree -p helix-core | grep -qiE 'tokio|sqlx|reqwest|web-sys|tauri'; then
+if cargo tree -p cses-helix-core | grep -qiE 'tokio|sqlx|reqwest|web-sys|tauri'; then
   echo "❌ helix-core 依赖树出现运行时依赖"; exit 1
 fi
 
@@ -71,7 +71,7 @@ bash scripts/ffi-verify.sh --no-demo
 echo "▶ [12/12] public-api 面闸门（纪要拍板 #2）"
 if command -v cargo-public-api >/dev/null 2>&1; then
   mkdir -p docs/api-baseline
-  cargo public-api -p helix-core --simplified > /tmp/helix-core-api.txt
+  cargo public-api -p cses-helix-core --simplified > /tmp/helix-core-api.txt
   if [ -f docs/api-baseline/helix-core.txt ]; then
     diff -u docs/api-baseline/helix-core.txt /tmp/helix-core-api.txt \
       || { echo "❌ helix-core 公开 API 面变化——确认后更新基线"; exit 1; }

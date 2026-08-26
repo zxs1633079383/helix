@@ -15,7 +15,7 @@ SENSITIVE_ATTR_RE="(${TRACE_ATTR_CONTEXT}).*(${SENSITIVE_WORDS})|(${SENSITIVE_WO
 RAW_TRACE_OUTPUT_RE="(${TRACE_ATTR_CONTEXT}).*raw_json|raw_json.*(${TRACE_ATTR_CONTEXT})"
 
 echo "▶ trace-static [1/3] helix-core dependency tree has no OTel/runtime crates"
-CORE_DEP_HITS="$(cargo tree -p helix-core | rg -n -i "$FORBIDDEN_CORE_DEPS" || true)"
+CORE_DEP_HITS="$(cargo tree -p cses-helix-core | rg -n -i "$FORBIDDEN_CORE_DEPS" || true)"
 if [ -n "$CORE_DEP_HITS" ]; then
   echo "❌ FAIL: helix-core dependency tree contains forbidden OTel/runtime crates"
   printf '%s\n' "$CORE_DEP_HITS"

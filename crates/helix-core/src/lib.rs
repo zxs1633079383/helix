@@ -14,11 +14,11 @@
 //!
 //! ```bash
 //! # native
-//! cargo check -p helix-core
+//! cargo check -p cses-helix-core
 //! # wasm32
-//! cargo check -p helix-core --target wasm32-unknown-unknown
+//! cargo check -p cses-helix-core --target wasm32-unknown-unknown
 //! # ffi (aarch64-apple-ios as example)
-//! cargo check -p helix-core --target aarch64-apple-ios
+//! cargo check -p cses-helix-core --target aarch64-apple-ios
 //! ```
 
 pub mod auth;

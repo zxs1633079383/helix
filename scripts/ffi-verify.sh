@@ -39,8 +39,8 @@ cargo clippy -p helix-driver-ffi --all-targets --quiet || fail "2 clippy -p heli
 
 echo "▶ [3/6] 零运行时 gate（core 不被 ffi 污染 · HX-C001）"
 # grep 命中 = core 依赖树混入运行时 = 污染 = FAIL（与 gate.sh 第4步同语义）
-if cargo tree -p helix-core | grep -qiE 'tokio|sqlx|reqwest|web-sys|tauri'; then
-  echo "  ↓ 污染项："; cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'
+if cargo tree -p cses-helix-core | grep -qiE 'tokio|sqlx|reqwest|web-sys|tauri'; then
+  echo "  ↓ 污染项："; cargo tree -p cses-helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'
   fail "3 helix-core 依赖树出现运行时依赖"
 fi
 

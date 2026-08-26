@@ -420,6 +420,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cses-helix-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "futures-channel",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "data-encoding"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -783,28 +796,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 
 [[package]]
-name = "helix-core"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "futures-channel",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
 name = "helix-driver-ffi"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
  "cbindgen",
+ "cses-helix-core",
  "futures-channel",
  "futures-util",
- "helix-core",
  "helix-driver-host",
  "helix-driver-native",
  "helix-driver-web",
@@ -825,8 +825,8 @@ dependencies = [
  "async-trait",
  "bytes",
  "criterion",
+ "cses-helix-core",
  "futures-util",
- "helix-core",
  "helix-im",
  "libc",
  "opentelemetry",
@@ -851,8 +851,8 @@ dependencies = [
  "async-trait",
  "bytes",
  "criterion",
+ "cses-helix-core",
  "futures-util",
- "helix-core",
  "helix-driver-host",
  "helix-im",
  "serde",
@@ -870,8 +870,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
+ "cses-helix-core",
  "gloo-timers",
- "helix-core",
  "helix-im",
  "js-sys",
  "serde",
@@ -888,7 +888,7 @@ name = "helix-host-cli"
 version = "0.1.0"
 dependencies = [
  "bytes",
- "helix-core",
+ "cses-helix-core",
  "helix-driver-host",
  "helix-driver-native",
  "helix-im",
@@ -909,7 +909,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "criterion",
- "helix-core",
+ "cses-helix-core",
  "inventory",
  "jsonschema",
  "proptest",
@@ -925,9 +925,9 @@ name = "helix-perf"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "cses-helix-core",
  "futures-util",
  "hdrhistogram",
- "helix-core",
  "helix-driver-ffi",
  "helix-driver-host",
  "helix-driver-native",

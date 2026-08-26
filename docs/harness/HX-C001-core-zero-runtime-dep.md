@@ -58,13 +58,13 @@ core 只能依赖：`serde` / `thiserror` / `futures-channel` / `bytes` 等**运
 
 ## §4 Verification
 ```bash
-cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri|mio'   # 期望: 空
+cargo tree -p cses-helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri|mio'   # 期望: 空
 grep -rnE '^\s*use (tokio|sqlx|reqwest|web_sys|tauri)' crates/helix-core/src # 期望: 0
 # 当前必跑产品目标：PC Tauri/native + Flutter FFI
-cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi
+cargo check -p cses-helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi
 
 # 可选历史诊断：wasm/web 已归档，不进入当前交付验收或 CI 必跑矩阵
-cargo check -p helix-core --target wasm32-unknown-unknown
+cargo check -p cses-helix-core --target wasm32-unknown-unknown
 ```
 CI gate：上述 `cargo tree | grep` 非空即 fail。
 

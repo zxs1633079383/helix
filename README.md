@@ -26,10 +26,10 @@ helix-driver-web    ─┘
 
 ```bash
 # 编译检查
-cargo check -p helix-core -p helix-im -p helix-driver-native
+cargo check -p cses-helix-core -p helix-im -p helix-driver-native
 
 # 运行 helix-core 单元测试（不依赖 tokio runtime）
-cargo test -p helix-core
+cargo test -p cses-helix-core
 
 # 运行 helix-im 单元测试
 cargo test -p helix-im
@@ -40,11 +40,11 @@ cargo test -p helix-im
 ```bash
 # iOS (aarch64-apple-ios)
 rustup target add aarch64-apple-ios
-cargo check -p helix-core --target aarch64-apple-ios
+cargo check -p cses-helix-core --target aarch64-apple-ios
 cargo check -p helix-driver-ffi --target aarch64-apple-ios
 
 # Android (aarch64-linux-android，需要 Android NDK）
-cargo check -p helix-core --target aarch64-linux-android
+cargo check -p cses-helix-core --target aarch64-linux-android
 ```
 
 ### Web（A4 Rust 平台壳）

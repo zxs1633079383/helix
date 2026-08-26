@@ -66,7 +66,7 @@ grep -rnE 'struct .*<.*'\''[a-z]' crates/helix-core/src crates/helix-im/src
 # 找硬加 Send 的 port async（按 cfg 切，不无脑加）
 grep -rn 'Send + .static' crates/helix-core/src/ports
 # 三栖编译都要绿
-cargo check -p helix-core && cargo check -p helix-core --target wasm32-unknown-unknown
+cargo check -p cses-helix-core && cargo check -p cses-helix-core --target wasm32-unknown-unknown
 ```
 
 ## §4.5 ffi = native-target **单线程运行时**（非编译期 Send 放松，G-16）

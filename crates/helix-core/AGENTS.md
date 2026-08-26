@@ -13,9 +13,9 @@
 ## 改动验收
 
 ```bash
-cargo check -p helix-core && cargo check --target wasm32-unknown-unknown -p helix-core
-cargo test -p helix-core
-cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'   # 必须空
+cargo check -p cses-helix-core && cargo check --target wasm32-unknown-unknown -p cses-helix-core
+cargo test -p cses-helix-core
+cargo tree -p cses-helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'   # 必须空
 ```
 
 改 port trait / Effect / Tick 变体 = 三端 driver + helix-im 全要适配，先列影响面再动手。

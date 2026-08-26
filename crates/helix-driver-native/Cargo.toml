@@ -1,14 +1,20 @@
 [package]
-name    = "helix-driver-native"
-version = "0.1.0"
-edition = "2021"
+name        = "helix-driver-native"
+version     = "0.1.0"
+edition     = "2021"
+authors     = ["CSES Team"]
+license     = "MIT OR Apache-2.0"
+description = "Helix 的 Tokio Native 平台驱动"
+repository  = "https://git.yundiz.com/cses/go/helix"
+readme      = "README.md"
+include     = ["/src/**", "/README.md"]
 
 # native driver：tokio multi-thread + shared host storage/network wrappers
 # tokio::spawn 在此 crate 的 engine_loop.rs，不在 helix-core
 
 [dependencies]
-helix-core = { path = "../helix-core" }
-helix-driver-host = { path = "../helix-driver-host" }
+helix-core = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.0" }
+helix-driver-host = { path = "../helix-driver-host", version = "=0.1.0" }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
 thiserror   = { workspace = true }
@@ -31,7 +37,7 @@ criterion = "0.5"
 # 协议执行已迁 helix-driver-host，故这两条仅测试侧需要。
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
-helix-im = { path = "../helix-im" }
+helix-im = { path = "../helix-im", version = "=0.1.0" }
 sha2 = "0.10"
 
 [[bench]]

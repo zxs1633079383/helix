@@ -1,14 +1,20 @@
 [package]
-name    = "helix-im"
-version = "0.1.0"
-edition = "2021"
+name        = "helix-im"
+version     = "0.1.0"
+edition     = "2021"
+authors     = ["CSES Team"]
+license     = "MIT OR Apache-2.0"
+description = "基于 Helix Core 的确定性 MessageV3 IM 业务模块"
+repository  = "https://git.yundiz.com/cses/go/helix"
+readme      = "README.md"
+include     = ["/src/**", "/README.md"]
 
 # helix-im 只依赖 helix-core（唯一外部 crate 依赖）
 # ❌ 绝对不含：tokio / sqlx / reqwest / tungstenite / web-sys / tauri
 # IM 业务逻辑通过 Effect 表达意图，driver 兑现，保证三栖可编译
 
 [dependencies]
-helix-core = { path = "../helix-core" }
+helix-core = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.0" }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
 thiserror   = { workspace = true }

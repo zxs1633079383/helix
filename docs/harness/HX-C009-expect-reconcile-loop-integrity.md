@@ -44,7 +44,7 @@ inline_target:
 
 ```text
 # ✅ EXPECT 必须可证伪（AGENTS.md §4.7）：至少 1 条具体可核断言
-🎯 EXPECT 只动 parser.rs + sync_session.rs; cargo check -p helix-core 过; 不新增 HX-C 违反 | 赌注 中 | 可逆 是
+🎯 EXPECT 只动 parser.rs + sync_session.rs; cargo check -p cses-helix-core 过; 不新增 HX-C 违反 | 赌注 中 | 可逆 是
 
 # ✅ 收尾写 DONE；实际偏离时紧跟一条 DRIFT-PRED
 # ✅ 缺失或历史未收敛只影响证据质量，不阻断开发、提交或推送

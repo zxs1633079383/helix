@@ -20,7 +20,7 @@
 
 ## 速记不变量（与图配套）
 
-- **零运行时**：`helix-core` 永不 import tokio/sqlx/reqwest/web-sys/tauri，只定义 trait；`cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` 必须空（HX-C001）。
+- **零运行时**：`helix-core` 永不 import tokio/sqlx/reqwest/web-sys/tauri，只定义 trait；`cargo tree -p cses-helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` 必须空（HX-C001）。
 - **step() 严格同步**：零 await / 零 I/O / 零 spawn；`Module::handle` 纯函数，副作用一律 `out.push(Effect)`。
 - **定向路由不误吞**：`Inbound`/`Command` 走 `accepts()` first-match；`PortReply` 走 `corr_map.consume` O(1)；`Timer` 走 `timer_map.peek` O(1)。
 - **Effect 无序契约（EFFECT-5）**：同一 step 产出的 `Vec<Effect>` 之间无兑现顺序保证，因果必须经 `Correlation` 串联，不可依赖 `Vec` 下标。

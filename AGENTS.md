@@ -76,11 +76,11 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 - 改完一个完整模块 / commit 前：`cargo check -p <crate>` 一次
 - **三端 Rust 验收**（phase 完成前 / 改 port 或 driver 后必跑；真浏览器 E2E 另行执行）：
   ```bash
-  cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-web
-  cargo test -p helix-core
+  cargo check -p cses-helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-web
+  cargo test -p cses-helix-core
   cargo build --target wasm32-unknown-unknown -p helix-driver-web
   ```
-- `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` → **必须空**（零运行时证明）
+- `cargo tree -p cses-helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` → **必须空**（零运行时证明）
 - **autonomous / sub-agent 模式**：自跑验证并回报；**单任务 prompt 模式**：输出命令让用户决定（除非用户说"你跑"）
 
 ### 3.0.1 验证扩张停止条件
@@ -246,7 +246,7 @@ manifest/README/Mermaid 验证合同。
 🎯 EXPECT <预判结果，至少含 1 条可证伪断言> | 赌注 高/中/低 | 可逆 是/否 | @<ts>
 ```
 
-- **可证伪断言**举例：预测改动文件集（"只动 parser.rs + sync_session.rs"）/ 数值阈值（"batch_upsert 仍 <6ms"）/ 命名不变量（"不新增 HX-C 违反"）/ 命令 pass-fail（"cargo check -p helix-core 过"）。
+- **可证伪断言**举例：预测改动文件集（"只动 parser.rs + sync_session.rs"）/ 数值阈值（"batch_upsert 仍 <6ms"）/ 命名不变量（"不新增 HX-C 违反"）/ 命令 pass-fail（"cargo check -p cses-helix-core 过"）。
 - ❌ 禁止 "我觉得能行 / 应该没问题 / 大概顺利" 这类**不可证伪**空话——越具体，DRIFT-PRED 越能被自动检出；写虚 = 自废本机制。
 
 **收尾**——已有 `✅ DONE` = 结果对账方。若实际偏离开局预期，紧跟 DONE 追一行：

@@ -77,11 +77,11 @@ cargo test -p helix-im --test <gate_target_1> --test <gate_target_2>
 ## 最终验证
 
 ```bash
-cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-web
-cargo test -p helix-core
+cargo check -p cses-helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-web
+cargo test -p cses-helix-core
 cargo test -p helix-im
 cargo build --target wasm32-unknown-unknown -p helix-driver-web
-cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'
+cargo tree -p cses-helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'
 git diff --check
 ```
 

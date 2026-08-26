@@ -503,3 +503,5 @@
 🎯 EXPECT 修复回复后 root 消息自端样式丢失；可证伪断言：① `posts_update` 经 `PersistAtomic → PersistOk` 发出的 `im:post:batch-updated` 按当前登录用户塑形；② root `userId` 等于 viewer 时 `data.posts[].isSelf=true`；③ 事件名、外层字段、持久化屏障、事件顺序与 Angular 合并合同保持不变；④ 公开 `ImModule::handle` 回归先红后绿，Helix 全量回归中的无关基线失败单独报告 | 赌注 高 | 可逆 是 | @2026-08-26T00:00:00+0800
 
 ✅ DONE `posts_update` 已把 `auth_user_id` 传入批量 render-ready 投影，当前 viewer 的 root 更新保持 `isSelf=true`；公开 Handler 回归已完成红→绿，聚焦测试 1/1 与 `git diff --check` 通过。`cargo test -p helix-im` 运行到既有 `cp_create_posts_test` 时因注册表实际 137、断言 136 失败，该文件与本次 diff 无交集；未执行桌面 Native/UI 复验，未把 sans-IO 结果冒充真实界面 PASS | @2026-08-26T00:00:00+0800
+
+🎯 EXPECT 将 visual Helix 的四个 Rust 库以 `0.1.0` 发布到 crates.io；可证伪断言：① 只把已被占用的 `helix-core` package 改名为 `cses-helix-core`，依赖 key 与 Rust `helix_core` import 不变；② `helix-im` / `helix-driver-host` / `helix-driver-native` 按 core → im/host → native 拓扑逐包 dry-run 和发布；③ 四个包只携带 `src` 与发布 README，不公开 tests/docs/artifacts/真链证据；④ 许可证为 `MIT OR Apache-2.0`，不读取、输出或提交 crates.io token；⑤ 客户端最终四条依赖的 `cargo metadata` source 全部为 crates.io registry，若任一包上传或真客户端 check 失败则停在 partial，不冒充完成 | 赌注 高 | 可逆 发布前是/发布后否 | @2026-08-26T17:46:28+0800

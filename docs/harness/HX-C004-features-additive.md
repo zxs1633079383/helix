@@ -56,9 +56,9 @@ disable-storage = [] # "关闭某能力" = 反模式，改成"默认不开 stora
 # 人工 + review：检查无 native/wasm 二选一、无 disable-* feature
 grep -rnE '^(native|wasm|disable|no)[-_a-z]* *=' */Cargo.toml
 # feature 矩阵抽样构建（任意子集都应编译）
-cargo check -p helix-core --no-default-features
-cargo check -p helix-core --no-default-features --features storage
-cargo check -p helix-core --all-features
+cargo check -p cses-helix-core --no-default-features
+cargo check -p cses-helix-core --no-default-features --features storage
+cargo check -p cses-helix-core --all-features
 ```
 
 ## §5 Recurrence Log

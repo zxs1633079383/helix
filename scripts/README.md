@@ -30,6 +30,19 @@ top-level scripts.
 - `install-hooks.sh` - install repository hooks.
 - `lib-config.sh` - shared shell config loader for scripts.
 
+## Crates.io 发布
+
+- `publish_crates.py --plan`：检查同步版本、双许可证和目标版本占用，不修改文件。
+- `publish_crates.py --publish`：默认将四个公共 crate 的 patch 版本加一，同步内部精确依赖，
+  编译后按 `cses-helix-core → helix-im → helix-driver-host → helix-driver-native` 顺序执行
+  dry-run、上传与 registry 可解析确认。
+- 发布前同时要求当前四包均可解析、目标四包均未占用；若上一次处于 partial，必须先人工收敛，
+  不会自动跳版本掩盖断层。
+- `--bump minor|major` 可改变递增级别，`--version X.Y.Z` 可显式指定版本。真实发布始终要求
+  tracked 工作树干净，且待发布 crate 内不存在未跟踪文件；脚本不执行 commit、tag 或 push。
+- 首个 crate 上传前失败会恢复 manifest 与 `Cargo.lock`；已有 crate 上传后失败会保留新版本并
+  输出 `PARTIAL`，因为 crates.io 已发布版本不可覆盖。
+
 ## Entropy Rule
 
 Do not add a new `host-cli-uc*.sh` for a single bug or historical probe. Add the

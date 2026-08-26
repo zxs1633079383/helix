@@ -507,3 +507,9 @@
 🎯 EXPECT 将 visual Helix 的四个 Rust 库以 `0.1.0` 发布到 crates.io；可证伪断言：① 只把已被占用的 `helix-core` package 改名为 `cses-helix-core`，依赖 key 与 Rust `helix_core` import 不变；② `helix-im` / `helix-driver-host` / `helix-driver-native` 按 core → im/host → native 拓扑逐包 dry-run 和发布；③ 四个包只携带 `src` 与发布 README，不公开 tests/docs/artifacts/真链证据；④ 许可证为 `MIT OR Apache-2.0`，不读取、输出或提交 crates.io token；⑤ 客户端最终四条依赖的 `cargo metadata` source 全部为 crates.io registry，若任一包上传或真客户端 check 失败则停在 partial，不冒充完成 | 赌注 高 | 可逆 发布前是/发布后否 | @2026-08-26T17:46:28+0800
 
 ✅ DONE `cses-helix-core`、`helix-im`、`helix-driver-host`、`helix-driver-native` 已按依赖拓扑发布 `0.1.0` 到 crates.io，四个远端包均可由 `cargo info` 解析且许可证为 `MIT OR Apache-2.0`。visual 客户端已把四条本地 path 依赖切换为精确 registry 版本，`cargo metadata` 显示四包 source 均为 crates.io registry，完整 `cargo check --manifest-path src-tauri/Cargo.toml` 通过；客户端仓明确忽略 `src-tauri/Cargo.lock`，未强行纳入版本控制，既有 dirty/untracked 文件均未触碰。@2026-08-26T18:35:00+0800
+
+🎯 EXPECT 新增四 crate 一键发布脚本；可证伪断言：① 默认只把同步版本 patch +1，并同步所有内部精确依赖；② 发布前拒绝 tracked dirty、版本不一致、目标版本占用和许可证漂移；③ 按 core → im → host → native 逐包 dry-run、上传并等待 registry 可解析；④ 首次上传前失败自动恢复 manifest/Cargo.lock，上传后失败保留版本并报告 PARTIAL；⑤ 不读取或输出 token、不自动 commit/tag/push，纯函数单测、plan 与 `git diff --check` 通过 | 赌注 高 | 可逆 首次上传前是/之后否 | @2026-08-26T18:50:00+0800
+
+✅ DONE 已新增 `scripts/publish_crates.py`：默认 patch +1，支持 minor/major/显式版本，发布前校验 tracked clean、crate 内无未跟踪文件、四包同步版本、双许可证、当前版本可解析与目标版本未占用；按 core→im→host→native 逐包 dry-run、上传并等待 registry。首次上传前失败按字节恢复四份 manifest 与 Cargo.lock，上传后失败保留新版本并报告 PARTIAL；不会输出 token 或执行 commit/tag/push。4 个纯函数/真实 manifest 回归通过，`--plan --allow-dirty-plan` 已确认 0.1.0 四包可解析且 0.1.1 四包未占用，未实际发布 0.1.1，`git diff --check` 通过。@2026-08-26T19:05:00+0800
+
+⚡ DRIFT-PRED `gate-fast` 因历史 Cargo 边界 diff 自动升级完整 gate，三端 check、wasm 与 clippy 通过后，在既有 `helix-driver-ffi` 空库异步 dialog query 测试失败（26/27）；失败文件与本次发布脚本 diff 无交集，按非 release 停止扩张规则保留为独立基线债务，不修改 FFI 生产代码。@2026-08-26T19:10:00+0800

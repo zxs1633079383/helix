@@ -157,6 +157,7 @@ impl WsMessageHandler for PostsUpdateHandler {
             if let Effect::Emit { event } = crate::acl::to_effect::emit_post_batch_updated(
                 batch.channel_id,
                 &Value::Array(edit_posts),
+                ctx.auth_user_id,
             ) {
                 pending_domain_events.push(event.0.to_vec());
             }

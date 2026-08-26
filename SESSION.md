@@ -499,3 +499,7 @@
 🎯 EXPECT 产出 Spec 050 业务指标交接文档；可证伪断言：① 逐项列出 12 个指标的 Owner、原子指标、当前 PromQL、Grafana 面板和完成度；② 明确 ACK/未读 Planned、端到端延迟分段、恢复失败与重复乱序/全 Command 的覆盖缺口，不把面板存在写成生产 SLO 已闭合；③ 给出 PrometheusRule 加载、Dashboard 导入、无数据排查和真实链验收步骤；④ 只新增 `specs/050-messagev3-business-observability/handoff.md` 与本行 SESSION 记录，保留既有 artifacts | 赌注 中 | 可逆 是 | @2026-08-24T20:29:00+0800
 
 ✅ DONE Spec 050 `handoff.md` 已逐项说明 12 个业务指标的 Owner、原子指标、采集终态、PromQL、Grafana 查询和当前完成度；明确 ACK/未读 Planned、端到端延迟分段、恢复失败与 lost/duplicate/order/全 Command 覆盖债务，并给出 PrometheusRule 加载、Dashboard 导入、无数据排查及真实链十步验收。12 节/必需指标/相对链接、Dashboard 合同与 `git diff --check` 均通过；未执行真实集群 apply 或 Grafana 写操作，既有 artifacts 保持未跟踪 | @2026-08-24T20:33:36+0800
+
+🎯 EXPECT 修复回复后 root 消息自端样式丢失；可证伪断言：① `posts_update` 经 `PersistAtomic → PersistOk` 发出的 `im:post:batch-updated` 按当前登录用户塑形；② root `userId` 等于 viewer 时 `data.posts[].isSelf=true`；③ 事件名、外层字段、持久化屏障、事件顺序与 Angular 合并合同保持不变；④ 公开 `ImModule::handle` 回归先红后绿，Helix 全量回归中的无关基线失败单独报告 | 赌注 高 | 可逆 是 | @2026-08-26T00:00:00+0800
+
+✅ DONE `posts_update` 已把 `auth_user_id` 传入批量 render-ready 投影，当前 viewer 的 root 更新保持 `isSelf=true`；公开 Handler 回归已完成红→绿，聚焦测试 1/1 与 `git diff --check` 通过。`cargo test -p helix-im` 运行到既有 `cp_create_posts_test` 时因注册表实际 137、断言 136 失败，该文件与本次 diff 无交集；未执行桌面 Native/UI 复验，未把 sans-IO 结果冒充真实界面 PASS | @2026-08-26T00:00:00+0800

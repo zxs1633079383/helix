@@ -19,6 +19,7 @@ fn post_batch_updated_emits_render_ready_messages_for_thin_clients() {
             "revoke": true,
             "createAt": 42
         }]),
+        "678",
     );
 
     let Effect::Emit { event } = effect else {
@@ -33,4 +34,5 @@ fn post_batch_updated_emits_render_ready_messages_for_thin_clients() {
     assert_eq!(post["sendStatus"], "sent");
     assert_eq!(post["revoke"], true);
     assert_eq!(post["revoked"], true);
+    assert_eq!(post["isSelf"], true);
 }

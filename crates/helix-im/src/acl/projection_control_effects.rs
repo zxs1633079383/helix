@@ -144,11 +144,15 @@ pub fn emit_reconnect_requested() -> Effect {
     }
 }
 
-/// `posts_update`（批量编辑/撤回）→ `im:post:batch-updated`。
-pub fn emit_post_batch_updated(channel_id: ChannelId, posts: &serde_json::Value) -> Effect {
+/// `posts_update`（批量编辑/撤回）按当前 viewer 投影为 `im:post:batch-updated`。
+pub fn emit_post_batch_updated(
+    channel_id: ChannelId,
+    posts: &serde_json::Value,
+    viewer_user_id: &str,
+) -> Effect {
     use serde_json::json;
     let posts = if posts.is_array() {
-        crate::render_ready::shape_message_rows(posts)
+        crate::render_ready::shape_message_rows_for_viewer(posts, viewer_user_id)
     } else {
         json!([])
     };

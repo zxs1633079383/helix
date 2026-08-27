@@ -1,3 +1,5 @@
+✅ DONE Helix 0.1.1 已发布：`cses-helix-core`、`helix-im`、`helix-driver-host`、`helix-driver-native` 四包均经 crates.io 实时查询确认可解析；8 个 workspace manifest 与 Cargo.lock 已同步到同批依赖图。版本事务等待本次发布提交承载，不自动 push，既有 artifacts 保持未跟踪 | @2026-08-27T
+
 🎯 EXPECT 修复 crates.io 一键发布的 workspace 版本事务；可证伪断言：① 四个公共 crate 仍是唯一上传集合；② Web、FFI、host-cli 与 helix-perf 只同步内部精确依赖，自身 package.version 保持不变；③ `--plan` 能在上传前发现任何未登记的 workspace path 精确依赖；④ 首次上传前失败按字节恢复 8 个 manifest 与 Cargo.lock；⑤ 单测、候选版本图复现、`--plan` 和 `git diff --check` 通过，不执行真实 publish、不修改既有 artifacts | 赌注 高 | 可逆 是 | @2026-08-27T
 
 ✅ DONE crates.io 一键发布版本事务已覆盖 4 个公共上传包和 Web、FFI、host-cli、helix-perf 4 个非上传消费者；自动扫描根/workspace manifests，遗漏或版本不一致时 `--plan` fail-closed，首次上传前回滚覆盖 8 个 manifest 与 Cargo.lock。发布脚本 7/7 回归、旧 core 精确引用 0、联网 `--plan`、8 包 `cargo check` 与 `git diff --check` 通过；当前 0.1.0 四包可解析且 0.1.1 四包未占用，未执行真实 publish。完整 Gate 的 check/wasm/clippy 通过，随后被未改动的 `f1_gap1_reconnect_read_channel_test.rs` 缺 `ImConfig.client_platform` 挡住，未越界修复 | @2026-08-27T

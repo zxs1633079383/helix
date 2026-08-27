@@ -7,6 +7,7 @@ import sys
 import tomllib
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "publish_crates.py"
@@ -107,6 +108,55 @@ version = "0.1.0"
                 ]
                 self.assertEqual(len(declarations), 1)
                 self.assertEqual(declarations[0]["version"], "=0.1.1")
+
+    def test_candidate_transaction_rewrites_all_workspace_exact_consumers(self) -> None:
+        """候选事务必须同步非发布消费者，避免 Cargo workspace 解析版本冲突。"""
+        rendered = PUBLISH_CRATES.render_candidate_manifests("0.1.0", "0.1.1")
+        consumers = (
+            Path("crates/helix-driver-web/Cargo.toml"),
+            Path("crates/helix-driver-ffi/Cargo.toml"),
+            Path("crates/helix-host-cli/Cargo.toml"),
+            Path("tools/helix-perf/Cargo.toml"),
+        )
+        for manifest in consumers:
+            document = tomllib.loads(rendered[manifest])
+            self.assertEqual(document["package"]["version"], "0.1.0")
+            self.assertEqual(
+                document["dependencies"]["helix-core"]["version"],
+                "=0.1.1",
+            )
+
+    def test_candidate_transaction_keeps_publish_set_separate(self) -> None:
+        """非发布消费者参与版本事务，但绝不能进入 crates.io 上传集合。"""
+        self.assertEqual(len(PUBLISH_CRATES.PACKAGES), 4)
+        self.assertEqual(
+            set(PUBLISH_CRATES.transaction_manifest_paths()),
+            {
+                Path("crates/helix-core/Cargo.toml"),
+                Path("crates/helix-im/Cargo.toml"),
+                Path("crates/helix-driver-host/Cargo.toml"),
+                Path("crates/helix-driver-native/Cargo.toml"),
+                Path("crates/helix-driver-web/Cargo.toml"),
+                Path("crates/helix-driver-ffi/Cargo.toml"),
+                Path("crates/helix-host-cli/Cargo.toml"),
+                Path("tools/helix-perf/Cargo.toml"),
+            },
+        )
+
+    def test_candidate_transaction_rejects_unregistered_exact_dependency(self) -> None:
+        """workspace 新增精确 path 引用但未登记时，候选计划必须 fail-closed。"""
+        discovered = PUBLISH_CRATES.discover_exact_internal_dependencies()
+        discovered[(Path("Cargo.toml"), "helix-core-shadow")] = "=0.1.0"
+        with mock.patch.object(
+            PUBLISH_CRATES,
+            "discover_exact_internal_dependencies",
+            return_value=discovered,
+        ):
+            with self.assertRaisesRegex(
+                PUBLISH_CRATES.ReleaseError,
+                "unregistered",
+            ):
+                PUBLISH_CRATES.render_candidate_manifests("0.1.0", "0.1.1")
 
 
 if __name__ == "__main__":

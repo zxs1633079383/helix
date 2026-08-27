@@ -33,6 +33,14 @@ class ReleasePackage:
     internal_dependencies: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class VersionConsumer:
+    """描述只参与版本事务、但不会上传 crates.io 的 workspace manifest。"""
+
+    manifest: Path
+    internal_dependencies: tuple[str, ...]
+
+
 PACKAGES = (
     ReleasePackage("cses-helix-core", Path("crates/helix-core/Cargo.toml")),
     ReleasePackage(
@@ -51,6 +59,28 @@ PACKAGES = (
         ("helix-core", "helix-driver-host", "helix-im"),
     ),
 )
+
+CONSUMERS = (
+    VersionConsumer(
+        Path("crates/helix-driver-web/Cargo.toml"),
+        ("helix-core",),
+    ),
+    VersionConsumer(
+        Path("crates/helix-driver-ffi/Cargo.toml"),
+        ("helix-core",),
+    ),
+    VersionConsumer(
+        Path("crates/helix-host-cli/Cargo.toml"),
+        ("helix-core",),
+    ),
+    VersionConsumer(
+        Path("tools/helix-perf/Cargo.toml"),
+        ("helix-core",),
+    ),
+)
+
+ManifestTarget = ReleasePackage | VersionConsumer
+DEPENDENCY_SECTIONS = ("dependencies", "dev-dependencies", "build-dependencies")
 
 
 def run_command(
@@ -140,15 +170,17 @@ def current_release_version() -> str:
 
 def rewrite_manifest(
     content: str,
-    package: ReleasePackage,
+    target: ManifestTarget,
     old_version: str,
     new_version: str,
+    *,
+    update_package_version: bool = True,
 ) -> str:
-    """只改 package.version 与登记过的仓内精确依赖版本。"""
+    """按目标声明改写 package.version 和仓内精确依赖版本。"""
     lines = content.splitlines(keepends=True)
     section = ""
-    package_version_updated = False
-    dependency_updates = {name: 0 for name in package.internal_dependencies}
+    package_version_updated = not update_package_version
+    dependency_updates = {name: 0 for name in target.internal_dependencies}
     package_version_pattern = re.compile(
         rf'^(version\s*=\s*"){re.escape(old_version)}("\s*)$'
     )
@@ -160,7 +192,11 @@ def rewrite_manifest(
         if section_match:
             section = section_match.group(1)
             continue
-        if section == "package" and not package_version_updated:
+        if (
+            update_package_version
+            and section == "package"
+            and not package_version_updated
+        ):
             replaced, count = package_version_pattern.subn(
                 rf'\g<1>{new_version}\g<2>', stripped
             )
@@ -178,7 +214,7 @@ def rewrite_manifest(
             )
             if count != 1:
                 raise ReleaseError(
-                    f"{package.manifest} 的 {dependency_name} 没有唯一的 "
+                    f"{target.manifest} 的 {dependency_name} 没有唯一的 "
                     f'version = "={old_version}"'
                 )
             lines[index] = replaced + newline
@@ -187,16 +223,152 @@ def rewrite_manifest(
 
     if not package_version_updated:
         raise ReleaseError(
-            f"{package.manifest} 未找到 package.version = {old_version}"
+            f"{target.manifest} 未找到 package.version = {old_version}"
         )
     invalid_counts = {
         name: count for name, count in dependency_updates.items() if count != 1
     }
     if invalid_counts:
         raise ReleaseError(
-            f"{package.manifest} 仓内依赖更新次数异常：{invalid_counts}"
+            f"{target.manifest} 仓内依赖更新次数异常：{invalid_counts}"
         )
     return "".join(lines)
+
+
+def transaction_manifest_paths() -> tuple[Path, ...]:
+    """返回需要原子改写和回滚的发布包与非发布消费者 manifest。"""
+    return tuple(package.manifest for package in PACKAGES) + tuple(
+        consumer.manifest for consumer in CONSUMERS
+    )
+
+
+def workspace_manifest_paths() -> tuple[Path, ...]:
+    """返回根 manifest 与全部 workspace 成员 manifest，拒绝静默漏扫。"""
+    root_document = tomllib.loads(
+        (REPO_ROOT / "Cargo.toml").read_text(encoding="utf-8")
+    )
+    members = root_document.get("workspace", {}).get("members", [])
+    manifests = (Path("Cargo.toml"),) + tuple(
+        Path(member) / "Cargo.toml" for member in members
+    )
+    missing = [str(path) for path in manifests if not (REPO_ROOT / path).is_file()]
+    if missing:
+        raise ReleaseError("workspace member manifest 不存在：" + ", ".join(missing))
+    return manifests
+
+
+def dependency_tables(document: dict) -> tuple[dict, ...]:
+    """收集普通、workspace 与 target 条件下的 Cargo dependency 表。"""
+    tables = [
+        table
+        for section in DEPENDENCY_SECTIONS
+        if isinstance((table := document.get(section)), dict)
+    ]
+    targets = document.get("target", {})
+    if isinstance(targets, dict):
+        for target_document in targets.values():
+            if not isinstance(target_document, dict):
+                continue
+            tables.extend(
+                table
+                for section in DEPENDENCY_SECTIONS
+                if isinstance((table := target_document.get(section)), dict)
+            )
+    workspace = document.get("workspace", {})
+    if isinstance(workspace, dict) and isinstance(
+        workspace.get("dependencies"),
+        dict,
+    ):
+        tables.append(workspace["dependencies"])
+    return tuple(tables)
+
+
+def discover_exact_internal_dependencies() -> dict[tuple[Path, str], str]:
+    """按依赖 path 识别指向公共 crate 的 workspace 精确版本声明。"""
+    published_manifests = {
+        (REPO_ROOT / package.manifest).resolve()
+        for package in PACKAGES
+    }
+    discovered: dict[tuple[Path, str], str] = {}
+    for manifest in workspace_manifest_paths():
+        manifest_path = REPO_ROOT / manifest
+        document = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+        for table in dependency_tables(document):
+            for dependency_name, declaration in table.items():
+                if not isinstance(declaration, dict) or "path" not in declaration:
+                    continue
+                dependency_manifest = (
+                    manifest_path.parent / str(declaration["path"]) / "Cargo.toml"
+                ).resolve()
+                if dependency_manifest not in published_manifests:
+                    continue
+                version = declaration.get("version")
+                if isinstance(version, str) and version.startswith("="):
+                    key = (manifest, dependency_name)
+                    if key in discovered:
+                        raise ReleaseError(
+                            f"{manifest} 的 {dependency_name} 存在多个精确 path 声明"
+                        )
+                    discovered[key] = version
+    return discovered
+
+
+def ensure_version_transaction_complete(old_version: str) -> None:
+    """确认所有公共 crate 精确 path 引用均已登记进版本事务。"""
+    registered = {
+        (target.manifest, dependency_name)
+        for target in (*PACKAGES, *CONSUMERS)
+        for dependency_name in target.internal_dependencies
+    }
+    discovered = discover_exact_internal_dependencies()
+    discovered_keys = set(discovered)
+    missing = sorted(
+        registered - discovered_keys,
+        key=lambda item: (str(item[0]), item[1]),
+    )
+    unregistered = sorted(
+        discovered_keys - registered,
+        key=lambda item: (str(item[0]), item[1]),
+    )
+    mismatched = sorted(
+        (manifest, dependency, version)
+        for (manifest, dependency), version in discovered.items()
+        if version != f"={old_version}"
+    )
+    if missing or unregistered or mismatched:
+        raise ReleaseError(
+            "workspace 精确 path 依赖未形成完整版本事务："
+            f"missing={missing}, unregistered={unregistered}, mismatched={mismatched}"
+        )
+
+
+def render_candidate_manifests(old_version: str, new_version: str) -> dict[Path, str]:
+    """在内存中生成完整候选版本图，供 plan 和真实发布共用。"""
+    ensure_version_transaction_complete(old_version)
+    rendered: dict[Path, str] = {}
+    for package in PACKAGES:
+        source = (REPO_ROOT / package.manifest).read_text(encoding="utf-8")
+        rendered[package.manifest] = rewrite_manifest(
+            source,
+            package,
+            old_version,
+            new_version,
+        )
+    for consumer in CONSUMERS:
+        source = (REPO_ROOT / consumer.manifest).read_text(encoding="utf-8")
+        rendered[consumer.manifest] = rewrite_manifest(
+            source,
+            consumer,
+            old_version,
+            new_version,
+            update_package_version=False,
+        )
+    for manifest, content in rendered.items():
+        try:
+            tomllib.loads(content)
+        except tomllib.TOMLDecodeError as error:
+            raise ReleaseError(f"候选 manifest 无法解析 {manifest}：{error}") from error
+    return rendered
 
 
 def tracked_worktree_is_clean() -> bool:
@@ -303,8 +475,8 @@ def wait_until_registry_resolves(crate_name: str, version: str) -> None:
 
 
 def snapshot_release_files() -> dict[Path, bytes]:
-    """保存版本 manifest 与锁文件，以便首次上传前失败时精确恢复。"""
-    paths = [REPO_ROOT / package.manifest for package in PACKAGES]
+    """保存事务 manifest 与锁文件，以便首次上传前失败时精确恢复。"""
+    paths = [REPO_ROOT / manifest for manifest in transaction_manifest_paths()]
     paths.append(REPO_ROOT / "Cargo.lock")
     return {path: path.read_bytes() for path in paths}
 
@@ -315,13 +487,10 @@ def restore_release_files(snapshots: dict[Path, bytes]) -> None:
         path.write_bytes(content)
 
 
-def write_release_version(old_version: str, new_version: str) -> None:
-    """同步写入四个 package 版本和全部登记的内部精确依赖。"""
-    for package in PACKAGES:
-        manifest_path = REPO_ROOT / package.manifest
-        original = manifest_path.read_text(encoding="utf-8")
-        updated = rewrite_manifest(original, package, old_version, new_version)
-        manifest_path.write_text(updated, encoding="utf-8")
+def write_candidate_manifests(rendered: dict[Path, str]) -> None:
+    """一次写入已完成内存校验的发布包与消费者候选 manifest。"""
+    for manifest, content in rendered.items():
+        (REPO_ROOT / manifest).write_text(content, encoding="utf-8")
 
 
 def assert_release_diff_scope() -> None:
@@ -330,7 +499,9 @@ def assert_release_diff_scope() -> None:
         ["git", "status", "--porcelain", "--untracked-files=no"],
         capture=True,
     )
-    allowed = {str(package.manifest) for package in PACKAGES} | {"Cargo.lock"}
+    allowed = {str(manifest) for manifest in transaction_manifest_paths()} | {
+        "Cargo.lock"
+    }
     changed = {
         line[3:]
         for line in completed.stdout.splitlines()
@@ -342,7 +513,7 @@ def assert_release_diff_scope() -> None:
 
 
 def validate_release_candidate() -> None:
-    """更新锁文件并一次性编译四个公共 crate。"""
+    """更新锁文件并一次性编译发布包及其 workspace 消费者。"""
     run_command(["cargo", "metadata", "--format-version", "1", "--no-deps"])
     assert_release_diff_scope()
     run_command(
@@ -357,6 +528,14 @@ def validate_release_candidate() -> None:
             "helix-driver-host",
             "-p",
             "helix-driver-native",
+            "-p",
+            "helix-driver-web",
+            "-p",
+            "helix-driver-ffi",
+            "-p",
+            "helix-host-cli",
+            "-p",
+            "helix-perf",
         ]
     )
 
@@ -447,17 +626,21 @@ def main() -> int:
         raise ReleaseError("存在 tracked dirty；请先提交或恢复后再发布")
     ensure_no_untracked_package_files()
     print(f"Helix release: {old_version} -> {new_version}")
+    rendered = render_candidate_manifests(old_version, new_version)
     ensure_current_versions_resolve(old_version)
     ensure_target_versions_available(new_version)
 
     if not args.publish:
-        print("PLAN PASS：目标版本未占用；真实发布请运行同命令并增加 --publish")
+        print(
+            "PLAN PASS：workspace 候选版本图完整且目标版本未占用；"
+            "真实发布请运行同命令并增加 --publish"
+        )
         return 0
 
     snapshots = snapshot_release_files()
     published: list[str] = []
     try:
-        write_release_version(old_version, new_version)
+        write_candidate_manifests(rendered)
         validate_release_candidate()
         for package in PACKAGES:
             dry_run_package(package)

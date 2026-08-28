@@ -691,3 +691,79 @@ async fn sync_type2_patches_native_message_without_unread_delta() {
     drop(storage);
     let _ = std::fs::remove_file(path);
 }
+
+/// Sync type=3/type=6 混批只更新撤回与 readBits，viewer 未读保持不变。
+#[tokio::test]
+async fn sync_type3_and_type6_apply_in_order_without_unread_delta() {
+    let (storage, path) = open_storage().await;
+    storage
+        .execute_raw("INSERT INTO message (temporary_id,id,channel_id,user_id,message,read_bits,revoke) VALUES ('tmp-revoke','msg-revoke','chfixx00000000000000000001','sender-678','body','0',0)")
+        .await
+        .expect("seed message");
+    storage
+        .execute_raw("INSERT INTO channel_member (channel_id,user_id,unread_count) VALUES ('chfixx00000000000000000001','viewer-444',5)")
+        .await
+        .expect("seed member");
+    let channel_id = ChannelId::from_str(CHANNEL_ID).expect("channel id");
+    let revoke = EventEnvelope::new(
+        channel_id,
+        Seq(3),
+        EventKind::PostRevoke,
+        PostFields::default(),
+    )
+    .with_msg_id(Some("msg-revoke".to_string()));
+    let read = EventEnvelope::new(
+        channel_id,
+        Seq(4),
+        EventKind::PostRead,
+        PostFields::default(),
+    )
+    .with_msg_id(Some("msg-revoke".to_string()));
+    let mut read_fields = PostFields::default();
+    read_fields.id = "msg-revoke".to_string();
+    read_fields.read_bits = "1".to_string();
+    let mut messages = HashMap::new();
+    messages.insert("msg-revoke".to_string(), read_fields);
+    let ops = helix_im::acl::to_effect::batch_upsert_events_with_messages_and_auth(
+        &[revoke, read],
+        &messages,
+        VIEWER_ID,
+    );
+    assert!(matches!(
+        execute_storage_ops_atomic(&storage, &ops).await,
+        PortOutcome::Ok(_)
+    ));
+    let message = storage
+        .get(GetSpec {
+            table: "message",
+            key_col: "temporary_id",
+            key_val: SqlValue::Text("tmp-revoke".to_string()),
+        })
+        .await
+        .expect("message read")
+        .expect("message row");
+    assert!(message
+        .iter()
+        .any(|(name, value)| name == "revoke" && matches!(value, SqlValue::Integer(1))));
+    assert!(message
+        .iter()
+        .any(|(name, value)| name == "read_bits"
+            && matches!(value, SqlValue::Text(bits) if bits == "1")));
+    let member = storage
+        .scoped_get(ScopedGetSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text(CHANNEL_ID.to_string()),
+            key_col: "user_id",
+            key_val: SqlValue::Text(VIEWER_ID.to_string()),
+        })
+        .await
+        .expect("member read")
+        .expect("member row");
+    assert!(member
+        .iter()
+        .any(|(name, value)| name == "unread_count" && matches!(value, SqlValue::Integer(5))));
+
+    drop(storage);
+    let _ = std::fs::remove_file(path);
+}

@@ -531,4 +531,6 @@
 
 ✅ DONE Issue #138 收敛 type=2 编辑持久化屏障；证据：在线 G06 4/4、Sync/Chain 编译器 13/13；Sync 无 PersistFire/提前 Emit，pending domain events 只在 matching PersistOk 释放；Native SQLite type2 原子 patch 后 member unread 5 保持 5，driver focused 1/1；无需生产代码改动 | 赌注 高 | 可逆 是 | @2026-08-28T
 
-🎯 EXPECT Issue #139 收敛 type=3 撤回与 type=6 混批；可证伪断言：撤回只改 revoke 且 unread delta=0，缺失目标幂等 no-op，重复/错误 corr 无二次终态；四类乱序最终 type1→type2→type3→type6，type6 readBits 不被快照覆盖；helix-im 与 Native SQLite/driver focused 通过后才进入 #140 | 赌注 高 | 可逆 是 | @2026-08-28T
+✅ DONE Issue #139 收敛 type=3 撤回与 type=6 混批；证据：Native SQLite type3+type6 原子批终态 revoke=1/readBits=1/member unread=5；S4 混批 6/6 严格 type1→type2→type3→type6；单列 patch 1/1，重复 corr 由一次性 correlation 消费；无需生产代码改动 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+🎯 EXPECT Issue #140 验证 Sync 批处理性能与失败原子性；可证伪断言：1/10/100/500 单频道事件均恰一 PersistAtomic，写集 O(N)，提交后至多一次 viewer member readback/一次 Dialog；PersistErr、readback Err、错误 corr、重复 Ok、重启无部分 cursor/伪成功/重复未读；记录 Effect/StorageOp 数后才进入 #141 | 赌注 高 | 可逆 是 | @2026-08-28T

@@ -11,9 +11,10 @@ top-level scripts.
 - `branch-identity.sh` - branch identity report for SESSION handoff.
 - `branch-sync-gate.sh` - branch/upstream drift guard.
 - `ddd-structure-gate.sh` - DDD/package boundary structure gate.
+- `trace-static-gate.sh` - correlation 与静态探针覆盖检查。
+- `check-downstream-helix-pins.sh` - 下游 Helix source pin 对账。
 - `coverage.sh` - Rust coverage entrypoint.
 - `fullmap-coverage.sh` - IM migration coverage table check.
-- `night-loop-preflight.sh` - overnight loop readiness preflight.
 
 ## Runtime And FFI
 

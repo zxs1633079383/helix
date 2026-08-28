@@ -12,7 +12,8 @@ helix's actual conventions.
 - **`docs/harness/README.md`** — index of engineering harness cards; the closest thing to a domain/operating glossary.
 - **`docs/harness/decisions.md`** — the architectural decision log (ADRs live here, referenced as `ADR-00N`, *not* under `docs/adr/`).
 - **`docs/harness/HX-C0NN-*.md`** — individual harness cards capturing hard-won constraints (zero-runtime-dep core, hot-path zero-alloc, FFI boundary discipline, etc.). Read the card(s) touching the area you're about to work in.
-- **`docs/过会方案/`** — design/review docs ("过会方案") for major features (sync v2, core-view, im-testbed, etc.). Read the relevant one before changing that subsystem.
+- **`specs/` 与 crate-local `docs/`** — 当前 Feature 合同与模块说明。先按
+  [`docs/README.md`](../README.md) 路由；旧设计已折叠或删除时，不沿历史路径猜测。
 
 If any of these don't exist for the area you're touching, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates docs lazily when terms or decisions actually get resolved.
 
@@ -28,8 +29,8 @@ If any of these don't exist for the area you're touching, **proceed silently**. 
 │   │   ├── decisions.md               ← ADR log (ADR-00N)
 │   │   ├── OPERATING.md
 │   │   └── HX-C0NN-*.md               ← per-constraint harness cards
-│   ├── 过会方案/                       ← per-feature design/review docs
-│   ├── specs/, review/, api-baseline/
+│   ├── review/, api-baseline/
+├── specs/                             ← Spec Kit features and current contracts
 └── crates/                            ← Rust workspace (helix-core, helix-im, drivers, …)
 ```
 
@@ -37,7 +38,7 @@ If any of these don't exist for the area you're touching, **proceed silently**. 
 
 When your output names a domain concept (an issue title, a refactor proposal, a
 hypothesis, a test name), use the term as it appears in `docs/GOAL.md` /
-`docs/harness/` / the relevant `过会方案` doc. Don't drift to synonyms.
+`docs/harness/` / the relevant current Spec or crate-local doc. Don't drift to synonyms.
 
 If the concept you need isn't documented yet, that's a signal — either you're
 inventing language the project doesn't use (reconsider) or there's a real gap

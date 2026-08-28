@@ -185,7 +185,7 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 
 ## 4.5 行为真源（Bun Zig-as-reference 同款）
 
-实现 / 修复 IM 行为有争议时，**现网 `~/workspace/angular/cses-client/src-tauri/src/features/im/` 对应 handler 是 source of truth**；机制级对齐标注见 [`docs/过会方案/helix-core-im-架构设计.md`](docs/过会方案/helix-core-im-架构设计.md) 各节。
+实现 / 修复 IM 行为有争议时，**现网 `/System/Volumes/Data/workspace/angular/visual/cses-client/src-tauri/src/features/im/` 对应 handler 是 source of truth**；Helix 当前机制与迁移边界以 [`docs/GOAL.md`](docs/GOAL.md)、ADR-017、Spec 047 manifest 和当前代码为准。
 
 ### 4.5.1 MessageV3 Gate + 迁移图谱（接口/事件/用例 索引 · 按需 Read）
 

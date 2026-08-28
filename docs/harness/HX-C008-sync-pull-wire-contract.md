@@ -94,10 +94,10 @@ emit_proactive_resync_for(channel_id);
 
 ## §4 Verification
 
-- grep gate：`grep -n 'needs_continuation.*as_bool\|v\["type"\]' crates/helix-im/src/parser.rs` 期望 **0 行**（不得回退抽象 wire）。
-- grep：`grep -n 'SYNC_EVENTS_PER_ENTRY\|next_seq.max' crates/helix-im/src/{parser,module}.rs` 期望命中（续拉 + 锚定都在）。
+- grep gate：`grep -R -n 'needs_continuation.*as_bool\|v\["type"\]' crates/helix-im/src/ws/parser crates/helix-im/src/sync` 期望 **0 行**（不得回退抽象 wire）。
+- grep：`grep -R -n 'SYNC_EVENTS_PER_ENTRY\|next_seq.max' crates/helix-im/src/ws/parser crates/helix-im/src/sync` 期望命中（续拉 + 锚定都在）。
 - 单测：`cargo test -p helix-im --test gate_test sync_cursor_anchors_to_next_seq_not_max_event`（证 nextSeq=50 / max(event.seq)=10 时 cursor 跳 50）；`--test e3_continuation_test`（满批续拉 → no_change 收尾）。
-- terminal 回归：`cargo test -p helix-im --test t095_terminal_event_rejection_test`；其中 mixed case 必须证明 `[type1@1,type7@2]` 只产生一个原子批次、回执后 cursor/terminal=2，且 HTTP 回包处理步不再产生新的 sync Http。
+- terminal 回归：`cargo test -p helix-im --test gate_test --test lifecycle_test`；mixed case 必须证明 `[type1@1,type7@2]` 只产生一个原子批次、回执后 cursor/terminal=2，且 HTTP 回包处理步不再产生新的 sync Http。
 - 关联日志：同一请求必须能按 `helix-sync:<corr>` 对齐 Helix `sync.dispatch` / `sync.response` 与 Go completion；日志只能包含 channel/cursor/kind/count/水位，不得包含 cookie、token、headers、原始 body、message/payload。
 - 行为真源核对：`cses-im-server/internal/app/sync.go`（syncOne/syncOneEvents）+ `cses-client/src-tauri/src/features/im/{domain/sync.rs,handlers/post.rs}`。
 
@@ -110,7 +110,7 @@ emit_proactive_resync_for(channel_id);
 
 ## §6 关联
 
-- 上游：`docs/过会方案/helix-sync-v2-设计.md`（§1.4 sync/notify wire、§1.5 ChannelEvent、§1.6 phantom）；AGENTS.md §4.5 行为真源。
+- 上游：当前 `crates/helix-im/src/ws/parser/core/sync.rs`、`crates/helix-im/src/sync/flow.rs` 与 AGENTS.md §4.5 行为真源。
 - 全局 rule：`AGENTS.md`「事件流单调 cursor」节（append-only event log + 单调 cursor + TooLong 兜底）——本卡是其 helix 落地。
 - 兄弟 harness：HX-C005（热路径零分配——sync 批量落库走单 INSERT/UPSERT，禁 RMW）。
 - 行为真源：cses-im-server `internal/app/sync.go` / cses-client `domain/sync.rs` + `handlers/post.rs`。

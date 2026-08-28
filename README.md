@@ -1,7 +1,7 @@
 # Helix — Runtime-agnostic 确定性业务内核基座
 
 一次实现，三端目标：**PC 端 Tauri native** / **手机端 Flutter FFI** / **Web WASM**。
-> 当前交付事实：native/FFI 已产品化；Web 的 `helix-driver-web` Rust 平台壳、最小浏览器 glue 与正式 gate 已落地，但真浏览器→真 Go 产品链仍待环境验收。历史 `helix-driver-wasm` 已删除（见 [`docs/harness/decisions.md`](docs/harness/decisions.md) ADR-006/ADR-014）。
+> 当前交付事实：native/FFI 已产品化；Web 的 `helix-driver-web` Rust 平台壳、最小浏览器 glue、正式 gate 与真浏览器→真 Go 的鉴权、send/echo、断连恢复链已落地。Web crate 仍不包含产品 renderer，浏览器媒体上传也未实现。历史 `helix-driver-wasm` 已删除（见 [`docs/harness/decisions.md`](docs/harness/decisions.md) ADR-006/ADR-014）。
 
 ## 架构简图
 
@@ -10,15 +10,15 @@
     │
     ▼
 helix-driver-native ─┐
-helix-driver-ffi    ─┼──► helix-core ◄── helix-im ◄── (helix-presence...)
+helix-driver-ffi    ─┼──► helix-core ◄── helix-im
 helix-driver-web    ─┘
 ```
 
 - **helix-core**：ports trait + Module trait + ExecutionShell（纯 sans-IO 状态机）
-- **helix-im**：IM 业务模块，只依赖 helix-core，不含任何运行时 crate
-- **helix-driver-***：各平台的 port 实现（tokio/sqlx 在此，不在 core）
+- **helix-im**：IM 业务模块，依赖 helix-core 与纯逻辑支持库，不含平台运行时 crate
+- **helix-driver-***：各平台的 port 实现（Tokio/rusqlite/reqwest/web-sys 等只在边缘）
 
-当前代码阅读从 [`docs/架构索引/README.md`](docs/架构索引/README.md) 开始；全量文档地图见 [`docs/README.md`](docs/README.md)，内核机制真源见 [`docs/过会方案/helix-core-im-架构设计.md`](docs/过会方案/helix-core-im-架构设计.md)，三端平台适配真源见 [`docs/过会方案/helix-三端Rust业务门面与平台适配设计.md`](docs/过会方案/helix-三端Rust业务门面与平台适配设计.md)。
+当前代码与文档阅读从 [`docs/README.md`](docs/README.md) 开始；目标不变量见 [`docs/GOAL.md`](docs/GOAL.md)，实施状态见 [`docs/ROADMAP.md`](docs/ROADMAP.md)，架构决策见 [`docs/harness/decisions.md`](docs/harness/decisions.md)。
 
 ## 三端 Build 命令
 
@@ -72,21 +72,24 @@ grep -E "tokio|sqlx|reqwest|tungstenite|web.sys" \
 
 | Crate | 角色 | 依赖 |
 |---|---|---|
-| `helix-core` | ports + Module trait + ExecutionShell | serde / thiserror / bytes / async-trait |
-| `helix-im` | IM 业务模块（BC-B） | helix-core 唯一 |
-| `helix-driver-native` | tokio/sqlx/tungstenite/reqwest 实现（PC Tauri） | helix-core + 运行时 crate |
-| `helix-driver-ffi` | C ABI/uniffi 实现（手机端 Flutter） | helix-core + 系统 crate |
+| `cses-helix-core`（Rust crate `helix_core`） | ports + Module trait + ExecutionShell | serde / thiserror / bytes / async-trait |
+| `helix-im` | MessageV3 IM 业务模块（无平台 runtime） | helix-core + serde/bytes 等纯逻辑依赖 |
+| `helix-driver-native` | Tokio Native 执行与 PC/Tauri 接缝 | helix-core + helix-driver-host |
+| `helix-driver-ffi` | 直接 C ABI、current-thread runtime 与批量事件接口 | helix-core + helix-im + helix-driver-host |
 | `helix-driver-host` | 共享 rusqlite Storage/network/event_sink（native+ffi 复用，ADR-007/010） | helix-core + 运行时 crate |
 | `helix-driver-web` | A4 Web Rust 平台壳：Browser Fetch、page-session store、外部 WS bridge、timer、有界 event batch v2 | helix-core + helix-im + 浏览器平台 crate |
+| `helix-host-cli` | 本地 Go 联调、存储检查与真实链辅助入口 | helix-core + helix-im + helix-driver-host |
+| `helix-perf` | workspace 内性能验证工具，不发布 crates.io | helix-core + helix-im + helix-driver-host |
 
 ## 顶层目录地图
 
 | 目录 | 作用 |
 |---|---|
 | `crates/` | 全部 Rust 源码，按「业务模块层 / core 层 / 平台驱动层」三层组织（见上「Crate 结构」） |
-| `docs/` | 设计与工程文档：北极星 `GOAL.md`、`ROADMAP.md`、`COMMIT_CONVENTION.md`、`harness/`（踩坑卡 HX-C001~016 + 决策 ADR）、`过会方案/`（架构机制权威源）、`specs/` / `reports/` / `review/`、`agents/`（issue tracker / triage 约定） |
+| `docs/` | 设计与工程文档：北极星 `GOAL.md`、当前活账 `ROADMAP.md`、提交规范、`harness/`（HX-C001~018 + ADR）、`reports/` / `review/`、`agents/` |
+| `specs/` | Spec Kit 需求、计划、任务、机器合同与分层验证记录；当前 MessageV3 真源为 Spec 047 |
 | `scripts/` | 工程验证与端到端脚本：本地 `gate-fast.sh`、CI/合并 `gate.sh`、`branch-sync-gate.sh`、`ddd-structure-gate.sh` + 一批 `host-cli-*-e2e.sh` 真链路用例 |
-| `tools/` | 杂项工具（当前仅 `md2html.py`） |
+| `tools/` | `helix-perf` 性能工具与 `md2html.py` 文档转换脚本 |
 
 ## helix-im 内部业务模块
 
@@ -95,16 +98,16 @@ grep -E "tokio|sqlx|reqwest|tungstenite|web.sys" \
 | 模块 / 目录 | 作用 |
 |---|---|
 | `client_api/` | **三端业务调用门面**：公开命令名 + payload → canonical `AppCommand`；alias、归一化和 capabilities 的唯一真源，driver 只做平台错误映射 |
-| `module.rs` + `*_flow.rs` | IM 模块壳与编排：`send_flow`（发消息）/ `query_dispatch`（查询·对话渲染）/ `sync_flow`（同步）/ `lifecycle`（生命周期）/ `port_reply`（端口响应回灌） |
-| `parser.rs` / `http_envelope.rs` | **防腐层（ACL 边界）**：WS 帧 / HTTP 响应 → 强类型 `InboundEvent`，边界零信任、零 `unwrap` |
+| `module.rs` + `module/` | IM 模块壳、配置、`Module` 实现与命令主分派；`send/`、`query/`、`sync/`、`channel/` 承担各自流程 |
+| `ws/parser/` / `http_envelope.rs` | **防腐层（ACL 边界）**：WS 帧 / HTTP 响应 → 强类型 `InboundEvent`，边界零信任、零 `unwrap` |
 | `acl/` | InboundEvent / Tick → `Effect` 翻译层，按职责裂分：transport / storage / sync_http / 投影 message / 投影 control effects |
-| `channel.rs` + `channel_write/` | **聚合根 = channel gate**：封装 cursor 单调不回退不变量，三阶段 peek→persist→commit；`channel_write/` 落库 post / members / patch |
+| `channel/` + `channel/write/` | **聚合根 = channel gate**：封装 cursor 单调不回退不变量与频道生命周期；`write/` 落库 post / members / patch |
 | `outbound/` | **出站命令族**（对齐现网写命令）：发帖 / 已读 / 频道增删改 / 成员管理 / 置顶 / 投票 / 紧急 / 模板已收到 / `bot_agent` 等，经 `registry.rs` 分发 |
-| `sync_*.rs` | 增量同步引擎：`sync_session` / `sync_increment` / `sync_scheduler`——offline catch-up + online push 双轨，cursor 锚 nextSeq（HX-C008） |
+| `sync/` | 增量同步引擎：`session` / `increment` / `scheduler`——offline catch-up + online push 双轨，cursor 锚 nextSeq（HX-C008） |
 | `ws/` | WS 运行时：`registry.rs` 策略注册表 + `handlers/` 各 action handler + `frame` / `context` |
-| `render_ready*.rs` / `query*.rs` | 投影面：内核状态 → 前端可渲染 payload（消息 / 成员 / 回复 / 对话），经 EventSink emit `im:__bus__` |
-| `state.rs` / `schema.rs` | IM 内存状态机 + SQLite schema（热路径 O(1) 写） |
-| 其余 | `read_relay`（已读转发）/ `pending_send` + `send_reconcile`（乐观发送对账）/ `pong_compensate`（心跳补偿）/ `older_context`（历史回溯）/ `todo`（待办）/ `correlation`（corr_key 逐跳探针，HX-C015 可观测性） |
+| `event/` / `query/` | MessageV3 事件构造与 local-first 查询、时间线读回；通过 EventSink 交付 `{event,data}` |
+| `state.rs` + `state/` / `schema.rs` | IM 内存状态机、强类型值与 SQLite schema（热路径 O(1) 写） |
+| 其余 | `query/read_relay`（已读转发）/ `send/pending` + `send/reconcile`（乐观发送对账）/ `send/pong_compensate`（心跳补偿）/ `channel/older_context`（历史回溯）/ `draft` / `todo` / `chain` / `correlation` |
 
 ## 关键设计决策（摘要）
 

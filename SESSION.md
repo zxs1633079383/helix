@@ -32,6 +32,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 对齐当前仓库 Markdown 与 `caf20f3b` 代码事实；可证伪断言：① 只修改已存在且能由当前目录、Cargo/API/config/source 证明漂移的 Markdown，不改生产代码、不新造功能；② 删除或更正已不存在的模块、接口、配置与流程，并补齐已实现但入口文档缺失的重要事实；③ 保留既有文档结构和表达方式，已有未跟踪 artifacts/Prompt 不纳入；④ 全库 Markdown 相对链接、路径/符号抽查、`git diff --check` 通过，最终逐文档列出修改与主要 Drift | 赌注 中 | 可逆 是 | @2026-08-28T
+
+✅ DONE 已按 `caf20f3b` 当前 workspace、Cargo manifest、源码目录、Spec 047 manifest/verification 和现存脚本对齐 13 份活跃 Markdown：删除失效的架构索引/过会方案/night-loop 路由，更正 MessageV3 P0-P7/R4 完成态、TGCR/30 Gate 当前真源、Web A5 与产品 renderer/上传边界、crate 0.1.1 版本、IM/driver/脚本目录及 HX-C008 命令。活跃入口 51 文件相对链接 broken=0，scripts README 22 个入口 missing=0，HX-C 18/18/18 对账，Spec 047 checker PASS，Web adapter/recorder 10/10，四个公共 crate README 与 manifest 一致，`git diff --check` PASS。额外运行的发布脚本单测因仍硬编码 0.1.0→0.1.1 而 5/7 通过、2 个 error，属于既有测试代码漂移，本次文档任务未越界修改；用户未跟踪 artifacts/Prompt 保持不变 | @2026-08-28T
+
 🎯 EXPECT 将 hello 后 `channels/load/increment` 的 timestamp 改为 tenant-local `message.update_at` 最大值；可证伪断言：① hello 先产生 `Scan(message, limit=1, ORDER BY update_at DESC)`，scan 回包后 HTTP body 的 `timestamp` 等于首行 `update_at`，空/失败回包为 0；② 现有 `cursors[{channelId,fromSeq}]` 内容与顺序保持不变；③ 启动投影未完成时的既有 bootstrap retry 仍只在 `finish_startup_scan` 触发，且也重新读取 message watermark；④ 只改 Helix increment/相关 correlation 与 focused tests，不改 Go、客户端或既有 `artifacts/`；⑤ 聚焦 Rust 测试与 `git diff --check` 通过 | 赌注 高 | 可逆 是 | @2026-08-20T
 
 🎯 EXPECT 新增仓内 `$messagev3-cross-layer-coding` Skill，专门把 MessageV3 跨层需求从契约冻结推进到 TDD、逐层实现、真实链和分层交付；可证伪断言：① 新目录含合法 `SKILL.md` 与 `agents/openai.yaml`，并在 `.agents/README.md` 注册；② 明确 Angular 只提交 intent/消费绝对 projection，Helix 拥有业务事实与 PersistOk 屏障，driver 只做 I/O/批量交付，Go wire/远端持久化责任可追溯；③ 固化红→绿、字段 ledger、失败矩阵、跨仓文件租约、REAL_NATIVE_CHAIN 与 run-owned cleanup，不允许 fallback/HTTP 200/单点 EventSink 冒充完成；④ `quick_validate.py`、YAML、路径、无尾随空白和 `git diff --check` 通过；⑤ 不修改现有排查 Skill、业务代码或 `artifacts/` | 赌注 中 | 可逆 是 | @2026-08-20T

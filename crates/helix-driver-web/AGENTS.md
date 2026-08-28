@@ -1,6 +1,6 @@
 # helix-driver-web 局部指令（就近优先，全局见根 AGENTS.md）
 
-> A4 Rust 平台壳已交付；A5 正在接最小浏览器/真 Go glue，正式 CI/HX-C003 已激活。本 crate 不包含前端页面。
+> A4 Rust 平台壳与 A5 最小浏览器/真 Go glue 已交付，正式 CI/HX-C003 已激活。本 crate 不包含前端页面或产品 renderer。
 
 ## 冻结边界
 

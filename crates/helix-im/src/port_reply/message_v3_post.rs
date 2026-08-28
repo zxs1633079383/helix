@@ -132,6 +132,18 @@ impl ImModule {
         Ok(())
     }
 
+    /// Sync member 读回成功后只释放唯一 `im:channel:update` 绝对态。
+    pub(super) fn handle_message_v3_sync_dialog_readback_reply(
+        &mut self,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if let Some(channel) = channel_update_from_member_readback(outcome)? {
+            out.push(channel.into_effect());
+        }
+        Ok(())
+    }
+
     /// 本地原子提交与 viewer 读回都成功后，发起带回报的真实客户端 ACK。
     fn queue_message_v3_client_ack(
         &mut self,

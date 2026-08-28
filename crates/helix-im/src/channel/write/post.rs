@@ -199,24 +199,35 @@ pub fn message_class(upd: &PostChannelUpdate) -> &'static str {
     }
 }
 
-/// 将 post authority 与预先投影的 lastPost 编译为原子写集。
-pub fn message_v3_commit_ops(
+/// 标记 type=1 消息事实来自稀疏在线回显或完整同步快照。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PostUpsertSource {
+    OnlineSparse,
+    SyncSnapshot,
+}
+
+/// 将 type=1 权威事实编译为消息、共享频道预览和 viewer 成员态的统一写集。
+pub(crate) fn message_v3_post_mutation_ops(
     event: &crate::sync_session::EventEnvelope,
     auth_user_id: &str,
-    last_post: &serde_json::Value,
+    last_post: String,
+    source: PostUpsertSource,
 ) -> Vec<helix_core::effect::StorageOp> {
     use helix_core::effect::{
         BatchUpdateSpec, ScopedGuardedBumpSpec, SqlValue, StorageOp, UpsertSpec,
     };
 
     let fields = &event.fields;
-    let last_post = last_post.to_string();
     let channel_id = event.channel_id.as_str().to_string();
     let viewer_id = auth_user_id.to_string();
     let sender_view = fields.user_id == auth_user_id;
-    // 在线 WS post 可能是稀疏 echo；冲突时保留 sync 已写入的缺省富字段，插入仍完整落行。
+    // 在线 WS post 可能是稀疏 echo；Sync 则持有可覆盖本地行的完整 authority snapshot。
+    let message_op = match source {
+        PostUpsertSource::OnlineSparse => crate::channel::event_to_online_upsert_op(event),
+        PostUpsertSource::SyncSnapshot => crate::channel::event_to_upsert_op(event),
+    };
     let mut ops = vec![
-        crate::channel::event_to_online_upsert_op(event),
+        message_op,
         StorageOp::BatchUpdate(BatchUpdateSpec {
             table: "channel",
             key_col: "id",
@@ -296,6 +307,21 @@ pub fn message_v3_commit_ops(
             guard_val: fields.create_at,
         }));
     }
+    ops
+}
+
+/// 将在线 post authority 与预先投影的 lastPost 编译为含 cursor 的原子写集。
+pub fn message_v3_commit_ops(
+    event: &crate::sync_session::EventEnvelope,
+    auth_user_id: &str,
+    last_post: &serde_json::Value,
+) -> Vec<helix_core::effect::StorageOp> {
+    let mut ops = message_v3_post_mutation_ops(
+        event,
+        auth_user_id,
+        last_post.to_string(),
+        PostUpsertSource::OnlineSparse,
+    );
     ops.push(crate::acl::to_effect::advance_cursor_op(
         event.channel_id,
         event.seq,

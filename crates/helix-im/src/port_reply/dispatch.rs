@@ -287,6 +287,9 @@ impl ImModule {
             CorrelationContext::MessageV3RevokeChannelReadback => {
                 self.handle_message_v3_revoke_channel_readback_reply(outcome, out)?;
             }
+            CorrelationContext::MessageV3SyncDialogReadback => {
+                self.handle_message_v3_sync_dialog_readback_reply(outcome, out)?;
+            }
             CorrelationContext::MessageV3ReactionPersist { event } => {
                 self.handle_message_v3_reaction_persist_reply(*event, outcome, out)?
             }

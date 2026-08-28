@@ -235,11 +235,20 @@ pub(crate) fn batch_upsert_events_with_messages_and_auth_observed(
                         ev.kind.clone(),
                         fields.clone(),
                     );
-                    let op = crate::channel::event_to_upsert_op(&ev_with_body);
+                    let type1_ops = crate::channel_write::message_v3_post_mutation_ops(
+                        &ev_with_body,
+                        auth_user_id,
+                        update.last_post.clone(),
+                        crate::channel_write::PostUpsertSource::SyncSnapshot,
+                    );
                     if let Some(context) =
                         observation.filter(|context| context.target_matches(msg_id, Some(fields)))
                     {
-                        let meta = crate::sync::observability::storage_op_metadata(&op);
+                        let meta = crate::sync::observability::storage_op_metadata(
+                            type1_ops
+                                .first()
+                                .expect("type=1 compiler must contain the message upsert"),
+                        );
                         let input_meta = crate::sync::observability::post_fields_metadata(fields);
                         tracing::info!(
                             hop = "sync.type1.upsert",
@@ -263,7 +272,7 @@ pub(crate) fn batch_upsert_events_with_messages_and_auth_observed(
                             "type=1 完整消息输入已准备落库"
                         );
                     }
-                    ops.push(op);
+                    ops.extend(type1_ops);
                 } else if let Some(context) =
                     observation.filter(|context| context.target_matches(msg_id, None))
                 {

@@ -1,7 +1,7 @@
 //! MV3-G13b：单频道 hydration 的唯一终态、持久屏障和 RuntimeAuth 隔离。
 
 use bytes::Bytes;
-use helix_core::effect::Effect;
+use helix_core::effect::{Effect, SqlValue, StorageOp};
 use helix_core::tick::{AppCommand, PortError, PortOutcome, ReplyBytes};
 use helix_core::{Correlation, EffectSink, Module, Tick};
 use helix_im::{ImConfig, ImModule};
@@ -248,6 +248,42 @@ fn hydration_http_waits_for_channel_member_persist_and_has_no_legacy_emit() -> R
     Ok(())
 }
 
+/// increment authority 必须在首个原子屏障写入 viewer 未读绝对态与对应业务水位。
+#[test]
+fn hydration_increment_persists_viewer_unread_authority_before_history() -> Result<(), String> {
+    let mut replay = Replay::new();
+    let http_corr = replay.start(CHANNEL)?;
+    replay.reply_http(http_corr, INCREMENT_BODY_B64)?;
+
+    let rows = replay
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { ops, .. } => ops.iter().find_map(|op| match op {
+                StorageOp::BatchUpsert(spec) if spec.table == "channel_member" => Some(&spec.rows),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .ok_or_else(|| "hydration must persist channel_member authority".to_string())?;
+    let viewer = rows
+        .iter()
+        .find(|row| {
+            row.iter().any(|(name, value)| {
+                name == "user_id" && matches!(value, SqlValue::Text(id) if id == VIEWER)
+            })
+        })
+        .ok_or_else(|| "hydration member write must contain current viewer".to_string())?;
+    assert!(viewer
+        .iter()
+        .any(|(name, value)| { name == "unread_count" && matches!(value, SqlValue::Integer(3)) }));
+    assert!(viewer.iter().any(|(name, value)| {
+        name == "last_unread_event_seq" && matches!(value, SqlValue::Integer(0))
+    }));
+    Ok(())
+}
+
 /// no-sync hydration 必须最终只释放一个 typed Result，不触发 dialog/messages 查询或业务广播。
 #[test]
 fn hydration_no_sync_releases_one_typed_result_only() -> Result<(), String> {
@@ -405,7 +441,7 @@ fn hydration_sync_failure_is_single_terminal_error() -> Result<(), String> {
     Ok(())
 }
 
-/// 历史 events 走原子 window+cursor 写入；hydation 不释放 postReceived、sync-state 或 unread bump。
+/// 历史 events 走原子 window+cursor 写入并重建 viewer 未读；hydration 不提前释放业务事件。
 #[test]
 fn hydration_events_use_atomic_history_cursor_without_business_events() -> Result<(), String> {
     let mut replay = Replay::new();
@@ -432,8 +468,8 @@ fn hydration_events_use_atomic_history_cursor_without_business_events() -> Resul
         .expect("history atomic ops");
     let debug = format!("{history_ops:?}");
     assert!(
-        !debug.contains("GuardedBump"),
-        "hydration history must not bump unread"
+        debug.contains("ScopedGuardedBump") && debug.contains("last_unread_event_seq"),
+        "缺少 increment unread authority 时，history 必须以 per-viewer guard 重建未读"
     );
     replay.reply_persist_ok(history_corr)?;
     assert!(replay.events().is_empty());

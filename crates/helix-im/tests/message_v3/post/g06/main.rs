@@ -352,6 +352,15 @@ fn g06_gap_buffer_resumes_without_legacy_projection() -> TestResult<()> {
         correlation(harness.sink.as_slice(), "atomic").is_none(),
         "gap reaction must remain buffered"
     );
+    assert!(
+        harness
+            .sink
+            .as_slice()
+            .iter()
+            .all(|effect| !matches!(effect, Effect::PersistFire { .. } | Effect::Emit { .. })),
+        "gap reaction must not bypass PersistOk through PersistFire or early Emit: {:?}",
+        harness.sink.as_slice()
+    );
 
     let preceding =
         serde_json::to_vec(&preceding_post_authority()).map_err(|error| error.to_string())?;

@@ -100,7 +100,7 @@ pub(crate) fn apply_increment_end(
             let corr = ctx.alloc_corr();
             ctx.state.channel_sync_persist_inflight =
                 ctx.state.channel_sync_persist_inflight.saturating_add(1);
-            out.push(Effect::Persist { corr, ops });
+            out.push(Effect::PersistAtomic { corr, ops });
             ctx.state.corr_map.insert(
                 corr,
                 crate::state::CorrelationContext::IncrementBatchPersist { projections },

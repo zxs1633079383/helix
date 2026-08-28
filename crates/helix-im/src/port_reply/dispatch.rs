@@ -1501,18 +1501,26 @@ impl ImModule {
             },
 
             CorrelationContext::PostUpdateAtomic {
-                channel_id,
-                target_seq,
+                event,
                 pending_domain_event,
             } => match outcome {
                 PortOutcome::Ok(_) => {
-                    let committed = self
+                    let channel_id = event.channel_id;
+                    let target_seq = event.seq;
+                    let (committed, next) = self
                         .state
                         .channels
                         .get_mut(&channel_id)
-                        .map(|channel| channel.commit_contiguous_after_atomic(target_seq, out))
-                        .transpose()?
-                        .unwrap_or(false);
+                        .map(|channel| {
+                            let expected =
+                                crate::state::Seq(channel.cursor.value().0.saturating_add(1));
+                            if target_seq != expected {
+                                return (false, None);
+                            }
+                            let next = channel.commit_message_v3_post(target_seq);
+                            (channel.cursor.value() == target_seq, next)
+                        })
+                        .unwrap_or((false, None));
                     if committed {
                         self.state.invalidate_recent_message_coverage(channel_id);
                         out.push(helix_core::Effect::Emit {
@@ -1521,6 +1529,9 @@ impl ImModule {
                             )),
                         });
                         self.refresh_attached_latest_timeline(channel_id, None, out)?;
+                        if let Some(next_event) = next {
+                            self.queue_next_message_v3_event(next_event, out)?;
+                        }
                     } else {
                         tracing::warn!(
                             channel_id = channel_id.as_str(),
@@ -1529,12 +1540,19 @@ impl ImModule {
                         );
                     }
                 }
-                PortOutcome::Err(error) => tracing::warn!(
-                    channel_id = channel_id.as_str(),
-                    target_seq = target_seq.0,
-                    error = ?error,
-                    "post_update atomic persist failed; cursor and projection remain unchanged"
-                ),
+                PortOutcome::Err(error) => {
+                    let channel_id = event.channel_id;
+                    let target_seq = event.seq;
+                    if let Some(channel) = self.state.channels.get_mut(&channel_id) {
+                        channel.restore_message_v3_post(*event, out);
+                    }
+                    tracing::warn!(
+                        channel_id = channel_id.as_str(),
+                        target_seq = target_seq.0,
+                        error = ?error,
+                        "post_update atomic persist failed; cursor and projection remain unchanged"
+                    );
+                }
             },
 
             // UC-10 通知/待办：global increment-end 触发的 `queryTodoList` HTTP 回报 → 装配

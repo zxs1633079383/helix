@@ -218,9 +218,20 @@ pub(crate) fn message_v3_post_mutation_ops(
     };
 
     let fields = &event.fields;
+    let Ok(event_seq) = i64::try_from(event.seq.0) else {
+        return Vec::new();
+    };
+    if auth_user_id.is_empty() {
+        return Vec::new();
+    }
     let channel_id = event.channel_id.as_str().to_string();
     let viewer_id = auth_user_id.to_string();
     let sender_view = fields.user_id == auth_user_id;
+    let should_bump_unread = event
+        .unread_bump
+        .as_ref()
+        .map(|update| update.unread_delta > 0)
+        .unwrap_or(!sender_view);
     // 在线 WS post 可能是稀疏 echo；Sync 则持有可覆盖本地行的完整 authority snapshot。
     let message_op = match source {
         PostUpsertSource::OnlineSparse => crate::channel::event_to_online_upsert_op(event),
@@ -245,12 +256,35 @@ pub(crate) fn message_v3_post_mutation_ops(
             ],
         }),
     ];
-    if sender_view {
-        let member_row = vec![
-            ("channel_id".to_string(), SqlValue::Text(channel_id)),
-            ("user_id".to_string(), SqlValue::Text(viewer_id)),
-            ("unread_count".to_string(), SqlValue::Integer(0)),
-            ("unread_post_id".to_string(), SqlValue::Text(String::new())),
+    let member_row = vec![
+        ("channel_id".to_string(), SqlValue::Text(channel_id.clone())),
+        ("user_id".to_string(), SqlValue::Text(viewer_id.clone())),
+        ("unread_count".to_string(), SqlValue::Integer(0)),
+        ("last_unread_event_seq".to_string(), SqlValue::Integer(0)),
+    ];
+    ops.push(StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel_member",
+        rows: vec![member_row],
+        conflict_key: Some("channel_id,user_id"),
+        exclude_from_update: vec!["unread_count", "last_unread_event_seq"],
+    }));
+    ops.push(StorageOp::ScopedGuardedBump(ScopedGuardedBumpSpec {
+        table: "channel_member",
+        scope_col: "channel_id",
+        scope_val: SqlValue::Text(channel_id),
+        key_col: "user_id",
+        key_val: SqlValue::Text(viewer_id),
+        bump_col: "unread_count",
+        bump_delta: i64::from(should_bump_unread),
+        set_cols: vec![
+            (
+                "unread_post_id".to_string(),
+                SqlValue::Text(if should_bump_unread {
+                    fields.id.clone()
+                } else {
+                    String::new()
+                }),
+            ),
             ("last_post".to_string(), SqlValue::Text(last_post)),
             (
                 "last_post_at".to_string(),
@@ -260,53 +294,14 @@ pub(crate) fn message_v3_post_mutation_ops(
                 "last_root_post_at".to_string(),
                 SqlValue::Integer(fields.create_at),
             ),
-        ];
-        ops.push(StorageOp::BatchUpsert(UpsertSpec {
-            table: "channel_member",
-            rows: vec![member_row],
-            conflict_key: Some("channel_id,user_id"),
-            exclude_from_update: Vec::new(),
-        }));
-    } else {
-        let member_row = vec![
-            ("channel_id".to_string(), SqlValue::Text(channel_id.clone())),
-            ("user_id".to_string(), SqlValue::Text(viewer_id.clone())),
-            ("unread_count".to_string(), SqlValue::Integer(0)),
-            ("last_root_post_at".to_string(), SqlValue::Integer(0)),
-        ];
-        ops.push(StorageOp::BatchUpsert(UpsertSpec {
-            table: "channel_member",
-            rows: vec![member_row],
-            conflict_key: Some("channel_id,user_id"),
-            exclude_from_update: vec!["unread_count", "last_root_post_at"],
-        }));
-        ops.push(StorageOp::ScopedGuardedBump(ScopedGuardedBumpSpec {
-            table: "channel_member",
-            scope_col: "channel_id",
-            scope_val: SqlValue::Text(channel_id),
-            key_col: "user_id",
-            key_val: SqlValue::Text(viewer_id),
-            bump_col: "unread_count",
-            bump_delta: 1,
-            set_cols: vec![
-                (
-                    "unread_post_id".to_string(),
-                    SqlValue::Text(fields.id.clone()),
-                ),
-                ("last_post".to_string(), SqlValue::Text(last_post)),
-                (
-                    "last_post_at".to_string(),
-                    SqlValue::Integer(fields.create_at),
-                ),
-                (
-                    "last_root_post_at".to_string(),
-                    SqlValue::Integer(fields.create_at),
-                ),
-            ],
-            guard_col: "last_root_post_at",
-            guard_val: fields.create_at,
-        }));
-    }
+            (
+                "last_unread_event_seq".to_string(),
+                SqlValue::Integer(event_seq),
+            ),
+        ],
+        guard_col: "last_unread_event_seq",
+        guard_val: event_seq,
+    }));
     ops
 }
 
@@ -322,6 +317,9 @@ pub fn message_v3_commit_ops(
         last_post.to_string(),
         PostUpsertSource::OnlineSparse,
     );
+    if ops.is_empty() {
+        return ops;
+    }
     ops.push(crate::acl::to_effect::advance_cursor_op(
         event.channel_id,
         event.seq,

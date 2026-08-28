@@ -14,7 +14,6 @@ use common::*;
 use helix_core::effect::StorageOp;
 use helix_core::tick::PortOutcome;
 use helix_core::{Correlation, Tick};
-use helix_im::acl::to_effect::batch_upsert_events_with_messages;
 use helix_im::acl::to_effect::batch_upsert_events_with_messages_and_auth;
 use helix_im::parser::parse_sync_response;
 use helix_im::sync_session::SyncResponse;
@@ -205,7 +204,7 @@ fn s4_type1_before_type6_in_same_batch() {
     let types: Vec<u8> = events.iter().map(|e| e.kind.type_num()).collect();
     assert_eq!(types, vec![1, 6], "parser 须分桶 type1→type6（type6 最后）");
 
-    let ops = batch_upsert_events_with_messages(&events, &messages);
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "viewer-444");
     let kinds: Vec<OpKind> = ops
         .iter()
         .map(classify)
@@ -240,7 +239,7 @@ fn s4_four_bucket_strict_order() {
         24,
     );
     let (events, messages) = parse_evs(&reply, 2);
-    let ops = batch_upsert_events_with_messages(&events, &messages);
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "viewer-444");
     let kinds: Vec<OpKind> = ops
         .iter()
         .map(classify)

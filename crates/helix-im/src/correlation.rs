@@ -691,8 +691,7 @@ pub enum CorrelationContext {
     /// Single `post_update` fact and its channel cursor share one durable commit. The render-ready update is
     /// retained until the matching transaction reply succeeds.
     PostUpdateAtomic {
-        channel_id: ChannelId,
-        target_seq: crate::state::Seq,
+        event: Box<crate::sync_session::EventEnvelope>,
         pending_domain_event: Vec<u8>,
     },
 

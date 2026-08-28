@@ -26,9 +26,8 @@ pub use super::storage_effects::{
 pub(crate) use super::sync_effects::batch_upsert_events_with_messages_and_auth_observed;
 pub(crate) use super::sync_effects::pending_send_reconciliations;
 pub use super::sync_effects::{
-    batch_upsert_events, batch_upsert_events_with_messages,
-    batch_upsert_events_with_messages_and_auth, sync_channel_update_plans, sync_mutation_emits,
-    sync_mutation_emits_with_auth, sync_unread_bump_ops,
+    batch_upsert_events, batch_upsert_events_with_messages_and_auth, sync_channel_update_plans,
+    sync_mutation_emits, sync_mutation_emits_with_auth,
 };
 pub use super::sync_http_effects::{
     connection_id_headers, increment_http_trigger, increment_message_timestamp_scan, sync_notify,

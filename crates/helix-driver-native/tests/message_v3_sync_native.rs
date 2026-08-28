@@ -57,6 +57,72 @@ async fn open_storage() -> (NativeStorage, std::path::PathBuf) {
     (storage, path)
 }
 
+/// 旧库新增 per-viewer guard 时必须从 0 开始，不能把 channel cursor 冒充成员态 authority。
+#[tokio::test]
+async fn legacy_member_migration_does_not_copy_channel_cursor_into_viewer_guard() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock after epoch")
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "helix-sync-legacy-{}-{nonce}.db",
+        std::process::id()
+    ));
+    let storage = NativeStorage::open(&format!("sqlite:{}?mode=rwc", path.display()))
+        .await
+        .expect("open legacy NativeStorage");
+    storage
+        .execute_raw(
+            "CREATE TABLE channel_member (channel_id TEXT NOT NULL, user_id TEXT NOT NULL, unread_count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(channel_id,user_id))",
+        )
+        .await
+        .expect("create legacy member table");
+    storage
+        .execute_raw(
+            "CREATE TABLE channel_event_cursor (channel_id TEXT PRIMARY KEY, last_event_seq INTEGER NOT NULL DEFAULT 0)",
+        )
+        .await
+        .expect("create legacy cursor table");
+    storage
+        .execute_raw(
+            "INSERT INTO channel_member(channel_id,user_id,unread_count) VALUES ('chfixx00000000000000000001','viewer-444',7)",
+        )
+        .await
+        .expect("seed legacy member");
+    storage
+        .execute_raw(
+            "INSERT INTO channel_event_cursor(channel_id,last_event_seq) VALUES ('chfixx00000000000000000001',99)",
+        )
+        .await
+        .expect("seed channel cursor");
+    let migration = IM_SCHEMA_MIGRATIONS
+        .iter()
+        .find(|statement| statement.contains("ADD COLUMN last_unread_event_seq"))
+        .expect("member guard migration");
+    storage
+        .execute_raw(migration)
+        .await
+        .expect("apply member guard migration");
+
+    let row = storage
+        .scoped_get(ScopedGetSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text(CHANNEL_ID.to_string()),
+            key_col: "user_id",
+            key_val: SqlValue::Text(VIEWER_ID.to_string()),
+        })
+        .await
+        .expect("read migrated member")
+        .expect("migrated member row");
+    assert!(row.iter().any(|(column, value)| {
+        column == "last_unread_event_seq" && matches!(value, SqlValue::Integer(0))
+    }));
+
+    drop(storage);
+    let _ = std::fs::remove_file(path);
+}
+
 /// 构造触发大缺口的在线 post；目标群未 attach。
 fn gap_tick() -> Tick {
     Tick::Inbound(InboundBytes(Bytes::from(
@@ -95,6 +161,28 @@ fn post_tick(seq: u64) -> Tick {
             }
         }))
         .expect("serialize post frame"),
+    )))
+}
+
+/// 构造业务序号递增但共享同一 createAt 的在线 post，锁定稳定业务 guard。
+fn post_tick_with_create_at(seq: u64, create_at: u64) -> Tick {
+    Tick::Inbound(InboundBytes(Bytes::from(
+        serde_json::to_vec(&serde_json::json!({
+            "action": "post",
+            "data": {
+                "id": format!("srvfix{seq:020x}"),
+                "temporaryId": format!("tmp-same-ms-{seq}"),
+                "channelId": CHANNEL_ID,
+                "event_seq": seq,
+                "userId": "sender-678",
+                "type": "TEXT",
+                "message": format!("same-ms-{seq}"),
+                "simpleMessage": format!("same-ms-{seq}"),
+                "createAt": create_at,
+                "viewers": [VIEWER_ID]
+            }
+        }))
+        .expect("serialize same-ms post frame"),
     )))
 }
 
@@ -493,6 +581,76 @@ async fn small_gap_advances_only_after_each_native_persist() {
     let _ = std::fs::remove_file(path);
 }
 
+/// 同毫秒的两个合法 type=1 必须按 eventSeq 各增加一次 viewer 未读。
+#[tokio::test]
+async fn same_millisecond_posts_use_business_seq_for_native_unread_guard() {
+    let (storage, path) = open_storage().await;
+    let mut config = ImConfig::default();
+    config.auth_user_id = VIEWER_ID.to_string();
+    config.company_id = "tenant-1".to_string();
+    let mut module = ImModule::new(config);
+    module.register_channel(ChannelId::from_str(CHANNEL_ID).expect("channel id"), 0);
+    let mut sink = EffectSink::new();
+
+    for seq in [1_u64, 2] {
+        module
+            .handle(
+                &post_tick_with_create_at(seq, 9_999),
+                1_000 + seq,
+                &mut sink,
+            )
+            .expect("apply same-ms post");
+        let (persist_corr, persist_ops) = take_persist(&sink, true);
+        let persist_outcome = execute_storage_ops_atomic(&storage, &persist_ops).await;
+        sink.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr: persist_corr,
+                    outcome: persist_outcome,
+                },
+                2_000 + seq,
+                &mut sink,
+            )
+            .expect("commit same-ms post");
+        let (read_corr, read_ops) = take_persist(&sink, false);
+        let read_outcome = execute_storage_ops(&storage, &read_ops).await;
+        sink.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr: read_corr,
+                    outcome: read_outcome,
+                },
+                3_000 + seq,
+                &mut sink,
+            )
+            .expect("project same-ms post");
+        sink.clear();
+    }
+
+    let member = storage
+        .scoped_get(ScopedGetSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text(CHANNEL_ID.to_string()),
+            key_col: "user_id",
+            key_val: SqlValue::Text(VIEWER_ID.to_string()),
+        })
+        .await
+        .expect("same-ms member readback")
+        .expect("same-ms member row");
+    assert!(
+        member.iter().any(|(name, value)| {
+            name == "unread_count" && matches!(value, SqlValue::Integer(2))
+        }),
+        "相同 createAt 的递增 eventSeq 必须形成 unread=2: {member:?}"
+    );
+
+    drop(storage);
+    let _ = std::fs::remove_file(path);
+}
+
 /// 小 gap 的首笔原子写失败时不得推进 cursor、读回或发布成功终态。
 #[tokio::test]
 async fn small_gap_persist_error_and_duplicate_reply_fail_closed() {
@@ -518,10 +676,24 @@ async fn small_gap_persist_error_and_duplicate_reply_fail_closed() {
     module
         .handle(
             &Tick::PortReply {
+                corr: Correlation::from_raw(persist_corr.raw() + 1_000_000),
+                outcome: PortOutcome::Ok(ReplyBytes::default()),
+            },
+            1_002,
+            &mut sink,
+        )
+        .expect("wrong correlation is ignored");
+    assert_eq!(module.cursor_for(channel_id), Some(0));
+    assert!(sink.as_slice().is_empty(), "错误 corr 不得消费待提交状态");
+
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
                 corr: persist_corr,
                 outcome: PortOutcome::Err(PortError::Storage(1)),
             },
-            1_002,
+            1_003,
             &mut sink,
         )
         .expect("persist error handle");
@@ -540,7 +712,7 @@ async fn small_gap_persist_error_and_duplicate_reply_fail_closed() {
                 corr: persist_corr,
                 outcome: PortOutcome::Ok(ReplyBytes::default()),
             },
-            1_003,
+            1_004,
             &mut sink,
         )
         .expect("late fake success ignored");
@@ -803,6 +975,55 @@ async fn sync_type3_and_type6_apply_in_order_without_unread_delta() {
         .iter()
         .any(|(name, value)| name == "read_bits"
             && matches!(value, SqlValue::Text(bits) if bits == "1")));
+
+    assert!(matches!(
+        execute_storage_ops_atomic(&storage, &ops).await,
+        PortOutcome::Ok(_)
+    ));
+    let duplicate = storage
+        .get(GetSpec {
+            table: "message",
+            key_col: "temporary_id",
+            key_val: SqlValue::Text("tmp-revoke".to_string()),
+        })
+        .await
+        .expect("duplicate revoke read")
+        .expect("duplicate revoke target");
+    assert!(duplicate
+        .iter()
+        .any(|(name, value)| name == "revoke" && matches!(value, SqlValue::Integer(1))));
+    assert!(duplicate.iter().any(|(name, value)| {
+        name == "read_bits" && matches!(value, SqlValue::Text(bits) if bits == "1")
+    }));
+
+    let missing_revoke = EventEnvelope::new(
+        channel_id,
+        Seq(5),
+        EventKind::PostRevoke,
+        PostFields::default(),
+    )
+    .with_msg_id(Some("msg-missing".to_string()));
+    let missing_ops = helix_im::acl::to_effect::batch_upsert_events_with_messages_and_auth(
+        &[missing_revoke],
+        &HashMap::new(),
+        VIEWER_ID,
+    );
+    assert!(matches!(
+        execute_storage_ops_atomic(&storage, &missing_ops).await,
+        PortOutcome::Ok(_)
+    ));
+    assert!(
+        storage
+            .get(GetSpec {
+                table: "message",
+                key_col: "id",
+                key_val: SqlValue::Text("msg-missing".to_string()),
+            })
+            .await
+            .expect("missing revoke lookup")
+            .is_none(),
+        "缺失撤回目标不得伪造 message"
+    );
     let member = storage
         .scoped_get(ScopedGetSpec {
             table: "channel_member",
@@ -823,10 +1044,11 @@ async fn sync_type3_and_type6_apply_in_order_without_unread_delta() {
 }
 
 /// 1/10/100/500 条单频道 Sync 始终只产生一个业务 PersistAtomic，写集保持 O(N)。
-#[test]
-fn sync_batch_effect_count_has_constant_round_trips_and_linear_ops() {
+#[tokio::test]
+async fn sync_batch_effect_count_has_constant_round_trips_and_linear_ops() {
     let mut observed = Vec::new();
     for count in [1_usize, 10, 100, 500] {
+        let (storage, path) = open_storage().await;
         let mut config = ImConfig::default();
         config.auth_user_id = VIEWER_ID.to_string();
         config.company_id = "tenant-1".to_string();
@@ -873,9 +1095,141 @@ fn sync_batch_effect_count_has_constant_round_trips_and_linear_ops() {
                 .all(|effect| !matches!(effect, Effect::Persist { .. } | Effect::Emit { .. })),
             "PersistOk 前不得产生读回或成功投影"
         );
+        let (persist_corr, persist_ops) = take_persist(&sink, true);
+        let persist_outcome = execute_storage_ops_atomic(&storage, &persist_ops).await;
+        sink.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr: persist_corr,
+                    outcome: persist_outcome,
+                },
+                3_000,
+                &mut sink,
+            )
+            .expect("batch atomic commit");
+        let readbacks: Vec<_> = sink
+            .as_slice()
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Persist { corr, ops }
+                    if matches!(ops.as_slice(), [StorageOp::ScopedGet(spec)]
+                        if spec.table == "channel_member") =>
+                {
+                    Some((*corr, ops.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(readbacks.len(), 1, "count={count} 必须恰一 viewer 成员读回");
+        let (read_corr, read_ops) = readbacks.into_iter().next().expect("one readback");
+        let read_outcome = execute_storage_ops(&storage, &read_ops).await;
+        sink.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr: read_corr,
+                    outcome: read_outcome,
+                },
+                3_001,
+                &mut sink,
+            )
+            .expect("batch member readback");
+        let dialog_count = sink
+            .as_slice()
+            .iter()
+            .filter(|effect| match effect {
+                Effect::Emit { event } => {
+                    serde_json::from_slice::<serde_json::Value>(event.0.as_ref())
+                        .is_ok_and(|event| event["event"] == "im:channel:update")
+                }
+                _ => false,
+            })
+            .count();
+        assert_eq!(dialog_count, 1, "count={count} 必须恰一最终 Dialog 投影");
         observed.push((count, atomics[0]));
+        drop(storage);
+        let _ = std::fs::remove_file(path);
     }
     assert_eq!(observed.len(), 4);
+}
+
+/// 成员态读回失败时已提交事实不得被猜成成功 Dialog，迟到回报也不得二次结算。
+#[tokio::test]
+async fn sync_member_readback_failure_has_no_dialog_projection() {
+    let (storage, path) = open_storage().await;
+    let mut config = ImConfig::default();
+    config.auth_user_id = VIEWER_ID.to_string();
+    config.company_id = "tenant-1".to_string();
+    let mut module = ImModule::new(config);
+    module.register_channel(ChannelId::from_str(CHANNEL_ID).expect("channel id"), 0);
+    let mut sink = EffectSink::new();
+
+    module.handle(&gap_tick(), 1_000, &mut sink).expect("gap");
+    let sync_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("sync corr");
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: sync_corr,
+                outcome: PortOutcome::Ok(ReplyBytes(sync_batch_reply(1))),
+            },
+            2_000,
+            &mut sink,
+        )
+        .expect("sync reply");
+    let (persist_corr, persist_ops) = take_persist(&sink, true);
+    let persist_outcome = execute_storage_ops_atomic(&storage, &persist_ops).await;
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: persist_corr,
+                outcome: persist_outcome,
+            },
+            2_001,
+            &mut sink,
+        )
+        .expect("commit");
+    let (read_corr, _) = take_persist(&sink, false);
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: read_corr,
+                outcome: PortOutcome::Err(PortError::Storage(2)),
+            },
+            2_002,
+            &mut sink,
+        )
+        .expect("readback failure");
+    assert!(sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Emit { .. })));
+
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: read_corr,
+                outcome: PortOutcome::Ok(ReplyBytes::default()),
+            },
+            2_003,
+            &mut sink,
+        )
+        .expect("late readback ignored");
+    assert!(sink.as_slice().is_empty());
+
+    drop(storage);
+    let _ = std::fs::remove_file(path);
 }
 
 /// 从真实 Go WS frame 读取频道业务序号，兼容当前 camel/snake 两种字段名。
@@ -1033,6 +1387,12 @@ async fn real_go_gap_projects_first_unread_then_recovers_second() {
             real_chain::CHAIN_GO_WS_URL,
         )
         .await?;
+        let observer_http = real_chain::go_http_at(
+            &context.observer,
+            real_chain::CHAIN_GO_HTTP_BASE,
+            real_chain::CHAIN_GO_WS_URL,
+        )
+        .await?;
         let first = create_real_post(
             &actor_http,
             &mut observer,
@@ -1058,7 +1418,7 @@ async fn real_go_gap_projects_first_unread_then_recovers_second() {
         drive_real_tick(
             &mut module,
             &storage,
-            &actor_http,
+            &observer_http,
             &event_sink,
             Tick::Inbound(InboundBytes(Bytes::from(
                 serde_json::to_vec(&first).map_err(|error| error.to_string())?,
@@ -1106,7 +1466,7 @@ async fn real_go_gap_projects_first_unread_then_recovers_second() {
         drive_real_tick(
             &mut module,
             &storage,
-            &actor_http,
+            &observer_http,
             &event_sink,
             Tick::Inbound(InboundBytes(Bytes::from(
                 serde_json::to_vec(&second).map_err(|error| error.to_string())?,
@@ -1158,7 +1518,7 @@ async fn real_go_gap_projects_first_unread_then_recovers_second() {
         drive_real_tick(
             &mut module,
             &storage,
-            &actor_http,
+            &observer_http,
             &event_sink,
             Tick::Inbound(InboundBytes(Bytes::from(
                 serde_json::to_vec(&second).map_err(|error| error.to_string())?,

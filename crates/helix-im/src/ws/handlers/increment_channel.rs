@@ -62,6 +62,7 @@ pub(crate) fn apply_increment_hydration(
     has_persist
 }
 
+/// 将单个 increment 快照编译为频道写与当前 viewer 的单调成员态写。
 fn apply_increment_effects(ctx: &mut ImWsContext<'_>, inc: &IncrementChannel) -> Vec<Effect> {
     let mut effects = Vec::with_capacity(4);
     let channel_id = inc.channel_id;
@@ -110,6 +111,73 @@ fn apply_increment_effects(ctx: &mut ImWsContext<'_>, inc: &IncrementChannel) ->
             crate::channel_write::program_full(&data, ctx.auth_user_id, ctx.now_ms)
         {
             effects.push(crate::acl::to_effect::upsert_channel_full(cols, exclude));
+        }
+
+        // 只有快照明确携带 unread 绝对值时，它才是当前 viewer 的成员态权威；缺字段时保留
+        // 既有 member/guard，后续 HydrationHistory 再按实际 type1 事件重建，禁止用默认值猜测。
+        let unread_authority = data
+            .get("unreadCount")
+            .or_else(|| data.get("unread_count"))
+            .and_then(|value| {
+                value
+                    .as_i64()
+                    .or_else(|| value.as_u64().and_then(|value| i64::try_from(value).ok()))
+            });
+        let event_seq = i64::try_from(inc.last_event_seq.0).ok();
+        if let (Some(unread_count), Some(event_seq)) = (unread_authority, event_seq) {
+            if let Some((mut row, _)) = crate::channel_update::member_channel_from_update_channel(
+                &data,
+                channel_id,
+                ctx.auth_user_id,
+                ctx.now_ms,
+            )
+            .filter(|_| !ctx.auth_user_id.is_empty())
+            {
+                if let Some((_, user_id)) = row.iter_mut().find(|(column, _)| column == "user_id") {
+                    *user_id = helix_core::effect::SqlValue::Text(ctx.auth_user_id.to_string());
+                }
+                row.push((
+                    "last_unread_event_seq".to_string(),
+                    helix_core::effect::SqlValue::Integer(event_seq),
+                ));
+                let seed =
+                    helix_core::effect::StorageOp::BatchUpsert(helix_core::effect::UpsertSpec {
+                        table: "channel_member",
+                        rows: vec![row],
+                        conflict_key: Some("channel_id,user_id"),
+                        exclude_from_update: vec!["unread_count", "last_unread_event_seq"],
+                    });
+                // `last_post_at + 0` 只充当通用 ScopedGuardedBump 的中性载体；真正写入的是
+                // unread 绝对值与 per-viewer sequence guard，旧/重放快照因严格 `>` 不会回退。
+                let guarded_set = helix_core::effect::StorageOp::ScopedGuardedBump(
+                    helix_core::effect::ScopedGuardedBumpSpec {
+                        table: "channel_member",
+                        scope_col: "channel_id",
+                        scope_val: helix_core::effect::SqlValue::Text(
+                            channel_id.as_str().to_string(),
+                        ),
+                        key_col: "user_id",
+                        key_val: helix_core::effect::SqlValue::Text(ctx.auth_user_id.to_string()),
+                        bump_col: "last_post_at",
+                        bump_delta: 0,
+                        set_cols: vec![
+                            (
+                                "unread_count".to_string(),
+                                helix_core::effect::SqlValue::Integer(unread_count),
+                            ),
+                            (
+                                "last_unread_event_seq".to_string(),
+                                helix_core::effect::SqlValue::Integer(event_seq),
+                            ),
+                        ],
+                        guard_col: "last_unread_event_seq",
+                        guard_val: event_seq,
+                    },
+                );
+                effects.push(Effect::PersistFire {
+                    ops: vec![seed, guarded_set],
+                });
+            }
         }
 
         // A1 修复：从帧四源 `members/owner/adminUsers/boss` **+ `memberChange.join`** 写

@@ -529,4 +529,6 @@
 
 ✅ DONE Issue #137 对齐 PongGap、断线 Sync 与 Hydration；证据：Pong fan-out 以 pending Persist 与 dirty channel 集合做 O(1) 登记，整批排空后每频道一次 viewer readback；HydrationHistory 只恢复 message，不二次改未读；严格 roster fixture 补 memberCount 后 G13b 9/9；Pong 内核 3/3、HydrationHistory 1/1、driver-native 4/4（含 SQLite 重启 member/cursor 读回）、diff check 通过 | 赌注 高 | 可逆 是 | @2026-08-28T
 
-🎯 EXPECT Issue #138 收敛 type=2 编辑持久化屏障；可证伪断言：在线连续、gap 与离线 Sync 只 patch authority 字段，PersistOk 前零 `im:post:updated`，PersistErr 零成功终态，viewer unread delta 恒 0，Chain declaration 仍只走 canonical chain projection；helix-im 与 driver-native focused 通过后才进入 #139 | 赌注 高 | 可逆 是 | @2026-08-28T
+✅ DONE Issue #138 收敛 type=2 编辑持久化屏障；证据：在线 G06 4/4、Sync/Chain 编译器 13/13；Sync 无 PersistFire/提前 Emit，pending domain events 只在 matching PersistOk 释放；Native SQLite type2 原子 patch 后 member unread 5 保持 5，driver focused 1/1；无需生产代码改动 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+🎯 EXPECT Issue #139 收敛 type=3 撤回与 type=6 混批；可证伪断言：撤回只改 revoke 且 unread delta=0，缺失目标幂等 no-op，重复/错误 corr 无二次终态；四类乱序最终 type1→type2→type3→type6，type6 readBits 不被快照覆盖；helix-im 与 Native SQLite/driver focused 通过后才进入 #140 | 赌注 高 | 可逆 是 | @2026-08-28T

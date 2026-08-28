@@ -1,5 +1,6 @@
 //! MessageV3 Sync type=1 的 NativeStorage / NativeEventSink 本地集成证据。
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -11,6 +12,8 @@ use helix_core::tick::{InboundBytes, PortError, PortOutcome, ReplyBytes};
 use helix_core::{Correlation, EffectSink, Tick};
 use helix_driver_host::{base64_encode, execute_storage_ops, execute_storage_ops_atomic};
 use helix_driver_native::{NativeEventSink, NativeStorage};
+use helix_im::state::{ChannelId, Seq};
+use helix_im::sync_session::{EventEnvelope, EventKind, PostFields};
 use helix_im::{ImConfig, ImModule, IM_SCHEMA, IM_SCHEMA_MIGRATIONS};
 
 const CHANNEL_ID: &str = "chfixx00000000000000000001";
@@ -623,6 +626,67 @@ async fn pong_gap_reads_each_viewer_dialog_once_after_all_native_persists() {
         projected_channels,
         vec![CHANNEL_ID.to_string(), CHANNEL_ID_2.to_string()]
     );
+
+    drop(storage);
+    let _ = std::fs::remove_file(path);
+}
+
+/// Sync type=2 只更新 authority 字段，不得改变 viewer 未读。
+#[tokio::test]
+async fn sync_type2_patches_native_message_without_unread_delta() {
+    let (storage, path) = open_storage().await;
+    storage
+        .execute_raw("INSERT INTO message (temporary_id,id,channel_id,user_id,message,quick_reply) VALUES ('tmp-edit','msg-edit','chfixx00000000000000000001','sender-678','before','[]')")
+        .await
+        .expect("seed message");
+    storage
+        .execute_raw("INSERT INTO channel_member (channel_id,user_id,unread_count) VALUES ('chfixx00000000000000000001','viewer-444',5)")
+        .await
+        .expect("seed member");
+    let channel_id = ChannelId::from_str(CHANNEL_ID).expect("channel id");
+    let event = EventEnvelope::new(
+        channel_id,
+        Seq(2),
+        EventKind::PostEdit,
+        PostFields::default(),
+    )
+    .with_msg_id(Some("msg-edit".to_string()));
+    let mut messages = HashMap::new();
+    let mut edited = PostFields::default();
+    edited.id = "msg-edit".to_string();
+    edited.message = "after".to_string();
+    edited.quick_reply = "[{\"emoji\":\"ok\",\"userIds\":[\"viewer-444\"]}]".to_string();
+    messages.insert("msg-edit".to_string(), edited);
+    let ops = helix_im::acl::to_effect::batch_upsert_events_with_messages_and_auth(
+        &[event],
+        &messages,
+        VIEWER_ID,
+    );
+    assert!(
+        ops.iter().all(|op| !matches!(
+            op,
+            StorageOp::GuardedBump(_) | StorageOp::ScopedGuardedBump(_)
+        )),
+        "type=2 写集不得包含 unread delta"
+    );
+    assert!(matches!(
+        execute_storage_ops_atomic(&storage, &ops).await,
+        PortOutcome::Ok(_)
+    ));
+    let member = storage
+        .scoped_get(ScopedGetSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text(CHANNEL_ID.to_string()),
+            key_col: "user_id",
+            key_val: SqlValue::Text(VIEWER_ID.to_string()),
+        })
+        .await
+        .expect("member read")
+        .expect("member row");
+    assert!(member
+        .iter()
+        .any(|(name, value)| name == "unread_count" && matches!(value, SqlValue::Integer(5))));
 
     drop(storage);
     let _ = std::fs::remove_file(path);

@@ -536,3 +536,7 @@
 ✅ DONE Issue #140 验证 Sync 批处理性能与失败原子性；证据：driver-native 回放 1/10/100/500 均恰一 PersistAtomic，PersistOk 前 0 readback/0 Emit，StorageOp ≤8N+3；同文件 PersistErr/重复 corr/Native SQLite 重启用例通过，整文件 7/7、diff check 通过 | 赌注 高 | 可逆 是 | @2026-08-28T
 
 🎯 EXPECT Issue #141 运行 Go 18066 双用户真实链回归；可证伪断言：Go worktree docker-up-clean 后 health 仅作前置；两个真实用户与 run-owned 群验证在线第一条1/第二条2、离线与 gap 的同一 channel/event/corr/WS/SQLite/EventSink 证据；清理资源，Go tracked diff=0；focused real-chain PASS 后才进入 #142 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+✅ DONE Issue #141 已完成 18066 双用户真实链：本地 Compose 使用快照内 444/678/445 三个非秘密同租户身份并创建/关闭 run-owned 群；444 第一条真实 post 经 WS→Native Persist→SQLite→EventSink 投影 unread=1，445 的真实 post/read 作为中间缺失事件，444 第二条高序号 post 触发真实 `/channel/sync/notify` 后投影 unread=2；SQLite `channel_member` 与 cursor 精确读回，重复第二帧零新增终态；`message_v3_sync_native` 10/10、Phase5 双设备 Gate 证据为 PASS，Go tracked diff=0 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+🎯 EXPECT Issue #142 只执行本次变更的 focused code review 与聚焦测试；可证伪断言：对 type1/type2/type3/type6、Routine/小 gap/PongGap/Hydration、Persist 屏障、viewer 复合键与批量线性写集逐项审查；Helix focused tests 通过，Go/客户端零业务 diff；记录既有 fmt 基线但不扩大修复；完成后停止并询问是否授权 Phase1-4 在线、离线、gap 与文字接龙整体 Review | 赌注 高 | 可逆 是 | @2026-08-28T

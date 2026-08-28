@@ -1,6 +1,6 @@
 //! MessageV3 Sync type=1 的 NativeStorage / NativeEventSink 本地集成证据。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -10,11 +10,16 @@ use helix_core::module_host::Module;
 use helix_core::ports::{EventSink, Storage};
 use helix_core::tick::{InboundBytes, PortError, PortOutcome, ReplyBytes};
 use helix_core::{Correlation, EffectSink, Tick};
-use helix_driver_host::{base64_encode, execute_storage_ops, execute_storage_ops_atomic};
-use helix_driver_native::{NativeEventSink, NativeStorage};
+use helix_driver_host::{
+    base64_encode, execute_storage_ops, execute_storage_ops_atomic, run_http_envelope,
+};
+use helix_driver_native::{NativeEventSink, NativeHttp, NativeStorage};
 use helix_im::state::{ChannelId, Seq};
 use helix_im::sync_session::{EventEnvelope, EventKind, PostFields};
 use helix_im::{ImConfig, ImModule, IM_SCHEMA, IM_SCHEMA_MIGRATIONS};
+
+#[path = "messageV3-domain/shared/mod.rs"]
+mod real_chain;
 
 const CHANNEL_ID: &str = "chfixx00000000000000000001";
 const CHANNEL_ID_2: &str = "chfixx00000000000000000002";
@@ -871,4 +876,311 @@ fn sync_batch_effect_count_has_constant_round_trips_and_linear_ops() {
         observed.push((count, atomics[0]));
     }
     assert_eq!(observed.len(), 4);
+}
+
+/// 从真实 Go WS frame 读取频道业务序号，兼容当前 camel/snake 两种字段名。
+fn real_event_seq(frame: &serde_json::Value) -> Option<u64> {
+    [
+        "/data/eventSeq",
+        "/data/event_seq",
+        "/eventSeq",
+        "/event_seq",
+    ]
+    .into_iter()
+    .find_map(|path| frame.pointer(path).and_then(serde_json::Value::as_u64))
+}
+
+/// 在已认证的真实 WS 观察窗口内创建一条消息，并返回同一 temporaryId 的 post frame。
+async fn create_real_post(
+    http: &NativeHttp,
+    observer: &mut real_chain::RawWs,
+    channel_id: &str,
+    sender: &real_chain::Persona,
+    marker: &str,
+) -> Result<serde_json::Value, String> {
+    let temporary_id = format!(
+        "sync-real-{}-{}",
+        std::process::id(),
+        DB_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    );
+    let response = real_chain::request_json(
+        http,
+        "POST",
+        &format!("{}/posts/create", real_chain::CHAIN_GO_HTTP_BASE),
+        Some(serde_json::json!({
+            "channelId": channel_id,
+            "teamId": sender.company_id,
+            "userId": sender.user_id,
+            "type": "TEXT",
+            "message": marker,
+            "simpleMessage": marker,
+            "props": {},
+            "viewers": ["all"],
+            "mentions": [],
+            "temporaryId": temporary_id
+        })),
+        "sync-real-post",
+    )
+    .await?;
+    real_chain::require_success(response, "posts/create")?;
+    real_chain::wait_ws_action(
+        observer,
+        "post",
+        |frame| {
+            real_chain::extract_id(frame, &["temporaryId", "temporary_id"]).as_deref()
+                == Some(temporary_id.as_str())
+        },
+        std::time::Duration::from_secs(20),
+    )
+    .await
+}
+
+/// 通过真实 Native HTTP/SQLite/EventSink 兑现一个 Tick 及其相关 PortReply 链。
+async fn drive_real_tick(
+    module: &mut ImModule,
+    storage: &NativeStorage,
+    http: &NativeHttp,
+    event_sink: &NativeEventSink,
+    first_tick: Tick,
+) -> Result<(), String> {
+    let mut pending = VecDeque::from([first_tick]);
+    let mut sink = EffectSink::new();
+    let mut now_ms = 10_000_u64;
+    let mut steps = 0_usize;
+    while let Some(tick) = pending.pop_front() {
+        steps += 1;
+        if steps > 64 {
+            return Err("real Sync native effect chain exceeded 64 steps".to_string());
+        }
+        sink.clear();
+        module
+            .handle(&tick, now_ms, &mut sink)
+            .map_err(|error| format!("real Sync module handle failed: {error}"))?;
+        now_ms += 1;
+        let mut replies = Vec::new();
+        for effect in sink.as_slice() {
+            match effect {
+                Effect::Http { corr, req } => replies.push(Tick::PortReply {
+                    corr: *corr,
+                    outcome: run_http_envelope(http, req.clone()).await,
+                }),
+                Effect::Persist { corr, ops } => replies.push(Tick::PortReply {
+                    corr: *corr,
+                    outcome: execute_storage_ops(storage, ops).await,
+                }),
+                Effect::PersistAtomic { corr, ops } => replies.push(Tick::PortReply {
+                    corr: *corr,
+                    outcome: execute_storage_ops_atomic(storage, ops).await,
+                }),
+                Effect::PersistFire { ops } => {
+                    if let PortOutcome::Err(error) = execute_storage_ops(storage, ops).await {
+                        return Err(format!("real Sync PersistFire failed: {error:?}"));
+                    }
+                }
+                Effect::Emit { event } => event_sink.emit(event.clone()),
+                Effect::ScheduleTimer { id, .. } => pending.push_back(Tick::Timer(*id)),
+                Effect::CancelTimer { .. }
+                | Effect::Send { .. }
+                | Effect::HttpFire { .. }
+                | Effect::UploadFile { .. }
+                | Effect::Request { .. } => {}
+            }
+        }
+        pending.extend(replies);
+    }
+    Ok(())
+}
+
+/// 收集唯一频道更新中的未读绝对值，忽略同批次的消息领域事件。
+fn drain_unread_updates(
+    receiver: &mut tokio::sync::broadcast::Receiver<helix_core::effect::DomainEventBytes>,
+    channel_id: &str,
+) -> Vec<i64> {
+    let mut unreads = Vec::new();
+    while let Ok(event) = receiver.try_recv() {
+        let Ok(event) = serde_json::from_slice::<serde_json::Value>(event.0.as_ref()) else {
+            continue;
+        };
+        if event["event"] == "im:channel:update" && event["data"]["channelId"] == channel_id {
+            if let Some(unread) = event["data"]["unreadCount"].as_i64() {
+                unreads.push(unread);
+            }
+        }
+    }
+    unreads
+}
+
+/// 444 发 post、445 产生中间 read、678 丢失 read 后收到下一 post 时必须经真实 Sync 恢复到 2。
+#[tokio::test]
+async fn real_go_gap_projects_first_unread_then_recovers_second() {
+    let (_guard, context) = real_chain::remote_setup_chain().await;
+    let channel_id = real_chain::create_chain_channel(&context)
+        .await
+        .expect("create run-owned real channel");
+    let (storage, path) = open_storage().await;
+    let mut observer =
+        real_chain::open_raw_ws_at(&context.observer, 61_001, real_chain::CHAIN_GO_WS_URL)
+            .await
+            .expect("open observer real WS");
+    real_chain::wait_ws_hello(&mut observer)
+        .await
+        .expect("observer WS hello");
+
+    let result: Result<(), String> = async {
+        let actor_http = real_chain::go_http_at(
+            &context.actor,
+            real_chain::CHAIN_GO_HTTP_BASE,
+            real_chain::CHAIN_GO_WS_URL,
+        )
+        .await?;
+        let first = create_real_post(
+            &actor_http,
+            &mut observer,
+            &channel_id,
+            &context.actor,
+            "sync-real-first",
+        )
+        .await?;
+        let first_seq = real_event_seq(&first)
+            .ok_or_else(|| format!("first real post lacks eventSeq: {first}"))?;
+        let post_id = real_chain::extract_id(&first, &["id", "postId", "post_id"])
+            .ok_or_else(|| format!("first real post lacks post id: {first}"))?;
+
+        let (event_sink, mut event_rx) = NativeEventSink::new();
+        let mut config = ImConfig::default();
+        config.auth_user_id = context.observer.user_id.clone();
+        config.company_id = context.observer.company_id.clone();
+        config.api_base_url = real_chain::CHAIN_GO_HTTP_BASE.to_string();
+        let mut module = ImModule::new(config);
+        let channel = ChannelId::from_str(&channel_id)
+            .ok_or_else(|| format!("real channel id rejected: {channel_id}"))?;
+        module.register_channel(channel, first_seq.saturating_sub(1));
+        drive_real_tick(
+            &mut module,
+            &storage,
+            &actor_http,
+            &event_sink,
+            Tick::Inbound(InboundBytes(Bytes::from(
+                serde_json::to_vec(&first).map_err(|error| error.to_string())?,
+            ))),
+        )
+        .await?;
+        let first_unreads = drain_unread_updates(&mut event_rx, &channel_id);
+        if first_unreads != vec![1] {
+            return Err(format!(
+                "first real post unread projection={first_unreads:?}"
+            ));
+        }
+
+        let third_http = real_chain::go_http_at(
+            &context.third,
+            real_chain::CHAIN_GO_HTTP_BASE,
+            real_chain::CHAIN_GO_WS_URL,
+        )
+        .await?;
+        let read = real_chain::request_json(
+            &third_http,
+            "POST",
+            &format!("{}/post/read", real_chain::CHAIN_GO_HTTP_BASE),
+            Some(serde_json::json!({"channelId": channel_id, "posts": [post_id]})),
+            "sync-real-read",
+        )
+        .await?;
+        real_chain::require_success(read, "post/read")?;
+
+        let second = create_real_post(
+            &actor_http,
+            &mut observer,
+            &channel_id,
+            &context.actor,
+            "sync-real-second",
+        )
+        .await?;
+        let second_seq = real_event_seq(&second)
+            .ok_or_else(|| format!("second real post lacks eventSeq: {second}"))?;
+        if second_seq <= first_seq + 1 {
+            return Err(format!(
+                "real read did not create the intended gap: first={first_seq}, second={second_seq}"
+            ));
+        }
+        drive_real_tick(
+            &mut module,
+            &storage,
+            &actor_http,
+            &event_sink,
+            Tick::Inbound(InboundBytes(Bytes::from(
+                serde_json::to_vec(&second).map_err(|error| error.to_string())?,
+            ))),
+        )
+        .await?;
+        let recovered_unreads = drain_unread_updates(&mut event_rx, &channel_id);
+        if recovered_unreads != vec![2] {
+            return Err(format!(
+                "gap recovery unread projection={recovered_unreads:?}, expected [2]"
+            ));
+        }
+
+        let member = storage
+            .scoped_get(ScopedGetSpec {
+                table: "channel_member",
+                scope_col: "channel_id",
+                scope_val: SqlValue::Text(channel_id.clone()),
+                key_col: "user_id",
+                key_val: SqlValue::Text(context.observer.user_id.clone()),
+            })
+            .await
+            .map_err(|error| format!("real member readback failed: {error}"))?
+            .ok_or_else(|| "real member row missing".to_string())?;
+        if !member
+            .iter()
+            .any(|(name, value)| name == "unread_count" && matches!(value, SqlValue::Integer(2)))
+        {
+            return Err(format!("real member unread is not 2: {member:?}"));
+        }
+        let cursor = storage
+            .get(GetSpec {
+                table: "channel_event_cursor",
+                key_col: "channel_id",
+                key_val: SqlValue::Text(channel_id.clone()),
+            })
+            .await
+            .map_err(|error| format!("real cursor readback failed: {error}"))?
+            .ok_or_else(|| "real cursor row missing".to_string())?;
+        if !cursor.iter().any(|(name, value)| {
+            name == "last_event_seq"
+                && matches!(value, SqlValue::Integer(seq) if *seq == second_seq as i64)
+        }) {
+            return Err(format!(
+                "real cursor did not reach {second_seq}: {cursor:?}"
+            ));
+        }
+
+        drive_real_tick(
+            &mut module,
+            &storage,
+            &actor_http,
+            &event_sink,
+            Tick::Inbound(InboundBytes(Bytes::from(
+                serde_json::to_vec(&second).map_err(|error| error.to_string())?,
+            ))),
+        )
+        .await?;
+        if !drain_unread_updates(&mut event_rx, &channel_id).is_empty() {
+            return Err("duplicate real WS frame emitted another unread terminal".to_string());
+        }
+        Ok(())
+    }
+    .await;
+
+    let ws_cleanup = observer
+        .transport
+        .close()
+        .await
+        .map_err(|error| format!("close observer WS: {error}"));
+    let channel_cleanup = real_chain::close_chain_channel(&context, &channel_id).await;
+    drop(storage);
+    let _ = std::fs::remove_file(path);
+    result.expect("real Go Sync gap chain");
+    ws_cleanup.expect("observer WS cleanup");
+    channel_cleanup.expect("run-owned channel cleanup");
 }

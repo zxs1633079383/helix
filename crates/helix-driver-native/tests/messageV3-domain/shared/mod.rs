@@ -12,8 +12,9 @@
 //! ```
 //!
 //! 默认不读取环境变量；仅可用 `HELIX_MAIN_API_BASE` 覆盖登录服务 DNS，便于本地真实链
-//! 对齐 release 配置。测试会自动寻找现有 `cses-client/.wdio/credentials.local.json`，
-//! 登录三个共享租户账号；Go 8066、登录服务或对象存储不可达时显式失败为
+//! 对齐 release 配置。Phase1-4 自动寻找现有 `cses-client/.wdio/credentials.local.json`
+//! 登录三个共享租户账号；Phase5 的 18066 Compose 使用本地快照中的非秘密身份。Go、登录服务
+//! 或对象存储不可达时显式失败为
 //! `BLOCKED_PRECONDITION/NOT_VERIFIED`，不会把 health 200、HTTP admission 或 fake WS 当成 PASS。
 
 use bytes::Bytes;
@@ -42,6 +43,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
 mod chain;
+#[allow(unused_imports)]
 pub(crate) use chain::run_text_chain_gate;
 
 pub(crate) const GO_HTTP_BASE: &str = "http://127.0.0.1:8066/api/cses";
@@ -50,6 +52,10 @@ pub(crate) const GO_WS_URL: &str = "ws://127.0.0.1:8066/api/v4/websocket";
 pub(crate) const CHAIN_GO_HTTP_BASE: &str = "http://127.0.0.1:18066/api/cses";
 /// Phase5 Go 容器专用 WS 端点；host 8066 不属于本轮验证资源。
 pub(crate) const CHAIN_GO_WS_URL: &str = "ws://127.0.0.1:18066/api/v4/websocket";
+const CHAIN_COMPANY_ID: &str = "64118eebd2b665246b7880eb";
+const CHAIN_ACTOR_USER_ID: &str = "444";
+const CHAIN_OBSERVER_USER_ID: &str = "678";
+const CHAIN_THIRD_USER_ID: &str = "445";
 pub(crate) const MAIN_API_BASE: &str = "http://cses-server-paas25-test.cses.svc.cluster.local:3399";
 pub(crate) const GO_HEALTH_URL: &str = "http://127.0.0.1:8066/api/cses/health";
 pub(crate) const CREDENTIALS_RELATIVE: &str =
@@ -682,15 +688,6 @@ pub(crate) async fn discover_auth_context_at(
     go_http_base: &str,
     go_health_url: &str,
 ) -> Result<AuthContext, String> {
-    let credentials_path = discover_credentials_path()?;
-    let content = std::fs::read_to_string(&credentials_path)
-        .map_err(|error| format!("read credentials file failed: {error}"))?;
-    let credentials: CredentialFile = serde_json::from_str(&content)
-        .map_err(|error| format!("parse credentials file failed: {error}"))?;
-    if credentials.accounts.len() < 3 {
-        return Err("credentials account pool must contain at least three accounts".to_string());
-    }
-
     let health = anonymous_http_at(go_http_base, go_health_base_to_ws(go_health_url)).await?;
     let health_response = request_json(&health, "GET", go_health_url, None, "health").await?;
     if health_response.status != 200 {
@@ -698,6 +695,18 @@ pub(crate) async fn discover_auth_context_at(
             "Go health {go_health_url} returned HTTP {}",
             health_response.status
         ));
+    }
+    if go_http_base == CHAIN_GO_HTTP_BASE {
+        return Ok(local_chain_auth_context());
+    }
+
+    let credentials_path = discover_credentials_path()?;
+    let content = std::fs::read_to_string(&credentials_path)
+        .map_err(|error| format!("read credentials file failed: {error}"))?;
+    let credentials: CredentialFile = serde_json::from_str(&content)
+        .map_err(|error| format!("parse credentials file failed: {error}"))?;
+    if credentials.accounts.len() < 3 {
+        return Err("credentials account pool must contain at least three accounts".to_string());
     }
 
     let mut order = Vec::with_capacity(credentials.accounts.len());
@@ -738,6 +747,24 @@ pub(crate) async fn discover_auth_context_at(
         }
     }
     Err("could not find three logged-in accounts sharing one companyId".to_string())
+}
+
+/// 构造 18066 Compose 快照中的三用户身份；Cookieid 依照本地 C006 合同等于 userId。
+fn local_chain_auth_context() -> AuthContext {
+    let persona = |user_id: &str, user_name: &str| Persona {
+        user_id: user_id.to_string(),
+        cookie_id: user_id.to_string(),
+        company_id: CHAIN_COMPANY_ID.to_string(),
+        user_name: user_name.to_string(),
+        org_name: "本地真实链".to_string(),
+        dept_name: "本地真实链".to_string(),
+        companies: vec![CHAIN_COMPANY_ID.to_string()],
+    };
+    AuthContext {
+        actor: persona(CHAIN_ACTOR_USER_ID, "本地发送者"),
+        observer: persona(CHAIN_OBSERVER_USER_ID, "本地观察者"),
+        third: persona(CHAIN_THIRD_USER_ID, "本地成员"),
+    }
 }
 
 /// 将本轮 health URL 的 HTTP 端口映射为 NativeHttp 所需的 WS URL。

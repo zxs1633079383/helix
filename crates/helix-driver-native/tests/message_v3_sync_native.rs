@@ -138,6 +138,55 @@ fn sync_reply_for(channel_id: &str, suffix: u64) -> Bytes {
     )
 }
 
+/// 构造单频道 N 条 type=1 的 Sync HTTP 信封，用于批量 Effect 计数。
+fn sync_batch_reply(count: usize) -> Bytes {
+    let mut events = Vec::with_capacity(count);
+    let mut messages = serde_json::Map::with_capacity(count);
+    for seq in 1..=count as u64 {
+        let message_id = format!("srvfix{seq:020x}");
+        events.push(serde_json::json!({
+            "channelId": CHANNEL_ID,
+            "eventSeq": seq,
+            "eventType": 1,
+            "msgId": message_id
+        }));
+        messages.insert(
+            message_id.clone(),
+            serde_json::json!({
+                "id": message_id,
+                "temporaryId": format!("tmp-batch-{seq}"),
+                "channelId": CHANNEL_ID,
+                "userId": "sender-678",
+                "type": "TEXT",
+                "message": format!("batch-{seq}"),
+                "simpleMessage": format!("batch-{seq}"),
+                "createAt": seq,
+                "viewers": [VIEWER_ID]
+            }),
+        );
+    }
+    let raw = serde_json::to_vec(&serde_json::json!({
+        "status": "SUCCESS",
+        "data": {"entries": [{
+            "channelId": CHANNEL_ID,
+            "kind": "events",
+            "events": events,
+            "messages": messages,
+            "nextSeq": count,
+            "resetTo": null
+        }]}
+    }))
+    .expect("serialize batch sync");
+    Bytes::from(
+        serde_json::to_vec(&serde_json::json!({
+            "status": 200,
+            "headers": {},
+            "body": base64_encode(&raw)
+        }))
+        .expect("serialize batch envelope"),
+    )
+}
+
 /// 构造两个显式频道缺口的无 action pong ACK。
 fn pong_gap_tick() -> Tick {
     Tick::Inbound(InboundBytes(Bytes::from(
@@ -766,4 +815,60 @@ async fn sync_type3_and_type6_apply_in_order_without_unread_delta() {
 
     drop(storage);
     let _ = std::fs::remove_file(path);
+}
+
+/// 1/10/100/500 条单频道 Sync 始终只产生一个业务 PersistAtomic，写集保持 O(N)。
+#[test]
+fn sync_batch_effect_count_has_constant_round_trips_and_linear_ops() {
+    let mut observed = Vec::new();
+    for count in [1_usize, 10, 100, 500] {
+        let mut config = ImConfig::default();
+        config.auth_user_id = VIEWER_ID.to_string();
+        config.company_id = "tenant-1".to_string();
+        let mut module = ImModule::new(config);
+        module.register_channel(ChannelId::from_str(CHANNEL_ID).expect("channel id"), 0);
+        let mut sink = EffectSink::new();
+        module.handle(&gap_tick(), 1_000, &mut sink).expect("gap");
+        let sync_corr = sink
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Http { corr, .. } => Some(*corr),
+                _ => None,
+            })
+            .expect("sync corr");
+        sink.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr: sync_corr,
+                    outcome: PortOutcome::Ok(ReplyBytes(sync_batch_reply(count))),
+                },
+                2_000,
+                &mut sink,
+            )
+            .expect("batch sync reply");
+        let atomics: Vec<_> = sink
+            .as_slice()
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::PersistAtomic { ops, .. } => Some(ops.len()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(atomics.len(), 1, "count={count} 必须恰一业务 PersistAtomic");
+        assert!(
+            atomics[0] <= count * 8 + 3,
+            "count={count} StorageOp={} 超过线性上界",
+            atomics[0]
+        );
+        assert!(
+            sink.as_slice()
+                .iter()
+                .all(|effect| !matches!(effect, Effect::Persist { .. } | Effect::Emit { .. })),
+            "PersistOk 前不得产生读回或成功投影"
+        );
+        observed.push((count, atomics[0]));
+    }
+    assert_eq!(observed.len(), 4);
 }

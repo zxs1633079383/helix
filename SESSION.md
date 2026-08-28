@@ -533,4 +533,6 @@
 
 ✅ DONE Issue #139 收敛 type=3 撤回与 type=6 混批；证据：Native SQLite type3+type6 原子批终态 revoke=1/readBits=1/member unread=5；S4 混批 6/6 严格 type1→type2→type3→type6；单列 patch 1/1，重复 corr 由一次性 correlation 消费；无需生产代码改动 | 赌注 高 | 可逆 是 | @2026-08-28T
 
-🎯 EXPECT Issue #140 验证 Sync 批处理性能与失败原子性；可证伪断言：1/10/100/500 单频道事件均恰一 PersistAtomic，写集 O(N)，提交后至多一次 viewer member readback/一次 Dialog；PersistErr、readback Err、错误 corr、重复 Ok、重启无部分 cursor/伪成功/重复未读；记录 Effect/StorageOp 数后才进入 #141 | 赌注 高 | 可逆 是 | @2026-08-28T
+✅ DONE Issue #140 验证 Sync 批处理性能与失败原子性；证据：driver-native 回放 1/10/100/500 均恰一 PersistAtomic，PersistOk 前 0 readback/0 Emit，StorageOp ≤8N+3；同文件 PersistErr/重复 corr/Native SQLite 重启用例通过，整文件 7/7、diff check 通过 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+🎯 EXPECT Issue #141 运行 Go 18066 双用户真实链回归；可证伪断言：Go worktree docker-up-clean 后 health 仅作前置；两个真实用户与 run-owned 群验证在线第一条1/第二条2、离线与 gap 的同一 channel/event/corr/WS/SQLite/EventSink 证据；清理资源，Go tracked diff=0；focused real-chain PASS 后才进入 #142 | 赌注 高 | 可逆 是 | @2026-08-28T

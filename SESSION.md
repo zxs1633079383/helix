@@ -527,4 +527,6 @@
 
 ✅ DONE Issue #136 对齐小 gap 与大 gap 补齐；证据：driver-native 真实 Tick::Inbound 证明 seq2 先缓冲且 cursor=0，seq1/seq2 仅在各自 PersistOk 后推进并投影 unread 1/2；大 gap Sync 首条 unread=1；PersistErr、迟到伪 Ok、重复回报均 fail-closed；目标 attach 已从 dialog readback 条件移除，`message_v3_sync_native` 3/3、diff check 通过 | 赌注 高 | 可逆 是 | @2026-08-28T
 
-🎯 EXPECT Issue #137 对齐 PongGap、断线 Sync 与 Hydration；可证伪断言：三种恢复入口共用 type1 durable 写集；PongGap 等待相关 Persist 后每频道至多一次 viewer readback；任一 PersistErr 不声明完整成功；Hydration 重启后的 message/channel_member/cursor 与相同事件在线终态一致且最终 Dialog snapshot 可恢复；driver-native focused 通过后才进入 #138 | 赌注 高 | 可逆 是 | @2026-08-28T
+✅ DONE Issue #137 对齐 PongGap、断线 Sync 与 Hydration；证据：Pong fan-out 以 pending Persist 与 dirty channel 集合做 O(1) 登记，整批排空后每频道一次 viewer readback；HydrationHistory 只恢复 message，不二次改未读；严格 roster fixture 补 memberCount 后 G13b 9/9；Pong 内核 3/3、HydrationHistory 1/1、driver-native 4/4（含 SQLite 重启 member/cursor 读回）、diff check 通过 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+🎯 EXPECT Issue #138 收敛 type=2 编辑持久化屏障；可证伪断言：在线连续、gap 与离线 Sync 只 patch authority 字段，PersistOk 前零 `im:post:updated`，PersistErr 零成功终态，viewer unread delta 恒 0，Chain declaration 仍只走 canonical chain projection；helix-im 与 driver-native focused 通过后才进入 #139 | 赌注 高 | 可逆 是 | @2026-08-28T

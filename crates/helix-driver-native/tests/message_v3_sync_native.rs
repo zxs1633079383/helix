@@ -4,9 +4,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
-use helix_core::effect::{Effect, StorageOp};
+use helix_core::effect::{Effect, GetSpec, ScopedGetSpec, SqlValue, StorageOp};
 use helix_core::module_host::Module;
-use helix_core::ports::EventSink;
+use helix_core::ports::{EventSink, Storage};
 use helix_core::tick::{InboundBytes, PortError, PortOutcome, ReplyBytes};
 use helix_core::{Correlation, EffectSink, Tick};
 use helix_driver_host::{base64_encode, execute_storage_ops, execute_storage_ops_atomic};
@@ -14,6 +14,7 @@ use helix_driver_native::{NativeEventSink, NativeStorage};
 use helix_im::{ImConfig, ImModule, IM_SCHEMA, IM_SCHEMA_MIGRATIONS};
 
 const CHANNEL_ID: &str = "chfixx00000000000000000001";
+const CHANNEL_ID_2: &str = "chfixx00000000000000000002";
 const VIEWER_ID: &str = "viewer-444";
 static DB_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -90,24 +91,25 @@ fn post_tick(seq: u64) -> Tick {
 }
 
 /// 构造 host 实际交还给 Helix 的 ADR-007 Sync HTTP 信封。
-fn sync_reply() -> Bytes {
+fn sync_reply_for(channel_id: &str, suffix: u64) -> Bytes {
+    let message_id = format!("srvfix{suffix:020x}");
     let raw = serde_json::to_vec(&serde_json::json!({
         "status": "SUCCESS",
         "data": {
             "entries": [{
-                "channelId": CHANNEL_ID,
+                "channelId": channel_id,
                 "kind": "events",
                 "events": [{
-                    "channelId": CHANNEL_ID,
+                    "channelId": channel_id,
                     "eventSeq": 1,
                     "eventType": 1,
-                    "msgId": "srvfix00000000000000000001"
+                    "msgId": message_id
                 }],
                 "messages": {
-                    "srvfix00000000000000000001": {
-                        "id": "srvfix00000000000000000001",
-                        "temporaryId": "tmp-1",
-                        "channelId": CHANNEL_ID,
+                    message_id.clone(): {
+                        "id": message_id,
+                        "temporaryId": format!("tmp-{suffix}"),
+                        "channelId": channel_id,
                         "userId": "sender-678",
                         "type": "TEXT",
                         "message": "first unread",
@@ -131,6 +133,23 @@ fn sync_reply() -> Bytes {
         }))
         .expect("serialize HTTP envelope"),
     )
+}
+
+/// 构造两个显式频道缺口的无 action pong ACK。
+fn pong_gap_tick() -> Tick {
+    Tick::Inbound(InboundBytes(Bytes::from(
+        serde_json::to_vec(&serde_json::json!({
+            "status": "OK",
+            "data": {
+                "gaps": [
+                    {"channelId": CHANNEL_ID, "fromSeq": 1, "maxSeq": 1},
+                    {"channelId": CHANNEL_ID_2, "fromSeq": 1, "maxSeq": 1}
+                ],
+                "hashMismatch": false
+            }
+        }))
+        .expect("serialize pong gap"),
+    )))
 }
 
 /// 从 Effect 批次取出指定类别的 correlation 与操作集。
@@ -177,7 +196,7 @@ async fn sync_type1_projects_first_unread_through_native_ports() {
         .handle(
             &Tick::PortReply {
                 corr: sync_corr,
-                outcome: PortOutcome::Ok(ReplyBytes(sync_reply())),
+                outcome: PortOutcome::Ok(ReplyBytes(sync_reply_for(CHANNEL_ID, 1))),
             },
             2_000,
             &mut sink,
@@ -235,6 +254,36 @@ async fn sync_type1_projects_first_unread_through_native_ports() {
     assert_eq!(event["data"]["unreadCount"], 1);
 
     drop(storage);
+    let reopened = NativeStorage::open(&format!("sqlite:{}?mode=rwc", path.display()))
+        .await
+        .expect("reopen NativeStorage after simulated restart");
+    let member = reopened
+        .scoped_get(ScopedGetSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text(CHANNEL_ID.to_string()),
+            key_col: "user_id",
+            key_val: SqlValue::Text(VIEWER_ID.to_string()),
+        })
+        .await
+        .expect("restart member readback")
+        .expect("restart member row");
+    assert!(member
+        .iter()
+        .any(|(name, value)| name == "unread_count" && matches!(value, SqlValue::Integer(1))));
+    let cursor = reopened
+        .get(GetSpec {
+            table: "channel_event_cursor",
+            key_col: "channel_id",
+            key_val: SqlValue::Text(CHANNEL_ID.to_string()),
+        })
+        .await
+        .expect("restart cursor readback")
+        .expect("restart cursor row");
+    assert!(cursor
+        .iter()
+        .any(|(name, value)| name == "last_event_seq" && matches!(value, SqlValue::Integer(1))));
+    drop(reopened);
     let _ = std::fs::remove_file(path);
 }
 
@@ -440,4 +489,141 @@ async fn small_gap_persist_error_and_duplicate_reply_fail_closed() {
         .expect("late fake success ignored");
     assert_eq!(module.cursor_for(channel_id), Some(0));
     assert!(sink.as_slice().is_empty());
+}
+
+/// PongGap fan-out 必须等待整批提交后按频道去重读回最终 viewer dialog。
+#[tokio::test]
+async fn pong_gap_reads_each_viewer_dialog_once_after_all_native_persists() {
+    let (storage, path) = open_storage().await;
+    let mut config = ImConfig::default();
+    config.auth_user_id = VIEWER_ID.to_string();
+    config.company_id = "tenant-1".to_string();
+    let mut module = ImModule::new(config);
+    for channel_id in [CHANNEL_ID, CHANNEL_ID_2] {
+        module.register_channel(
+            helix_im::state::ChannelId::from_str(channel_id).expect("canonical channel id"),
+            0,
+        );
+    }
+    let mut sink = EffectSink::new();
+
+    module
+        .handle(&pong_gap_tick(), 1_000, &mut sink)
+        .expect("pong gap handle");
+    let sync_corrs: Vec<_> = sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Http { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sync_corrs.len(), 2);
+
+    let mut persist_rounds = Vec::new();
+    for (index, sync_corr) in sync_corrs.into_iter().enumerate() {
+        sink.clear();
+        let channel_id = if index == 0 { CHANNEL_ID } else { CHANNEL_ID_2 };
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr: sync_corr,
+                    outcome: PortOutcome::Ok(ReplyBytes(sync_reply_for(
+                        channel_id,
+                        index as u64 + 1,
+                    ))),
+                },
+                2_000 + index as u64,
+                &mut sink,
+            )
+            .expect("pong sync reply");
+        persist_rounds.push(take_persist(&sink, true));
+    }
+
+    let (first_corr, first_ops) = persist_rounds.remove(0);
+    let first_outcome = execute_storage_ops_atomic(&storage, &first_ops).await;
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: first_corr,
+                outcome: first_outcome,
+            },
+            3_000,
+            &mut sink,
+        )
+        .expect("first pong persist");
+    assert!(
+        !sink.as_slice().iter().any(|effect| matches!(
+            effect,
+            Effect::Persist { ops, .. }
+                if matches!(ops.as_slice(), [StorageOp::ScopedGet(spec)]
+                    if spec.table == "channel_member")
+        )),
+        "fan-out 尚有 Persist 未完成时不得提前读回 dialog: {:?}",
+        sink.as_slice()
+    );
+
+    let (second_corr, second_ops) = persist_rounds.remove(0);
+    let second_outcome = execute_storage_ops_atomic(&storage, &second_ops).await;
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: second_corr,
+                outcome: second_outcome,
+            },
+            3_001,
+            &mut sink,
+        )
+        .expect("second pong persist");
+    let readbacks: Vec<_> = sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if matches!(ops.as_slice(), [StorageOp::ScopedGet(spec)]
+                    if spec.table == "channel_member") =>
+            {
+                Some((*corr, ops.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(readbacks.len(), 2, "每个 dirty channel 只能读回一次");
+
+    let mut projected_channels = Vec::new();
+    for (read_corr, read_ops) in readbacks {
+        let read_outcome = execute_storage_ops(&storage, &read_ops).await;
+        sink.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr: read_corr,
+                    outcome: read_outcome,
+                },
+                4_000,
+                &mut sink,
+            )
+            .expect("pong dialog readback");
+        projected_channels.extend(sink.as_slice().iter().filter_map(|effect| {
+            match effect {
+                Effect::Emit { event } => {
+                    serde_json::from_slice::<serde_json::Value>(event.0.as_ref())
+                        .ok()
+                        .filter(|event| event["event"] == "im:channel:update")
+                        .and_then(|event| event["data"]["channelId"].as_str().map(str::to_owned))
+                }
+                _ => None,
+            }
+        }));
+    }
+    projected_channels.sort();
+    assert_eq!(
+        projected_channels,
+        vec![CHANNEL_ID.to_string(), CHANNEL_ID_2.to_string()]
+    );
+
+    drop(storage);
+    let _ = std::fs::remove_file(path);
 }

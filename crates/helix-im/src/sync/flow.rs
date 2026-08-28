@@ -448,6 +448,11 @@ impl ImModule {
                         &events,
                         &messages,
                         auth_user_id,
+                        if trigger == SyncTrigger::Hydration {
+                            crate::acl::sync_effects::SyncApplyMode::HydrationHistory
+                        } else {
+                            crate::acl::sync_effects::SyncApplyMode::LiveRecovery
+                        },
                         Some(&observation),
                     );
                 // Chain facts arrive inside the same channel-event payload as ordinary message
@@ -804,6 +809,11 @@ impl ImModule {
             prefix,
             &messages,
             auth_user_id,
+            if trigger == SyncTrigger::Hydration {
+                crate::acl::sync_effects::SyncApplyMode::HydrationHistory
+            } else {
+                crate::acl::sync_effects::SyncApplyMode::LiveRecovery
+            },
             Some(&observation),
         );
         // terminal prefix 与普通 Sync 共用 type=1 编译器，不再追加共享 channel 未读。

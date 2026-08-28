@@ -176,6 +176,11 @@ impl ImModule {
                     self.queue_next_message_v3_event(event, out)?;
                 }
                 self.state.pong_gap_batch.finish_persist(corr, true);
+                let pong_batch_active =
+                    trigger == SyncTrigger::PongGap && self.state.pong_gap_batch.is_active();
+                if committed && pong_batch_active && !channel_updates.is_empty() {
+                    self.state.pong_gap_batch.record_dialog_channel(channel_id);
+                }
                 if committed {
                     for event_id in pending_chain_event_ids {
                         self.state.pending_chain_event_ids.remove(&event_id);
@@ -217,7 +222,7 @@ impl ImModule {
                     }
                 }
                 // PersistAtomic 是写屏障；viewer dialog 读回不依赖时间线 attach，且只按复合键读取一行。
-                if committed {
+                if committed && !pong_batch_active {
                     if let Some(pending) = channel_updates.into_iter().last() {
                         let readback_corr = self.alloc_corr_internal();
                         out.push(Effect::Persist {

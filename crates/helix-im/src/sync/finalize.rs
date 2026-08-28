@@ -12,13 +12,27 @@ impl ImModule {
         persisted_corr: Option<helix_core::Correlation>,
         out: &mut EffectSink,
     ) -> Result<bool, crate::error::ImError> {
-        let Some(committed_change) = self
+        let Some((committed_change, dialog_channels)) = self
             .state
             .pong_gap_batch
             .take_completion(self.state.sync_scheduler.is_idle())
         else {
             return Ok(false);
         };
+        for channel_id in dialog_channels {
+            let corr = self.alloc_corr_internal();
+            out.push(helix_core::Effect::Persist {
+                corr,
+                ops: vec![crate::channel_write::message_v3_member_read_op(
+                    channel_id,
+                    self.config.auth_user_id.as_str(),
+                )],
+            });
+            self.state.corr_map.insert(
+                corr,
+                crate::state::CorrelationContext::MessageV3SyncDialogReadback,
+            );
+        }
         if committed_change {
             out.push(
                 crate::event::sync::gap_repaired(serde_json::json!({

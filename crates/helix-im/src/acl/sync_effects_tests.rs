@@ -11,7 +11,9 @@
 //!   - 去掉撤回事件 → 必无 `im:post:revoke`（不会凭空发出）。
 
 use super::{
-    batch_upsert_events_with_messages_and_auth, sync_mutation_emits, sync_mutation_emits_with_auth,
+    batch_upsert_events_with_messages_and_auth,
+    batch_upsert_events_with_messages_and_auth_observed, sync_mutation_emits,
+    sync_mutation_emits_with_auth, SyncApplyMode,
 };
 use crate::state::{ChannelId, Seq};
 use crate::sync_session::{EventEnvelope, EventKind, PostFields};
@@ -122,6 +124,38 @@ fn no_revoke_event_means_no_post_revoke() {
         find_emit(&emits, "im:post:revoke").is_none(),
         "无 PostRevoke 事件不得发出 im:post:revoke"
     );
+}
+
+/// Hydration 历史 type=1 只恢复 message，不得再次改写 viewer 未读或共享频道预览。
+#[test]
+fn hydration_history_upsert_does_not_compile_dialog_mutations() {
+    let mut messages = HashMap::new();
+    messages.insert(
+        MSG.to_string(),
+        PostFields {
+            id: MSG.to_string(),
+            temporary_id: "tmp-hydration".to_string(),
+            channel_id: CH.to_string(),
+            user_id: "author".to_string(),
+            viewers: vec!["viewer".to_string()],
+            message: "history".to_string(),
+            create_at: 7,
+            ..PostFields::default()
+        },
+    );
+
+    let ops = batch_upsert_events_with_messages_and_auth_observed(
+        &[upsert_ev(7)],
+        &messages,
+        "viewer",
+        SyncApplyMode::HydrationHistory,
+        None,
+    );
+
+    assert!(matches!(
+        ops.as_slice(),
+        [StorageOp::BatchUpsert(spec)] if spec.table == "message"
+    ));
 }
 
 /// G-06：sync gap 回补的 fat postUpdated 必须保留独立 quick_reply 绝对态。

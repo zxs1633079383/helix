@@ -184,7 +184,20 @@ pub fn batch_upsert_events_with_messages_and_auth(
     messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
     auth_user_id: &str,
 ) -> Vec<StorageOp> {
-    batch_upsert_events_with_messages_and_auth_observed(events, messages, auth_user_id, None)
+    batch_upsert_events_with_messages_and_auth_observed(
+        events,
+        messages,
+        auth_user_id,
+        SyncApplyMode::LiveRecovery,
+        None,
+    )
+}
+
+/// 区分实时/补齐 viewer 结算与 Hydration 历史事实恢复。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SyncApplyMode {
+    LiveRecovery,
+    HydrationHistory,
 }
 
 /// C2 sync 落库编译器；可选观测上下文只影响诊断日志，不改变 StorageOp 语义。
@@ -192,6 +205,7 @@ pub(crate) fn batch_upsert_events_with_messages_and_auth_observed(
     events: &[EventEnvelope],
     messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
     auth_user_id: &str,
+    mode: SyncApplyMode,
     observation: Option<&crate::sync::observability::SyncObservation>,
 ) -> Vec<StorageOp> {
     use crate::sync_session::EventKind;
@@ -235,12 +249,19 @@ pub(crate) fn batch_upsert_events_with_messages_and_auth_observed(
                         ev.kind.clone(),
                         fields.clone(),
                     );
-                    let type1_ops = crate::channel_write::message_v3_post_mutation_ops(
-                        &ev_with_body,
-                        auth_user_id,
-                        update.last_post.clone(),
-                        crate::channel_write::PostUpsertSource::SyncSnapshot,
-                    );
+                    let type1_ops = match mode {
+                        SyncApplyMode::LiveRecovery => {
+                            crate::channel_write::message_v3_post_mutation_ops(
+                                &ev_with_body,
+                                auth_user_id,
+                                update.last_post.clone(),
+                                crate::channel_write::PostUpsertSource::SyncSnapshot,
+                            )
+                        }
+                        SyncApplyMode::HydrationHistory => {
+                            vec![crate::channel::event_to_upsert_op(&ev_with_body)]
+                        }
+                    };
                     if let Some(context) =
                         observation.filter(|context| context.target_matches(msg_id, Some(fields)))
                     {

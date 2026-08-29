@@ -32,6 +32,12 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 在独立 worktree 对齐当前仓库 Markdown 与 `512a0aeb` 代码事实；可证伪断言：① 只修改能由当前目录、Cargo/API/config/source、测试或脚本证明漂移的 Markdown 和必要 SESSION 记录，不改 Rust、JSON、TOML、脚本或生成产物；② 全库现行 Markdown 建立清单与代码真源映射，历史文档只核对定位、链接和退出现行入口边界；③ 保留共享 checkout 的未跟踪 artifacts/Prompt，不复用或清理其他 worktree；④ 聚焦 checker、相对链接/路径/索引、`git diff --check` 全部通过后才提交并普通推送目标分支 | 赌注 中 | 可逆 是 | @2026-08-29T08:05:00+0800
+
+✅ DONE 已在独立 worktree 对齐 14 份现行/历史 Markdown：harness 母本三处旧机器路径改为当前真实 sibling 文件；FFI 局部入口移除两份已删除阶段文档并把 query 契约路由到现行 AGENTS/source；六份 EventBus 方案与两份 V2/跨仓快照明确标为 `RETIRED_HISTORICAL`，撤销已删除过会稿、Mobile 文件和临时 worktree 的失效链接。全库 913 份 Markdown、1573 个本地链接 broken=0，HX-C 18/18/18，Spec 047 checker PASS、30/30 test path 与 production owner 存在，四个公共 crate README 版本与 0.1.1 manifest 一致，纯 Markdown diff 与 `git diff --check` PASS；未运行 Cargo。Spec manifest 仍有 10 Gate 的空 `verification` 命令/路径，属于本轮禁止修改的 JSON/checker Drift，已单列未伪造 Green | @2026-08-29T08:25:18+0800
+
+⚡ DRIFT-PRED 现有 Spec 047 checker 在 10 个 Gate 的 `verification` 含空 `--test` 与 `.v1/gates//generated` 时仍返回 PASS，且审计脚本先后暴露 zsh 只读变量与 Git 中文路径转义误判 → 候选教训：文档日检需独立校验 manifest 语义非空，并固定 `core.quotePath=false` 与跨 shell 安全变量名 | @2026-08-29T08:25:18+0800
+
 🎯 EXPECT 对齐当前仓库 Markdown 与 `caf20f3b` 代码事实；可证伪断言：① 只修改已存在且能由当前目录、Cargo/API/config/source 证明漂移的 Markdown，不改生产代码、不新造功能；② 删除或更正已不存在的模块、接口、配置与流程，并补齐已实现但入口文档缺失的重要事实；③ 保留既有文档结构和表达方式，已有未跟踪 artifacts/Prompt 不纳入；④ 全库 Markdown 相对链接、路径/符号抽查、`git diff --check` 通过，最终逐文档列出修改与主要 Drift | 赌注 中 | 可逆 是 | @2026-08-28T
 
 ✅ DONE 已按 `caf20f3b` 当前 workspace、Cargo manifest、源码目录、Spec 047 manifest/verification 和现存脚本对齐 13 份活跃 Markdown：删除失效的架构索引/过会方案/night-loop 路由，更正 MessageV3 P0-P7/R4 完成态、TGCR/30 Gate 当前真源、Web A5 与产品 renderer/上传边界、crate 0.1.1 版本、IM/driver/脚本目录及 HX-C008 命令。活跃入口 51 文件相对链接 broken=0，scripts README 22 个入口 missing=0，HX-C 18/18/18 对账，Spec 047 checker PASS，Web adapter/recorder 10/10，四个公共 crate README 与 manifest 一致，`git diff --check` PASS。额外运行的发布脚本单测因仍硬编码 0.1.0→0.1.1 而 5/7 通过、2 个 error，属于既有测试代码漂移，本次文档任务未越界修改；用户未跟踪 artifacts/Prompt 保持不变 | @2026-08-28T

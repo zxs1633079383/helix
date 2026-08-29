@@ -1,7 +1,7 @@
 # Helix Harness — 运行时无关核心层的反模式自维护约束库
 
 > **scope**：`crates/helix-core` + `crates/helix-im` + `crates/helix-driver-*`
-> **母本（方法论）**：[`/Users/mac28/workspace/angular/cses-client/docs/harness-Engineer最佳实战.md`](/Users/mac28/workspace/angular/cses-client/docs/harness-Engineer最佳实战.md)
+> **母本（方法论）**：[`/System/Volumes/Data/workspace/angular/visual/cses-client/docs/harness-Engineer最佳实战.md`](/System/Volumes/Data/workspace/angular/visual/cses-client/docs/harness-Engineer最佳实战.md)
 > **项目指令**：[`../../AGENTS.md`](../../AGENTS.md)（§4 索引指针 + 多端 checklist）
 > **触发操作手册**：[`OPERATING.md`](./OPERATING.md)（什么事 → 调什么；自动 vs 人工触发矩阵）
 

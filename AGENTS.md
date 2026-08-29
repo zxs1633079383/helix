@@ -146,7 +146,7 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 ## 4. 长运行任务约束 / Harness Engineering
 
 > 本项目长运行任务（跨会话 / 跨 Phase / autonomous 模式）的工程化约束体系。
-> 完整方法论见 [`/Users/mac28/workspace/angular/cses-client/docs/harness-Engineer最佳实战.md`](/Users/mac28/workspace/angular/cses-client/docs/harness-Engineer最佳实战.md)
+> 完整方法论见 [`/System/Volumes/Data/workspace/angular/visual/cses-client/docs/harness-Engineer最佳实战.md`](/System/Volumes/Data/workspace/angular/visual/cses-client/docs/harness-Engineer最佳实战.md)
 > （**不要把全文拷进本 AGENTS.md** —— 按下方触发条件**按需** Read）。
 
 **三个即时同步铁律**：

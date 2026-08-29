@@ -1,5 +1,8 @@
 # Dialog Projection Cross-Repo Contract Matrix
 
+> ⚠️ `RETIRED_HISTORICAL`：本文是 2026-07-09 的跨仓验证快照；当前合同与状态以
+> Spec 047、MessageV3 Gate manifest、当前代码和本轮证据为准。
+
 日期：2026-07-09
 
 ## 目标
@@ -65,7 +68,7 @@ fi
 
 | Item | Status | Evidence |
 |---|---|---|
-| `readLastSeq` / `msgCount` Helix `channel_member` schema + write path | NEED | [NEED_HELIX_CHANNEL_MEMBER_FIX.md](/System/Volumes/Data/workspace/rust/helix/worktrees/dialog-projection-sync-spec-20260709/NEED_HELIX_CHANNEL_MEMBER_FIX.md) 明确当前只允许 optional 消费 |
+| `readLastSeq` / `msgCount` Helix `channel_member` schema + write path | NEED | 临时 worktree 的历史 `NEED_HELIX_CHANNEL_MEMBER_FIX.md` 曾明确只允许 optional 消费；该 worktree 已不存在 |
 | Go DB integration | SKIP | `CSES_IM_TEST_DSN` 未设置，Task 4 只读复核明确禁止写成 live DB green |
 | mobile pinned rev gate | CONCERN | `make gtest-js-spec` 因共享 Helix checkout rev 与 pinned rev 不一致被脚本拒绝，不影响 focused contract PASS |
 

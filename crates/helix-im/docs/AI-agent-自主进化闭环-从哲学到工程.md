@@ -3,7 +3,7 @@
 > 一份方法论 + 一个真实案例:**如何给一个"每次调用都失忆重生"的 AI agent,装上一个会随时间进化的自主决策闭环。**
 > 来源:2026-06-17 helix 仓一次完整会话(从哲学讨论 → §4.8 落地 → B5 修复 → 漏洞7 修复)。
 > 调性:手册为主,B5 / stash / 漏洞7 三个事故作案例穿插。
-> 母本(harness 工程方法论):[`cses-client/docs/harness-Engineer最佳实战.md`](/Users/mac28/workspace/angular/cses-client/docs/harness-Engineer最佳实战.md)——那篇讲"harness 怎么做",本篇讲"怎么让 harness 自己会进化"。
+> 母本(harness 工程方法论):[`cses-client/docs/harness-Engineer最佳实战.md`](/System/Volumes/Data/workspace/angular/visual/cses-client/docs/harness-Engineer最佳实战.md)——那篇讲"harness 怎么做",本篇讲"怎么让 harness 自己会进化"。
 > 落地不变量:[`docs/harness/HX-C009`](../../../docs/harness/HX-C009-expect-reconcile-loop-integrity.md) + CLAUDE.md §4.8 / §4.7。
 
 ---

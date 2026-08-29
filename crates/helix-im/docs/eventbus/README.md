@@ -1,6 +1,8 @@
 # helix-im · EventBus 文档
 
-> IM 模块 EventBus 的设计文档集。core 层通用契约见仓库根 [`docs/过会方案/helix-eventbus-设计.md`](../../../../docs/过会方案/helix-eventbus-设计.md)；本目录是 IM 侧落地。
+> ⚠️ `RETIRED_HISTORICAL`：本目录保留 2026-06 的 EventBus 方案与场景调研，只供历史追溯。
+> 原 core 通用过会稿已删除；当前生产合同以 Spec 047、MessageV3 Gate manifest 与源码为准，
+> 本目录不得作为现行实现、API 或完成证据。
 
 | 文档 | 一句话 |
 |---|---|

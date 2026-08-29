@@ -31,4 +31,4 @@
 
 ## helix_query 契约
 
-见 [`../../移动端Command-Query-Event契约SPEC.md`](../../移动端Command-Query-Event契约SPEC.md)；实现以 `src/api.rs` 为准。
+见 [`../../../AGENTS.md`](../../../AGENTS.md) 的 `helix_query` 边界；实现以 `src/api.rs` 为准。

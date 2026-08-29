@@ -1,5 +1,7 @@
 🎯 EXPECT 收敛 Spec051 发布前基线并发布 Helix 0.1.2；可证伪断言：① 四个旧 `ImConfig` 测试构造显式补齐宿主平台且不改变 Effect/ACK 合同；② `cargo fmt --all -- --check` 与 `cargo test -p helix-im` 全绿；③ 发布脚本回归不再写死上一版本，`--plan`、8 包 check 与真实 publish 全部通过；④ 客户端切到精确 registry 0.1.2，移除持久 `HELIX_ROOT` 后 `yarn start` 不再临时 path 化；⑤ WDIO 只完成前置审计，不经用户确认启动真实 lane | 赌注 高 | 可逆 发布前是、首包上传后否 | @2026-08-29T
 
+✅ DONE Helix `0.1.2` 版本事务已完成：发布脚本按 core→im→host→native 顺序执行 package dry-run、8 包 check、真实上传与 registry 轮询，`cses-helix-core`、`helix-im`、`helix-driver-host`、`helix-driver-native` 四包均已可解析；8 个 workspace manifest 与 Cargo.lock 已同步到同批依赖图。未创建 tag、未 push，等待客户端精确 registry 依赖切换与 WDIO 前置审计收口 | @2026-08-29T
+
 ✅ DONE 发布前测试债务已收敛：旧 `ImConfig` 构造补齐 `client_platform`，全量运行暴露的旧事件名、查询投影、权威 WS echo 与原子持久化断言已对齐当前合同；`cargo test -p helix-im -- --nocapture` 全绿（含 100k 顺序事件、5k WS gap flush、5k sync backfill），`cargo fmt --all -- --check` 通过。Native 本地 lib/integration/stress/sync targets 全绿；workspace 仅剩 `message_v3_domain` 73 个真实链 Gate 因默认 8066 与当前 Go worktree 宿主 18066 未对齐而阻断，保持外部前置缺口，不冒充整体 Green | @2026-08-29T
 
 ✅ DONE Helix 0.1.1 已发布：`cses-helix-core`、`helix-im`、`helix-driver-host`、`helix-driver-native` 四包均经 crates.io 实时查询确认可解析；8 个 workspace manifest 与 Cargo.lock 已同步到同批依赖图。版本事务等待本次发布提交承载，不自动 push，既有 artifacts 保持未跟踪 | @2026-08-27T

@@ -2,7 +2,7 @@
 
 ## 当前结论
 
-Spec 051 的实施 Issue `#135`～`#142` 已完成代码收敛、focused review、Native SQLite 与当前 Go 18066 gap 真实链验证，可以关闭；父 Issue `#134` 可随子 Issue 一并关闭。
+Spec 051 的实施 Issue `#135`～`#142` 已完成代码收敛、focused review、Native SQLite 与当前 Go 18066 gap 真实链验证；GitLab 实时核对确认父 Issue `#134` 与全部子 Issue `#135`～`#142` 均为 `closed`。
 
 本结论只覆盖 Spec 051 的统一事件应用内核，不代表 MessageV3 Phase1～4 全部 80 Gate 或文字接龙 scoped 8 Gate 整体 Green。客户端整体 review 仍为 `PARTIAL`，具体阻断见“整体 Review 边界”。
 
@@ -13,6 +13,14 @@ Spec 051 的实施 Issue `#135`～`#142` 已完成代码收敛、focused review�
 - Go：`/System/Volumes/Data/workspace/worktrees/sync-event-alignment/cses-im-server`
 
 三仓主目录均未修改；Go 与客户端 worktree 没有业务源码 diff。
+
+## 发布与客户端消费
+
+- Helix `0.1.2` 已由 `scripts/publish_crates.py --publish` 按 `core → im → host → native` 顺序发布；`cses-helix-core`、`helix-im`、`helix-driver-host`、`helix-driver-native` 四包均经 registry 轮询确认可解析。
+- Helix 8 个 workspace manifest 与 `Cargo.lock` 已同步到同批依赖图，发布提交为 `c9643f27`；未创建 tag、未 push。
+- 客户端 worktree 已把四个 Helix 依赖切到精确 crates.io `=0.1.2`，提交为 `27583637e6`；`cargo metadata` 确认四包 source 均为 registry。
+- 用户级 `.zshrc` 中唯一持久 `HELIX_ROOT` 已移除，新登录 shell 为 unset；常规启动包装器 `--check` 通过，不再把 registry manifest 临时切回 path。
+- 客户端完整 `cargo check` 已解析并编译 Helix `0.1.2`，随后因既有本机资源 `resources/macos/staged/libonnxruntime.dylib` 缺失而停止；这不是 Helix registry 解析失败，客户端整包仍不能据此判 Green。
 
 ## 最终实现
 
@@ -87,6 +95,8 @@ passed
 - `yarn message-v3:hard-cut` 为 7/8，现存 `src/app/core/services/tauri/im-event-bus.ts` 的 `messageV3RawEventConsumer=1`。
 - Phase1～4 contract 分别存在 6/3/8/2 个失败，主要是 worktree 缺 `.wdio/credentials.local.json`、`tsx`、node_modules 或路径前置；coarse acceptance 24/24 通过不能替代真实 Gate。
 - Phase2～5 typecheck 因 `tsc: command not found` 未形成有效证据。
+- 当前 ignored `release.local.json` 已将 `cses.dev.imApiHost` 配为 `http://127.0.0.1:18066`，Phase1/2/3 release-local 均解析为 `http://127.0.0.1:18066/api/cses`；对应 Go worktree Docker health 为 200。该健康检查只证明前置可达。
+- WDIO 仍缺 `node_modules`、只读 `.wdio/credentials.local.json`、candidate、`dist/browser`、完整 Xcode 与 ONNX runtime staged dylib；Phase1/2/3 candidate builder 还会为测试候选临时使用 sibling Helix path，不能把该候选当作已发布 registry `0.1.2` 的消费证明。
 - 本轮未运行完整 WDIO real lane，Phase1 文档仍明确 G01i/G01j 未获真实 lane 证明。
 
 因此关闭 `#134`～`#142` 只表示 Spec 051 的 focused 实施与 review 完成，不改变上述 Phase Gate 的非 Green 状态。

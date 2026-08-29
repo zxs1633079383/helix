@@ -195,8 +195,8 @@ fn create_posts_registered_and_total_is_current() {
     );
     assert_eq!(
         outbound_command_count(),
-        136,
-        "outbound registry 总数应为 136（当前注册表闭集，含文字接龙命令）"
+        137,
+        "outbound registry 总数应为 137（当前注册表闭集，含文字接龙命令）"
     );
     // send 命令不在 outbound registry（走 module.rs send arm，带乐观落库/timer）。
     assert!(!is_outbound("im_send_message"));

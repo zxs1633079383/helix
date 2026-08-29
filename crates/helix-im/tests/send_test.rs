@@ -815,7 +815,7 @@ fn send_echo_reconcile_cancels_timer() {
 
 #[test]
 fn send_and_receive_interleaved() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     // 先发一条消息
     let _send_effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
 

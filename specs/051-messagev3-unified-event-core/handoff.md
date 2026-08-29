@@ -60,11 +60,19 @@ cargo test -p helix-im --test message_v3_g06
 
 cargo test -p helix-im --test increment_flow_test --test golden_replay_test
 11 passed, 0 failed
+
+cargo test -p helix-im -- --nocapture
+all unit, integration, stress and doc tests passed
+
+cargo fmt --all -- --check
+passed
 ```
 
 `message_v3_sync_native` 的 13 项包含：当前 Go 18066 gap 链、旧 schema migration、同毫秒 guard、小 gap、失败/重复 corr、PongGap、type2、type3/type6、1/10/100/500 复杂度和成员读回失败。
 
-全包命令 `cargo test -p helix-im -- --nocapture` 未达到全绿：编译到既有 `crates/helix-im/tests/stress_test.rs:44` 时，旧测试构造 `ImConfig` 缺 `client_platform`。该文件不在本次 diff，按基线债务单列，不纳入 Spec 051 修复。
+原先阻断全包的旧测试构造已按当前身份合同补齐 `client_platform`，并同步修正全量运行暴露的旧事件名、查询投影、权威 WS echo 与原子持久化断言。`cargo test -p helix-im -- --nocapture` 现已全绿，包含 100,000 条顺序事件、5,000 条 WS gap flush、5,000 条 sync backfill 等 stress 场景；两个既有格式问题也已由 `cargo fmt --all` 收敛，`cargo fmt --all -- --check` 通过。
+
+补充执行 `cargo test --workspace` 时，本地 unit/integration targets 均已通过；`helix-driver-native --test message_v3_domain` 的 73 个真实链 Gate 因默认访问 `http://127.0.0.1:8066/api/cses/health` 而被外部前置阻断。当前 Go worktree 实际由 Docker Compose 运行在宿主 `18066`（映射容器 `8066`，health 200），因此这是测试入口地址尚未显式对齐的运行配置缺口，不是本轮 Helix 单元、stress、格式或 Spec 051 focused 链失败，也不能据此宣称 Phase1～4 整体 Green。
 
 ## 真实链边界
 

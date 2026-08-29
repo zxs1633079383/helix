@@ -139,6 +139,7 @@ fn im_read_channel_handle_is_noop() {
         user_name: String::new(),
         org_name: String::new(),
         dept_name: String::new(),
+        client_platform: Default::default(),
         offline_sync_diagnostics: Default::default(),
     };
     let mut module = ImModule::new(config);

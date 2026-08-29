@@ -71,7 +71,7 @@ fn is_message_delete_effect(effect: &Effect) -> bool {
 /// 本测试锁定：无 message delete + cursor reset + emit + getLatestPost reload/upsert。
 #[test]
 fn s6_too_long_preserves_messages_and_emits_reload() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "s6-viewer", "s6-company", "", "", "");
     // 大缺口（seq=5 / cursor=0 / gap=5 > 阈值）→ **立即** backfill resync（根治
     // fix/im-sync-cursor-catchup）：sync Http 在 ingest 当步即发出，不再等 1s gate timer。
     let gate = h.step(inbound_event(1, 5, 1), 1000);
@@ -201,7 +201,7 @@ fn s6_too_long_preserves_messages_and_emits_reload() {
 
 #[test]
 fn s6_too_long_reload_failure_keeps_message_history() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "s6-viewer", "s6-company", "", "", "");
     let sync_corr = h
         .step(inbound_event(1, 5, 1), 1_000)
         .iter()

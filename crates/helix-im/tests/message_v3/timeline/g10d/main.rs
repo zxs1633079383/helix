@@ -41,14 +41,17 @@ pub(crate) fn locate_away_from_bottom(replay: &mut base::Replay) -> TestResult<(
     )?;
     let cache = replay.only_corr("write", None)?;
     replay.reply(cache, PortOutcome::Ok(ReplyBytes::default()), 5)?;
-    let readback = replay.only_corr("readback", None)?;
-    let target_row =
-        serde_json::to_vec(&vec![base::local_post(10)]).map_err(|error| error.to_string())?;
-    replay.reply(
-        readback,
-        PortOutcome::Ok(ReplyBytes(Bytes::from(target_row))),
-        6,
-    )?;
+    // Locate authority 返回 11 个 identity；逐条 matching durable readback 后才允许 terminal。
+    for (offset, index) in (5..=15).enumerate() {
+        let readback = replay.only_corr("readback", None)?;
+        let row = serde_json::to_vec(&vec![base::local_post(index)])
+            .map_err(|error| error.to_string())?;
+        replay.reply(
+            readback,
+            PortOutcome::Ok(ReplyBytes(Bytes::from(row))),
+            6 + offset as u64,
+        )?;
+    }
     if replay.events()?.len() != 1 {
         return Err("G-10d locate prerequisite must publish one terminal result".to_string());
     }

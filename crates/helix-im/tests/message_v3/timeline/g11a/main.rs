@@ -40,7 +40,7 @@ fn start_locate(
     replay.only_corr("http", Some("/posts/postContext"))
 }
 
-/// 完成一个 locate 的 HTTP、cache PersistOk 与 matching durable row readback。
+/// 完成一个 locate 的 HTTP、cache PersistOk 与逐 identity matching durable readback。
 fn settle_locate(
     replay: &mut base::Replay,
     http: Correlation,
@@ -54,14 +54,17 @@ fn settle_locate(
     )?;
     let cache = replay.only_corr("write", None)?;
     replay.reply(cache, PortOutcome::Ok(ReplyBytes::default()), offset_ms + 1)?;
-    let readback = replay.only_corr("readback", None)?;
-    let target_row = serde_json::to_vec(&vec![base::local_post(target_index)])
-        .map_err(|error| error.to_string())?;
-    replay.reply(
-        readback,
-        PortOutcome::Ok(ReplyBytes(Bytes::from(target_row))),
-        offset_ms + 2,
-    )?;
+    let start = target_index.saturating_sub(5).max(1);
+    for (offset, index) in (start..=target_index + 5).enumerate() {
+        let readback = replay.only_corr("readback", None)?;
+        let row = serde_json::to_vec(&vec![base::local_post(index)])
+            .map_err(|error| error.to_string())?;
+        replay.reply(
+            readback,
+            PortOutcome::Ok(ReplyBytes(Bytes::from(row))),
+            offset_ms + 2 + offset as u64,
+        )?;
+    }
     replay.events()
 }
 

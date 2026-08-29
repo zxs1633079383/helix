@@ -167,10 +167,15 @@ fn g06b_authority_frame_emits_absolute_readers_projection_after_persist() {
         1_700_001_406_002,
     );
     assert!(emitted_events(&harness).is_empty());
-    let persist_corr = harness.sink.as_slice().iter().find_map(|effect| match effect {
-        Effect::Persist { corr, .. } => Some(*corr),
-        _ => None,
-    }).expect("authority must wait for PersistOk");
+    let persist_corr = harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("authority must wait for PersistOk");
     harness.step(port_reply_ok(persist_corr.raw()), 1_700_001_406_003);
     let events = emitted_events(&harness);
     assert_eq!(events.len(), 1);
@@ -184,7 +189,10 @@ fn g06b_authority_frame_emits_absolute_readers_projection_after_persist() {
     assert_eq!(events[0]["data"]["unreadCount"], 1);
     assert_eq!(events[0]["data"]["allRead"], false);
     for forbidden in ["readBits", "memberIds", "readerIds"] {
-        assert!(events[0]["data"].get(forbidden).is_none(), "projection leaked {forbidden}");
+        assert!(
+            events[0]["data"].get(forbidden).is_none(),
+            "projection leaked {forbidden}"
+        );
     }
 }
 

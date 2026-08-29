@@ -110,7 +110,8 @@ fn timeout_marks_unsend_without_automatic_http_retry() {
 /// 超时后的迟到权威 echo 仍按原 temporaryId 恢复 sent，并且不会生成第二条消息。
 #[test]
 fn late_echo_recovers_the_same_failed_identity() {
-    let mut harness = Harness::new(&[1]);
+    let mut harness =
+        Harness::new_with_identity(&[1], "user-actor-444", "company-phase1", "", "", "");
     let initial = harness.step(
         send_message_cmd(1, "tmp-mv3-g02b-late", "等待迟到 echo"),
         1_700_000_000_000,
@@ -129,9 +130,12 @@ fn late_echo_recovers_the_same_failed_identity() {
         echo_frame("tmp-mv3-g02b-late", "srvfix00000000000000000021"),
         1_700_000_015_002,
     );
-    assert!(recovered
-        .iter()
-        .any(|effect| matches!(effect, EffectKind::PersistAtomic(_))));
+    assert!(
+        recovered
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::PersistAtomic(_))),
+        "late echo effects: {recovered:?}"
+    );
     assert_eq!(
         harness.module.pending_send_status("tmp-mv3-g02b-late"),
         None

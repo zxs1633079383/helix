@@ -105,7 +105,7 @@ fn channel_created_inbound() -> Tick {
 }
 
 /// 断言提交后的 created 投影完全符合 Angular 直接 Upsert 的绝对态与头像字段契约。
-fn assert_created_projection(event: &Value) {
+fn assert_created_projection(event: &Value, viewer_role: &str) {
     let mut data = event["data"].clone();
     data.as_object_mut()
         .expect("created data must be an object")
@@ -114,6 +114,7 @@ fn assert_created_projection(event: &Value) {
         data,
         json!({
             "id": common::cid(808),
+            "channelId": common::cid(808),
             "type": "P",
             "userId": ACTOR_ID,
             "displayName": "Phase 1 验收群",
@@ -132,6 +133,7 @@ fn assert_created_projection(event: &Value) {
             ],
             "owner": {"userId": ACTOR_ID, "role": "OWNER", "nickName": "Actor 444"},
             "ownerId": ACTOR_ID,
+            "viewerRole": viewer_role,
             "unreadCount": 0,
             "mentionCount": 0
         })
@@ -204,7 +206,7 @@ fn sender_create_is_http_then_persist_then_absolute_projection() {
         .unwrap_or_else(|| panic!("missing persist correlation: {:?}", harness.sink.as_slice()));
     harness.step(port_reply_ok(persist_corr), NOW_MS + 2);
     let created = emitted_event(harness.sink.as_slice(), "im:channel:created");
-    assert_created_projection(&created);
+    assert_created_projection(&created, "OWNER");
     assert_eq!(created["data"]["tracing"]["requestId"], "req-mv3-g08a-001");
 }
 
@@ -217,10 +219,10 @@ fn receiver_ws_projection_is_ordered_and_idempotent() {
     assert!(matches!(initial.as_slice(), [EffectKind::PersistAtomic(_)]));
     let persist_corr = correlation_of(harness.sink.as_slice(), "persist");
     harness.step(port_reply_ok(persist_corr), NOW_MS + 1);
-    assert_created_projection(&emitted_event(
-        harness.sink.as_slice(),
-        "im:channel:created",
-    ));
+    assert_created_projection(
+        &emitted_event(harness.sink.as_slice(), "im:channel:created"),
+        "MEMBER",
+    );
 
     let duplicate = harness.step(channel_created_inbound(), NOW_MS + 2);
     assert!(

@@ -175,6 +175,48 @@ impl Replay {
             })
             .collect()
     }
+
+    /// 逐条确认 authority 页的 exact durable readback，直到唯一 terminal 事件出现。
+    fn complete_exact_readbacks(
+        &mut self,
+        start_offset_ms: u64,
+    ) -> TestResult<(Correlation, Vec<Value>)> {
+        for offset in 0..64_u64 {
+            let (corr, key) = self
+                .sink
+                .as_slice()
+                .iter()
+                .find_map(|effect| match effect {
+                    Effect::Persist { corr, ops } => ops.iter().find_map(|op| match op {
+                        StorageOp::Scan(spec) => spec.filter.as_ref().and_then(|(_, value)| {
+                            if let helix_core::effect::SqlValue::Text(key) = value {
+                                Some((*corr, key.clone()))
+                            } else {
+                                None
+                            }
+                        }),
+                        _ => None,
+                    }),
+                    _ => None,
+                })
+                .ok_or_else(|| "missing exact durable readback".to_string())?;
+            let index = key
+                .strip_prefix("g10a-temporary-")
+                .and_then(|value| value.parse::<u32>().ok())
+                .or_else(|| (1..=64).find(|index| server_id(*index) == key))
+                .ok_or_else(|| format!("unknown exact durable key {key}"))?;
+            self.reply(
+                corr,
+                PortOutcome::Ok(ReplyBytes(readback_row_bytes_for(index)?)),
+                start_offset_ms + offset,
+            )?;
+            let events = self.events()?;
+            if !events.is_empty() {
+                return Ok((corr, events));
+            }
+        }
+        Err("exact durable readback did not reach one terminal event".to_string())
+    }
 }
 
 /// 回放一个 persona 的完整 older 成功链。
@@ -192,14 +234,9 @@ fn run_success(viewer_user_id: &str) -> TestResult<PersonaTrace> {
     }
     let write = replay.only_corr("write", None)?;
     replay.reply(write, PortOutcome::Ok(ReplyBytes::default()), 11)?;
-    let readback = replay.only_corr("readback", None)?;
-    replay.reply(
-        readback,
-        PortOutcome::Ok(ReplyBytes(readback_row_bytes()?)),
-        12,
-    )?;
+    let (readback, events) = replay.complete_exact_readbacks(12)?;
     Ok(PersonaTrace {
-        events: replay.events()?,
+        events,
         ticks: vec![
             json!({
                 "kind": "Command",
@@ -248,14 +285,20 @@ fn assert_older_event(event: &Value, state: &str, has_older: bool) -> TestResult
         event["event"], "im:read:result",
         "unexpected G-10a event: {event}"
     );
-    assert_eq!(event["data"]["req_id"], "g10a-request");
+    assert_eq!(
+        event["data"]["req_id"], "g10a-request",
+        "unexpected G-10a request correlation: {event}"
+    );
     if state == "failed" {
         assert!(event["data"]["error"].is_string());
         return Ok(());
     }
     assert_eq!(state, "ready");
     let body = &event["data"]["body"];
-    assert_eq!(body["reqId"], "g10a-request");
+    assert_eq!(
+        body["reqId"], "g10a-request",
+        "unexpected G-10a body: {event}"
+    );
     assert_eq!(body["channelId"], CHANNEL_ID);
     assert_eq!(body["operation"], "older");
     assert_eq!(body["hasOlder"], has_older);
@@ -288,7 +331,7 @@ fn g10a_success_waits_for_durable_readback() -> TestResult<()> {
         trace.events[0]["data"]["body"]["messages"]
             .as_array()
             .map(Vec::len),
-        Some(1)
+        Some(20)
     );
     Ok(())
 }
@@ -338,13 +381,8 @@ fn g10a_duplicate_replies_are_noops() -> TestResult<()> {
     )?;
     let write = replay.only_corr("write", None)?;
     replay.reply(write, PortOutcome::Ok(ReplyBytes::default()), 11)?;
-    let readback = replay.only_corr("readback", None)?;
-    replay.reply(
-        readback,
-        PortOutcome::Ok(ReplyBytes(readback_row_bytes()?)),
-        12,
-    )?;
-    assert_eq!(replay.events()?.len(), 1);
+    let (readback, events) = replay.complete_exact_readbacks(12)?;
+    assert_eq!(events.len(), 1);
     replay.reply(
         readback,
         PortOutcome::Ok(ReplyBytes(readback_row_bytes()?)),
@@ -393,12 +431,11 @@ fn latest_posts_body() -> TestResult<Bytes> {
         .map_err(|error| error.to_string())
 }
 
-/// 构造包含 anchor 和 20 条严格更早 post 的 cursor page。
+/// 构造 20 条严格早于 anchor 的权威 cursor page；当前接口不回送 anchor 本身。
 fn post_context_body(has_more: bool) -> TestResult<Bytes> {
-    let mut posts = (1..=20)
+    let posts = (1..=20)
         .map(|index| remote_post(index, "g10a-older"))
         .collect::<Vec<_>>();
-    posts.push(remote_post(21, "g10a-recent"));
     serde_json::to_vec(&json!({
         "status": "SUCCESS",
         "data": {"posts": posts, "hasMore": has_more}
@@ -409,17 +446,22 @@ fn post_context_body(has_more: bool) -> TestResult<Bytes> {
 
 /// 构造 matching Persist barrier 所需的单行 durable readback。
 fn readback_row_bytes() -> TestResult<Bytes> {
+    readback_row_bytes_for(1)
+}
+
+/// 为 exact readback 构造与请求 identity 一致的单行 durable message。
+fn readback_row_bytes_for(index: u32) -> TestResult<Bytes> {
     serde_json::to_vec(&vec![json!({
-        "id": server_id(1),
-        "temporary_id": "g10a-temporary-1",
+        "id": server_id(index),
+        "temporary_id": format!("g10a-temporary-{index}"),
         "channel_id": CHANNEL_ID,
-        "user_id": RECEIVER_ID,
+        "user_id": if index % 2 == 0 { SENDER_ID } else { RECEIVER_ID },
         "type": "TEXT",
-        "message": "g10a-older-1",
-        "simple_message": "g10a-older-1",
-        "create_at": CREATED_AT + 1,
+        "message": format!("g10a-older-{index}"),
+        "simple_message": format!("g10a-older-{index}"),
+        "create_at": CREATED_AT + i64::from(index),
         "send_status": "sent",
-        "event_seq": 1,
+        "event_seq": index,
     })])
     .map(Bytes::from)
     .map_err(|error| error.to_string())

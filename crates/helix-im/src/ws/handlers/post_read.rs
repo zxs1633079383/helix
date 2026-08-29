@@ -160,7 +160,9 @@ impl WsMessageHandler for PostReadHandler {
             && member_ids
                 .iter()
                 .all(|member_id| !member_id.is_empty() && member_id.trim() == member_id)
-            && member_ids.iter().all(|member_id| member_set.insert(member_id))
+            && member_ids
+                .iter()
+                .all(|member_id| member_set.insert(member_id))
             && fields.read_bits.len() == member_ids.len()
             && fields
                 .read_bits

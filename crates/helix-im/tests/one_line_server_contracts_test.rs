@@ -298,6 +298,7 @@ fn relay_merged_mode_assembles_one_chat_record_after_all_local_lookups() {
     assert_eq!(merged[1]["message"], "B");
 }
 
+/// 验证服务端阅读快照按 readBits 生成当前渲染所需的已读与未读成员集合。
 #[test]
 fn post_read_list_derives_render_ready_read_and_unread_members_from_snapshot() {
     let mut h = Harness::new(&[]);
@@ -310,23 +311,19 @@ fn post_read_list_derives_render_ready_read_and_unread_members_from_snapshot() {
     );
     let corr = http_corr(&h);
     let raw = bytes::Bytes::from(
-        br#"{"status":"SUCCESS","data":[{"postId":"p1","authorUserId":"444","readBits":"101","snapshotId":"snapshot-1","snapshotVersion":1001,"memberIds":["444","678","555"],"readerIds":["legacy-wrong"]}]}"#.to_vec(),
+        br#"{"status":"SUCCESS","data":[{"postId":"p1","channelId":"chfixx00000000000000000001","authorUserId":"444","readBits":"101","snapshotId":"snapshot-1","snapshotVersion":1001,"memberIds":["444","678","555"],"readerIds":["legacy-wrong"]}]}"#.to_vec(),
     );
     h.step(port_reply_with_body(corr, enveloped(raw)), 2);
 
     let data = &emits(&h, "im:post:readers")[0];
     assert_eq!(data["state"], "ready");
     assert_eq!(data["snapshotId"], "snapshot-1");
-    assert_eq!(data["readerCount"], 1);
+    assert_eq!(data["readCount"], 1);
     assert_eq!(data["unreadCount"], 1);
-    assert_eq!(data["recipientUserIds"], serde_json::json!(["678", "555"]));
     assert_eq!(data["readUserIds"], serde_json::json!(["555"]));
     assert_eq!(data["unreadUserIds"], serde_json::json!(["678"]));
     assert!(data.get("readBits").is_none());
     assert_eq!(data["authorExcluded"], true);
-    assert_eq!(data["contractVersion"], 2);
-    assert_eq!(data["readers"][0]["userId"], "555");
-    assert_eq!(data["unreaders"][0]["userId"], "678");
 }
 
 #[test]
@@ -341,25 +338,18 @@ fn post_read_list_accepts_canonical_snapshot_without_author() {
     );
     let corr = http_corr(&h);
     let raw = bytes::Bytes::from(
-        br#"{"status":"SUCCESS","data":[{"postId":"p1","authorUserId":"444","readBits":"01","snapshotId":"snapshot-1","snapshotVersion":1001,"memberIds":["678","555"]}]}"#.to_vec(),
+        br#"{"status":"SUCCESS","data":[{"postId":"p1","channelId":"chfixx00000000000000000001","authorUserId":"444","readBits":"01","snapshotId":"snapshot-1","snapshotVersion":1001,"memberIds":["678","555"]}]}"#.to_vec(),
     );
     h.step(port_reply_with_body(corr, enveloped(raw)), 2);
 
     let receipt = &emits(&h, "im:post:readers")[0];
     assert_eq!(receipt["state"], "ready");
-    assert_eq!(receipt["readerIds"], serde_json::json!(["555"]));
-    assert_eq!(receipt["unreadIds"], serde_json::json!(["678"]));
-    assert_eq!(receipt["readerCount"], 1);
+    assert_eq!(receipt["readCount"], 1);
     assert_eq!(receipt["unreadCount"], 1);
-    assert_eq!(
-        receipt["recipientUserIds"],
-        serde_json::json!(["678", "555"])
-    );
     assert_eq!(receipt["readUserIds"], serde_json::json!(["555"]));
     assert_eq!(receipt["unreadUserIds"], serde_json::json!(["678"]));
     assert!(receipt.get("readBits").is_none());
     assert_eq!(receipt["authorExcluded"], true);
-    assert_eq!(receipt["contractVersion"], 2);
 }
 
 #[test]
@@ -382,12 +372,10 @@ fn post_read_list_rejects_repeated_author_and_illegal_bitmap() {
     assert_eq!(receipts[0]["state"], "unavailable");
     assert_eq!(receipts[1]["state"], "unavailable");
     for receipt in &receipts {
-        assert_eq!(receipt["recipientUserIds"], serde_json::json!([]));
         assert_eq!(receipt["readUserIds"], serde_json::json!([]));
         assert_eq!(receipt["unreadUserIds"], serde_json::json!([]));
         assert!(receipt.get("readBits").is_none());
         assert_eq!(receipt["authorExcluded"], true);
-        assert_eq!(receipt["contractVersion"], 2);
     }
 }
 
@@ -409,14 +397,12 @@ fn post_read_list_fails_closed_when_snapshot_and_bitmap_do_not_match() {
 
     let receipt = &emits(&h, "im:post:readers")[0];
     assert_eq!(receipt["state"], "unavailable");
-    assert_eq!(receipt["readerCount"], 0);
+    assert_eq!(receipt["readCount"], 0);
     assert_eq!(receipt["unreadCount"], 0);
-    assert_eq!(receipt["recipientUserIds"], serde_json::json!([]));
     assert_eq!(receipt["readUserIds"], serde_json::json!([]));
     assert_eq!(receipt["unreadUserIds"], serde_json::json!([]));
     assert!(receipt.get("readBits").is_none());
     assert_eq!(receipt["authorExcluded"], true);
-    assert_eq!(receipt["contractVersion"], 2);
 }
 
 #[test]

@@ -120,7 +120,7 @@ fn acknowledge_unknown_channel_post(harness: &mut Harness, effects: &[EffectKind
 #[test]
 fn unknown_channel_first_post_at_seq1_persists_and_emits() {
     // 不预注册任何 channel——模拟「首次见到的新群」首条在线 push。
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[], "uc45-viewer", "uc45-company", "", "", "");
     assert_eq!(
         h.module.cursor_for(channel_id(7)),
         None,
@@ -172,7 +172,7 @@ fn unknown_channel_first_post_at_seq1_persists_and_emits() {
 #[test]
 fn unknown_channel_post_with_gap_auto_registers_and_arms_gate() {
     // 陌生 channel 首条 post 的 event_seq=5 > cursor+1（=1）→ 缺口：自动注册 + buffer + arm gate。
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[], "uc45-viewer", "uc45-company", "", "", "");
 
     let effects = h.step(
         post_frame(

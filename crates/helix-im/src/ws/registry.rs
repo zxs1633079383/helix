@@ -510,10 +510,9 @@ mod tests {
         dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
 
         assert_eq!(sync_http_channel_ids(&out), vec![sync_channel.as_str()]);
-        assert!(out
-            .as_slice()
-            .iter()
-            .any(|effect| { matches!(effect, Effect::Persist { corr, .. } if corr.raw() == 8) }));
+        assert!(out.as_slice().iter().any(|effect| {
+            matches!(effect, Effect::PersistAtomic { corr, .. } if corr.raw() == 8)
+        }));
         assert_eq!(
             ctx.state
                 .corr_map
@@ -574,7 +573,7 @@ mod tests {
         assert!(out
             .as_slice()
             .iter()
-            .any(|effect| matches!(effect, Effect::Persist { .. })));
+            .any(|effect| matches!(effect, Effect::PersistAtomic { .. })));
         assert!(!ctx.state.channel_sync_batch_pending);
 
         out.clear();
@@ -600,7 +599,7 @@ mod tests {
         assert!(out
             .as_slice()
             .iter()
-            .any(|effect| matches!(effect, Effect::Persist { .. })));
+            .any(|effect| matches!(effect, Effect::PersistAtomic { .. })));
         assert!(!ctx.state.channel_sync_batch_pending);
     }
 
@@ -638,7 +637,7 @@ mod tests {
         assert!(out
             .as_slice()
             .iter()
-            .any(|effect| matches!(effect, Effect::Persist { .. })));
+            .any(|effect| matches!(effect, Effect::PersistAtomic { .. })));
     }
 
     #[test]

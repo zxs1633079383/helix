@@ -57,9 +57,9 @@ fn g11_locates_target_in_active_bounded_window() -> TestResult<()> {
             .as_array()
             .ok_or_else(|| "G-11 messages must be array".to_string())?
             .len(),
-        1
+        11
     );
-    assert_eq!(body["messages"][0]["id"], "srvfix0000000000000000000a");
+    assert_eq!(body["messages"][5]["id"], "srvfix0000000000000000000a");
     Ok(())
 }
 

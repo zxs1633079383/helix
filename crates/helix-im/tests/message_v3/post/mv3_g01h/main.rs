@@ -428,10 +428,10 @@ fn task_card_projection_matches_the_authoritative_sample() -> TestResult<()> {
 
 // ───────────────────────── #4 Effect 序列（负向） ─────────────────────────
 
-/// 入站投影链上只允许 Persist 与 Emit：不得出现 HTTP、上传或 15 秒 echo timer。
+/// 入站投影链只允许 Persist、Emit 与提交后的 client ACK：不得出现发送、上传或 echo timer。
 ///
-/// 对应参考包 `effects-contract.allowed_effect_tags = [Persist, Emit]` 与
-/// `negativeAssertions`「不得走上传链路」。TASK_CARD 是**收到**的消息，不是本端发送。
+/// 参考包早于 client ACK 合同，仍以 `negativeAssertions`「不得走上传链路」为稳定边界；
+/// TASK_CARD 是**收到**的消息，不得进入本端消息发送链。
 #[test]
 fn task_card_ingest_never_touches_send_or_upload_transport() -> TestResult<()> {
     let trace =
@@ -445,16 +445,15 @@ fn task_card_ingest_never_touches_send_or_upload_transport() -> TestResult<()> {
         assert!(
             !matches!(
                 effect,
-                EffectKind::Http(_)
-                    | EffectKind::HttpFire
+                EffectKind::HttpFire
                     | EffectKind::UploadFile(_)
                     | EffectKind::ScheduleTimer(_)
                     | EffectKind::Send
             ),
-            "入站 TASK_CARD 投影出现了越界 Effect {effect:?}；allowed_effect_tags 只有 Persist/Emit"
+            "入站 TASK_CARD 投影出现了越界发送或上传 Effect {effect:?}"
         );
     }
-    // 正向对照：Persist 与 Emit 两类都真实出现过。
+    // 正向对照：Persist、Emit 与提交后的单次 client ACK 都真实出现过。
     assert!(trace.all_effects.iter().any(|effect| matches!(
         effect,
         EffectKind::PersistAtomic(_) | EffectKind::Persist(_)
@@ -463,6 +462,15 @@ fn task_card_ingest_never_touches_send_or_upload_transport() -> TestResult<()> {
         .all_effects
         .iter()
         .any(|effect| matches!(effect, EffectKind::Emit)));
+    assert_eq!(
+        trace
+            .all_effects
+            .iter()
+            .filter(|effect| matches!(effect, EffectKind::Http(_)))
+            .count(),
+        1,
+        "持久化与读回成功后必须且只能发一次 client ACK"
+    );
     Ok(())
 }
 

@@ -673,8 +673,12 @@ fn replay_reply_root_update(viewer_id: &str, viewer: &str) -> Value {
     let updated = emitted_event(harness.sink.as_slice(), "im:post:updated")
         .expect("PersistOk 后必须发布根消息绝对态");
 
+    let legacy_batch = reference_data(&outbound_sample(), "im:post:batch-updated", viewer);
     let expected = substitute_reference_ids(
-        &reference_data(&outbound_sample(), "im:post:updated", viewer),
+        legacy_batch["posts"]
+            .as_array()
+            .and_then(|posts| posts.first())
+            .expect("sequence-4 legacy batch sample must carry one root post"),
         &common::cid(1),
         "",
     );

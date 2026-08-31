@@ -6,8 +6,8 @@ use helix_core::Tick;
 
 use super::rss::process_resident_memory_bytes;
 use crate::metrics::{
-    record_im_command_terminal_event, AsyncMetricSink, LabelKey, MetricEvent, MetricId,
-    MetricLabels,
+    record_im_command_terminal_event, record_tick_stage_duration, AsyncMetricSink, LabelKey,
+    MetricEvent, MetricId, MetricLabels,
 };
 use crate::owned_effect::{EffectSummary, OwnedEffect};
 
@@ -36,6 +36,7 @@ const RSS_SAMPLE_INTERVAL: Duration = Duration::from_secs(5);
 
 pub(super) struct TickMetricContext {
     tick_kind: &'static str,
+    tick_started: Option<Instant>,
     ingress_started: Option<Instant>,
     command_started: Option<Instant>,
 }
@@ -122,6 +123,12 @@ impl EngineMetricRecorder {
                 MetricLabels::one(LabelKey::Stage, "core")
                     .with(LabelKey::TickKind, tick_kind(tick)),
             );
+            record_tick_stage_duration(
+                self.sink.as_ref(),
+                queue_wait.as_secs_f64(),
+                "queue",
+                "success",
+            );
         }
         let tick_labels =
             MetricLabels::one(LabelKey::Stage, "core").with(LabelKey::TickKind, tick_kind(tick));
@@ -197,6 +204,14 @@ impl EngineMetricRecorder {
                     self.active_from_port_reply = true;
                     self.active_command_terminal_recorded = false;
                 }
+                if matches!(pending.effect_kind, "persist" | "persist_atomic") {
+                    record_tick_stage_duration(
+                        self.sink.as_ref(),
+                        pending.started.elapsed().as_secs_f64(),
+                        "persist",
+                        status,
+                    );
+                }
             } else {
                 self.counter(
                     MetricId::PortReplyOrphanTotal,
@@ -213,6 +228,7 @@ impl EngineMetricRecorder {
         }
         TickMetricContext {
             tick_kind: tick_kind(tick),
+            tick_started: Some(Instant::now()),
             ingress_started: matches!(tick, Tick::Inbound(_)).then(Instant::now),
             command_started: matches!(tick, Tick::Command(_)).then(Instant::now),
         }
@@ -274,6 +290,14 @@ impl EngineMetricRecorder {
             labels.with(LabelKey::Operation, "step"),
         );
         self.record_effect_batch(summary, context.tick_kind);
+        if let Some(command_started) = context.command_started {
+            record_tick_stage_duration(
+                self.sink.as_ref(),
+                command_started.elapsed().as_secs_f64(),
+                "command",
+                "success",
+            );
+        }
         if summary.count == 0 {
             self.counter(
                 MetricId::CoreEmptyEffectTotal,
@@ -308,6 +332,14 @@ impl EngineMetricRecorder {
                 MetricLabels::one(LabelKey::Stage, "event"),
             );
         }
+        if let Some(started) = context.tick_started {
+            record_tick_stage_duration(
+                self.sink.as_ref(),
+                started.elapsed().as_secs_f64(),
+                "total",
+                "success",
+            );
+        }
         self.active_command_started = None;
         self.active_from_port_reply = false;
         self.active_command_terminal_recorded = false;
@@ -331,6 +363,12 @@ impl EngineMetricRecorder {
                         },
                         command_started.elapsed().as_secs_f64(),
                         MetricLabels::one(LabelKey::Stage, "command_lifecycle"),
+                    );
+                    record_tick_stage_duration(
+                        self.sink.as_ref(),
+                        command_started.elapsed().as_secs_f64(),
+                        "projection",
+                        "success",
                     );
                     if !self.active_command_terminal_recorded
                         && record_im_command_terminal_event(self.sink.as_ref(), event)
@@ -542,6 +580,7 @@ impl TickMetricContext {
     fn disabled() -> Self {
         Self {
             tick_kind: "disabled",
+            tick_started: None,
             ingress_started: None,
             command_started: None,
         }

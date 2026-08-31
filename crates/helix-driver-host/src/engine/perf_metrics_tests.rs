@@ -146,6 +146,31 @@ fn stamped_tick_records_real_queue_wait_sample() {
         .find(|event| event.id == MetricId::TickQueueWaitSeconds)
         .expect("stamped tick 必须即时记录 queue wait");
     assert!(sample.value >= 0.007);
+    assert!(events.iter().any(|event| {
+        event.id == MetricId::ImTickStageDurationSeconds
+            && event
+                .labels
+                .iter()
+                .any(|label| label.key == LabelKey::Stage && label.value == "queue")
+    }));
+}
+
+/// Tick dispatch 结束必须闭合 total 阶段，避免用单一 core step 冒充总耗时。
+#[test]
+fn tick_dispatch_records_total_stage() {
+    let metrics = Arc::new(RecordingMetricSink::default());
+    let mut recorder = EngineMetricRecorder::new(metrics.clone());
+    let context = recorder.on_tick(&Tick::Timer(TimerId::from_raw(2)), None);
+    recorder.on_dispatch_complete(&context);
+
+    let events = metrics.0.lock().unwrap();
+    assert!(events.iter().any(|event| {
+        event.id == MetricId::ImTickStageDurationSeconds
+            && event
+                .labels
+                .iter()
+                .any(|label| label.key == LabelKey::Stage && label.value == "total")
+    }));
 }
 
 #[test]
@@ -154,6 +179,7 @@ fn core_step_error_has_error_operation_denominator() {
     let recorder = EngineMetricRecorder::new(metrics.clone());
     let context = TickMetricContext {
         tick_kind: "command",
+        tick_started: None,
         ingress_started: None,
         command_started: None,
     };

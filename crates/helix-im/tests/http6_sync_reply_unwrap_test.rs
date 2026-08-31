@@ -118,14 +118,12 @@ fn http6_legacy_envelope_is_silently_swallowed() {
     );
 }
 
-/// 回归锚: BLOCKING（holistic-review 抓出）—— 防 `sync_unread_bump_ops` 在 `module.rs` SyncPull
-/// 分支变回「函数在、零调用」死代码（离线未读 +N 落 DB 被静默丢）。本测试钉死 module.rs 的
-/// `persist_ops.extend(sync_unread_bump_ops(..))` 调用点：删之 → 无 GuardedBump unread_count op
-/// → FAIL（HX-C011 可证伪；per-phase byte-diff 漏掉的正是这种「消费侧 call-site 未接线」缺陷）。
+/// 回归锚：Routine Sync 的可见 type1 必须在统一原子写集中更新 viewer `channel_member`，
+/// 不能恢复共享 `channel.unread_count` 的旧 reducer。
 /// viewer-444 不在消息 viewers 且不是 sender，因此本地可见性必须显式由 fixture 授予；本测试
 /// 只对已进入 recovery authority 批的可见 type1 检查 unread bump。
 #[test]
-fn http6_offline_sync_visible_type1_bumps_unread_guardedbump() {
+fn http6_offline_sync_visible_type1_bumps_viewer_member() {
     use helix_core::effect::{Effect, StorageOp};
 
     let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
@@ -139,8 +137,7 @@ fn http6_offline_sync_visible_type1_bumps_unread_guardedbump() {
     // dev-zlc driver 把裸 body 包成 ADR-007 信封回灌；enveloped() 复刻该字节。
     h.step(port_reply_with_body(sync_corr, enveloped(raw)), 3000);
 
-    // 离线可见 type1 → channel.unread_count GuardedBump +N（与消息落库同一 Persist 批，
-    // unread 列写成功后 cursor 才推进——CAP-9 在线↔离线未读 parity）。
+    // 离线可见 type1 → viewer-scoped channel_member unread +N，与 cursor 同一原子屏障提交。
     let total_bump: i64 = h
         .sink
         .as_slice()
@@ -149,7 +146,12 @@ fn http6_offline_sync_visible_type1_bumps_unread_guardedbump() {
             Effect::PersistAtomic { ops, .. } => Some(
                 ops.iter()
                     .filter_map(|op| match op {
-                        StorageOp::GuardedBump(s) if s.bump_col == "unread_count" => {
+                        StorageOp::ScopedGuardedBump(s)
+                            if s.table == "channel_member"
+                                && s.scope_col == "channel_id"
+                                && s.key_col == "user_id"
+                                && s.bump_col == "unread_count" =>
+                        {
                             Some(s.bump_delta)
                         }
                         _ => None,
@@ -162,7 +164,6 @@ fn http6_offline_sync_visible_type1_bumps_unread_guardedbump() {
 
     assert!(
         total_bump >= 1,
-        "离线 sync 可见 type1 须经 GuardedBump 给 channel.unread_count +N（防 module.rs SyncPull \
-         分支把 sync_unread_bump_ops 退回死代码 = 离线未读丢失），got total_bump={total_bump}"
+        "离线 sync 可见 type1 必须更新 viewer channel_member，got total_bump={total_bump}"
     );
 }

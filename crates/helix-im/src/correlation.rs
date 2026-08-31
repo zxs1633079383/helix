@@ -134,6 +134,9 @@ pub enum CorrelationContext {
     /// G-04 复合键读回只释放 channel 绝对态，不重复发布 post revoke。
     MessageV3RevokeChannelReadback,
 
+    /// Sync type=1 原子提交后的 viewer member 读回，只发布唯一 dialog 绝对态。
+    MessageV3SyncDialogReadback,
+
     /// G-06 quickReply 与 cursor 的原子提交屏障。
     MessageV3ReactionPersist {
         event: Box<crate::sync_session::EventEnvelope>,
@@ -688,8 +691,7 @@ pub enum CorrelationContext {
     /// Single `post_update` fact and its channel cursor share one durable commit. The render-ready update is
     /// retained until the matching transaction reply succeeds.
     PostUpdateAtomic {
-        channel_id: ChannelId,
-        target_seq: crate::state::Seq,
+        event: Box<crate::sync_session::EventEnvelope>,
         pending_domain_event: Vec<u8>,
     },
 

@@ -91,6 +91,7 @@ fn build_shell() -> ExecutionShell {
     build_shell_with_mode(LocalStoreMode::Durable)
 }
 
+/// 为三端 parity 剧本构造具有相同 RuntimeAuth 的独立业务壳。
 fn build_shell_with_mode(local_store_mode: LocalStoreMode) -> ExecutionShell {
     let config = ImConfig {
         ws_url: "ws://test".to_string(),
@@ -98,11 +99,12 @@ fn build_shell_with_mode(local_store_mode: LocalStoreMode) -> ExecutionShell {
         default_api_base_url: "http://localhost:3399".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
-        auth_user_id: String::new(),
-        company_id: String::new(),
+        auth_user_id: "f5-viewer".to_string(),
+        company_id: "f5-company".to_string(),
         user_name: String::new(),
         org_name: String::new(),
         dept_name: String::new(),
+        client_platform: Default::default(),
         offline_sync_diagnostics: Default::default(),
     };
     let mut module = ImModule::new_with_local_store(config, local_store_mode);
@@ -122,6 +124,18 @@ fn collect_source_emits(shell: &mut ExecutionShell) -> Vec<DomainEventBytes> {
 
     let start_effects = shell.start().expect("start should not fail");
     collect_emits_from_slice(start_effects, &mut out);
+
+    let connected = shell
+        .step(Tick::Connected(TransportId::from_raw(0)), FIXED_NOW_MS)
+        .expect("connected step");
+    collect_emits_from_slice(connected, &mut out);
+    let hello = shell
+        .step(
+            lifecycle_tick(LifecycleStep::Hello("F5_CONN_1")),
+            FIXED_NOW_MS + 1,
+        )
+        .expect("hello step");
+    collect_emits_from_slice(hello, &mut out);
 
     let cmd_payload = serde_json::json!({
         "channel_id": "00000000000000000000000001",
@@ -444,9 +458,8 @@ fn a4_identical_injected_lifecycle_script_is_three_platform_equivalent() {
             assert!(
                 native
                     .iter()
-                    .any(|effect| matches!(effect, Effect::Http { req, .. }
-                    if req.url.ends_with("/channels/load/increment"))),
-                "hello step 必须有 increment HTTP，防两边都空的假绿"
+                    .any(|effect| matches!(effect, Effect::Persist { .. })),
+                "hello step 必须有本地 message watermark Scan，防两边都空的假绿"
             );
             assert!(
                 contains_event(native, "im:connection:established"),

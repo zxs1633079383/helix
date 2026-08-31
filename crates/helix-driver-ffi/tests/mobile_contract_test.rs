@@ -290,6 +290,7 @@ fn helix_version_query_returns_abi_json() {
 }
 
 #[test]
+/// 业务查询经异步 command/event batch 返回 typed read Result，而非同步 FFI query。
 fn business_query_uses_async_command_and_event_batch() {
     let recorder = Recorder::new(Vec::new());
     let handle = create_recording_handle(&recorder);
@@ -326,8 +327,8 @@ fn business_query_uses_async_command_and_event_batch() {
         )
     };
     assert_eq!(async_status, FFI_OK);
-    let event = wait_for_event(&recorder, "im:channel:list");
-    assert!(event.contains("\"channels\""));
+    let event = wait_for_event(&recorder, "im:read:result");
+    assert!(event.contains("\"items\""));
 
     // SAFETY: handle was created by this test and not yet destroyed.
     unsafe { helix_destroy(handle) };

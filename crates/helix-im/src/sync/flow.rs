@@ -448,6 +448,11 @@ impl ImModule {
                         &events,
                         &messages,
                         auth_user_id,
+                        if trigger == SyncTrigger::Hydration {
+                            crate::acl::sync_effects::SyncApplyMode::HydrationHistory
+                        } else {
+                            crate::acl::sync_effects::SyncApplyMode::LiveRecovery
+                        },
                         Some(&observation),
                     );
                 // Chain facts arrive inside the same channel-event payload as ordinary message
@@ -475,13 +480,7 @@ impl ImModule {
                         chain_domain_events.push(projection.event);
                     }
                 }
-                if trigger != SyncTrigger::Hydration {
-                    for pending in &channel_updates {
-                        persist_ops.push(crate::acl::to_effect::bump_channel_unread_op(
-                            &pending.update,
-                        ));
-                    }
-                }
+                // type=1 编译器已在同一 PersistAtomic 中写入 viewer-scoped 未读，禁止再写共享 channel 未读。
                 // A recovery batch is write-only and atomic: facts, per-event evidence, the
                 // range receipt, then cursor. A driver must never report a read result as the
                 // durable commit receipt.
@@ -810,15 +809,14 @@ impl ImModule {
             prefix,
             &messages,
             auth_user_id,
+            if trigger == SyncTrigger::Hydration {
+                crate::acl::sync_effects::SyncApplyMode::HydrationHistory
+            } else {
+                crate::acl::sync_effects::SyncApplyMode::LiveRecovery
+            },
             Some(&observation),
         );
-        for pending in
-            crate::acl::to_effect::sync_channel_update_plans(prefix, &messages, auth_user_id)
-        {
-            ops.push(crate::acl::to_effect::bump_channel_unread_op(
-                &pending.update,
-            ));
-        }
+        // terminal prefix 与普通 Sync 共用 type=1 编译器，不再追加共享 channel 未读。
         // Terminal batches can contain ordinary chain events before type7. Keep their durable
         // projection in the same transaction as the prefix messages and terminal tombstone.
         let mut chain_domain_events = Vec::new();

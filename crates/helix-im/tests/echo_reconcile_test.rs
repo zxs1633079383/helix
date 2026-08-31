@@ -90,7 +90,7 @@ fn acknowledge_optimistic_persist(
 
 #[test]
 fn echo_reconciles_pending_send() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-1", "", "", "", "");
 
     // 1. 发送命令 → PendingSend(Local) 注册
     let initial_effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);

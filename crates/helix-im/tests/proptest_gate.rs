@@ -57,7 +57,7 @@ proptest! {
     fn prop_cursor_monotone_non_decreasing(
         seqs in seq_sequence(20, 1, 30),
     ) {
-        let mut h = Harness::new(&[1]);
+        let mut h = Harness::new_with_identity(&[1], "prop-viewer", "prop-company", "", "", "");
         let mut last_cursor: u64 = 0;
 
         for (i, seq) in seqs.iter().enumerate() {
@@ -87,7 +87,7 @@ proptest! {
         extra_seqs in seq_sequence(15, 0, 10),
     ) {
         // 先喂 seq 1..10 连续（确保 cursor=10），然后喂 extra_seqs
-        let mut h = Harness::new(&[1]);
+        let mut h = Harness::new_with_identity(&[1], "prop-viewer", "prop-company", "", "", "");
         for seq in 1u64..=10 {
             step_durable(&mut h, inbound_event(1, seq, 1), seq * 100);
         }
@@ -125,8 +125,8 @@ proptest! {
         seqs in seq_sequence(10, 1, 15),
     ) {
         // 两个独立 Harness，喂相同 Tick 序列，验证 Effect 输出完全一致
-        let mut h1 = Harness::new(&[1]);
-        let mut h2 = Harness::new(&[1]);
+        let mut h1 = Harness::new_with_identity(&[1], "prop-viewer", "prop-company", "", "", "");
+        let mut h2 = Harness::new_with_identity(&[1], "prop-viewer", "prop-company", "", "", "");
 
         for (i, seq) in seqs.iter().enumerate() {
             let ts = (i as u64 + 1) * 100;
@@ -156,7 +156,7 @@ proptest! {
         base_seq in 1u64..=10u64,
         repeat_count in 1usize..=5usize,
     ) {
-        let mut h = Harness::new(&[1]);
+        let mut h = Harness::new_with_identity(&[1], "prop-viewer", "prop-company", "", "", "");
         // 先喂到 base_seq 为止的连续序列
         for seq in 1u64..=base_seq {
             step_durable(&mut h, inbound_event(1, seq, 1), seq * 100);
@@ -203,7 +203,7 @@ proptest! {
             seqs.swap(i, j);
         }
 
-        let mut h = Harness::new(&[1]);
+        let mut h = Harness::new_with_identity(&[1], "prop-viewer", "prop-company", "", "", "");
         let mut ts: u64 = 100;
 
         // 喂所有 seq（顺序由 perm_seed 决定）

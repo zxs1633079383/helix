@@ -107,11 +107,7 @@ fn build_rich_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
     for (index, item) in files.iter_mut().enumerate() {
         let target = rich_target(item, index)?;
         if is_stable_object_reference(item, "rich media")? {
-            if item.get("bucket").and_then(Value::as_str) != Some(target.bucket()) {
-                return Err(ImError::Parse(
-                    "rich media bucket conflicts with contentType".to_string(),
-                ));
-            }
+            // 已落对象沿用服务端签发的历史 bucket；MIME bucket 规则只约束本次新上传。
             continue;
         }
         media.push(PlannedMedia {

@@ -1,0 +1,26 @@
+{
+  "details": {
+    "business_ws_count": 0,
+    "effect_count": 0,
+    "error": "parse error: file mediaInput.size must be u64 in 1..=67108864",
+    "go_http_count": 0,
+    "input_size": 67108865,
+    "max_size": 67108864,
+    "oss_put_count": 0,
+    "owner": "Helix upload planner / native host boundary",
+    "rejected_before": [
+      "im_stage_generated_media",
+      "im_send_message",
+      "Java oss/getPresignedUrl",
+      "Go posts/create",
+      "UploadFile/OSS PUT",
+      "SQLite send_status=sending",
+      "business WS post"
+    ],
+    "sqlite_sending_count": 0
+  },
+  "domain": "Upload",
+  "gate": "MV3-G02d",
+  "phase": "Phase1",
+  "status": "PASS"
+}

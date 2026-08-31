@@ -76,6 +76,8 @@ version = "0.1.0"
 
     def test_actual_manifests_form_a_rewritable_release_graph(self) -> None:
         """当前四个真实 manifest 必须能整体改写并解析成同一目标版本。"""
+        current_version = PUBLISH_CRATES.current_release_version()
+        next_version = PUBLISH_CRATES.bump_version(current_version, "patch")
         self.assertEqual(
             [package.cargo_name for package in PUBLISH_CRATES.PACKAGES],
             [
@@ -91,11 +93,11 @@ version = "0.1.0"
             updated = PUBLISH_CRATES.rewrite_manifest(
                 source,
                 package,
-                "0.1.0",
-                "0.1.1",
+                current_version,
+                next_version,
             )
             document = tomllib.loads(updated)
-            self.assertEqual(document["package"]["version"], "0.1.1")
+            self.assertEqual(document["package"]["version"], next_version)
             dependency_tables = (
                 document.get("dependencies", {}),
                 document.get("dev-dependencies", {}),
@@ -107,11 +109,13 @@ version = "0.1.0"
                     if dependency_name in table
                 ]
                 self.assertEqual(len(declarations), 1)
-                self.assertEqual(declarations[0]["version"], "=0.1.1")
+                self.assertEqual(declarations[0]["version"], f"={next_version}")
 
     def test_candidate_transaction_rewrites_all_workspace_exact_consumers(self) -> None:
         """候选事务必须同步非发布消费者，避免 Cargo workspace 解析版本冲突。"""
-        rendered = PUBLISH_CRATES.render_candidate_manifests("0.1.0", "0.1.1")
+        current_version = PUBLISH_CRATES.current_release_version()
+        next_version = PUBLISH_CRATES.bump_version(current_version, "patch")
+        rendered = PUBLISH_CRATES.render_candidate_manifests(current_version, next_version)
         consumers = (
             Path("crates/helix-driver-web/Cargo.toml"),
             Path("crates/helix-driver-ffi/Cargo.toml"),
@@ -119,11 +123,17 @@ version = "0.1.0"
             Path("tools/helix-perf/Cargo.toml"),
         )
         for manifest in consumers:
+            current_document = tomllib.loads(
+                (PUBLISH_CRATES.REPO_ROOT / manifest).read_text(encoding="utf-8")
+            )
             document = tomllib.loads(rendered[manifest])
-            self.assertEqual(document["package"]["version"], "0.1.0")
+            self.assertEqual(
+                document["package"]["version"],
+                current_document["package"]["version"],
+            )
             self.assertEqual(
                 document["dependencies"]["helix-core"]["version"],
-                "=0.1.1",
+                f"={next_version}",
             )
 
     def test_candidate_transaction_keeps_publish_set_separate(self) -> None:

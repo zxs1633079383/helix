@@ -174,6 +174,48 @@ impl Replay {
             })
             .collect()
     }
+
+    /// 逐条确认 authority 页的 exact durable readback，直到唯一 terminal 事件出现。
+    fn complete_exact_readbacks(
+        &mut self,
+        start_offset_ms: u64,
+    ) -> TestResult<(Correlation, Vec<Value>)> {
+        for offset in 0..64_u64 {
+            let (corr, key) = self
+                .sink
+                .as_slice()
+                .iter()
+                .find_map(|effect| match effect {
+                    Effect::Persist { corr, ops } => ops.iter().find_map(|op| match op {
+                        StorageOp::Scan(spec) => spec.filter.as_ref().and_then(|(_, value)| {
+                            if let helix_core::effect::SqlValue::Text(key) = value {
+                                Some((*corr, key.clone()))
+                            } else {
+                                None
+                            }
+                        }),
+                        _ => None,
+                    }),
+                    _ => None,
+                })
+                .ok_or_else(|| "missing exact durable readback".to_string())?;
+            let index = key
+                .strip_prefix("g10b-temporary-")
+                .and_then(|value| value.parse::<u32>().ok())
+                .or_else(|| (1..=64).find(|index| server_id(*index) == key))
+                .ok_or_else(|| format!("unknown exact durable key {key}"))?;
+            self.reply(
+                corr,
+                PortOutcome::Ok(ReplyBytes(readback_row_bytes_for(index)?)),
+                start_offset_ms + offset,
+            )?;
+            let events = self.events()?;
+            if !events.is_empty() {
+                return Ok((corr, events));
+            }
+        }
+        Err("exact durable readback did not reach one terminal event".to_string())
+    }
 }
 
 /// 回放完整 newer 成功链。
@@ -191,14 +233,9 @@ fn run_success() -> TestResult<PersonaTrace> {
     }
     let write = replay.only_corr("write", None)?;
     replay.reply(write, PortOutcome::Ok(ReplyBytes::default()), 11)?;
-    let readback = replay.only_corr("readback", None)?;
-    replay.reply(
-        readback,
-        PortOutcome::Ok(ReplyBytes(readback_row_bytes()?)),
-        12,
-    )?;
+    let (readback, events) = replay.complete_exact_readbacks(12)?;
     Ok(PersonaTrace {
-        events: replay.events()?,
+        events,
         ticks: vec![
             json!({
                 "kind": "Command",
@@ -285,10 +322,14 @@ fn g10b_success_appends_newer_page_after_durable_readback() -> TestResult<()> {
         trace.events[0]["data"]["body"]["messages"]
             .as_array()
             .map(Vec::len),
-        Some(1)
+        Some(20)
     );
     assert_eq!(
         trace.events[0]["data"]["body"]["messages"][0]["id"],
+        server_id(21)
+    );
+    assert_eq!(
+        trace.events[0]["data"]["body"]["messages"][19]["id"],
         server_id(40)
     );
     Ok(())
@@ -334,13 +375,8 @@ fn g10b_duplicate_readback_is_noop() -> TestResult<()> {
     )?;
     let write = replay.only_corr("write", None)?;
     replay.reply(write, PortOutcome::Ok(ReplyBytes::default()), 11)?;
-    let readback = replay.only_corr("readback", None)?;
-    replay.reply(
-        readback,
-        PortOutcome::Ok(ReplyBytes(readback_row_bytes()?)),
-        12,
-    )?;
-    assert_eq!(replay.events()?.len(), 1);
+    let (readback, events) = replay.complete_exact_readbacks(12)?;
+    assert_eq!(events.len(), 1);
     replay.reply(
         readback,
         PortOutcome::Ok(ReplyBytes(readback_row_bytes()?)),
@@ -384,9 +420,9 @@ fn latest_posts_body() -> TestResult<Bytes> {
         .map_err(|error| error.to_string())
 }
 
-/// 构造包含 anchor 与 20 条更新 post 的 authority page。
+/// 构造 20 条严格晚于 anchor 的 authority page；当前接口不回送 anchor 本身。
 fn newer_page_body(has_more: bool) -> TestResult<Bytes> {
-    let posts = (20..=40).map(remote_post).collect::<Vec<_>>();
+    let posts = (21..=40).map(remote_post).collect::<Vec<_>>();
     serde_json::to_vec(&json!({
         "status": "SUCCESS",
         "data": {"posts": posts, "hasMore": has_more}
@@ -397,17 +433,22 @@ fn newer_page_body(has_more: bool) -> TestResult<Bytes> {
 
 /// 构造 newer 尾行的 durable readback。
 fn readback_row_bytes() -> TestResult<Bytes> {
+    readback_row_bytes_for(40)
+}
+
+/// 为 exact readback 构造与请求 identity 一致的单行 durable message。
+fn readback_row_bytes_for(index: u32) -> TestResult<Bytes> {
     serde_json::to_vec(&vec![json!({
-        "id": server_id(40),
-        "temporary_id": "g10b-temporary-40",
+        "id": server_id(index),
+        "temporary_id": format!("g10b-temporary-{index}"),
         "channel_id": CHANNEL_ID,
-        "user_id": ACTOR_ID,
+        "user_id": if index % 2 == 0 { ACTOR_ID } else { OTHER_ID },
         "type": "TEXT",
-        "message": "g10b-message-40",
-        "simple_message": "g10b-message-40",
-        "create_at": CREATED_AT + 40,
+        "message": format!("g10b-message-{index}"),
+        "simple_message": format!("g10b-message-{index}"),
+        "create_at": CREATED_AT + i64::from(index),
         "send_status": "sent",
-        "event_seq": 40,
+        "event_seq": index,
     })])
     .map(Bytes::from)
     .map_err(|error| error.to_string())

@@ -171,20 +171,26 @@ pub fn batch_upsert_events(events: &[EventEnvelope]) -> Vec<StorageOp> {
         .collect()
 }
 
-/// C2：批量落库 sync `events`，按 `messages` map 做 phantom / readBits / edit / revoke 分桶。
-pub fn batch_upsert_events_with_messages(
-    events: &[EventEnvelope],
-    messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
-) -> Vec<StorageOp> {
-    batch_upsert_events_with_messages_and_auth(events, messages, "")
-}
-
+/// 按真实 viewer 身份编译 Sync events 的 phantom/readBits/edit/revoke 与 type1 写集。
 pub fn batch_upsert_events_with_messages_and_auth(
     events: &[EventEnvelope],
     messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
     auth_user_id: &str,
 ) -> Vec<StorageOp> {
-    batch_upsert_events_with_messages_and_auth_observed(events, messages, auth_user_id, None)
+    batch_upsert_events_with_messages_and_auth_observed(
+        events,
+        messages,
+        auth_user_id,
+        SyncApplyMode::LiveRecovery,
+        None,
+    )
+}
+
+/// 标记实时恢复与 Hydration 历史恢复；两者复用写集，业务事件释放策略由上层决定。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SyncApplyMode {
+    LiveRecovery,
+    HydrationHistory,
 }
 
 /// C2 sync 落库编译器；可选观测上下文只影响诊断日志，不改变 StorageOp 语义。
@@ -192,6 +198,7 @@ pub(crate) fn batch_upsert_events_with_messages_and_auth_observed(
     events: &[EventEnvelope],
     messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
     auth_user_id: &str,
+    _mode: SyncApplyMode,
     observation: Option<&crate::sync::observability::SyncObservation>,
 ) -> Vec<StorageOp> {
     use crate::sync_session::EventKind;
@@ -235,11 +242,23 @@ pub(crate) fn batch_upsert_events_with_messages_and_auth_observed(
                         ev.kind.clone(),
                         fields.clone(),
                     );
-                    let op = crate::channel::event_to_upsert_op(&ev_with_body);
+                    let type1_ops = crate::channel_write::message_v3_post_mutation_ops(
+                        &ev_with_body,
+                        auth_user_id,
+                        update.last_post.clone(),
+                        crate::channel_write::PostUpsertSource::SyncSnapshot,
+                    );
+                    if type1_ops.is_empty() {
+                        continue;
+                    }
                     if let Some(context) =
                         observation.filter(|context| context.target_matches(msg_id, Some(fields)))
                     {
-                        let meta = crate::sync::observability::storage_op_metadata(&op);
+                        let meta = crate::sync::observability::storage_op_metadata(
+                            type1_ops
+                                .first()
+                                .expect("type=1 compiler must contain the message upsert"),
+                        );
                         let input_meta = crate::sync::observability::post_fields_metadata(fields);
                         tracing::info!(
                             hop = "sync.type1.upsert",
@@ -263,7 +282,7 @@ pub(crate) fn batch_upsert_events_with_messages_and_auth_observed(
                             "type=1 完整消息输入已准备落库"
                         );
                     }
-                    ops.push(op);
+                    ops.extend(type1_ops);
                 } else if let Some(context) =
                     observation.filter(|context| context.target_matches(msg_id, None))
                 {
@@ -463,32 +482,6 @@ pub(crate) fn batch_upsert_events_with_messages_and_auth_observed(
 #[cfg(test)]
 #[path = "sync_effects_tests.rs"]
 mod tests;
-
-/// A3/CAP-9：离线 sync 应用的可见 type1 新消息，按在线同口径落 channel 未读/lastPost。
-pub fn sync_unread_bump_ops(
-    events: &[EventEnvelope],
-    messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
-    auth_user_id: &str,
-) -> Vec<StorageOp> {
-    use crate::sync_session::EventKind;
-
-    let mut ops = Vec::new();
-    for ev in events {
-        if !matches!(ev.kind, EventKind::PostUpsert) {
-            continue;
-        }
-        let Some(fields) = ev.msg_id.as_deref().and_then(|id| messages.get(id)) else {
-            continue;
-        };
-        let upd =
-            crate::channel_write::post_updates_from_fields(ev.channel_id, fields, auth_user_id);
-        if !upd.visible {
-            continue;
-        }
-        ops.push(super::to_effect::bump_channel_unread_op(&upd));
-    }
-    ops
-}
 
 pub fn sync_channel_update_plans(
     events: &[EventEnvelope],

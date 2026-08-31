@@ -109,8 +109,12 @@ impl ImModule {
         match outcome {
             PortOutcome::Ok(_) => {
                 self.state.committed_channel_creates.insert(channel_id);
-                let mut created =
-                    build_message_v3_created_projection(channel_id, &channel, &member_rows);
+                let mut created = build_message_v3_created_projection(
+                    channel_id,
+                    &channel,
+                    &member_rows,
+                    self.config.auth_user_id.as_str(),
+                );
                 if let (Some(request_id), Some(object)) = (causation_id, created.as_object_mut()) {
                     object.insert(
                         "tracing".to_string(),
@@ -143,6 +147,7 @@ fn build_message_v3_created_projection(
     channel_id: ChannelId,
     channel: &serde_json::Value,
     member_rows: &[serde_json::Value],
+    auth_user_id: &str,
 ) -> serde_json::Value {
     let owner_id = channel
         .get("owner")
@@ -169,8 +174,17 @@ fn build_message_v3_created_projection(
         .find(|member| member.get("userId").and_then(serde_json::Value::as_str) == Some(owner_id))
         .cloned()
         .unwrap_or(serde_json::Value::Null);
+    let viewer_role = members
+        .iter()
+        .find(|member| {
+            member.get("userId").and_then(serde_json::Value::as_str) == Some(auth_user_id)
+        })
+        .and_then(|member| member.get("role"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("MEMBER");
     let mut projection = serde_json::json!({
         "id": channel_id.as_str(),
+        "channelId": channel_id.as_str(),
         "type": channel.get("type").and_then(serde_json::Value::as_str).unwrap_or("O"),
         "displayName": channel.get("displayName").and_then(serde_json::Value::as_str).unwrap_or(channel_id.as_str()),
         "memberIds": member_ids,
@@ -178,6 +192,7 @@ fn build_message_v3_created_projection(
         "members": members,
         "owner": owner,
         "ownerId": owner_id,
+        "viewerRole": viewer_role,
         "unreadCount": 0,
         "mentionCount": 0,
     });
@@ -291,7 +306,7 @@ mod tests {
             "owner": {"id": "444"}
         });
 
-        let projection = build_message_v3_created_projection(channel_id, &channel, &[]);
+        let projection = build_message_v3_created_projection(channel_id, &channel, &[], "444");
 
         assert_eq!(projection["type"], "P");
         assert_eq!(projection["userId"], "444");

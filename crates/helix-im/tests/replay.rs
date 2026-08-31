@@ -23,7 +23,7 @@ fn smoke_harness_on_start_emits_schedule_timer() {
 
 #[test]
 fn smoke_inbound_unknown_parse_does_not_panic() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "replay-viewer", "replay-company", "", "", "");
     // 用 inbound_event 构造 parse 可成功的帧（JSON 格式符合）
     let ev = inbound_event(1, 1, 1);
     let effects = h.step(ev, 1000);

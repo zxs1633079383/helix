@@ -162,8 +162,6 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let pong_batch_active =
-            trigger == SyncTrigger::PongGap && self.state.pong_gap_batch.is_active();
         match outcome {
             PortOutcome::Ok(_) => {
                 let has_durable_message_changes = !pending_domain_events.is_empty();
@@ -178,6 +176,11 @@ impl ImModule {
                     self.queue_next_message_v3_event(event, out)?;
                 }
                 self.state.pong_gap_batch.finish_persist(corr, true);
+                let pong_batch_active =
+                    trigger == SyncTrigger::PongGap && self.state.pong_gap_batch.is_active();
+                if committed && pong_batch_active && !channel_updates.is_empty() {
+                    self.state.pong_gap_batch.record_dialog_channel(channel_id);
+                }
                 if committed {
                     for event_id in pending_chain_event_ids {
                         self.state.pending_chain_event_ids.remove(&event_id);
@@ -208,13 +211,6 @@ impl ImModule {
                     .state
                     .recovery_session
                     .is_collecting_for(self.config.auth_user_id.as_str());
-                let recovery_channel_attached = recovery_active
-                    && self.state.timeline_state.is_attached(
-                        &crate::timeline_state::TimelineScope {
-                            channel_id: channel_id.as_str().to_string(),
-                            window_token: "latest".to_string(),
-                        },
-                    );
                 if committed {
                     for reconciliation in pending_send_reconciliations {
                         self.reconcile_pending_send_after_sync(reconciliation, out);
@@ -225,24 +221,20 @@ impl ImModule {
                         });
                     }
                 }
-                // PersistAtomic 是写屏障；仅读回受影响频道行，避免恢复批次退化为全表扫描。
-                if committed
-                    && (!recovery_active || recovery_channel_attached)
-                    && !pong_batch_active
-                {
+                // PersistAtomic 是写屏障；viewer dialog 读回不依赖时间线 attach，且只按复合键读取一行。
+                if committed && !pong_batch_active {
                     if let Some(pending) = channel_updates.into_iter().last() {
                         let readback_corr = self.alloc_corr_internal();
-                        let pending =
-                            pending.with_causation_id(Some(format!("sync-persist-{}", corr.raw())));
                         out.push(Effect::Persist {
                             corr: readback_corr,
-                            ops: vec![crate::acl::to_effect::get_channel_row_op(
+                            ops: vec![crate::channel_write::message_v3_member_read_op(
                                 pending.channel_id,
+                                self.config.auth_user_id.as_str(),
                             )],
                         });
                         self.state.corr_map.insert(
                             readback_corr,
-                            crate::state::CorrelationContext::ChannelUpdateByPost { pending },
+                            crate::state::CorrelationContext::MessageV3SyncDialogReadback,
                         );
                     }
                 }

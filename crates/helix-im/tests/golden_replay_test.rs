@@ -101,7 +101,14 @@ fn real_go_post_frame_persists_message_and_advances_cursor() {
         ChannelId::from_str("rmibkwkjwidhdx5xy8pyse6a3r").expect("真帧 channelId 合法 26 字符");
 
     // 注册该 channel，cursor 种到 40113，使真帧 event_seq(40114) == cursor+1 → 立即 apply。
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(
+        &[],
+        "444",
+        "64118eebd2b665246b7880eb",
+        "破坏者",
+        "战士",
+        "狂派事业部",
+    );
     h.module.register_channel(channel, 40113);
     h.start(0);
 
@@ -166,7 +173,14 @@ fn real_go_post_frame_persists_message_and_advances_cursor() {
 fn real_go_post_frame_on_unregistered_channel_auto_registers_and_arms_gate() {
     let channel =
         ChannelId::from_str("rmibkwkjwidhdx5xy8pyse6a3r").expect("真帧 channelId 合法 26 字符");
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(
+        &[],
+        "444",
+        "64118eebd2b665246b7880eb",
+        "破坏者",
+        "战士",
+        "狂派事业部",
+    );
     h.start(0);
     assert_eq!(h.module.cursor_for(channel), None, "前置：channel 未注册");
 
@@ -251,10 +265,10 @@ fn real_go_increment_channel_registers_and_seeds_cursor() {
     let persist_corr = end_effects
         .iter()
         .find_map(|effect| match effect {
-            EffectKind::Persist(corr) => Some(*corr),
+            EffectKind::PersistAtomic(corr) => Some(*corr),
             _ => None,
         })
-        .expect("真 increment_channel_end 必须形成相关 Persist");
+        .expect("真 increment_channel_end 必须形成相关 PersistAtomic");
     let committed = h.step(port_reply_ok(persist_corr), 1_200);
     assert_eq!(
         committed

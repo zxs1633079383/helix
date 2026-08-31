@@ -7,12 +7,11 @@
 //! 落库：普通 edit 走 `edit_content_op`；G-06 quickReply 走独立单列写与 cursor 原子提交，
 //! PersistOk 后再读 durable row。G-14a template props 走同一 MessageV3 连续性链。
 //!
-//! BLOCKING-2：cursor 推进经 **channel gate**（严格 +1 / drop / buffer+1s-gate），与 post handler
-//! 的 `ch.ingest` 同口径——**不再**用 `try_advance` MAX-jump（会跨过两条 edit 间漏掉的 post 空洞
-//! → 消息丢失）。gate 已 kind-aware（type2 走 `edit_content_op` patch + emit `im:post:updated`），
-//! 故落库 + emit + cursor 全由 gate 完成，本 handler 只解析 + 喂 gate。
+//! BLOCKING-2：cursor 推进经 MessageV3 gate（严格 +1 / drop / buffer+1s-gate），与 post handler
+//! 共用 `admit_message_v3_post`。普通 type2 的内容 patch 与 cursor 进入 correlated
+//! `PersistAtomic`，matching PersistOk 后才释放 `im:post:updated` 并继续下一条 buffer 事件。
 
-use helix_core::{Effect, EffectSink};
+use helix_core::EffectSink;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
@@ -44,10 +43,10 @@ impl WsMessageHandler for PostUpdateHandler {
     }
 }
 
-/// 单条 post 编辑——经 channel gate 推进 cursor（type2，BLOCKING-2）。
+/// 单条 post 编辑——经 MessageV3 gate 与 correlated 原子屏障推进 cursor（type2，BLOCKING-2）。
 ///
-/// `post` = 单个 post JSON 对象。普通 edit 仍由旧 gate 处理；G-06 reaction 与 G-07 urgent
-/// 复用 MessageV3 连续性 buffer，严格 +1 后才进入 correlated PersistAtomic 与 durable readback。
+/// `post` = 单个 post JSON 对象。普通 edit 与 G-06 reaction/G-07 urgent 共用 MessageV3
+/// 连续性 buffer，严格 +1 后才进入 correlated PersistAtomic。
 /// channel_id 缺 / 未注册 → no-op（边界零信任，与 post handler ingest 门控同口径）。
 pub(super) fn apply_post_update(
     ctx: &mut ImWsContext<'_>,
@@ -110,6 +109,9 @@ pub(super) fn apply_post_update(
     let Some(target_seq) = frame.event_seq() else {
         return;
     };
+    if ctx.auth_user_id.is_empty() || i64::try_from(target_seq.0).is_err() {
+        return;
+    }
     let has_template_confirmation =
         crate::event::post::has_template_confirmation(fields.props.as_str());
     if should_use_message_v3_compact_update(&fields, has_template_confirmation) {
@@ -140,62 +142,31 @@ pub(super) fn apply_post_update(
         super::gate::trigger_backfill_if_large_gap(ctx, channel_id, target_seq, out);
         return;
     }
-    let Some(cursor) = ctx
-        .state
-        .channels
-        .get(&channel_id)
-        .map(|channel| channel.cursor.value())
-    else {
+    let event = crate::sync_session::EventEnvelope::new(
+        channel_id,
+        target_seq,
+        EventKind::PostEdit,
+        fields,
+    )
+    .with_msg_id(msg_id)
+    .with_viewer_user_id(ctx.auth_user_id);
+    let Some(channel) = ctx.state.channels.get_mut(&channel_id) else {
         return;
     };
-    let expected = crate::state::Seq(cursor.0.saturating_add(1));
-    match target_seq.cmp(&expected) {
-        std::cmp::Ordering::Less => return,
-        std::cmp::Ordering::Greater => {
-            let _ = super::gate::gate_ingest_content_event(
-                ctx,
-                frame,
-                channel_id,
-                EventKind::PostEdit,
-                fields,
-                msg_id,
-                out,
-            );
-            return;
-        }
-        std::cmp::Ordering::Equal => {}
-    }
-
-    let msg_id_ref = msg_id
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .unwrap_or(fields.id.as_str());
-    let pending_domain_event = match crate::acl::to_effect::emit_post_updated_for_viewer(
-        channel_id,
-        target_seq.0,
-        msg_id_ref,
-        &fields,
-        ctx.auth_user_id,
-    ) {
-        Effect::Emit { event } => event.0.to_vec(),
-        _ => return,
+    let Ok(admitted) = channel.admit_message_v3_post(event, out) else {
+        return;
     };
-    let corr = ctx.alloc_corr();
-    ctx.state.corr_map.insert(
-        corr,
-        crate::state::CorrelationContext::PostUpdateAtomic {
-            channel_id,
-            target_seq,
-            pending_domain_event,
-        },
-    );
-    out.push(Effect::PersistAtomic {
-        corr,
-        ops: vec![
-            crate::channel::edit_content_op(msg_id_ref, &fields),
-            crate::acl::to_effect::advance_cursor_op(channel_id, target_seq),
-        ],
-    });
+    if let Some(event) = admitted {
+        let corr = ctx.alloc_corr();
+        crate::port_reply::message_v3_post::queue_post_update_commit(
+            ctx.state,
+            ctx.auth_user_id,
+            corr,
+            event,
+            out,
+        );
+    }
+    super::gate::trigger_backfill_if_large_gap(ctx, channel_id, target_seq, out);
 }
 
 /// 判断 post_update 是否应走 reaction/urgent/template 的精简持久化路径。
@@ -259,7 +230,7 @@ inventory::submit! {
 }
 
 /// 只有含有实际 reaction 项时才进入 quick-reply 专用持久化路径；空数组属于完整 post 快照。
-fn has_quick_reply_items(raw: &str) -> bool {
+pub(crate) fn has_quick_reply_items(raw: &str) -> bool {
     let raw = raw.trim();
     if raw.is_empty() {
         return false;

@@ -42,7 +42,7 @@ fn complete_increment_batch(h: &mut Harness) {
         .as_slice()
         .iter()
         .find_map(|effect| match effect {
-            Effect::Persist { corr, .. } => Some(corr.raw()),
+            Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
             _ => None,
         })
         .expect("global increment end must create a persistence barrier");

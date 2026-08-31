@@ -214,7 +214,7 @@ fn post_pin_notice_projection_preserves_target_create_at() {
         "updateAt": 1_700_000_000_456_i64,
         "props": { "source": "target" }
     });
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-1", "tenant-1", "", "", "");
 
     dispatch(
         &mut h,
@@ -265,7 +265,7 @@ fn post_pin_notice_without_target_create_at_skips_fat_projection() {
         "type": "TEXT",
         "message": "缺少时间"
     });
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-1", "tenant-1", "", "", "");
 
     dispatch(
         &mut h,

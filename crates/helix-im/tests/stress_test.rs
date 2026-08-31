@@ -37,7 +37,7 @@ use common::{channel_id, server_id};
 // ─── 辅助 ────────────────────────────────────────────────────────────────────
 
 fn make_module(channel_num: u64) -> ImModule {
-    make_module_with_identity(channel_num, "", "")
+    make_module_with_identity(channel_num, "stress-viewer", "stress-company")
 }
 
 fn make_module_with_identity(channel_num: u64, auth_user_id: &str, company_id: &str) -> ImModule {
@@ -52,6 +52,7 @@ fn make_module_with_identity(channel_num: u64, auth_user_id: &str, company_id: &
         user_name: String::new(),
         org_name: String::new(),
         dept_name: String::new(),
+        client_platform: Default::default(),
         offline_sync_diagnostics: Default::default(),
     };
     let mut module = ImModule::new(config);
@@ -370,8 +371,8 @@ fn stress_gap_5000_sync_backfill() {
         .iter()
         .find_map(|e| match e {
             Effect::PersistAtomic { corr, ops } => {
-                // A3/CAP-9：全 5000 条可见 type1 → 5000 message upsert + 5000 channel 未读 +1
-                // GuardedBump（离线未读落 DB，非仅 emit）。恢复证据、coverage 与 cursor
+                // A3/CAP-9：全 5000 条可见 type1 → message + shared channel lastPost +
+                // viewer member ensure + viewer-scoped unread +1。恢复证据、coverage 与 cursor
                 // 必须在同一 PersistAtomic 内提交，不能夹带写后读。
                 use helix_core::effect::StorageOp;
                 let msg_upserts = ops
@@ -380,7 +381,15 @@ fn stress_gap_5000_sync_backfill() {
                     .count();
                 let unread_bumps = ops
                     .iter()
-                    .filter(|op| matches!(op, StorageOp::GuardedBump(s) if s.table == "channel"))
+                    .filter(|op| {
+                        matches!(
+                            op,
+                            StorageOp::ScopedGuardedBump(s)
+                                if s.table == "channel_member"
+                                    && s.bump_col == "unread_count"
+                                    && s.guard_col == "last_unread_event_seq"
+                        )
+                    })
                     .count();
                 let ledger_upserts = ops
                     .iter()
@@ -402,12 +411,12 @@ fn stress_gap_5000_sync_backfill() {
                 );
                 assert_eq!(
                     unread_bumps, GAP as usize,
-                    "A3：5000 条可见 type1 须各 1 条 channel 未读 +1 GuardedBump（CAP-9 落 DB）"
+                    "A3：5000 条可见 type1 须各 1 条 viewer-scoped 未读 +1（CAP-9 落 DB）"
                 );
                 assert_eq!(
                     ops.len(),
-                    (GAP as usize) * 3 + 2,
-                    "atomic batch = 5000 msg + 5000 bump + 5000 ledger + 1 coverage + 1 cursor"
+                    (GAP as usize) * 5 + 2,
+                    "atomic batch = 5000 × (msg + channel + member + bump + ledger) + coverage + cursor"
                 );
                 assert_eq!(cursor_writes, 1, "G-S2/G-S3 cursor 必须与消息同批提交");
                 assert_eq!(ledger_upserts, GAP as usize, "每条远端事件必须有一条恢复证据");

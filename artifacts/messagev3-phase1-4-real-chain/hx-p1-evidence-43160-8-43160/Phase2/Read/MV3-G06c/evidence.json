@@ -1,0 +1,10 @@
+{
+  "details": {
+    "real_chain": false,
+    "reason": "Angular active-dialog lifecycle only; no Helix command, Go HTTP, WS, SQLite or domain event is owned by this Gate."
+  },
+  "domain": "Read",
+  "gate": "MV3-G06c",
+  "phase": "Phase2",
+  "status": "NOT_APPLICABLE"
+}

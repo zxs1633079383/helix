@@ -2,6 +2,14 @@
 
 🎯 EXPECT 在 `.codex/autoresearch/helix` 沉淀一个带 review gate 的 OTel/Prometheus 指标 Agent 与渐进式披露 Skill；可证伪断言：① 新增专用 Agent、SKILL.md、只读 Prometheus 验证脚本和按需参考，且 Skill frontmatter/开放元数据可校验；② review 未输出 `REVIEW: APPROVED` 时不允许修改指标生产代码；③ 指标只经既有 bounded `AsyncMetricSink::try_record`，不在 core/业务主线程执行网络 I/O、不新增无界队列或高基数标签；④ 验证区分 focused、worker/export、Collector scrape、Prometheus metadata/query 和真实业务触发，HTTP 200/canary 不冒充采集成功；⑤ Router、manifest、README/引用入口同步，保留既有 artifacts 与用户未跟踪文件，`git diff --check` 和全部结构校验通过 | 赌注 中 | 可逆 是 | @2026-08-31T13:20:59+0800
 
+🎯 EXPECT 收敛 Spec051 发布前基线并发布 Helix 0.1.2；可证伪断言：① 四个旧 `ImConfig` 测试构造显式补齐宿主平台且不改变 Effect/ACK 合同；② `cargo fmt --all -- --check` 与 `cargo test -p helix-im` 全绿；③ 发布脚本回归不再写死上一版本，`--plan`、8 包 check 与真实 publish 全部通过；④ 客户端切到精确 registry 0.1.2，移除持久 `HELIX_ROOT` 后 `yarn start` 不再临时 path 化；⑤ WDIO 只完成前置审计，不经用户确认启动真实 lane | 赌注 高 | 可逆 发布前是、首包上传后否 | @2026-08-29T
+
+✅ DONE Helix `0.1.2` 版本事务已完成：发布脚本按 core→im→host→native 顺序执行 package dry-run、8 包 check、真实上传与 registry 轮询，`cses-helix-core`、`helix-im`、`helix-driver-host`、`helix-driver-native` 四包均已可解析；8 个 workspace manifest 与 Cargo.lock 已同步到同批依赖图。未创建 tag、未 push，等待客户端精确 registry 依赖切换与 WDIO 前置审计收口 | @2026-08-29T
+
+✅ DONE 客户端 worktree 已提交四个精确 registry `=0.1.2` 依赖，metadata 确认均来自 crates.io；`.zshrc` 唯一持久 `HELIX_ROOT` 已移除且新登录 shell 为 unset，常规启动包装器不再临时 path 化。ignored `release.local.json.imApiHost` 已指向当前 Go worktree 宿主 `http://127.0.0.1:18066` 并通过 Phase1/2/3 release-local 解析与 health 校验。WDIO 尚缺 node_modules、只读账号池、candidate、dist/browser、完整 Xcode 与 ONNX staged dylib，未获用户确认也未启动真实 lane | @2026-08-29T
+
+✅ DONE 发布前测试债务已收敛：旧 `ImConfig` 构造补齐 `client_platform`，全量运行暴露的旧事件名、查询投影、权威 WS echo 与原子持久化断言已对齐当前合同；`cargo test -p helix-im -- --nocapture` 全绿（含 100k 顺序事件、5k WS gap flush、5k sync backfill），`cargo fmt --all -- --check` 通过。Native 本地 lib/integration/stress/sync targets 全绿；workspace 仅剩 `message_v3_domain` 73 个真实链 Gate 因默认 8066 与当前 Go worktree 宿主 18066 未对齐而阻断，保持外部前置缺口，不冒充整体 Green | @2026-08-29T
+
 ✅ DONE Helix 0.1.1 已发布：`cses-helix-core`、`helix-im`、`helix-driver-host`、`helix-driver-native` 四包均经 crates.io 实时查询确认可解析；8 个 workspace manifest 与 Cargo.lock 已同步到同批依赖图。版本事务等待本次发布提交承载，不自动 push，既有 artifacts 保持未跟踪 | @2026-08-27T
 
 🎯 EXPECT 修复 crates.io 一键发布的 workspace 版本事务；可证伪断言：① 四个公共 crate 仍是唯一上传集合；② Web、FFI、host-cli 与 helix-perf 只同步内部精确依赖，自身 package.version 保持不变；③ `--plan` 能在上传前发现任何未登记的 workspace path 精确依赖；④ 首次上传前失败按字节恢复 8 个 manifest 与 Cargo.lock；⑤ 单测、候选版本图复现、`--plan` 和 `git diff --check` 通过，不执行真实 publish、不修改既有 artifacts | 赌注 高 | 可逆 是 | @2026-08-27T
@@ -537,3 +545,26 @@
 🎯 EXPECT 收敛 MessageV3 业务可靠性面板的真实采集与展示；可证伪断言：① dev Prometheus 同时保留 `environment=local|dev` 两类 UP target，recording rule 不丢环境标签；② 远端落库成功率来自事务终态 counter，新增远端成功落库每秒量且不把 dedup 冒充物理新增；③ ACK、同步、恢复、未读、正确性和 Command 面板只有真实生产终态样本才变绿，不使用常量或 `or vector(1)`；④ Dashboard 不再显示“待接入”，缺真实协议/流量的能力必须完成跨端采样或如实保持非绿；⑤ Go、Helix、PrometheusRule 与 Dashboard 分批聚焦验证并保留既有 dirty/untracked | 赌注 高 | 可逆 是 | @2026-08-26T20:30:00+0800
 
 ✅ DONE dev 真链已闭环：Go 当前 Pod 的远端事务、物理新增、Outbox、入队、ACK 与 Command 终态进入 Prometheus；Helix dev/native 的 ACK、投影、同步、恢复、同 scope 未读对账和正确性分母均有增长样本；PrometheusRule generation=4；Grafana 默认 dev 浏览器逐卡回读为 9 项成功率 100% 与 3 项异常率 0%，远端落库吞吐显示真实 ops/s。local target 保留但仍是用户 GoLand 旧二进制，未越权替换；恢复失败类型、三类 correctness、全 Command 和逐消息 E2E 延迟仍按覆盖债务记录。@2026-08-26T20:22:13+0800
+✅ DONE Issue #135 统一 type=1 在线与 Routine Sync 的 viewer-scoped 事件应用；证据：Sync/在线共用 `message_v3_post_mutation_ops`，Routine Sync 删除共享 channel 未读 bump，PersistOk 后按 `(channel_id,user_id)` 读回并只发一个绝对 `im:channel:update`；`s4_write_order_test` 6/6、`message_v3_sync_native` 1/1、diff check 通过；全仓 fmt 仅受既有非租约文件阻塞，Go/Angular/release 配置零改动 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+✅ DONE Issue #136 对齐小 gap 与大 gap 补齐；证据：driver-native 真实 Tick::Inbound 证明 seq2 先缓冲且 cursor=0，seq1/seq2 仅在各自 PersistOk 后推进并投影 unread 1/2；大 gap Sync 首条 unread=1；PersistErr、迟到伪 Ok、重复回报均 fail-closed；目标 attach 已从 dialog readback 条件移除，`message_v3_sync_native` 3/3、diff check 通过 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+✅ DONE Issue #137 对齐 PongGap、断线 Sync 与 Hydration；证据：Pong fan-out 以 pending Persist 与 dirty channel 集合做 O(1) 登记，整批排空后每频道一次 viewer readback；HydrationHistory 只恢复 message，不二次改未读；严格 roster fixture 补 memberCount 后 G13b 9/9；Pong 内核 3/3、HydrationHistory 1/1、driver-native 4/4（含 SQLite 重启 member/cursor 读回）、diff check 通过 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+✅ DONE Issue #138 收敛 type=2 编辑持久化屏障；证据：在线 G06 4/4、Sync/Chain 编译器 13/13；Sync 无 PersistFire/提前 Emit，pending domain events 只在 matching PersistOk 释放；Native SQLite type2 原子 patch 后 member unread 5 保持 5，driver focused 1/1；无需生产代码改动 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+✅ DONE Issue #139 收敛 type=3 撤回与 type=6 混批；证据：Native SQLite type3+type6 原子批终态 revoke=1/readBits=1/member unread=5；S4 混批 6/6 严格 type1→type2→type3→type6；单列 patch 1/1，重复 corr 由一次性 correlation 消费；无需生产代码改动 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+✅ DONE Issue #140 验证 Sync 批处理性能与失败原子性；证据：driver-native 回放 1/10/100/500 均恰一 PersistAtomic，PersistOk 前 0 readback/0 Emit，StorageOp ≤8N+3；同文件 PersistErr/重复 corr/Native SQLite 重启用例通过，整文件 7/7、diff check 通过 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+🎯 EXPECT Issue #141 运行 Go 18066 双用户真实链回归；可证伪断言：Go worktree docker-up-clean 后 health 仅作前置；两个真实用户与 run-owned 群验证在线第一条1/第二条2、离线与 gap 的同一 channel/event/corr/WS/SQLite/EventSink 证据；清理资源，Go tracked diff=0；focused real-chain PASS 后才进入 #142 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+✅ DONE Issue #141 已完成 18066 双用户真实链：本地 Compose 使用快照内 444/678/445 三个非秘密同租户身份并创建/关闭 run-owned 群；444 第一条真实 post 经 WS→Native Persist→SQLite→EventSink 投影 unread=1，445 的真实 post/read 作为中间缺失事件，444 第二条高序号 post 触发真实 `/channel/sync/notify` 后投影 unread=2；SQLite `channel_member` 与 cursor 精确读回，重复第二帧零新增终态；`message_v3_sync_native` 10/10、Phase5 双设备 Gate 证据为 PASS，Go tracked diff=0 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+🎯 EXPECT Issue #142 只执行本次变更的 focused code review 与聚焦测试；可证伪断言：对 type1/type2/type3/type6、Routine/小 gap/PongGap/Hydration、Persist 屏障、viewer 复合键与批量线性写集逐项审查；Helix focused tests 通过，Go/客户端零业务 diff；记录既有 fmt 基线但不扩大修复；完成后停止并询问是否授权 Phase1-4 在线、离线、gap 与文字接龙整体 Review | 赌注 高 | 可逆 是 | @2026-08-28T
+
+✅ DONE Issue #142 focused review 已关闭全部 actionable finding：删除 gap self-echo 的 pre-Persist 写与 Emit；ordinary type2 gap 统一 `PostUpdateAtomic` 且失败放回 gate；Hydration 缺 authority 时按 per-viewer business-seq guard 重建未读；increment snapshot 单调写且 global batch 原子化；空 viewer/seq overflow fail closed；旧 migration 不再把 channel cursor 伪装成 viewer guard。Native 13/13（含当前 18066 gap 真链）、engagement 5/5、G13b 10/10、S5 5/5、G06 4/4、increment+golden 11/11 通过；全包仅被既有 stress_test 缺 client_platform 编译债务阻断。Spec 051 可关闭，Phase1-4/文字接龙整体仍按 PARTIAL/BLOCKED 单列，不冒充 Green | @2026-08-28T
+
+🎯 EXPECT 修复模板“收到”与普通消息已读的客户端展示串线，并复核退群转让群主、置顶多用户广播；可证伪断言：① 模板 receivedCount/receivedPeople/unreadPeople 只读取 `props.template.userIds`，即使 `readUserIds/unreadUserIds` 已变化也不增加“收到”人数；② 当前三仓转让链保留 `newCreator → new_creator → newCreator`，Go 同事务更新 owner/CREATOR 并向接任者投影管理能力；③ 录屏2 的普通成员权限变更、置顶菜单和双方顶部置顶卡按逐帧事实验收，不把通过场景伪装成缺陷；④ 只有实际修改 Helix crate 才发布新版本并更新客户端外置依赖，未修改 Rust 时不得无意义发包；⑤ 保留 Helix `docs/mmd` 与 artifacts、客户端 WDIO artifacts 的既有未提交内容 | 赌注 高 | 可逆 是 | @2026-08-31T13:00:00+0800
+
+✅ DONE 模板回执串线已以精确红绿回归修复：普通 `readUserIds/unreadUserIds` 不再影响模板“收到”，组件 18/18、相关客户端 33/33 与全量 lint 通过。录屏1 为 dev/pre 1.2.66 混合旧运行态；当前代码的 `newCreator` 转让链与 Helix 3/3 回归通过，Go 真 PG 用例因未设 `CSES_IM_TEST_DSN` 而 SKIP。录屏2 逐帧已显示普通成员获得置顶权限且双端看到置顶/取消置顶，Helix `post_pin` 3/3 通过。本轮无 Rust 生产代码变更，故未发布新 crate；客户端仍从 crates.io 精确依赖 `cses-helix-core/helix-im=0.1.2`。Docker daemon 不可达，当前二进制的真双用户 PG/Native 复验保留为 `BLOCKED_PRECONDITION`，未冒充真链 PASS。@2026-08-31T13:45:00+0800

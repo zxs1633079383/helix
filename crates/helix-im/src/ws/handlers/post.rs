@@ -16,7 +16,7 @@ use crate::state::ServerId;
 use helix_core::EffectSink;
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
-use super::post_echo_settle::{is_echo_frame, post_echo_gap_settle, reconcile_post_echo};
+use super::post_echo_settle::{is_echo_frame, reconcile_post_echo};
 
 const POST_ACTION: &str = "post";
 
@@ -91,6 +91,9 @@ impl WsMessageHandler for PostHandler {
             .with_unread_bump(unread_bump)
             .with_viewer_user_id(ctx.auth_user_id)
             .with_causation_id(forward_causation);
+        if ctx.auth_user_id.is_empty() || i64::try_from(ev.seq.0).is_err() {
+            return Ok(());
+        }
 
         // MessageV3 G-01：陌生 channel 仍以本地 cursor=0 惰性注册；gate 只决定
         // apply/buffer/drop，真正的 message/channel/member/cursor 写入由 correlated
@@ -104,18 +107,13 @@ impl WsMessageHandler for PostHandler {
         let pin_effect = post_pin_effect_from_notice(&ev);
         let (ingest_channel, ingest_seq) = (ev.channel_id, ev.seq);
         let engagement_type = ev.fields.msg_type.clone();
-        let (gate_expected_seq, echo_gap_settle) = {
+        let gate_expected_seq = {
             let ch = ctx
                 .state
                 .channels
                 .entry(ev.channel_id)
                 .or_insert_with(|| crate::channel::Channel::new(ev.channel_id, 0));
             let expected = crate::state::Seq(ch.cursor.value().0.saturating_add(1));
-            let settle = if post_visible && !ch.is_terminal() {
-                post_echo_gap_settle(&ev, is_echo, expected)
-            } else {
-                None
-            };
             if post_visible {
                 if let Some(event) = ch.admit_message_v3_post(ev, out)? {
                     let corr = ctx.alloc_corr();
@@ -136,7 +134,7 @@ impl WsMessageHandler for PostHandler {
                     &mut ignored_channel_updates,
                 )?;
             }
-            (expected.0, settle)
+            expected.0
         };
         // 只记录脱敏 gate 形状，定位投票/平均分 echo 是否因身份、可见性或序号被拦截。
         if matches!(engagement_type.as_str(), "VOTE" | "AVERAGE_SCORE") {
@@ -149,14 +147,8 @@ impl WsMessageHandler for PostHandler {
                 post_visible,
                 auth_present = !ctx.auth_user_id.is_empty(),
                 temporary_id_present = !echo_tmp_id.is_empty(),
-                gap_settle = echo_gap_settle.is_some(),
                 "engagement post echo gate decision"
             );
-        }
-        // 本人 gap echo 只补本地 message/DOM；cursor 仍等待严格连续同步，不把缺口伪装成已确认。
-        if let Some((persist, emit)) = echo_gap_settle {
-            out.push(persist);
-            out.push(emit);
         }
         super::gate::schedule_reload_if_recent_too_long(ctx, ingest_channel, recent_start, out)?;
         if let Some((persist, emit)) = pin_effect {

@@ -23,6 +23,11 @@ fn sid(n: u64) -> String {
     server_id(n).as_str().to_string()
 }
 
+/// 为 viewer-scoped MessageV3 写入提供稳定测试身份。
+fn harness_with_viewer(cursors: &[u64]) -> Harness {
+    Harness::new_with_identity(cursors, "444", "tenant-s5", "viewer", "", "")
+}
+
 /// 真源 echo 帧：`action=="post"`（router.rs:40），data 带 temporary_id（自发回流标识）。
 fn post_echo_frame(channel_id: u64, seq: u64, temporary_id: &str, server_id: u64) -> Tick {
     use serde_json::json;
@@ -104,7 +109,7 @@ fn acknowledge_post_commit(
 /// 回归锚: S5 —— echo 走真源 `post` action → reconcile + CancelTimer + cursor 推进。
 #[test]
 fn s5_post_action_echo_reconciles() {
-    let mut h = Harness::new(&[1]);
+    let mut h = harness_with_viewer(&[1]);
     // 1. 发送 → PendingSend(Local) + 15s timeout timer。
     let initial_effects = h.step(send_message_cmd(1, "tmp_e", "hello"), 1000);
     let send = acknowledge_optimistic_persist(&mut h, &initial_effects);
@@ -176,7 +181,7 @@ fn s5_post_action_echo_reconciles() {
 /// Helix 应直接把 unread_delta 置 0，同时保留 GuardedBump 写 lastPost，前端不再做 +1/-1 补偿。
 #[test]
 fn s5_core_echo_temporary_id_hit_does_not_increment_unread() {
-    let mut h = Harness::new(&[1]);
+    let mut h = harness_with_viewer(&[1]);
     let initial = h.step(send_message_cmd(1, "tmp_e", "hello"), 1000);
     let _ = acknowledge_optimistic_persist(&mut h, &initial);
     let _ = h.step(post_echo_frame(1, 1, "tmp_e", 42), 1100);
@@ -200,7 +205,7 @@ fn s5_core_echo_temporary_id_hit_does_not_increment_unread() {
 /// 回归锚: MessageV3 硬切 —— cursor gap 下禁止绕过 gate 提前发布终态事件。
 #[test]
 fn s5_self_echo_under_gap_waits_for_durable_gate_commit() {
-    let mut h = Harness::new(&[1]);
+    let mut h = harness_with_viewer(&[1]);
     let initial = h.step(send_message_cmd(1, "tmp_gap", "hello"), 1000);
     let _ = acknowledge_optimistic_persist(&mut h, &initial);
 
@@ -246,7 +251,7 @@ fn s5_self_echo_under_gap_waits_for_durable_gate_commit() {
 /// im:post:received（gate apply 自然 emit 一次 → echo_settle=None·防双发）。
 #[test]
 fn s5_self_echo_contiguous_does_not_double_emit_post_received() {
-    let mut h = Harness::new(&[1]);
+    let mut h = harness_with_viewer(&[1]);
     let initial = h.step(send_message_cmd(1, "tmp_c", "hello"), 1000);
     let _ = acknowledge_optimistic_persist(&mut h, &initial);
     let echo = h.step(post_echo_frame(1, 1, "tmp_c", 66), 1100); // seq=1==cursor+1 连续
@@ -276,7 +281,7 @@ fn s5_self_echo_contiguous_does_not_double_emit_post_received() {
 /// 回归锚: S5 —— `post` 帧无 temporary_id（他人推送新消息）→ 非 echo，不动 pending_send。
 #[test]
 fn s5_post_action_without_temp_id_is_not_echo() {
-    let mut h = Harness::new(&[1]);
+    let mut h = harness_with_viewer(&[1]);
     let _ = h.step(send_message_cmd(1, "tmp_other", "hi"), 1000);
     use serde_json::json;
     let frame = json!({

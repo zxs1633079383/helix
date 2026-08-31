@@ -33,6 +33,7 @@ pub use post::{
     message_class, message_v3_commit_ops, message_v3_member_read_op, post_updates,
     post_updates_from_fields, PostChannelUpdate,
 };
+pub(crate) use post::{message_v3_post_mutation_ops, PostUpsertSource};
 pub use program::program_full;
 pub use reaction::message_v3_reaction_op;
 pub use revoke::message_v3_revoke_channel_ops;

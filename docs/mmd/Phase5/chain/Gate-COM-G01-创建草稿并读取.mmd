@@ -1,0 +1,25 @@
+%% Phase5 / CHAIN / CHAIN-COM-G01 创建草稿并读取
+%% 机器真源: phase5.manifest.json；ChainFacadeService；Helix chain.rs；Go handlers.go；ChainProjectionStore
+sequenceDiagram
+  participant UI as MessageChainContentComponent
+  participant F as ChainFacadeService
+  participant T as Tauri im_post_chain_create/get
+  participant H as Helix Tick / post_chain_create/get
+  participant G as Go /api/cses/post-chain
+  participant PG as PostgreSQL chain tables
+  participant DB as SQLite chain projection
+  participant B as EventSink im:__bus__
+  participant S as ChainProjectionStore signals
+  UI->>F: create/createAndPublish(channelId,mode=TEXT,title,description,deadlineAt,clientMutationId,operationId,deviceId,userSnapshot)
+  F->>T: im_post_chain_create
+  T->>H: Tick::Command(post_chain_create)
+  H->>G: Effect::Http POST /create
+  G->>PG: INSERT chain + chain_mutation
+  G-->>H: HTTP DTO
+  H->>DB: PersistAtomic chain_summary/chain_mutation
+  DB-->>H: PortReply(PersistOk)
+  H->>B: im:post_chain:draft
+  B->>S: chainProjection -> chainById
+  S-->>UI: chain-card / chain-header
+  F->>T: im_post_chain_get
+  T->>H: post_chain_get -> POST /get -> PersistAtomic

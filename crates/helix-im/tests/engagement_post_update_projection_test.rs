@@ -134,6 +134,53 @@ fn first_event(harness: &Harness) -> Value {
         .expect("PersistOk must emit a domain event")
 }
 
+/// 普通 post_update 遇到 cursor gap 时只能进入补齐编排，不能绕过原子屏障提前写库或发布。
+#[test]
+fn ordinary_post_update_gap_has_no_pre_persist_terminal_effects() {
+    let mut harness = Harness::new_with_identity(&[1], "engagement-owner", "company-1", "", "", "");
+
+    harness.step(vote_update_frame(2), 1_700_000_000_001);
+
+    assert!(
+        harness.sink.as_slice().iter().all(|effect| !matches!(
+            effect,
+            Effect::PersistFire { .. } | Effect::PersistAtomic { .. } | Effect::Emit { .. }
+        )),
+        "gapped edit must wait for missing authority and the atomic persist barrier"
+    );
+}
+
+/// 缺口前置 post 提交后，buffer 中普通 edit 必须继续形成新的原子屏障而非 legacy fire-and-forget。
+#[test]
+fn ordinary_post_update_gap_releases_through_post_update_atomic() {
+    let mut harness = Harness::new_with_identity(&[], "engagement-owner", "company-1", "", "", "");
+    let channel_id = helix_im::state::ChannelId::from_str(&common::cid(1)).expect("channel id");
+    harness.module.register_channel(channel_id, 0);
+
+    harness.step(vote_update_frame(2), 1_700_000_000_001);
+    assert!(harness
+        .sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::PersistAtomic { .. } | Effect::Emit { .. })));
+
+    harness.step(vote_create_frame(), 1_700_000_000_002);
+    let create_corr = atomic_corr(&harness);
+    harness.step(port_reply_ok(create_corr.raw()), 1_700_000_000_003);
+    let edit_corr = atomic_corr(&harness);
+    assert_ne!(edit_corr, create_corr);
+    assert!(harness
+        .sink
+        .as_slice()
+        .iter()
+        .all(|effect| { !matches!(effect, Effect::PersistFire { .. } | Effect::Emit { .. }) }));
+
+    harness.step(port_reply_ok(edit_corr.raw()), 1_700_000_000_004);
+    let event = first_event(&harness);
+    assert_eq!(event["event"], "im:post:updated");
+    assert_eq!(event["data"]["props"]["vote"]["joinCount"], 1);
+}
+
 /// post_update 成功投影必须把完整 vote.items 带到 Helix→客户端 DomainEvent，不能退化成稀疏状态。
 #[test]
 fn vote_post_update_keeps_full_items_snapshot_after_atomic_commit() {

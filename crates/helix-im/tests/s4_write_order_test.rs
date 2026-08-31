@@ -14,7 +14,7 @@ use common::*;
 use helix_core::effect::StorageOp;
 use helix_core::tick::PortOutcome;
 use helix_core::{Correlation, Tick};
-use helix_im::acl::to_effect::batch_upsert_events_with_messages;
+use helix_im::acl::to_effect::batch_upsert_events_with_messages_and_auth;
 use helix_im::parser::parse_sync_response;
 use helix_im::sync_session::SyncResponse;
 
@@ -60,6 +60,129 @@ fn classify(op: &StorageOp) -> OpKind {
     }
 }
 
+/// 回归锚：Sync type=1 必须与在线 Post 共用 viewer-scoped dialog 原子写集。
+#[test]
+fn sync_type1_compiles_message_channel_and_viewer_member_in_one_batch() {
+    let reply =
+        sync_reply_events_with_messages(1, &[ev(1, 1, "m1")], &[("m1", "first unread", "")], 1);
+    let (events, messages) = parse_evs(&reply, 1);
+
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "viewer-444");
+
+    assert!(
+        ops.iter()
+            .any(|op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message")),
+        "type=1 必须写入消息事实"
+    );
+    assert!(
+        ops.iter()
+            .any(|op| matches!(op, StorageOp::BatchUpdate(spec) if spec.table == "channel")),
+        "type=1 必须在同一写集推进共享 channel lastPost"
+    );
+    assert!(
+        ops.iter()
+            .any(|op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "channel_member")),
+        "type=1 必须在同一写集确保当前 viewer 的 channel_member 行存在"
+    );
+    assert!(
+        ops.iter().any(|op| matches!(
+            op,
+            StorageOp::ScopedGuardedBump(spec)
+                if spec.table == "channel_member"
+                    && spec.scope_col == "channel_id"
+                    && spec.key_col == "user_id"
+                    && spec.bump_col == "unread_count"
+        )),
+        "他人可见消息必须按 (channel_id,user_id) 守卫递增 viewer 未读"
+    );
+    assert!(
+        !ops.iter()
+            .any(|op| matches!(op, StorageOp::GuardedBump(spec) if spec.table == "channel")),
+        "共享 channel.unread_count 不得继续承载 viewer 未读"
+    );
+}
+
+/// 回归锚：Sync 提交成功后不依赖时间线 attach，必须读回 viewer member 绝对态。
+#[test]
+fn sync_type1_persist_ok_reads_viewer_member_for_unattached_channel() {
+    use helix_core::effect::Effect;
+
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    let gap = h.step(inbound_event(1, 99, 1), 1_000);
+    let sync_corr = gap
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Http(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("gap 必须发起 sync/notify");
+    let reply =
+        sync_reply_events_with_messages(1, &[ev(1, 1, "m1")], &[("m1", "first unread", "")], 1);
+    let sync_effects = h.step(port_reply_with_body(sync_corr, enveloped(reply)), 2_000);
+    let persist_corr = sync_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::PersistAtomic(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("Sync type=1 必须等待原子提交");
+
+    h.step(port_reply_ok(persist_corr), 2_001);
+
+    assert!(
+        h.sink.as_slice().iter().any(|effect| matches!(
+            effect,
+            Effect::Persist { ops, .. }
+                if matches!(ops.as_slice(), [StorageOp::ScopedGet(spec)]
+                    if spec.table == "channel_member"
+                        && spec.scope_col == "channel_id"
+                        && spec.key_col == "user_id")
+        )),
+        "未 attach 的 A 群也必须按 (channel_id,user_id) 读回 viewer 未读绝对态"
+    );
+    let readback_corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if matches!(ops.as_slice(), [StorageOp::ScopedGet(spec)]
+                    if spec.table == "channel_member") =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("必须保留 member readback corr");
+    let member_rows = bytes::Bytes::from(
+        serde_json::to_vec(&serde_json::json!([{
+            "channel_id": cid(1),
+            "user_id": "viewer-444",
+            "unread_count": 1,
+            "last_post": serde_json::json!({"id": "m1", "message": "first unread"}).to_string()
+        }]))
+        .expect("serialize member readback"),
+    );
+
+    h.step(port_reply_with_body(readback_corr, member_rows), 2_002);
+    let projected: Vec<serde_json::Value> = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).ok(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        projected.len(),
+        1,
+        "Sync dialog readback 只能发布一个终态事件"
+    );
+    assert_eq!(projected[0]["event"], "im:channel:update");
+    assert_eq!(projected[0]["data"]["unreadCount"], 1);
+}
+
 /// 回归锚: S4 —— 同批 type1 + type6（同 msg）→ type1 upsert 必须排在 type6 read 之前。
 ///
 /// 铁律：type6 单调覆盖 read_bits 的 UPDATE 必须在 type1 全量 upsert **之后**执行；否则
@@ -81,8 +204,12 @@ fn s4_type1_before_type6_in_same_batch() {
     let types: Vec<u8> = events.iter().map(|e| e.kind.type_num()).collect();
     assert_eq!(types, vec![1, 6], "parser 须分桶 type1→type6（type6 最后）");
 
-    let ops = batch_upsert_events_with_messages(&events, &messages);
-    let kinds: Vec<OpKind> = ops.iter().map(classify).collect();
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "viewer-444");
+    let kinds: Vec<OpKind> = ops
+        .iter()
+        .map(classify)
+        .filter(|kind| *kind != OpKind::Other)
+        .collect();
     let p1 = kinds
         .iter()
         .position(|k| *k == OpKind::Type1Upsert)
@@ -112,8 +239,12 @@ fn s4_four_bucket_strict_order() {
         24,
     );
     let (events, messages) = parse_evs(&reply, 2);
-    let ops = batch_upsert_events_with_messages(&events, &messages);
-    let kinds: Vec<OpKind> = ops.iter().map(classify).collect();
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "viewer-444");
+    let kinds: Vec<OpKind> = ops
+        .iter()
+        .map(classify)
+        .filter(|kind| *kind != OpKind::Other)
+        .collect();
     // d=type1 upsert, c=type2 edit, b=type3 revoke, a=type6 read → 四桶各一，顺序铁律。
     assert_eq!(
         kinds,

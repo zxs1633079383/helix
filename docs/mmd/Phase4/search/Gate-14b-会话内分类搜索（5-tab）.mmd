@@ -1,25 +1,21 @@
 %% Phase4 / search / MV3-G14b 会话内分类搜索（5 tab）
-%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/search/mv3-g14b/contract.json
-%% UI owners: src/pages/message-v3/components/drawer/chat-search/base/base-search-tab.component.ts::search；src/pages/message-v3/components/drawer/chat-search/tabs/search-topic-tab/search-topic-tab.component.ts::search
+%% 机器真源: cses-client phase4.manifest.json；Helix im_search_post；Java /search/post；Angular chat-search tabs
 sequenceDiagram
   autonumber
-  participant UI as Angular UI
-  participant Gate as MessageV3 Gate Port
-  participant Native as Tauri Native
-  participant FFI as Flutter FFI
-  participant Web as Browser Web
-  participant E as ExecutionShell Tick
-  participant IM as helix-im
-  participant Host as driver-host
-  participant DB as tenant SQLite
-  participant Go as Go IM Server
-  participant WS as WS inbound
-  participant Sink as EventSink raw bytes
-  Note over UI,Gate: 用户目标：成员在会话搜索抽屉切 tab，分别查该会话的全部 / 媒体 / 链接 / 文件 / 话题命中
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=none；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
-  UI->>Gate: searchInChannel(payload)
-  Gate-->>UI: 当前客户端路由结果或受控空结果
-  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
-  Note over IM,DB: 关键效果：返回 items, total, hasMore：total 为该分类下命中总数（不是本页条数），hasMore = start + items.length 小于 total；分页切片 start = (pageNumber - 1) * pageSize；start 大于= 命中总数时返回空 items 但保留 total（越界页展示空态而非报错）
-  Note over UI,Web: 关键负向：分类之间必须互不串扰：media 结果不得含 file 类型消息，file 结果不得含 media，link 只认正文含链接的 TEXT，topic 只认话题类命中；越界页必须返回空集合而不是报错（翻到最后一页再往后翻是常见操作）
-  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  participant UI as ChatSearch tabs
+  participant P as MessageV3ImGate
+  participant T as Tauri im_search_post
+  participant H as Helix Tick / search outbound
+  participant J as Java search gateway
+  participant B as EventSink im:__bus__
+  participant S as Angular tab result signal
+  UI->>P: searchInChannel(channelId,keyword,type,pageNumber,pageSize)
+  P->>T: invoke im_search_post
+  T->>H: Tick::Command(im_search_post, req_id)
+  H->>J: Effect::Http POST /search/post
+  J-->>H: items,total,hasMore
+  H->>H: Tick::PortReply(Http Ok) / DTO validation
+  H->>B: Effect::Emit im:read:result(req_id,data)
+  B->>S: resolve request and update active tab signal
+  S->>UI: all / media / link / file / topic tab rendering
+  Note over H,B: 查询不写 PostgreSQL 或 SQLite，也不等待 WS；HTTP 状态本身不是可渲染结果

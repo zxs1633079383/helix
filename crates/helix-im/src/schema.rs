@@ -263,6 +263,7 @@ END",
         last_post TEXT NOT NULL DEFAULT '',\
         last_post_at INTEGER NOT NULL DEFAULT 0,\
         last_root_post_at INTEGER NOT NULL DEFAULT 0,\
+        last_unread_event_seq INTEGER NOT NULL DEFAULT 0,\
         mention_count INTEGER NOT NULL DEFAULT 0,\
         mention_count_root INTEGER NOT NULL DEFAULT 0,\
         mention_list TEXT NOT NULL DEFAULT '',\
@@ -493,6 +494,7 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE channel_member ADD COLUMN last_post TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel_member ADD COLUMN last_post_at INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN last_root_post_at INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN last_unread_event_seq INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN mention_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN mention_count_root INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN mention_list TEXT NOT NULL DEFAULT ''",

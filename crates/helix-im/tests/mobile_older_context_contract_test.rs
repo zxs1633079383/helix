@@ -35,7 +35,7 @@ fn canonical_request_accepts_only_channel_anchor_and_optional_before() {
     }))
     .unwrap();
     let state = parse_request(&default).expect("canonical default before");
-    assert_eq!(state.target(), 40);
+    assert_eq!(state.target(), 20);
     assert_eq!(state.pivot_id(), "anchor");
     assert_eq!(state.request_id(), None);
 

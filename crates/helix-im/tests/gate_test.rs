@@ -66,9 +66,10 @@ fn gate_contiguous_ws_applies_immediately() {
 
 // ─── 断号 → buffer + arm gate ─────────────────────────────────────────────────
 
+/// 验证乱序入站只启动 gap timer，不提前持久化或发出业务事件。
 #[test]
 fn gate_out_of_order_arms_timer() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // cursor = 0，喂 seq=3（断号：缺 1, 2）
     let effects = h.step(inbound_event(1, 3, 1), 1000);
     // 应产出 ScheduleTimer（1s gate）
@@ -94,7 +95,7 @@ fn gate_out_of_order_arms_timer() {
 
 #[test]
 fn gate_dup_drop_silently() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // 先让 seq=1 通过（cursor→1）
     step_durable(&mut h, inbound_event(1, 1, 1), 1000);
     // 再喂 seq=1（dup，seq <= cursor）
@@ -109,7 +110,7 @@ fn gate_dup_drop_silently() {
 
 #[test]
 fn gate_second_out_of_order_no_double_arm() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // 喂 seq=3（断号，arm gate）
     let effects1 = h.step(inbound_event(1, 3, 1), 1000);
     assert!(effects1
@@ -131,7 +132,7 @@ fn gate_second_out_of_order_no_double_arm() {
 
 #[test]
 fn gate_timer_fires_sync_http() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // arm gate by sending **小缺口**（seq=2 / cursor=0 / gap=2 ≤ 阈值）→ 不触发立即 backfill resync
     // （根治 fix/im-sync-cursor-catchup 仅对 gap>2 的大缺口立即发 sync），保留 1s gate timer 作为
     // 缺口兜底触发点——本测专验「小缺口走 1s gate timer fire → sync/notify」这条路径仍成立。
@@ -375,7 +376,7 @@ fn sync_too_long_resets_cursor_and_emits() {
 
 #[test]
 fn proactive_too_long_requests_latest_post_reload_e6() {
-    let mut h = Harness::new(&[7]);
+    let mut h = Harness::new_with_identity(&[7], "viewer-444", "tenant-1", "", "", "");
     let mut saw_too_long = false;
     let mut saw_reload = false;
 
@@ -423,7 +424,7 @@ fn proactive_too_long_requests_latest_post_reload_e6() {
 
 #[test]
 fn gate_buffer_flush_on_contiguous_arrival() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // 喂 seq=3（断号，buffer 进去，arm gate）
     h.step(inbound_event(1, 3, 1), 1000);
     // 喂 seq=2（断号，进 buffer，不重复 arm）
@@ -455,7 +456,7 @@ fn gate_buffer_flush_on_contiguous_arrival() {
 
 #[test]
 fn cursor_never_decreases_under_any_input() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // 先喂 seq 1..5 连续（cursor=5）
     for seq in 1u64..=5 {
         step_durable(&mut h, inbound_event(1, seq, 1), seq * 1000);

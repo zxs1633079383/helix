@@ -19,6 +19,11 @@ pub(crate) fn queue_commit(
     let projection = crate::event::post::authority_projection(&event)?;
     let ops =
         crate::channel_write::message_v3_commit_ops(&event, auth_user_id, &projection.last_post);
+    if ops.is_empty() {
+        return Err(ImError::Parse(
+            "MessageV3 post requires viewer identity and SQLite-range eventSeq".to_string(),
+        ));
+    }
     state.corr_map.insert(
         corr,
         CorrelationContext::MessageV3PostPersist {
@@ -28,6 +33,43 @@ pub(crate) fn queue_commit(
     );
     out.push(Effect::PersistAtomic { corr, ops });
     Ok(())
+}
+
+/// 将已连续的普通 type=2 edit 绑定到 message patch 与 cursor 的同一原子提交。
+pub(crate) fn queue_post_update_commit(
+    state: &mut ImState,
+    auth_user_id: &str,
+    corr: Correlation,
+    event: EventEnvelope,
+    out: &mut EffectSink,
+) {
+    let message_id = event
+        .msg_id
+        .as_deref()
+        .filter(|id| !id.is_empty())
+        .unwrap_or(event.fields.id.as_str());
+    let pending_domain_event = match crate::acl::to_effect::emit_post_updated_for_viewer(
+        event.channel_id,
+        event.seq.0,
+        message_id,
+        &event.fields,
+        auth_user_id,
+    ) {
+        Effect::Emit { event } => event.0.to_vec(),
+        _ => unreachable!("post_update projection constructor must emit"),
+    };
+    let ops = vec![
+        crate::channel::edit_content_op(message_id, &event.fields),
+        crate::acl::to_effect::advance_cursor_op(event.channel_id, event.seq),
+    ];
+    state.corr_map.insert(
+        corr,
+        CorrelationContext::PostUpdateAtomic {
+            event: Box::new(event),
+            pending_domain_event,
+        },
+    );
+    out.push(Effect::PersistAtomic { corr, ops });
 }
 
 impl ImModule {
@@ -80,9 +122,21 @@ impl ImModule {
         event: EventEnvelope,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if self.config.auth_user_id.is_empty() || i64::try_from(event.seq.0).is_err() {
+            let channel_id = event.channel_id;
+            if let Some(channel) = self.state.channels.get_mut(&channel_id) {
+                channel.restore_message_v3_post(event, out);
+            }
+            return Err(ImError::Parse(
+                "MessageV3 buffered event requires viewer identity and SQLite-range eventSeq"
+                    .to_string(),
+            ));
+        }
         let corr = self.alloc_corr_internal();
         if matches!(event.kind, crate::sync_session::EventKind::PostEdit)
-            && !event.fields.quick_reply.is_empty()
+            && crate::ws::handlers::post_update::has_quick_reply_items(
+                event.fields.quick_reply.as_str(),
+            )
         {
             super::message_v3_reaction::queue_commit(&mut self.state, corr, event, out);
             return Ok(());
@@ -97,6 +151,16 @@ impl ImModule {
             && crate::event::post::has_template_confirmation(event.fields.props.as_str())
         {
             super::message_v3_template::queue_commit(&mut self.state, corr, event, out);
+            return Ok(());
+        }
+        if matches!(event.kind, crate::sync_session::EventKind::PostEdit) {
+            queue_post_update_commit(
+                &mut self.state,
+                self.config.auth_user_id.as_str(),
+                corr,
+                event,
+                out,
+            );
             return Ok(());
         }
         queue_commit(
@@ -128,6 +192,18 @@ impl ImModule {
             self.state
                 .pending_forward_deliveries
                 .complete_target(&causation_id, channel_id);
+        }
+        Ok(())
+    }
+
+    /// Sync member 读回成功后只释放唯一 `im:channel:update` 绝对态。
+    pub(super) fn handle_message_v3_sync_dialog_readback_reply(
+        &mut self,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if let Some(channel) = channel_update_from_member_readback(outcome)? {
+            out.push(channel.into_effect());
         }
         Ok(())
     }

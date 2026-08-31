@@ -1,34 +1,39 @@
 %% Phase1 / post / MV3-G01h 发送任务卡
-%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g01h/contract.json
-%% UI owners: src/pages/management-new/.../task-chat.component.ts::sendTaskCardById；src/pages/management-new/.../chat-view.component.ts::sendTaskCardById
+%% 机器真源: cses-client phase1.manifest.json；TaskApiService/buildTaskCardMessage；Helix im_send_message；Go posts/create；Angular MessageTaskContentComponent
 sequenceDiagram
   autonumber
   participant UI as Angular UI
-  participant Gate as MessageV3 Gate Port
-  participant Native as Tauri Native
-  participant FFI as Flutter FFI
-  participant Web as Browser Web
-  participant E as ExecutionShell Tick
-  participant IM as helix-im
-  participant PS as Pending or local state
-  participant Host as driver-host
+  participant Gate as TaskApiService / MessageV3ImGate
+  participant Native as Tauri im_send_message
+  participant E as Helix Tick / im_send_message
+  participant Java as Java CSES
   participant DB as tenant SQLite
   participant Go as Go IM Server
+  participant PG as PostgreSQL
   participant WS as WS inbound
-  participant Sink as EventSink raw bytes
-  participant Ext as Other business host
-  Note over UI,Gate: 用户目标：成员在任务详情抽屉或任务聊天视图点「发送到聊天」，任务以卡片形态出现在目标会话，接收者可直接看到任务标题与状态
-  Note over UI,Web: 当前覆盖状态：mock=partial；helix=none；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
-  UI->>Gate: sendMessage(payload)
-  Gate-->>UI: 当前客户端路由结果或受控空结果
-  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
-  alt 旧业务 Host 仍可用
-    Ext->>Go: POST /posts/create（非 Helix 链路）
-    Go-->>Ext: HTTP response / legacy result
-    Ext-->>UI: 旧链路结果（不纳入 Helix Gate Event）
-  else 当前入口隐藏、待定或断供
-    Note over Ext,Go: 当前合同要求 fail-closed；不伪造成功消息、不新增 Helix fallback
-  end
-  Note over IM,DB: 关键效果：发送成功后发送者侧 channel.unreadCount 绝对归零（== 0，不是递减）；频道内其它可见成员的 getMemberUnread(channelId, otherUserId).unreadCount 相比发送前恰好 +1（幂等累加）；该值必须各侧独立计算，禁止用发送者数值推导；message.readBits 长度 == channel.members.length，位序 == channel.members 顺序，发送者对应位 == '1'；接收者对应位在其调用 postRead 之前恒为 '0'，不得因发送者已读而被置 '1'
-  Note over UI,Web: 关键负向：不得走上传链路；temporaryId 不得继续用 task-card-$Date.now()：同毫秒并发两次发送会碰撞，导致两条消息互相 merge 覆盖（helix 接入时必须换全局唯一 id）；success 到达时命中已有 temporaryId 不得裸替换消息对象，必须 mergePostIntoExisting（否则丢 sendStatus / uploadProgress / 高度缓存）
-  Note over E,Sink: 出站事件集合：postReceived，POST，channelUpdateByPost，UPDATE_CHANNEL；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  participant Sink as EventSink im:__bus__
+  participant Store as Angular message store
+  participant View as MessageTaskContentComponent
+  UI->>Gate: TaskApiService.create POST /taskManage/task/create
+  Gate->>Java: CreateTaskDto
+  Java-->>Gate: taskId
+  UI->>Gate: sendTaskCardById(taskId)
+  Gate->>Java: POST /taskManage/task/detail
+  Java-->>Gate: TaskDetail
+  Gate->>Gate: buildTaskCardMessage(type=TASK_CARD, props.taskCard/taskCardBlock)
+  Gate->>Native: MessageService.sendMessage
+  Native->>E: Tick::Command(im_send_message)
+  E->>DB: Persist optimistic message(sending)
+  DB-->>E: PortReply(PersistOk)
+  E->>Sink: im:post:sending
+  E->>Go: Effect::Http POST /api/cses/posts/create
+  Go->>PG: post/channel/channel_member/channel_event
+  Go-->>E: HTTP 2xx admission
+  Go-->>WS: post
+  WS->>E: Tick::Inbound(post)
+  E->>DB: PersistAtomic canonical message/channel/cursor
+  DB-->>E: PortReply(PersistOk)
+  E->>Sink: im:post:received
+  Sink->>Store: IpcEventService upsert TASK_CARD
+  Store->>View: props.taskCard signal 渲染任务卡
+  Note over UI,View: 创建任务与发送任务卡是两段链路；离线先保留 sending 投影，权威 post 回声后才成为 sent

@@ -218,8 +218,9 @@ fn phase1_schema(file: &str) -> Value {
                 "enum": ["Tick::Command", "Tick::Inbound", "Tick::Timer", "TauriHostCommand", "NONE"]
             });
             // 边界与载荷编码是一对绑定：走 Helix Tick::Command 的命令一律纯 JSON；
-            // 只有 Tauri Host ingress（媒体暂存 `im_stage_media`）才允许 metadata + chunk
-            // 流式编码。二者交叉即为契约漂移（例如把媒体流塞进纯 JSON Command 边界）。
+            // 只有 Tauri Host ingress（媒体暂存 `im_stage_media`）与 Raw ingress
+            //（生成媒体暂存 `im_stage_generated_media`）允许非 JSON 载荷。三者交叉即为契约漂移
+            //（例如把媒体流塞进纯 JSON Command 边界）。
             properties["rust_commands"] = json!({
                 "type": "array",
                 "items": {
@@ -228,8 +229,8 @@ fn phase1_schema(file: &str) -> Value {
                     "required": ["name", "boundary", "payload_encoding", "forbid_unknown"],
                     "properties": {
                         "name": {"type": "string", "pattern": "^im_[a-z0-9_]+$"},
-                        "boundary": {"enum": ["Helix Tick::Command", "Tauri Host ingress"]},
-                        "payload_encoding": {"enum": ["JSON", "metadata JSON + chunk stream"]},
+                        "boundary": {"enum": ["Helix Tick::Command", "Tauri Host ingress", "Tauri Host Raw ingress"]},
+                        "payload_encoding": {"enum": ["JSON", "metadata JSON + chunk stream", "base64 metadata header + Raw byte body"]},
                         // fail closed 是硬约束：未知字段不得被静默接受。
                         "forbid_unknown": {"const": true}
                     },
@@ -249,6 +250,17 @@ fn phase1_schema(file: &str) -> Value {
                             "then": {
                                 "properties": {
                                     "payload_encoding": {"const": "metadata JSON + chunk stream"}
+                                }
+                            }
+                        },
+                        {
+                            "if": {
+                                "required": ["boundary"],
+                                "properties": {"boundary": {"const": "Tauri Host Raw ingress"}}
+                            },
+                            "then": {
+                                "properties": {
+                                    "payload_encoding": {"const": "base64 metadata header + Raw byte body"}
                                 }
                             }
                         }
@@ -407,7 +419,12 @@ fn phase1_schema(file: &str) -> Value {
                             "required": ["event", "data"],
                             "properties": {
                                 "event": {"type": "string", "pattern": "^im:[a-z0-9_-]+:[a-z0-9_-]+$"},
-                                "data": {"type": "object"}
+                                "data": {
+                                    "oneOf": [
+                                        {"type": "object"},
+                                        {"type": "array", "items": {"type": "object"}}
+                                    ]
+                                }
                             }
                         },
                         "angular": {
@@ -416,7 +433,12 @@ fn phase1_schema(file: &str) -> Value {
                             "required": ["kind", "payload"],
                             "properties": {
                                 "kind": {"type": "string", "minLength": 1},
-                                "payload": {"type": "object"}
+                                "payload": {
+                                    "oneOf": [
+                                        {"type": "object"},
+                                        {"type": "array", "items": {"type": "object"}}
+                                    ]
+                                }
                             }
                         },
                         "sample_order": {"type": "integer", "minimum": 1}

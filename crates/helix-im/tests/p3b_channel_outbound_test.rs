@@ -535,6 +535,7 @@ fn other_user_post_frame(channel_id: u64, seq: u64, post_id: u64) -> Tick {
             "event_seq": seq,
             "message": "他人消息",
             "type": "P",
+            "createAt": 1000,
             "userId": "00000000000000000000000099",  // 他人（非 echo，无 temporary_id）
             "viewers": ["all"],
         },
@@ -550,8 +551,8 @@ fn other_user_post_frame(channel_id: u64, seq: u64, post_id: u64) -> Tick {
 /// 找不到复合键 GuardedBump（或找到读后绝对值覆盖）→ FAIL。
 #[test]
 fn post_unread_bump_is_single_guarded_bump_not_rmw_b5() {
-    // 无身份（auth 空）→ 保守计入未读（sender 豁免下沉前端）；channel 预注册 cursor=0。
-    let mut h = Harness::new(&[1]);
+    // 注入与消息作者不同的 viewer；MessageV3 原子写明确要求运行时身份。
+    let mut h = Harness::new_with_identity(&[1], "viewer-user", "company", "", "", "");
     h.step(other_user_post_frame(1, 1, 7), 1000);
 
     // 收集本批所有 StorageOp（包含 MessageV3 原子写屏障）。
@@ -602,8 +603,8 @@ fn post_unread_bump_is_single_guarded_bump_not_rmw_b5() {
     assert_eq!(bump.bump_col, "unread_count", "自增列 = unread_count");
     assert_eq!(bump.bump_delta, 1, "他人可见消息 +1");
     assert_eq!(
-        bump.guard_col, "last_root_post_at",
-        "前进守卫列 = last_root_post_at（防重复/旧消息回退）"
+        bump.guard_col, "last_unread_event_seq",
+        "前进守卫列 = last_unread_event_seq（按频道事件序列防重复/乱序回退）"
     );
     assert!(
         bump.set_cols.iter().any(|(column, value)| {
@@ -611,7 +612,7 @@ fn post_unread_bump_is_single_guarded_bump_not_rmw_b5() {
                 && matches!(
                     value,
                     helix_core::effect::SqlValue::Integer(timestamp)
-                        if *timestamp == bump.guard_val
+                        if *timestamp == 1000
                 )
         }),
         "可见消息必须同步推进 last_post_at，确保恢复后的会话进入有界首屏并刷新预览"

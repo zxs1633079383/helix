@@ -11,7 +11,9 @@
 //!   - 去掉撤回事件 → 必无 `im:post:revoke`（不会凭空发出）。
 
 use super::{
-    batch_upsert_events_with_messages_and_auth, sync_mutation_emits, sync_mutation_emits_with_auth,
+    batch_upsert_events_with_messages_and_auth,
+    batch_upsert_events_with_messages_and_auth_observed, sync_mutation_emits,
+    sync_mutation_emits_with_auth, SyncApplyMode,
 };
 use crate::state::{ChannelId, Seq};
 use crate::sync_session::{EventEnvelope, EventKind, PostFields};
@@ -122,6 +124,59 @@ fn no_revoke_event_means_no_post_revoke() {
         find_emit(&emits, "im:post:revoke").is_none(),
         "无 PostRevoke 事件不得发出 im:post:revoke"
     );
+}
+
+/// Hydration 缺少 increment authority 时必须按业务序号重建 durable viewer 未读与频道预览。
+#[test]
+fn hydration_history_without_increment_authority_rebuilds_durable_viewer_state() {
+    let mut messages = HashMap::new();
+    messages.insert(
+        MSG.to_string(),
+        PostFields {
+            id: MSG.to_string(),
+            temporary_id: "tmp-hydration".to_string(),
+            channel_id: CH.to_string(),
+            user_id: "author".to_string(),
+            viewers: vec!["viewer".to_string()],
+            message: "history".to_string(),
+            create_at: 7,
+            ..PostFields::default()
+        },
+    );
+
+    let ops = batch_upsert_events_with_messages_and_auth_observed(
+        &[upsert_ev(7)],
+        &messages,
+        "viewer",
+        SyncApplyMode::HydrationHistory,
+        None,
+    );
+
+    assert_eq!(ops.len(), 4, "type1 hydration 必须生成完整 viewer 写集");
+    assert!(matches!(&ops[0], StorageOp::BatchUpsert(spec) if spec.table == "message"));
+    assert!(matches!(&ops[1], StorageOp::BatchUpdate(spec) if spec.table == "channel"));
+    assert!(matches!(
+        &ops[2],
+        StorageOp::BatchUpsert(spec)
+            if spec.table == "channel_member"
+                && spec.conflict_key == Some("channel_id,user_id")
+                && spec.exclude_from_update == ["unread_count", "last_unread_event_seq"]
+    ));
+    let StorageOp::ScopedGuardedBump(spec) = &ops[3] else {
+        panic!("viewer 未读必须由 ScopedGuardedBump 单调重建");
+    };
+    assert_eq!(spec.table, "channel_member");
+    assert!(matches!(
+        &spec.scope_val,
+        helix_core::effect::SqlValue::Text(value) if value == CH
+    ));
+    assert!(matches!(
+        &spec.key_val,
+        helix_core::effect::SqlValue::Text(value) if value == "viewer"
+    ));
+    assert_eq!(spec.bump_delta, 1);
+    assert_eq!(spec.guard_col, "last_unread_event_seq");
+    assert_eq!(spec.guard_val, 7);
 }
 
 /// G-06：sync gap 回补的 fat postUpdated 必须保留独立 quick_reply 绝对态。

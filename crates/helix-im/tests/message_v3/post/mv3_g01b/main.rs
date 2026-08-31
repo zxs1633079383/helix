@@ -521,7 +521,9 @@ fn run_persona(viewer_id: &str, final_unread: i64) -> PersonaTrace {
         .unwrap_or_else(|| panic!("{viewer_id}: message 行必须落 mentions 列"));
     let unread_bumped = writes.iter().any(|op| {
         matches!(op, StorageOp::ScopedGuardedBump(spec)
-            if spec.table == "channel_member" && spec.bump_col == "unread_count")
+            if spec.table == "channel_member"
+                && spec.bump_col == "unread_count"
+                && spec.bump_delta > 0)
     });
 
     let after_commit = harness.step(port_reply_ok(atomic_corr.raw()), CREATE_AT as u64 + 1);

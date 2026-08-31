@@ -199,7 +199,9 @@ fn unread_bumps(ops: &[StorageOp]) -> Vec<i64> {
             let StorageOp::ScopedGuardedBump(spec) = op else {
                 return None;
             };
-            (spec.table == "channel_member" && spec.bump_col == "unread_count")
+            (spec.table == "channel_member"
+                && spec.bump_col == "unread_count"
+                && spec.bump_delta > 0)
                 .then_some(spec.bump_delta)
         })
         .collect()
@@ -569,10 +571,9 @@ fn sender_persona_never_accrues_unread_for_its_own_forward() {
         applied.bumps.is_empty(),
         "发送者视角禁止出现 unread 自增，否则自己转发会给自己制造未读"
     );
-    assert_eq!(
-        applied.absolute,
-        [0],
-        "发送者视角必须把 unread_count 绝对置 0"
+    assert!(
+        applied.absolute.is_empty(),
+        "发送者视角不得覆盖既有 unread_count"
     );
     assert_eq!(table.unread(&cid(TARGET_A), SENDER), 0);
 

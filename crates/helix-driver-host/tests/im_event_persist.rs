@@ -632,7 +632,11 @@ async fn sync_notify_wire_round_trips_rich_fields_into_sqlite() {
 
     let storage = storage_with_im_schema().await;
     let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "678");
-    assert_eq!(ops.len(), 3, "type1/type2/type6 都必须生成落库操作");
+    assert_eq!(
+        ops.len(),
+        6,
+        "sender 视角写集 = type1(message+channel+member) + type2 patch + type6 双更新"
+    );
     for op in &ops {
         assert!(
             matches!(

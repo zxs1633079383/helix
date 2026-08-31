@@ -198,7 +198,9 @@ fn unread_bumps(ops: &[StorageOp]) -> Vec<i64> {
             let StorageOp::ScopedGuardedBump(spec) = op else {
                 return None;
             };
-            (spec.table == "channel_member" && spec.bump_col == "unread_count")
+            (spec.table == "channel_member"
+                && spec.bump_col == "unread_count"
+                && spec.bump_delta > 0)
                 .then_some(spec.bump_delta)
         })
         .collect()
@@ -680,7 +682,10 @@ fn merged_forward_diverges_between_sender_and_receiver_personas() {
         sender_applied.bumps.is_empty(),
         "发送者视角禁止 unread 自增"
     );
-    assert_eq!(sender_applied.absolute, [0]);
+    assert!(
+        sender_applied.absolute.is_empty(),
+        "发送者视角不得覆盖既有 unread_count"
+    );
 
     let mut receiver = Harness::new_with_identity(&[TARGET_A], RECEIVER, "mv3-g03b", "", "", "");
     let mut receiver_table = MemberTable::default();

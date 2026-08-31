@@ -18,14 +18,14 @@ fn parsed_page_size(page_size: Option<u64>) -> Result<u32, helix_im::ImError> {
         .map(|request| request.limit)
 }
 
-/// 证明缺省值为 40，边界 1/60 均保留且 storage scan 只多取一条 lookahead。
+/// 证明缺省值为 20，边界 1/60 均保留且 storage scan 只多取一条 lookahead。
 #[test]
 fn latest_page_size_defaults_and_bounds_are_exact() {
     assert_eq!(
         parsed_page_size(None).expect("missing pageSize defaults"),
-        40
+        20
     );
-    assert_eq!(DEFAULT_TIMELINE_PAGE_SIZE, 40);
+    assert_eq!(DEFAULT_TIMELINE_PAGE_SIZE, 20);
     assert_eq!(parsed_page_size(Some(1)).expect("one is valid"), 1);
     assert_eq!(
         parsed_page_size(Some(60)).expect("sixty is valid"),

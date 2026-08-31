@@ -679,7 +679,7 @@ fn assert_media_go_body(body: &Value) {
     }
 
     let references = match body["type"].as_str() {
-        Some("IMAGE") => body["props"]["files"]
+        Some("RICH") => body["props"]["files"]
             .as_array()
             .expect("rich props.files")
             .iter()
@@ -698,7 +698,7 @@ fn assert_media_go_body(body: &Value) {
         )],
         other => panic!("unexpected Go media type: {other:?}"),
     };
-    let expected_bucket = if body["type"] == "IMAGE" {
+    let expected_bucket = if body["type"] == "RICH" {
         "picture"
     } else {
         "attachment"
@@ -713,6 +713,34 @@ fn ignore_http_outcome(_: &str, _: &Result<HttpResponse, PortError>) -> Option<D
     None
 }
 
+/// 构造本地夹具模拟的权威 WS echo；真实 Go/WS 证据由独立 Native real-chain target 提供。
+fn synthetic_post_echo_tick(
+    temporary_id: &str,
+    server_id: &str,
+    event_seq: u64,
+    msg_type: &str,
+) -> Tick {
+    Tick::Inbound(helix_core::tick::InboundBytes(
+        serde_json::to_vec(&json!({
+            "v": 1,
+            "action": "post",
+            "data": {
+                "id": server_id,
+                "temporaryId": temporary_id,
+                "channelId": CHANNEL_ID,
+                "event_seq": event_seq,
+                "userId": AUTH_USER_ID,
+                "type": msg_type,
+                "viewers": ["all"],
+                "createAt": 1_700_000_000_000_i64 + event_seq as i64
+            }
+        }))
+        .expect("serialize authoritative media echo")
+        .into(),
+    ))
+}
+
+/// 验证 RICH/FILE 通过本地 HTTP/echo 夹具共用管线并最终写入真实 SQLite。
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() {
     let java_listener = TcpListener::bind("127.0.0.1:0")
@@ -800,6 +828,7 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
         user_name: "media-e2e".to_string(),
         org_name: "test-org".to_string(),
         dept_name: "test-dept".to_string(),
+        client_platform: Default::default(),
         ping_interval_ms: 60_000,
         send_timeout_ms: 60_000,
         offline_sync_diagnostics: Default::default(),
@@ -851,6 +880,15 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
             .expect("Go post notification channel"),
         1
     );
+    tick_tx
+        .send(synthetic_post_echo_tick(
+            RICH_TEMPORARY_ID,
+            "psfixx00000000000000000001",
+            1,
+            "RICH",
+        ))
+        .await
+        .expect("send rich authoritative echo");
     assert!(
         uploader.progress_snapshot().is_empty(),
         "rich image uploads must not install a progress reporter"
@@ -876,6 +914,15 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
             .expect("Go post notification channel"),
         2
     );
+    tick_tx
+        .send(synthetic_post_echo_tick(
+            FILE_TEMPORARY_ID,
+            "psfixx00000000000000000002",
+            2,
+            "FILE",
+        ))
+        .await
+        .expect("send file authoritative echo");
 
     let final_rows = wait_for_sent_messages(&host_storage).await;
     shutdown_tx.send(()).ok();
@@ -940,7 +987,7 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
     }));
 
     assert_eq!(go_posts.len(), 2);
-    assert_eq!(go_posts[0]["type"], "IMAGE");
+    assert_eq!(go_posts[0]["type"], "RICH");
     assert_eq!(
         go_posts[0]["props"]["files"]
             .as_array()

@@ -19,7 +19,7 @@ mod common;
 use common::*;
 
 use helix_core::effect::{SqlValue, StorageOp};
-use helix_im::acl::to_effect::batch_upsert_events_with_messages;
+use helix_im::acl::to_effect::batch_upsert_events_with_messages_and_auth;
 use helix_im::parser::parse_sync_response;
 use helix_im::sync_session::SyncResponse;
 
@@ -117,19 +117,23 @@ fn phantom_event_produces_no_upsert_but_cursor_advances() {
     assert_eq!(events.len(), 2, "解析出两条事件");
     assert_eq!(messages.len(), 1, "messages map 只含 visible");
 
-    let ops = batch_upsert_events_with_messages(&events, &messages);
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "viewer-444");
+    let message_ops = ops
+        .iter()
+        .filter(|op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"))
+        .collect::<Vec<_>>();
     // 仅 1 条 upsert（phantom 不产 op）——但事件计数为 2，差额即 phantom。
     assert_eq!(
-        ops.len(),
+        message_ops.len(),
         1,
         "phantom 不落行：2 事件只产 1 upsert，got {ops:?}"
     );
     assert!(
-        matches!(&ops[0], StorageOp::BatchUpsert(s) if s.table == "message"),
+        matches!(message_ops[0], StorageOp::BatchUpsert(s) if s.table == "message"),
         "唯一 op 是 message upsert"
     );
     assert_eq!(
-        upsert_text(&ops[0], "message").as_deref(),
+        upsert_text(message_ops[0], "message").as_deref(),
         Some("hello"),
         "落库内容取自 messages map"
     );
@@ -193,7 +197,7 @@ fn read_event_applies_read_bits_via_update() {
         20,
     );
     let (events, messages) = parse_events_and_messages(&reply, 2);
-    let ops = batch_upsert_events_with_messages(&events, &messages);
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "viewer-444");
 
     assert_eq!(ops.len(), 1, "type6 产一条 read_bits UPDATE");
     assert!(
@@ -223,7 +227,7 @@ fn read_event_without_read_bits_in_map_is_skipped() {
         21,
     );
     let (events, messages) = parse_events_and_messages(&reply, 2);
-    let ops = batch_upsert_events_with_messages(&events, &messages);
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "viewer-444");
     assert!(ops.is_empty(), "read_bits 空 → 不产 op，got {ops:?}");
 }
 
@@ -239,7 +243,7 @@ fn revoke_event_marks_revoke_via_update_regardless_of_messages() {
         30,
     );
     let (events, messages) = parse_events_and_messages(&reply, 3);
-    let ops = batch_upsert_events_with_messages(&events, &messages);
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "viewer-444");
 
     assert_eq!(ops.len(), 1, "revoke 恒产一条 op（无须 body）");
     assert!(
@@ -270,7 +274,7 @@ fn edit_event_content_update_when_in_map_noop_when_phantom() {
         41,
     );
     let (events, messages) = parse_events_and_messages(&reply, 4);
-    let ops = batch_upsert_events_with_messages(&events, &messages);
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "viewer-444");
 
     assert_eq!(ops.len(), 1, "edit：命中 map 落库，phantom noop → 仅 1 op");
     // C2 BLOCKING-1：edit 走 BatchUpdate（仅内容列），**不**走全量 upsert。
@@ -310,7 +314,7 @@ fn edit_event_does_not_overwrite_local_read_bits() {
         70,
     );
     let (events, messages) = parse_events_and_messages(&reply, 7);
-    let ops = batch_upsert_events_with_messages(&events, &messages);
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "viewer-444");
 
     assert_eq!(ops.len(), 1, "edit 命中 map → 1 op");
     let StorageOp::BatchUpdate(spec) = &ops[0] else {
@@ -364,23 +368,31 @@ fn mixed_batch_buckets_and_phantom_combined() {
         "parser 分桶排序铁律 type1→type3→type6，got {types:?}"
     );
 
-    let ops = batch_upsert_events_with_messages(&events, &messages);
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "viewer-444");
+    let message_ops = ops
+        .iter()
+        .filter(|op| match op {
+            StorageOp::BatchUpsert(spec) => spec.table == "message",
+            StorageOp::BatchUpdate(spec) => spec.table == "message",
+            _ => false,
+        })
+        .collect::<Vec<_>>();
     // 产物：1 个 type1 upsert（m_new 落内容）+ phantom 跳 + 1 个 revoke UPDATE + 1 个 read UPDATE = 3 op。
     assert_eq!(
-        ops.len(),
+        message_ops.len(),
         3,
         "1 upsert + 1 revoke + 1 read（phantom 跳），got {ops:?}"
     );
-    assert!(matches!(&ops[0], StorageOp::BatchUpsert(s) if s.table == "message"));
+    assert!(matches!(message_ops[0], StorageOp::BatchUpsert(s) if s.table == "message"));
     assert_eq!(
-        upsert_text(&ops[0], "read_bits").as_deref(),
+        upsert_text(message_ops[0], "read_bits").as_deref(),
         Some("0101"),
         "type1 落库即带 read_bits（map 内容）"
     );
     assert!(
-        matches!(&ops[1], StorageOp::BatchUpdate(s) if s.patch.iter().any(|(k, _)| k == "revoke"))
+        matches!(message_ops[1], StorageOp::BatchUpdate(s) if s.patch.iter().any(|(k, _)| k == "revoke"))
     );
     assert!(
-        matches!(&ops[2], StorageOp::BatchUpdate(s) if s.patch.iter().any(|(k, _)| k == "read_bits"))
+        matches!(message_ops[2], StorageOp::BatchUpdate(s) if s.patch.iter().any(|(k, _)| k == "read_bits"))
     );
 }

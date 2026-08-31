@@ -4,14 +4,14 @@
 
 本文件适用于 `docs/mmd/` 及其所有子目录。它继承项目根
 [`AGENTS.md`](../../AGENTS.md) 的通用约束；任务涉及客户端 Phase、Domain、Gate、Mermaid
-时序图或 Helix 接缝时，先读本文件，再按需读取具体 Gate 文件，不把 84 个 Gate 的正文
+时序图或 Helix 接缝时，先读本文件，再按需读取具体 Gate 文件，不把 92 个 Gate 的正文
 复制回根指令。
 
 本目录的阅读顺序固定为：
 
 1. **L0：项目边界**：根 [`AGENTS.md`](../../AGENTS.md)，确认 Helix 三层架构、MessageV3
    事件边界和证据等级。
-2. **L1：本地规则**：本文件，确认 84 Gate 分母、目录分层、真源和验证命令。
+2. **L1：本地规则**：本文件，确认 92 Gate 分母、目录分层、真源和验证命令。
 3. **L2：索引与分母**：[`README.md`](./README.md)，只读取目标 Phase、Domain 的表格和 Gate
    链接。
 4. **L3：单 Gate 合同**：打开对应的 `PhaseN/<domain>/Gate-*.mmd`，先看首部真源注释、
@@ -20,10 +20,10 @@
    `cses-client` 的 Gate `contract.json`、UI/服务源码，以及 Helix `specs/047-*`、
    `crates/helix-im/docs/` 和对应测试/报告。
 
-## 客户端 84 Gate 分母
+## 客户端 92 Gate 分母
 
 这里的分母来自 PC 参考客户端
-`/System/Volumes/Data/workspace/angular/visual/cses-client`，不是 Helix Spec 047 的
+`/System/Volumes/Data/workspace/worktrees/sync-event-alignment/cses-client`，不是 Helix Spec 047 的
 30 个 producer Gate。机器真源为：
 
 - `specs/003-messagev3-gate-inventory/contracts/gate-registry.json`
@@ -31,14 +31,16 @@
 - `scripts/message-v3/reference/phases/phase2.manifest.json`
 - `scripts/message-v3/reference/phases/phase3.manifest.json`
 - `scripts/message-v3/reference/phases/phase4.manifest.json`
+- `scripts/message-v3/reference/phases/phase5.manifest.json`
 
 | Phase | Domain | Gate 数 |
 |---|---|---:|
 | Phase1 | `channel`、`post`、`upload`、`draft`、`schedule`、`announcement` | 33 |
 | Phase2 | `read`、`timeline`、`sync` | 20 |
 | Phase3 | `channel`、`channel_member` | 15 |
-| Phase4 | `pin`、`bookmark`、`search`、`todo`、`announcement` | 16 |
-| **合计** | **14 个领域目录** | **84** |
+| Phase4 | `pin`、`bookmark`、`search`、`announcement` | 12 |
+| Phase5 | `chain`、`text_chain`、`category_chain`、`acceptance` | 12 |
+| **合计** | **17 个 Phase 内领域目录** | **92** |
 
 如果 registry、phase manifest、README 索引或实际文件的 Gate 数量、ID、Phase、Domain
 不一致，立即停止并报告 `NOT_VERIFIED`；不得凭文件名或旧图猜测归属。
@@ -49,7 +51,7 @@
 docs/mmd/
 ├── AGENTS.md
 ├── README.md
-├── 发送消息.mmd                 # 根参考图，不属于 84 Gate 分母
+├── 发送消息.mmd                 # 根参考图，不属于 92 Gate 分母
 └── PhaseN/<domain>/Gate-*.mmd
 ```
 
@@ -80,7 +82,7 @@ Phase4/<domain>/Gate-<gate-suffix>-<中文名称>.mmd
 - HTTP 2xx、健康检查、静态注册和 Mock 结果都不是业务终态；需要明确标注
   `PersistOk`、权威 WS/PortReply、读回、`Effect::Emit {event,data}` 或 `partial/none`。
 - `contract.json` 没有 Helix command、Effect、事件或真实入口时，图中使用 `NONE`、
-  `partial`、`当前断供` 等事实标记；禁止为了让流程看起来完整而发明 fallback。
+  `partial`、`NOT_IMPLEMENTED` 等事实标记；禁止为了让流程看起来完整而发明 fallback。
 - 只读 Gate 不得伪造 `PersistAtomic`、写入或 WS 权威回写；本地缓存读取必须和远端同步
   的事实边界分开。
 - 图是交互合同和追踪入口，不把 Mermaid 能解析等同于 PC、Flutter、Web、Go、WS、
@@ -110,14 +112,14 @@ Phase4/<domain>/Gate-<gate-suffix>-<中文名称>.mmd
 文档结构变化必须运行：
 
 ```bash
-# 1. 对照 cses-client registry / phase manifest：84/84，Phase/Domain 全匹配
-# 2. Mermaid CLI 逐图解析：所有 Phase1-4/*.mmd PASS
+# 1. 对照 cses-client phase manifest：92/92，Phase/Domain 全匹配
+# 2. Mermaid CLI 逐图解析：所有 docs/mmd/**/*.mmd PASS
 # 3. staged diff 检查
-git diff --cached --check -- docs/mmd/README.md docs/mmd/Phase1 docs/mmd/Phase2 docs/mmd/Phase3 docs/mmd/Phase4
+git diff --check -- docs/mmd
 ```
 
 仅修改单图时至少解析目标图；修改目录、README、manifest 映射或 Gate 分母时必须重新
-跑全量 84 图。该目录是文档任务，不因格式或索引变更自动扩大到 Cargo、Go、WDIO 或
+跑全量 92 张 Gate 图及所有参考图。该目录是文档任务，不因格式或索引变更自动扩大到 Cargo、Go、WDIO 或
 真实 HTTP/WS 验收；若用户明确要求运行态验收，再按对应 Gate 的证据合同执行。
 
 ## 停止条件与交付报告

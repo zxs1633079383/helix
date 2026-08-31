@@ -1,0 +1,10 @@
+{
+  "details": {
+    "real_chain": false,
+    "reason": "zero-write has no Go mutation; this Gate is NOT_APPLICABLE until a Helix local negative assertion is wired."
+  },
+  "domain": "Post",
+  "gate": "MV3-G05l",
+  "phase": "Phase1",
+  "status": "NOT_APPLICABLE"
+}

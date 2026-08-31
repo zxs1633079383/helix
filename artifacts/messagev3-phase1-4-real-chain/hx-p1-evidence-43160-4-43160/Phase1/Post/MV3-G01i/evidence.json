@@ -1,0 +1,11 @@
+{
+  "details": {
+    "action": "provide_missing real Go/WS/Storage fixture or contract before enabling",
+    "real_chain": false,
+    "reason": "Angular G01i is VOTE contract-only; current real Go fixture and terminal projection are not verified."
+  },
+  "domain": "Post",
+  "gate": "MV3-G01i",
+  "phase": "Phase1",
+  "status": "NOT_VERIFIED"
+}

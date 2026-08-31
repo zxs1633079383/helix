@@ -1,0 +1,11 @@
+{
+  "details": {
+    "action": "provide_missing real Go/WS/Storage fixture or contract before enabling",
+    "real_chain": false,
+    "reason": "Angular G01h is TASK_CARD inbound; current Helix real adapter has no approved TASK_CARD Go fixture/WS projection."
+  },
+  "domain": "Post",
+  "gate": "MV3-G01h",
+  "phase": "Phase1",
+  "status": "NOT_VERIFIED"
+}

@@ -1,0 +1,8 @@
+%% Phase5 / ACCEPTANCE / CHAIN-ACC-G01 跨域验收
+%% 机器真源: phase5.manifest.json；Common/Text scoped 8 Gate only；Category remains NOT_IMPLEMENTED
+flowchart LR
+  C["Common 6 Gate implemented chain"] --> A["Acceptance denominator"]
+  T["Text 2 Gate implemented chain"] --> A
+  CAT["Category 3 Gate NOT_IMPLEMENTED"] --> A
+  A --> NI["NOT_IMPLEMENTED: no complete 12-Gate cross-domain runtime acceptance chain"]
+  NI --> X["Do not promote HTTP 200, WS receive, PersistOk or DOM render into one terminal"]

@@ -1,0 +1,23 @@
+%% Phase5 / CHAIN / CHAIN-COM-G04 窗口展开
+%% 机器真源: phase5.manifest.json；post_chain_get；chain_window；textWindowById
+sequenceDiagram
+  participant UI as MessageChainContentComponent
+  participant F as ChainFacadeService
+  participant T as Tauri im_post_chain_get
+  participant H as Helix Tick / post_chain_get
+  participant G as Go /api/cses/post-chain/get
+  participant PG as PostgreSQL chain_entry
+  participant DB as SQLite chain_window/chain_entry
+  participant B as EventSink im:__bus__
+  participant S as ChainProjectionStore
+  UI->>F: get(chainId,middleCursor,limit,deviceId)
+  F->>T: im_post_chain_get
+  T->>H: Tick::Command(post_chain_get)
+  H->>G: Effect::Http POST /get
+  G->>PG: SELECT summary + ordered entry window + viewer
+  G-->>H: summary,entries,window,viewer
+  H->>DB: PersistAtomic chain_summary/chain_entry/chain_window/chain_viewer
+  DB-->>H: PortReply(PersistOk)
+  H->>B: im:post_chain:upsert
+  B->>S: textWindowById / entriesById
+  S-->>UI: chain-window / chain-expand-control

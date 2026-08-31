@@ -1,0 +1,23 @@
+%% Phase5 / TEXT_CHAIN / CHAIN-TXT-G01 文字参与
+%% 机器真源: phase5.manifest.json；mode=TEXT；post_chain_publish/append；MessageChainContentComponent
+sequenceDiagram
+  participant UI as Chain composer
+  participant F as ChainFacadeService
+  participant T as Tauri im_post_chain_append
+  participant H as Helix Tick / chain
+  participant G as Go /api/cses/post-chain/append
+  participant PG as PostgreSQL chain_entry
+  participant DB as SQLite chain_entry/window
+  participant B as EventSink im:__bus__
+  participant S as ChainProjectionStore
+  UI->>F: append(chainId,text,attachments=[],categoryIds=[]...)
+  F->>T: im_post_chain_append
+  T->>H: Tick::Command(post_chain_append)
+  H->>G: Effect::Http POST /append mode=TEXT
+  G->>PG: INSERT chain_entry(text)
+  G-->>H: canonical entry/window/summary
+  H->>DB: PersistAtomic chain_entry/chain_window/chain_summary
+  DB-->>H: PortReply(PersistOk)
+  H->>B: im:post_chain:upsert
+  B->>S: entriesById / textWindowById
+  S-->>UI: text-mode / chain-composer / chain-entry-text

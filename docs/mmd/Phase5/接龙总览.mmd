@@ -1,0 +1,14 @@
+%% Phase5 / overview / 12 Gate；Common/Text 8 Gate 已接通，Category/Acceptance 4 Gate 如实 NOT_IMPLEMENTED
+flowchart LR
+  UI["Angular MessageChainContentComponent"] --> F["ChainFacadeService / MessageV3ImGate"]
+  F --> T["Tauri im_post_chain_*"]
+  T --> H["Helix post_chain_* / Tick / Effect / PortReply"]
+  H --> G["Go /api/cses/post-chain/*"]
+  G --> PG["PostgreSQL chain / chain_entry / chain_participant / chain_viewer_state / chain_mutation"]
+  G --> WS["WS im:post_chain:*"]
+  WS --> H
+  H --> SQ["SQLite chain_summary / chain_entry / chain_window / chain_mutation / chain_viewer"]
+  SQ --> B["EventSink im:__bus__"]
+  B --> S["ChainProjectionStore signals"]
+  S --> UI
+  CAT["Category + cross-domain acceptance"] --> NI["NOT_IMPLEMENTED"]

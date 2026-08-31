@@ -1,0 +1,6 @@
+%% Phase5 / CATEGORY_CHAIN / CHAIN-CAT-G01 分类模式
+%% 机器真源: phase5.manifest.json；Go domain/chain/model.go only ModeText；sql/008_chain_text mode CHECK TEXT
+flowchart LR
+  UI["Angular category-mode label exists"] --> P["ChainFacadeService"]
+  P --> NI["NOT_IMPLEMENTED: no CATEGORY command/DTO/backend mode"]
+  NI --> X["No HTTP route, no PostgreSQL projection, no WS event, no SQLite projection, no UI terminal"]

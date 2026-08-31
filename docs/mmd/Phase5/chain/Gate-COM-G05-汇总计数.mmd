@@ -1,0 +1,23 @@
+%% Phase5 / CHAIN / CHAIN-COM-G05 汇总计数
+%% 机器真源: phase5.manifest.json；post_chain_append；ChainSummary；ChainProjectionStore
+sequenceDiagram
+  participant UI as Chain card
+  participant F as ChainFacadeService
+  participant T as Tauri im_post_chain_append
+  participant H as Helix chain reducer
+  participant G as Go append handler
+  participant PG as PostgreSQL chain/entry/participant
+  participant DB as SQLite chain_summary/entry
+  participant B as EventSink im:__bus__
+  participant S as ChainProjectionStore
+  UI->>F: append(...)
+  F->>T: im_post_chain_append
+  T->>H: Tick::Command(post_chain_append)
+  H->>G: POST /api/cses/post-chain/append
+  G->>PG: append entry and update authoritative counts
+  G-->>H: summary + entry
+  H->>DB: PersistAtomic summary/entry/window/mutation
+  DB-->>H: PortReply(PersistOk)
+  H->>B: im:post_chain:upsert
+  B->>S: chainById / entriesById
+  S-->>UI: chain-summary-counts / chain-entry-count

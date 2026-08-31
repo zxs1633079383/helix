@@ -1,0 +1,29 @@
+%% Phase5 / CHAIN / CHAIN-COM-G02 编辑并发布
+%% 机器真源: phase5.manifest.json；post_chain_update_draft/publish；im:post_chain:draft/publish
+sequenceDiagram
+  participant UI as MessageChainContentComponent
+  participant F as ChainFacadeService
+  participant T as Tauri bridge
+  participant H as Helix Tick / chain
+  participant G as Go post-chain handlers
+  participant PG as PostgreSQL
+  participant DB as SQLite
+  participant B as EventSink im:__bus__
+  participant S as ChainProjectionStore
+  UI->>F: updateDraft(chainId,expectedRevision,title,description,deadlineAt,clientMutationId,operationId,deviceId)
+  F->>T: im_post_chain_update_draft
+  T->>H: Tick::Command(post_chain_update_draft)
+  H->>G: Effect::Http POST /api/cses/post-chain/update-draft
+  G->>PG: UPDATE chain / INSERT chain_mutation
+  G-->>H: revision DTO
+  H->>DB: PersistAtomic chain_summary/chain_mutation
+  DB-->>H: PortReply(PersistOk)
+  H->>B: im:post_chain:draft
+  UI->>F: publish(chainId,expectedRevision,deadlineAt,clientMutationId,operationId,deviceId)
+  F->>T: im_post_chain_publish
+  T->>H: post_chain_publish -> POST /publish
+  H->>DB: PersistAtomic published summary
+  DB-->>H: PersistOk
+  H->>B: im:post_chain:publish
+  B->>S: mutationById / chainById signals
+  S-->>UI: chain-status

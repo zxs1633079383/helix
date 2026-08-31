@@ -1,0 +1,6 @@
+%% Phase5 / CATEGORY_CHAIN / CHAIN-CAT-G02 分类选项
+%% 机器真源: phase5.manifest.json；append DTO has categoryIds but Go model/storage has no category option domain implementation
+flowchart LR
+  UI["Angular category-option observation"] --> DTO["append.categoryIds field"]
+  DTO --> NI["NOT_IMPLEMENTED: field presence is not category option persistence"]
+  NI --> X["No category table/route/event/store signal/component terminal"]

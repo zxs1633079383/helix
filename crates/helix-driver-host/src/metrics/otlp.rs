@@ -4,7 +4,7 @@ use opentelemetry::metrics::{Counter, Gauge, Histogram, MeterProvider as _};
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::metrics::{
-    Aggregation, Instrument as SdkInstrument, PeriodicReader, SdkMeterProvider, Stream,
+    Aggregation, Instrument as SdkInstrument, PeriodicReader, SdkMeterProvider, Stream, Temporality,
 };
 use opentelemetry_sdk::Resource;
 
@@ -12,6 +12,9 @@ use super::{
     BatchMetricExporter, MetricEvent, MetricExportError, MetricKind, MetricRuntimeConfig,
     ALL_METRIC_IDS,
 };
+
+// 客户端实例共享低基数标签；Delta 由 Collector 统一累加，禁止退回进程级累计值互相覆盖。
+const OTLP_METRIC_TEMPORALITY: Temporality = Temporality::Delta;
 
 enum Instrument {
     Counter(Counter<f64>),
@@ -97,6 +100,8 @@ fn build_pipeline(config: &MetricRuntimeConfig) -> Result<OtlpPipeline, MetricEx
         .with_tonic()
         .with_endpoint(config.endpoint.clone())
         .with_timeout(config.export_timeout)
+        // 多个客户端进程共享低基数标签；Delta 让 Collector 按批累加，避免累计值互相 reset/覆盖。
+        .with_temporality(OTLP_METRIC_TEMPORALITY)
         .build()
         .map_err(|error| MetricExportError {
             message: error.to_string(),
@@ -249,7 +254,12 @@ fn bounded_value(value: &str, allowed: &[&'static str], fallback: &'static str) 
 
 #[cfg(test)]
 mod tests {
-    use super::{bounded_value, histogram_boundaries};
+    use super::{bounded_value, histogram_boundaries, Temporality, OTLP_METRIC_TEMPORALITY};
+
+    #[test]
+    fn client_metrics_export_delta_for_collector_aggregation() {
+        assert_eq!(OTLP_METRIC_TEMPORALITY, Temporality::Delta);
+    }
 
     #[test]
     fn resource_dimensions_reject_unbounded_run_ids() {

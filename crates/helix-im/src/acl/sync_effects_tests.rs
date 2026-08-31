@@ -112,6 +112,32 @@ fn upsert_then_revoke_emits_received_before_revoke() {
         matches!((recv, revoke), (Some(received), Some(revoked)) if received < revoked),
         "received 必先于 revoke"
     );
+    assert_eq!(
+        emit_json(&emits[recv.expect("received index")])["data"]["telemetryPath"],
+        serde_json::json!("sync_replay")
+    );
+}
+
+/// 同步回放命中当前作者时发布 sent，但仍保留 sync_replay 来源，避免混入实时分母。
+#[test]
+fn sender_sync_replay_emits_sent_with_replay_path() {
+    let mut messages = HashMap::new();
+    messages.insert(
+        MSG.to_string(),
+        PostFields {
+            user_id: "viewer-sender".to_string(),
+            ..PostFields::default()
+        },
+    );
+
+    let emits = sync_mutation_emits_with_auth(&[upsert_ev(2)], &messages, "viewer-sender");
+    let projection = emit_json(emits.first().expect("sender projection"));
+
+    assert_eq!(projection["event"], serde_json::json!("im:post:sent"));
+    assert_eq!(
+        projection["data"]["telemetryPath"],
+        serde_json::json!("sync_replay")
+    );
 }
 
 /// 可证伪对偶：replay 窗内没有撤回事件时绝不凭空产出 revoke。

@@ -111,7 +111,7 @@ pub fn record_im_business_event(metrics: &dyn AsyncMetricSink, event: &DomainEve
     };
 
     match event_name {
-        b"im:post:received" => {
+        b"im:post:received" | b"im:post:sent" => {
             record_terminal(
                 metrics,
                 MetricId::ImProjectionTerminalTotal,
@@ -327,7 +327,7 @@ pub(crate) fn record_im_command_terminal_event(
 /// command_terminal 把固定 MessageV3 终态事件映射成低基数 Command 结果。
 fn command_terminal(event_name: &[u8]) -> Option<(&'static str, &'static str, &'static str)> {
     match event_name {
-        b"im:post:received" => Some(("send_message", "success", "none")),
+        b"im:post:received" | b"im:post:sent" => Some(("send_message", "success", "none")),
         b"im:post:send-failed" => Some(("send_message", "error", "send_failed")),
         b"im:post:updated" | b"im:post:updates" | b"im:post:batch-updated" => {
             Some(("update_message", "success", "none"))

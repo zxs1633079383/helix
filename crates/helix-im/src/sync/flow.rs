@@ -577,10 +577,15 @@ impl ImModule {
                 let mut pending_domain_events = if trigger == SyncTrigger::Hydration {
                     Vec::new()
                 } else {
-                    crate::acl::to_effect::sync_mutation_emits_with_auth(
+                    crate::acl::to_effect::sync_mutation_emits_with_auth_and_path(
                         &events,
                         &messages,
                         auth_user_id,
+                        if trigger == SyncTrigger::PongGap {
+                            "offline_recovery"
+                        } else {
+                            "sync_replay"
+                        },
                     )
                     .into_iter()
                     .filter_map(|effect| match effect {
@@ -860,15 +865,23 @@ impl ImModule {
             cursor_target = terminal_seq.0,
             "终态同步批次事务准备提交"
         );
-        let pending_domain_events =
-            crate::acl::to_effect::sync_mutation_emits_with_auth(prefix, &messages, auth_user_id)
-                .into_iter()
-                .filter_map(|effect| match effect {
-                    Effect::Emit { event } => Some(event.0.as_ref().to_vec()),
-                    _ => None,
-                })
-                .chain(chain_domain_events)
-                .collect();
+        let pending_domain_events = crate::acl::to_effect::sync_mutation_emits_with_auth_and_path(
+            prefix,
+            &messages,
+            auth_user_id,
+            if trigger == SyncTrigger::PongGap {
+                "offline_recovery"
+            } else {
+                "sync_replay"
+            },
+        )
+        .into_iter()
+        .filter_map(|effect| match effect {
+            Effect::Emit { event } => Some(event.0.as_ref().to_vec()),
+            _ => None,
+        })
+        .chain(chain_domain_events)
+        .collect();
         out.push(Effect::PersistAtomic {
             corr: persist_corr,
             ops,

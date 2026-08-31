@@ -17,7 +17,8 @@ use tokio::sync::mpsc;
 use super::{HostOtelConfig, HostSpanSnapshot, TraceDirection};
 use crate::metrics::{AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels};
 
-const EXPORT_QUEUE_CAPACITY: usize = 1024;
+// 三窗口真实链会在短时同步恢复后集中结束 span；8K 有界队列吸收突发且不反压业务线程。
+const EXPORT_QUEUE_CAPACITY: usize = 8192;
 const EXPORT_BATCH_SIZE: usize = 64;
 const EXPORT_BATCH_DELAY: Duration = Duration::from_millis(200);
 

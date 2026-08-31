@@ -12,8 +12,9 @@ pub use super::projection_message_effects::{
     emit_channel_read_echo, emit_channel_read_echo_for_viewer, emit_post_deleted,
     emit_post_deleted_for_viewer, emit_post_read, emit_post_read_for_viewer,
     emit_post_read_with_receipt_revision, emit_post_read_with_receipt_revision_for_viewer,
-    emit_post_received, emit_post_received_for_viewer, emit_post_updated,
-    emit_post_updated_for_viewer, emit_sync_post_read, emit_sync_post_read_for_viewer,
+    emit_post_received, emit_post_received_for_viewer, emit_post_received_for_viewer_with_path,
+    emit_post_updated, emit_post_updated_for_viewer, emit_sync_post_read,
+    emit_sync_post_read_for_viewer,
 };
 pub use super::storage_effects::{
     advance_cursor, advance_cursor_op, bump_channel_unread, bump_channel_unread_op,
@@ -27,7 +28,7 @@ pub(crate) use super::sync_effects::batch_upsert_events_with_messages_and_auth_o
 pub(crate) use super::sync_effects::pending_send_reconciliations;
 pub use super::sync_effects::{
     batch_upsert_events, batch_upsert_events_with_messages_and_auth, sync_channel_update_plans,
-    sync_mutation_emits, sync_mutation_emits_with_auth,
+    sync_mutation_emits, sync_mutation_emits_with_auth, sync_mutation_emits_with_auth_and_path,
 };
 pub use super::sync_http_effects::{
     connection_id_headers, increment_http_trigger, increment_message_timestamp_scan, sync_notify,

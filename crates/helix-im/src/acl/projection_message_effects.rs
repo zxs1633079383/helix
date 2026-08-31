@@ -24,10 +24,38 @@ pub fn emit_post_received_for_viewer(
     fields: &crate::sync_session::PostFields,
     viewer_user_id: &str,
 ) -> Effect {
+    emit_post_received_for_viewer_with_path(
+        channel_id,
+        event_seq,
+        msg_id,
+        fields,
+        viewer_user_id,
+        "live_ws",
+    )
+}
+
+/// 按可信入站路径发布消息终态；来源只使用固定枚举，不携带用户或频道标识。
+pub fn emit_post_received_for_viewer_with_path(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    viewer_user_id: &str,
+    telemetry_path: &'static str,
+) -> Effect {
     use serde_json::json;
+    let event = if !viewer_user_id.is_empty() && fields.user_id == viewer_user_id {
+        "im:post:sent"
+    } else {
+        "im:post:received"
+    };
+    let mut data = message_item_data(channel_id, event_seq, msg_id, fields, viewer_user_id, false);
+    if let Some(object) = data.as_object_mut() {
+        object.insert("telemetryPath".to_string(), json!(telemetry_path));
+    }
     let payload = json!({
-        "event": "im:post:received",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields, viewer_user_id, false),
+        "event": event,
+        "data": data,
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)

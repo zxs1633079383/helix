@@ -1,13 +1,14 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use helix_core::effect::StorageOp;
 use helix_core::tick::PortOutcome;
 use helix_core::Tick;
 
 use super::rss::process_resident_memory_bytes;
 use crate::metrics::{
-    record_im_command_terminal_event, record_tick_stage_duration, AsyncMetricSink, LabelKey,
-    MetricEvent, MetricId, MetricLabels,
+    record_im_command_terminal_event, record_seq_observation, record_tick_stage_duration,
+    AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels,
 };
 use crate::owned_effect::{EffectSummary, OwnedEffect};
 
@@ -29,6 +30,8 @@ struct PendingPort {
     started: Instant,
     effect_kind: &'static str,
     command_started: Option<Instant>,
+    advances_channel_event_cursor: bool,
+    observation_path: &'static str,
 }
 
 const MAX_PENDING_PORTS: usize = 4096;
@@ -212,6 +215,14 @@ impl EngineMetricRecorder {
                         status,
                     );
                 }
+                if pending.advances_channel_event_cursor && status == "ok" {
+                    record_seq_observation(
+                        self.sink.as_ref(),
+                        "applied_seq_advanced",
+                        pending.observation_path,
+                        "channel_event_cursor",
+                    );
+                }
             } else {
                 self.counter(
                     MetricId::PortReplyOrphanTotal,
@@ -385,21 +396,28 @@ impl EngineMetricRecorder {
             MetricLabels::one(LabelKey::Stage, "effect")
                 .with(LabelKey::EffectKind, effect_kind(effect)),
         );
-        let corr = match effect {
-            OwnedEffect::Persist { corr, .. }
-            | OwnedEffect::PersistAtomic { corr, .. }
-            | OwnedEffect::Http { corr, .. }
+        let correlation = match effect {
+            OwnedEffect::Persist { corr, ops } | OwnedEffect::PersistAtomic { corr, ops } => {
+                Some((corr.raw(), advances_channel_event_cursor(ops)))
+            }
+            OwnedEffect::Http { corr, .. }
             | OwnedEffect::UploadFile { corr, .. }
-            | OwnedEffect::Request { corr, .. } => Some(corr.raw()),
+            | OwnedEffect::Request { corr, .. } => Some((corr.raw(), false)),
             _ => None,
         };
-        if let Some(corr) = corr {
-            self.remember_port_start(corr, effect_kind(effect));
+        if let Some((corr, advances_cursor)) = correlation {
+            self.remember_port_start(corr, effect_kind(effect), advances_cursor, "live_ws");
         }
     }
 
     /// 在固定槽内保存 Port 起点及可选 command 根，容量冲突时显式计数。
-    fn remember_port_start(&mut self, corr: u64, effect_kind: &'static str) {
+    fn remember_port_start(
+        &mut self,
+        corr: u64,
+        effect_kind: &'static str,
+        advances_channel_event_cursor: bool,
+        observation_path: &'static str,
+    ) {
         let slot = corr as usize % MAX_PENDING_PORTS;
         if self.port_slots[slot].is_some() {
             self.counter(
@@ -415,6 +433,8 @@ impl EngineMetricRecorder {
             started: Instant::now(),
             effect_kind,
             command_started: self.active_command_started,
+            advances_channel_event_cursor,
+            observation_path,
         });
         self.record_pending_ports();
     }
@@ -614,6 +634,13 @@ fn effect_kind(effect: &OwnedEffect) -> &'static str {
         OwnedEffect::ScheduleTimer { .. } => "schedule_timer",
         OwnedEffect::CancelTimer { .. } => "cancel_timer",
     }
+}
+
+/// 识别与业务投影同事务提交的本地 ChannelEvent Seq 游标写入。
+fn advances_channel_event_cursor(ops: &[StorageOp]) -> bool {
+    ops.iter().any(|op| {
+        matches!(op, StorageOp::MonotonicUpsert(spec) if spec.table == "channel_event_cursor" && spec.value_col == "last_event_seq")
+    })
 }
 
 #[cfg(test)]

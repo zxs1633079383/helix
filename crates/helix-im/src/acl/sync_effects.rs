@@ -37,6 +37,16 @@ pub fn sync_mutation_emits_with_auth(
     messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
     auth_user_id: &str,
 ) -> Vec<Effect> {
+    sync_mutation_emits_with_auth_and_path(events, messages, auth_user_id, "sync_replay")
+}
+
+/// 按同步触发来源构造提交后事件，避免历史回放被计入实时 WS 送达率。
+pub fn sync_mutation_emits_with_auth_and_path(
+    events: &[EventEnvelope],
+    messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
+    auth_user_id: &str,
+    telemetry_path: &'static str,
+) -> Vec<Effect> {
     use crate::sync_session::EventKind;
 
     let mut emits = Vec::new();
@@ -53,12 +63,13 @@ pub fn sync_mutation_emits_with_auth(
                         auth_user_id,
                     );
                     if update.visible {
-                        emits.push(super::to_effect::emit_post_received_for_viewer(
+                        emits.push(super::to_effect::emit_post_received_for_viewer_with_path(
                             ev.channel_id,
                             ev.seq.0,
                             msg_id,
                             fields,
                             auth_user_id,
+                            telemetry_path,
                         ));
                     }
                 }

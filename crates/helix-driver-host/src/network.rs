@@ -4,7 +4,7 @@
 //! headers; these clients only inject the latest header snapshot into requests.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
@@ -275,9 +275,21 @@ impl SharedWsClient {
         let handshake_headers = headers_to_strings(request.headers());
         crate::network_debug::dump_ws_handshake(&self.config.ws_url, &handshake_headers);
 
-        let (ws, _resp) = tokio_tungstenite::connect_async(request)
-            .await
-            .map_err(map_ws_err)?;
+        let connect_started = Instant::now();
+        let connect_result = tokio_tungstenite::connect_async(request).await;
+        let connect_status = if connect_result.is_ok() {
+            "ok"
+        } else {
+            "error"
+        };
+        if self.metrics.is_enabled() {
+            let _ = self.metrics.try_record(MetricEvent::histogram(
+                MetricId::WsConnectDurationSeconds,
+                connect_started.elapsed().as_secs_f64(),
+                MetricLabels::one(LabelKey::Stage, "ws").with(LabelKey::Status, connect_status),
+            ));
+        }
+        let (ws, _resp) = connect_result.map_err(map_ws_err)?;
         let (sink, mut stream) = ws.split();
         let (frame_tx, frame_rx) = mpsc::channel::<Result<Bytes, PortError>>(WS_FRAME_BUFFER);
         let (reader_gate, reader_gate_rx) = oneshot::channel();

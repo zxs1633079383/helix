@@ -2,7 +2,7 @@ use super::*;
 use crate::metrics::{NoopMetricSink, RecordOutcome};
 use bytes::Bytes;
 use helix_core::effect::DomainEventBytes;
-use helix_core::effect::{Correlation, TimerId};
+use helix_core::effect::{Correlation, MonotonicUpsertSpec, StorageOp, TimerId};
 use helix_core::tick::ReplyBytes;
 use std::sync::Mutex;
 
@@ -30,7 +30,7 @@ fn engine_metric_recorder_remains_small_on_tokio_task_stack() {
 fn pending_port_correlation_is_strictly_bounded() {
     let mut recorder = EngineMetricRecorder::new(Arc::new(NoopMetricSink));
     for corr in 0..5000 {
-        recorder.remember_port_start(corr, "persist");
+        recorder.remember_port_start(corr, "persist", false, "live_ws");
     }
     assert_eq!(
         recorder.port_slots.iter().flatten().count(),
@@ -42,7 +42,7 @@ fn pending_port_correlation_is_strictly_bounded() {
 fn insert_reply_cycles_do_not_accumulate_stale_order_entries() {
     let mut recorder = EngineMetricRecorder::new(Arc::new(NoopMetricSink));
     for corr in 0..(MAX_PENDING_PORTS as u64 * 3) {
-        recorder.remember_port_start(corr, "persist");
+        recorder.remember_port_start(corr, "persist", false, "live_ws");
         assert!(recorder.complete_port(corr).is_some());
     }
     assert_eq!(recorder.port_slots.iter().flatten().count(), 0);
@@ -51,8 +51,8 @@ fn insert_reply_cycles_do_not_accumulate_stale_order_entries() {
 #[test]
 fn direct_slot_collision_evicts_old_correlation_without_allocation() {
     let mut recorder = EngineMetricRecorder::new(Arc::new(NoopMetricSink));
-    recorder.remember_port_start(7, "persist");
-    recorder.remember_port_start(7 + MAX_PENDING_PORTS as u64, "persist");
+    recorder.remember_port_start(7, "persist", false, "live_ws");
+    recorder.remember_port_start(7 + MAX_PENDING_PORTS as u64, "persist", false, "live_ws");
     assert!(recorder.complete_port(7).is_none());
     assert!(recorder
         .complete_port(7 + MAX_PENDING_PORTS as u64)
@@ -64,8 +64,8 @@ fn direct_slot_collision_evicts_old_correlation_without_allocation() {
 fn pending_gauge_remains_exact_across_collision() {
     let metrics = Arc::new(RecordingMetricSink::default());
     let mut recorder = EngineMetricRecorder::new(metrics.clone());
-    recorder.remember_port_start(7, "persist");
-    recorder.remember_port_start(7 + MAX_PENDING_PORTS as u64, "persist");
+    recorder.remember_port_start(7, "persist", false, "live_ws");
+    recorder.remember_port_start(7 + MAX_PENDING_PORTS as u64, "persist", false, "live_ws");
     assert_eq!(recorder.pending_ports, 1);
     assert!(recorder
         .complete_port(7 + MAX_PENDING_PORTS as u64)
@@ -87,7 +87,7 @@ fn port_reply_closes_cross_tick_command_stage() {
     let metrics = Arc::new(RecordingMetricSink::default());
     let mut recorder = EngineMetricRecorder::new(metrics.clone());
     recorder.active_command_started = Some(Instant::now());
-    recorder.remember_port_start(41, "http");
+    recorder.remember_port_start(41, "http", false, "live_ws");
     recorder.active_command_started = None;
 
     recorder.on_tick(
@@ -102,6 +102,41 @@ fn port_reply_closes_cross_tick_command_stage() {
     assert!(events
         .iter()
         .any(|event| event.id == MetricId::CommandToHttpResponseSeconds));
+}
+
+/// channel_event_cursor 与业务投影同事务成功后才允许产出 applied_seq 推进样本。
+#[test]
+fn successful_cursor_persist_records_applied_seq_advance() {
+    let metrics = Arc::new(RecordingMetricSink::default());
+    let mut recorder = EngineMetricRecorder::new(metrics.clone());
+    recorder.on_effect_dispatch(&OwnedEffect::PersistAtomic {
+        corr: Correlation::from_raw(42),
+        ops: vec![StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
+            table: "channel_event_cursor",
+            key_col: "channel_id",
+            value_col: "last_event_seq",
+            touch_col: Some("updated_at"),
+            scope_key: "channel-1".to_string(),
+            value: 9,
+        })],
+    });
+
+    recorder.on_tick(
+        &Tick::PortReply {
+            corr: Correlation::from_raw(42),
+            outcome: PortOutcome::Ok(ReplyBytes::default()),
+        },
+        None,
+    );
+
+    let events = metrics.0.lock().unwrap();
+    assert!(events.iter().any(|event| {
+        event.id == MetricId::ImSeqObservationTotal
+            && event
+                .labels
+                .iter()
+                .any(|label| label.key == LabelKey::State && label.value == "applied_seq_advanced")
+    }));
 }
 
 /// command_terminal_requires_local_command_lineage 防止远端同名 projection 被误算为本地 Command 成功。

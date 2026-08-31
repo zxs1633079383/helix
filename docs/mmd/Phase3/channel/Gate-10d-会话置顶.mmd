@@ -1,5 +1,5 @@
 %% Phase3 / channel / MV3-G10d 会话置顶
-%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel/mv3-g10d/contract.json
+%% 客户端合同真源: /System/Volumes/Data/workspace/worktrees/sync-event-alignment/cses-client/specs/003-messagev3-gate-inventory/gates/channel/mv3-g10d/contract.json
 %% UI owners: src/pages/message-v3/service/channelConfigBase.service.ts::channelPinTop；src/pages/message-v3/service/message.service.ts::changeChannelState
 sequenceDiagram
   autonumber
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员右键会话选「置顶」，这个会话立刻移到会话列表最上方的置顶分组；取消置顶后回到原来的时间序位置。
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=none；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=implemented；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: changeChannelState(payload)
     Gate->>Native: invokeAccepted("im_channel_change_top", payload)

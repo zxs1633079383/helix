@@ -1,34 +1,20 @@
 %% Phase1 / schedule / MV3-G04d 查询定时消息
-%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/schedule/mv3-g04d/contract.json
-%% UI owners: src/pages/message-v3/service/message.service.ts::queryScheduleMessage
+%% 机器真源: phase1.manifest.json；Helix im_get_schedule/read.rs/dispatch_read.rs；Go posts/getSchedule；Angular schedule projection
 sequenceDiagram
-  autonumber
-  participant UI as Angular UI
-  participant Gate as MessageV3 Gate Port
-  participant Native as Tauri Native
-  participant FFI as Flutter FFI
-  participant Web as Browser Web
-  participant E as ExecutionShell Tick
-  participant IM as helix-im
-  participant PS as Pending or local state
-  participant Host as driver-host
-  participant DB as tenant SQLite
-  participant Go as Go IM Server
-  participant WS as WS inbound
-  participant Sink as EventSink raw bytes
-  participant Ext as Other business host
-  Note over UI,Gate: 用户目标：成员切进会话时看到「已设定的定时消息」提示条，内容与时间与设定时一致
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=none；dual=no；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
-  UI->>Gate: getSchedule(payload)
-  Gate-->>UI: 当前客户端路由结果或受控空结果
-  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
-  alt 旧业务 Host 仍可用
-    Ext->>Go: GET /posts/getSchedule（非 Helix 链路）
-    Go-->>Ext: HTTP response / legacy result
-    Ext-->>UI: 旧链路结果（不纳入 Helix Gate Event）
-  else 当前入口隐藏、待定或断供
-    Note over Ext,Go: 当前合同要求 fail-closed；不伪造成功消息、不新增 Helix fallback
-  end
-  Note over IM,DB: 关键效果：有待发对象则原样返回（含 message / type / props / schedulePostAt），无则返回 null（graceful，不抛错）；纯读取：不改任何内存态，不改 channel.hasSchedulePost；接收者侧 events 为空（persona-local 读取，不传播）
-  Note over UI,Web: 关键负向：纯读取，不得产生任何出站事件（outbound === [] 是本 Gate 的正面契约，测试须断言 events 数组为空）；无待发时必须返回 null / 空而不是抛错（否则切会话流程被读取失败拖垮）；不得因读取而改写 hasSchedulePost
-  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  participant UI as Angular schedule bar
+  participant P as MessageV3ImGate
+  participant T as Tauri im_get_schedule
+  participant H as Helix Tick / outbound read
+  participant G as Go IM Server
+  participant B as EventSink im:__bus__
+  participant S as Angular schedule signal
+  UI->>P: getSchedule(channelId)
+  P->>T: invokeResult im_get_schedule
+  T->>H: Tick::Command(req_id,channelId)
+  H->>G: Effect::Http GET /api/cses/posts/getSchedule
+  G-->>H: schedule projection or null
+  H->>H: Tick::PortReply(Http Ok) / correlate req_id
+  H->>B: Effect::Emit im:read:result
+  B->>S: resolve schedule read waiter
+  S-->>UI: render message/type/props/schedulePostAt or empty
+  Note over H,B: 只读 Gate 不写 SQLite/Go PostgreSQL，不等待 WS；HTTP 2xx 不等于已渲染

@@ -1,5 +1,5 @@
 %% Phase3 / channel_member / MV3-G09b 增加 / 移除管理员
-%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel_member/mv3-g09b/contract.json
+%% 客户端合同真源: /System/Volumes/Data/workspace/worktrees/sync-event-alignment/cses-client/specs/003-messagev3-gate-inventory/gates/channel_member/mv3-g09b/contract.json
 %% UI owners: src/pages/message-v3/components/drawer/chat-settings/chat-settings.component.ts::updateManagerPerson；src/pages/message-v3/service/channelConfigAdapter.service.ts
 sequenceDiagram
   autonumber
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：群主把某个成员设为管理员或撤销其管理员身份，成员列表上该成员的管理员标识出现/消失，群内出现系统提示。
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=none；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=implemented；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: changeManager(payload)
     Gate->>Native: invokeAccepted("im_channel_member_role", payload)

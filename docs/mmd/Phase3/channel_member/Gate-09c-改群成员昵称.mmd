@@ -1,5 +1,5 @@
 %% Phase3 / channel_member / MV3-G09c 改群成员昵称
-%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel_member/mv3-g09c/contract.json
+%% 客户端合同真源: /System/Volumes/Data/workspace/worktrees/sync-event-alignment/cses-client/specs/003-messagev3-gate-inventory/gates/channel_member/mv3-g09c/contract.json
 %% UI owners: src/pages/message-v3/components/drawer/chat-settings/chat-settings.component.ts::saveChannelNickname；src/pages/message-v3/service/message.service.ts::changeMemberNickname
 sequenceDiagram
   autonumber
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：群主或成员修改某个人的群内昵称，之后群里所有消息、成员列表、系统提示里这个人都显示新昵称。
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=none；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=implemented；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: changeMemberNickname(payload)
     Gate->>Native: invokeAccepted("im_update_member_nickname", payload)

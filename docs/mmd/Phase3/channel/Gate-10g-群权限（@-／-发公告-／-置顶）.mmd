@@ -1,5 +1,5 @@
 %% Phase3 / channel / MV3-G10g 群权限（@ / 发公告 / 置顶）
-%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel/mv3-g10g/contract.json
+%% 客户端合同真源: /System/Volumes/Data/workspace/worktrees/sync-event-alignment/cses-client/specs/003-messagev3-gate-inventory/gates/channel/mv3-g10g/contract.json
 %% UI owners: src/pages/message-v3/components/drawer/chat-settings/chat-settings.component.ts；src/pages/message-v3/service/channelConfigAdapter.service.ts
 sequenceDiagram
   autonumber
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：群主配置 @所有人、群提示和置顶消息三项权限门槛后，不符合门槛的成员会被明确拦截；群名、简介、导向和成员管理则按服务端投影的布尔能力放行。
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=none；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=implemented；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: changeChannelPermission(payload)
     Gate->>Native: invokeAccepted("im_channel_change_permission", payload)

@@ -1,0 +1,33 @@
+%% Phase1 / post / MV3-G01j 创建评分活动并发送评分卡
+%% 机器真源: cses-client phase1.manifest.json；Helix vote_score.rs；Java AverageScoreController/AverageScoreCommandHandler；Go post_update；Angular MessageAverageScoreContentComponent
+sequenceDiagram
+  autonumber
+  participant UI as Angular ChatInput
+  participant S as MessageService / MessageV3ImGate
+  participant T as Tauri im_average_publish
+  participant H as Helix Tick / vote_score
+  participant J as Java CSES
+  participant G as Go IM Server
+  participant PG as PostgreSQL
+  participant DB as tenant SQLite
+  participant WS as WebSocket
+  participant B as EventSink im:__bus__
+  participant ST as Angular store / signal
+  participant V as MessageAverageScoreContentComponent
+  UI->>S: openCreateAverageScore() / publishAverageScore(dto)
+  Note over S,J: DTO: source,title,content,isAnonymous,isDelMaxMin,minScore,maxScore,members,cutoff,hasDecimal,decimalPlaces
+  S->>T: invoke im_average_publish
+  T->>H: Tick::Command(im_average_publish)
+  H->>J: Effect::Http POST /average/publish
+  J->>J: AverageScoreCommandHandler 创建 AverageScore
+  J->>G: ImService.createPosts(type=AVERAGE_SCORE, props.averageScore)
+  G->>PG: 保存 post/channel/channel_member/channel_event
+  G-->>H: HTTP 2xx 仅表示请求返回，不等于 UI 已渲染
+  G-->>WS: post_update(type=AVERAGE_SCORE)
+  WS->>H: Tick::Inbound(post_update)
+  H->>DB: Effect::PersistAtomic(message/channel/cursor)
+  DB-->>H: PortReply(PersistOk)
+  H->>B: Effect::Emit im:post:updated
+  B->>ST: IpcEventService upsert / engagement confirm
+  ST->>V: props.averageScore signal 更新并渲染评分卡
+  Note over UI,V: 创建评分对象与发送评分卡是两段链路；HTTP 2xx、WS 收帧、PersistOk、UI 渲染是四个不同终态

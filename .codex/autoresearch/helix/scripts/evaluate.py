@@ -24,6 +24,7 @@ REQUIRED_FILES = [
     "agents/helix-researcher.md",
     "agents/helix-dev.md",
     "agents/helix-otel-prometheus-metrics-agent.md",
+    "agents/helix-otel-prometheus-metrics-agent.toml",
     "install.sh",
     "README.md",
 ]
@@ -114,6 +115,7 @@ def check_metrics_skill_contract() -> None:
     """检查指标专用 Agent/Skill 的 review gate、证据分层和脚本入口。"""
     skill = read_rel("skills/otel-prometheus-metrics/SKILL.md")
     agent = read_rel("agents/helix-otel-prometheus-metrics-agent.md")
+    agent_toml = read_rel("agents/helix-otel-prometheus-metrics-agent.toml")
     interface = read_rel("skills/otel-prometheus-metrics/agents/openai.yaml")
     script = ROOT / "skills/otel-prometheus-metrics/scripts/verify_prometheus_metric.py"
 
@@ -140,6 +142,15 @@ def check_metrics_skill_contract() -> None:
     ]:
         if needle not in agent:
             fail(f"metrics agent missing required contract text: {needle}")
+    for needle in [
+        'name = "helix-otel-prometheus-metrics-agent"',
+        'model = "gpt-5.6-luna"',
+        "REVIEW: PROPOSED",
+        "REVIEW: APPROVED",
+        "AsyncMetricSink::try_record",
+    ]:
+        if needle not in agent_toml:
+            fail(f"metrics global agent TOML missing required contract text: {needle}")
     for needle in [
         "display_name:",
         "short_description:",

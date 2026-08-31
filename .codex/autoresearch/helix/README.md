@@ -14,6 +14,7 @@ Source scope: live repository docs, crate entry points, scripts, harness index, 
 - `agents/helix-researcher.md`: Tier 2 ReSearch Agent.
 - `agents/helix-dev.md`: Tier 3 Dev Agent.
 - `agents/helix-otel-prometheus-metrics-agent.md`: 指标契约、producer 接线与 Prometheus 证据审查 Agent。
+- `agents/helix-otel-prometheus-metrics-agent.toml`: Codex 全局 Agent 发现所需的 TOML 适配定义。
 - `skills/otel-prometheus-metrics/references/`: 按需加载的当前指标契约和运行证据参考。
 - `skills/otel-prometheus-metrics/scripts/verify_prometheus_metric.py`: 只读 metadata/query 验证器。
 - `install.sh`: optional copy installer.
@@ -40,7 +41,7 @@ Installation is explicit and copy-based:
 bash install.sh
 ```
 
-The project-local bundle remains here. Installed copies go to the receiver's Codex home through `CODEX_HOME` or the default home setting.
+The project-local bundle remains here. Installed copies go to the receiver's Codex home through `CODEX_HOME` or the default home setting, and the Skill is also copied to the official user skill directory `~/.agents/skills`. The Skill is copied under `skills/otel-prometheus-metrics`, and the global Agent uses the TOML adapter under `agents/`; start a new task or reload Codex after installation so slash/Agent discovery refreshes.
 
 ## Keep Training
 

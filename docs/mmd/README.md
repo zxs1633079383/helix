@@ -1,10 +1,11 @@
-# MessageV3 Phase 1-4 客户端与 Helix Gate 时序图
+# MessageV3 Phase 1-5 客户端与 Helix Gate 时序图
 
-阅读或修改本目录前先看 [`AGENTS.md`](./AGENTS.md)；本 README 只承载 84 Gate 的分母、
+阅读或修改本目录前先看 [`AGENTS.md`](./AGENTS.md)；本 README 承载 92 Gate 的分母、
 Phase/Domain 索引和文件链接，具体 Gate 规则按局部 AGENTS 的渐进式披露顺序下钻。
 
-本目录以 PC 参考客户端 `/System/Volumes/Data/workspace/angular/visual/cses-client`
-的 **84 Gate 机读分母**为准，按 `Phase → Domain → Gate` 组织 Mermaid 时序图。每张图都沿用
+本目录以只读客户端 `/System/Volumes/Data/workspace/worktrees/sync-event-alignment/cses-client`
+的 Phase1～5 manifest 为机器真源：Phase1～4 为 80 Gate，Phase5 为 12 Gate，总计 **92 Gate**。
+按 `Phase → Domain → Gate` 组织 Mermaid 时序图。每张图都沿用
 [发送消息参考图](./发送消息.mmd)的逐跳粒度，描述 Angular/Port、Tauri/FFI/Web、Helix
 Tick/Effect/PortReply、SQLite/Go HTTP/WS 和最终 raw event 或 Command Result。
 
@@ -15,11 +16,12 @@ Tick/Effect/PortReply、SQLite/Go HTTP/WS 和最终 raw event 或 Command Result
 | Phase1 | 发送、上传与真实建群兼容基线 | channel、post、upload、draft、schedule、announcement | 33 |
 | Phase2 | 读取、时间线与同步 | read、timeline、sync | 20 |
 | Phase3 | 频道与成员 | channel、channel_member | 15 |
-| Phase4 | 扩展消息操作与检索 | pin、bookmark、search、todo、announcement | 16 |
-| **合计** | 4 个 Phase | 14 个领域目录 | **84** |
+| Phase4 | 扩展消息操作与检索 | pin、bookmark、search、announcement | 12 |
+| Phase5 | 接龙 | chain、text_chain、category_chain、acceptance | 12 |
+| **合计** | 5 个 Phase | 17 个 Phase 内领域目录 | **92** |
 
-> 这里的 84 是 cses-client MessageV3 Gate 分母；Helix Spec 047 的 30 个 producer Gate
-> 是另一层实现清单，不能替代客户端 84 Gate。P1 的公告保存（G07b）属于 Phase1 复用能力，
+> Phase1～4 的 80 Gate 与 Phase5 的 12 Gate 都来自客户端 manifest；Helix 的其他实现清单
+> 不能替代该分母。P1 的公告保存（G07b）属于 Phase1 复用能力，
 > P4 的 G07a/G07c/G07d 是公告查询、删除和确认收到。
 
 ## 目录约定
@@ -29,14 +31,16 @@ docs/mmd/
 ├── Phase1/<domain>/Gate-<gate-suffix>-<中文名称>.mmd
 ├── Phase2/<domain>/Gate-<gate-suffix>-<中文名称>.mmd
 ├── Phase3/<domain>/Gate-<gate-suffix>-<中文名称>.mmd
-└── Phase4/<domain>/Gate-<gate-suffix>-<中文名称>.mmd
+├── Phase4/<domain>/Gate-<gate-suffix>-<中文名称>.mmd
+└── Phase5/<domain>/Gate-<gate-suffix>-<中文名称>.mmd
 ```
 
 领域目录严格按客户端 manifest：
 - Phase1：channel、post、upload、draft、schedule、announcement
 - Phase2：read、timeline、sync
 - Phase3：channel、channel_member
-- Phase4：pin、bookmark、search、todo、announcement
+- Phase4：pin、bookmark、search、announcement
+- Phase5：chain、text_chain、category_chain、acceptance
 
 ## Gate 索引
 
@@ -53,7 +57,7 @@ docs/mmd/
 - [MV3-G01f 发送文档](<./Phase1/post/Gate-01f-发送文档.mmd>)
 - [MV3-G01h 发送任务卡](<./Phase1/post/Gate-01h-发送任务卡.mmd>)
 - [MV3-G01i 创建投票并落消息](<./Phase1/post/Gate-01i-创建投票并落消息.mmd>)
-- [MV3-G01j 创建评分活动并落消息（**当前断供**）](<./Phase1/post/Gate-01j-创建评分活动并落消息（当前断供）.mmd>)
+- [MV3-G01j 创建评分活动并发送评分卡](<./Phase1/post/Gate-01j-创建评分活动并发送评分卡.mmd>)
 - [MV3-G01k 带回复发送](<./Phase1/post/Gate-01k-带回复发送.mmd>)
 - [MV3-G01l 定向可见发送（密聊 / 指定接收人）](<./Phase1/post/Gate-01l-定向可见发送（密聊-／-指定接收人）.mmd>)
 - [MV3-G02a 乐观三态回显](<./Phase1/post/Gate-02a-乐观三态回显.mmd>)
@@ -170,18 +174,39 @@ docs/mmd/
 - [MV3-G14b 会话内分类搜索（5 tab）](<./Phase4/search/Gate-14b-会话内分类搜索（5-tab）.mmd>)
 - [MV3-G14c 跨会话消息搜索并分组](<./Phase4/search/Gate-14c-跨会话消息搜索并分组.mmd>)
 
-#### todo（4 Gate）
-
-- [MV3-G15a 未读加急待办生成](<./Phase4/todo/Gate-15a-未读加急待办生成.mmd>)
-- [MV3-G15b 已读加急待办更新](<./Phase4/todo/Gate-15b-已读加急待办更新.mmd>)
-- [MV3-G15c @我待办生成](<./Phase4/todo/Gate-15c-@我待办生成.mmd>)
-- [MV3-G15d @提及计数与消减](<./Phase4/todo/Gate-15d-@提及计数与消减.mmd>)
-
 #### announcement（3 Gate）
 
 - [MV3-G07a 查询群公告列表](<./Phase4/announcement/Gate-07a-查询群公告列表.mmd>)
 - [MV3-G07c 删除群公告](<./Phase4/announcement/Gate-07c-删除群公告.mmd>)
 - [MV3-G07d 群公告确认收到](<./Phase4/announcement/Gate-07d-群公告确认收到.mmd>)
+
+### Phase5：接龙
+
+- [接龙总览](<./Phase5/接龙总览.mmd>)
+
+#### chain（6 Gate）
+
+- [CHAIN-COM-G01 创建草稿并读取](<./Phase5/chain/Gate-COM-G01-创建草稿并读取.mmd>)
+- [CHAIN-COM-G02 编辑并发布](<./Phase5/chain/Gate-COM-G02-编辑并发布.mmd>)
+- [CHAIN-COM-G03 幂等追加与对账](<./Phase5/chain/Gate-COM-G03-幂等追加与对账.mmd>)
+- [CHAIN-COM-G04 窗口展开](<./Phase5/chain/Gate-COM-G04-窗口展开.mmd>)
+- [CHAIN-COM-G05 汇总计数](<./Phase5/chain/Gate-COM-G05-汇总计数.mmd>)
+- [CHAIN-COM-G06 生命周期与已读](<./Phase5/chain/Gate-COM-G06-生命周期与已读.mmd>)
+
+#### text_chain（2 Gate）
+
+- [CHAIN-TXT-G01 文字参与](<./Phase5/text_chain/Gate-TXT-G01-文字参与.mmd>)
+- [CHAIN-TXT-G02 文字窗口恢复](<./Phase5/text_chain/Gate-TXT-G02-文字窗口恢复.mmd>)
+
+#### category_chain（3 Gate，当前 NOT_IMPLEMENTED）
+
+- [CHAIN-CAT-G01 分类模式](<./Phase5/category_chain/Gate-CAT-G01-分类模式.mmd>)
+- [CHAIN-CAT-G02 分类选项](<./Phase5/category_chain/Gate-CAT-G02-分类选项.mmd>)
+- [CHAIN-CAT-G03 分类统计](<./Phase5/category_chain/Gate-CAT-G03-分类统计.mmd>)
+
+#### acceptance（1 Gate，当前 NOT_IMPLEMENTED）
+
+- [CHAIN-ACC-G01 跨域验收](<./Phase5/acceptance/Gate-ACC-G01-跨域验收.mmd>)
 
 ## 图内统一边界
 

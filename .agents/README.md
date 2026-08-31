@@ -15,6 +15,11 @@
 - `$helix-command-driver-host-test`（`.agents/skills/helix-command-driver-host-test/SKILL.md`）：为新增或修改 Command 接入 `helix-driver-host`/Native real-chain 测试，按 TDD、共享 adapter、证据分层和 run-owned 清理执行。
 - `$messagev3-cross-layer-emit-diagnosis`（`.agents/skills/messagev3-cross-layer-emit-diagnosis/SKILL.md`）：沿 Angular → Ipc → Helix → Go HTTP/WS → Persist/Projection → EventSink → Angular 逐跳定位事件或字段丢失，并指导 TDD 修复与证据分层。
 - `$messagev3-cross-layer-coding`（`.agents/skills/messagev3-cross-layer-coding/SKILL.md`）：按契约冻结、TDD 红绿、owner 分层、绝对 projection 和真实链证据实施跨 Go/Helix/driver/Angular 的 MessageV3 功能。
+- `$otel-prometheus-metrics`（`.codex/autoresearch/helix/skills/otel-prometheus-metrics/SKILL.md`）：先评审指标契约，再通过 bounded `AsyncMetricSink` 低侵入接入，并分层验证 Collector/Prometheus 真实采集。
+
+## 项目专用 Agent
+
+- `helix-otel-prometheus-metrics-agent`（`.codex/autoresearch/helix/agents/helix-otel-prometheus-metrics-agent.md`）：拥有指标契约、host metrics seam 与只读 Prometheus 验证；未收到 `REVIEW: APPROVED` 不修改生产指标代码。
 
 ## Helix 特殊边界
 

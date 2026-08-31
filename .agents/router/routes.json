@@ -72,6 +72,47 @@
       "workflow": "adversarial-workflow"
     },
     {
+      "id": "otel-prometheus-metrics",
+      "match": {
+        "keywords": [
+          "otel",
+          "metric",
+          "metrics",
+          "prometheus",
+          "指标采集",
+          "指标暴露",
+          "指标验证"
+        ],
+        "paths": [
+          ".codex/autoresearch/helix/agents/helix-otel-prometheus-metrics-agent.md",
+          ".codex/autoresearch/helix/skills/otel-prometheus-metrics",
+          "crates/helix-driver-host/src/metrics",
+          "crates/helix-driver-host/tests",
+          "crates/helix-host-cli/src",
+          "docker/otel",
+          "perf/grafana",
+          "perf/telemetry"
+        ]
+      },
+      "primary_agents": [
+        "project-local/helix-otel-prometheus-metrics-agent"
+      ],
+      "reviewer_agents": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/evidence-reviewer-agent",
+        "reviewers/test-reviewer-agent",
+        "reviewers/harness-reviewer-agent"
+      ],
+      "required_references": [
+        "goal",
+        "roadmap-p0",
+        "operating",
+        "metrics-contract",
+        "otel-prometheus-skill"
+      ],
+      "workflow": "adversarial-workflow"
+    },
+    {
       "id": "ffi-mobile",
       "match": {
         "keywords": [

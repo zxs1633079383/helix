@@ -1,3 +1,5 @@
+🎯 EXPECT 在 `.codex/autoresearch/helix` 沉淀一个带 review gate 的 OTel/Prometheus 指标 Agent 与渐进式披露 Skill；可证伪断言：① 新增专用 Agent、SKILL.md、只读 Prometheus 验证脚本和按需参考，且 Skill frontmatter/开放元数据可校验；② review 未输出 `REVIEW: APPROVED` 时不允许修改指标生产代码；③ 指标只经既有 bounded `AsyncMetricSink::try_record`，不在 core/业务主线程执行网络 I/O、不新增无界队列或高基数标签；④ 验证区分 focused、worker/export、Collector scrape、Prometheus metadata/query 和真实业务触发，HTTP 200/canary 不冒充采集成功；⑤ Router、manifest、README/引用入口同步，保留既有 artifacts 与用户未跟踪文件，`git diff --check` 和全部结构校验通过 | 赌注 中 | 可逆 是 | @2026-08-31T13:20:59+0800
+
 ✅ DONE Helix 0.1.1 已发布：`cses-helix-core`、`helix-im`、`helix-driver-host`、`helix-driver-native` 四包均经 crates.io 实时查询确认可解析；8 个 workspace manifest 与 Cargo.lock 已同步到同批依赖图。版本事务等待本次发布提交承载，不自动 push，既有 artifacts 保持未跟踪 | @2026-08-27T
 
 🎯 EXPECT 修复 crates.io 一键发布的 workspace 版本事务；可证伪断言：① 四个公共 crate 仍是唯一上传集合；② Web、FFI、host-cli 与 helix-perf 只同步内部精确依赖，自身 package.version 保持不变；③ `--plan` 能在上传前发现任何未登记的 workspace path 精确依赖；④ 首次上传前失败按字节恢复 8 个 manifest 与 Cargo.lock；⑤ 单测、候选版本图复现、`--plan` 和 `git diff --check` 通过，不执行真实 publish、不修改既有 artifacts | 赌注 高 | 可逆 是 | @2026-08-27T

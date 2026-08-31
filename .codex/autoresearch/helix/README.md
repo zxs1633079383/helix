@@ -10,8 +10,12 @@ Source scope: live repository docs, crate entry points, scripts, harness index, 
 - `scripts/evaluate.py`: structural self-check.
 - `scripts/distill_project.py`: read-only inventory helper for refreshing facts.
 - `skills/helix-knowledge/SKILL.md`: Tier 1 Skill.
+- `skills/otel-prometheus-metrics/SKILL.md`: 先评审、低侵入接入并验证 OTel/Prometheus 指标采集的专用 Skill。
 - `agents/helix-researcher.md`: Tier 2 ReSearch Agent.
 - `agents/helix-dev.md`: Tier 3 Dev Agent.
+- `agents/helix-otel-prometheus-metrics-agent.md`: 指标契约、producer 接线与 Prometheus 证据审查 Agent。
+- `skills/otel-prometheus-metrics/references/`: 按需加载的当前指标契约和运行证据参考。
+- `skills/otel-prometheus-metrics/scripts/verify_prometheus_metric.py`: 只读 metadata/query 验证器。
 - `install.sh`: optional copy installer.
 
 ## Evaluate

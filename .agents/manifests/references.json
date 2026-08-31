@@ -83,6 +83,18 @@
       "kind": "agent-boundary",
       "path": "crates/helix-im/tests/fixtures/AGENTS.md",
       "when": "canonical Fixture、provenance 或跨仓同步必读"
+    },
+    {
+      "id": "metrics-contract",
+      "kind": "observability-contract",
+      "path": "docs/Metrics/Prometheus指标说明.md",
+      "when": "新增、修改或审查 Helix OTel/Prometheus 指标及其采集口径时必读"
+    },
+    {
+      "id": "otel-prometheus-skill",
+      "kind": "repo-local-skill",
+      "path": ".codex/autoresearch/helix/skills/otel-prometheus-metrics/SKILL.md",
+      "when": "指标契约评审、低侵入接入、Collector scrape 或 Prometheus query 验证时必读"
     }
   ]
 }

@@ -16,8 +16,14 @@ REQUIRED_FILES = [
     "scripts/evaluate.py",
     "scripts/distill_project.py",
     "skills/helix-knowledge/SKILL.md",
+    "skills/otel-prometheus-metrics/SKILL.md",
+    "skills/otel-prometheus-metrics/agents/openai.yaml",
+    "skills/otel-prometheus-metrics/references/metric-contract.md",
+    "skills/otel-prometheus-metrics/references/runtime-verification.md",
+    "skills/otel-prometheus-metrics/scripts/verify_prometheus_metric.py",
     "agents/helix-researcher.md",
     "agents/helix-dev.md",
+    "agents/helix-otel-prometheus-metrics-agent.md",
     "install.sh",
     "README.md",
 ]
@@ -104,6 +110,48 @@ def check_relative_deep_links() -> None:
         fail("dev agent missing bundle-root evaluator command")
 
 
+def check_metrics_skill_contract() -> None:
+    """检查指标专用 Agent/Skill 的 review gate、证据分层和脚本入口。"""
+    skill = read_rel("skills/otel-prometheus-metrics/SKILL.md")
+    agent = read_rel("agents/helix-otel-prometheus-metrics-agent.md")
+    interface = read_rel("skills/otel-prometheus-metrics/agents/openai.yaml")
+    script = ROOT / "skills/otel-prometheus-metrics/scripts/verify_prometheus_metric.py"
+
+    for needle in [
+        "name: otel-prometheus-metrics",
+        "评审，后写入",
+        "REVIEW: PROPOSED",
+        "REVIEW: APPROVED",
+        "AsyncMetricSink::try_record",
+        "COLLECTOR_SCRAPE",
+        "PROM_QUERY",
+        "REAL_BUSINESS",
+    ]:
+        if needle not in skill:
+            fail(f"metrics skill missing required contract text: {needle}")
+    for needle in [
+        "name: helix-otel-prometheus-metrics-agent",
+        "scope:",
+        "REVIEW: APPROVED",
+        "BLOCKED_REVIEW",
+        "AsyncMetricSink::try_record",
+        "PROM_QUERY",
+        "changed_files:",
+    ]:
+        if needle not in agent:
+            fail(f"metrics agent missing required contract text: {needle}")
+    for needle in [
+        "display_name:",
+        "short_description:",
+        "default_prompt:",
+        "$otel-prometheus-metrics",
+    ]:
+        if needle not in interface:
+            fail(f"metrics skill UI metadata missing: {needle}")
+    if not script.stat().st_mode & 0o111:
+        fail("metrics verification script is not executable")
+
+
 def report_coverage() -> None:
     knowledge = read_rel("knowledge/helix_knowledge.md")
     words = re.findall(r"[\w:/.-]+", knowledge)
@@ -119,6 +167,7 @@ def main() -> None:
     check_knowledge_sections()
     check_no_forbidden_absolute_refs()
     check_relative_deep_links()
+    check_metrics_skill_contract()
     report_coverage()
 
 

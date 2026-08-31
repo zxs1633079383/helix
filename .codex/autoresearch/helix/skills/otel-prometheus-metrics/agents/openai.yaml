@@ -1,0 +1,4 @@
+interface:
+  display_name: "Helix OTel Prometheus 指标"
+  short_description: "Helix OTel Prometheus 指标的低侵入编写与真实采集验证"
+  default_prompt: "使用 $otel-prometheus-metrics 先评审指标契约，再低侵入接入并验证 Prometheus 采集证据。"

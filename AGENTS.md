@@ -229,8 +229,9 @@ manifest/README/Mermaid 验证合同。
 | `rust-tauri-skeleton-dev` ↔ `/rust-tauri-skeleton-knowledge` | Tauri 2 桌面骨架端到端，**参考仓 = 现网 cses-client** | 现网对齐核验（唯一权威）、IPC 契约、M2 Tauri 接缝 |
 | `rust-runtime-agnostic-core-dev` ↔ `/rust-runtime-agnostic-core-knowledge` | 一份 core 编 native+FFI+Web（cfg/Send/wasm） | 多端边界守门、Flutter FFI / Web Rust 接入层 |
 | `dioxus-dev` ↔ `/dioxus-knowledge` | **仅取 core 内核经验**（step 循环/Effect 批处理/调度），**禁渲染层/RSX 话题** | 内核循环设计对照、批次边界、调度公平性 |
+| `helix-otel-prometheus-metrics-agent` ↔ `$otel-prometheus-metrics` | OTel/Prometheus 指标契约、低侵入 host 接入与 Collector/Prometheus 证据验证 | 新增/审查指标、排查未采集或暴露链路；必须先过 `REVIEW: APPROVED` |
 
-本仓操作手册 Skill（先手册后知识）：`/helix-new-module` · `/helix-replay-test` · `/helix-stress-verify`。
+本仓操作手册 Skill（先手册后知识）：`/helix-new-module` · `/helix-replay-test` · `/helix-stress-verify` · `$otel-prometheus-metrics`。
 
 ## 4.7 预期对账（非阻塞证据记录）
 

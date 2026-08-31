@@ -589,6 +589,36 @@
         "PC Mobile V2",
         "Gate review"
       ]
+    },
+    "project-local/helix-otel-prometheus-metrics-agent": {
+      "file": ".codex/autoresearch/helix/agents/helix-otel-prometheus-metrics-agent.md",
+      "kind": "project-local",
+      "constraints": [
+        "hxc005-hot-path",
+        "recording-sink-batch-boundary",
+        "trace-sidecar-no-business-payload",
+        "hxc012-expect-for-substantial-task",
+        "hxc015-task-notification-no-polling"
+      ],
+      "owned_paths": [
+        ".codex/autoresearch/helix/agents/helix-otel-prometheus-metrics-agent.md",
+        ".codex/autoresearch/helix/skills/otel-prometheus-metrics",
+        "crates/helix-driver-host/src/metrics",
+        "crates/helix-driver-host/tests",
+        "crates/helix-host-cli/src",
+        "docker/otel",
+        "perf/grafana",
+        "perf/telemetry"
+      ],
+      "triggers": [
+        "otel",
+        "metrics",
+        "metric",
+        "prometheus",
+        "指标采集",
+        "指标暴露",
+        "指标验证"
+      ]
     }
   }
 }

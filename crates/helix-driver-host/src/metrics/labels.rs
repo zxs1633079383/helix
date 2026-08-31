@@ -26,6 +26,10 @@ pub enum LabelKey {
     Consumer,
     Overflow,
     LifecycleState,
+    Terminal,
+    Path,
+    Role,
+    Result,
 }
 
 impl LabelKey {
@@ -55,6 +59,10 @@ impl LabelKey {
             Self::Consumer => "consumer",
             Self::Overflow => "overflow",
             Self::LifecycleState => "lifecycle_state",
+            Self::Terminal => "terminal",
+            Self::Path => "path",
+            Self::Role => "role",
+            Self::Result => "result",
         }
     }
 }
@@ -84,6 +92,10 @@ pub const ALLOWED_LABEL_KEYS: &[LabelKey] = &[
     LabelKey::Consumer,
     LabelKey::Overflow,
     LabelKey::LifecycleState,
+    LabelKey::Terminal,
+    LabelKey::Path,
+    LabelKey::Role,
+    LabelKey::Result,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -145,7 +157,7 @@ mod tests {
 
     #[test]
     fn whitelist_is_exact_and_excludes_high_cardinality_keys() {
-        assert_eq!(ALLOWED_LABEL_KEYS.len(), 24);
+        assert_eq!(ALLOWED_LABEL_KEYS.len(), 28);
         let names: Vec<_> = ALLOWED_LABEL_KEYS.iter().map(|key| key.as_str()).collect();
         for forbidden in [
             "runId",

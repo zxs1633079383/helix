@@ -45,9 +45,11 @@ pub use local_store::{
     BackendScope, LocalStoreError, LocalStoreIdentity, LocalStoreLocator, LocalStorePaths,
 };
 pub use metrics::{
-    production_metric_ids, record_im_business_event, AsyncMetricSink, BatchMetricExporter,
-    BoundedMetricRuntime, LabelKey, MetricAvailability, MetricEvent, MetricExporterState, MetricId,
-    MetricKind, MetricLabel, MetricLabels, MetricRuntimeConfig, MetricRuntimeSnapshot,
+    production_metric_ids, record_gap_duration, record_im_business_event,
+    record_message_client_terminal, record_message_e2e_view_updated, record_seq_observation,
+    record_tick_stage_duration, AsyncMetricSink, BatchMetricExporter, BoundedMetricRuntime,
+    ClientTerminalObservation, LabelKey, MetricAvailability, MetricEvent, MetricExporterState,
+    MetricId, MetricKind, MetricLabel, MetricLabels, MetricRuntimeConfig, MetricRuntimeSnapshot,
     NoopMetricSink, RecordOutcome, ShutdownOutcome, ALLOWED_LABEL_KEYS, CANARY_METRIC_IDS,
     REQUIRED_METRIC_IDS,
 };

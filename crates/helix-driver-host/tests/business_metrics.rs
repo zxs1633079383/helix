@@ -3,12 +3,58 @@ use std::sync::Mutex;
 use bytes::Bytes;
 use helix_core::effect::DomainEventBytes;
 use helix_driver_host::{
-    record_im_business_event, AsyncMetricSink, LabelKey, MetricEvent, MetricId, RecordOutcome,
+    record_gap_duration, record_im_business_event, record_message_client_terminal,
+    record_message_e2e_view_updated, record_seq_observation, record_tick_stage_duration,
+    AsyncMetricSink, ClientTerminalObservation, LabelKey, MetricEvent, MetricId, RecordOutcome,
 };
 
 #[derive(Default)]
 struct RecordingMetrics {
     events: Mutex<Vec<MetricEvent>>,
+}
+
+/// client_observation_helpers_emit_only_bounded_labels 锁定客户端旁路 API 的指标与标签合同。
+#[test]
+fn client_observation_helpers_emit_only_bounded_labels() {
+    let sink = RecordingMetrics::default();
+    record_message_client_terminal(
+        &sink,
+        ClientTerminalObservation {
+            terminal: "client_applied",
+            path: "live_ws",
+            role: "sender",
+            result: "success",
+            platform: "desktop",
+        },
+    );
+    record_message_e2e_view_updated(&sink, 0.25, "live_ws", "success", "desktop");
+    record_seq_observation(&sink, "gap_pending", "sync_replay", "channel_sync");
+    record_gap_duration(&sink, 1.5, "sync_complete", "sync_replay", "success");
+    record_tick_stage_duration(&sink, 0.01, "queue", "success");
+
+    assert!(has_event(
+        &sink,
+        MetricId::ImMessageClientTerminalTotal,
+        &[
+            (LabelKey::Terminal, "client_applied"),
+            (LabelKey::Path, "live_ws"),
+            (LabelKey::Role, "sender"),
+            (LabelKey::Result, "success"),
+        ],
+    ));
+    for id in [
+        MetricId::ImMessageE2eViewUpdatedDurationSeconds,
+        MetricId::ImSeqObservationTotal,
+        MetricId::ImGapDurationSeconds,
+        MetricId::ImTickStageDurationSeconds,
+    ] {
+        assert!(sink
+            .events
+            .lock()
+            .expect("metrics lock")
+            .iter()
+            .any(|event| event.id == id));
+    }
 }
 
 impl AsyncMetricSink for RecordingMetrics {

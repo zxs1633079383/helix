@@ -4,6 +4,101 @@ use super::{AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels};
 
 const MESSAGE_V3_EVENT_PREFIX: &[u8] = b"{\"event\":\"";
 
+/// ClientTerminalObservation 是边缘 UI 只读事实；所有字段都必须来自固定低基数枚举。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClientTerminalObservation {
+    pub terminal: &'static str,
+    pub path: &'static str,
+    pub role: &'static str,
+    pub result: &'static str,
+    pub platform: &'static str,
+}
+
+/// record_message_client_terminal 将客户端终点旁路写入有界 sink，不参与业务 Tick 队列。
+pub fn record_message_client_terminal(
+    metrics: &dyn AsyncMetricSink,
+    observation: ClientTerminalObservation,
+) {
+    let labels = MetricLabels::one(LabelKey::Terminal, observation.terminal)
+        .with(LabelKey::Path, observation.path)
+        .with(LabelKey::Role, observation.role)
+        .with(LabelKey::Result, observation.result)
+        .with(LabelKey::Platform, observation.platform);
+    let _ = metrics.try_record(MetricEvent::counter(
+        MetricId::ImMessageClientTerminalTotal,
+        1.0,
+        labels,
+    ));
+}
+
+/// record_message_e2e_view_updated 记录同一客户端单调时钟产生的真实端到端样本。
+pub fn record_message_e2e_view_updated(
+    metrics: &dyn AsyncMetricSink,
+    seconds: f64,
+    path: &'static str,
+    result: &'static str,
+    platform: &'static str,
+) {
+    let labels = MetricLabels::one(LabelKey::Path, path)
+        .with(LabelKey::Result, result)
+        .with(LabelKey::Platform, platform);
+    let _ = metrics.try_record(MetricEvent::histogram(
+        MetricId::ImMessageE2eViewUpdatedDurationSeconds,
+        seconds,
+        labels,
+    ));
+}
+
+/// record_seq_observation 记录已由本地同步状态机判定的固定 Seq 结果。
+pub fn record_seq_observation(
+    metrics: &dyn AsyncMetricSink,
+    outcome: &'static str,
+    path: &'static str,
+    operation: &'static str,
+) {
+    let labels = MetricLabels::one(LabelKey::Result, outcome)
+        .with(LabelKey::Path, path)
+        .with(LabelKey::Operation, operation);
+    let _ = metrics.try_record(MetricEvent::counter(
+        MetricId::ImSeqObservationTotal,
+        1.0,
+        labels,
+    ));
+}
+
+/// record_gap_duration 仅在 gap lifecycle 形成稳定终态时记录持续时间。
+pub fn record_gap_duration(
+    metrics: &dyn AsyncMetricSink,
+    seconds: f64,
+    terminal: &'static str,
+    path: &'static str,
+    result: &'static str,
+) {
+    let labels = MetricLabels::one(LabelKey::Terminal, terminal)
+        .with(LabelKey::Path, path)
+        .with(LabelKey::Result, result);
+    let _ = metrics.try_record(MetricEvent::histogram(
+        MetricId::ImGapDurationSeconds,
+        seconds,
+        labels,
+    ));
+}
+
+/// record_tick_stage_duration 记录已有 Tick 生命周期边界计算出的阶段样本。
+pub fn record_tick_stage_duration(
+    metrics: &dyn AsyncMetricSink,
+    seconds: f64,
+    stage: &'static str,
+    result: &'static str,
+) {
+    let labels = MetricLabels::one(LabelKey::Stage, stage).with(LabelKey::Result, result);
+    let _ = metrics.try_record(MetricEvent::histogram(
+        MetricId::ImTickStageDurationSeconds,
+        seconds,
+        labels,
+    ));
+}
+
 /// record_im_business_event 在 host Emit 边界记录投影、同步与恢复终态，不把远端推送冒充本地 Command。
 pub fn record_im_business_event(metrics: &dyn AsyncMetricSink, event: &DomainEventBytes) {
     if !metrics.is_enabled() {

@@ -1,4 +1,45 @@
 groups:
+  - name: messagev3-fullchain-observability
+    interval: 30s
+    rules:
+      - record: im_observability_drop_total
+        expr: sum by (error_kind) ({__name__=~"otel_helix_(metrics|traces)_dropped_total"})
+      - record: im_message_client_terminal_total
+        expr: sum by (terminal, path, role, result, platform, recipient_scope) (otel_helix_im_message_client_terminal_total)
+      - record: im_message_e2e_view_updated_duration_seconds_bucket
+        expr: sum by (le, path, result, platform) (otel_helix_im_message_e2e_view_updated_duration_seconds_bucket)
+      - record: im_message_e2e_view_updated_duration_seconds_count
+        expr: sum by (path, result, platform) (otel_helix_im_message_e2e_view_updated_duration_seconds_count)
+      - record: im_message_e2e_view_updated_duration_seconds_sum
+        expr: sum by (path, result, platform) (otel_helix_im_message_e2e_view_updated_duration_seconds_sum)
+      - record: im_seq_observation_total
+        expr: sum by (state, path, operation) (otel_helix_im_seq_observation_total)
+      - record: im_gap_duration_seconds_bucket
+        expr: sum by (le, terminal, path, result) (otel_helix_im_gap_duration_seconds_bucket)
+      - record: im_gap_duration_seconds_count
+        expr: sum by (terminal, path, result) (otel_helix_im_gap_duration_seconds_count)
+      - record: im_gap_duration_seconds_sum
+        expr: sum by (terminal, path, result) (otel_helix_im_gap_duration_seconds_sum)
+      - record: im_tick_stage_duration_seconds_bucket
+        expr: sum by (le, stage, result) (otel_helix_im_tick_stage_duration_seconds_bucket)
+      - record: im_tick_stage_duration_seconds_count
+        expr: sum by (stage, result) (otel_helix_im_tick_stage_duration_seconds_count)
+      - record: im_tick_stage_duration_seconds_sum
+        expr: sum by (stage, result) (otel_helix_im_tick_stage_duration_seconds_sum)
+      - record: im_ws_reconnect_total
+        expr: sum by (platform) (otel_helix_ws_reconnect_total)
+      - record: im_ws_connect_duration_seconds_bucket
+        expr: sum by (le, platform) (otel_helix_ws_connect_duration_seconds_bucket)
+      - record: im_ws_connect_duration_seconds_count
+        expr: sum by (platform) (otel_helix_ws_connect_duration_seconds_count)
+      - record: im_ws_connect_duration_seconds_sum
+        expr: sum by (platform) (otel_helix_ws_connect_duration_seconds_sum)
+      - record: im_ws_reconnect_delay_seconds_bucket
+        expr: sum by (le, platform) (otel_helix_ws_reconnect_delay_seconds_bucket)
+      - record: im_ws_reconnect_delay_seconds_count
+        expr: sum by (platform) (otel_helix_ws_reconnect_delay_seconds_count)
+      - record: im_ws_reconnect_delay_seconds_sum
+        expr: sum by (platform) (otel_helix_ws_reconnect_delay_seconds_sum)
   - name: helix-runtime-performance-pre
     interval: 30s
     rules:

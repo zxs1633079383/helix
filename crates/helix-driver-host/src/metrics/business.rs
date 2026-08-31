@@ -12,6 +12,7 @@ pub struct ClientTerminalObservation {
     pub role: &'static str,
     pub result: &'static str,
     pub platform: &'static str,
+    pub recipient_scope: &'static str,
 }
 
 /// record_message_client_terminal 将客户端终点旁路写入有界 sink，不参与业务 Tick 队列。
@@ -23,7 +24,8 @@ pub fn record_message_client_terminal(
         .with(LabelKey::Path, observation.path)
         .with(LabelKey::Role, observation.role)
         .with(LabelKey::Result, observation.result)
-        .with(LabelKey::Platform, observation.platform);
+        .with(LabelKey::Platform, observation.platform)
+        .with(LabelKey::RecipientScope, observation.recipient_scope);
     let _ = metrics.try_record(MetricEvent::counter(
         MetricId::ImMessageClientTerminalTotal,
         1.0,
@@ -56,7 +58,7 @@ pub fn record_seq_observation(
     path: &'static str,
     operation: &'static str,
 ) {
-    let labels = MetricLabels::one(LabelKey::Result, outcome)
+    let labels = MetricLabels::one(LabelKey::State, outcome)
         .with(LabelKey::Path, path)
         .with(LabelKey::Operation, operation);
     let _ = metrics.try_record(MetricEvent::counter(

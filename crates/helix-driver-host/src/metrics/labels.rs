@@ -30,6 +30,8 @@ pub enum LabelKey {
     Path,
     Role,
     Result,
+    RecipientScope,
+    State,
 }
 
 impl LabelKey {
@@ -63,6 +65,8 @@ impl LabelKey {
             Self::Path => "path",
             Self::Role => "role",
             Self::Result => "result",
+            Self::RecipientScope => "recipient_scope",
+            Self::State => "state",
         }
     }
 }
@@ -96,6 +100,8 @@ pub const ALLOWED_LABEL_KEYS: &[LabelKey] = &[
     LabelKey::Path,
     LabelKey::Role,
     LabelKey::Result,
+    LabelKey::RecipientScope,
+    LabelKey::State,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,7 +163,7 @@ mod tests {
 
     #[test]
     fn whitelist_is_exact_and_excludes_high_cardinality_keys() {
-        assert_eq!(ALLOWED_LABEL_KEYS.len(), 28);
+        assert_eq!(ALLOWED_LABEL_KEYS.len(), 30);
         let names: Vec<_> = ALLOWED_LABEL_KEYS.iter().map(|key| key.as_str()).collect();
         for forbidden in [
             "runId",

@@ -25,6 +25,7 @@ fn client_observation_helpers_emit_only_bounded_labels() {
             role: "sender",
             result: "success",
             platform: "desktop",
+            recipient_scope: "any_device",
         },
     );
     record_message_e2e_view_updated(&sink, 0.25, "live_ws", "success", "desktop");
@@ -40,7 +41,13 @@ fn client_observation_helpers_emit_only_bounded_labels() {
             (LabelKey::Path, "live_ws"),
             (LabelKey::Role, "sender"),
             (LabelKey::Result, "success"),
+            (LabelKey::RecipientScope, "any_device"),
         ],
+    ));
+    assert!(has_event(
+        &sink,
+        MetricId::ImSeqObservationTotal,
+        &[(LabelKey::State, "gap_pending")],
     ));
     for id in [
         MetricId::ImMessageE2eViewUpdatedDurationSeconds,

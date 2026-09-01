@@ -55,7 +55,39 @@ async fn mv3_g09c_real_chain() {
             )
             .await
             .unwrap_or_else(|error| panic!("MV3-G09c PersistOk failed: {error}"));
-            shared::write_gate_evidence("Phase3", "ChannelMember", "MV3-G09c", "PASS", json!({"command": "im_update_member_nickname", "go_http": "/api/cses/channel/member/change/nickname", "terminal_event": "im:channel:member-nickname", "event": event_json, "persist_after": {"table": "channel_member", "channel_id": channel, "user_id": context.actor.user_id, "nick_name": shared::row_text(&row, "nick_name")}})).unwrap_or_else(|error| panic!("MV3-G09c evidence failed: {error}"));
+            shared::write_gate_evidence(
+                "Phase3",
+                "ChannelMember",
+                "MV3-G09c",
+                "PASS",
+                json!({
+                    "corr_key": channel,
+                    "command": "im_update_member_nickname",
+                    "go_http": "/api/cses/channel/member/change/nickname",
+                    "http_business": "Go nickname mutation reached the authoritative terminal projection",
+                    "ws_action": "channel_member_nickname",
+                    "terminal_event": "im:channel:member-nickname",
+                    "projection": event_json,
+                    "event_sink": "NativeEventSink::broadcast",
+                    "event_sink_required": true,
+                    "persist_after": {
+                        "table": "channel_member",
+                        "channel_id": channel,
+                        "user_id": context.actor.user_id,
+                        "nick_name": shared::row_text(&row, "nick_name")
+                    },
+                    "persist_required": true,
+                    "sqlite_readback": {
+                        "table": "channel_member",
+                        "channel_id": channel,
+                        "user_id": context.actor.user_id,
+                        "nick_name": shared::row_text(&row, "nick_name")
+                    },
+                    "sqlite_required": true,
+                    "cleanup": "session.close and channel/close completed"
+                }),
+            )
+            .unwrap_or_else(|error| panic!("MV3-G09c evidence failed: {error}"));
         }
         Err(error) => {
             shared::write_gate_evidence("Phase3", "ChannelMember", "MV3-G09c", "BLOCKED_PRECONDITION", json!({"reason": "nickname terminal event not observed", "first_failing_layer": "Go route/WS or Helix nickname handler", "error": error})).unwrap_or_else(|write_error| panic!("MV3-G09c blocked evidence failed: {write_error}"));

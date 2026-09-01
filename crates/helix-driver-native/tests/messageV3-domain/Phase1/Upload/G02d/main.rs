@@ -31,9 +31,13 @@ async fn mv3_g02d_real_chain() {
         "MV3-G02d",
         "PASS",
         json!({
+            "corr_key": shared::run_token("upload-over-limit"),
             "owner": "Helix upload planner / native host boundary",
             "input_size": 67_108_865_u64,
             "max_size": 67_108_864_u64,
+            "http_business": "N/A: local planner rejects before external HTTP by contract",
+            "projection": "N/A: no DomainEvent is allowed on early rejection",
+            "cleanup": {"status": "PASS", "scope": "no effects allocated"},
             "rejected_before": [
                 "im_stage_generated_media",
                 "im_send_message",

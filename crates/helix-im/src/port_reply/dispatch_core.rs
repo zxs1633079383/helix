@@ -6,6 +6,103 @@ use helix_core::tick::PortOutcome;
 use helix_core::{Effect, EffectSink};
 
 impl ImModule {
+    pub(super) fn handle_canonical_stream_persist_reply(
+        &mut self,
+        event: crate::sync_session::EventEnvelope,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if !matches!(outcome, PortOutcome::Ok(_)) {
+            if let Some(channel) = self.state.channels.get_mut(&event.channel_id) {
+                channel.restore_message_v3_post(event, out);
+            }
+            return Ok(());
+        }
+
+        let terminal = matches!(
+            &event.kind,
+            crate::sync_session::EventKind::ChannelTerminalClosed
+        );
+        let committed = if terminal {
+            self.state
+                .channels
+                .get_mut(&event.channel_id)
+                .is_some_and(|channel| channel.commit_terminal_after_atomic(event.seq))
+        } else {
+            let next = self
+                .state
+                .channels
+                .get_mut(&event.channel_id)
+                .and_then(|channel| channel.commit_message_v3_post(event.seq));
+            let committed = self
+                .state
+                .channels
+                .get(&event.channel_id)
+                .is_some_and(|channel| channel.cursor.value() == event.seq);
+            if let Some(next) = next {
+                let corr = self.alloc_corr_internal();
+                crate::ws::handlers::channel_stream_event::queue_stream_commit(
+                    &mut self.state,
+                    corr,
+                    next,
+                    out,
+                );
+            }
+            committed
+        };
+        if !committed {
+            return Ok(());
+        }
+        if terminal {
+            out.push(crate::acl::to_effect_s1::emit_channel_closed(
+                event.channel_id,
+                0,
+            ));
+        } else if !event.redacted
+            && !matches!(&event.kind, crate::sync_session::EventKind::Other(_))
+        {
+            out.push(crate::channel::emit_for_kind(&event));
+        }
+        Ok(())
+    }
+
+    pub(super) fn queue_member_projection_readback(
+        &mut self,
+        channel_id: ChannelId,
+        expected: Box<crate::channel_update::MemberChannelUpdate>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let expected_revision = expected.projection_revision.ok_or_else(|| {
+            ImError::Parse("member projection readback missing expected revision".to_string())
+        })?;
+        let expected_effect_id = expected
+            .effect_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                ImError::Parse("member projection readback missing expected effectId".to_string())
+            })?
+            .to_string();
+        let corr = self.alloc_corr_internal();
+        self.state.corr_map.insert(
+            corr,
+            crate::state::CorrelationContext::MemberProjectionReadback {
+                channel_id,
+                expected_revision,
+                expected_effect_id,
+                expected_projection: expected,
+            },
+        );
+        out.push(Effect::Persist {
+            corr,
+            ops: vec![crate::channel_write::message_v3_member_read_op(
+                channel_id,
+                self.config.auth_user_id.as_str(),
+            )],
+        });
+        Ok(())
+    }
+
     pub(super) fn handle_channel_terminal_persist_reply(
         &mut self,
         corr: helix_core::Correlation,
@@ -14,6 +111,7 @@ impl ImModule {
         trigger: SyncTrigger,
         pending_domain_events: Vec<Vec<u8>>,
         pending_chain_event_ids: Vec<String>,
+        member_projection: Option<Box<crate::channel_update::MemberChannelUpdate>>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -26,6 +124,9 @@ impl ImModule {
                         .get_mut(&channel_id)
                         .is_some_and(|channel| channel.commit_terminal_after_atomic(terminal_seq));
                     if committed {
+                        if let Some(expected) = member_projection {
+                            self.queue_member_projection_readback(channel_id, expected, out)?;
+                        }
                         for event_id in pending_chain_event_ids {
                             self.state.pending_chain_event_ids.remove(&event_id);
                             self.state.seen_chain_event_ids.insert(event_id);
@@ -94,6 +195,10 @@ impl ImModule {
                     "terminal sync atomic write committed"
                 );
 
+                if let Some(expected) = member_projection {
+                    self.queue_member_projection_readback(channel_id, expected, out)?;
+                }
+
                 for bytes in pending_domain_events {
                     out.push(Effect::Emit {
                         event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
@@ -159,6 +264,7 @@ impl ImModule {
         pending_domain_events: Vec<Vec<u8>>,
         pending_chain_event_ids: Vec<String>,
         pending_send_reconciliations: Vec<PendingSendReconciliation>,
+        member_projection: Option<Box<crate::channel_update::MemberChannelUpdate>>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -212,6 +318,9 @@ impl ImModule {
                     .recovery_session
                     .is_collecting_for(self.config.auth_user_id.as_str());
                 if committed {
+                    if let Some(expected) = member_projection {
+                        self.queue_member_projection_readback(channel_id, expected, out)?;
+                    }
                     for reconciliation in pending_send_reconciliations {
                         self.reconcile_pending_send_after_sync(reconciliation, out);
                     }

@@ -56,6 +56,43 @@ impl WsMessageHandler for ChannelCloseHandler {
             .or_else(|| data.get("terminal_reason"))
             .and_then(serde_json::Value::as_str)
             == Some("left");
+        let terminal_seq = data
+            .get("eventSeq")
+            .or_else(|| data.get("event_seq"))
+            .and_then(serde_json::Value::as_u64)
+            .filter(|seq| *seq > 0 && *seq <= i64::MAX as u64);
+        let terminal_type = data
+            .get("eventType")
+            .or_else(|| data.get("event_type"))
+            .and_then(serde_json::Value::as_u64);
+        if !is_viewer_left && terminal_type == Some(7) {
+            if let Some(terminal_seq) = terminal_seq {
+                let event_id = data
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+                let event = crate::sync_session::EventEnvelope::new(
+                    channel_id,
+                    crate::state::Seq(terminal_seq),
+                    crate::sync_session::EventKind::ChannelTerminalClosed,
+                    crate::sync_session::PostFields::default(),
+                )
+                .with_event_identity(event_id, None, delete_at.max(0), String::new())
+                .with_viewer_user_id(ctx.auth_user_id);
+                let admitted = ctx
+                    .state
+                    .channels
+                    .entry(channel_id)
+                    .or_insert_with(|| crate::channel::Channel::new(channel_id, 0))
+                    .admit_message_v3_post(event, out)?;
+                if let Some(event) = admitted {
+                    let corr = ctx.alloc_corr();
+                    super::channel_stream_event::queue_stream_commit(ctx.state, corr, event, out);
+                }
+                return Ok(());
+            }
+        }
         let (transition, cols) = if is_viewer_left {
             (
                 crate::state::ChannelLifecycleTransition::Left,

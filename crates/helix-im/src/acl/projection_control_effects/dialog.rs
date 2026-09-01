@@ -181,6 +181,9 @@ pub fn member_channel_update_data(
     if let (Some(revision), Some(object)) = (projection.projection_revision, data.as_object_mut()) {
         object.insert("projectionRevision".to_string(), revision.into());
     }
+    if let (Some(effect_id), Some(object)) = (projection.effect_id.as_ref(), data.as_object_mut()) {
+        object.insert("effectId".to_string(), effect_id.clone().into());
+    }
     data
 }
 

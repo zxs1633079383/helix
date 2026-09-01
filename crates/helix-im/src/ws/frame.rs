@@ -95,10 +95,21 @@ impl WsFrame {
         (!value.is_empty() && value.len() <= 64).then_some(value)
     }
 
+    /// 只解析明确命名的领域流序号；根 `seq` 属于连接投递序号，禁止进入业务游标。
     pub(crate) fn event_seq(&self) -> Option<Seq> {
         self.data()
-            .and_then(|data| data.get("event_seq"))
+            .and_then(|data| data.get("stream_seq"))
             .and_then(serde_json::Value::as_u64)
+            .or_else(|| {
+                self.data()
+                    .and_then(|data| data.get("streamSeq"))
+                    .and_then(serde_json::Value::as_u64)
+            })
+            .or_else(|| {
+                self.data()
+                    .and_then(|data| data.get("event_seq"))
+                    .and_then(serde_json::Value::as_u64)
+            })
             .or_else(|| {
                 self.data()
                     .and_then(|data| data.get("eventSeq"))
@@ -116,20 +127,8 @@ impl WsFrame {
                     .and_then(serde_json::Value::as_u64)
             })
             .or_else(|| {
-                self.data()
-                    .and_then(|data| data.get("seq"))
-                    .and_then(serde_json::Value::as_u64)
-            })
-            .or_else(|| self.root.get("seq").and_then(serde_json::Value::as_u64))
-            .or_else(|| {
                 self.root
                     .get("eventSeq")
-                    .and_then(serde_json::Value::as_u64)
-            })
-            .or_else(|| {
-                self.root
-                    .get("event")
-                    .and_then(|event| event.get("seq"))
                     .and_then(serde_json::Value::as_u64)
             })
             .or_else(|| {
@@ -139,6 +138,11 @@ impl WsFrame {
                     .and_then(serde_json::Value::as_u64)
             })
             .map(Seq)
+    }
+
+    /// 返回单连接投递序号，仅供 transport 观测；业务 reducer 不读取该值。
+    pub(crate) fn delivery_seq(&self) -> Option<u64> {
+        self.root.get("seq").and_then(serde_json::Value::as_u64)
     }
 
     pub(crate) fn event_seq_required(&self) -> Result<Seq, ImError> {
@@ -161,12 +165,24 @@ mod tests {
         assert_eq!(frame.event_seq(), Some(Seq(17)));
     }
 
-    /// WebSocketEventJSON 的 envelope sequence 位于根 seq 时仍必须进入 channel gate。
+    /// 根 `seq` 只能作为连接投递序号，不能伪装成频道持久流序号。
     #[test]
-    fn reads_root_sequence_from_canonical_event_envelope() {
+    fn keeps_root_delivery_sequence_out_of_domain_cursor() {
         let frame =
-            WsFrame::parse(br#"{"action":"im:post_chain:upsert","seq":23}"#).expect("chain frame");
+            WsFrame::parse(br#"{"action":"im:post_chain:upsert","seq":23,"event":{"seq":24}}"#)
+                .expect("chain frame");
 
+        assert_eq!(frame.delivery_seq(), Some(23));
+        assert_eq!(frame.event_seq(), None);
+    }
+
+    /// V2 明确的 `stream_seq` 继续进入频道 gate，且不受根投递序号影响。
+    #[test]
+    fn reads_explicit_stream_sequence_independently_of_delivery_sequence() {
+        let frame = WsFrame::parse(br#"{"action":"post","seq":99,"data":{"stream_seq":23}}"#)
+            .expect("post frame");
+
+        assert_eq!(frame.delivery_seq(), Some(99));
         assert_eq!(frame.event_seq(), Some(Seq(23)));
     }
 }

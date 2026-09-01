@@ -109,7 +109,7 @@ pub(crate) fn merge_dialog_rows_for_viewer(
     }
 
     let member_rows = parse_dialog_rows(member_reply_bytes)?;
-    let mut member_tops = HashMap::with_capacity(member_rows.len());
+    let mut members_by_channel = HashMap::with_capacity(member_rows.len());
     for row in &member_rows {
         let user_id = dialog_row_text(row, "user_id", "userId", "member user_id")?;
         if user_id != auth_user_id {
@@ -118,8 +118,11 @@ pub(crate) fn merge_dialog_rows_for_viewer(
             )));
         }
         let channel_id = dialog_row_channel_id(row, "member")?;
-        let top = dialog_row_bool(row, "channel_is_top", "channelIsTop")?;
-        if member_tops.insert(channel_id.to_string(), top).is_some() {
+        dialog_row_bool(row, "channel_is_top", "channelIsTop")?;
+        if members_by_channel
+            .insert(channel_id.to_string(), row)
+            .is_some()
+        {
             return Err(ImError::Parse(format!(
                 "dialog member readback duplicate channel_id: {channel_id}"
             )));
@@ -129,15 +132,28 @@ pub(crate) fn merge_dialog_rows_for_viewer(
     let mut merged = Vec::with_capacity(channel_rows.len());
     for row in channel_rows {
         let channel_id = dialog_row_channel_id(row, "channel")?;
-        let top = member_tops.get(channel_id).copied().ok_or_else(|| {
+        let member = members_by_channel.get(channel_id).copied().ok_or_else(|| {
             ImError::Parse(format!(
                 "dialog member readback missing channel_id: {channel_id}"
             ))
         })?;
+        let top = dialog_row_bool(member, "channel_is_top", "channelIsTop")?;
         let mut row = row.clone();
-        row.as_object_mut()
-            .ok_or_else(|| ImError::Parse("dialog channel row must be object".into()))?
-            .insert("channelIsTop".into(), Value::Bool(top));
+        let object = row
+            .as_object_mut()
+            .ok_or_else(|| ImError::Parse("dialog channel row must be object".into()))?;
+        let member_object = member
+            .as_object()
+            .ok_or_else(|| ImError::Parse("dialog member row must be object".into()))?;
+        for (key, value) in member_object {
+            if !matches!(
+                key.as_str(),
+                "id" | "channel_id" | "channelId" | "user_id" | "userId"
+            ) {
+                object.insert(key.clone(), value.clone());
+            }
+        }
+        object.insert("channelIsTop".into(), Value::Bool(top));
         merged.push(row);
     }
     Ok(merged)
@@ -239,4 +255,33 @@ pub fn post_for_viewer(
         return post(data);
     }
     post_readers(data)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn dialog_merge_uses_member_unread_after_restart() {
+        let channel_id = crate::state::test_channel_id(1);
+        let channels = vec![serde_json::json!({
+            "id": channel_id.as_str(),
+            "unread_count": 7
+        })];
+        let members = serde_json::json!([{
+            "channel_id": channel_id.as_str(),
+            "user_id": "viewer",
+            "channel_is_top": 0,
+            "unread_count": 9,
+            "projection_revision": 4
+        }]);
+
+        let merged = super::merge_dialog_rows_for_viewer(
+            &channels,
+            members.to_string().as_bytes(),
+            "viewer",
+        )
+        .unwrap();
+
+        assert_eq!(merged[0]["unread_count"], 9);
+        assert_eq!(merged[0]["projection_revision"], 4);
+    }
 }

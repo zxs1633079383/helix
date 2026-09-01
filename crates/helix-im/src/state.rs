@@ -543,6 +543,9 @@ impl ImState {
                     | CorrelationContext::HydrationCursorReadback { .. }
                     | CorrelationContext::OutboundIncrementHydration { .. }
                     | CorrelationContext::UpdateChannelDialogPersist { .. }
+                    | CorrelationContext::MemberProjectionPersist { .. }
+                    | CorrelationContext::MemberProjectionReadback { .. }
+                    | CorrelationContext::CanonicalStreamPersist { .. }
                     | CorrelationContext::NotifyChannelPersist { .. }
                     | CorrelationContext::DialogListQuery { .. }
                     | CorrelationContext::SubtopicsQuery { .. }

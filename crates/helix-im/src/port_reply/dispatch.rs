@@ -267,6 +267,9 @@ impl ImModule {
             } => {
                 self.handle_message_v3_post_persist_reply(*event, *received_data, outcome, out)?;
             }
+            CorrelationContext::CanonicalStreamPersist { event } => {
+                self.handle_canonical_stream_persist_reply(*event, outcome, out)?;
+            }
             CorrelationContext::MessageV3PostReadback {
                 received_data,
                 channel_id,
@@ -359,6 +362,7 @@ impl ImModule {
                 pending_domain_events,
                 pending_chain_event_ids,
                 pending_send_reconciliations,
+                member_projection,
             } => self.handle_channel_persist_reply(
                 corr,
                 channel_id,
@@ -368,6 +372,7 @@ impl ImModule {
                 pending_domain_events,
                 pending_chain_event_ids,
                 pending_send_reconciliations,
+                member_projection,
                 outcome,
                 out,
             )?,
@@ -378,6 +383,7 @@ impl ImModule {
                 trigger,
                 pending_domain_events,
                 pending_chain_event_ids,
+                member_projection,
             } => self.handle_channel_terminal_persist_reply(
                 corr,
                 channel_id,
@@ -385,6 +391,7 @@ impl ImModule {
                 trigger,
                 pending_domain_events,
                 pending_chain_event_ids,
+                member_projection,
                 outcome,
                 out,
             )?,
@@ -557,6 +564,63 @@ impl ImModule {
                         "update_channel persistence failed; suppress MessageV3 updates"
                     );
                 }
+            },
+
+            CorrelationContext::MemberProjectionPersist {
+                channel_id,
+                expected_revision,
+                expected_effect_id,
+                expected_projection,
+            } => match outcome {
+                PortOutcome::Ok(_) => {
+                    debug_assert_eq!(
+                        expected_projection.projection_revision,
+                        Some(expected_revision)
+                    );
+                    debug_assert_eq!(
+                        expected_projection.effect_id.as_deref(),
+                        Some(expected_effect_id.as_str())
+                    );
+                    self.queue_member_projection_readback(channel_id, expected_projection, out)?;
+                }
+                PortOutcome::Err(error) => tracing::warn!(
+                    channel_id = channel_id.as_str(),
+                    corr = corr.raw(),
+                    error = ?error,
+                    "member projection persistence failed"
+                ),
+            },
+
+            CorrelationContext::MemberProjectionReadback {
+                channel_id,
+                expected_revision,
+                expected_effect_id,
+                expected_projection,
+            } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    debug_assert_eq!(
+                        expected_projection.projection_revision,
+                        Some(expected_revision)
+                    );
+                    debug_assert_eq!(
+                        expected_projection.effect_id.as_deref(),
+                        Some(expected_effect_id.as_str())
+                    );
+                    crate::ws::handlers::member_projection::emit_committed_projection(
+                        reply.0.as_ref(),
+                        channel_id,
+                        &expected_projection,
+                        self.config.auth_user_id.as_str(),
+                        now_ms,
+                        out,
+                    )?;
+                }
+                PortOutcome::Err(error) => tracing::warn!(
+                    channel_id = channel_id.as_str(),
+                    corr = corr.raw(),
+                    error = ?error,
+                    "member projection readback failed"
+                ),
             },
 
             CorrelationContext::NotifyChannelPersist { channel_id } => match outcome {
@@ -1662,6 +1726,228 @@ mod phase2_contract_tests {
     use helix_core::EffectSink;
 
     const CHANNEL_ID: &str = "chfixx0000000000000000002b";
+
+    fn member_projection(unread_count: i64) -> crate::channel_update::MemberChannelUpdate {
+        let channel_id = crate::state::ChannelId::from_str(CHANNEL_ID).unwrap();
+        crate::channel_update::member_channel_from_update_channel(
+            &serde_json::json!({
+                "channelId": CHANNEL_ID,
+                "userId": "viewer-29",
+                "projectionRevision": 3,
+                "effectId": "effect-3",
+                "unreadCount": unread_count,
+                "lastReadSeq": 7
+            }),
+            channel_id,
+            "viewer-29",
+            1,
+        )
+        .unwrap()
+        .1
+    }
+
+    fn member_projection_reply(unread_count: i64) -> PortOutcome {
+        PortOutcome::Ok(ReplyBytes(Bytes::from(
+            serde_json::json!([{
+                "channel_id": CHANNEL_ID,
+                "user_id": "viewer-29",
+                "projection_revision": 3,
+                "effect_id": "effect-3",
+                "unread_count": unread_count,
+                "last_read_seq": 7
+            }])
+            .to_string(),
+        )))
+    }
+
+    #[test]
+    fn member_projection_write_ack_schedules_readback_before_emit() {
+        let mut config = crate::module::ImConfig::default();
+        config.auth_user_id = "viewer-29".to_string();
+        let mut module = ImModule::new(config);
+        let channel_id = crate::state::ChannelId::from_str(CHANNEL_ID).unwrap();
+        let corr = module.alloc_corr();
+        module.state.corr_map.insert(
+            corr,
+            CorrelationContext::MemberProjectionPersist {
+                channel_id,
+                expected_revision: 3,
+                expected_effect_id: "effect-3".to_string(),
+                expected_projection: Box::new(member_projection(1)),
+            },
+        );
+        let mut out = EffectSink::new();
+
+        module
+            .handle_port_reply(corr, &PortOutcome::Ok(ReplyBytes::default()), 1, &mut out)
+            .unwrap();
+
+        let [Effect::Persist {
+            corr: read_corr, ..
+        }] = out.as_slice()
+        else {
+            panic!("write ack must schedule exactly one readback");
+        };
+        assert!(matches!(
+            module.state.corr_map.get(read_corr),
+            Some(CorrelationContext::MemberProjectionReadback { .. })
+        ));
+    }
+
+    #[test]
+    fn member_projection_emits_only_matching_durable_snapshot() {
+        let mut config = crate::module::ImConfig::default();
+        config.auth_user_id = "viewer-29".to_string();
+        let mut module = ImModule::new(config);
+        let channel_id = crate::state::ChannelId::from_str(CHANNEL_ID).unwrap();
+        let corr = module.alloc_corr();
+        module.state.corr_map.insert(
+            corr,
+            CorrelationContext::MemberProjectionReadback {
+                channel_id,
+                expected_revision: 3,
+                expected_effect_id: "effect-3".to_string(),
+                expected_projection: Box::new(member_projection(1)),
+            },
+        );
+        let mut out = EffectSink::new();
+
+        module
+            .handle_port_reply(corr, &member_projection_reply(1), 1, &mut out)
+            .unwrap();
+
+        assert_eq!(
+            out.as_slice()
+                .iter()
+                .filter(|effect| matches!(effect, Effect::Emit { .. }))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn member_projection_suppresses_same_revision_payload_conflict() {
+        let mut config = crate::module::ImConfig::default();
+        config.auth_user_id = "viewer-29".to_string();
+        let mut module = ImModule::new(config);
+        let channel_id = crate::state::ChannelId::from_str(CHANNEL_ID).unwrap();
+        let corr = module.alloc_corr();
+        module.state.corr_map.insert(
+            corr,
+            CorrelationContext::MemberProjectionReadback {
+                channel_id,
+                expected_revision: 3,
+                expected_effect_id: "effect-3".to_string(),
+                expected_projection: Box::new(member_projection(2)),
+            },
+        );
+        let mut out = EffectSink::new();
+
+        module
+            .handle_port_reply(corr, &member_projection_reply(1), 1, &mut out)
+            .unwrap();
+
+        assert!(out.as_slice().is_empty());
+    }
+
+    fn canonical_stream_event(event_type: u8) -> crate::sync_session::EventEnvelope {
+        crate::ws::handlers::channel_stream_event::parse_stream_event(
+            &serde_json::json!({
+                "channelId": CHANNEL_ID,
+                "streamSeq": 1,
+                "eventId": "event-1",
+                "effectId": "effect-1",
+                "eventType": event_type,
+                "actorId": "author-1",
+                "msgId": "message-1",
+                "redacted": false,
+                "payload": {"id": "message-1", "channelId": CHANNEL_ID, "message": "hello"}
+            }),
+            "viewer-29",
+        )
+        .unwrap()
+        .unwrap()
+    }
+
+    #[test]
+    fn canonical_stream_ack_controls_cursor_emit_and_retry() {
+        let channel_id = crate::state::ChannelId::from_str(CHANNEL_ID).unwrap();
+        let mut success = ImModule::new(crate::module::ImConfig::default());
+        success.register_channel(channel_id, 0);
+        let corr = success.alloc_corr();
+        success.state.corr_map.insert(
+            corr,
+            CorrelationContext::CanonicalStreamPersist {
+                event: Box::new(canonical_stream_event(1)),
+            },
+        );
+        let mut out = EffectSink::new();
+        success
+            .handle_port_reply(corr, &PortOutcome::Ok(ReplyBytes::default()), 1, &mut out)
+            .unwrap();
+        assert_eq!(success.cursor_for(channel_id), Some(1));
+        assert_eq!(
+            out.as_slice()
+                .iter()
+                .filter(|effect| matches!(effect, Effect::Emit { .. }))
+                .count(),
+            1
+        );
+
+        let mut failed = ImModule::new(crate::module::ImConfig::default());
+        failed.register_channel(channel_id, 0);
+        let corr = failed.alloc_corr();
+        failed.state.corr_map.insert(
+            corr,
+            CorrelationContext::CanonicalStreamPersist {
+                event: Box::new(canonical_stream_event(1)),
+            },
+        );
+        let mut out = EffectSink::new();
+        failed
+            .handle_port_reply(
+                corr,
+                &PortOutcome::Err(helix_core::tick::PortError::Storage(1)),
+                1,
+                &mut out,
+            )
+            .unwrap();
+        assert_eq!(failed.cursor_for(channel_id), Some(0));
+        assert!(failed.state.channels[&channel_id]
+            .buffer
+            .contains_key(&crate::state::Seq(1)));
+        assert!(!out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Emit { .. })));
+    }
+
+    #[test]
+    fn canonical_terminal_ack_commits_tombstone_and_emits_closed() {
+        let channel_id = crate::state::ChannelId::from_str(CHANNEL_ID).unwrap();
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        module.register_channel(channel_id, 0);
+        let corr = module.alloc_corr();
+        module.state.corr_map.insert(
+            corr,
+            CorrelationContext::CanonicalStreamPersist {
+                event: Box::new(canonical_stream_event(7)),
+            },
+        );
+        let mut out = EffectSink::new();
+
+        module
+            .handle_port_reply(corr, &PortOutcome::Ok(ReplyBytes::default()), 1, &mut out)
+            .unwrap();
+
+        assert_eq!(module.cursor_for(channel_id), Some(1));
+        assert!(module.state.channels[&channel_id].is_terminal());
+        assert!(out.as_slice().iter().any(|effect| matches!(
+            effect,
+            Effect::Emit { event }
+                if String::from_utf8_lossy(event.0.as_ref()).contains("im:channel:closed")
+        )));
+    }
 
     /// Persist read-back 只在匹配 correlation 下释放一次成功事件。
     #[test]

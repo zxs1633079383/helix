@@ -190,6 +190,14 @@ pub enum CorrelationContext {
         pending_chain_event_ids: Vec<String>,
         /// sync 事务成功后才能结算的本端 temporaryId → 服务端 id 对账事实。
         pending_send_reconciliations: Vec<PendingSendReconciliation>,
+        /// 与本批 stream/cursor 同事务提交的绝对成员投影。
+        member_projection: Option<Box<crate::channel_update::MemberChannelUpdate>>,
+    },
+
+    /// Canonical WS stream event write barrier. The event is released only after its
+    /// message/cursor (or terminal tombstone/cursor) transaction commits.
+    CanonicalStreamPersist {
+        event: Box<crate::sync_session::EventEnvelope>,
     },
 
     /// type7 closed tombstone 的 `PersistAtomic` 回执。成功前不改变内存 cursor/terminal 状态，
@@ -202,6 +210,8 @@ pub enum CorrelationContext {
         pending_domain_events: Vec<Vec<u8>>,
         /// 已预留的 chain eventId；PersistOk 后转入 durable seen 集合。
         pending_chain_event_ids: Vec<String>,
+        /// 与 terminal prefix/tombstone/cursor 同事务提交的绝对成员投影。
+        member_projection: Option<Box<crate::channel_update::MemberChannelUpdate>>,
     },
 
     /// hello increment 全批 channel/member/cursor 事务回报。
@@ -249,6 +259,23 @@ pub enum CorrelationContext {
         channel: Box<serde_json::Value>,
         member_channel: Option<Box<serde_json::Value>>,
         causation_id: Option<String>,
+    },
+
+    /// Canonical viewer-local absolute projection. The final readback must match
+    /// this revision/effect pair before any UI event is emitted.
+    MemberProjectionPersist {
+        channel_id: ChannelId,
+        expected_revision: u64,
+        expected_effect_id: String,
+        expected_projection: Box<crate::channel_update::MemberChannelUpdate>,
+    },
+
+    /// 原子写成功后的独立 readback；PersistAtomic 自身只允许写操作。
+    MemberProjectionReadback {
+        channel_id: ChannelId,
+        expected_revision: u64,
+        expected_effect_id: String,
+        expected_projection: Box<crate::channel_update::MemberChannelUpdate>,
     },
 
     /// notify-only `update_channel` writes the viewer projection and member mirror, then

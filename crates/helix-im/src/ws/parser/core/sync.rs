@@ -54,7 +54,12 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
     let entries = match entries {
         Some(e) => e,
         // 无 entries：服务端无本 channel 数据 → 空转，不报错。
-        None => return Ok(SyncResponse::NoChange),
+        None => {
+            return Ok(SyncResponse::NoChange {
+                next_seq: Seq(0),
+                persona: Default::default(),
+            })
+        }
     };
 
     // 取命中本 channel 的 entry（helix 逐 channel 发，至多一条）；无 → NoChange。
@@ -69,7 +74,12 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
     });
     let entry = match entry {
         Some(e) => e,
-        None => return Ok(SyncResponse::NoChange),
+        None => {
+            return Ok(SyncResponse::NoChange {
+                next_seq: Seq(0),
+                persona: Default::default(),
+            })
+        }
     };
 
     let kind = entry["kind"]
@@ -77,12 +87,38 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
         .ok_or_else(|| ImError::Parse("sync entry missing 'kind'".to_string()))?;
 
     match kind {
-        "no_change" => Ok(SyncResponse::NoChange),
+        "no_change" => Ok(SyncResponse::NoChange {
+            next_seq: Seq(entry["nextSeq"]
+                .as_u64()
+                .or_else(|| entry["next_seq"].as_u64())
+                .unwrap_or(0)),
+            persona: parse_sync_persona(entry)?,
+        }),
 
         "events" => {
-            let mut events = parse_channel_events(entry, channel_id)?;
+            let canonical = entry
+                .get("streamEvents")
+                .or_else(|| entry.get("stream_events"));
+            let mut events = if canonical.is_some() {
+                parse_stream_events(entry, channel_id)?
+            } else {
+                parse_channel_events(entry, channel_id)?
+            };
             // C2：消息内容快照（key=msgId）。phantom = event.msg_id ∉ messages（真源 post.rs:1069）。
             let messages = parse_messages_map(entry);
+            if canonical.is_some()
+                && events.iter().any(|event| {
+                    !event.redacted
+                        && event
+                            .msg_id
+                            .as_deref()
+                            .is_some_and(|msg_id| !messages.contains_key(msg_id))
+                })
+            {
+                return Err(ImError::Parse(
+                    "canonical stream event body missing from messages".to_string(),
+                ));
+            }
             // 真 wire 无续拉标志：满批（命中上限）即认为还有更多 → 续拉；不足 → 已追平。
             let needs_continuation = events.len() >= SYNC_EVENTS_PER_ENTRY;
             // cursor 锚服务端权威 nextSeq（Go `next = events[末].EventSeq`）；缺省/异常
@@ -100,6 +136,7 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
                 messages,
                 next_seq,
                 needs_continuation,
+                persona: parse_sync_persona(entry)?,
             })
         }
 
@@ -143,9 +180,82 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
     }
 }
 
+fn parse_sync_persona(
+    entry: &serde_json::Value,
+) -> Result<crate::sync_session::SyncPersona, ImError> {
+    let seq = |camel: &str, snake: &str| {
+        entry
+            .get(camel)
+            .or_else(|| entry.get(snake))
+            .and_then(serde_json::Value::as_u64)
+            .map(Seq)
+    };
+    let persona = crate::sync_session::SyncPersona {
+        membership_state: entry
+            .get("membershipState")
+            .or_else(|| entry.get("membership_state"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        epoch_start_seq: seq("epochStartSeq", "epoch_start_seq"),
+        epoch_end_seq: seq("epochEndSeq", "epoch_end_seq"),
+        member_projection: entry
+            .get("memberProjection")
+            .or_else(|| entry.get("member_projection"))
+            .filter(|value| !value.is_null())
+            .cloned(),
+    };
+    match persona.membership_state.as_str() {
+        "" => {}
+        "active"
+            if persona.epoch_start_seq.is_some()
+                && persona.epoch_end_seq.is_none()
+                && persona.member_projection.is_some() => {}
+        "ended"
+            if persona.epoch_start_seq.is_some()
+                && persona.epoch_end_seq.is_some()
+                && persona.member_projection.is_some() => {}
+        "never" | "invalid"
+            if persona.epoch_start_seq.is_none()
+                && persona.epoch_end_seq.is_none()
+                && persona.member_projection.is_none() => {}
+        _ => {
+            return Err(ImError::Parse(
+                "invalid sync membership persona".to_string(),
+            ))
+        }
+    }
+    Ok(persona)
+}
+
+fn parse_stream_events(
+    entry: &serde_json::Value,
+    fallback_channel: ChannelId,
+) -> Result<Vec<EventEnvelope>, ImError> {
+    let raw_events = entry
+        .get("streamEvents")
+        .or_else(|| entry.get("stream_events"))
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| ImError::Parse("streamEvents must be an array".to_string()))?;
+    let mut events = Vec::with_capacity(raw_events.len());
+    for raw in raw_events {
+        let Some(event) = crate::ws::handlers::channel_stream_event::parse_stream_event(raw, "")?
+        else {
+            return Err(ImError::Parse("invalid canonical stream event".to_string()));
+        };
+        if event.channel_id != fallback_channel {
+            return Err(ImError::Parse(
+                "canonical stream event channel mismatch".to_string(),
+            ));
+        }
+        events.push(event);
+    }
+    Ok(events)
+}
+
 /// 解析 `SyncEntry.events`（`[ChannelEvent]`）为 `Vec<EventEnvelope>`（边界零信任）。
 ///
-/// ChannelEvent 游标字段 `eventSeq`（int64，权威），兼容 `event_seq` / `seq` 旧字面量；
+/// ChannelEvent 游标字段 `eventSeq`（int64，权威），兼容 `event_seq` 旧字面量；
 /// 类型字段 `eventType`（1/2/3/6），兼容 `event_type`（缺省 1）。type7 不走兼容分支，
 /// 必须满足最小 closed wire；
 /// `channelId` 缺省回退到 entry 的 channel_id。`events` 缺失 → 空列表（no_change 形态）。
@@ -168,11 +278,11 @@ fn parse_channel_events(
             .and_then(|c| c.as_str())
             .and_then(ChannelId::from_str)
             .unwrap_or(fallback_channel);
-        // eventSeq 是真 Go int64 游标；兼容 event_seq / seq 既有测试帧。
+        // eventSeq 是真 Go int64 游标；兼容 event_seq 既有测试帧。generic seq 是
+        // WebSocket deliverySeq，不得进入持久频道游标。
         let seq = ev["eventSeq"]
             .as_u64()
             .or_else(|| ev["event_seq"].as_u64())
-            .or_else(|| ev["seq"].as_u64())
             .ok_or_else(|| ImError::Parse("channel event missing eventSeq".to_string()))?;
         let event_type = ev["eventType"]
             .as_u64()
@@ -313,4 +423,92 @@ pub fn sort_events_by_bucket(events: &mut Vec<EventEnvelope>) {
         EventKind::ChannelTerminalClosed => 4,
         EventKind::Other(_) => 5,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_event_rejects_delivery_seq_as_stream_seq() {
+        let channel_id = crate::state::test_channel_id(42);
+        let body = serde_json::json!({
+            "data": {"entries": [{
+                "channelId": channel_id.as_str(),
+                "kind": "events",
+                "events": [{"channelId": channel_id.as_str(), "seq": 9001, "eventType": 1}]
+            }]}
+        });
+
+        assert!(parse_sync_response(body.to_string().as_bytes(), channel_id).is_err());
+    }
+
+    #[test]
+    fn canonical_sync_uses_stream_events_and_absolute_projection() {
+        let channel_id = crate::state::test_channel_id(43);
+        let body = serde_json::json!({
+            "data": {"entries": [{
+                "channelId": channel_id.as_str(),
+                "kind": "events",
+                "events": [{"eventSeq": 77, "eventType": 1}],
+                "streamEvents": [{
+                    "channelId": channel_id.as_str(),
+                    "streamSeq": 1,
+                    "eventType": 1,
+                    "eventId": "event-1",
+                    "effectId": "effect-1",
+                    "msgId": "message-1",
+                    "redacted": false
+                }],
+                "messages": {"message-1": {"id": "message-1", "channelId": channel_id.as_str(), "message": "hello"}},
+                "memberProjection": {"channelId": channel_id.as_str(), "userId": "viewer", "projectionRevision": 2, "effectId": "effect-1", "unreadCount": 1},
+                "membershipState": "active",
+                "epochStartSeq": 1,
+                "nextSeq": 1
+            }]}
+        });
+
+        let SyncResponse::Events {
+            events, persona, ..
+        } = parse_sync_response(body.to_string().as_bytes(), channel_id).unwrap()
+        else {
+            panic!("expected events");
+        };
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].seq.0, 1);
+        assert_eq!(events[0].effect_id, "effect-1");
+        assert_eq!(persona.membership_state, "active");
+        assert_eq!(persona.epoch_start_seq, Some(Seq(1)));
+        assert!(persona.member_projection.is_some());
+    }
+
+    #[test]
+    fn canonical_full_event_without_body_fails_closed_but_redacted_marker_does_not() {
+        let channel_id = crate::state::test_channel_id(44);
+        let entry = |redacted| {
+            serde_json::json!({
+                "data": {"entries": [{
+                    "channelId": channel_id.as_str(),
+                    "kind": "events",
+                    "streamEvents": [{
+                        "channelId": channel_id.as_str(),
+                        "streamSeq": 1,
+                        "eventType": 1,
+                        "msgId": "message-1",
+                        "redacted": redacted
+                    }],
+                    "nextSeq": 1
+                }]}
+            })
+        };
+
+        assert!(parse_sync_response(entry(false).to_string().as_bytes(), channel_id).is_err());
+        let SyncResponse::Events { events, .. } =
+            parse_sync_response(entry(true).to_string().as_bytes(), channel_id).unwrap()
+        else {
+            panic!("expected redacted events");
+        };
+        assert!(events[0].redacted);
+        assert!(events[0].msg_id.is_none());
+    }
 }

@@ -113,17 +113,14 @@ fn http6_legacy_envelope_is_silently_swallowed() {
     let response = parse_sync_response(envelope.as_ref(), channel_id(1))
         .expect("信封是合法 JSON，parser 不报错，只是找不到 entries");
     assert!(
-        matches!(response, SyncResponse::NoChange),
+        matches!(response, SyncResponse::NoChange { .. }),
         "信封未解层直喂 parser 必须静默 NoChange（0 persist / 0 emit 的 #6 bug 现场），got: {response:?}"
     );
 }
 
-/// 回归锚：Routine Sync 的可见 type1 必须在统一原子写集中更新 viewer `channel_member`，
-/// 不能恢复共享 `channel.unread_count` 的旧 reducer。
-/// viewer-444 不在消息 viewers 且不是 sender，因此本地可见性必须显式由 fixture 授予；本测试
-/// 只对已进入 recovery authority 批的可见 type1 检查 unread bump。
+/// Sync stream 只恢复消息事实和 cursor；未读不得从消息数量推断。
 #[test]
-fn http6_offline_sync_visible_type1_bumps_viewer_member() {
+fn http6_offline_sync_does_not_infer_unread_from_visible_posts() {
     use helix_core::effect::{Effect, StorageOp};
 
     let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
@@ -137,7 +134,7 @@ fn http6_offline_sync_visible_type1_bumps_viewer_member() {
     // dev-zlc driver 把裸 body 包成 ADR-007 信封回灌；enveloped() 复刻该字节。
     h.step(port_reply_with_body(sync_corr, enveloped(raw)), 3000);
 
-    // 离线可见 type1 → viewer-scoped channel_member unread +N，与 cursor 同一原子屏障提交。
+    // legacy fixture 没有 memberProjection，因此本批只落消息和 cursor。
     let total_bump: i64 = h
         .sink
         .as_slice()
@@ -162,8 +159,85 @@ fn http6_offline_sync_visible_type1_bumps_viewer_member() {
         })
         .sum();
 
-    assert!(
-        total_bump >= 1,
-        "离线 sync 可见 type1 必须更新 viewer channel_member，got total_bump={total_bump}"
+    assert_eq!(total_bump, 0, "未读只能由 memberProjection 绝对覆盖");
+}
+
+#[test]
+fn canonical_stream_projection_and_cursor_share_one_atomic_write() {
+    use helix_core::effect::{Effect, StorageOp};
+
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    let sync_corr = drive_sync_pull(&mut h);
+    let raw = bytes::Bytes::from(
+        serde_json::json!({
+            "status": "SUCCESS",
+            "data": {"entries": [{
+                "channelId": channel_id(1).as_str(),
+                "kind": "events",
+                "streamEvents": [{
+                    "channelId": channel_id(1).as_str(),
+                    "streamSeq": 1,
+                    "eventId": "event-1",
+                    "eventType": 1,
+                    "effectId": "effect-1",
+                    "actorId": "author-1",
+                    "msgId": "msg-1",
+                    "redacted": false
+                }],
+                "messages": {"msg-1": {
+                    "id": "msg-1",
+                    "channelId": channel_id(1).as_str(),
+                    "userId": "author-1",
+                    "message": "hello",
+                    "createAt": 1
+                }},
+                "memberProjection": {
+                    "channelId": channel_id(1).as_str(),
+                    "userId": "viewer-444",
+                    "projectionRevision": 2,
+                    "effectId": "effect-1",
+                    "unreadCount": 1,
+                    "lastReadSeq": 0
+                },
+                "membershipState": "active",
+                "epochStartSeq": 1,
+                "nextSeq": 1
+            }]}
+        })
+        .to_string(),
     );
+    let effects = h.step(port_reply_with_body(sync_corr, enveloped(raw)), 3_000);
+    let persist_corr = effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::PersistAtomic(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("canonical sync must persist atomically");
+    let ops = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, ops } if corr.raw() == persist_corr => Some(ops),
+            _ => None,
+        })
+        .expect("matching PersistAtomic ops");
+
+    assert!(ops
+        .iter()
+        .any(|op| matches!(op, StorageOp::ScopedGuardedBump(spec)
+        if spec.table == "channel_member" && spec.guard_col == "projection_revision")));
+    assert!(ops
+        .iter()
+        .any(|op| matches!(op, StorageOp::MonotonicUpsert(spec)
+        if spec.table == "channel_event_cursor" && spec.value_col == "last_event_seq")));
+    assert!(!ops
+        .iter()
+        .any(|op| matches!(op, StorageOp::GuardedBump(spec)
+        if spec.bump_col == "unread_count")));
+    assert!(!ops.iter().any(|op| matches!(
+        op,
+        StorageOp::Get(_) | StorageOp::ScopedGet(_) | StorageOp::Scan(_)
+    )));
 }

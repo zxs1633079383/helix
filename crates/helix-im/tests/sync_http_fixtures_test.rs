@@ -59,7 +59,7 @@ fn no_change_fixture_parses_to_no_change() {
     let body = fixture_body(SYNC_NO_CHANGE);
     let resp = parse_sync_response(&body, fixture_channel()).expect("no_change 应可解析");
     assert!(
-        matches!(resp, SyncResponse::NoChange),
+        matches!(resp, SyncResponse::NoChange { .. }),
         "kind=no_change 应解析为 SyncResponse::NoChange，实得 {resp:?}"
     );
 }

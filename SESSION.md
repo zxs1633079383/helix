@@ -10,6 +10,10 @@
 
 ✅ DONE 发布前测试债务已收敛：旧 `ImConfig` 构造补齐 `client_platform`，全量运行暴露的旧事件名、查询投影、权威 WS echo 与原子持久化断言已对齐当前合同；`cargo test -p helix-im -- --nocapture` 全绿（含 100k 顺序事件、5k WS gap flush、5k sync backfill），`cargo fmt --all -- --check` 通过。Native 本地 lib/integration/stress/sync targets 全绿；workspace 仅剩 `message_v3_domain` 73 个真实链 Gate 因默认 8066 与当前 Go worktree 宿主 18066 未对齐而阻断，保持外部前置缺口，不冒充整体 Green | @2026-08-29T
 
+🎯 EXPECT 按已批准 ADR 统一 WS 与 HTTP sync 的 CanonicalEvent/reducer；可证伪断言：① WS 根 `seq` 只保留为 delivery metadata，任何业务 cursor 只接受持久 `channel_event.event_seq`；② 在线与 sync 对同一事件集经过同一 reducer 后，`channel_member` 的绝对 unread/projection revision、message 与 cursor 在实时、断线回补和重启后完全一致；③ 重复、乱序、缺口及 PersistErr 不会双算未读或提前推进 cursor/revision；④ 31 个注册 WS action 与 Go 生产 action 的映射/明确忽略合同均有回放断言；⑤ 只修改 helix-im 与严格必要的 host/schema/测试/文档，不改版本、不 push、不把 Mock 或单侧 Emit 冒充三端真实通过 | 赌注 高 | 可逆 是 | @2026-08-28T
+
+🚧 IN-PROGRESS WS 根 `seq` 已与 `streamSeq` 分离；`channel_stream_event` 与 HTTP `streamEvents` 共用 `EventEnvelope`/storage 语义，redacted marker 只推进 cursor，full 正文缺失 fail-close；`memberProjection` 与 message/cursor 同一 PersistAtomic，`channel_member` 持久化 revision/effect/membership epoch；canonical 在线、buffer flush、sync 与 terminal prefix 已禁止本地 unread delta。合入 Helix 0.1.2 基线后，`cargo fmt --all -- --check`、`cargo test -p helix-im`、五 crate check、core tests 与 Web/WASM 构建通过；真实 Go+WS+SQLite+重启/乱序链尚未执行，任务不得标 DONE | @2026-09-01T
+
 ✅ DONE Helix 0.1.1 已发布：`cses-helix-core`、`helix-im`、`helix-driver-host`、`helix-driver-native` 四包均经 crates.io 实时查询确认可解析；8 个 workspace manifest 与 Cargo.lock 已同步到同批依赖图。版本事务等待本次发布提交承载，不自动 push，既有 artifacts 保持未跟踪 | @2026-08-27T
 
 🎯 EXPECT 修复 crates.io 一键发布的 workspace 版本事务；可证伪断言：① 四个公共 crate 仍是唯一上传集合；② Web、FFI、host-cli 与 helix-perf 只同步内部精确依赖，自身 package.version 保持不变；③ `--plan` 能在上传前发现任何未登记的 workspace path 精确依赖；④ 首次上传前失败按字节恢复 8 个 manifest 与 Cargo.lock；⑤ 单测、候选版本图复现、`--plan` 和 `git diff --check` 通过，不执行真实 publish、不修改既有 artifacts | 赌注 高 | 可逆 是 | @2026-08-27T

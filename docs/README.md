@@ -153,6 +153,7 @@ PC / Mobile / Web shell
 | 真机 curl wire 真源 | [`真机curl真源.md`](../crates/helix-im/docs/csesapi-migration/真机curl真源.md) |
 | FFI 合同 | [`crates/helix-driver-ffi/docs/`](../crates/helix-driver-ffi/docs/) |
 | Runtime Metrics | [`Metrics/Prometheus指标说明.md`](./Metrics/Prometheus指标说明.md) |
+| MessageV3 观测环境迁移 | [`Metrics/MessageV3全链路观测环境迁移手册.md`](./Metrics/MessageV3全链路观测环境迁移手册.md) |
 | Harness | [`harness/README.md`](./harness/README.md) |
 | 提交规范 | [`COMMIT_CONVENTION.md`](./COMMIT_CONVENTION.md) |
 

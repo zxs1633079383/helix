@@ -1,5 +1,8 @@
 # Helix Runtime Prometheus 指标说明
 
+> 环境部署、Recording Rule 选型、迁移顺序与分层验收见
+> [`MessageV3 全链路观测环境迁移手册`](./MessageV3全链路观测环境迁移手册.md)。
+
 > **当前基线**：`reactor/MessageV3-helix`，核对日期：2026-08-24。
 >
 > 本文只描述当前代码中 `MetricAvailability::Runtime` 的指标。当前注册表共有 **176** 个

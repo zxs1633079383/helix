@@ -571,6 +571,8 @@
 
 🎯 EXPECT 发布 Helix 0.1.3 并让 cses-client 应用；可证伪断言：① `cses-helix-core`、`helix-im`、`helix-driver-host`、`helix-driver-native` 四包统一从 0.1.2 升至 0.1.3，按依赖拓扑 dry-run、上传且均可由 crates.io 解析；② workspace 八个版本事务 manifest 与 Cargo.lock 只发生版本同步；③ 客户端四条 registry 精确依赖与 Cargo.lock 锁定 0.1.3，`cargo metadata` source 均为 crates.io 且 `cargo check --manifest-path src-tauri/Cargo.toml` 通过；④ 不输出 token、不自动 tag 或 push，发布失败按脚本如实报告 PARTIAL | 赌注 高 | 可逆 发布前是/发布后否 | @2026-09-01T
 
+✅ DONE Helix 0.1.3 已完成发布与客户端 repin：四个公开 crate 按 core→im→host→native 拓扑完成 dry-run、上传并由 crates.io 逐包解析；workspace 八个 manifest 与 Cargo.lock 仅同步版本事务。cses-client 四条精确 registry 依赖及本地 Cargo.lock 已锁定 0.1.3，`cargo metadata --locked` 证明 source 均为 crates.io，完整 `cargo check --manifest-path src-tauri/Cargo.toml` 通过；旧客户端安装包尚未重打，跨层真实链仍单独保持 NOT_VERIFIED；未 tag、未 push。@2026-09-01T
+
 🎯 EXPECT 修复模板“收到”与普通消息已读的客户端展示串线，并复核退群转让群主、置顶多用户广播；可证伪断言：① 模板 receivedCount/receivedPeople/unreadPeople 只读取 `props.template.userIds`，即使 `readUserIds/unreadUserIds` 已变化也不增加“收到”人数；② 当前三仓转让链保留 `newCreator → new_creator → newCreator`，Go 同事务更新 owner/CREATOR 并向接任者投影管理能力；③ 录屏2 的普通成员权限变更、置顶菜单和双方顶部置顶卡按逐帧事实验收，不把通过场景伪装成缺陷；④ 只有实际修改 Helix crate 才发布新版本并更新客户端外置依赖，未修改 Rust 时不得无意义发包；⑤ 保留 Helix `docs/mmd` 与 artifacts、客户端 WDIO artifacts 的既有未提交内容 | 赌注 高 | 可逆 是 | @2026-08-31T13:00:00+0800
 
 ✅ DONE 模板回执串线已以精确红绿回归修复：普通 `readUserIds/unreadUserIds` 不再影响模板“收到”，组件 18/18、相关客户端 33/33 与全量 lint 通过。录屏1 为 dev/pre 1.2.66 混合旧运行态；当前代码的 `newCreator` 转让链与 Helix 3/3 回归通过，Go 真 PG 用例因未设 `CSES_IM_TEST_DSN` 而 SKIP。录屏2 逐帧已显示普通成员获得置顶权限且双端看到置顶/取消置顶，Helix `post_pin` 3/3 通过。本轮无 Rust 生产代码变更，故未发布新 crate；客户端仍从 crates.io 精确依赖 `cses-helix-core/helix-im=0.1.2`。Docker daemon 不可达，当前二进制的真双用户 PG/Native 复验保留为 `BLOCKED_PRECONDITION`，未冒充真链 PASS。@2026-08-31T13:45:00+0800

@@ -63,7 +63,26 @@ async fn mv3_g13d_real_chain() {
         "Sync",
         "MV3-G13d",
         "PASS",
-        json!({"command": "im_query_subtopics", "storage": "SQLite channel Scan", "parent": parent, "topic": topic, "terminal_event": "im:read:result", "event": event_json}),
+        json!({
+            "corr_key": req_id,
+            "command": "im_query_subtopics",
+            "http_business": "N/A: contract is a local parent-scoped SQLite topic query",
+            "storage": "SQLite channel Scan",
+            "parent": parent,
+            "topic": topic,
+            "terminal_event": "im:read:result",
+            "projection": event_json,
+            "event_sink": "NativeEventSink::broadcast",
+            "sqlite_readback": {
+                "table": "channel",
+                "parent_channel_id": parent,
+                "topic_channel_id": topic,
+                "type": "T"
+            },
+            "sqlite_required": true,
+            "persist_after": "read-only query; no durable mutation",
+            "cleanup": "session.close completed"
+        }),
     )
     .unwrap_or_else(|error| panic!("MV3-G13d evidence failed: {error}"));
     session

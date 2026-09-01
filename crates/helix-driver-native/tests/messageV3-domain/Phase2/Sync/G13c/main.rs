@@ -60,7 +60,17 @@ async fn mv3_g13c_real_chain() {
         "Sync",
         "MV3-G13c",
         "PASS",
-        json!({"command": "im_request_channel_increment", "go_http": "/api/cses/channels/load/increment", "terminal_event": "im:read:result", "event": event_json, "ws_follow_up": "im:channel:increment expected when Go returns an increment snapshot"}),
+        json!({
+            "corr_key": req_id,
+            "command": "im_request_channel_increment",
+            "go_http": "/api/cses/channels/load/increment",
+            "http_business": "Go increment read reached the Helix read projection",
+            "terminal_event": "im:read:result",
+            "projection": event_json,
+            "ws_action": "channel_increment read projection",
+            "persist_after": "read-only command; no durable mutation",
+            "cleanup": "session.close and channel/close completed"
+        }),
     )
     .unwrap_or_else(|error| panic!("MV3-G13c evidence failed: {error}"));
     session

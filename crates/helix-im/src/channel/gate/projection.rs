@@ -54,6 +54,27 @@ pub fn emit_for_kind(ev: &EventEnvelope) -> Effect {
     }
 }
 
+/// canonical durable stream 的在线 post 事件使用实时协议事件名，保留 viewer-local 字段。
+pub fn emit_for_canonical_kind(ev: &EventEnvelope) -> Effect {
+    use crate::sync_session::EventKind;
+    match ev.kind {
+        EventKind::PostUpsert => crate::acl::to_effect::emit_post_received_for_canonical_viewer(
+            ev.id,
+            ev.seq.0,
+            ev.msg_id.as_deref().unwrap_or(""),
+            &ev.fields,
+            ev.viewer_user_id.as_str(),
+        ),
+        EventKind::PostRevoke => crate::acl::to_effect::emit_post_revoke_for_canonical_viewer(
+            ev.id,
+            ev.seq.0,
+            ev.msg_id.as_deref().unwrap_or(""),
+            &ev.fields,
+        ),
+        _ => emit_for_kind(ev),
+    }
+}
+
 pub(super) fn collect_channel_update_for_post(
     ev: &EventEnvelope,
     source: &str,

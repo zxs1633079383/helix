@@ -143,7 +143,10 @@ impl super::ImModule {
                 .channels
                 .entry(channel_id)
                 .or_insert_with(|| crate::channel::Channel::new(channel_id, 0));
-            if !channel.admit_chain_event_seq(event_seq, out) {
+            // Canonical channel_stream_event may already have advanced this shared cursor; in that
+            // case retain the chain authority for its own projection instead of dropping it as dup.
+            if event_seq > channel.cursor.value() && !channel.admit_chain_event_seq(event_seq, out)
+            {
                 return Ok(());
             }
             cursor_seq = Some(event_seq);
@@ -242,6 +245,15 @@ impl super::ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        // WS canonical stream may have committed the shared cursor before this chain authority
+        // reply arrives; the chain projection still needs its own durable tables and terminal event.
+        if authority
+            .event_id
+            .as_ref()
+            .is_some_and(|event_id| self.state.seen_chain_event_ids.contains(event_id))
+        {
+            return Ok(());
+        }
         if !matches!(outcome, PortOutcome::Ok(_)) {
             if let Some(event_id) = authority.event_id.as_ref() {
                 self.state.pending_chain_event_ids.remove(event_id);
@@ -260,13 +272,21 @@ impl super::ImModule {
             let channel_id = ChannelId::from_str(&authority.channel_id).ok_or_else(|| {
                 ImError::Parse("chain authority has invalid channel_id".to_string())
             })?;
-            let committed = self
+            let cursor_already_committed = self
                 .state
                 .channels
-                .get_mut(&channel_id)
-                .map(|channel| channel.commit_contiguous_after_atomic(event_seq, out))
-                .transpose()?
-                .unwrap_or(false);
+                .get(&channel_id)
+                .is_some_and(|channel| event_seq <= channel.cursor.value());
+            let committed = if cursor_already_committed {
+                true
+            } else {
+                self.state
+                    .channels
+                    .get_mut(&channel_id)
+                    .map(|channel| channel.commit_contiguous_after_atomic(event_seq, out))
+                    .transpose()?
+                    .unwrap_or(false)
+            };
             if !committed {
                 // Persist 已落库但 cursor 不再连续时，不能把 eventId 留在 pending 集合；否则
                 // 后续 WS/sync 重放会被永久去重，既没有 Emit 也没有补偿入口。

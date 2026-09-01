@@ -46,7 +46,10 @@ impl WsMessageHandler for PostChainHandler {
                 .channels
                 .entry(channel_id)
                 .or_insert_with(|| crate::channel::Channel::new(channel_id, 0));
-            if !channel.admit_chain_event_seq(event_seq, out) {
+            // The generic canonical stream can commit the same sequence first; chain tables and
+            // the chain event still must be projected even when the shared cursor is already there.
+            if event_seq > channel.cursor.value() && !channel.admit_chain_event_seq(event_seq, out)
+            {
                 return Ok(());
             }
         }

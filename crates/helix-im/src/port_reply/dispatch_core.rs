@@ -29,16 +29,21 @@ impl ImModule {
                 .get_mut(&event.channel_id)
                 .is_some_and(|channel| channel.commit_terminal_after_atomic(event.seq))
         } else {
-            let next = self
+            let (committed, next) = self
                 .state
                 .channels
                 .get_mut(&event.channel_id)
-                .and_then(|channel| channel.commit_message_v3_post(event.seq));
-            let committed = self
-                .state
-                .channels
-                .get(&event.channel_id)
-                .is_some_and(|channel| channel.cursor.value() == event.seq);
+                .map(|channel| {
+                    // Only the canonical stream persist that owned the pending contiguous slot may
+                    // emit. If posts_update won the race, its cursor advance must suppress this
+                    // duplicate canonical projection.
+                    let owns_slot = channel.pending_stream_seq == Some(event.seq)
+                        && event.seq
+                            == crate::state::Seq(channel.cursor.value().0.saturating_add(1));
+                    let next = channel.commit_message_v3_post(event.seq);
+                    (owns_slot && channel.cursor.value() == event.seq, next)
+                })
+                .unwrap_or((false, None));
             if let Some(next) = next {
                 let corr = self.alloc_corr_internal();
                 crate::ws::handlers::channel_stream_event::queue_stream_commit(
@@ -61,7 +66,7 @@ impl ImModule {
         } else if !event.redacted
             && !matches!(&event.kind, crate::sync_session::EventKind::Other(_))
         {
-            out.push(crate::channel::emit_for_kind(&event));
+            out.push(crate::channel::emit_for_canonical_kind(&event));
         }
         Ok(())
     }

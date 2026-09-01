@@ -34,6 +34,28 @@ pub fn emit_post_received_for_viewer(
     )
 }
 
+/// 为 canonical durable stream 发布统一的 `im:post:received` 终态，同时保留 viewer-local 字段。
+///
+/// Go 的 canonical audience 已包含发送者；发送者也必须沿用 `received` 合同，不能把 canonical
+/// 事件误分类为 `sent`。`isSelf` 仍由 `viewer_user_id` 计算，故不牺牲本端消息样式。
+pub fn emit_post_received_for_canonical_viewer(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    viewer_user_id: &str,
+) -> Effect {
+    emit_post_received_for_viewer_with_path_and_event(
+        channel_id,
+        event_seq,
+        msg_id,
+        fields,
+        viewer_user_id,
+        "live_ws",
+        "im:post:received",
+    )
+}
+
 /// 按可信入站路径发布消息终态；来源只使用固定枚举，不携带用户或频道标识。
 pub fn emit_post_received_for_viewer_with_path(
     channel_id: ChannelId,
@@ -43,12 +65,33 @@ pub fn emit_post_received_for_viewer_with_path(
     viewer_user_id: &str,
     telemetry_path: &'static str,
 ) -> Effect {
-    use serde_json::json;
     let event = if !viewer_user_id.is_empty() && fields.user_id == viewer_user_id {
         "im:post:sent"
     } else {
         "im:post:received"
     };
+    emit_post_received_for_viewer_with_path_and_event(
+        channel_id,
+        event_seq,
+        msg_id,
+        fields,
+        viewer_user_id,
+        telemetry_path,
+        event,
+    )
+}
+
+/// 组装消息终态字节；调用方决定事件名，避免 canonical 与 sync 的 viewer 语义互相污染。
+fn emit_post_received_for_viewer_with_path_and_event(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    viewer_user_id: &str,
+    telemetry_path: &'static str,
+    event: &'static str,
+) -> Effect {
+    use serde_json::json;
     let mut data = message_item_data(channel_id, event_seq, msg_id, fields, viewer_user_id, false);
     if let Some(object) = data.as_object_mut() {
         object.insert("telemetryPath".to_string(), json!(telemetry_path));
@@ -319,5 +362,127 @@ pub fn emit_post_deleted_for_viewer(
     );
     Effect::Emit {
         event: DomainEventBytes(bytes),
+    }
+}
+
+/// canonical durable stream 的在线撤回事实，保持 `posts_update` 的 `im:post:revoke` 合同。
+///
+/// 离线 sync 仍由 `emit_post_deleted_for_viewer` 负责系统占位；canonical 在线事件只携
+/// authority 的最小 identity/字段，避免把离线展示语义泄漏到实时撤回协议。
+pub fn emit_post_revoke_for_canonical_viewer(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+) -> Effect {
+    use serde_json::json;
+
+    let mut data = json!({
+        "id": msg_id,
+        "channelId": channel_id.as_str(),
+        "eventSeq": event_seq,
+        "revoke": true,
+    });
+    let object = data
+        .as_object_mut()
+        .expect("canonical revoke projection starts from a static JSON object");
+    for (key, value) in [
+        ("temporaryId", fields.temporary_id.as_str()),
+        ("userId", fields.user_id.as_str()),
+        ("type", fields.msg_type.as_str()),
+        ("message", fields.message.as_str()),
+    ] {
+        if !value.is_empty() {
+            object.insert(key.to_string(), json!(value));
+        }
+    }
+    if fields.create_at > 0 {
+        object.insert("createAt".to_string(), json!(fields.create_at));
+    }
+    if fields.update_at > 0 {
+        object.insert("updateAt".to_string(), json!(fields.update_at));
+    }
+    crate::event::post::revoke(data)
+        .expect("emit_post_revoke_for_canonical_viewer: static JSON shape must serialize")
+        .into_effect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// canonical 自端终态固定为 received，但 payload 仍保留 isSelf viewer 视角。
+    #[test]
+    fn canonical_sender_projection_is_received_with_self_marker() {
+        let channel_id = crate::state::test_channel_id(41);
+        let fields = crate::sync_session::PostFields {
+            id: "post-41".to_string(),
+            user_id: "viewer-41".to_string(),
+            temporary_id: "tmp-41".to_string(),
+            message: "hello".to_string(),
+            ..Default::default()
+        };
+
+        let Effect::Emit { event } =
+            emit_post_received_for_canonical_viewer(channel_id, 7, "post-41", &fields, "viewer-41")
+        else {
+            panic!("canonical projection must emit a domain event");
+        };
+        let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+
+        assert_eq!(payload["event"], "im:post:received");
+        assert_eq!(payload["data"]["isSelf"], true);
+        assert_eq!(payload["data"]["temporaryId"], "tmp-41");
+    }
+
+    /// sync/replay 的 sender 视角仍保留 sent，避免改变既有 viewer-local 合同。
+    #[test]
+    fn sync_sender_projection_remains_sent() {
+        let channel_id = crate::state::test_channel_id(42);
+        let fields = crate::sync_session::PostFields {
+            user_id: "viewer-42".to_string(),
+            ..Default::default()
+        };
+
+        let Effect::Emit { event } = emit_post_received_for_viewer_with_path(
+            channel_id,
+            8,
+            "post-42",
+            &fields,
+            "viewer-42",
+            "sync_replay",
+        ) else {
+            panic!("sync projection must emit a domain event");
+        };
+        let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+
+        assert_eq!(payload["event"], "im:post:sent");
+        assert_eq!(payload["data"]["telemetryPath"], "sync_replay");
+    }
+
+    /// canonical 在线撤回沿用 posts_update 的最小 revoke 事实，不误发离线 deleted 占位。
+    #[test]
+    fn canonical_revoke_projection_uses_online_revoke_event() {
+        let channel_id = crate::state::test_channel_id(43);
+        let fields = crate::sync_session::PostFields {
+            id: "post-43".to_string(),
+            message: "hello".to_string(),
+            ..Default::default()
+        };
+
+        let Effect::Emit { event } =
+            emit_post_revoke_for_canonical_viewer(channel_id, 9, "post-43", &fields)
+        else {
+            panic!("canonical revoke projection must emit a domain event");
+        };
+        let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+
+        assert_eq!(payload["event"], "im:post:revoke");
+        assert_eq!(payload["data"]["id"], "post-43");
+        assert_eq!(payload["data"]["channelId"], channel_id.as_str());
+        assert_eq!(payload["data"]["eventSeq"], 9);
+        assert_eq!(payload["data"]["revoke"], true);
+        assert_eq!(payload["data"]["message"], "hello");
+        assert!(payload["data"].get("systemEvent").is_none());
     }
 }

@@ -68,7 +68,6 @@ impl WsMessageHandler for PostsUpdateHandler {
             );
             return Ok(());
         };
-
         let mut accepted = Vec::with_capacity(batch.events.len());
         let mut working_cursor = initial_cursor;
         let mut gap_seq = None;

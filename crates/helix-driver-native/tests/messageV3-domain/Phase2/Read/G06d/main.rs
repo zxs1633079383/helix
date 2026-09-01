@@ -52,6 +52,10 @@ async fn mv3_g06d_real_chain() {
         event_json.get("event").and_then(serde_json::Value::as_str) == Some("im:post:readers"),
         "G06d must not downgrade to raw im:read:result"
     );
+    session
+        .close()
+        .await
+        .unwrap_or_else(|error| panic!("MV3-G06d Helix cleanup failed: {error}"));
     shared::write_gate_evidence(
         "Phase2",
         "Read",
@@ -60,16 +64,17 @@ async fn mv3_g06d_real_chain() {
         json!({
             "command": "im_post_read_list",
             "go_http": "/api/cses/post/read/list",
+            "http_business": "Go post/read/list terminal projection observed",
+            "projection": "im:post:readers",
+            "persist_after": "readers event correlated by post id",
+            "cleanup": {"status": "PASS", "remote_channel": channel, "transport": "closed"},
+            "corr_key": post_id,
             "terminal_event": "im:post:readers",
             "post_id": post_id,
             "event": event_json,
         }),
     )
     .unwrap_or_else(|error| panic!("MV3-G06d evidence failed: {error}"));
-    session
-        .close()
-        .await
-        .unwrap_or_else(|error| panic!("MV3-G06d Helix cleanup failed: {error}"));
     shared::close_channel(&context, &channel)
         .await
         .unwrap_or_else(|error| panic!("MV3-G06d channel cleanup failed: {error}"));

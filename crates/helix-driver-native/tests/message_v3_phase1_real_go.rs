@@ -41,6 +41,11 @@ const GO_HTTP_BASE: &str = "http://127.0.0.1:8066/api/cses";
 const GO_WS_URL: &str = "ws://127.0.0.1:8066/api/v4/websocket";
 const MAIN_API_BASE: &str = "http://cses-server-paas25-test.cses.svc.cluster.local:3399";
 const GO_HEALTH_URL: &str = "http://127.0.0.1:8066/api/cses/health";
+
+/// 返回登录服务地址；默认保持集群域名，宿主机端口转发时允许测试显式覆盖。
+fn main_api_base() -> String {
+    std::env::var("HELIX_MAIN_API_BASE").unwrap_or_else(|_| MAIN_API_BASE.to_string())
+}
 const CREDENTIALS_RELATIVE: &str = "angular/visual/cses-client/.wdio/credentials.local.json";
 
 static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -282,7 +287,8 @@ async fn login_account(account: &CredentialAccount, role: &'static str) -> Resul
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "credential account has no mobile; skipping unusable account".to_string())?;
-    let http = anonymous_http(MAIN_API_BASE).await?;
+    let main_api = main_api_base();
+    let http = anonymous_http(&main_api).await?;
     for (name, value) in [
         ("appType", "bct"),
         ("device", "IOS"),
@@ -301,7 +307,7 @@ async fn login_account(account: &CredentialAccount, role: &'static str) -> Resul
     let observation = request_json(
         &http,
         "POST",
-        &format!("{MAIN_API_BASE}/User/login"),
+        &format!("{main_api}/User/login"),
         Some(json!({ "userName": mobile, "password": account.password })),
         "login",
     )
@@ -318,6 +324,14 @@ async fn discover_auth_context() -> Result<AuthContext, String> {
     let content = std::fs::read_to_string(&credentials_path)
         .map_err(|error| format!("read credentials file failed: {error}"))?;
     let credentials: CredentialFile = serde_json::from_str(&content)
+        .or_else(|map_error| {
+            serde_json::from_str::<Vec<CredentialAccount>>(&content)
+                .map(|accounts| CredentialFile {
+                    accounts,
+                    default_index: 0,
+                })
+                .map_err(|_| map_error)
+        })
         .map_err(|error| format!("parse credentials file failed: {error}"))?;
     if credentials.accounts.len() < 3 {
         return Err("credentials account pool must contain at least three accounts".to_string());
@@ -679,7 +693,7 @@ async fn run_helix_send(
     let mut config = ImConfig::default();
     config.ws_url = GO_WS_URL.to_string();
     config.api_base_url = GO_HTTP_BASE.to_string();
-    config.default_api_base_url = MAIN_API_BASE.to_string();
+    config.default_api_base_url = main_api_base();
     config.auth_user_id = context.actor.user_id.clone();
     config.company_id = context.actor.company_id.clone();
     config.user_name = context.actor.user_name.clone();
@@ -847,7 +861,7 @@ async fn run_helix_send_failure(
     let mut config = ImConfig::default();
     config.ws_url = GO_WS_URL.to_string();
     config.api_base_url = GO_HTTP_BASE.to_string();
-    config.default_api_base_url = MAIN_API_BASE.to_string();
+    config.default_api_base_url = main_api_base();
     config.auth_user_id = context.actor.user_id.clone();
     config.company_id = context.actor.company_id.clone();
     config.send_timeout_ms = 2_000;

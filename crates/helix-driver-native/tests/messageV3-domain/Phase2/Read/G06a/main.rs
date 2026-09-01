@@ -40,6 +40,10 @@ async fn mv3_g06a_real_chain() {
         Some("SUCCESS"),
         "MV3-G06a must assert Go business SUCCESS, not HTTP status only"
     );
+    session
+        .close()
+        .await
+        .unwrap_or_else(|error| panic!("MV3-G06a Helix cleanup failed: {error}"));
     shared::write_gate_evidence(
         "Phase2",
         "Read",
@@ -48,6 +52,11 @@ async fn mv3_g06a_real_chain() {
         json!({
             "command": "im_channels_view",
             "go_http": "/api/cses/channels/view",
+            "http_business": "Go body status=SUCCESS",
+            "projection": "im:read:result",
+            "persist_after": "terminal read result correlated by req_id",
+            "cleanup": {"status": "PASS", "transport": "closed", "remote_channel": channel},
+            "corr_key": req_id,
             "terminal_event": "im:read:result",
             "req_id": req_id,
             "expected_ws": "none",
@@ -55,10 +64,6 @@ async fn mv3_g06a_real_chain() {
         }),
     )
     .unwrap_or_else(|error| panic!("MV3-G06a evidence failed: {error}"));
-    session
-        .close()
-        .await
-        .unwrap_or_else(|error| panic!("MV3-G06a Helix cleanup failed: {error}"));
     shared::close_channel(&context, &channel)
         .await
         .unwrap_or_else(|error| panic!("MV3-G06a channel cleanup failed: {error}"));

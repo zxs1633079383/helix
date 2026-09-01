@@ -1,7 +1,9 @@
 use crate::shared;
 
-/// MV3-G02e：执行 Gate 证据写入，明确 draft 为本地 HostStorage 合同。
+/// MV3-G02e：通过公开 save/query Tick 回放验证本地 HostStorage 草稿闭环。
 #[tokio::test]
 async fn mv3_g02e_real_chain() {
-    shared::record_unverified("Phase1", "Draft", "MV3-G02e", "draft is local HostStorage by contract; no Go 8066 mutation exists, so this is not a fake HTTP test.").unwrap();
+    shared::assert_local_draft_chain("Phase1", "Draft", "MV3-G02e")
+        .await
+        .unwrap_or_else(|error| panic!("MV3-G02e real chain failed: {error}"));
 }

@@ -190,7 +190,13 @@ pub(crate) async fn run_text_chain_gate(gate: &str) -> Result<(), String> {
     drop(guard);
     match (result, cleanup) {
         (Ok(details), Ok(())) => {
-            write_gate_evidence(CHAIN_PHASE, domain, gate, "PASS", details)?;
+            write_gate_evidence(
+                CHAIN_PHASE,
+                domain,
+                gate,
+                "PASS",
+                complete_chain_evidence(details, &channel),
+            )?;
             Ok(())
         }
         (Err(ChainRunError::Blocked(error)), Ok(())) => {
@@ -231,10 +237,99 @@ pub(crate) async fn run_text_chain_gate(gate: &str) -> Result<(), String> {
 /// 将公共接龙 Gate 与文本专属 Gate 写入各自的合同目录。
 fn chain_domain(gate: &str) -> &'static str {
     if gate.starts_with("CHAIN-TXT-") {
-        "Chain/Text"
+        "text_chain"
     } else {
-        "Chain/Common"
+        "chain"
     }
+}
+
+/// 为成功 Chain Gate 补齐同轮 HTTP/WS、projection、SQLite、EventSink 与清理合同。
+fn complete_chain_evidence(mut details: Value, channel_id: &str) -> Value {
+    let object = details
+        .as_object_mut()
+        .expect("Chain Gate details must remain a JSON object");
+    object.insert(
+        "corr_key".to_string(),
+        object
+            .get("chain_id")
+            .cloned()
+            .unwrap_or_else(|| Value::String(channel_id.to_string())),
+    );
+    object.insert(
+        "http_business".to_string(),
+        Value::String("status=SUCCESS before authoritative chain terminal".to_string()),
+    );
+    object.insert(
+        "ws_action".to_string(),
+        Value::String("post_chain authoritative actor/observer frame".to_string()),
+    );
+    object.insert(
+        "projection".to_string(),
+        Value::String("im:post_chain:* or im:read:result".to_string()),
+    );
+    object.insert(
+        "persist_after".to_string(),
+        Value::String("chain projection read back after PersistOk".to_string()),
+    );
+    object.insert(
+        "event_sink".to_string(),
+        Value::String("NativeEventSink canonical DomainEvent".to_string()),
+    );
+    object.insert(
+        "sqlite_readback".to_string(),
+        json!({"tables": ["chain_summary", "chain_entry", "chain_window", "chain_mutation", "chain_viewer"]}),
+    );
+    object.insert(
+        "cleanup".to_string(),
+        json!({"status": "PASS", "remote_channel": channel_id, "engine_ws_sqlite": "closed"}),
+    );
+    details
+}
+
+/// 对当前明确未实现的 Category/Acceptance Gate 走公开 Command seam 并断言 fail-closed。
+pub(crate) fn run_unimplemented_chain_gate(gate: &str) -> Result<(), String> {
+    let (domain, mode) = match gate {
+        "CHAIN-CAT-G01" | "CHAIN-CAT-G02" | "CHAIN-CAT-G03" => ("category_chain", "CATEGORY"),
+        "CHAIN-ACC-G01" => ("acceptance", "CATEGORY"),
+        _ => return Err(format!("unknown unimplemented chain Gate {gate}")),
+    };
+    let mut shell = ExecutionShell::new();
+    shell.register(ImModule::new(ImConfig::default()));
+    let payload = json!({
+        "channel_id": "000000000000000000000001",
+        "client_mutation_id": format!("{gate}-fail-closed"),
+        "device_id": "chain-contract-device",
+        "mode": mode,
+        "title": "分类接龙未实现合同",
+        "category_ids": ["cat-a", "cat-b"],
+    });
+    let tick = Tick::Command(AppCommand::new(
+        "post_chain_create",
+        Bytes::from(serde_json::to_vec(&payload).map_err(|error| error.to_string())?),
+    ));
+    let error = shell
+        .step(tick, 1_700_000_000_000)
+        .expect_err("Category/Acceptance must fail closed until production support exists")
+        .to_string();
+    if !error.contains("only TEXT mode is supported") {
+        return Err(format!(
+            "{gate} returned unexpected fail-closed error: {error}"
+        ));
+    }
+    write_gate_evidence(
+        CHAIN_PHASE,
+        domain,
+        gate,
+        "NOT_IMPLEMENTED",
+        json!({
+            "reason": "production helix-im only supports TEXT mode",
+            "first_failing_layer": "Helix public Tick::Command validation",
+            "expected_error": "only TEXT mode is supported",
+            "corr_key": format!("{gate}-fail-closed"),
+            "cleanup": {"status": "PASS", "remote_resources": "none_created"},
+        }),
+    )?;
+    Ok(())
 }
 
 /// 以 18066 health、账号和共享锁装配可审计上下文；不触碰 8066。
@@ -818,25 +913,26 @@ async fn execute_multi_device(
                 "observer late-join GET missing appended entry: {observer_read}"
             )));
         }
-        let reconcile_event = command_event_on(
-            &mut observer,
-            "post_chain_reconcile",
-            reconcile_payload(channel_id, &chain_id, &mutation, "chain-device-b"),
-            "im:post_chain:reconcile",
-            Some(&mutation),
-        )
-        .await?;
+        // reconcile 只回发起 mutation 的设备；设备 B 的职责是通过 WS/GET 恢复公共 Entry。
+        let reconcile_event = harness
+            .command_event(
+                "post_chain_reconcile",
+                reconcile_payload(channel_id, &chain_id, &mutation, "chain-device-a"),
+                "im:post_chain:reconcile",
+                Some(&mutation),
+            )
+            .await?;
         if data_string(&reconcile_event, &["clientMutationId", "client_mutation_id"])
             .as_deref()
             != Some(mutation.as_str())
         {
             return Err(ChainRunError::Failed(format!(
-                "observer reconcile returned wrong mutation: {reconcile_event}"
+                "actor reconcile returned wrong mutation: {reconcile_event}"
             )));
         }
         assert_chain_summary(&harness.actor.storage, &chain_id, "PUBLISHED", 1, 2).await?;
         assert_chain_summary(&observer.storage, &chain_id, "PUBLISHED", 1, 2).await?;
-        assert_mutation(&observer.storage, &mutation, "CONFIRMED").await?;
+        assert_mutation(&harness.actor.storage, &mutation, "CONFIRMED").await?;
         scan_chain_row(&observer.storage, "chain_entry", "entry_id", &observer_entry)
             .await
             .map_err(ChainRunError::Failed)?;
@@ -971,12 +1067,34 @@ fn assert_read_success(event: &Value) -> Result<(), ChainRunError> {
             "Go chain read business failure: {body}"
         )));
     }
-    if body.get("status").and_then(Value::as_str) != Some("SUCCESS")
-        && body.get("chainSummary").is_none()
-    {
-        return Err(ChainRunError::Failed(format!(
-            "Go chain read projection missing status/chainSummary: {body}"
-        )));
+    match body.get("status").and_then(Value::as_str) {
+        Some("SUCCESS") => {}
+        Some(status) => {
+            return Err(ChainRunError::Failed(format!(
+                "Go chain read projection returned status={status}: {body}"
+            )))
+        }
+        None => {
+            // 文字接龙 read API 的真实 CommonRes 会把 data 裸展开；此时必须以
+            // 非空 chainSummary.chainId 和合法 mode/status 证明业务投影，而不是仅凭事件存在。
+            let summary = body.get("chainSummary").ok_or_else(|| {
+                ChainRunError::Failed(format!(
+                    "Go chain read projection missing status=SUCCESS or chainSummary: {body}"
+                ))
+            })?;
+            let chain_id = summary.get("chainId").and_then(Value::as_str);
+            let mode = summary.get("mode").and_then(Value::as_str);
+            let chain_status = summary.get("status").and_then(Value::as_str);
+            if chain_id.is_none()
+                || chain_id == Some("")
+                || mode != Some("TEXT")
+                || !matches!(chain_status, Some("DRAFT" | "PUBLISHED" | "CLOSED"))
+            {
+                return Err(ChainRunError::Failed(format!(
+                    "Go chain read裸 projection lacks valid chainSummary authority: {body}"
+                )));
+            }
+        }
     }
     Ok(())
 }

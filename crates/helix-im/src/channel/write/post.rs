@@ -206,7 +206,7 @@ pub(crate) enum PostUpsertSource {
     SyncSnapshot,
 }
 
-/// 将 type=1 权威事实编译为消息、共享频道预览和 viewer 成员态的统一写集。
+/// 将 type=1 权威事实编译为消息与共享频道预览；仅旧在线 post 兼容写 viewer 成员态。
 pub(crate) fn message_v3_post_mutation_ops(
     event: &crate::sync_session::EventEnvelope,
     auth_user_id: &str,
@@ -256,6 +256,10 @@ pub(crate) fn message_v3_post_mutation_ops(
             ],
         }),
     ];
+    // Sync 的未读唯一来自同一 authority response 的 memberProjection；消息数量不能反推未读。
+    if matches!(source, PostUpsertSource::SyncSnapshot) {
+        return ops;
+    }
     let member_row = vec![
         ("channel_id".to_string(), SqlValue::Text(channel_id.clone())),
         ("user_id".to_string(), SqlValue::Text(viewer_id.clone())),

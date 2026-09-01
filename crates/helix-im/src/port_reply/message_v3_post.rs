@@ -122,7 +122,13 @@ impl ImModule {
         event: EventEnvelope,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if self.config.auth_user_id.is_empty() || i64::try_from(event.seq.0).is_err() {
+        let requires_viewer = matches!(
+            event.kind,
+            crate::sync_session::EventKind::PostUpsert | crate::sync_session::EventKind::PostEdit
+        );
+        if i64::try_from(event.seq.0).is_err()
+            || (requires_viewer && self.config.auth_user_id.is_empty())
+        {
             let channel_id = event.channel_id;
             if let Some(channel) = self.state.channels.get_mut(&channel_id) {
                 channel.restore_message_v3_post(event, out);
@@ -133,6 +139,15 @@ impl ImModule {
             ));
         }
         let corr = self.alloc_corr_internal();
+        if !requires_viewer {
+            crate::ws::handlers::channel_stream_event::queue_stream_commit(
+                &mut self.state,
+                corr,
+                event,
+                out,
+            );
+            return Ok(());
+        }
         if matches!(event.kind, crate::sync_session::EventKind::PostEdit)
             && crate::ws::handlers::post_update::has_quick_reply_items(
                 event.fields.quick_reply.as_str(),
@@ -278,6 +293,46 @@ fn client_ack_succeeded(outcome: &PortOutcome) -> bool {
         .and_then(|response| response.get("status").cloned())
         .and_then(|status| status.as_str().map(str::to_owned))
         .is_some_and(|status| status.eq_ignore_ascii_case("SUCCESS"))
+}
+
+#[cfg(test)]
+mod buffered_event_tests {
+    use super::*;
+    use crate::state::Seq;
+    use crate::sync_session::{EventKind, PostFields};
+
+    #[test]
+    fn buffered_post_read_uses_kind_aware_stream_commit() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let channel_id = crate::state::test_channel_id(91);
+        module.register_channel(channel_id, 0);
+        let event = EventEnvelope::new(
+            channel_id,
+            Seq(1),
+            EventKind::PostRead,
+            PostFields::default(),
+        );
+        let mut out = EffectSink::new();
+
+        module.queue_next_message_v3_event(event, &mut out).unwrap();
+
+        assert!(matches!(
+            out.as_slice(),
+            [Effect::PersistAtomic { ops, .. }]
+                if matches!(ops.first(), Some(helix_core::effect::StorageOp::BatchUpdate(_)))
+                    && !ops.iter().any(|op| matches!(op, helix_core::effect::StorageOp::BatchUpsert(_)))
+        ));
+        assert!(module
+            .state
+            .corr_map
+            .values()
+            .any(|context| matches!(context, CorrelationContext::CanonicalStreamPersist { .. })));
+        assert!(!module
+            .state
+            .corr_map
+            .values()
+            .any(|context| matches!(context, CorrelationContext::MessageV3PostPersist { .. })));
+    }
 }
 
 /// 从当前 viewer 的复合键读回构造唯一 channel 绝对态事件。

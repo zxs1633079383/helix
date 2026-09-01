@@ -441,7 +441,7 @@ fn hydration_sync_failure_is_single_terminal_error() -> Result<(), String> {
     Ok(())
 }
 
-/// 历史 events 走原子 window+cursor 写入并重建 viewer 未读；hydration 不提前释放业务事件。
+/// 历史 events 走原子 window+cursor 写入；无 memberProjection 时不推断 viewer 未读。
 #[test]
 fn hydration_events_use_atomic_history_cursor_without_business_events() -> Result<(), String> {
     let mut replay = Replay::new();
@@ -468,8 +468,8 @@ fn hydration_events_use_atomic_history_cursor_without_business_events() -> Resul
         .expect("history atomic ops");
     let debug = format!("{history_ops:?}");
     assert!(
-        debug.contains("ScopedGuardedBump") && debug.contains("last_unread_event_seq"),
-        "缺少 increment unread authority 时，history 必须以 per-viewer guard 重建未读"
+        !debug.contains("ScopedGuardedBump") && !debug.contains("last_unread_event_seq"),
+        "缺少 memberProjection 时 history 不得按消息数量重建未读"
     );
     replay.reply_persist_ok(history_corr)?;
     assert!(replay.events().is_empty());

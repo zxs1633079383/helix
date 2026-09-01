@@ -25,7 +25,7 @@ pub(crate) struct WsHandlerRegistration {
 
 inventory::collect!(WsHandlerRegistration);
 
-const EXPECTED_WS_HANDLER_COUNT: usize = 29;
+const EXPECTED_WS_HANDLER_COUNT: usize = 31;
 
 static WS_HANDLER_MAP: OnceLock<
     Result<HashMap<&'static str, &'static dyn WsMessageHandler>, ImError>,
@@ -86,6 +86,7 @@ pub(crate) fn dispatch_ws(
     tracing::info!(
         hop = "2-ws-recv",
         action = %action,
+        delivery_seq = frame.delivery_seq(),
         event_seq = frame.event_seq().map(|s| s.0),
         "HOP2 ws frame received by helix dispatch"
     );
@@ -232,6 +233,142 @@ mod tests {
             expected, EXPECTED_WS_HANDLER_COUNT,
             "WS handler inventory 注册数不应静默漂移"
         );
+    }
+
+    #[test]
+    fn member_projection_routes_to_revision_guarded_atomic_persist() {
+        let mut state = ImState::new();
+        let channel_id = channel_id(29);
+        let mut alloc_corr = || helix_core::Correlation::from_raw(29);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "viewer-29", &mut alloc_corr);
+        let frame = frame_from_json(serde_json::json!({
+            "seq": 999,
+            "action": "member_projection",
+            "data": {
+                "channelId": channel_id.as_str(),
+                "userId": "viewer-29",
+                "projectionRevision": 3,
+                "effectId": "effect-3",
+                "unreadCount": 1,
+                "lastReadSeq": 7
+            }
+        }));
+        let mut out = EffectSink::new();
+
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+        let [Effect::PersistAtomic { corr, ops }] = out.as_slice() else {
+            panic!("canonical projection must use one atomic persist");
+        };
+        assert_eq!(corr.raw(), 29);
+        assert!(matches!(
+            ops.as_slice(),
+            [StorageOp::BatchUpsert(_), StorageOp::ScopedGuardedBump(_)]
+        ));
+        assert!(matches!(
+            ctx.state.corr_map.get(corr),
+            Some(crate::state::CorrelationContext::MemberProjectionPersist {
+                expected_revision: 3,
+                expected_effect_id,
+                ..
+            }) if expected_effect_id == "effect-3"
+        ));
+    }
+
+    #[test]
+    fn canonical_stream_waits_for_atomic_ack_before_cursor_or_emit() {
+        let mut state = ImState::new();
+        let channel_id = channel_id(30);
+        state
+            .channels
+            .insert(channel_id, Channel::new(channel_id, 0));
+        let mut alloc_corr = || helix_core::Correlation::from_raw(30);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "viewer-30", &mut alloc_corr);
+        let frame = frame_from_json(serde_json::json!({
+            "seq": 999,
+            "action": "channel_stream_event",
+            "data": {
+                "channelId": channel_id.as_str(),
+                "streamSeq": 1,
+                "eventId": "event-1",
+                "effectId": "effect-1",
+                "eventType": 1,
+                "actorId": "author-1",
+                "msgId": server_id_string(1),
+                "redacted": false,
+                "payload": {
+                    "id": server_id_string(1),
+                    "channelId": channel_id.as_str(),
+                    "userId": "author-1",
+                    "message": "hello",
+                    "createAt": 1
+                }
+            }
+        }));
+        let mut out = EffectSink::new();
+
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+        assert_eq!(ctx.state.channels[&channel_id].cursor.value(), Seq(0));
+        assert!(matches!(out.as_slice(), [Effect::PersistAtomic { .. }]));
+    }
+
+    #[test]
+    fn canonical_and_legacy_terminal_share_one_inflight_write() {
+        let mut state = ImState::new();
+        let channel_id = channel_id(32);
+        state
+            .channels
+            .insert(channel_id, Channel::new(channel_id, 0));
+        let mut next_corr = 40;
+        let mut alloc_corr = || {
+            let corr = helix_core::Correlation::from_raw(next_corr);
+            next_corr += 1;
+            corr
+        };
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "viewer-32", &mut alloc_corr);
+        let mut out = EffectSink::new();
+        dispatch_ws(
+            &mut ctx,
+            &frame_from_json(serde_json::json!({
+                "action": "channel_stream_event",
+                "data": {
+                    "channelId": channel_id.as_str(),
+                    "streamSeq": 1,
+                    "eventId": "terminal-1",
+                    "eventType": 7,
+                    "redacted": false,
+                    "payload": {"state": "closed"}
+                }
+            })),
+            &mut out,
+        )
+        .unwrap();
+        dispatch_ws(
+            &mut ctx,
+            &frame_from_json(serde_json::json!({
+                "action": "channel_close",
+                "data": {
+                    "id": "terminal-1",
+                    "channelId": channel_id.as_str(),
+                    "event_seq": 1,
+                    "event_type": 7,
+                    "payload": {"state": "closed"},
+                    "deleteAt": 1
+                }
+            })),
+            &mut out,
+        )
+        .unwrap();
+
+        assert_eq!(
+            out.as_slice()
+                .iter()
+                .filter(|effect| matches!(effect, Effect::PersistAtomic { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(ctx.state.channels[&channel_id].cursor.value(), Seq(0));
     }
 
     #[test]

@@ -32,6 +32,7 @@ pub struct ChannelUpdateProjection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemberChannelUpdate {
     pub user_id: String,
+    pub effect_id: Option<String>,
     /// The current viewer's notification mode from the notify-only WS member patch.
     pub notify: Option<String>,
     pub channel_is_top: Option<bool>,
@@ -130,6 +131,7 @@ pub fn member_channel_from_update_channel(
 
     let mut projection = MemberChannelUpdate {
         user_id,
+        effect_id: pick_text(channel, data, &["effectId", "effect_id"]),
         notify: None,
         channel_is_top: None,
         projection_revision: projection_revision(channel, data),
@@ -150,6 +152,16 @@ pub fn member_channel_from_update_channel(
         msg_count_private: None,
         last_read_seq: None,
     };
+
+    if let Some(revision) = projection.projection_revision {
+        row.push((
+            "projection_revision".to_string(),
+            SqlValue::Integer(revision.min(i64::MAX as u64) as i64),
+        ));
+    }
+    if let Some(effect_id) = projection.effect_id.as_ref() {
+        row.push(("effect_id".to_string(), SqlValue::Text(effect_id.clone())));
+    }
 
     // `update_channel` carries this member-scoped value as a short scalar; keep it
     // separate from channel-wide fields so the caller can persist it on the composite key.
@@ -275,6 +287,54 @@ pub fn member_channel_from_update_channel(
     Some((row, projection))
 }
 
+/// Decode the authoritative row returned by the final `ScopedGet` in a canonical
+/// projection transaction. Emission must use this row, never the inbound frame.
+pub fn member_channel_from_reply(
+    reply: &[u8],
+    channel_id: ChannelId,
+    auth_user_id: &str,
+    now_ms: u64,
+) -> Option<MemberChannelUpdate> {
+    let rows: Vec<Value> = serde_json::from_slice(reply).ok()?;
+    let row = rows.first()?;
+    member_channel_from_update_channel(row, channel_id, auth_user_id, now_ms)
+        .map(|(_, projection)| projection)
+}
+
+/// A canonical retry may omit no absolute field it originally supplied. Compare
+/// the supplied subset with the durable readback to detect same-revision conflicts.
+pub fn member_projection_matches(
+    expected: &MemberChannelUpdate,
+    actual: &MemberChannelUpdate,
+) -> bool {
+    macro_rules! matches_optional {
+        ($field:ident) => {
+            expected.$field.is_none() || expected.$field == actual.$field
+        };
+    }
+    expected.user_id == actual.user_id
+        && matches_optional!(effect_id)
+        && matches_optional!(notify)
+        && matches_optional!(channel_is_top)
+        && matches_optional!(projection_revision)
+        && matches_optional!(unread_count)
+        && matches_optional!(unread_post_id)
+        && matches_optional!(last_post)
+        && matches_optional!(last_post_at)
+        && matches_optional!(last_root_post_at)
+        && matches_optional!(mention_count)
+        && matches_optional!(mention_count_root)
+        && matches_optional!(mention_list)
+        && matches_optional!(mention_user)
+        && matches_optional!(urgent_count)
+        && matches_optional!(urgent_post_list)
+        && matches_optional!(urgent_mention_user)
+        && matches_optional!(msg_count)
+        && matches_optional!(msg_count_root)
+        && matches_optional!(msg_count_private)
+        && matches_optional!(last_read_seq)
+}
+
 mod decode;
 pub use decode::projection_from_channel_reply;
 
@@ -314,13 +374,7 @@ fn pick_bool(primary: &Value, fallback: &Value, keys: &[&str]) -> Option<bool> {
 }
 
 fn projection_revision(primary: &Value, fallback: &Value) -> Option<u64> {
-    const KEYS: &[&str] = &[
-        "lastEventSeq",
-        "eventSeq",
-        "event_seq",
-        "updateAt",
-        "update_at",
-    ];
+    const KEYS: &[&str] = &["projectionRevision", "projection_revision"];
     [primary, fallback]
         .into_iter()
         .flat_map(|value| KEYS.iter().filter_map(|key| value.get(*key)))
@@ -426,6 +480,66 @@ mod tests {
         assert_eq!(projection.notify.as_deref(), Some("IGNORE"));
         assert_eq!(projection.unread_count, None);
         assert_eq!(projection.channel_is_top, None);
+    }
+
+    #[test]
+    fn member_projection_revision_never_falls_back_to_event_or_time_fields() {
+        let channel_id = crate::state::test_channel_id(93);
+        let (_, legacy) = member_channel_from_update_channel(
+            &serde_json::json!({
+                "channelId": channel_id.as_str(),
+                "userId": "viewer-93",
+                "unreadCount": 1,
+                "eventSeq": 77,
+                "updateAt": 88
+            }),
+            channel_id,
+            "viewer-93",
+            93,
+        )
+        .expect("absolute unread is still a valid legacy patch");
+        assert_eq!(legacy.projection_revision, None);
+
+        let (_, canonical) = member_channel_from_update_channel(
+            &serde_json::json!({
+                "channelId": channel_id.as_str(),
+                "userId": "viewer-93",
+                "unreadCount": 1,
+                "projectionRevision": 9,
+                "effectId": "effect-9",
+                "eventSeq": 77
+            }),
+            channel_id,
+            "viewer-93",
+            93,
+        )
+        .expect("canonical projection should parse");
+        assert_eq!(canonical.projection_revision, Some(9));
+        assert_eq!(canonical.effect_id.as_deref(), Some("effect-9"));
+    }
+
+    #[test]
+    fn canonical_projection_detects_same_revision_payload_conflict() {
+        let channel_id = crate::state::test_channel_id(94);
+        let parse = |unread_count| {
+            member_channel_from_update_channel(
+                &serde_json::json!({
+                    "channelId": channel_id.as_str(),
+                    "userId": "viewer-94",
+                    "projectionRevision": 9,
+                    "effectId": "effect-9",
+                    "unreadCount": unread_count
+                }),
+                channel_id,
+                "viewer-94",
+                94,
+            )
+            .unwrap()
+            .1
+        };
+
+        assert!(member_projection_matches(&parse(1), &parse(1)));
+        assert!(!member_projection_matches(&parse(2), &parse(1)));
     }
 
     /// A negative persisted urgent count is clamped before the channel update event is emitted.

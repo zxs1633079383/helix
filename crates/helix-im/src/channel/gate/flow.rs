@@ -16,6 +16,7 @@ impl Channel {
             cursor: Cursor::new(Seq(initial_cursor)),
             gate: None,
             pending_commits: std::collections::HashMap::new(),
+            pending_stream_seq: None,
             buffer: BTreeMap::new(),
             inflight_sync: None,
             last_sync_from_seq: None,
@@ -37,6 +38,7 @@ impl Channel {
             return;
         }
         self.terminal_event_seq = Some(terminal_seq);
+        self.pending_stream_seq = None;
         self.buffer.clear();
         self.gate = None;
         self.last_sync_from_seq = None;
@@ -45,6 +47,7 @@ impl Channel {
     /// 当前 viewer 被权威成员事件重新加入后恢复聚合，允许后续增量继续推进。
     pub(crate) fn resume_after_rejoin(&mut self) {
         self.terminal_event_seq = None;
+        self.pending_stream_seq = None;
         self.buffer.clear();
         self.gate = None;
         self.last_sync_from_seq = None;
@@ -57,6 +60,7 @@ impl Channel {
             return false;
         }
         self.terminal_event_seq = Some(terminal_seq);
+        self.pending_stream_seq = None;
         self.buffer.clear();
         self.gate = None;
         self.last_sync_from_seq = None;
@@ -67,6 +71,9 @@ impl Channel {
     /// cursor，也不把 channel 变成 closed。sync/notify 是 viewer-filtered，terminal 前可包含
     /// 同批可见事件或不可见序号；调用方已验证整批严格递增并把可见前缀与 tombstone 同事务写入。
     pub(crate) fn commit_terminal_after_atomic(&mut self, terminal_seq: Seq) -> bool {
+        if self.pending_stream_seq == Some(terminal_seq) {
+            self.pending_stream_seq = None;
+        }
         if self.is_terminal() || terminal_seq <= self.cursor.value() {
             return false;
         }
@@ -93,11 +100,8 @@ impl Channel {
         if !self.cursor.try_advance(target_seq) {
             return Ok(false);
         }
-        let mut channel_updates = Vec::new();
-        self.flush_contiguous_from_buffer(fx, &mut channel_updates)?;
-        for pending in channel_updates {
-            fx.push(crate::acl::to_effect::bump_channel_unread(&pending.update));
-        }
+        let mut ignored_local_projections = Vec::new();
+        self.flush_contiguous_from_buffer(fx, &mut ignored_local_projections)?;
         Ok(true)
     }
 
@@ -113,11 +117,8 @@ impl Channel {
         if !self.cursor.try_advance(target_seq) {
             return Ok(false);
         }
-        let mut channel_updates = Vec::new();
-        self.flush_contiguous_from_buffer(fx, &mut channel_updates)?;
-        for pending in channel_updates {
-            fx.push(crate::acl::to_effect::bump_channel_unread(&pending.update));
-        }
+        let mut ignored_local_projections = Vec::new();
+        self.flush_contiguous_from_buffer(fx, &mut ignored_local_projections)?;
         Ok(true)
     }
 
@@ -132,12 +133,8 @@ impl Channel {
         fx: &mut EffectSink,
         now_ms: u64,
     ) -> Result<(), ImError> {
-        let mut channel_updates = Vec::new();
-        self.ingest_collecting_channel_updates(ev, fx, now_ms, &mut channel_updates)?;
-        for pending in channel_updates {
-            fx.push(crate::acl::to_effect::bump_channel_unread(&pending.update));
-        }
-        Ok(())
+        let mut ignored_local_projections = Vec::new();
+        self.ingest_collecting_channel_updates(ev, fx, now_ms, &mut ignored_local_projections)
     }
 
     /// 生产路径使用的 `ingest` 变体：ChannelUpdate 需要 channel 写后读回累计行，
@@ -196,7 +193,12 @@ impl Channel {
         }
         let expected = Seq(self.cursor.value().0.saturating_add(1));
         match event.seq.cmp(&expected) {
-            std::cmp::Ordering::Equal => Ok(Some(event)),
+            std::cmp::Ordering::Equal if self.pending_stream_seq.is_none() => {
+                self.buffer.remove(&event.seq);
+                self.pending_stream_seq = Some(event.seq);
+                Ok(Some(event))
+            }
+            std::cmp::Ordering::Equal => Ok(None),
             std::cmp::Ordering::Less => Ok(None),
             std::cmp::Ordering::Greater => {
                 self.buffer_and_arm_gate(event, effects)?;
@@ -227,6 +229,9 @@ impl Channel {
 
     /// matching PersistOk 后推进 cursor，并交出下一条已连续的缓冲事件。
     pub(crate) fn commit_message_v3_post(&mut self, committed_seq: Seq) -> Option<EventEnvelope> {
+        if self.pending_stream_seq == Some(committed_seq) {
+            self.pending_stream_seq = None;
+        }
         if committed_seq != Seq(self.cursor.value().0.saturating_add(1))
             || !self.cursor.try_advance(committed_seq)
         {
@@ -242,6 +247,9 @@ impl Channel {
         event: EventEnvelope,
         effects: &mut EffectSink,
     ) {
+        if self.pending_stream_seq == Some(event.seq) {
+            self.pending_stream_seq = None;
+        }
         self.buffer.insert(event.seq, event);
         self.arm_gate_if_needed(effects);
     }
@@ -272,11 +280,8 @@ impl Channel {
             std::cmp::Ordering::Equal => {
                 self.cursor.try_advance(seq);
                 fx.push(crate::acl::to_effect::advance_cursor(self.id, seq));
-                let mut channel_updates = Vec::new();
-                self.flush_contiguous_from_buffer(fx, &mut channel_updates)?;
-                for pending in channel_updates {
-                    fx.push(crate::acl::to_effect::bump_channel_unread(&pending.update));
-                }
+                let mut ignored_local_projections = Vec::new();
+                self.flush_contiguous_from_buffer(fx, &mut ignored_local_projections)?;
                 // 缺口已被本帧填平 → 若无后续缺口，gate 由 flush 后的连续性自然失效；
                 // 这里不主动 cancel gate（与 ingest 一致，gate timer 触发时再判定 still-stuck）。
                 Ok(())

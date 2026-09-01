@@ -180,14 +180,9 @@ fn is_unread_bump(e: &Effect) -> bool {
             if ops.iter().any(|op| matches!(op, StorageOp::GuardedBump(_))))
 }
 
-/// 回归锚: ⑤ —— 乱序 post 经 buffer flush 时补未读（gate 单一发出点）。
-///
-/// 证伪点：原实现未读 +1 只在 handler 的「立即 apply」路径触发，乱序经 buffer flush 丢未读。
-/// 修复后 gate 在 apply 与 flush **两路**都发出携带的 unread_bump。
-/// 制造缺口：cursor=0（expected=1），先 ingest seq=2（>expected → 进 buffer，未 apply）→
-/// 不应提前 bump；再 ingest seq=1（==expected → apply seq=1 + flush seq=2）→ 两条各补一次。
+/// Canonical stream 只负责消息事实与 cursor；未读只由 member_projection 绝对覆盖。
 #[test]
-fn test_out_of_order_post_bumps_unread_on_flush_5() {
+fn out_of_order_post_flush_does_not_infer_unread() {
     let mut ch = Channel::new(crate::state::test_channel_id(9), 0);
     let mut fx = EffectSink::new();
 
@@ -199,14 +194,13 @@ fn test_out_of_order_post_bumps_unread_on_flush_5() {
         "乱序未 apply 不应提前 bump 未读"
     );
 
-    // seq=1 填平 → apply(seq=1) + flush(seq=2)：gate 两路各发一次未读 bump。
+    // seq=1 填平后两条消息仍会 apply/flush，但不得产生本地未读 delta。
     fx.clear();
     ch.ingest(bump_ev(9, 1), &mut fx, 1_000)
         .expect("apply + flush");
-    let bumps = fx.as_slice().iter().filter(|e| is_unread_bump(e)).count();
-    assert_eq!(
-        bumps, 2,
-        "apply(seq=1) + flush(seq=2) 各补一次未读（gate 两路同口径，flush 不再丢未读）"
+    assert!(
+        !fx.as_slice().iter().any(is_unread_bump),
+        "stream apply/flush 不得绕过 member_projection 推断未读"
     );
 }
 
@@ -224,5 +218,30 @@ fn test_none_unread_bump_does_not_increment_5() {
     assert!(
         !fx.as_slice().iter().any(is_unread_bump),
         "unread_bump=None 的事件 apply/flush 都不得 bump 未读"
+    );
+}
+
+#[test]
+fn duplicate_protocol_frame_is_rejected_while_stream_seq_is_inflight() {
+    let mut ch = Channel::new(crate::state::test_channel_id(12), 0);
+    let mut fx = EffectSink::new();
+
+    let first = ch
+        .admit_message_v3_post(gapped_ev(12, 1), &mut fx)
+        .expect("admit canonical");
+    let duplicate = ch
+        .admit_message_v3_post(gapped_ev(12, 1), &mut fx)
+        .expect("admit legacy duplicate");
+
+    assert!(first.is_some());
+    assert!(duplicate.is_none());
+
+    let failed = first.expect("first event");
+    ch.restore_message_v3_post(failed, &mut fx);
+    assert!(
+        ch.admit_message_v3_post(gapped_ev(12, 1), &mut fx)
+            .expect("retry after failed persist")
+            .is_some(),
+        "失败回执必须释放在途水位，允许同序号补偿重试"
     );
 }

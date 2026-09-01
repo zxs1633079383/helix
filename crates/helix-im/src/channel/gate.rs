@@ -57,6 +57,11 @@ pub struct Channel {
     /// WS 路径直接走 PersistFire（幂等）；sync 路径走 Persist{corr}，
     /// 此 map 记录 corr → commit_target_seq，PortReply Ok 后推进 cursor。
     pub pending_commits: std::collections::HashMap<Correlation, Seq>,
+    /// 实时 canonical/legacy 双帧共享的单事件在途水位。
+    ///
+    /// cursor 只能在持久化成功后推进，因此回执前必须显式占住 `cursor + 1`，
+    /// 防止同一 streamSeq 被两种协议帧重复接纳并产生两次写入/投影。
+    pub pending_stream_seq: Option<Seq>,
     /// 乱序缓冲（contiguous flush 用）
     pub buffer: BTreeMap<Seq, EventEnvelope>,
     /// B1 gate_inflight：同 channel 同时只允许一个在途 sync Http。

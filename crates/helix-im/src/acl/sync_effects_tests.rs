@@ -126,9 +126,9 @@ fn no_revoke_event_means_no_post_revoke() {
     );
 }
 
-/// Hydration 缺少 increment authority 时必须按业务序号重建 durable viewer 未读与频道预览。
+/// Hydration 缺少 memberProjection 时只恢复消息与频道预览，不得按消息数推断未读。
 #[test]
-fn hydration_history_without_increment_authority_rebuilds_durable_viewer_state() {
+fn hydration_history_without_member_projection_does_not_infer_viewer_unread() {
     let mut messages = HashMap::new();
     messages.insert(
         MSG.to_string(),
@@ -152,31 +152,16 @@ fn hydration_history_without_increment_authority_rebuilds_durable_viewer_state()
         None,
     );
 
-    assert_eq!(ops.len(), 4, "type1 hydration 必须生成完整 viewer 写集");
+    assert_eq!(ops.len(), 2, "type1 hydration 只恢复消息与共享频道事实");
     assert!(matches!(&ops[0], StorageOp::BatchUpsert(spec) if spec.table == "message"));
     assert!(matches!(&ops[1], StorageOp::BatchUpdate(spec) if spec.table == "channel"));
-    assert!(matches!(
-        &ops[2],
-        StorageOp::BatchUpsert(spec)
-            if spec.table == "channel_member"
-                && spec.conflict_key == Some("channel_id,user_id")
-                && spec.exclude_from_update == ["unread_count", "last_unread_event_seq"]
-    ));
-    let StorageOp::ScopedGuardedBump(spec) = &ops[3] else {
-        panic!("viewer 未读必须由 ScopedGuardedBump 单调重建");
-    };
-    assert_eq!(spec.table, "channel_member");
-    assert!(matches!(
-        &spec.scope_val,
-        helix_core::effect::SqlValue::Text(value) if value == CH
-    ));
-    assert!(matches!(
-        &spec.key_val,
-        helix_core::effect::SqlValue::Text(value) if value == "viewer"
-    ));
-    assert_eq!(spec.bump_delta, 1);
-    assert_eq!(spec.guard_col, "last_unread_event_seq");
-    assert_eq!(spec.guard_val, 7);
+    assert!(!ops.iter().any(|op| matches!(
+        op,
+        StorageOp::BatchUpsert(spec) if spec.table == "channel_member"
+    ) || matches!(
+        op,
+        StorageOp::ScopedGuardedBump(spec) if spec.table == "channel_member"
+    )));
 }
 
 /// G-06：sync gap 回补的 fat postUpdated 必须保留独立 quick_reply 绝对态。

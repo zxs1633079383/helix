@@ -124,6 +124,10 @@ pub struct EventEnvelope {
     pub occurred_at: i64,
     /// ChannelEvent.payload 原样 JSON；当前撤回合同为空也保留，防后续系统事件扩展被 parser 丢弃。
     pub event_payload: String,
+    /// 同一业务效果在 stream 与 member projection 间的关联键；不参与排序或幂等。
+    pub effect_id: String,
+    /// ACL marker 只占据 stream 位置，不得物化消息或泄露 actor/payload。
+    pub redacted: bool,
     /// ⑤ 未读 +1 决策（在边界 handler 用**原始帧 + auth + 完整 echo 判定**算定，gate 在
     /// apply/flush **两路**统一发出）。`Some` = 该 PostUpsert 落库时一并 `GuardedBump` unread
     /// （已含 sender 豁免 + 可见性 + echo 跳过）；`None` = 不 bump（echo / 非新消息 / 其它 kind /
@@ -165,6 +169,8 @@ impl EventEnvelope {
             actor_id: String::new(),
             occurred_at: 0,
             event_payload: String::new(),
+            effect_id: String::new(),
+            redacted: false,
             unread_bump: None,
             viewer_user_id: String::new(),
             causation_id: None,
@@ -194,6 +200,12 @@ impl EventEnvelope {
         self.actor_id = actor_id.filter(|id| !id.is_empty()).unwrap_or_default();
         self.occurred_at = occurred_at.max(0);
         self.event_payload = event_payload;
+        self
+    }
+
+    pub fn with_effect(mut self, effect_id: Option<String>, redacted: bool) -> Self {
+        self.effect_id = effect_id.filter(|id| !id.is_empty()).unwrap_or_default();
+        self.redacted = redacted;
         self
     }
 
@@ -267,10 +279,18 @@ impl EventKind {
 }
 
 /// sync 响应的 4 种形态
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SyncPersona {
+    pub membership_state: String,
+    pub epoch_start_seq: Option<Seq>,
+    pub epoch_end_seq: Option<Seq>,
+    pub member_projection: Option<serde_json::Value>,
+}
+
 #[derive(Debug)]
 pub enum SyncResponse {
     /// 无新事件（cursor 已是最新）
-    NoChange,
+    NoChange { next_seq: Seq, persona: SyncPersona },
     /// 有事件（列表，≥500 时 needs_continuation=true 需续拉）
     Events {
         events: Vec<EventEnvelope>,
@@ -285,6 +305,7 @@ pub enum SyncResponse {
         /// 但显式锚 nextSeq 防契约漂移（尾部 phantom seq 不进 events 数组时不落后）。
         next_seq: Seq,
         needs_continuation: bool,
+        persona: SyncPersona,
     },
     /// 服务端返回快照（覆盖式 upsert，不先物理删除既有 message）
     Snapshot(ChannelSnapshot),

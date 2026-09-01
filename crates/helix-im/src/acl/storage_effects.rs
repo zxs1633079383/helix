@@ -212,6 +212,49 @@ pub fn upsert_channel_member_channel_op(row: Row) -> Option<StorageOp> {
     }))
 }
 
+/// Canonical member projection persistence: create the composite-key row if needed,
+/// then replace absolute fields only when the server revision moves forward.
+pub fn canonical_member_projection_ops(
+    channel_id: ChannelId,
+    user_id: &str,
+    revision: u64,
+    row: Row,
+) -> Vec<StorageOp> {
+    use helix_core::effect::{ScopedGuardedBumpSpec, SqlValue};
+
+    let baseline = StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel_member",
+        rows: vec![vec![
+            (
+                "channel_id".to_string(),
+                SqlValue::Text(channel_id.as_str().to_string()),
+            ),
+            ("user_id".to_string(), SqlValue::Text(user_id.to_string())),
+        ]],
+        conflict_key: Some("channel_id,user_id"),
+        exclude_from_update: vec!["channel_id", "user_id"],
+    });
+    let set_cols = row
+        .into_iter()
+        .filter(|(column, _)| !matches!(column.as_str(), "channel_id" | "user_id" | "updated_at"))
+        .collect();
+    vec![
+        baseline,
+        StorageOp::ScopedGuardedBump(ScopedGuardedBumpSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text(channel_id.as_str().to_string()),
+            key_col: "user_id",
+            key_val: SqlValue::Text(user_id.to_string()),
+            bump_col: "updated_at",
+            bump_delta: 0,
+            set_cols,
+            guard_col: "projection_revision",
+            guard_val: revision.min(i64::MAX as u64) as i64,
+        }),
+    ]
+}
+
 /// S3 path3：新消息触发 channel 写——未读 +1 SQL 自增 + lastPost 组。
 pub fn bump_channel_unread(upd: &crate::channel_write::PostChannelUpdate) -> Effect {
     Effect::PersistFire {

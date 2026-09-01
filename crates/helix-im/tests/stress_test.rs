@@ -371,9 +371,8 @@ fn stress_gap_5000_sync_backfill() {
         .iter()
         .find_map(|e| match e {
             Effect::PersistAtomic { corr, ops } => {
-                // A3/CAP-9：全 5000 条可见 type1 → message + shared channel lastPost +
-                // viewer member ensure + viewer-scoped unread +1。恢复证据、coverage 与 cursor
-                // 必须在同一 PersistAtomic 内提交，不能夹带写后读。
+                // 全 5000 条可见 type1 只恢复 message + shared channel lastPost；viewer
+                // 未读只接受 memberProjection。恢复证据、coverage 与 cursor 同批提交。
                 use helix_core::effect::StorageOp;
                 let msg_upserts = ops
                     .iter()
@@ -410,13 +409,13 @@ fn stress_gap_5000_sync_backfill() {
                     "5000 条可见 type1 须 5000 message upsert"
                 );
                 assert_eq!(
-                    unread_bumps, GAP as usize,
-                    "A3：5000 条可见 type1 须各 1 条 viewer-scoped 未读 +1（CAP-9 落 DB）"
+                    unread_bumps, 0,
+                    "没有 memberProjection 时不得按消息数量推断 viewer 未读"
                 );
                 assert_eq!(
                     ops.len(),
-                    (GAP as usize) * 5 + 2,
-                    "atomic batch = 5000 × (msg + channel + member + bump + ledger) + coverage + cursor"
+                    (GAP as usize) * 3 + 2,
+                    "atomic batch = 5000 × (msg + channel + ledger) + coverage + cursor"
                 );
                 assert_eq!(cursor_writes, 1, "G-S2/G-S3 cursor 必须与消息同批提交");
                 assert_eq!(ledger_upserts, GAP as usize, "每条远端事件必须有一条恢复证据");

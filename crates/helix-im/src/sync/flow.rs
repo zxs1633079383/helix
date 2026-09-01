@@ -4,6 +4,63 @@ use crate::module::ImModule;
 use crate::state::{ChannelId, CorrelationContext, Seq, SyncTrigger};
 use helix_core::{Effect, EffectSink};
 
+fn append_persona_columns(
+    row: &mut helix_core::effect::Row,
+    persona: &crate::sync_session::SyncPersona,
+) {
+    use helix_core::effect::SqlValue;
+    let seq = |value: Option<Seq>| {
+        SqlValue::Integer(
+            value
+                .map(|seq| seq.0.min(i64::MAX as u64) as i64)
+                .unwrap_or(0),
+        )
+    };
+    row.push((
+        "membership_state".to_string(),
+        SqlValue::Text(persona.membership_state.clone()),
+    ));
+    row.push(("epoch_start_seq".to_string(), seq(persona.epoch_start_seq)));
+    row.push(("epoch_end_seq".to_string(), seq(persona.epoch_end_seq)));
+}
+
+type PreparedSyncProjection = (
+    helix_core::effect::Row,
+    crate::channel_update::MemberChannelUpdate,
+    u64,
+    String,
+);
+
+fn prepare_sync_projection(
+    persona: &crate::sync_session::SyncPersona,
+    channel_id: ChannelId,
+    auth_user_id: &str,
+) -> Result<Option<PreparedSyncProjection>, ImError> {
+    let Some(data) = persona.member_projection.as_ref() else {
+        return Ok(None);
+    };
+    let Some((mut row, projection)) = crate::channel_update::member_channel_from_update_channel(
+        data,
+        channel_id,
+        auth_user_id,
+        0,
+    ) else {
+        return Err(ImError::Parse("invalid sync memberProjection".to_string()));
+    };
+    let revision = projection
+        .projection_revision
+        .filter(|value| *value > 0)
+        .ok_or_else(|| ImError::Parse("sync memberProjection missing revision".to_string()))?;
+    let effect_id = projection
+        .effect_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ImError::Parse("sync memberProjection missing effectId".to_string()))?
+        .to_string();
+    append_persona_columns(&mut row, persona);
+    Ok(Some((row, projection, revision, effect_id)))
+}
+
 impl ImModule {
     /// E3 续拉：Persist 落库成功后，若上批 sync 标记了 needs_continuation，
     /// 以推进后的 cursor（新 fromSeq）发出下一批 sync Http。
@@ -157,7 +214,7 @@ impl ImModule {
             .map_err(|e| ImError::Parse(format!("sync response parse error: {}", e)))?;
 
         match response {
-            SyncResponse::NoChange => {
+            SyncResponse::NoChange { next_seq, persona } => {
                 let local_cursor = self
                     .state
                     .channels
@@ -194,7 +251,9 @@ impl ImModule {
                             ledger_to_seq: cursor,
                             coverage_to_seq: cursor,
                         },
-                        crate::sync_session::AuthorityHead { event_seq: cursor },
+                        crate::sync_session::AuthorityHead {
+                            event_seq: next_seq,
+                        },
                     );
                     crate::offline_sync_info!(trace_enabled,
                         hop = "recovery.compare",
@@ -206,6 +265,32 @@ impl ImModule {
                         "recovery no-change comparison completed without VM content"
                     );
                 }
+                if let Some((row, expected, revision, effect_id)) = prepare_sync_projection(
+                    &persona,
+                    channel_id,
+                    self.config.auth_user_id.as_str(),
+                )? {
+                    let projection_corr = self.alloc_corr_internal();
+                    let auth_user_id = self.config.auth_user_id.as_str();
+                    self.state.corr_map.insert(
+                        projection_corr,
+                        crate::state::CorrelationContext::MemberProjectionPersist {
+                            channel_id,
+                            expected_revision: revision,
+                            expected_effect_id: effect_id,
+                            expected_projection: Box::new(expected),
+                        },
+                    );
+                    out.push(Effect::PersistAtomic {
+                        corr: projection_corr,
+                        ops: crate::acl::to_effect::canonical_member_projection_ops(
+                            channel_id,
+                            auth_user_id,
+                            revision,
+                            row,
+                        ),
+                    });
+                }
                 self.finish_increment_hydration(channel_id, out)?;
             }
             SyncResponse::Events {
@@ -213,6 +298,7 @@ impl ImModule {
                 messages,
                 next_seq,
                 needs_continuation,
+                persona,
             } => {
                 let track_id = crate::acl::sync_http_effects::sync_track_id(corr);
                 let type_counts = crate::sync::observability::event_type_counts(&events);
@@ -338,6 +424,7 @@ impl ImModule {
                         messages,
                         next_seq,
                         needs_continuation,
+                        persona,
                         out,
                     );
                 }
@@ -426,11 +513,8 @@ impl ImModule {
                     from_seq,
                     persist_corr.raw()
                 );
-                let channel_updates = crate::acl::to_effect::sync_channel_update_plans(
-                    &events,
-                    &messages,
-                    auth_user_id,
-                );
+                let member_projection =
+                    prepare_sync_projection(&persona, channel_id, auth_user_id)?;
                 let pending_send_reconciliations =
                     crate::acl::to_effect::pending_send_reconciliations(
                         &events,
@@ -455,6 +539,14 @@ impl ImModule {
                         },
                         Some(&observation),
                     );
+                if let Some((row, _, revision, _)) = member_projection.as_ref() {
+                    persist_ops.extend(crate::acl::to_effect::canonical_member_projection_ops(
+                        channel_id,
+                        auth_user_id,
+                        *revision,
+                        row.clone(),
+                    ));
+                }
                 // Chain facts arrive inside the same channel-event payload as ordinary message
                 // facts. Extend this write set before the cursor op so a replay can never commit
                 // the channel sequence without its canonical chain projection.
@@ -596,11 +688,7 @@ impl ImModule {
                         channel_id,
                         trigger,
                         wants_continuation: needs_continuation,
-                        channel_updates: if trigger == SyncTrigger::Hydration {
-                            Vec::new()
-                        } else {
-                            channel_updates
-                        },
+                        channel_updates: Vec::new(),
                         pending_domain_events,
                         pending_chain_event_ids,
                         pending_send_reconciliations: if trigger == SyncTrigger::Hydration {
@@ -608,6 +696,8 @@ impl ImModule {
                         } else {
                             pending_send_reconciliations
                         },
+                        member_projection: member_projection
+                            .map(|(_, projection, _, _)| Box::new(projection)),
                     },
                 );
             }
@@ -702,6 +792,7 @@ impl ImModule {
                         pending_domain_events: Vec::new(),
                         pending_chain_event_ids: Vec::new(),
                         pending_send_reconciliations: Vec::new(),
+                        member_projection: None,
                     },
                 );
             }
@@ -729,6 +820,7 @@ impl ImModule {
         messages: std::collections::HashMap<String, crate::sync_session::PostFields>,
         next_seq: Seq,
         needs_continuation: bool,
+        persona: crate::sync_session::SyncPersona,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let trace_enabled = self.config.offline_sync_diagnostics.trace;
@@ -816,7 +908,16 @@ impl ImModule {
             },
             Some(&observation),
         );
-        // terminal prefix 与普通 Sync 共用 type=1 编译器，不再追加共享 channel 未读。
+        let member_projection = prepare_sync_projection(&persona, channel_id, auth_user_id)?;
+        if let Some((row, _, revision, _)) = member_projection.as_ref() {
+            ops.extend(crate::acl::to_effect::canonical_member_projection_ops(
+                channel_id,
+                auth_user_id,
+                *revision,
+                row.clone(),
+            ));
+        }
+        // terminal prefix 与普通 Sync 共用绝对 memberProjection，不再追加共享 channel 未读。
         // Terminal batches can contain ordinary chain events before type7. Keep their durable
         // projection in the same transaction as the prefix messages and terminal tombstone.
         let mut chain_domain_events = Vec::new();
@@ -906,6 +1007,8 @@ impl ImModule {
                 trigger,
                 pending_domain_events,
                 pending_chain_event_ids,
+                member_projection: member_projection
+                    .map(|(_, projection, _, _)| Box::new(projection)),
             },
         );
         Ok(())

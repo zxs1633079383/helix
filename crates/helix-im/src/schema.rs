@@ -275,6 +275,11 @@ END",
         msg_count_root INTEGER NOT NULL DEFAULT 0,\
         msg_count_private INTEGER NOT NULL DEFAULT 0,\
         last_read_seq INTEGER NOT NULL DEFAULT 0,\
+        projection_revision INTEGER NOT NULL DEFAULT 0,\
+        effect_id TEXT NOT NULL DEFAULT '',\
+        membership_state TEXT NOT NULL DEFAULT '',\
+        epoch_start_seq INTEGER NOT NULL DEFAULT 0,\
+        epoch_end_seq INTEGER NOT NULL DEFAULT 0,\
         PRIMARY KEY (channel_id, user_id)\
     )",
     "CREATE INDEX IF NOT EXISTS idx_channel_member_user ON channel_member(user_id)",
@@ -508,6 +513,11 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE channel_member ADD COLUMN last_read_seq INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN channel_is_top INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN notify TEXT NOT NULL DEFAULT 'NORMAL'",
+    "ALTER TABLE channel_member ADD COLUMN projection_revision INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN effect_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel_member ADD COLUMN membership_state TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel_member ADD COLUMN epoch_start_seq INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN epoch_end_seq INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_event_cursor ADD COLUMN terminal_event_seq INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE chain_summary ADD COLUMN title TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE chain_summary ADD COLUMN description TEXT NOT NULL DEFAULT ''",

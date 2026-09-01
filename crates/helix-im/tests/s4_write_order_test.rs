@@ -60,9 +60,9 @@ fn classify(op: &StorageOp) -> OpKind {
     }
 }
 
-/// 回归锚：Sync type=1 必须与在线 Post 共用 viewer-scoped dialog 原子写集。
+/// 回归锚：Sync type=1 恢复消息与频道预览，viewer 未读只接受 memberProjection。
 #[test]
-fn sync_type1_compiles_message_channel_and_viewer_member_in_one_batch() {
+fn sync_type1_without_projection_does_not_write_viewer_member() {
     let reply =
         sync_reply_events_with_messages(1, &[ev(1, 1, "m1")], &[("m1", "first unread", "")], 1);
     let (events, messages) = parse_evs(&reply, 1);
@@ -80,20 +80,14 @@ fn sync_type1_compiles_message_channel_and_viewer_member_in_one_batch() {
         "type=1 必须在同一写集推进共享 channel lastPost"
     );
     assert!(
-        ops.iter()
-            .any(|op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "channel_member")),
-        "type=1 必须在同一写集确保当前 viewer 的 channel_member 行存在"
-    );
-    assert!(
-        ops.iter().any(|op| matches!(
+        !ops.iter().any(|op| matches!(
             op,
-            StorageOp::ScopedGuardedBump(spec)
-                if spec.table == "channel_member"
-                    && spec.scope_col == "channel_id"
-                    && spec.key_col == "user_id"
-                    && spec.bump_col == "unread_count"
+            StorageOp::BatchUpsert(spec) if spec.table == "channel_member"
+        ) || matches!(
+            op,
+            StorageOp::ScopedGuardedBump(spec) if spec.table == "channel_member"
         )),
-        "他人可见消息必须按 (channel_id,user_id) 守卫递增 viewer 未读"
+        "缺少 memberProjection 时不得写 viewer 成员未读"
     );
     assert!(
         !ops.iter()
@@ -102,9 +96,9 @@ fn sync_type1_compiles_message_channel_and_viewer_member_in_one_batch() {
     );
 }
 
-/// 回归锚：Sync 提交成功后不依赖时间线 attach，必须读回 viewer member 绝对态。
+/// 回归锚：缺少 memberProjection 的 Sync 提交后不得读回并发布陈旧 viewer 未读。
 #[test]
-fn sync_type1_persist_ok_reads_viewer_member_for_unattached_channel() {
+fn sync_type1_without_projection_does_not_read_back_viewer_member() {
     use helix_core::effect::Effect;
 
     let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
@@ -130,7 +124,7 @@ fn sync_type1_persist_ok_reads_viewer_member_for_unattached_channel() {
     h.step(port_reply_ok(persist_corr), 2_001);
 
     assert!(
-        h.sink.as_slice().iter().any(|effect| matches!(
+        !h.sink.as_slice().iter().any(|effect| matches!(
             effect,
             Effect::Persist { ops, .. }
                 if matches!(ops.as_slice(), [StorageOp::ScopedGet(spec)]
@@ -138,49 +132,8 @@ fn sync_type1_persist_ok_reads_viewer_member_for_unattached_channel() {
                         && spec.scope_col == "channel_id"
                         && spec.key_col == "user_id")
         )),
-        "未 attach 的 A 群也必须按 (channel_id,user_id) 读回 viewer 未读绝对态"
+        "没有 memberProjection 时不得读回并发布可能陈旧的 viewer 未读"
     );
-    let readback_corr = h
-        .sink
-        .as_slice()
-        .iter()
-        .find_map(|effect| match effect {
-            Effect::Persist { corr, ops }
-                if matches!(ops.as_slice(), [StorageOp::ScopedGet(spec)]
-                    if spec.table == "channel_member") =>
-            {
-                Some(corr.raw())
-            }
-            _ => None,
-        })
-        .expect("必须保留 member readback corr");
-    let member_rows = bytes::Bytes::from(
-        serde_json::to_vec(&serde_json::json!([{
-            "channel_id": cid(1),
-            "user_id": "viewer-444",
-            "unread_count": 1,
-            "last_post": serde_json::json!({"id": "m1", "message": "first unread"}).to_string()
-        }]))
-        .expect("serialize member readback"),
-    );
-
-    h.step(port_reply_with_body(readback_corr, member_rows), 2_002);
-    let projected: Vec<serde_json::Value> = h
-        .sink
-        .as_slice()
-        .iter()
-        .filter_map(|effect| match effect {
-            Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).ok(),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(
-        projected.len(),
-        1,
-        "Sync dialog readback 只能发布一个终态事件"
-    );
-    assert_eq!(projected[0]["event"], "im:channel:update");
-    assert_eq!(projected[0]["data"]["unreadCount"], 1);
 }
 
 /// 回归锚: S4 —— 同批 type1 + type6（同 msg）→ type1 upsert 必须排在 type6 read 之前。

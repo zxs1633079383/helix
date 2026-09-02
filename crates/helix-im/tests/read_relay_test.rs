@@ -104,6 +104,85 @@ fn read_command_registers_relay_and_emits_result() {
     assert!(v["data"].get("error").is_none(), "成功路径不带 error");
 }
 
+/// 置顶详情首次走权威 HTTP，必须在本地绝对投影 PersistOk 后回灌；后续 query 只读本地。
+#[test]
+fn pinned_authority_read_persists_before_local_replay() {
+    use helix_core::effect::{Row, SqlValue, StorageOp};
+    use helix_core::port_codec::rows_to_reply_bytes;
+
+    let channel_id = "ch00000000000000000000000a";
+    let mut h = Harness::new_with_identity(&[], "user-a", "company-a", "", "", "");
+    h.step(
+        outbound_cmd(
+            "im_channel_load_post_pinned",
+            serde_json::json!({ "channel_id": channel_id, "req_id": "pin-http-1" }),
+        ),
+        1000,
+    );
+    let http = http_corr(&h.sink).expect("pinned miss authority read emits HTTP");
+    let authority = bytes::Bytes::from(
+        serde_json::to_vec(&serde_json::json!({
+            "status": "SUCCESS",
+            "data": [{ "post": { "id": "post-1" }, "operator": "user-a" }]
+        }))
+        .unwrap(),
+    );
+
+    let kinds = h.step(
+        port_reply_with_body(http, enveloped(authority.clone())),
+        1001,
+    );
+    let persist = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("authority body waits for durable projection");
+    assert!(emit_json(&h.sink).is_none(), "PersistOk 前不得回灌结果");
+    assert!(h.sink.as_slice().iter().any(|effect| matches!(
+        effect,
+        Effect::Persist { ops, .. }
+            if matches!(ops.first(), Some(StorageOp::BatchUpsert(spec)) if spec.table == "channel_pinned_projection")
+    )));
+
+    h.step(port_reply_ok(persist), 1002);
+    let emitted = emit_json(&h.sink).expect("PersistOk 后回灌 authority body");
+    assert_eq!(emitted["data"]["body"]["data"][0]["post"]["id"], "post-1");
+
+    h.step(
+        outbound_cmd(
+            "im_query_pinned_projection",
+            serde_json::json!({ "channel_id": channel_id, "req_id": "pin-local-1" }),
+        ),
+        1003,
+    );
+    let local_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { corr, ops }
+            if matches!(ops.first(), Some(StorageOp::Get(spec)) if spec.table == "channel_pinned_projection") => Some(corr.raw()),
+        _ => None,
+    }).expect("warm pinned query uses local Get");
+    let row: Row = vec![(
+        "body".to_string(),
+        SqlValue::Text(String::from_utf8(authority.to_vec()).unwrap()),
+    )];
+    h.step(
+        port_reply_with_body(local_corr, rows_to_reply_bytes(&[row])),
+        1004,
+    );
+    let cached = emit_json(&h.sink).expect("local projection returns typed result");
+    assert_eq!(cached["data"]["body"]["cached"], true);
+    assert_eq!(
+        cached["data"]["body"]["body"]["data"][0]["post"]["id"],
+        "post-1"
+    );
+    assert!(!h
+        .sink
+        .as_slice()
+        .iter()
+        .any(|effect| matches!(effect, Effect::Http { .. })));
+}
+
 /// 聚合搜索必须走读回 correlation，并把 Go 三段结果作为权威 JSON 原样交付。
 #[test]
 fn search_do_registers_relay_and_passes_three_sections_through() {

@@ -962,6 +962,41 @@ impl ImModule {
                 }
             },
 
+            CorrelationContext::ChannelViewSnapshotQuery {
+                channel_id,
+                causation_id,
+                auth_user_id,
+                company_id,
+            } => {
+                let body = match outcome {
+                    PortOutcome::Ok(reply)
+                        if self.config.auth_user_id == auth_user_id
+                            && self.config.company_id == company_id =>
+                    {
+                        crate::query::channel_view_snapshot::result_body(
+                            reply.0.as_ref(),
+                            &crate::query::DialogListScope::new(
+                                auth_user_id.as_str(),
+                                company_id.as_str(),
+                            ),
+                            channel_id,
+                        )
+                    }
+                    PortOutcome::Ok(_) => {
+                        tracing::warn!("channel view snapshot identity changed; returning miss");
+                        serde_json::json!({ "snapshot": null })
+                    }
+                    PortOutcome::Err(error) => {
+                        tracing::warn!(error = ?error, "channel view snapshot read failed");
+                        serde_json::json!({ "snapshot": null })
+                    }
+                };
+                out.push(crate::query::read_relay::emit_read_body(
+                    causation_id.as_deref().unwrap_or_default(),
+                    body,
+                ));
+            }
+
             // 兼容仍在迁移中的旧两段 dialog/member 绝对投影回读；生产入口已统一走 typed Result。
             CorrelationContext::DialogListMemberSnapshot {
                 channel_rows,
@@ -1030,6 +1065,47 @@ impl ImModule {
                     ));
                 }
             },
+
+            CorrelationContext::PinnedProjectionQuery { req_id, channel_id } => {
+                let body = match outcome {
+                    PortOutcome::Ok(reply) => {
+                        crate::query::pinned_projection::result_body(&reply.0)?
+                    }
+                    PortOutcome::Err(error) => {
+                        tracing::warn!(channel_id = channel_id.as_str(), error = ?error, "pinned projection read failed");
+                        serde_json::json!({ "cached": false })
+                    }
+                };
+                out.push(crate::read_relay::emit_read_body(req_id.as_str(), body));
+            }
+
+            CorrelationContext::OutboundPinnedReply {
+                req_id,
+                account_id,
+                channel_id,
+                projection_key,
+                epoch,
+            } => {
+                self.handle_outbound_pinned_reply(
+                    req_id,
+                    account_id,
+                    channel_id,
+                    projection_key,
+                    epoch,
+                    outcome,
+                    out,
+                )?;
+            }
+
+            CorrelationContext::PinnedProjectionPersist { req_id, raw_body } => {
+                if let PortOutcome::Err(error) = outcome {
+                    tracing::warn!(error = ?error, "pinned projection persist failed; returning authority body without cache");
+                }
+                out.push(crate::read_relay::emit_read_result(
+                    req_id.as_str(),
+                    raw_body.as_slice(),
+                ));
+            }
 
             // spec06 缺陷A：读族 outbound HTTP 回报 → 透传响应体回灌前端（杀 fire-and-forget 丢响应）。
             // Ok → 剥 ADR-007 信封（base64 body）得裸后端响应体 → emit `im:read:result{req_id, body}`

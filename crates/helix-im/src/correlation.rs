@@ -440,6 +440,14 @@ pub enum CorrelationContext {
     /// UC-3 `im_query_dialog_list` Scan 回报 → emit channel list 与 viewer read 绝对态。
     DialogListQuery { causation_id: Option<String> },
 
+    /// 切群本地 ChannelViewSnapshot 单行回读；身份只来自 RuntimeAuth。
+    ChannelViewSnapshotQuery {
+        channel_id: ChannelId,
+        causation_id: Option<String>,
+        auth_user_id: String,
+        company_id: String,
+    },
+
     /// UC-3 首段 channel 行快照，等待当前 viewer 的 channel_member 置顶回读后合并发布。
     DialogListMemberSnapshot {
         channel_rows: Box<Vec<serde_json::Value>>,
@@ -452,6 +460,24 @@ pub enum CorrelationContext {
         parent_channel_id: ChannelId,
         causation_id: Option<String>,
     },
+
+    /// 切群置顶详情只读本地账号级绝对投影。
+    PinnedProjectionQuery {
+        req_id: String,
+        channel_id: ChannelId,
+    },
+
+    /// 首次置顶权威 HTTP 回包；epoch 防止迟到旧列表覆盖更新后的频道。
+    OutboundPinnedReply {
+        req_id: String,
+        account_id: String,
+        channel_id: ChannelId,
+        projection_key: String,
+        epoch: u64,
+    },
+
+    /// 置顶权威列表已进入 durable 单行投影，PersistOk 后才回灌调用方。
+    PinnedProjectionPersist { req_id: String, raw_body: Vec<u8> },
 
     /// spec06 缺陷A：读族 outbound **HTTP** 回报（request-response 回灌）。
     ///

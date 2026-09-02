@@ -154,6 +154,12 @@ impl WsMessageHandler for PostHandler {
         if let Some((persist, emit)) = pin_effect {
             // Pin notice 属独立 post-update Gate；G-01 普通 TEXT 不会进入此分支。
             out.push(persist);
+            if let Some(effect) = ctx
+                .state
+                .invalidate_pinned_projection(ctx.auth_user_id, ingest_channel)
+            {
+                out.push(effect);
+            }
             out.push(emit);
         }
 

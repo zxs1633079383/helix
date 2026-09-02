@@ -39,6 +39,9 @@ impl WsMessageHandler for PostPinHandler {
             return Ok(());
         };
         ctx.state.invalidate_recent_message_coverage(channel_id);
+        let pinned_projection_invalidation = ctx
+            .state
+            .invalidate_pinned_projection(ctx.auth_user_id, channel_id);
         let Some(post_id) = data
             .get("postId")
             .or_else(|| data.get("post_id"))
@@ -64,6 +67,9 @@ impl WsMessageHandler for PostPinHandler {
         out.push(helix_core::Effect::PersistFire {
             ops: vec![crate::channel::pin_state_op(post_id, pinned)],
         });
+        if let Some(effect) = pinned_projection_invalidation {
+            out.push(effect);
+        }
         Ok(())
     }
 }

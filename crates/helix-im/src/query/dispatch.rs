@@ -51,6 +51,28 @@ impl ImModule {
                 );
                 out.push(effect);
             }
+            crate::query::channel_view_snapshot::QUERY_CHANNEL_VIEW_SNAPSHOT => {
+                let channel_id = crate::query::channel_view_snapshot::parse_channel_id(payload)?;
+                if self.config.auth_user_id.is_empty() || self.config.company_id.is_empty() {
+                    return Err(crate::error::ImError::Parse(
+                        "im_query_channel_view_snapshot requires RuntimeAuth user and company"
+                            .into(),
+                    ));
+                }
+                let corr = self.alloc_corr_internal();
+                self.state.corr_map.insert(
+                    corr,
+                    CorrelationContext::ChannelViewSnapshotQuery {
+                        channel_id,
+                        causation_id: crate::query::read_relay::read_req_id(payload),
+                        auth_user_id: self.config.auth_user_id.clone(),
+                        company_id: self.config.company_id.clone(),
+                    },
+                );
+                out.push(crate::query::channel_view_snapshot::query_effect(
+                    channel_id, corr,
+                ));
+            }
             "im_query_subtopics" => {
                 // G13d：只按 RuntimeAuth 查询本地 parent/topic 关系；空 parent 直接 typed-empty。
                 let req_id = crate::query::read_relay::read_req_id(payload);
@@ -95,6 +117,22 @@ impl ImModule {
                     },
                 );
                 out.push(effect);
+            }
+            crate::query::pinned_projection::QUERY_PINNED_PROJECTION => {
+                let req_id = crate::query::read_relay::read_req_id(payload).ok_or_else(|| {
+                    ImError::Parse("im_query_pinned_projection requires req_id".to_string())
+                })?;
+                let channel_id = crate::query::pinned_projection::parse_channel_id(payload)?;
+                let key = crate::query::pinned_projection::projection_key(
+                    self.config.auth_user_id.as_str(),
+                    channel_id,
+                )?;
+                let corr = self.alloc_corr_internal();
+                self.state.corr_map.insert(
+                    corr,
+                    CorrelationContext::PinnedProjectionQuery { req_id, channel_id },
+                );
+                out.push(crate::query::pinned_projection::query_effect(key, corr));
             }
             "im_delete_all_dialogs" => {
                 // 内存 channel gate 清空（core 拥有的状态；物理 DELETE 留待 truncate 原语，query.rs）。
@@ -381,6 +419,85 @@ mod phase2_contract_tests {
                 ..
             }) if request.limit == 20 && request.channel_id.as_str() == CHANNEL_ID
         ));
+    }
+
+    /// 置顶查询只发账号级本地 Get，不允许在 query 热路径产生 HTTP。
+    #[test]
+    fn pinned_projection_query_registers_local_get() {
+        let mut config = crate::module::ImConfig::default();
+        config.auth_user_id = "user-a".to_string();
+        let mut module = ImModule::new(config);
+        let mut out = EffectSink::new();
+
+        module
+            .handle_query_command(
+                crate::query::pinned_projection::QUERY_PINNED_PROJECTION,
+                br#"{"channel_id":"chfixx0000000000000000002a","req_id":"pin-local-1"}"#,
+                &mut out,
+            )
+            .expect("pinned local query accepted");
+
+        let Some(Effect::Persist { corr, ops }) = out.as_slice().first() else {
+            panic!("pinned local query must emit Persist Get");
+        };
+        assert!(matches!(
+            ops.first(),
+            Some(helix_core::effect::StorageOp::Get(spec))
+                if spec.table == "channel_pinned_projection"
+                    && spec.key_col == "projection_key"
+        ));
+        assert!(matches!(
+            module.state.corr_map.get(corr),
+            Some(CorrelationContext::PinnedProjectionQuery { req_id, channel_id })
+                if req_id == "pin-local-1" && channel_id.as_str() == CHANNEL_ID
+        ));
+        assert!(!out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Http { .. } | Effect::HttpFire { .. })));
+    }
+
+    /// ChannelViewSnapshot 只读 canonical channel 行，账号与租户来自 RuntimeAuth。
+    #[test]
+    fn channel_view_snapshot_registers_scoped_local_get() {
+        let mut config = crate::module::ImConfig::default();
+        config.auth_user_id = "user-a".to_string();
+        config.company_id = "team-a".to_string();
+        let mut module = ImModule::new(config);
+        let mut out = EffectSink::new();
+
+        module
+            .handle_query_command(
+                crate::query::channel_view_snapshot::QUERY_CHANNEL_VIEW_SNAPSHOT,
+                br#"{"channelId":"chfixx0000000000000000002a","req_id":"view-local-1"}"#,
+                &mut out,
+            )
+            .expect("channel view local query accepted");
+
+        let Some(Effect::Persist { corr, ops }) = out.as_slice().first() else {
+            panic!("channel view query must emit Persist Get");
+        };
+        assert!(matches!(
+            ops.first(),
+            Some(helix_core::effect::StorageOp::Get(spec))
+                if spec.table == "channel" && spec.key_col == "id"
+        ));
+        assert!(matches!(
+            module.state.corr_map.get(corr),
+            Some(CorrelationContext::ChannelViewSnapshotQuery {
+                channel_id,
+                causation_id,
+                auth_user_id,
+                company_id,
+            }) if channel_id.as_str() == CHANNEL_ID
+                && causation_id.as_deref() == Some("view-local-1")
+                && auth_user_id == "user-a"
+                && company_id == "team-a"
+        ));
+        assert!(!out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Http { .. } | Effect::HttpFire { .. })));
     }
 
     /// 账号/会话边界必须使旧窗口代际失效，避免迟到回包污染新身份。

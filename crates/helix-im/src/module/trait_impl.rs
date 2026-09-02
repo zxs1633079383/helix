@@ -306,6 +306,39 @@ impl Module for ImModule {
                                 CorrelationContext::OutboundReplies { request }
                             } else if name == "im_post_read_list" {
                                 CorrelationContext::OutboundPostReaders { req_id }
+                            } else if name == "im_channel_load_post_pinned" {
+                                let channel_id = crate::query::pinned_projection::parse_channel_id(
+                                    cmd.payload.as_ref(),
+                                )
+                                .map_err(|error| CoreError::ModuleError {
+                                    module: self.name(),
+                                    source: Box::new(error),
+                                })?;
+                                let account_id = self.config.auth_user_id.clone();
+                                let projection_key =
+                                    crate::query::pinned_projection::projection_key(
+                                        account_id.as_str(),
+                                        channel_id,
+                                    )
+                                    .map_err(|error| {
+                                        CoreError::ModuleError {
+                                            module: self.name(),
+                                            source: Box::new(error),
+                                        }
+                                    })?;
+                                let epoch = self
+                                    .state
+                                    .pinned_projection_epochs
+                                    .get(&channel_id)
+                                    .copied()
+                                    .unwrap_or(0);
+                                CorrelationContext::OutboundPinnedReply {
+                                    req_id,
+                                    account_id,
+                                    channel_id,
+                                    projection_key,
+                                    epoch,
+                                }
                             } else {
                                 let channel_id = serde_json::from_slice::<serde_json::Value>(
                                     cmd.payload.as_ref(),

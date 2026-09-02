@@ -767,6 +767,67 @@ impl ImModule {
         ))
     }
 
+    /// 置顶权威读取先过失效代次，再持久化绝对集合并回灌原请求。
+    pub(super) fn handle_outbound_pinned_reply(
+        &mut self,
+        req_id: String,
+        account_id: String,
+        channel_id: crate::state::ChannelId,
+        projection_key: String,
+        epoch: u64,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let PortOutcome::Ok(reply) = outcome else {
+            out.push(crate::read_relay::emit_read_error(
+                req_id.as_str(),
+                "http request failed",
+            ));
+            return Ok(());
+        };
+        let raw_body = match unwrap_sync_envelope(reply.0.as_ref()) {
+            Ok(body) => body,
+            Err(error) => {
+                tracing::warn!(req_id, error = ?error, "pinned read envelope decode failed");
+                out.push(crate::read_relay::emit_read_error(
+                    req_id.as_str(),
+                    "response envelope decode failed",
+                ));
+                return Ok(());
+            }
+        };
+        let current_epoch = self
+            .state
+            .pinned_projection_epochs
+            .get(&channel_id)
+            .copied()
+            .unwrap_or(0);
+        if current_epoch != epoch {
+            out.push(crate::read_relay::emit_read_result(
+                req_id.as_str(),
+                raw_body.as_ref(),
+            ));
+            return Ok(());
+        }
+        let corr = self.alloc_corr_internal();
+        let persist = crate::query::pinned_projection::persist_effect(
+            projection_key,
+            account_id,
+            channel_id,
+            raw_body.as_ref(),
+            corr,
+        )?;
+        self.state.corr_map.insert(
+            corr,
+            crate::state::CorrelationContext::PinnedProjectionPersist {
+                req_id,
+                raw_body: raw_body.to_vec(),
+            },
+        );
+        out.push(persist);
+        Ok(())
+    }
+
     /// 通用 HTTP 读回按命令身份投影，并保留原始 req_id 完成 Host 调用。
     pub(super) fn handle_outbound_read_reply(
         &mut self,

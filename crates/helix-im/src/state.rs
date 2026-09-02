@@ -304,11 +304,27 @@ pub struct ImState {
     /// 已发起但尚未收到绝对列表的公告重拉版本；抑制重复/旧 changed 通知。
     pub(crate) announcement_reload_versions: BTreeMap<ChannelId, u64>,
 
+    /// 每频道置顶集合失效代次；阻止 pin/unpin 后迟到的旧 HTTP 列表重新落库。
+    pub(crate) pinned_projection_epochs: BTreeMap<ChannelId, u64>,
+
     /// coverage 会话代号；hello/disconnect 递增，旧回包不得污染新会话。
     pub(crate) query_session_epoch: u64,
 }
 
 impl ImState {
+    /// 失效一个频道的置顶绝对集合，并推进代次使旧 HTTP 回包不能重新落库。
+    pub(crate) fn invalidate_pinned_projection(
+        &mut self,
+        account_id: &str,
+        channel_id: ChannelId,
+    ) -> Option<helix_core::Effect> {
+        let epoch = self.pinned_projection_epochs.entry(channel_id).or_default();
+        *epoch = epoch.wrapping_add(1);
+        crate::query::pinned_projection::projection_key(account_id, channel_id)
+            .ok()
+            .map(|key| crate::query::pinned_projection::invalidate_effect(account_id, key))
+    }
+
     /// 分配下一个出站 WS 消息序号（从 1 开始单调递增）。
     pub fn next_client_seq(&mut self) -> u64 {
         self.client_seq += 1;
@@ -393,6 +409,7 @@ impl ImState {
             committed_post_reads: BTreeMap::new(),
             announcement_versions: BTreeMap::new(),
             announcement_reload_versions: BTreeMap::new(),
+            pinned_projection_epochs: BTreeMap::new(),
             query_session_epoch: 0,
         }
     }
@@ -444,6 +461,7 @@ impl ImState {
         // 会丢掉 temporaryId 对账入口。
         self.drop_query_session_correlations(true);
         self.announcement_reload_versions.clear();
+        self.pinned_projection_epochs.clear();
     }
 
     /// 完整 query/session reset 同时撤销旧查询回包。

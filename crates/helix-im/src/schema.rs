@@ -36,6 +36,11 @@ pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
         scope_col: Some("channel_id"),
     },
     SparseTableSpec {
+        table: "channel_pinned_projection",
+        identity_cols: &["projection_key"],
+        scope_col: Some("account_id"),
+    },
+    SparseTableSpec {
         table: "channel_member",
         identity_cols: &["channel_id", "user_id"],
         scope_col: Some("channel_id"),
@@ -355,6 +360,14 @@ END",
         updated_at INTEGER NOT NULL DEFAULT 0\
     )",
     "CREATE INDEX IF NOT EXISTS idx_post_receipt_post_id ON post_receipt(post_id)",
+    // Pinned details are an account-scoped absolute read projection populated by the authority read.
+    "CREATE TABLE IF NOT EXISTS channel_pinned_projection (\
+        projection_key TEXT PRIMARY KEY,\
+        account_id TEXT NOT NULL,\
+        channel_id TEXT NOT NULL,\
+        body TEXT NOT NULL DEFAULT '[]'\
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_channel_pinned_account_channel ON channel_pinned_projection(account_id, channel_id)",
     // Draft is account-scoped local state and never emits a MessageV3 business event.
     "CREATE TABLE IF NOT EXISTS message_draft (\
         account_id TEXT NOT NULL,\
@@ -485,6 +498,8 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "CREATE INDEX IF NOT EXISTS idx_receiver_snapshot_temporary_id ON receiver_snapshot(temporary_id)",
     "CREATE TABLE IF NOT EXISTS post_receipt (snapshot_id TEXT PRIMARY KEY, post_id TEXT NOT NULL, channel_id TEXT NOT NULL, read_bits TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL DEFAULT 0)",
     "CREATE INDEX IF NOT EXISTS idx_post_receipt_post_id ON post_receipt(post_id)",
+    "CREATE TABLE IF NOT EXISTS channel_pinned_projection (projection_key TEXT PRIMARY KEY, account_id TEXT NOT NULL, channel_id TEXT NOT NULL, body TEXT NOT NULL DEFAULT '[]')",
+    "CREATE INDEX IF NOT EXISTS idx_channel_pinned_account_channel ON channel_pinned_projection(account_id, channel_id)",
     "CREATE TABLE IF NOT EXISTS message_draft (account_id TEXT NOT NULL, channel_id TEXT NOT NULL, text TEXT NOT NULL DEFAULT '', props TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (account_id, channel_id))",
     "CREATE TABLE IF NOT EXISTS media_handle (account_id TEXT NOT NULL, handle TEXT NOT NULL, client_stream_id TEXT NOT NULL, file_name TEXT NOT NULL, content_type TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL, metadata TEXT NOT NULL DEFAULT '{}', staged_path TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (account_id, handle))",
     "ALTER TABLE pending_media ADD COLUMN account_id TEXT NOT NULL DEFAULT ''",

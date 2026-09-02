@@ -34,9 +34,11 @@ pub const QUERY_COMMAND_NAMES: &[&str] = &[
     "im_query_messages_by_channel",
     "im_delete_all_dialogs",
     "im_query_dialog_list",
+    crate::query::channel_view_snapshot::QUERY_CHANNEL_VIEW_SNAPSHOT,
     "im_query_channel_sync_page",
     "im_complete_channel_sync",
     "im_query_subtopics",
+    crate::query::pinned_projection::QUERY_PINNED_PROJECTION,
     crate::older_context::LOAD_OLDER_CONTEXT,
     crate::timeline_navigation::LOAD_NEWER_CONTEXT,
     crate::timeline_navigation::LOCATE_MESSAGE,
@@ -444,6 +446,25 @@ pub fn project_dialog_list_items(
                 .then(|| super::render_ready::channel::shape_channel_row(&row))
         })
         .collect()
+}
+
+/// 将单个本地 channel 行收敛为当前 RuntimeAuth 可见的 ChannelViewSnapshot。
+pub fn project_channel_view_snapshot(
+    reply_bytes: &[u8],
+    scope: &DialogListScope,
+    channel_id: ChannelId,
+) -> Option<serde_json::Value> {
+    let serde_json::Value::Array(rows) = serde_json::from_slice(reply_bytes).ok()? else {
+        return None;
+    };
+    rows.into_iter().find_map(|row| {
+        let id = row
+            .get("id")
+            .or_else(|| row.get("channel_id"))
+            .and_then(serde_json::Value::as_str)?;
+        (id == channel_id.as_str() && dialog_row_visible(&row, scope))
+            .then(|| super::render_ready::channel::shape_channel_row(&row))
+    })
 }
 
 /// 把单次 local Scan 包成唯一的 `im:read:result` command Result。

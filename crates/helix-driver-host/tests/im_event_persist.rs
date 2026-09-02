@@ -634,8 +634,8 @@ async fn sync_notify_wire_round_trips_rich_fields_into_sqlite() {
     let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "678");
     assert_eq!(
         ops.len(),
-        6,
-        "sender 视角写集 = type1(message+channel+member) + type2 patch + type6 双更新"
+        4,
+        "sender 视角写集 = type1(message+channel) + type2 patch + type6 readBits；未读只接受 memberProjection"
     );
     for op in &ops {
         assert!(

@@ -38,7 +38,7 @@
     <table>
       <thead><tr><th>项目/平面</th><th>本轮值</th><th>用途与边界</th></tr></thead>
       <tbody>
-        <tr><td>Helix 写入工作树</td><td><code>/System/Volumes/Data/workspace/worktrees/0901-remote-merge-helix</code><br>分支 <code>codex/0901-remote-merge-helix</code><br>HEAD <code>139f98260ea1b7a4f1a2d382e600ab0374e365e7</code></td><td>本轮仅写 native 测试适配器与 helix-im 回归测试；没有修改生产 Helix crate。工作树仍有 run artifacts 和本报告未提交文件。</td></tr>
+        <tr><td>Helix 写入工作树</td><td><code>/System/Volumes/Data/workspace/worktrees/0901-remote-merge-helix</code><br>分支 <code>codex/0901-remote-merge-helix</code><br>HEAD <code>dec4f54eee3f46a425509e8e8397db5de365a0db</code></td><td>本轮仅写 native 测试适配器与 helix-im 回归测试；没有修改生产 Helix crate。本报告已提交，只有 run artifacts 保持未跟踪。</td></tr>
         <tr><td>Go 写入工作树</td><td><code>/System/Volumes/Data/workspace/worktrees/0902-four-repo-gate-verify/cses-im-server</code><br>分支 <code>codex/0902-four-repo-gate-verify</code><br>HEAD <code>2dd9dfb46bf76cfee7e2a8ac2052e0f10aae60b3</code></td><td>只修 canonical delivery 的受限受众 actor 归属并补回归测试；canonical Go <code>dev-paas2.5</code> 未被覆盖。</td></tr>
         <tr><td>Java / 客户端取证根</td><td><code>/System/Volumes/Data/workspace/java/cses</code>（<code>dev-paas2.5</code>）<br><code>/System/Volumes/Data/workspace/angular/visual/cses-client</code></td><td>只读源码、配置和已有测试；没有读取或输出 <code>.wdio/credentials.local.json</code> 内容，也没有修改这两个 dirty canonical worktree。</td></tr>
         <tr><td>Go 运行态</td><td>Compose project <code>cses-im-local</code>；服务 <code>127.0.0.1:18066</code></td><td><code>make docker-up-clean</code> 后新容器运行；<code>GET /api/cses/health</code> 返回 HTTP 200、<code>status=OK</code>。</td></tr>

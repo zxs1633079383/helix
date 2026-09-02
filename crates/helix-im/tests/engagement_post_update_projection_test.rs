@@ -2,8 +2,10 @@
 
 mod common;
 
+use common::port_reply_with_body;
 use common::{port_reply_ok, Harness};
-use helix_core::effect::Effect;
+use helix_core::effect::{Effect, Row, SqlValue};
+use helix_core::port_codec::rows_to_reply_bytes;
 use helix_core::tick::InboundBytes;
 use helix_core::{Correlation, Tick};
 use serde_json::{json, Value};
@@ -254,4 +256,145 @@ fn average_score_post_update_keeps_full_participants_snapshot_after_atomic_commi
     );
     assert_eq!(event["data"]["props"]["averageScore"]["totalCount"], 1);
     assert_eq!(event["data"]["props"]["averageScore"]["averageScore"], 4.5);
+}
+
+/// 构造连续 `post` 入站帧，保留业务类型和完整 props 作为 authority 输入。
+fn post_create_frame(post_type: &str, post_id: &str, props: Value) -> Tick {
+    Tick::Inbound(InboundBytes(
+        serde_json::to_vec(&json!({
+            "action": "post",
+            "data": {
+                "id": post_id,
+                "channelId": common::cid(1),
+                "userId": "engagement-sender",
+                "type": post_type,
+                "message": "engagement post",
+                "simpleMessage": "engagement post",
+                "createAt": 1_700_000_000_000_i64,
+                "updateAt": 1_700_000_000_001_i64,
+                "props": props,
+                "event_seq": 1
+            }
+        }))
+        .expect("engagement post authority frame must serialize")
+        .into(),
+    ))
+}
+
+/// 在 `PersistAtomic` 成功后回灌 viewer 成员态，取得最终 `im:post:received` 投影。
+fn post_create_projection(post_type: &str, post_id: &str, props: Value) -> Value {
+    let mut harness = Harness::new_with_identity(&[1], "engagement-owner", "company-1", "", "", "");
+
+    let initial = harness.step(
+        post_create_frame(post_type, post_id, props),
+        1_700_000_000_001,
+    );
+    let persist_corr = initial
+        .iter()
+        .find_map(|effect| match effect {
+            common::EffectKind::PersistAtomic(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("post create must begin with PersistAtomic");
+    assert!(
+        !initial
+            .iter()
+            .any(|effect| matches!(effect, common::EffectKind::Emit)),
+        "post create must wait for PersistAtomic success before emitting"
+    );
+
+    let committed = harness.step(port_reply_ok(persist_corr), 1_700_000_000_002);
+    let readback_corr = committed
+        .iter()
+        .find_map(|effect| match effect {
+            common::EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("post create PersistOk must schedule viewer member readback");
+    assert!(
+        !committed
+            .iter()
+            .any(|effect| matches!(effect, common::EffectKind::Emit)),
+        "post create must wait for viewer readback before emitting"
+    );
+
+    let last_post = json!({
+        "id": post_id,
+        "userId": "engagement-sender",
+        "message": "engagement post",
+        "createAt": 1_700_000_000_000_i64
+    });
+    let row: Row = vec![
+        ("channel_id".to_string(), SqlValue::Text(common::cid(1))),
+        (
+            "user_id".to_string(),
+            SqlValue::Text("engagement-owner".to_string()),
+        ),
+        ("unread_count".to_string(), SqlValue::Integer(1)),
+        (
+            "last_post".to_string(),
+            SqlValue::Text(last_post.to_string()),
+        ),
+    ];
+    harness.step(
+        port_reply_with_body(readback_corr, rows_to_reply_bytes(&[row])),
+        1_700_000_000_003,
+    );
+
+    first_event(&harness)
+}
+
+/// `TASK_CARD` post 创建经原子提交后必须保留类型与任务卡 props。
+#[test]
+fn task_card_post_create_keeps_type_and_props_after_atomic_commit() {
+    let props = json!({
+        "taskCard": {
+            "id": "task-1",
+            "title": "处理告警",
+            "priority": "high"
+        }
+    });
+    let event = post_create_projection("TASK_CARD", "srveng00000000000000000001", props.clone());
+
+    assert_eq!(event["event"], "im:post:received");
+    assert_eq!(event["data"]["type"], "TASK_CARD");
+    assert_eq!(event["data"]["props"], props);
+}
+
+/// `MEETING_NOTICE` post 创建经原子提交后必须保留类型与会议通知 props。
+#[test]
+fn meeting_notice_post_create_keeps_type_and_props_after_atomic_commit() {
+    let props = json!({
+        "meetingNotice": {
+            "id": "meeting-1",
+            "title": "周会提醒",
+            "startAt": 1_700_000_360_000_i64
+        }
+    });
+    let event = post_create_projection(
+        "MEETING_NOTICE",
+        "srveng00000000000000000002",
+        props.clone(),
+    );
+
+    assert_eq!(event["event"], "im:post:received");
+    assert_eq!(event["data"]["type"], "MEETING_NOTICE");
+    assert_eq!(event["data"]["props"], props);
+}
+
+/// `MEETING_CARD` post 创建经原子提交后必须保留类型与会议卡 props。
+#[test]
+fn meeting_card_post_create_keeps_type_and_props_after_atomic_commit() {
+    let props = json!({
+        "meetingCard": {
+            "id": "meeting-card-1",
+            "title": "项目评审",
+            "room": "A-101"
+        }
+    });
+    let event = post_create_projection("MEETING_CARD", "srveng00000000000000000003", props.clone());
+
+    assert_eq!(event["event"], "im:post:received");
+    assert_eq!(event["data"]["type"], "MEETING_CARD");
+    assert_eq!(event["data"]["props"], props);
 }

@@ -182,6 +182,14 @@ pub(crate) struct SendIntent {
     pub(crate) replied: Option<Value>,
 }
 
+/// 返回 Go wire 层的规范消息类型；旧 IMAGE 入参在发送合同中落为 RICH。
+fn canonical_wire_message_type(message_type: &str) -> &str {
+    match message_type {
+        "IMAGE" => "RICH",
+        other => other,
+    }
+}
+
 /// 构造已经由 Angular 的 Java/fileDrive/OSS 平面收口后的稳定媒体引用。
 ///
 /// 该 fixture 只代表“媒体字节已经上传完成”，不会伪造 Java 票据或 OSS PUT；
@@ -2183,7 +2191,7 @@ pub(crate) async fn run_helix_send(
     intent: SendIntent,
     send_timeout_ms: u64,
 ) -> Result<SendEvidence, String> {
-    let expected_type = intent.message_type;
+    let expected_type = canonical_wire_message_type(intent.message_type);
     let expected_text = intent.text.clone();
     let mut observer = open_raw_ws(&context.observer, 20).await?;
     wait_ws_hello(&mut observer).await?;
@@ -2545,6 +2553,33 @@ pub(crate) fn assert_post_frame(
     Ok(())
 }
 
+/// 校验实际投影至少保留调用方提交的业务 props；Go 允许额外追加 event cursor 字段。
+pub(crate) fn assert_props_subset(
+    actual: &Value,
+    expected: &Value,
+    label: &str,
+) -> Result<(), String> {
+    let actual_object = actual
+        .as_object()
+        .ok_or_else(|| format!("{label} actual props is not an object"))?;
+    let expected_object = expected
+        .as_object()
+        .ok_or_else(|| format!("{label} expected props is not an object"))?;
+    for (key, expected_value) in expected_object {
+        let actual_value = actual_object
+            .get(key)
+            .ok_or_else(|| format!("{label} missing props.{key}"))?;
+        if expected_value.is_object() {
+            assert_props_subset(actual_value, expected_value, &format!("{label}.{key}"))?;
+        } else if actual_value != expected_value {
+            return Err(format!(
+                "{label} props.{key} mismatch: expected {expected_value}, got {actual_value}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// 只核对媒体稳定引用和 Host 产出的公开元数据，忽略 Go/WS 追加的非业务字段。
 pub(crate) fn assert_media_props(
     actual_props: &Value,
@@ -2781,6 +2816,7 @@ pub(crate) async fn assert_isolated_send(
 ) -> Result<SendEvidence, String> {
     let (_guard, context) = remote_setup().await;
     let channel_id = create_channel(&context).await?;
+    let expected_props = props.clone();
     let result = assert_send_chain(
         &context,
         &channel_id,
@@ -2799,6 +2835,24 @@ pub(crate) async fn assert_isolated_send(
         return Err(format!("channel cleanup failed: {error}"));
     }
     let evidence = result?;
+    if message_type == "TASK_CARD" {
+        let post_props = evidence
+            .post_frame
+            .pointer("/data/props")
+            .ok_or_else(|| "TASK_CARD Go WS post has no props".to_string())?;
+        assert_props_subset(post_props, &expected_props, "TASK_CARD Go WS post")?;
+        let received_json: Value = serde_json::from_slice(evidence.received.0.as_ref())
+            .map_err(|error| format!("TASK_CARD received event JSON failed: {error}"))?;
+        let received_props = received_json
+            .pointer("/data/props")
+            .ok_or_else(|| "TASK_CARD received event has no props".to_string())?;
+        assert_props_subset(received_props, &expected_props, "TASK_CARD received event")?;
+        let stored_props = row_text(&evidence.row, "props")
+            .ok_or_else(|| "TASK_CARD SQLite row has no props".to_string())?;
+        let stored_props: Value = serde_json::from_str(&stored_props)
+            .map_err(|error| format!("TASK_CARD SQLite props JSON failed: {error}"))?;
+        assert_props_subset(&stored_props, &expected_props, "TASK_CARD SQLite row")?;
+    }
     write_gate_evidence(
         phase,
         domain,
@@ -2823,6 +2877,9 @@ pub(crate) async fn assert_isolated_send(
                 "message": row_text(&evidence.row, "message"),
                 "send_status": row_text(&evidence.row, "send_status"),
             },
+            "projection_props": (message_type == "TASK_CARD")
+                .then(|| evidence.post_frame.pointer("/data/props").cloned())
+                .flatten(),
             "cleanup": {
                 "status": "PASS",
                 "remote_channel": channel_id,
@@ -2832,6 +2889,534 @@ pub(crate) async fn assert_isolated_send(
         }),
     )?;
     Ok(evidence)
+}
+
+/// 通过 Helix public outbound command 触发 Java engagement 创建，并只接受 Go/WS→Helix
+/// 完整消息投影作为成功证据；Java HTTP 受理本身不能替代真实 Post 回声。
+pub(crate) async fn assert_java_engagement_create_chain(
+    phase: &str,
+    domain: &str,
+    gate: &str,
+    command: &'static str,
+    endpoint: &str,
+    payload: Value,
+    expected_type: &str,
+    expected_message: &str,
+    expected_props_key: &str,
+) -> Result<(), String> {
+    let (_guard, context) = remote_setup().await;
+    let channel = match create_channel(&context).await {
+        Ok(channel) => channel,
+        Err(error) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "run-owned Go channel fixture could not be created",
+                    "first_failing_layer": "Go channel/create",
+                    "command": command,
+                    "go_http": endpoint,
+                    "error": error,
+                }),
+            )?;
+            return Ok(());
+        }
+    };
+
+    let mut observer =
+        match start_real_helix_session_as(&context, &context.observer, &[channel.as_str()]).await {
+            Ok(session) => session,
+            Err(error) => {
+                let cleanup = close_channel(&context, &channel).await;
+                if let Err(cleanup_error) = cleanup {
+                    return Err(format!("{error}; channel cleanup failed: {cleanup_error}"));
+                }
+                write_gate_evidence(
+                    phase,
+                    domain,
+                    gate,
+                    "BLOCKED_PRECONDITION",
+                    json!({
+                        "reason": "observer Helix session could not be started",
+                        "first_failing_layer": "Helix native transport/auth",
+                        "command": command,
+                        "go_http": endpoint,
+                        "error": error,
+                    }),
+                )?;
+                return Ok(());
+            }
+        };
+    let actor =
+        match start_real_helix_session_as(&context, &context.actor, &[channel.as_str()]).await {
+            Ok(session) => session,
+            Err(error) => {
+                let observer_cleanup = observer.close().await;
+                let channel_cleanup = close_channel(&context, &channel).await;
+                if let Err(cleanup_error) = observer_cleanup {
+                    return Err(format!("{error}; observer cleanup failed: {cleanup_error}"));
+                }
+                if let Err(cleanup_error) = channel_cleanup {
+                    return Err(format!("{error}; channel cleanup failed: {cleanup_error}"));
+                }
+                write_gate_evidence(
+                    phase,
+                    domain,
+                    gate,
+                    "BLOCKED_PRECONDITION",
+                    json!({
+                        "reason": "actor Helix session could not be started",
+                        "first_failing_layer": "Helix native transport/auth",
+                        "command": command,
+                        "go_http": endpoint,
+                        "error": error,
+                    }),
+                )?;
+                return Ok(());
+            }
+        };
+
+    let chain_result = async {
+        let mut command_payload = payload.clone();
+        if let Some(object) = command_payload.as_object_mut() {
+            if command == "im_vote_create" {
+                object
+                    .entry("from_user_id".to_string())
+                    .or_insert_with(|| json!(context.actor.user_id.clone()));
+                object
+                    .entry("from_user_name".to_string())
+                    .or_insert_with(|| json!(context.actor.user_name.clone()));
+                object.entry("source".to_string()).or_insert_with(|| {
+                    json!({"id": channel, "type": "im"})
+                });
+                if let Some(source) = object.get_mut("source").and_then(Value::as_object_mut) {
+                    source.insert("id".to_string(), json!(channel));
+                    source.entry("type".to_string()).or_insert_with(|| json!("im"));
+                }
+                object.entry("org_ids".to_string()).or_insert_with(|| {
+                    json!([
+                        {"id": context.actor.user_id, "name": context.actor.user_name, "is_user": true, "org_id": "", "org_type": "USER", "org_name": ""},
+                        {"id": context.observer.user_id, "name": context.observer.user_name, "is_user": true, "org_id": "", "org_type": "USER", "org_name": ""}
+                    ])
+                });
+            } else if command == "im_average_publish" {
+                object.insert("source".to_string(), json!({"id": channel, "type": "im"}));
+                object.insert(
+                    "members".to_string(),
+                    json!([
+                        {"user_id": context.actor.user_id, "user_name": context.actor.user_name},
+                        {"user_id": context.observer.user_id, "user_name": context.observer.user_name}
+                    ]),
+                );
+            }
+        }
+        let corr_key = command_payload
+            .get("req_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .unwrap_or_else(|| run_token("engagement-create"));
+        if command_payload.get("req_id").is_none() {
+            command_payload["req_id"] = Value::String(corr_key.clone());
+        }
+        actor.command(command, command_payload).await?;
+
+        let post_frame = observer
+            .wait_ws_action(
+                "post",
+                |frame| {
+                    frame.pointer("/data/channelId").and_then(Value::as_str) == Some(channel.as_str())
+                        && frame.pointer("/data/type").and_then(Value::as_str) == Some(expected_type)
+                        && frame.pointer("/data/message").and_then(Value::as_str) == Some(expected_message)
+                },
+                Duration::from_secs(35),
+            )
+            .await?;
+        let post_data = post_frame
+            .get("data")
+            .ok_or_else(|| format!("{gate} Java-created post frame has no data: {post_frame}"))?;
+        let post_id = string_field(post_data, &["id", "postId", "post_id"])
+            .ok_or_else(|| format!("{gate} Java-created post frame has no server id: {post_frame}"))?;
+        let props = post_data
+            .get("props")
+            .and_then(Value::as_object)
+            .ok_or_else(|| format!("{gate} Java-created post frame has no props object: {post_frame}"))?;
+        if !props.contains_key(expected_props_key) {
+            return Err(format!(
+                "{gate} Java-created post props omitted {expected_props_key}: {post_frame}"
+            ));
+        }
+        let received = observer
+            .wait_event(
+                "im:post:received",
+                |envelope| {
+                    data_string(envelope, &["id", "postId", "post_id"]).as_deref()
+                        == Some(post_id.as_str())
+                        && data_string(envelope, &["type"]).as_deref() == Some(expected_type)
+                },
+                Duration::from_secs(35),
+            )
+            .await?;
+        let received_json: Value = serde_json::from_slice(received.0.as_ref())
+            .map_err(|error| format!("{gate} Java-created received event JSON failed: {error}"))?;
+        let received_props = received_json
+            .pointer("/data/props")
+            .and_then(Value::as_object)
+            .ok_or_else(|| format!("{gate} Java-created received event has no props: {received_json}"))?;
+        if !received_props.contains_key(expected_props_key) {
+            return Err(format!(
+                "{gate} Helix received projection omitted {expected_props_key}: {received_json}"
+            ));
+        }
+        let row = scan_message_row_by_id_or_temporary(&observer.storage, &post_id).await?;
+        if row_text(&row, "type").as_deref() != Some(expected_type)
+            || row_text(&row, "channel_id").as_deref() != Some(channel.as_str())
+        {
+            return Err(format!("{gate} SQLite Java-created message mismatch: {row:?}"));
+        }
+        let row_props = row_text(&row, "props")
+            .ok_or_else(|| format!("{gate} SQLite Java-created message has no props"))?;
+        let row_props: Value = serde_json::from_str(&row_props)
+            .map_err(|error| format!("{gate} SQLite Java-created props JSON failed: {error}"))?;
+        if row_props.get(expected_props_key).is_none() {
+            return Err(format!(
+                "{gate} SQLite Java-created message omitted {expected_props_key}: {row_props}"
+            ));
+        }
+        Ok::<Value, String>(json!({
+            "corr_key": corr_key,
+            "channel_id": channel,
+            "post_id": post_id,
+            "post_frame": post_frame,
+            "received": received_json,
+            "sqlite": {
+                "table": "message",
+                "id": row_text(&row, "id"),
+                "type": row_text(&row, "type"),
+                "channel_id": row_text(&row, "channel_id"),
+                "send_status": row_text(&row, "send_status"),
+                "props_key": expected_props_key,
+            },
+        }))
+    }
+    .await;
+    let actor_cleanup = actor.close().await;
+    let observer_cleanup = observer.close().await;
+    let channel_cleanup = close_channel(&context, &channel).await;
+    let result = match (
+        chain_result,
+        actor_cleanup,
+        observer_cleanup,
+        channel_cleanup,
+    ) {
+        (Ok(details), Ok(()), Ok(()), Ok(())) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "PASS",
+                json!({
+                    "command": command,
+                    "go_http": endpoint,
+                    "http_business": "Java engagement command produced an authoritative Go post",
+                    "ws_action": "post",
+                    "projection": "im:post:received",
+                    "persist_after": "observer SQLite message projection",
+                    "event_sink": "NativeEventSink:im:post:received",
+                    "event_sink_required": true,
+                    "sqlite_required": true,
+                    "cleanup": {"status": "PASS", "remote_channel": details["channel_id"]},
+                    "corr_key": details["corr_key"],
+                    "details": details,
+                }),
+            )?;
+            Ok(())
+        }
+        (chain, actor, observer, channel) => {
+            let error = match chain {
+                Err(error) => error,
+                Ok(_) => "Java engagement chain did not produce PASS evidence".to_string(),
+            };
+            let error = match actor {
+                Ok(()) => error,
+                Err(cleanup_error) => format!("{error}; actor cleanup failed: {cleanup_error}"),
+            };
+            let error = match observer {
+                Ok(()) => error,
+                Err(cleanup_error) => format!("{error}; observer cleanup failed: {cleanup_error}"),
+            };
+            let error = match channel {
+                Ok(()) => error,
+                Err(cleanup_error) => format!("{error}; channel cleanup failed: {cleanup_error}"),
+            };
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "Java engagement command did not produce the complete Go/WS/Helix projection",
+                    "first_failing_layer": "Java HTTP → Java IMService → Go posts/create → WS/Helix projection",
+                    "command": command,
+                    "go_http": endpoint,
+                    "expected_type": expected_type,
+                    "expected_props_key": expected_props_key,
+                    "error": error,
+                }),
+            )?;
+            Ok(())
+        }
+    };
+    result
+}
+
+/// 用 native HTTP 的一次性故障开关制造真实 failed row，再走 `im_retry_send` 同一
+/// temporaryId；该 seam 只存在测试适配器，生产调用不会被注入故障。
+pub(crate) async fn assert_retry_send_chain(
+    phase: &str,
+    domain: &str,
+    gate: &str,
+) -> Result<(), String> {
+    let (_guard, context) = remote_setup().await;
+    let channel = match create_channel(&context).await {
+        Ok(channel) => channel,
+        Err(error) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "run-owned retry channel fixture could not be created",
+                    "first_failing_layer": "Go channel/create",
+                    "command": "im_send_message → im_retry_send",
+                    "go_http": "/api/cses/posts/create",
+                    "error": error,
+                }),
+            )?;
+            return Ok(());
+        }
+    };
+    let mut session =
+        match start_real_helix_session_as(&context, &context.actor, &[channel.as_str()]).await {
+            Ok(session) => session,
+            Err(error) => {
+                let cleanup = close_channel(&context, &channel).await;
+                if let Err(cleanup_error) = cleanup {
+                    return Err(format!("{error}; channel cleanup failed: {cleanup_error}"));
+                }
+                write_gate_evidence(
+                    phase,
+                    domain,
+                    gate,
+                    "BLOCKED_PRECONDITION",
+                    json!({
+                        "reason": "real Helix retry session could not be started",
+                        "first_failing_layer": "Helix native transport/auth",
+                        "command": "im_send_message → im_retry_send",
+                        "go_http": "/api/cses/posts/create",
+                        "error": error,
+                    }),
+                )?;
+                return Ok(());
+            }
+        };
+
+    let marker = resource_name("retry");
+    let first_req_id = run_token("retry-first");
+    let retry_req_id = run_token("retry-second");
+    let first_result = async {
+        helix_driver_native::configure_wdio_fail_next_post_create(true);
+        session
+            .command(
+                "im_send_message",
+                json!({
+                    "channel_id": channel,
+                    "type": "TEXT",
+                    "text": marker,
+                    "props": {},
+                    "viewers": ["all"],
+                    "mentions": [],
+                    "req_id": first_req_id,
+                }),
+            )
+            .await?;
+        let sending = session
+            .wait_event(
+                "im:post:sending",
+                |_| true,
+                Duration::from_secs(20),
+            )
+            .await?;
+        let sending_json: Value = serde_json::from_slice(sending.0.as_ref())
+            .map_err(|error| format!("{gate} retry sending event JSON failed: {error}"))?;
+        let temporary_id = data_string(&sending_json, &["temporaryId", "temporary_id"])
+            .ok_or_else(|| format!("{gate} retry sending event has no temporaryId"))?;
+        let failed = session
+            .wait_event(
+                "im:post:send-failed",
+                |envelope| {
+                    data_string(envelope, &["temporaryId", "temporary_id"]).as_deref()
+                        == Some(temporary_id.as_str())
+                },
+                Duration::from_secs(20),
+            )
+            .await?;
+        let failed_json: Value = serde_json::from_slice(failed.0.as_ref())
+            .map_err(|error| format!("{gate} retry failed event JSON failed: {error}"))?;
+        let failed_row = wait_message_status(
+            &session.storage,
+            &temporary_id,
+            &["unsend", "failed"],
+            Duration::from_secs(8),
+        )
+        .await?;
+        helix_driver_native::configure_wdio_fail_next_post_create(false);
+        session
+            .command(
+                "im_retry_send",
+                json!({"message_id": temporary_id, "req_id": retry_req_id}),
+            )
+            .await?;
+        let retry_sending = session
+            .wait_event(
+                "im:post:sending",
+                |envelope| {
+                    data_string(envelope, &["temporaryId", "temporary_id"]).as_deref()
+                        == Some(temporary_id.as_str())
+                },
+                Duration::from_secs(20),
+            )
+            .await?;
+        let retry_frame = session
+            .wait_ws_action(
+                "post",
+                |frame| {
+                    frame.pointer("/data/temporaryId").and_then(Value::as_str)
+                        == Some(temporary_id.as_str())
+                        && frame.pointer("/data/channelId").and_then(Value::as_str)
+                            == Some(channel.as_str())
+                },
+                Duration::from_secs(25),
+            )
+            .await?;
+        let received = session
+            .wait_event(
+                "im:post:received",
+                |envelope| {
+                    data_string(envelope, &["temporaryId", "temporary_id"]).as_deref()
+                        == Some(temporary_id.as_str())
+                },
+                Duration::from_secs(25),
+            )
+            .await?;
+        let received_json: Value = serde_json::from_slice(received.0.as_ref())
+            .map_err(|error| format!("{gate} retry received event JSON failed: {error}"))?;
+        let sent_row = wait_message_status(
+            &session.storage,
+            &temporary_id,
+            &["sent"],
+            Duration::from_secs(8),
+        )
+        .await?;
+        let duplicate = session
+            .wait_ws_action(
+                "post",
+                |frame| {
+                    frame.pointer("/data/temporaryId").and_then(Value::as_str)
+                        == Some(temporary_id.as_str())
+                },
+                Duration::from_millis(1_200),
+            )
+            .await;
+        if duplicate.is_ok() {
+            return Err(format!("{gate} retry emitted duplicate post frame for {temporary_id}"));
+        }
+        Ok::<Value, String>(json!({
+            "first_request": first_req_id,
+            "retry_request": retry_req_id,
+            "temporary_id": temporary_id,
+            "failed_event": failed_json,
+            "failed_row": {
+                "send_status": row_text(&failed_row, "send_status"),
+                "channel_id": row_text(&failed_row, "channel_id"),
+                "message": row_text(&failed_row, "message"),
+            },
+            "retry_sending": serde_json::from_slice::<Value>(retry_sending.0.as_ref()).unwrap_or(Value::Null),
+            "retry_frame": retry_frame,
+            "received": received_json,
+            "sent_row": {
+                "send_status": row_text(&sent_row, "send_status"),
+                "id": row_text(&sent_row, "id"),
+                "channel_id": row_text(&sent_row, "channel_id"),
+                "message": row_text(&sent_row, "message"),
+            },
+            "duplicate_post": false,
+        }))
+    }
+    .await;
+    helix_driver_native::configure_wdio_fail_next_post_create(false);
+    let session_cleanup = session.close().await;
+    let channel_cleanup = close_channel(&context, &channel).await;
+    match (first_result, session_cleanup, channel_cleanup) {
+        (Ok(details), Ok(()), Ok(())) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "PASS",
+                json!({
+                    "command": "im_send_message → im_retry_send",
+                    "go_http": "/api/cses/posts/create",
+                    "http_business": "first post/create was intentionally failed, retry reached Go authoritative post",
+                    "projection": "im:post:send-failed → im:post:received",
+                    "persist_after": "unsend/failed → sent",
+                    "event_sink": "NativeEventSink terminal retry events",
+                    "event_sink_required": true,
+                    "sqlite_required": true,
+                    "sqlite_readback": {
+                        "table": "message",
+                        "temporary_id": details["temporary_id"],
+                        "failed": details["failed_row"],
+                        "sent": details["sent_row"]
+                    },
+                    "cleanup": {"status": "PASS", "remote_channel": channel},
+                    "corr_key": details["temporary_id"],
+                    "details": details,
+                }),
+            )?;
+            Ok(())
+        }
+        (result, session, channel) => {
+            let error = match result {
+                Err(error) => error,
+                Ok(_) => "retry chain did not produce PASS evidence".to_string(),
+            };
+            let error = match session {
+                Ok(()) => error,
+                Err(cleanup_error) => format!("{error}; session cleanup failed: {cleanup_error}"),
+            };
+            let error = match channel {
+                Ok(()) => error,
+                Err(cleanup_error) => format!("{error}; channel cleanup failed: {cleanup_error}"),
+            };
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "NOT_VERIFIED",
+                json!({
+                    "reason": "real failed-row/retry attempt did not complete all terminal assertions",
+                    "first_failing_layer": "Helix retry state or Go posts/create/WS",
+                    "command": "im_send_message → im_retry_send",
+                    "go_http": "/api/cses/posts/create",
+                    "error": error,
+                }),
+            )?;
+            Ok(())
+        }
+    }
 }
 
 /// 以稳定 Java/OSS 媒体引用跑真实 Go `posts/create`，并明确标记外部媒体平面未由本测试覆盖。
@@ -5488,8 +6073,8 @@ pub(crate) async fn assert_image_forward_chain(
             &mut observer,
             "post",
             |frame| {
-                string_field(frame, &["type"]).as_deref() == Some("IMAGE")
-                    || data_string(frame, &["type"]).as_deref() == Some("IMAGE")
+                string_field(frame, &["type"]).as_deref() == Some("RICH")
+                    || data_string(frame, &["type"]).as_deref() == Some("RICH")
             },
             Duration::from_secs(20),
         )
@@ -5498,9 +6083,9 @@ pub(crate) async fn assert_image_forward_chain(
             .get("data")
             .cloned()
             .unwrap_or_else(|| target_frame.clone());
-        if string_field(&target_data, &["type"]).as_deref() != Some("IMAGE") {
+        if string_field(&target_data, &["type"]).as_deref() != Some("RICH") {
             return Err(format!(
-                "{gate} target forward is not IMAGE: {target_frame}"
+                "{gate} target forward is not RICH (IMAGE input canonicalizes to RICH): {target_frame}"
             ));
         }
         let target_props = target_data

@@ -133,9 +133,14 @@ async fn exercise_notify_chain(
                 })?;
             let event_json: Value = serde_json::from_slice(event.0.as_ref())
                 .map_err(|error| format!("decode {notify} Helix event: {error}"))?;
-            if event_json.pointer("/data/unreadCount") != Some(&json!(baseline_unread))
-                || event_json.pointer("/data/channelIsTop") != Some(&json!(baseline_top))
-            {
+            let unread_unchanged = event_json.pointer("/data/unreadCount")
+                == Some(&json!(baseline_unread));
+            // Notify-only update_channel frames intentionally omit channelIsTop; when the
+            // sparse field is present, it must still agree with the settled SQLite baseline.
+            let top_unchanged = event_json
+                .pointer("/data/channelIsTop")
+                .map_or(true, |value| value == &json!(baseline_top));
+            if !unread_unchanged || !top_unchanged {
                 return Err(format!(
                     "notify={notify} changed unread/top in Helix event (baseline unread={baseline_unread}, top={baseline_top}): {event_json}"
                 ));

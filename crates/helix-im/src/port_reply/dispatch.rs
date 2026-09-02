@@ -1869,16 +1869,34 @@ mod phase2_contract_tests {
         .unwrap()
     }
 
+    /// 构造与生产路径一致的 canonical persist correlation，先占用连续 eventSeq 槽位。
+    fn admitted_canonical_stream_event(
+        module: &mut ImModule,
+        channel_id: crate::state::ChannelId,
+        event_type: u8,
+    ) -> crate::sync_session::EventEnvelope {
+        let mut admission = EffectSink::new();
+        module
+            .state
+            .channels
+            .get_mut(&channel_id)
+            .expect("test channel must be registered")
+            .admit_message_v3_post(canonical_stream_event(event_type), &mut admission)
+            .expect("canonical event admission must not fail")
+            .expect("contiguous canonical event must claim the pending slot")
+    }
+
     #[test]
     fn canonical_stream_ack_controls_cursor_emit_and_retry() {
         let channel_id = crate::state::ChannelId::from_str(CHANNEL_ID).unwrap();
         let mut success = ImModule::new(crate::module::ImConfig::default());
         success.register_channel(channel_id, 0);
         let corr = success.alloc_corr();
+        let event = admitted_canonical_stream_event(&mut success, channel_id, 1);
         success.state.corr_map.insert(
             corr,
             CorrelationContext::CanonicalStreamPersist {
-                event: Box::new(canonical_stream_event(1)),
+                event: Box::new(event),
             },
         );
         let mut out = EffectSink::new();
@@ -1897,10 +1915,11 @@ mod phase2_contract_tests {
         let mut failed = ImModule::new(crate::module::ImConfig::default());
         failed.register_channel(channel_id, 0);
         let corr = failed.alloc_corr();
+        let event = admitted_canonical_stream_event(&mut failed, channel_id, 1);
         failed.state.corr_map.insert(
             corr,
             CorrelationContext::CanonicalStreamPersist {
-                event: Box::new(canonical_stream_event(1)),
+                event: Box::new(event),
             },
         );
         let mut out = EffectSink::new();

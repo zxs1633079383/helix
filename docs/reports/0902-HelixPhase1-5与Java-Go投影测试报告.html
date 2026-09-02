@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>0902 Helix Phase1-5 与 Java-Go 投影测试报告</title>
+  <style>
+    :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#172033;background:#f4f7fb;line-height:1.55}
+    body{max-width:1240px;margin:0 auto;padding:28px}
+    header,section{background:#fff;border:1px solid #dbe3ef;border-radius:14px;padding:22px;margin:0 0 18px;box-shadow:0 4px 16px #17365d0d}
+    h1{margin:0 0 8px;font-size:27px}h2{color:#173b69;font-size:20px;margin:0 0 12px}h3{color:#245b91;margin:18px 0 8px}
+    .status{display:inline-block;border-radius:999px;padding:4px 12px;background:#fff1d6;color:#8a4f00;font-weight:700}
+    .cards{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.card{min-width:145px;border:1px solid #dbe3ef;border-radius:10px;padding:12px;background:#f8fbff}.card strong{display:block;color:#1e5e9d;font-size:24px}.card span{font-size:13px;color:#50627a}
+    table{width:100%;border-collapse:collapse;font-size:14px;margin:10px 0 14px}th,td{border:1px solid #dbe3ef;padding:8px 10px;text-align:left;vertical-align:top}th{background:#edf4fb;color:#234b76}
+    code{background:#eef2f7;border-radius:4px;padding:1px 4px;font-size:12px;word-break:break-all}
+    .pass{color:#087443;font-weight:700}.partial{color:#9a5b00;font-weight:700}.bad{color:#a12d2d;font-weight:700}.nv{color:#6e4aa1;font-weight:700}.na{color:#64748b;font-weight:700}
+    .box{border-left:4px solid #2c79b8;background:#f3f8fd;padding:10px 14px;margin:10px 0}.warn{border-left-color:#c47b13;background:#fff9ed}.stop{border-left-color:#b23a48;background:#fff4f5}
+    .small{font-size:13px;color:#5b6b80}details{margin:8px 0}summary{cursor:pointer;font-weight:700;color:#245b91}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Helix Phase1–5 与 Java→Go 投影测试报告</h1>
+    <div class="status">最终结论：PARTIAL（真实链已收敛，外部前置仍 fail-closed）</div>
+    <p>本报告回答 NOT_VERIFIED 与 BLOCKED_PRECONDITION 的前置和成功标准。前置不是向用户索取的假设，而是从 GoServer、Helix、Java CSES、Angular/Tauri 四仓当前源码、配置、测试合同和本轮运行态交叉推导；无法在同一轮取得终态证据的 Gate 保持阻塞。</p>
+    <div class="cards">
+      <div class="card"><strong>76/92</strong><span>real-chain PASS</span></div>
+      <div class="card"><strong>0</strong><span>NOT_VERIFIED</span></div>
+      <div class="card"><strong>7</strong><span>BLOCKED_PRECONDITION</span></div>
+      <div class="card"><strong>94/0</strong><span>native Cargo 通过/失败</span></div>
+      <div class="card"><strong>5</strong><span>NOT_APPLICABLE</span></div>
+      <div class="card"><strong>4</strong><span>NOT_IMPLEMENTED</span></div>
+    </div>
+  </header>
+
+  <section>
+    <h2>一、运行身份与同轮证据</h2>
+    <table>
+      <thead><tr><th>项目/平面</th><th>本轮值</th><th>用途与边界</th></tr></thead>
+      <tbody>
+        <tr><td>Helix 写入工作树</td><td><code>/System/Volumes/Data/workspace/worktrees/0901-remote-merge-helix</code><br>分支 <code>codex/0901-remote-merge-helix</code><br>HEAD <code>139f98260ea1b7a4f1a2d382e600ab0374e365e7</code></td><td>本轮仅写 native 测试适配器与 helix-im 回归测试；没有修改生产 Helix crate。工作树仍有 run artifacts 和本报告未提交文件。</td></tr>
+        <tr><td>Go 写入工作树</td><td><code>/System/Volumes/Data/workspace/worktrees/0902-four-repo-gate-verify/cses-im-server</code><br>分支 <code>codex/0902-four-repo-gate-verify</code><br>HEAD <code>2dd9dfb46bf76cfee7e2a8ac2052e0f10aae60b3</code></td><td>只修 canonical delivery 的受限受众 actor 归属并补回归测试；canonical Go <code>dev-paas2.5</code> 未被覆盖。</td></tr>
+        <tr><td>Java / 客户端取证根</td><td><code>/System/Volumes/Data/workspace/java/cses</code>（<code>dev-paas2.5</code>）<br><code>/System/Volumes/Data/workspace/angular/visual/cses-client</code></td><td>只读源码、配置和已有测试；没有读取或输出 <code>.wdio/credentials.local.json</code> 内容，也没有修改这两个 dirty canonical worktree。</td></tr>
+        <tr><td>Go 运行态</td><td>Compose project <code>cses-im-local</code>；服务 <code>127.0.0.1:18066</code></td><td><code>make docker-up-clean</code> 后新容器运行；<code>GET /api/cses/health</code> 返回 HTTP 200、<code>status=OK</code>。</td></tr>
+        <tr><td>ES forward</td><td><code>kubectl -n elastic-cses-20260715 port-forward svc/es940-es-http 19200:9200</code></td><td><code>127.0.0.1:19200</code> 返回 Elasticsearch 401 missing credentials，证明 forward 到安全 ES；401 不是业务 Gate PASS。</td></tr>
+        <tr><td>Helix full run</td><td><code>node scripts/messagev3/phase1-5-real-chain.mjs --all --artifact-root /tmp/0902-helix-phase1-5-full-final3</code><br>suite <code>messagev3-1788332770591-23815</code></td><td><a href="/tmp/0902-helix-phase1-5-full-final3/messagev3-1788332770591-23815/summary.json">最终 summary.json</a>；<a href="/tmp/0902-helix-phase1-5-full-final3/messagev3-1788332770591-23815/cargo.log">Cargo log</a>。</td></tr>
+      </tbody>
+    </table>
+    <p class="small">runner 返回非零是设计行为：它选中 92 Gate，只有 92/92 PASS 才退出 0；本轮 76/92，因此不能把命令 exit 1 解读为 Cargo 全部失败。</p>
+  </section>
+
+  <section>
+    <h2>二、状态变化：把原 NOT_VERIFIED 转成可证明终态或可解释阻塞</h2>
+    <table>
+      <thead><tr><th>原状态</th><th>Gate</th><th>本轮处理</th><th>最终状态</th></tr></thead>
+      <tbody>
+        <tr><td class="nv">NOT_VERIFIED</td><td>G01H</td><td>沿客户端任务卡 builder 使用 <code>im_send_message(type=TASK_CARD)</code>，核对 Go WS 类型、<code>taskCard/taskCardBlock</code> props、NativeEventSink 和 SQLite。</td><td class="pass">PASS</td></tr>
+        <tr><td class="nv">NOT_VERIFIED</td><td>G01L</td><td>修复 Go 受限受众解析：客户端明确 viewers 不含发送者时，trusted actor 仍加入冻结完整 audience；同轮验证 observer 收到、third 不收到。</td><td class="pass">PASS</td></tr>
+        <tr><td class="nv">NOT_VERIFIED</td><td>G02C</td><td>用测试专用一次性失败开关制造真实 failed row，重启/重试同一 temporaryId，核对 unsend/failed→sent 且无重复 post。</td><td class="pass">PASS</td></tr>
+        <tr><td class="nv">NOT_VERIFIED</td><td>G01I、G01J</td><td>不再声称不存在入口；分别尝试真实 <code>im_vote_create</code>→Java <code>/vote/createVote</code> 和 <code>im_average_publish</code>→Java <code>/average/publish</code>。Java→当前本地 Go 18066 没有同源回声，故移动为可解释的前置阻塞。</td><td class="bad">BLOCKED_PRECONDITION</td></tr>
+        <tr><td class="bad">BLOCKED_PRECONDITION</td><td>G10E</td><td>通知帧是 sparse payload；测试只要求 unread 不变，<code>channelIsTop</code> 缺省时不误报，存在时仍与 SQLite baseline 一致。</td><td class="pass">PASS</td></tr>
+        <tr><td class="bad">BLOCKED_PRECONDITION</td><td>G01C、G01D、G01E、G01G、G03C</td><td>修正 <code>IMAGE</code> 入参到 Go wire <code>RICH</code> 的测试合同；媒体子链/图片 forward 子链已跑通，但真实 Java/fileDrive/OSS 字节证据仍不在本轮。</td><td class="bad">BLOCKED_PRECONDITION</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>三、四仓推导出的前置与最终成功标准</h2>
+    <p>下面的“前置”是从现有调用链反向得到的最小条件；“最终成功”是解除 Gate 阻塞必须同时出现的同轮证据。单一健康检查、HTTP 200、Cargo 通过、静态 fixture、EventSink 任意一条消息都不够。</p>
+    <table>
+      <thead><tr><th>Gate</th><th>四仓可推导的前置</th><th>最终成功标准</th><th>本轮证据</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>MV3-G01H</code><br><span class="pass">PASS</span></td>
+          <td>客户端任务卡 builder 产生 <code>TASK_CARD</code>、<code>taskCard</code>、<code>taskCardBlock</code>；Go generic <code>posts/create</code> 可写入该类型；actor/observer 的 Go WS、Helix SQLite 和 NativeEventSink 就绪。</td>
+          <td><code>im_send_message</code>→<code>im:post:sending</code>→Go business SUCCESS→WS <code>post.type=TASK_CARD</code> 且 props 完整→<code>im:post:received</code>→SQLite <code>message.send_status=sent</code>，同一 temporaryId/corr_key，清理 PASS。</td>
+          <td><a href="/tmp/0902-helix-phase1-5-full-final3/messagev3-1788332770591-23815/Phase1/post/MV3-G01H/evidence.json">G01H evidence</a></td>
+        </tr>
+        <tr>
+          <td><code>MV3-G01I</code><br><span class="bad">BLOCKED</span></td>
+          <td>Java CSES 的 <code>POST /vote/createVote</code>、<code>VotingLotteryEditor</code>、<code>MattermostClient.createPosts</code>；Java 的 IM service 必须指向本轮同一个 Go origin（本轮是 <code>http://127.0.0.1:18066</code>），三身份共享 companyId <code>64118eebd2b665246b7880eb</code>，Go WS/SQLite/EventSink 可观测。</td>
+          <td>Java business SUCCESS 后，Go authoritative post 必须是 <code>type=VOTE</code>、props 含 <code>vote</code>；observer 原始 WS、Helix <code>im:post:received</code>、SQLite props/status、NativeEventSink、corr_key 和清理全部同轮通过。</td>
+          <td><a href="/tmp/0902-helix-phase1-5-full-final3/messagev3-1788332770591-23815/Phase1/post/MV3-G01I/evidence.json">G01I evidence</a>：Java pre health 可达，但没有当前本地 Go 的 post WS 回声。</td>
+        </tr>
+        <tr>
+          <td><code>MV3-G01J</code><br><span class="bad">BLOCKED</span></td>
+          <td>Java CSES 的 <code>POST /average/publish</code>、<code>AverageScoreCommandHandler/AverageScorePostNotifier</code>、同源 <code>MattermostClient</code>；本轮 Go/WS/SQLite/EventSink 和 companyId 身份必须与 Java 相同。</td>
+          <td>Java business SUCCESS 后，Go post 必须是 <code>type=AVERAGE_SCORE</code>、props 含 <code>averageScore</code>；原始 WS→Helix projection→SQLite→NativeEventSink→cleanup 同轮闭合。</td>
+          <td><a href="/tmp/0902-helix-phase1-5-full-final3/messagev3-1788332770591-23815/Phase1/post/MV3-G01J/evidence.json">G01J evidence</a>：当前失败层为 Java HTTP→Java IMService→Go posts/create→WS/Helix projection。</td>
+        </tr>
+        <tr>
+          <td><code>MV3-G01L</code><br><span class="pass">PASS</span></td>
+          <td>actor、observer、third 三身份在同一频道；客户端显式 directed viewers；Go 原始 WS 能同时观察 target/hidden；Go posts/get、Helix SQLite、EventSink 可读。</td>
+          <td>target observer 收到唯一 <code>post</code>，third 在窗口内没有该 post；Go posts/get SUCCESS；SQLite sent；Helix <code>im:post:received</code> 保留 viewers；corr_key、清理和 transport close PASS。</td>
+          <td><a href="/tmp/0902-helix-phase1-5-full-final3/messagev3-1788332770591-23815/Phase1/post/MV3-G01L/evidence.json">G01L evidence</a></td>
+        </tr>
+        <tr>
+          <td><code>MV3-G02C</code><br><span class="pass">PASS</span></td>
+          <td>允许测试适配器只注入下一次 <code>posts/create</code> 失败；第一次发送必须先落 durable failed/unsend row；<code>im_retry_send</code> 能复用同 temporaryId；发送 session、SQLite 和 NativeEventSink 可观测。</td>
+          <td>首次 <code>im:post:send-failed</code> 与 SQLite failed row；retry 后同 temporaryId 到达 Go WS <code>post</code>、<code>im:post:received</code>、SQLite sent；重复窗口没有第二个 post，资源清理 PASS。</td>
+          <td><a href="/tmp/0902-helix-phase1-5-full-final3/messagev3-1788332770591-23815/Phase1/post/MV3-G02C/evidence.json">G02C evidence</a></td>
+        </tr>
+        <tr>
+          <td><code>MV3-G10E</code><br><span class="pass">PASS</span></td>
+          <td>三成员频道、NORMAL/STRONG/IGNORE notifyProps、Go <code>update_channel</code> WS、Helix sparse event <code>im:channel:update</code>、SQLite channel/member 读回与重启 session。</td>
+          <td>三种 notify 更新均产生 Go <code>update_channel</code> 和 Helix terminal event；unread/top 不被 notify-only 帧改变；SQLite notifyProps 正确且重启后仍可读；清理 PASS。</td>
+          <td><a href="/tmp/0902-helix-phase1-5-full-final3/messagev3-1788332770591-23815/Phase3/channel/MV3-G10E/evidence.json">G10E evidence</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>四、BLOCKED_PRECONDITION 的媒体/转发前置与成功标准</h2>
+    <table>
+      <thead><tr><th>Gate</th><th>必须先具备的真实媒体平面</th><th>最终解除条件</th><th>当前事实</th></tr></thead>
+      <tbody>
+        <tr><td><code>MV3-G01C</code></td><td>Angular FileService/Tauri 产生两条真实图片 bytes、fileName/contentType/size/sha256；Java <code>/oss/getPresignedUrl</code> 返回可用 URL/headers；PUT 后 OSS HEAD/GET 的长度、MIME、sha256 与本地一致；fileDrive 注册成功。</td><td>两条真实图片的 prepare→PUT→fileDrive/OSS readback 与同一轮 Go <code>posts/create</code>、WS RICH、Helix EventSink、SQLite props 全闭合；不得用固定 sha256 或 <code>/media/...</code> 假引用代替。</td><td class="bad">稳定引用的 Helix/Go 子链 PASS；<code>media_plane=not_run</code>，保持 BLOCKED。<a href="/tmp/0902-helix-g01c-wire-fix">定向证据</a></td></tr>
+        <tr><td><code>MV3-G01D</code></td><td>真实 attachment bytes、Java fileDrive/OSS 票据和下载/HEAD readback；文件元数据与 Go props 的 bucket/id/size/hash 一致。</td><td>附件真实上传完成后，Go/WS/Helix/SQLite 同轮保留 FILE 引用，Native EventSink 和 cleanup 完整。</td><td class="bad">稳定 FILE 引用子链可运行；Java/fileDrive/OSS bytes 未运行。</td></tr>
+        <tr><td><code>MV3-G01E</code></td><td>真实 AUDIO 与 VIDEO bytes；AUDIO 必须有 duration 且无伪造尺寸，VIDEO 必须有 duration/width/height；两者均需 Java/OSS/fileDrive readback。</td><td>真实上传后的 <code>props.file</code> 元数据与 Go/WS/Helix/SQLite 完全一致，并有 EventSink/cleanup。</td><td class="bad">Host 元数据合同已在 Helix focused/稳定子链覆盖；真实字节平面未闭合。</td></tr>
+        <tr><td><code>MV3-G01G</code></td><td>Canvas 生成图由客户端/Tauri stage，真实 bytes 经 Java OSS/fileDrive 完成；template 壳与内芯 IMAGE 引用可下载、可校验。</td><td><code>TEMPLATE</code> 的 <code>template.file</code> 真实 bytes、尺寸、hash 在 Go post、WS、Helix projection、SQLite 中同轮闭合。</td><td class="bad">稳定 TEMPLATE/IMAGE 引用子链可运行；生成媒体真实上传未闭合。</td></tr>
+        <tr><td><code>MV3-G03C</code></td><td>先有真实已上传 source image post 和 target channel membership；转发只允许 <code>postIds + channelIds</code>，不应重新 prepare/PUT/register。</td><td>source/target 的真实媒体引用同一；Go <code>posts/createPosts</code> SUCCESS；target WS wire 为 RICH、Helix target projection/SQLite/EventSink 可读；prepare/PUT/register 次数为 0，清理 PASS。</td><td class="bad">图片 preview forward 子链 PASS；真实 OSS source bytes 未闭合。<a href="/tmp/0902-helix-g03c-wire-fix">定向证据</a></td></tr>
+      </tbody>
+    </table>
+    <div class="box warn"><b>为什么不能直接改成 PASS：</b>Java 当前 OSS 合同只给 presigned URL 和服务端 multipart complete；没有一个可替代真实 bytes 的 HTTP complete/verify/download 终态。Go 只负责 posts/create/createPosts，不拥有 Java OSS/fileDrive 的上传事实。用 fixture 的固定 hash、HTTP 200 或稳定 URI 只能证明 Helix containment，不能证明跨仓媒体 Gate。</div>
+  </section>
+
+  <section>
+    <h2>五、Go 分母与跨仓边界</h2>
+    <table>
+      <thead><tr><th>指标</th><th>分母/范围</th><th>本轮结果</th><th>解释</th></tr></thead>
+      <tbody>
+        <tr><td>Go 代码覆盖率</td><td>只统计 Go 源码包；不把 Helix、Angular、Java 行计入。</td><td class="partial">App 98.3%；Sync 92.6%；Store 95.0%；WS Gate 汇总 100.0%</td><td><code>make test-api-app-sync-all</code> 退出 2，三层门禁未达 100%；不能称 Go 100%。</td></tr>
+        <tr><td>Go-owned Gate</td><td>只统计 Go API/App/Store/WS 直接拥有的行为：generic post/create、update、viewer audience、event_seq/outbox、WS fan-out、幂等、posts/get/createPosts 等。</td><td class="partial">当前 Go make MessageV3 Gate 在 G01h 的 D 状态 fail-closed。</td><td><code>make test-messagev3-all</code> 记录 <code>DEFERRED gate=G01h status=D</code> 并停止；这是 Go runner 的证据闸门，不等同 Helix 当前 G01H 已通过。</td></tr>
+        <tr><td>跨仓真实链路 Gate</td><td>完整 92 Gate：Go、Helix、Angular/Tauri、Java CSES、媒体/ES/外部前置按 Gate 共同承担。</td><td class="partial">76 PASS / 7 BLOCKED / 5 N/A / 4 NOT_IMPLEMENTED</td><td>G01H/I/J/L、G02C、G01C/D/E/G、G03C、G10E 等均需跨边界；任何一方只给 focused/HTTP 200 都不能替代完整终态。</td></tr>
+      </tbody>
+    </table>
+    <p>本轮 Go 定向回归：<code>go test ./internal/store/sqlstore -run 'TestCommitSinglePostMessageTx_(FrozenAudienceAndIdempotency|RestrictedMentionsStayInsideFrozenAudience)|TestChannelEvent_MessageProjectionSlowPathUsesFrozenAudience' -count=1</code> <span class="pass">PASS</span>；Go 修改仅加入 actor 到受限冻结 audience，不新增 Java vote/average route。</p>
+  </section>
+
+  <section>
+    <h2>六、四仓取证锚点</h2>
+    <table>
+      <thead><tr><th>仓</th><th>当前源码/配置锚点</th><th>推导出的职责</th></tr></thead>
+      <tbody>
+        <tr><td>GoServer</td><td><code>internal/api/post/register.go</code>；<code>internal/store/sqlstore/post_send_prepare.go</code>、<code>post_send_commit.go</code>、<code>canonical_delivery_store.go</code>；<code>internal/ws/event_type.go</code>、<code>forward.go</code>。</td><td>通用 post admission、authoritative consumer commit、event_seq/outbox、WS audience/fan-out、幂等和 readback；不拥有 Java OSS 或 Java vote/average 业务创建。</td></tr>
+        <tr><td>Helix</td><td><code>crates/helix-im/src/outbound/engagement/vote_score.rs</code>；<code>crates/helix-im/src/send/upload_props/plan.rs</code>；<code>crates/helix-driver-native/tests/messageV3-domain/shared/mod.rs</code>。</td><td>command/endpoint adapter、PersistAtomic、projection、NativeEventSink 和真实 driver harness；不把 Java HTTP admission 当 terminal。</td></tr>
+        <tr><td>Java CSES</td><td><code>server/src/main/java/org/cses/server/im/client/MattermostClient.java</code>；<code>VotingLotteryController.java</code>；<code>AverageScoreController.java</code>；<code>server/src/main/resources/application.yml</code>。</td><td>VOTE/AVERAGE_SCORE 业务创建、Java→IM service 请求和 OSS/fileDrive；配置中的 IM host 必须与本轮 Go origin 同源才可取真实回声。</td></tr>
+        <tr><td>Angular/Tauri</td><td><code>packages/task/src/chat-card-message.ts</code>；<code>helixTauriImGate.service.ts</code>；<code>real-engagement-multipersona.e2e.ts</code>；<code>real-media.e2e.ts</code>；<code>real-forward.e2e.ts</code>；<code>real-send-fault.e2e.ts</code>。</td><td>任务卡、投票/平均分入口、media stage、directed viewer、retry fault 和图片 preview wire；不能以 DOM/fixture 替代 Go/Helix durable terminal。</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>七、最终验收结论与下一步</h2>
+    <div class="box"><b>已经关闭：</b>原五个 NOT_VERIFIED 已全部有终态：G01H、G01L、G02C PASS；G01I、G01J 已真实尝试并正确降级为可定位的 Java→Go 同源前置阻塞。G10E 的 sparse notify 合同已修复并 PASS。native Cargo 全量 94/0。</div>
+    <div class="box stop"><b>仍不能宣布 92/92 或 Go 100%：</b>Java VOTE/AVERAGE_SCORE 尚未指向本轮本地 Go；G01C/D/E/G/G03C 缺真实 OSS/fileDrive bytes；Phase5 四个非 TEXT category/acceptance Gate 尚未实现；Go App/Sync/Store 覆盖率仍低于 100%。</div>
+    <ol>
+      <li>先在同一运行环境启动 Java CSES，并将 <code>mattermost-http-im-local.url</code> 明确指向 <code>http://127.0.0.1:18066</code>（或让 Java 与 Go 同在一个已连通 K8s origin）；保持 companyId <code>64118eebd2b665246b7880eb</code> 和三身份一致。</li>
+      <li>用 Java OSS/fileDrive 真 bytes 跑 G01C/D/E/G，再用同一 source post 跑 G03C；每个 Gate 重新生成 run-owned evidence。</li>
+      <li>补 Go App/Sync/Store 未覆盖行并重新运行对应 make 门禁；覆盖率与 92 Gate 分开报告。</li>
+      <li>所有 Gate 重新取同轮 HTTP/WS、projection、SQLite、Native EventSink、cleanup 证据后，才可考虑合并到目标分支；本轮没有 push。</li>
+    </ol>
+  </section>
+</body>
+</html>

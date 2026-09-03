@@ -64,13 +64,15 @@ async fn exercise_notify_chain(
     channel: &str,
     session: &mut shared::RealHelixSession,
 ) -> Result<Value, String> {
-    // 启动期 sync/notify 必须先提交完毕，避免旧的 authority snapshot 覆盖本轮 notify 写入。
-    session
-        .wait_event("im:sync:recovered", |_| true, Duration::from_secs(20))
-        .await
-        .map_err(|error| {
-            format!("initial recovery did not settle before notify mutation: {error}")
-        })?;
+    // 隔离 session 要现场等待恢复；pooled session 创建时已在共享 runtime 完成一次恢复闸门。
+    if !session.is_pooled() {
+        session
+            .wait_event("im:sync:recovered", |_| true, Duration::from_secs(20))
+            .await
+            .map_err(|error| {
+                format!("initial recovery did not settle before notify mutation: {error}")
+            })?;
+    }
     let http = shared::go_http(&context.actor).await?;
     let mut states = Vec::new();
 

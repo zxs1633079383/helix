@@ -180,6 +180,7 @@ async function assertGoReady(healthUrl) {
 /** 执行一次 Cargo 测试批次，并将完整输出落到本轮 run-owned artifact。 */
 async function runCargo(filter, exact, environment, logPath) {
     await mkdir(path.dirname(logPath), { recursive: true });
+    const startedAt = Date.now();
     return new Promise((resolve, reject) => {
         const args = ['test', '-p', 'helix-driver-native', '--test', 'message_v3_domain'];
         if (filter) args.push(filter);
@@ -200,7 +201,7 @@ async function runCargo(filter, exact, environment, logPath) {
         child.once('error', reject);
         child.once('close', async code => {
             await writeFile(logPath, output, 'utf8');
-            resolve({ code: code ?? 1, output });
+            resolve({ code: code ?? 1, output, durationMs: Date.now() - startedAt });
         });
     });
 }
@@ -274,6 +275,10 @@ async function main() {
     const suiteRunId = suiteId();
     const suiteRoot = path.join(options.artifactRoot, suiteRunId);
     await mkdir(suiteRoot, { recursive: true });
+    const suiteStartedAt = Date.now();
+    const phasePoolRequested = !['0', 'false', 'no'].includes(
+        String(process.env.MESSAGEV3_PHASE_POOL ?? '1').trim().toLowerCase()
+    );
     const environment = {
         ...process.env,
         MESSAGEV3_SUITE_RUN_ID: suiteRunId,
@@ -284,30 +289,57 @@ async function main() {
         MESSAGEV3_GO_WS_URL: runtimeEnvironment.goWsUrl,
         MESSAGEV3_GO_HEALTH_URL: runtimeEnvironment.goHealthUrl,
         MESSAGEV3_JAVA_API_BASE: runtimeEnvironment.javaApiBase,
-        HELIX_MAIN_API_BASE: runtimeEnvironment.javaApiBase
+        HELIX_MAIN_API_BASE: runtimeEnvironment.javaApiBase,
+        MESSAGEV3_PHASE_POOL: phasePoolRequested ? '1' : '0'
     };
-    const singlePhaseBatch = options.phases.length === 1 && !options.domains.length && !options.gates.length;
-    const batchFilter = selected.length === EXPECTED_GATE_COUNT
-        ? null
-        : singlePhaseBatch ? `phase${options.phases[0]}_` : undefined;
     const executions = new Map();
-    if (batchFilter !== undefined) {
-        const execution = await runCargo(batchFilter, false, environment, path.join(suiteRoot, 'cargo.log'));
-        for (const test of selected) executions.set(test.filter, testExitCode(execution.output, test.filter));
-    } else {
-        for (const test of selected) {
-            const gateRoot = path.join(suiteRoot, test.phaseName, test.domain, test.gate);
-            const execution = await runCargo(test.filter, true, environment, path.join(gateRoot, 'cargo.log'));
-            executions.set(test.filter, execution.code);
+    const selectedByPhase = new Map();
+    for (const test of selected) {
+        const phaseTests = selectedByPhase.get(test.phase) ?? [];
+        phaseTests.push(test);
+        selectedByPhase.set(test.phase, phaseTests);
+    }
+    // --all 以及完整 --phase 批次各启动一次 Cargo；Rust cleanup test 会在同一进程末回收池。
+    const batchPhases = [...selectedByPhase.keys()]
+        .filter(phase => selectedByPhase.get(phase).length === EXPECTED_PHASE_COUNTS.get(phase))
+        .sort((left, right) => left - right);
+    const batchPhaseSet = new Set(batchPhases);
+    const executionRecords = [];
+    for (const phase of batchPhases) {
+        const execution = await runCargo(
+            `phase${phase}_`,
+            false,
+            { ...environment, MESSAGEV3_PHASE: String(phase) },
+            path.join(suiteRoot, `cargo-phase${phase}.log`)
+        );
+        executionRecords.push({ phase, filter: `phase${phase}_`, durationMs: execution.durationMs, code: execution.code });
+        for (const test of selectedByPhase.get(phase)) {
+            executions.set(test.filter, {
+                code: testExitCode(execution.output, test.filter),
+                durationMs: execution.durationMs,
+                batch: true
+            });
         }
+    }
+    for (const test of selected.filter(candidate => !batchPhaseSet.has(candidate.phase))) {
+        const gateRoot = path.join(suiteRoot, test.phaseName, test.domain, test.gate);
+        const execution = await runCargo(
+            test.filter,
+            true,
+            { ...environment, MESSAGEV3_PHASE_POOL: '0' },
+            path.join(gateRoot, 'cargo.log')
+        );
+        executionRecords.push({ phase: test.phase, filter: test.filter, durationMs: execution.durationMs, code: execution.code });
+        executions.set(test.filter, { code: execution.code, durationMs: execution.durationMs, batch: false });
     }
     const results = [];
     for (const test of selected) {
         const gateRoot = path.join(suiteRoot, test.phaseName, test.domain, test.gate);
-        const exitCode = executions.get(test.filter) ?? 102;
+        const execution = executions.get(test.filter) ?? { code: 102, durationMs: null, batch: false };
+        const exitCode = execution.code;
         const evidence = await validateEvidence(path.join(gateRoot, 'evidence.json'), test, suiteRunId);
         const status = exitCode === 0 ? evidence.status : 'TEST_FAILED';
-        results.push({ ...test, exitCode, status, reason: exitCode === 0 ? evidence.reason : 'Cargo test 未通过或未执行' });
+        results.push({ ...test, exitCode, status, duration_ms: execution.durationMs, batch: execution.batch, reason: exitCode === 0 ? evidence.reason : 'Cargo test 未通过或未执行' });
         console.log(`${status}\t${test.phaseName}/${test.domain}/${test.gate}`);
     }
     const summary = {
@@ -316,6 +348,16 @@ async function main() {
         environment: runtimeEnvironment.name,
         selected: results.length,
         passed: results.filter(result => result.status === 'PASS').length,
+        execution: {
+            cargo_batches: executionRecords.length,
+            batched_phases: batchPhases,
+            per_gate_processes: executionRecords.filter(record => !batchPhases.includes(record.phase)).length,
+            phase_pool_enabled: phasePoolRequested && batchPhases.length > 0,
+            phase_pool_max_channels: 5,
+            phase_pool_ws_reuse: phasePoolRequested,
+            cargo: executionRecords,
+            elapsed_ms: Date.now() - suiteStartedAt
+        },
         results
     };
     await writeFile(path.join(suiteRoot, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`, 'utf8');

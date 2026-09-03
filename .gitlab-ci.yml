@@ -12,6 +12,8 @@ variables:
   CARGO_INCREMENTAL: "0"
   MESSAGEV3_CI_IMAGE: "harbor.jinqidongli.com/infra-ops/gitlab/rust:1.95.0_with_tools"
   MESSAGEV3_ENV: "pre"
+  # 完整 Phase 批次启用最多五个频道和按账号复用的保活 WS；设为 0 可回退逐 Gate 隔离调试。
+  MESSAGEV3_PHASE_POOL: "1"
 
 default:
   # 镜像必须同时提供 Rust 1.95、wasm32 target、cargo fmt/clippy 与 Node.js 20+。
@@ -42,7 +44,7 @@ messagev3-real-chain:
     # GitLab File variable；不把账号池复制到仓库或 artifact。
     - test -n "${CSES_WDIO_CREDENTIALS_FILE:-}" || { echo "❌ missing GitLab File variable CSES_WDIO_CREDENTIALS_FILE"; exit 1; }
     - test -f "$CSES_WDIO_CREDENTIALS_FILE" || { echo "❌ CSES_WDIO_CREDENTIALS_FILE is not a file"; exit 1; }
-    - node scripts/messagev3/phase1-5-real-chain.mjs --all
+    - node scripts/messagev3/phase1-5-real-chain.mjs --all --env "$MESSAGEV3_ENV"
   artifacts:
     when: always
     paths:

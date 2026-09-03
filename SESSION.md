@@ -1,3 +1,5 @@
+🎯 EXPECT real-chain `--all` 将按 Phase 拆为 5 个 Cargo 批次；每个批次最多 5 个 run-owned 频道、按账号复用一条长连接并保活，Phase 末统一关闭；Gate 的 HTTP/WS/Projection/SQLite/EventSink/corr/cleanup 证据字段不削弱；Focused Rust/Node 静态校验通过，并记录一次 PRE 执行的 Cargo 进程、频道创建、WS 连接和总耗时对照 | 赌注 高 | 可逆 是 | @2026-09-03T18:35:38+0800
+
 🎯 EXPECT 每日 Markdown 熵管理只修改有当前代码/manifest 证据的文档；可证伪断言：① 四个公开 crate README 与 docs 索引统一对齐 Cargo `0.1.4`；② Metrics 文档精确对齐 registry 的 182/129/40/11/2 分母与新增 6 个 MessageV3/Web Runtime 指标；③ docs/mmd 的 92 Gate 客户端合同入口从已落后的 sync-event-alignment worktree 切到当前 cses-client 仓根，92/92 contract 路径存在且 Phase 33/20/15/12/12；④ 不修改 Rust、JSON、TOML、脚本或生成产物；⑤ 本轮直接相关链接、索引、manifest 与 diff checker 全部通过，既有 checker Drift 单列不冒充本轮失败 | 赌注 中 | 可逆 是 | @2026-09-03T08:15:00+0800
 
 ✅ DONE 每日 Markdown 熵管理已对齐 0.1.4 版本、182/129/40/11/2 指标分母、92 Gate 当前 cses-client 真源、ROADMAP 与历史设计文档边界；90 个变更文件仅为 Markdown/Mermaid，本地链接 1589/1589、Gate 92/92、Mermaid 94/94、HX-C 18/18、Spec047 30/30 默认校验、strict-matrix 50/54/13 与 diff check 通过；既有 generated/agent/full-map checker Drift 已单列，未冒充本轮失败 | @2026-09-03T08:30:03+0800
@@ -605,3 +607,7 @@
 
 ✅ DONE PRE 真实链乱序修复已完成：Helix `run_helix_send` 统一在成功、失败、超时路径先停止 engine/actor+observer WS 并删除本轮 SQLite，再由 caller 关闭远端 run-owned channel；`channel/create` 已拿到 ID 但 projection/snapshot 等待失败时也会回收频道。Go commit `d8db78f` 在活动快照读取后规范化过旧 `createAt`，同频道快照准备→提交→主 post WS 使用 lane，关闭/删除频道的遗留缺快照消息 ACK-and-drop，开态缺快照保留 NACK 重试。聚焦 Rust 2 tests、Go Pulsar/store/send/race tests、gofmt/rustfmt/diff-check 均通过；用户已有 artifacts/Prompt/config/tmp 未纳入 | @2026-09-03T
 ⚡ DRIFT-PRED PRE 重跑仍只能观察到旧镜像 `pre-paas2.5-647bd290` 的 `TEST_FAILED`（G01A 超时）与关闭后重复 NACK，未部署本修复前不能证明业务 Gate 结果；候选教训：real-chain 必须在 Go 镜像 rebuild/restart 后再按同一 profile 重跑，旧运行态证据不得覆盖新代码证据 | @2026-09-03T
+
+✅ DONE MessageV3 real-chain 已完成 Phase 批次提速与资源复用：`--all --env pre` 固定 83 个可执行 Gate、5 个 Cargo 批次、每 Phase 最多 5 个活跃 run-owned 频道；同一账号在 Phase 内复用一条持久 Helix/WS/SQLite 资源，15s ping 保活，Gate 结束只释放逻辑租约，Phase cleanup 才停止 WS/engine、关闭频道并删除 SQLite。最新池化全量 suite `messagev3-1788434044323-57571` 为 72/83 PASS、无 TEST_FAILED，Phase1/2/3/4/5 分别 25/16/15/8/8 PASS，耗时 45.971s；关闭池化对照 suite `messagev3-1788433847203-55461` 为 70/83 PASS、112.016s，观察到约 59% 降幅（前一轮热缓存池化为 72.934s，降幅约 35%）。Phase3 15/15、Phase5 8/8 均独立复跑通过；PRE Pod 最近 10 分钟日志未命中 `channel not found in active member snapshot`，仅见 cleanup 后的 2 条断开记录。Node、Rust fmt、diff check 通过；未 push，既有 artifacts/Prompt 保持未跟踪 | @2026-09-03T
+
+⚡ DRIFT-PRED 资源池的“最多 5 个频道”按活跃槽位实现：close/leave/member-change 会 retire 当前频道并在下一次租赁时补位，因此单个 Phase 的累计创建频道数可能超过 5，但并发活跃频道不超过 5；候选教训：若后续要求累计创建数也硬上限为 5，需要为破坏性 Gate 另定不复用的 Phase 编排，而不能复用已关闭频道 | @2026-09-03T

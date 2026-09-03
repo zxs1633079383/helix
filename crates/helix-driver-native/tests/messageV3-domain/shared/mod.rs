@@ -33,10 +33,12 @@ use helix_driver_native::{
 use helix_im::{ImConfig, ImModule, IM_SCHEMA, IM_SCHEMA_MIGRATIONS};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::thread;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex, OnceCell};
 use tokio::task::JoinHandle;
@@ -173,6 +175,9 @@ pub(crate) static REMOTE_LOCK: OnceCell<Mutex<()>> = OnceCell::const_new();
 const CHANNEL_FIXTURE_WAIT_SECS: u64 = 30;
 const CHANNEL_FIXTURE_FRESHNESS_MS: i64 = 10 * 60 * 1000;
 const CHANNEL_FIXTURE_SNAPSHOT_END_MS: i64 = 9_000_000_000_000;
+const PHASE_POOL_MAX_CHANNELS: usize = 5;
+const PHASE_POOL_PING_INTERVAL_DEFAULT_MS: u64 = 15_000;
+const PHASE_POOL_EVENT_CAPACITY: usize = 16_384;
 const CHAIN_ENTRY_ORDER: &[ScanOrder] = &[ScanOrder::asc("seq")];
 
 #[derive(Debug, Deserialize)]
@@ -492,9 +497,139 @@ pub(crate) struct RealHelixSession {
     shutdown_tx: Option<oneshot::Sender<()>>,
     engine: Option<JoinHandle<()>>,
     db_path: PathBuf,
+    /// 批量 Phase 模式下指向共享资源；句柄关闭只释放逻辑租约，不断开物理 WS。
+    pool: Option<Arc<PooledSessionResource>>,
+}
+
+/// 一个 Phase 内按账号复用的真实 Helix engine/WS/SQLite 资源。
+struct PooledSessionResource {
+    storage: NativeStorage,
+    event_sink: NativeEventSink,
+    ws_events_tx: broadcast::Sender<Value>,
+    tick_tx: mpsc::Sender<Tick>,
+    actor_transport: Arc<NativeTransport>,
+    shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
+    engine: Mutex<Option<JoinHandle<()>>>,
+    db_path: PathBuf,
+    closed: AtomicBool,
+}
+
+/// 一个 Phase 的最多五个远端频道和按账号缓存的长连接。
+struct PhaseResourcePool {
+    http_base: Option<String>,
+    ws_url: Option<String>,
+    channels: Vec<String>,
+    retired_channels: HashSet<String>,
+    next_channel: usize,
+    sessions: HashMap<String, Arc<PooledSessionResource>>,
+}
+
+static PHASE_RESOURCE_POOL: OnceCell<Mutex<PhaseResourcePool>> = OnceCell::const_new();
+static PHASE_RUNTIME: OnceLock<tokio::runtime::Handle> = OnceLock::new();
+
+impl PhaseResourcePool {
+    /// 创建空的 Phase 资源池，首次真实 Gate 访问时按需预热频道。
+    fn new() -> Self {
+        Self {
+            http_base: None,
+            ws_url: None,
+            channels: Vec::new(),
+            retired_channels: HashSet::new(),
+            next_channel: 0,
+            sessions: HashMap::new(),
+        }
+    }
+}
+
+impl PooledSessionResource {
+    /// 为同一账号建立独立事件订阅，但复用底层 engine、WS 和 SQLite。
+    fn handle(self: &Arc<Self>) -> RealHelixSession {
+        RealHelixSession {
+            storage: self.storage.clone(),
+            events: self.event_sink.subscribe(),
+            ws_events: self.ws_events_tx.subscribe(),
+            tick_tx: self.tick_tx.clone(),
+            actor_transport: Arc::clone(&self.actor_transport),
+            shutdown_tx: None,
+            engine: None,
+            db_path: self.db_path.clone(),
+            pool: Some(Arc::clone(self)),
+        }
+    }
+
+    /// 停止 Phase 共享 engine/WS；幂等保护避免 cleanup test 重复关闭。
+    async fn shutdown(&self) -> Result<(), String> {
+        if self.closed.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        let mut errors = Vec::new();
+        if let Some(shutdown_tx) = self.shutdown_tx.lock().await.take() {
+            let _ = shutdown_tx.send(());
+        }
+        if let Some(mut engine) = self.engine.lock().await.take() {
+            match timeout(Duration::from_secs(15), &mut engine).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => errors.push(format!("Phase pooled engine task failed: {error}")),
+                Err(_) => {
+                    engine.abort();
+                    let _ = engine.await;
+                    errors.push(
+                        "Phase pooled engine graceful shutdown timed out after 15s; engine aborted"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+        if let Err(error) = close_send_transport(
+            Arc::clone(&self.actor_transport),
+            "Phase pooled Helix actor WS",
+        )
+        .await
+        {
+            errors.push(error);
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
+        }
+    }
+}
+
+/// 判断当前 Cargo 批次是否启用 Phase 资源复用；单 Gate 调试默认保持旧隔离语义。
+fn phase_pool_enabled() -> bool {
+    matches!(
+        std::env::var("MESSAGEV3_PHASE_POOL")
+            .ok()
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("1") | Some("true") | Some("yes")
+    )
+}
+
+/// 读取可配置的 WS 心跳间隔，限制在合理范围内避免测试连接无心跳或过度打点。
+fn messagev3_ping_interval_ms() -> u64 {
+    std::env::var("MESSAGEV3_WS_PING_INTERVAL_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| (1_000..=300_000).contains(value))
+        .unwrap_or(PHASE_POOL_PING_INTERVAL_DEFAULT_MS)
+}
+
+/// 返回本进程的 Phase 资源池；未启用复用时调用方不会触碰该状态。
+async fn phase_resource_pool() -> &'static Mutex<PhaseResourcePool> {
+    PHASE_RESOURCE_POOL
+        .get_or_init(|| async { Mutex::new(PhaseResourcePool::new()) })
+        .await
 }
 
 impl RealHelixSession {
+    /// 判断当前句柄是否只持有 Phase 共享资源的逻辑租约。
+    pub(crate) fn is_pooled(&self) -> bool {
+        self.pool.is_some()
+    }
+
     /// 向当前 engine 注入一条真实 `Tick::Command`，不绕过 Helix public module。
     pub(crate) async fn command(&self, name: &'static str, payload: Value) -> Result<(), String> {
         let bytes = serde_json::to_vec(&payload)
@@ -545,48 +680,180 @@ impl RealHelixSession {
         .map_err(|_| format!("timed out waiting tapped Go WS action '{action}'"))?
     }
 
-    /// 发送 shutdown、等待 engine drain、关闭 actor WS，并删除本轮独占 SQLite。
-    pub(crate) async fn close(mut self) -> Result<(), String> {
-        if let Some(shutdown_tx) = self.shutdown_tx.take() {
-            let _ = shutdown_tx.send(());
-        }
-        if let Some(engine) = self.engine.take() {
-            timeout(Duration::from_secs(15), engine)
-                .await
-                .map_err(|_| "real Helix engine graceful shutdown timed out".to_string())?
-                .map_err(|error| format!("real Helix engine task failed: {error}"))?;
-        }
-        // Go may close the socket after the terminal projection; cleanup remains idempotent and
-        // must not downgrade a fully proven Gate merely because the peer already disconnected.
-        if let Err(error) = self.actor_transport.close().await {
-            let text = error.to_string();
-            if !text.contains("closed connection") && !text.contains("connection is closed") {
-                return Err(format!("close real Helix actor WS: {error}"));
+    /// 关闭逻辑租约；Phase 池句柄保留物理 WS，批次末由 cleanup test 统一回收。
+    pub(crate) async fn close(self) -> Result<(), String> {
+        if let Some(pool) = self.pool {
+            if pool.closed.load(Ordering::Acquire) {
+                return Err("Phase pooled Helix session was already closed".to_string());
             }
+            return Ok(());
         }
-        remove_test_storage(&self.db_path);
-        Ok(())
+        close_session_parts(
+            self.shutdown_tx,
+            self.engine,
+            self.actor_transport,
+            self.db_path,
+            true,
+        )
+        .await
     }
 
-    /// 关闭 engine/WS 但保留本轮 SQLite 文件，供重启后的只读回读验收使用。
-    pub(crate) async fn close_preserving_db(mut self) -> Result<PathBuf, String> {
-        if let Some(shutdown_tx) = self.shutdown_tx.take() {
-            let _ = shutdown_tx.send(());
+    /// 关闭 engine/WS 但保留 SQLite，供重启后的只读回读验收使用。
+    pub(crate) async fn close_preserving_db(self) -> Result<PathBuf, String> {
+        let db_path = self.db_path.clone();
+        if let Some(pool) = self.pool {
+            shutdown_pooled_resource_on_phase_runtime(pool).await?;
+            return Ok(db_path);
         }
-        if let Some(engine) = self.engine.take() {
-            timeout(Duration::from_secs(15), engine)
-                .await
-                .map_err(|_| "real Helix engine graceful shutdown timed out".to_string())?
-                .map_err(|error| format!("real Helix engine task failed: {error}"))?;
+        close_session_parts(
+            self.shutdown_tx,
+            self.engine,
+            self.actor_transport,
+            db_path.clone(),
+            false,
+        )
+        .await?;
+        Ok(db_path)
+    }
+}
+
+/// 统一 raw WS 与 Phase pooled session 的观察接口，避免 pooled 批次再开第二条竞争连接。
+enum WsTap {
+    Pooled(RealHelixSession),
+    Raw(RawWs),
+}
+
+impl WsTap {
+    /// 确认观察连接可用；pooled session 的 authenticated hello 在物理连接创建时已核验。
+    async fn ensure_ready(&mut self) -> Result<(), String> {
+        match self {
+            Self::Pooled(session) => session
+                .pool
+                .as_ref()
+                .filter(|resource| !resource.closed.load(Ordering::Acquire))
+                .map(|_| ())
+                .ok_or_else(|| "pooled WS resource is closed".to_string()),
+            Self::Raw(ws) => wait_ws_hello(ws).await.map(|_| ()),
         }
-        if let Err(error) = self.actor_transport.close().await {
-            let text = error.to_string();
-            if !text.contains("closed connection") && !text.contains("connection is closed") {
-                return Err(format!("close real Helix actor WS: {error}"));
+    }
+
+    /// 从观察连接读取指定 action，并保留真实 Go 帧的 predicate 语义。
+    async fn wait_action<F>(
+        &mut self,
+        action: &str,
+        predicate: F,
+        wait_for: Duration,
+    ) -> Result<Value, String>
+    where
+        F: Fn(&Value) -> bool,
+    {
+        match self {
+            Self::Pooled(session) => session.wait_ws_action(action, predicate, wait_for).await,
+            Self::Raw(ws) => wait_ws_action(ws, action, predicate, wait_for).await,
+        }
+    }
+
+    /// 释放观察连接的逻辑租约；pooled 物理 WS 延迟至 Phase cleanup。
+    async fn close(self) -> Result<(), String> {
+        match self {
+            Self::Pooled(session) => session.close().await,
+            Self::Raw(ws) => close_send_transport(ws.transport, "Go observer WS").await,
+        }
+    }
+}
+
+/// 统一收敛 engine 超时、迟到断连和 SQLite 清理，避免早退留下 reconnect supervisor。
+async fn close_session_parts(
+    shutdown_tx: Option<oneshot::Sender<()>>,
+    engine: Option<JoinHandle<()>>,
+    actor_transport: Arc<NativeTransport>,
+    db_path: PathBuf,
+    remove_db: bool,
+) -> Result<(), String> {
+    let mut errors = Vec::new();
+    if let Some(shutdown_tx) = shutdown_tx {
+        let _ = shutdown_tx.send(());
+    }
+    if let Some(mut engine) = engine {
+        match timeout(Duration::from_secs(15), &mut engine).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => errors.push(format!("real Helix engine task failed: {error}")),
+            Err(_) => {
+                engine.abort();
+                let _ = engine.await;
+                errors.push(
+                    "real Helix engine graceful shutdown timed out after 15s; engine aborted"
+                        .to_string(),
+                );
             }
         }
-        Ok(self.db_path)
     }
+    // Go may close the socket after the terminal projection; cleanup remains idempotent.
+    if let Err(error) = close_send_transport(actor_transport, "real Helix actor WS").await {
+        errors.push(error);
+    }
+    if remove_db {
+        remove_test_storage(&db_path);
+        if db_path.exists()
+            || PathBuf::from(format!("{}-wal", db_path.display())).exists()
+            || PathBuf::from(format!("{}-shm", db_path.display())).exists()
+        {
+            errors.push(format!(
+                "real Helix SQLite cleanup left files at {}",
+                db_path.display()
+            ));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
+/// 返回一个跨 `#[tokio::test]` 生命周期的专用运行时，托管 Phase 共享 WS/engine 任务。
+fn phase_runtime_handle() -> &'static tokio::runtime::Handle {
+    PHASE_RUNTIME.get_or_init(|| {
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+        thread::Builder::new()
+            .name("messagev3-phase-runtime".to_string())
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .expect("messagev3 phase runtime must initialize");
+                ready_tx
+                    .send(runtime.handle().clone())
+                    .expect("messagev3 phase runtime receiver must remain alive");
+                runtime.block_on(std::future::pending::<()>());
+            })
+            .expect("messagev3 phase runtime thread must start");
+        ready_rx
+            .recv()
+            .expect("messagev3 phase runtime must report ready")
+    })
+}
+
+/// 把共享资源启动/停止任务投递到持久运行时，避免测试函数结束时 Tokio 回收 WS reader。
+async fn run_on_phase_runtime<F, T>(future: F) -> Result<T, String>
+where
+    F: Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    let (result_tx, result_rx) = oneshot::channel();
+    phase_runtime_handle().spawn(async move {
+        let _ = result_tx.send(future.await);
+    });
+    result_rx
+        .await
+        .map_err(|_| "messagev3 phase runtime task was cancelled".to_string())
+}
+
+/// 在共享运行时关闭一个 pooled engine/WS，并把业务错误原样回传给 Phase cleanup。
+async fn shutdown_pooled_resource_on_phase_runtime(
+    resource: Arc<PooledSessionResource>,
+) -> Result<(), String> {
+    run_on_phase_runtime(async move { resource.shutdown().await }).await?
 }
 
 /// 启动一条注册指定频道的真实 Helix native engine 会话，并等待 authenticated hello。
@@ -630,16 +897,33 @@ pub(crate) async fn start_chain_helix_session_as(
     .await
 }
 
+/// 保存一次 engine 装配结果，既可返回隔离句柄，也可放入 Phase 共享池。
+struct SessionComponents {
+    storage: NativeStorage,
+    event_sink: NativeEventSink,
+    events: broadcast::Receiver<DomainEventBytes>,
+    ws_events_tx: broadcast::Sender<Value>,
+    ws_events: broadcast::Receiver<Value>,
+    tick_tx: mpsc::Sender<Tick>,
+    actor_transport: Arc<NativeTransport>,
+    shutdown_tx: oneshot::Sender<()>,
+    engine: JoinHandle<()>,
+    db_path: PathBuf,
+}
+
 /// 按给定 Go HTTP/WS 端点装配完整 Native 生命周期；业务仍只在 helix-im 内执行。
-async fn start_real_helix_session_as_at(
-    _context: &AuthContext,
+async fn start_session_components(
     persona: &Persona,
     channel_ids: &[&str],
     http_base: &str,
     ws_url: &str,
-) -> Result<RealHelixSession, String> {
+) -> Result<SessionComponents, String> {
     let (storage, db_path) = open_test_storage().await?;
-    let (event_sink, events) = NativeEventSink::new();
+    let (event_sink, events) = if phase_pool_enabled() {
+        NativeEventSink::new_with_capacity(PHASE_POOL_EVENT_CAPACITY)
+    } else {
+        NativeEventSink::new()
+    };
     let http = go_http_at(persona, http_base, ws_url).await?;
 
     let mut im_config = ImConfig::default();
@@ -651,7 +935,7 @@ async fn start_real_helix_session_as_at(
     im_config.user_name = persona.user_name.clone();
     im_config.org_name = persona.org_name.clone();
     im_config.dept_name = persona.dept_name.clone();
-    im_config.ping_interval_ms = 60_000;
+    im_config.ping_interval_ms = messagev3_ping_interval_ms();
     im_config.send_timeout_ms = 15_000;
 
     let mut module = ImModule::new(im_config);
@@ -666,13 +950,14 @@ async fn start_real_helix_session_as_at(
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
     let (transport_tick_tx, mut transport_tick_rx) = mpsc::channel::<Tick>(256);
     let (ws_events_tx, ws_events_rx) = broadcast::channel::<Value>(4096);
+    let ws_events_pump_tx = ws_events_tx.clone();
     let engine_tick_tx = tick_tx.clone();
     // 记录同一真实 transport 的 raw JSON 后再转交 engine，避免额外 WS 连接抢走定向帧。
     tokio::spawn(async move {
         while let Some(tick) = transport_tick_rx.recv().await {
             if let Tick::Inbound(bytes) = &tick {
                 if let Ok(frame) = serde_json::from_slice::<Value>(bytes.as_bytes()) {
-                    let _ = ws_events_tx.send(frame);
+                    let _ = ws_events_pump_tx.send(frame);
                 }
             }
             if engine_tick_tx.send(tick).await.is_err() {
@@ -702,6 +987,7 @@ async fn start_real_helix_session_as_at(
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let engine_tick_tx = tick_tx.clone();
     let engine_storage = storage.clone();
+    let engine_event_sink = event_sink.clone();
     let engine = tokio::spawn(async move {
         run_engine_loop_with_transports(
             shell,
@@ -711,7 +997,7 @@ async fn start_real_helix_session_as_at(
                 engine_storage,
                 http,
                 SharedFileUploader::default(),
-                event_sink,
+                engine_event_sink,
                 8,
             )
             .with_metric_sink(Arc::new(NoopMetricSink)),
@@ -725,24 +1011,132 @@ async fn start_real_helix_session_as_at(
         .await
         .map_err(|error| format!("real Helix actor WS activation failed: {error}"))?;
 
-    let mut session = RealHelixSession {
+    Ok(SessionComponents {
         storage,
+        event_sink,
         events,
+        ws_events_tx,
         ws_events: ws_events_rx,
         tick_tx,
         actor_transport,
-        shutdown_tx: Some(shutdown_tx),
-        engine: Some(engine),
+        shutdown_tx,
+        engine,
         db_path,
-    };
-    session
-        .wait_event(
-            "im:connection:established",
-            |_| true,
-            Duration::from_secs(20),
+    })
+}
+
+/// 等待一次共享 session 的 authenticated hello，防止后续 Gate 吃到连接前帧。
+async fn wait_session_ready(
+    events: &mut broadcast::Receiver<DomainEventBytes>,
+) -> Result<(), String> {
+    wait_domain_event(
+        events,
+        "im:connection:established",
+        |_| true,
+        Duration::from_secs(20),
+    )
+    .await
+    .map(|_| ())
+}
+
+/// 首次创建 pooled session 时等待一次恢复终态，后续 Gate 复用该已认证/已恢复的长连接。
+async fn wait_pooled_session_ready(
+    events: &mut broadcast::Receiver<DomainEventBytes>,
+) -> Result<(), String> {
+    wait_session_ready(events).await?;
+    wait_domain_event(
+        events,
+        "im:sync:recovered",
+        |_| true,
+        Duration::from_secs(20),
+    )
+    .await
+    .map(|_| ())
+}
+
+/// 将隔离 engine 组件包装成保持既有调用方字段语义的句柄。
+fn isolated_session(components: SessionComponents) -> RealHelixSession {
+    RealHelixSession {
+        storage: components.storage,
+        events: components.events,
+        ws_events: components.ws_events,
+        tick_tx: components.tick_tx,
+        actor_transport: components.actor_transport,
+        shutdown_tx: Some(components.shutdown_tx),
+        engine: Some(components.engine),
+        db_path: components.db_path,
+        pool: None,
+    }
+}
+
+/// 在 Phase 池中按账号取得一个长连接句柄，并为每个句柄订阅独立事件游标。
+async fn pooled_session_at(
+    context: &AuthContext,
+    persona: &Persona,
+    http_base: &str,
+    ws_url: &str,
+) -> Result<RealHelixSession, String> {
+    let channels = phase_pool_channels_at(context, http_base, ws_url).await?;
+    let key = format!(
+        "{}:{}:{}:{}",
+        persona.user_id, persona.company_id, http_base, ws_url
+    );
+    let pool = phase_resource_pool().await;
+    let mut state = pool.lock().await;
+    if let Some(resource) = state.sessions.get(&key) {
+        if !resource.closed.load(Ordering::Acquire) {
+            return Ok(resource.handle());
+        }
+    }
+    state.sessions.remove(&key);
+    let phase_persona = persona.clone();
+    let phase_http_base = http_base.to_string();
+    let phase_ws_url = ws_url.to_string();
+    let phase_channels = channels.clone();
+    let mut components = run_on_phase_runtime(async move {
+        let channel_refs = phase_channels
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        start_session_components(
+            &phase_persona,
+            &channel_refs,
+            &phase_http_base,
+            &phase_ws_url,
         )
-        .await?;
-    Ok(session)
+        .await
+    })
+    .await??;
+    wait_pooled_session_ready(&mut components.events).await?;
+    let resource = Arc::new(PooledSessionResource {
+        storage: components.storage,
+        event_sink: components.event_sink,
+        ws_events_tx: components.ws_events_tx,
+        tick_tx: components.tick_tx,
+        actor_transport: components.actor_transport,
+        shutdown_tx: Mutex::new(Some(components.shutdown_tx)),
+        engine: Mutex::new(Some(components.engine)),
+        db_path: components.db_path,
+        closed: AtomicBool::new(false),
+    });
+    state.sessions.insert(key, Arc::clone(&resource));
+    Ok(resource.handle())
+}
+
+/// 根据当前批次开关选择隔离 session 或按账号复用的 Phase session。
+async fn start_real_helix_session_as_at(
+    context: &AuthContext,
+    persona: &Persona,
+    channel_ids: &[&str],
+    http_base: &str,
+    ws_url: &str,
+) -> Result<RealHelixSession, String> {
+    if phase_pool_enabled() {
+        return pooled_session_at(context, persona, http_base, ws_url).await;
+    }
+    let mut components = start_session_components(persona, channel_ids, http_base, ws_url).await?;
+    wait_session_ready(&mut components.events).await?;
+    Ok(isolated_session(components))
 }
 
 /// 生成不含账号/令牌的本轮 correlation 头和 run-owned 资源前缀。
@@ -1536,7 +1930,11 @@ async fn finish_run_owned_channel<T>(
 
 /// 以 canonical channel/create body 创建 run-owned 私有群聊。
 pub(crate) async fn create_channel(context: &AuthContext) -> Result<String, String> {
-    create_channel_at(context, go_http_base(), go_ws_url()).await
+    if phase_pool_enabled() {
+        phase_pool_channel_at(context, go_http_base(), go_ws_url()).await
+    } else {
+        create_channel_at(context, go_http_base(), go_ws_url()).await
+    }
 }
 
 /// 通过公开 `im_create_channel` Command 完成真实建群链，并逐跳核对 Go/WS/SQLite/EventSink。
@@ -1958,9 +2356,199 @@ pub(crate) async fn assert_local_draft_chain(
     Ok(())
 }
 
+/// 预热当前 Phase 的最多五个 run-owned 频道，并返回可循环复用的频道 ID 列表。
+async fn phase_pool_channels_at(
+    context: &AuthContext,
+    http_base: &str,
+    ws_url: &str,
+) -> Result<Vec<String>, String> {
+    let pool = phase_resource_pool().await;
+    let mut state = pool.lock().await;
+    if let Some(existing) = state.http_base.as_deref() {
+        if existing != http_base || state.ws_url.as_deref() != Some(ws_url) {
+            return Err(format!(
+                "Phase resource pool endpoint changed from {existing}/{} to {http_base}/{ws_url}",
+                state.ws_url.as_deref().unwrap_or("<missing>")
+            ));
+        }
+    } else {
+        state.http_base = Some(http_base.to_string());
+        state.ws_url = Some(ws_url.to_string());
+    }
+    while state
+        .channels
+        .iter()
+        .filter(|channel_id| !state.retired_channels.contains(*channel_id))
+        .count()
+        < PHASE_POOL_MAX_CHANNELS
+    {
+        match create_channel_at(context, http_base, ws_url).await {
+            Ok(channel_id) => state.channels.push(channel_id),
+            Err(error) => {
+                let created = std::mem::take(&mut state.channels);
+                drop(state);
+                let mut cleanup_errors = Vec::new();
+                for channel_id in created {
+                    if let Err(cleanup_error) =
+                        close_channel_at(context, &channel_id, http_base, ws_url).await
+                    {
+                        cleanup_errors.push(cleanup_error);
+                    }
+                }
+                return if cleanup_errors.is_empty() {
+                    Err(error)
+                } else {
+                    Err(format!(
+                        "{error}; phase channel prewarm cleanup failed: {}",
+                        cleanup_errors.join("; ")
+                    ))
+                };
+            }
+        }
+    }
+    Ok(state
+        .channels
+        .iter()
+        .filter(|channel_id| !state.retired_channels.contains(*channel_id))
+        .cloned()
+        .collect())
+}
+
+/// 取得一个 Phase 频道槽位；测试内串行执行时按确定性 round-robin 复用。
+async fn phase_pool_channel_at(
+    context: &AuthContext,
+    http_base: &str,
+    ws_url: &str,
+) -> Result<String, String> {
+    phase_pool_channels_at(context, http_base, ws_url).await?;
+    let pool = phase_resource_pool().await;
+    let mut state = pool.lock().await;
+    let active = state
+        .channels
+        .iter()
+        .filter(|channel_id| !state.retired_channels.contains(*channel_id))
+        .collect::<Vec<_>>();
+    if active.is_empty() {
+        return Err("Phase resource pool has no active channel slots".to_string());
+    }
+    let index = state.next_channel % active.len();
+    let selected = active[index].clone();
+    state.next_channel = state.next_channel.saturating_add(1);
+    Ok(selected)
+}
+
+/// 将会破坏频道后续可复用性的 mutation 标记为 retired，下一次租赁时补一个活跃槽位。
+pub(crate) async fn retire_phase_pool_channel(channel_id: &str) {
+    if !phase_pool_enabled() {
+        return;
+    }
+    let pool = phase_resource_pool().await;
+    let mut state = pool.lock().await;
+    if state
+        .channels
+        .iter()
+        .any(|candidate| candidate == channel_id)
+    {
+        state.retired_channels.insert(channel_id.to_string());
+    }
+}
+
+/// 判断频道是否由当前 Phase 池持有，避免 Gate 结束时提前调用远端 channel/close。
+async fn is_phase_pool_channel(channel_id: &str) -> bool {
+    if !phase_pool_enabled() {
+        return false;
+    }
+    phase_resource_pool()
+        .await
+        .lock()
+        .await
+        .channels
+        .iter()
+        .any(|candidate| candidate == channel_id)
+}
+
+/// 在 Phase 专属 cleanup test 中停止共享 session/WS 并关闭最多五个远端频道。
+pub(crate) async fn shutdown_messagev3_phase_pool(phase: u8) -> Result<(), String> {
+    if !phase_pool_enabled() {
+        return Ok(());
+    }
+    let pool = phase_resource_pool().await;
+    let (channels, sessions, http_base, ws_url) = {
+        let mut state = pool.lock().await;
+        (
+            std::mem::take(&mut state.channels),
+            std::mem::take(&mut state.sessions),
+            state.http_base.take(),
+            state.ws_url.take(),
+        )
+    };
+    if channels.is_empty() && sessions.is_empty() {
+        return Ok(());
+    }
+    let context = if phase == 5 {
+        CHAIN_AUTH_CONTEXT
+            .get_or_init(|| async {
+                discover_auth_context_at(chain_go_http_base(), go_health_url())
+                    .await
+                    .map(Arc::new)
+            })
+            .await
+            .clone()
+            .map_err(|error| error.to_string())?
+    } else {
+        AUTH_CONTEXT
+            .get_or_init(|| async { discover_auth_context().await.map(Arc::new) })
+            .await
+            .clone()
+            .map_err(|error| error.to_string())?
+    };
+    let mut errors = Vec::new();
+    let resources = sessions.into_values().collect::<Vec<_>>();
+    let db_paths = resources
+        .iter()
+        .map(|resource| resource.db_path.clone())
+        .collect::<Vec<_>>();
+    for resource in resources {
+        if let Err(error) = shutdown_pooled_resource_on_phase_runtime(resource).await {
+            errors.push(error);
+        }
+    }
+    let http_base = http_base.unwrap_or_else(|| go_http_base().to_string());
+    let ws_url = ws_url.unwrap_or_else(|| go_ws_url().to_string());
+    for channel_id in channels {
+        if let Err(error) = close_channel_at(&context, &channel_id, &http_base, &ws_url).await {
+            errors.push(format!(
+                "phase channel {channel_id} cleanup failed: {error}"
+            ));
+        }
+    }
+    // 释放最后一个 session Arc 后再删除 SQLite，保证 WAL/SHM 不会被仍存活的连接重建。
+    for db_path in db_paths {
+        remove_test_storage(&db_path);
+        if db_path.exists()
+            || PathBuf::from(format!("{}-wal", db_path.display())).exists()
+            || PathBuf::from(format!("{}-shm", db_path.display())).exists()
+        {
+            errors.push(format!(
+                "phase pooled SQLite cleanup left files at {}",
+                db_path.display()
+            ));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
 /// 在指定 Go 端点创建三成员 run-owned 频道，供 Phase5 使用。
 pub(crate) async fn create_chain_channel(context: &AuthContext) -> Result<String, String> {
-    create_channel_at(context, chain_go_http_base(), chain_go_ws_url()).await
+    if phase_pool_enabled() {
+        phase_pool_channel_at(context, chain_go_http_base(), chain_go_ws_url()).await
+    } else {
+        create_channel_at(context, chain_go_http_base(), chain_go_ws_url()).await
+    }
 }
 
 /// 创建并验证指定端点上的 run-owned 频道及成员快照。
@@ -2027,16 +2615,22 @@ async fn create_channel_at(
     Ok(channel_id)
 }
 
-/// 只关闭本测试刚创建的频道；不执行全库 truncate/flush。
+/// 只关闭本测试刚创建的频道；Phase 池中的频道延迟到批次末统一回收。
 pub(crate) async fn close_channel(context: &AuthContext, channel_id: &str) -> Result<(), String> {
+    if is_phase_pool_channel(channel_id).await {
+        return Ok(());
+    }
     close_channel_at(context, channel_id, go_http_base(), go_ws_url()).await
 }
 
-/// 关闭 Phase5 本轮 profile 上创建的 run-owned 频道。
+/// 关闭 Phase5 本轮 profile 上创建的 run-owned 频道；池内资源由 Phase cleanup 处理。
 pub(crate) async fn close_chain_channel(
     context: &AuthContext,
     channel_id: &str,
 ) -> Result<(), String> {
+    if is_phase_pool_channel(channel_id).await {
+        return Ok(());
+    }
     close_channel_at(context, channel_id, chain_go_http_base(), chain_go_ws_url()).await
 }
 
@@ -2189,6 +2783,19 @@ pub(crate) async fn direct_post_as(
     mentions: Value,
     raw_id: u32,
 ) -> Result<(Value, Value), String> {
+    if phase_pool_enabled() {
+        return pooled_direct_post_as(
+            sender,
+            watcher,
+            channel_id,
+            message_type,
+            text,
+            props,
+            viewers,
+            mentions,
+        )
+        .await;
+    }
     let mut observer = open_raw_ws(watcher, raw_id).await?;
     let result = async {
         wait_ws_hello(&mut observer).await?;
@@ -2242,6 +2849,71 @@ pub(crate) async fn direct_post_as(
         (Err(error), Err(close_error)) => {
             Err(format!("{error}; close observer WS failed: {close_error}"))
         }
+    }
+}
+
+/// 使用 Phase 账号池的 watcher session 观察直接 Go post，避免每条 post 新建 raw WS。
+async fn pooled_direct_post_as(
+    sender: &Persona,
+    watcher: &Persona,
+    channel_id: &str,
+    message_type: &str,
+    text: &str,
+    props: Value,
+    viewers: Value,
+    mentions: Value,
+) -> Result<(Value, Value), String> {
+    let context = AUTH_CONTEXT
+        .get()
+        .ok_or_else(|| "Phase pooled direct post requires initialized AuthContext".to_string())?
+        .clone()
+        .map_err(|error| error.to_string())?;
+    let mut watcher_session = start_real_helix_session_as(&context, watcher, &[channel_id]).await?;
+    let temporary_id = run_token("post");
+    let http = go_http(sender).await?;
+    let body = json!({
+        "channelId": channel_id,
+        "teamId": sender.company_id,
+        "userId": sender.user_id,
+        "type": message_type,
+        "message": text,
+        "simpleMessage": text,
+        "props": props,
+        "viewers": viewers,
+        "mentions": mentions,
+        "temporaryId": temporary_id
+    });
+    let result = async {
+        let observation = request_json(
+            &http,
+            "POST",
+            &format!("{}/posts/create", go_http_base()),
+            Some(body),
+            "post-create",
+        )
+        .await?;
+        let response = require_success(observation, "posts/create")?;
+        let post = watcher_session
+            .wait_ws_action(
+                "post",
+                |frame| {
+                    extract_id(frame, &["temporaryId", "temporary_id"]).as_deref()
+                        == Some(temporary_id.as_str())
+                },
+                Duration::from_secs(20),
+            )
+            .await?;
+        Ok::<(Value, Value), String>((response, post))
+    }
+    .await;
+    let close_result = watcher_session.close().await;
+    match (result, close_result) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+        (Err(error), Err(close_error)) => Err(format!(
+            "{error}; close pooled watcher failed: {close_error}"
+        )),
     }
 }
 
@@ -2580,6 +3252,9 @@ pub(crate) async fn run_helix_send(
     intent: SendIntent,
     send_timeout_ms: u64,
 ) -> Result<SendEvidence, String> {
+    if phase_pool_enabled() {
+        return run_pooled_helix_send(context, channel_id, intent).await;
+    }
     let expected_type = canonical_wire_message_type(intent.message_type);
     let expected_text = intent.text.clone();
     let (storage, db_path) = open_test_storage().await?;
@@ -2603,7 +3278,7 @@ pub(crate) async fn run_helix_send(
         config.user_name = context.actor.user_name.clone();
         config.org_name = context.actor.org_name.clone();
         config.dept_name = context.actor.dept_name.clone();
-        config.ping_interval_ms = 60_000;
+        config.ping_interval_ms = messagev3_ping_interval_ms();
         config.send_timeout_ms = send_timeout_ms;
 
         let mut module = ImModule::new(config);
@@ -2795,6 +3470,137 @@ pub(crate) async fn run_helix_send(
     finish_send_cleanup(result, cleanup).await
 }
 
+/// 复用 Phase actor/watcher session 完成发送链；每个句柄仍拥有独立事件游标。
+async fn run_pooled_helix_send(
+    context: &AuthContext,
+    channel_id: &str,
+    intent: SendIntent,
+) -> Result<SendEvidence, String> {
+    let expected_type = canonical_wire_message_type(intent.message_type);
+    let expected_text = intent.text.clone();
+    // watcher 先上线，确保 direct Go post 的广播不会落在连接建立前。
+    let mut watcher =
+        start_real_helix_session_as(context, &context.observer, &[channel_id]).await?;
+    let mut actor = match start_real_helix_session_as(context, &context.actor, &[channel_id]).await
+    {
+        Ok(session) => session,
+        Err(error) => {
+            let _ = watcher.close().await;
+            return Err(error);
+        }
+    };
+    let mut command = json!({
+        "channel_id": channel_id,
+        "type": intent.message_type,
+        "text": intent.text,
+        "props": intent.props,
+        "viewers": intent.viewers,
+        "mentions": intent.mentions
+    });
+    if let Some(replied) = intent.replied {
+        command["replied"] = replied;
+    }
+    let result = async {
+        actor.command("im_send_message", command).await?;
+        let sending = actor
+            .wait_event("im:post:sending", |_| true, Duration::from_secs(20))
+            .await?;
+        let sending_value: Value = serde_json::from_slice(sending.0.as_ref())
+            .map_err(|error| format!("decode sending event: {error}"))?;
+        let temporary_id = data_string(&sending_value, &["temporaryId", "temporary_id"])
+            .ok_or_else(|| "im:post:sending has no temporaryId".to_string())?;
+        let optimistic_row = scan_message_row(&actor.storage, &temporary_id).await?;
+        if row_text(&optimistic_row, "send_status").as_deref() != Some("sending") {
+            return Err(format!(
+                "message {temporary_id} did not persist optimistic sending row: {:?}",
+                row_text(&optimistic_row, "send_status")
+            ));
+        }
+        let post_frame = watcher
+            .wait_ws_action(
+                "post",
+                |frame| {
+                    extract_id(frame, &["temporaryId", "temporary_id"]).as_deref()
+                        == Some(temporary_id.as_str())
+                },
+                Duration::from_secs(25),
+            )
+            .await?;
+        for (field, expected) in [
+            ("channelId", channel_id),
+            ("userId", context.actor.user_id.as_str()),
+            ("type", expected_type),
+            ("message", expected_text.as_str()),
+        ] {
+            if extract_id(&post_frame, &[field]).as_deref() != Some(expected) {
+                return Err(format!("observer WS post {field} mismatch: {post_frame}"));
+            }
+        }
+        let received = actor
+            .wait_event(
+                "im:post:received",
+                |envelope| {
+                    data_string(envelope, &["temporaryId", "temporary_id"]).as_deref()
+                        == Some(temporary_id.as_str())
+                },
+                Duration::from_secs(25),
+            )
+            .await?;
+        let row = wait_message_status(
+            &actor.storage,
+            &temporary_id,
+            &["sent"],
+            Duration::from_secs(8),
+        )
+        .await?;
+        for (column, expected) in [
+            ("channel_id", channel_id),
+            ("user_id", context.actor.user_id.as_str()),
+            ("type", expected_type),
+            ("message", expected_text.as_str()),
+        ] {
+            if row_text(&row, column).as_deref() != Some(expected) {
+                return Err(format!(
+                    "SQLite message.{column} mismatch for {temporary_id}"
+                ));
+            }
+        }
+        if row_text(&row, "id").is_none_or(|id| id.is_empty()) {
+            return Err(format!("SQLite message.id missing for {temporary_id}"));
+        }
+        let bus_envelope = to_bus_envelope(&received);
+        if bus_event_name(&received).as_deref() != Some("im:post:received") {
+            return Err(
+                "NativeEventSink event cannot map to im:post:received bus channel".to_string(),
+            );
+        }
+        if bus_envelope.get("channel").and_then(Value::as_str) != Some("im:post:received") {
+            return Err(format!("bad native bus envelope: {bus_envelope}"));
+        }
+        Ok::<SendEvidence, String>(SendEvidence {
+            temporary_id,
+            sending,
+            post_frame,
+            received,
+            row,
+            bus_envelope,
+        })
+    }
+    .await;
+    let actor_cleanup = actor.close().await;
+    let watcher_cleanup = watcher.close().await;
+    match (result, actor_cleanup, watcher_cleanup) {
+        (Ok(value), Ok(()), Ok(())) => Ok(value),
+        (Err(error), Ok(()), Ok(())) => Err(error),
+        (Ok(_), actor, watcher) => {
+            Err(format!("pooled send cleanup failed: {actor:?} {watcher:?}"))
+        }
+        (Err(error), actor, watcher) => Err(format!(
+            "{error}; pooled send cleanup failed: {actor:?} {watcher:?}"
+        )),
+    }
+}
+
 /// 在 engine 上发送一个不存在的 canonical channel，验证 send-failed 而非假 received。
 pub(crate) async fn run_helix_send_failure(
     context: &AuthContext,
@@ -2814,7 +3620,7 @@ pub(crate) async fn run_helix_send_failure(
     config.auth_user_id = context.actor.user_id.clone();
     config.company_id = context.actor.company_id.clone();
     config.send_timeout_ms = 2_000;
-    config.ping_interval_ms = 60_000;
+    config.ping_interval_ms = messagev3_ping_interval_ms();
     let mut module = ImModule::new(config);
     module.register_channel(
         helix_im::state::ChannelId::from_str(invalid_channel_id)
@@ -3182,6 +3988,8 @@ pub(crate) fn write_gate_evidence(
     std::fs::create_dir_all(&path)
         .map_err(|error| format!("create evidence directory failed: {error}"))?;
     let file = path.join("evidence.json");
+    let mut details = details;
+    annotate_phase_pool_evidence(&mut details);
     let corr_key = evidence_corr_key(&details);
     let payload = json!({
         "schema_version": "messagev3-gate-evidence/v2",
@@ -3198,6 +4006,37 @@ pub(crate) fn write_gate_evidence(
         .map_err(|error| format!("serialize evidence failed: {error}"))?;
     std::fs::write(&file, bytes).map_err(|error| format!("write evidence failed: {error}"))?;
     Ok(file)
+}
+
+/// 给批量证据标出“逻辑租约结束、物理资源 Phase 末回收”，避免把复用误报成逐 Gate 断连。
+fn annotate_phase_pool_evidence(details: &mut Value) {
+    if !phase_pool_enabled() {
+        return;
+    }
+    let Some(object) = details.as_object_mut() else {
+        return;
+    };
+    object.insert(
+        "phase_resource_pool".to_string(),
+        json!({
+            "enabled": true,
+            "max_channels": PHASE_POOL_MAX_CHANNELS,
+            "event_buffer_capacity": PHASE_POOL_EVENT_CAPACITY,
+            "ws": "per-account session reused until phase cleanup",
+            "logical_release": "gate end",
+            "physical_cleanup": "phase cleanup test"
+        }),
+    );
+    if let Some(cleanup) = object.get_mut("cleanup").and_then(Value::as_object_mut) {
+        cleanup.insert(
+            "transport".to_string(),
+            Value::String("reused_until_phase_cleanup".to_string()),
+        );
+        cleanup.insert(
+            "phase_pool".to_string(),
+            Value::String("physical WS/SQLite/channel cleanup is phase-scoped".to_string()),
+        );
+    }
 }
 
 /// 运行标准文本/模板/文档发送链并断言 Persist、Go WS、terminal emit 与 SQLite。
@@ -4522,6 +5361,12 @@ where
             json!({"reason": "real mutation command was not admitted", "first_failing_layer": "Helix Tick ingress", "command": command, "go_http": endpoint, "error": error}),
         )?;
         return Ok(());
+    }
+    if matches!(
+        command,
+        "im_channel_close" | "im_channel_leave" | "im_channel_member_change"
+    ) {
+        retire_phase_pool_channel(channel_id).await;
     }
     let event = match session
         .wait_event(
@@ -5888,7 +6733,7 @@ pub(crate) async fn insert_channel_member_fixture(
         value.replace('\'', "''")
     }
     let sql = format!(
-        "INSERT INTO channel_member (channel_id, user_id, team_id, role, nick_name) VALUES ('{}', '{}', '{}', 'MEMBER', '')",
+        "INSERT INTO channel_member (channel_id, user_id, team_id, role, nick_name) VALUES ('{}', '{}', '{}', 'MEMBER', '') ON CONFLICT (channel_id, user_id) DO UPDATE SET team_id = excluded.team_id, role = excluded.role, nick_name = excluded.nick_name",
         quote(channel_id),
         quote(user_id),
         quote(team_id),
@@ -6477,8 +7322,12 @@ pub(crate) async fn assert_image_forward_chain(
             .ok_or_else(|| format!("{gate} source image post has no props: {source_frame}"))?;
         assert_media_props(source_props, &expected_props, &format!("{gate}.source"))?;
 
-        let mut observer = open_raw_ws(&context.observer, 72).await?;
-        wait_ws_hello(&mut observer).await?;
+        let mut observer = if phase_pool_enabled() {
+            WsTap::Pooled(start_real_helix_session_as(&context, &context.observer, &[]).await?)
+        } else {
+            WsTap::Raw(open_raw_ws(&context.observer, 72).await?)
+        };
+        observer.ensure_ready().await?;
         let http = go_http(&context.actor).await?;
         require_success(
             request_json(
@@ -6494,8 +7343,8 @@ pub(crate) async fn assert_image_forward_chain(
             .await?,
             "posts/createPosts",
         )?;
-        let target_frame = wait_ws_action(
-            &mut observer,
+        let target_frame = observer
+            .wait_action(
             "post",
             |frame| {
                 string_field(frame, &["type"]).as_deref() == Some("RICH")
@@ -6517,11 +7366,7 @@ pub(crate) async fn assert_image_forward_chain(
             .get("props")
             .ok_or_else(|| format!("{gate} target image post has no props: {target_frame}"))?;
         assert_media_props(target_props, source_props, &format!("{gate}.target"))?;
-        observer
-            .transport
-            .close()
-            .await
-            .map_err(|error| format!("close image forward observer WS: {error}"))?;
+        observer.close().await?;
         Ok::<(), String>(())
     }
     .await;
@@ -7377,11 +8222,19 @@ pub(crate) async fn assert_targeted_visibility(
 ) -> Result<(), String> {
     let (_guard, context) = remote_setup().await;
     let channel = create_channel(&context).await?;
-    let mut observer = open_raw_ws(&context.observer, 72).await?;
-    let mut third = open_raw_ws(&context.third, 73).await?;
+    let mut observer = if phase_pool_enabled() {
+        WsTap::Pooled(start_real_helix_session_as(&context, &context.observer, &[]).await?)
+    } else {
+        WsTap::Raw(open_raw_ws(&context.observer, 72).await?)
+    };
+    let mut third = if phase_pool_enabled() {
+        WsTap::Pooled(start_real_helix_session_as(&context, &context.third, &[]).await?)
+    } else {
+        WsTap::Raw(open_raw_ws(&context.third, 73).await?)
+    };
     let result = async {
-        wait_ws_hello(&mut observer).await?;
-        wait_ws_hello(&mut third).await?;
+        observer.ensure_ready().await?;
+        third.ensure_ready().await?;
         let mut session = start_real_helix_session(&context, &[channel.as_str()]).await?;
         let text = resource_name("targeted");
         let temporary_id = run_token("targeted");
@@ -7399,8 +8252,8 @@ pub(crate) async fn assert_targeted_visibility(
                 }),
             )
             .await?;
-        let frame = wait_ws_action(
-            &mut observer,
+        let frame = observer
+            .wait_action(
             "post",
             |frame| {
                 let data = frame.get("data").unwrap_or(frame);
@@ -7443,8 +8296,8 @@ pub(crate) async fn assert_targeted_visibility(
                 return Err(format!("{gate} targeted SQLite {column} mismatch: {row:?}"));
             }
         }
-        let third_result = wait_ws_action(
-            &mut third,
+        let third_result = third
+            .wait_action(
             "post",
             |frame| {
                 let data = frame.get("data").unwrap_or(frame);
@@ -7504,8 +8357,8 @@ pub(crate) async fn assert_targeted_visibility(
         Ok::<(), String>(())
     }
     .await;
-    let observer_cleanup = observer.transport.close().await;
-    let third_cleanup = third.transport.close().await;
+    let observer_cleanup = observer.close().await;
+    let third_cleanup = third.close().await;
     let remote_cleanup = close_channel(&context, &channel).await;
     match (result, observer_cleanup, third_cleanup, remote_cleanup) {
         (Ok(()), Ok(()), Ok(()), Ok(())) => Ok(()),

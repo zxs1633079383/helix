@@ -6,6 +6,9 @@
 #[path = "messageV3-domain/shared/mod.rs"]
 mod shared;
 
+#[path = "messageV3-domain/phase_pool_cleanup.rs"]
+mod phase_pool_cleanup;
+
 #[path = "messageV3-domain/Phase1/Announcement/G07b/main.rs"]
 mod phase1_announcement_g07b;
 #[path = "messageV3-domain/Phase1/Channel/G08a/main.rs"]

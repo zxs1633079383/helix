@@ -14,36 +14,30 @@ enum ChainRunError {
     Failed(String),
 }
 
-/// 绑定 actor Native session 与 observer raw WS 的一次真实文字接龙运行。
+/// 绑定 actor/observer Native session 的一次真实文字接龙运行；Phase 批次可复用两条账号 WS。
 struct ChainHarness {
     channel_id: String,
     actor: RealHelixSession,
-    observer_ws: RawWs,
+    observer: RealHelixSession,
 }
 
 impl ChainHarness {
-    /// 先打开真实 observer WS，再启动 Helix actor，避免丢失第一条公开事件。
+    /// 先启动 observer session，再启动 actor，避免丢失第一条公开事件。
     async fn start(context: &AuthContext, channel_id: &str) -> Result<Self, ChainRunError> {
-        let raw_id =
-            50_000_u32.saturating_add((RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed) % 1000) as u32);
-        let mut observer_ws = open_raw_ws_at(&context.observer, raw_id, chain_go_ws_url())
+        let observer = start_chain_helix_session_as(context, &context.observer, &[channel_id])
             .await
             .map_err(ChainRunError::Blocked)?;
-        if let Err(error) = wait_ws_hello(&mut observer_ws).await {
-            let _ = observer_ws.transport.close().await;
-            return Err(ChainRunError::Blocked(error));
-        }
         let actor = match start_chain_helix_session(context, &[channel_id]).await {
             Ok(actor) => actor,
             Err(error) => {
-                let _ = observer_ws.transport.close().await;
+                let _ = observer.close().await;
                 return Err(ChainRunError::Blocked(error));
             }
         };
         Ok(Self {
             channel_id: channel_id.to_string(),
             actor,
-            observer_ws,
+            observer,
         })
     }
 
@@ -58,46 +52,42 @@ impl ChainHarness {
         command_event_on(&mut self.actor, command, payload, event_name, mutation_id).await
     }
 
-    /// 等待 observer raw WS 的 canonical post_chain frame，并校验 action/chain/mutation。
+    /// 等待 observer session tap 记录的 canonical post_chain frame，并校验 action/chain/mutation。
     async fn raw_event(
         &mut self,
         expected_action: &str,
         chain_id: &str,
         mutation_id: Option<&str>,
     ) -> Result<Value, ChainRunError> {
-        wait_ws_action(
-            &mut self.observer_ws,
-            expected_action,
-            |frame| {
-                let action = frame
-                    .get("action")
-                    .and_then(Value::as_str)
-                    .or_else(|| frame.pointer("/data/action").and_then(Value::as_str));
-                let same_chain =
-                    extract_id(frame, &["chainId", "chain_id"]).as_deref() == Some(chain_id);
-                let same_mutation = mutation_id
-                    .map(|value| {
-                        extract_id(frame, &["clientMutationId", "client_mutation_id"]).as_deref()
-                            == Some(value)
-                    })
-                    .unwrap_or(true);
-                action == Some(expected_action) && same_chain && same_mutation
-            },
-            CHAIN_TIMEOUT,
-        )
-        .await
-        .map_err(ChainRunError::Blocked)
+        self.observer
+            .wait_ws_action(
+                expected_action,
+                |frame| {
+                    let action = frame
+                        .get("action")
+                        .and_then(Value::as_str)
+                        .or_else(|| frame.pointer("/data/action").and_then(Value::as_str));
+                    let same_chain =
+                        extract_id(frame, &["chainId", "chain_id"]).as_deref() == Some(chain_id);
+                    let same_mutation = mutation_id
+                        .map(|value| {
+                            extract_id(frame, &["clientMutationId", "client_mutation_id"])
+                                .as_deref()
+                                == Some(value)
+                        })
+                        .unwrap_or(true);
+                    action == Some(expected_action) && same_chain && same_mutation
+                },
+                CHAIN_TIMEOUT,
+            )
+            .await
+            .map_err(ChainRunError::Blocked)
     }
 
-    /// 关闭 actor engine、WS 与 raw observer；清理失败不能被 PASS 覆盖。
+    /// 关闭 actor/observer 逻辑租约；Phase 池会在 cleanup test 统一停止物理资源。
     async fn close(self) -> Result<(), String> {
         let actor_result = self.actor.close().await;
-        let observer_result = self
-            .observer_ws
-            .transport
-            .close()
-            .await
-            .map_err(|error| format!("close chain observer WS: {error}"));
+        let observer_result = self.observer.close().await;
         match (actor_result, observer_result) {
             (Ok(()), Ok(())) => Ok(()),
             (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),

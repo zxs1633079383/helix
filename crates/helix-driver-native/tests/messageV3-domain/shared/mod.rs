@@ -176,10 +176,34 @@ const CHANNEL_FIXTURE_SNAPSHOT_END_MS: i64 = 9_000_000_000_000;
 const CHAIN_ENTRY_ORDER: &[ScanOrder] = &[ScanOrder::asc("seq")];
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct CredentialFile {
-    pub(crate) accounts: Vec<CredentialAccount>,
-    #[serde(default, alias = "defaultIndex")]
-    pub(crate) default_index: usize,
+#[serde(untagged)]
+pub(crate) enum CredentialFile {
+    /// Angular 账号池当前使用的数组格式。
+    Array(Vec<CredentialAccount>),
+    /// 兼容包含 `accounts` 与可选默认索引的对象格式。
+    Object {
+        accounts: Vec<CredentialAccount>,
+        #[serde(default, alias = "defaultIndex")]
+        default_index: usize,
+    },
+}
+
+impl CredentialFile {
+    /// 统一读取两种账号池格式的账号切片，避免认证逻辑感知文件形状。
+    fn accounts(&self) -> &[CredentialAccount] {
+        match self {
+            Self::Array(accounts) => accounts,
+            Self::Object { accounts, .. } => accounts,
+        }
+    }
+
+    /// 统一读取对象格式的默认账号索引，数组格式默认从零开始。
+    fn default_index(&self) -> usize {
+        match self {
+            Self::Array(_) => 0,
+            Self::Object { default_index, .. } => *default_index,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -865,18 +889,15 @@ pub(crate) async fn discover_auth_context_at(
         .map_err(|error| format!("read credentials file failed: {error}"))?;
     let credentials: CredentialFile = serde_json::from_str(&content)
         .map_err(|error| format!("parse credentials file failed: {error}"))?;
-    if credentials.accounts.len() < 3 {
+    let accounts = credentials.accounts();
+    if accounts.len() < 3 {
         return Err("credentials account pool must contain at least three accounts".to_string());
     }
 
-    let mut order = Vec::with_capacity(credentials.accounts.len());
-    order.push(
-        credentials
-            .default_index
-            .min(credentials.accounts.len() - 1),
-    );
+    let mut order = Vec::with_capacity(accounts.len());
+    order.push(credentials.default_index().min(accounts.len() - 1));
     let selected = order.clone();
-    order.extend((0..credentials.accounts.len()).filter(|index| !selected.contains(index)));
+    order.extend((0..accounts.len()).filter(|index| !selected.contains(index)));
     let mut logged_in = Vec::new();
     for index in order {
         let role = match logged_in.len() {
@@ -884,7 +905,7 @@ pub(crate) async fn discover_auth_context_at(
             1 => "observer",
             _ => "third",
         };
-        if let Ok(persona) = login_account(&credentials.accounts[index], role).await {
+        if let Ok(persona) = login_account(&accounts[index], role).await {
             logged_in.push(persona);
         }
         if logged_in.len() >= 3 {
@@ -1914,6 +1935,32 @@ mod channel_fixture_regression_tests {
         let error = validate_active_member_snapshot(&incomplete, "run-channel", &required, now_ms)
             .expect_err("a snapshot without the active observer/third members is not usable");
         assert!(error.contains("missing members"));
+    }
+}
+
+#[cfg(test)]
+mod credential_file_regression_tests {
+    use super::*;
+
+    /// 客户端当前的数组账号池格式必须能被 Native real-chain 直接读取。
+    #[test]
+    fn credential_pool_accepts_client_array_format() {
+        let pool: CredentialFile =
+            serde_json::from_str(r#"[{"mobile":"13800000000","password":"redacted"}]"#)
+                .expect("array credential pool should deserialize");
+        assert_eq!(pool.accounts().len(), 1);
+        assert_eq!(pool.default_index(), 0);
+    }
+
+    /// 兼容旧的对象账号池格式及其 defaultIndex 选择规则。
+    #[test]
+    fn credential_pool_accepts_object_format() {
+        let pool: CredentialFile = serde_json::from_str(
+            r#"{"accounts":[{"mobile":"13800000001","password":"redacted"}],"defaultIndex":3}"#,
+        )
+        .expect("object credential pool should deserialize");
+        assert_eq!(pool.accounts().len(), 1);
+        assert_eq!(pool.default_index(), 3);
     }
 }
 

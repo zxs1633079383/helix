@@ -4,7 +4,7 @@ use serde_json::{json, Map, Value};
 
 const MEDIA_INPUT_FIELDS: [&str; 5] = ["localPath", "fileName", "contentType", "size", "sha256"];
 const MAX_MEDIA_SIZE: u64 = 64 << 20;
-const MAX_RICH_MEDIA: usize = 9;
+const MAX_RICH_MEDIA: usize = 10;
 const TRANSIENT_REFERENCE_FIELDS: [&str; 10] = [
     "uploadId",
     "uploadToken",
@@ -598,7 +598,7 @@ mod tests {
     }
 
     #[test]
-    fn rich_image_count_is_bounded_to_nine() {
+    fn rich_image_count_is_bounded_to_ten() {
         let image = || {
             json!({
                 "mediaInput": {
@@ -610,14 +610,14 @@ mod tests {
                 }
             })
         };
-        let nine = Value::Array((0..9).map(|_| image()).collect());
+        let ten = Value::Array((0..10).map(|_| image()).collect());
         let plan = build_upload_plan(
             "RICH",
             "caption",
-            json!({"imagePosition":"bottom", "files":nine}),
+            json!({"imagePosition":"bottom", "files":ten}),
         )
-        .expect("nine images are accepted");
-        assert_eq!(plan.media.len(), 9);
+        .expect("ten images are accepted");
+        assert_eq!(plan.media.len(), 10);
         assert_eq!(plan.props["imagePosition"], "bottom");
         assert!(plan.props.get("images").is_none());
         assert!(plan.props.get("textPosition").is_none());
@@ -637,13 +637,13 @@ mod tests {
             .to_string()
             .contains("must use props.files and imagePosition"));
 
-        let ten = Value::Array((0..10).map(|_| image()).collect());
+        let eleven = Value::Array((0..11).map(|_| image()).collect());
         let error = build_upload_plan(
             "RICH",
             "caption",
-            json!({"imagePosition":"bottom", "files":ten}),
+            json!({"imagePosition":"bottom", "files":eleven}),
         )
-        .expect_err("ten images must fail closed");
-        assert!(error.to_string().contains("at most 9"));
+        .expect_err("eleven images must fail closed");
+        assert!(error.to_string().contains("at most 10"));
     }
 }

@@ -56,6 +56,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 收敛已发布的 Helix `0.1.5` 版本事务并沉淀发布后提交/Tag 铁律；可证伪断言：① 四个公开 crate 与四个内部消费者 manifest、`Cargo.lock` 全部保持同一 `0.1.5` 依赖图；② 四个 crates.io 包均能被 `cargo search` 解析为 `0.1.5`；③ 根 `AGENTS.md` 明确发布后必须提交版本号并创建注释 Tag；④ 只提交本次发布版本改动、规则和必要 SESSION 记录，保留既有未跟踪 `artifacts/` 与 Cargo 私仓 Prompt；⑤ `git diff --check`、发布脚本回归和 metadata 解析通过，创建 `helix-v-0.1.5` 且不覆盖已有 `helix-v0.1.5` | 赌注 中 | 可逆 Tag 前是、Tag 后否 | @2026-09-03T
+
+✅ DONE Helix `0.1.5` crates.io 版本事务已完成核验：四个公开包均由 `cargo search` 解析为 `0.1.5`，8 个 workspace manifest 与 `Cargo.lock` 保持同批依赖图；发布脚本回归 7/7、metadata、三端 Rust check、core 16/16、Web WASM build 与 HX-C001 零运行时检查通过。既有未跟踪 artifacts/私仓 Prompt 未纳入；本次发布提交与 `helix-v-0.1.5` 注释 Tag 随任务落地 | @2026-09-03T
+
 🎯 EXPECT 在独立 worktree 对齐当前仓库 Markdown 与 `512a0aeb` 代码事实；可证伪断言：① 只修改能由当前目录、Cargo/API/config/source、测试或脚本证明漂移的 Markdown 和必要 SESSION 记录，不改 Rust、JSON、TOML、脚本或生成产物；② 全库现行 Markdown 建立清单与代码真源映射，历史文档只核对定位、链接和退出现行入口边界；③ 保留共享 checkout 的未跟踪 artifacts/Prompt，不复用或清理其他 worktree；④ 聚焦 checker、相对链接/路径/索引、`git diff --check` 全部通过后才提交并普通推送目标分支 | 赌注 中 | 可逆 是 | @2026-08-29T08:05:00+0800
 
 ✅ DONE 已在独立 worktree 对齐 14 份现行/历史 Markdown：harness 母本三处旧机器路径改为当前真实 sibling 文件；FFI 局部入口移除两份已删除阶段文档并把 query 契约路由到现行 AGENTS/source；六份 EventBus 方案与两份 V2/跨仓快照明确标为 `RETIRED_HISTORICAL`，撤销已删除过会稿、Mobile 文件和临时 worktree 的失效链接。全库 913 份 Markdown、1573 个本地链接 broken=0，HX-C 18/18/18，Spec 047 checker PASS、30/30 test path 与 production owner 存在，四个公共 crate README 版本与 0.1.1 manifest 一致，纯 Markdown diff 与 `git diff --check` PASS；未运行 Cargo。Spec manifest 仍有 10 Gate 的空 `verification` 命令/路径，属于本轮禁止修改的 JSON/checker Drift，已单列未伪造 Green | @2026-08-29T08:25:18+0800
@@ -588,5 +592,3 @@
 🎯 EXPECT 收敛切群读取为 Helix 统一本地投影与事件驱动刷新；可证伪断言：① 不新增前端业务真值缓存或另一套消息状态，复用现有 channel/message/channel_member/message_draft/channel_schedule 投影；② 热切群不触发书签、子话题、日程等可延迟远端读取，消息与成员先读本地投影；③ ChannelEvent、Gap、Increment 只更新或失效对应分面，旧快照在同步期间保持可见；④ 聚焦测试、影响审计、文档与 `git diff --check` 通过；⑤ 不创建 worktree、不自动 push，并保护两仓既有未跟踪文件 | 赌注 高 | 可逆 是 | @2026-09-01T
 
 ✅ DONE 切群统一本地投影源码已收敛：前端删除书签/日程的切群远端读取，子话题在已有 `subtopicsLoadedAt` 时直接本地物化，置顶为 0 时零读取并以 channel+generation 拦截迟到结果；Helix 新增账号+频道隔离的置顶绝对投影，首次权威回填在 PersistOk 后可见，pin/unpin 事件按 epoch 失效且拒绝迟到旧回包。客户端通过 `im_health` 自报命令做能力协商，0.1.3 不支持时直接走原权威接口。前端 20 条聚焦测试、lint、Rust check、Helix 全包测试（含合同根环境覆盖）与 diff check 通过；新 crate 尚未发布/repin，运行态保持 NOT_APPLIED；未创建 worktree、未 push，既有未跟踪文件未触碰。@2026-09-01T
-
-✅ DONE 切群统一本地投影进一步收敛为 `ChannelViewSnapshot`：Helix 复用现有 scoped dialog row，一次本地查询返回成员、权限、未读、置顶、日程与子话题加载标记；客户端只缓存静态命令能力和进行中 Promise，完整快照零权威请求，不完整快照仅一次权威回填，已删除完成结果 TTL 缓存。客户端 30 条聚焦测试、lint、Rust check 与 Helix 全包 391 条单元测试及集成/压力测试通过；客户端全量 Jest 的既有 docs/task/spreadsheet 等基线失败与本次 diff 无交集。新 crate 尚未发布/repin，运行态保持 NOT_APPLIED；未创建 worktree、未 commit/push，既有未跟踪文件未触碰。@2026-09-01T

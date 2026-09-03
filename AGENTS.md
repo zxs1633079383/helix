@@ -272,6 +272,13 @@ manifest/README/Mermaid 验证合同。
 
 **提交代码前必读 → [`docs/COMMIT_CONVENTION.md`](docs/COMMIT_CONVENTION.md)**：Conventional Commits（中文 description/body）+ 触发条件命中时的 5 段结构化 body（影响范围 / 改动影响面 / 功能改进 / Harness 更新 / 验证）+ PR / Tag 策略。本仓有 `docs/harness/` → Harness 一节必填。配套 `scripts/gate.sh` + pre-push hook。
 
+### 发布后版本提交与 Tag 铁律（项目级强制）
+
+- 每次 `cargo publish` 或 `scripts/publish_crates.py --publish` 成功后，必须立即把本次发布产生的 manifest、`Cargo.lock` 及必要的发布规则变更提交；不得以未提交的工作树作为已发布版本的最终状态。
+- 发布提交标题必须明确当前发布版本号，例如 `chore(release): 发布 Helix 0.1.5`；提交 body 必须说明发布包、registry、版本事务、验证结果和未包含的用户脏文件。
+- 发布提交完成后必须创建带注释的版本 Tag `helix-v-<version>`，Tag message 明确版本号、发布包、提交 SHA 与验证状态；若目标 Tag 已存在，必须停止并核对，不得覆盖或强制移动既有 Tag。
+- 未完成“版本号明确的发布提交 + 对应注释 Tag”前，发布任务只能标记为 `PARTIAL`，不得报告为完成；除非用户明确授权，不自动 push。
+
 ## Agent skills
 
 > Configured by `setup-matt-pocock-skills` for the mattpocock engineering skill set

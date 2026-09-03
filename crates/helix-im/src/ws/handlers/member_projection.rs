@@ -55,18 +55,10 @@ pub(crate) fn queue_member_projection(
     ) else {
         return Ok(());
     };
-    let (Some(revision), Some(effect_id)) = (
-        projection.projection_revision,
-        projection
-            .effect_id
-            .as_deref()
-            .filter(|value| !value.is_empty()),
-    ) else {
-        return Ok(());
-    };
-    if revision == 0 {
-        return Ok(());
-    }
+    let (revision, effect_id) = crate::channel_update::require_member_projection_identity(
+        &projection,
+        "member projection",
+    )?;
 
     let corr = ctx.alloc_corr();
     ctx.state.corr_map.insert(

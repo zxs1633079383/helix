@@ -2,6 +2,7 @@
 //!
 //! 这里不直接 I/O：只生成 `StorageOp` 与从 driver 回包 bytes 组装 MessageV3 事件数据。
 
+use crate::error::ImError;
 use crate::state::ChannelId;
 use crate::sync_session::PostFields;
 use helix_core::effect::{Row, SqlValue, StorageOp};
@@ -53,6 +54,24 @@ pub struct MemberChannelUpdate {
     pub msg_count_root: Option<i64>,
     pub msg_count_private: Option<i64>,
     pub last_read_seq: Option<i64>,
+}
+
+/// Require the monotonic identity shared by online patches and offline sync projections.
+pub(crate) fn require_member_projection_identity(
+    projection: &MemberChannelUpdate,
+    context: &str,
+) -> Result<(u64, String), ImError> {
+    let revision = projection
+        .projection_revision
+        .filter(|value| *value > 0)
+        .ok_or_else(|| ImError::Parse(format!("{context} missing revision")))?;
+    let effect_id = projection
+        .effect_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| ImError::Parse(format!("{context} missing effectId")))?
+        .to_string();
+    Ok((revision, effect_id))
 }
 
 impl PendingChannelUpdate {

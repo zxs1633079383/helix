@@ -275,6 +275,36 @@ mod tests {
         ));
     }
 
+    /// 零 revision 或空 effect identity 必须显式失败，禁止在线成员投影静默丢弃首个事件。
+    #[test]
+    fn member_projection_rejects_uninitialized_identity_without_effects() {
+        let mut state = ImState::new();
+        let channel_id = channel_id(291);
+        let mut alloc_corr = || helix_core::Correlation::from_raw(291);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "viewer-291", &mut alloc_corr);
+        let frame = frame_from_json(serde_json::json!({
+            "seq": 1_000,
+            "action": "member_projection",
+            "data": {
+                "channelId": channel_id.as_str(),
+                "userId": "viewer-291",
+                "projectionRevision": 0,
+                "effectId": "",
+                "unreadCount": 1
+            }
+        }));
+        let mut out = EffectSink::new();
+
+        let err = dispatch_ws(&mut ctx, &frame, &mut out).unwrap_err();
+
+        assert!(matches!(
+            err,
+            ImError::Parse(message)
+                if message == "member projection missing revision"
+        ));
+        assert!(out.as_slice().is_empty());
+    }
+
     #[test]
     fn canonical_stream_waits_for_atomic_ack_before_cursor_or_emit() {
         let mut state = ImState::new();

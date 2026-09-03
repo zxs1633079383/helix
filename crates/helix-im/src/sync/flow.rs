@@ -47,16 +47,10 @@ fn prepare_sync_projection(
     ) else {
         return Err(ImError::Parse("invalid sync memberProjection".to_string()));
     };
-    let revision = projection
-        .projection_revision
-        .filter(|value| *value > 0)
-        .ok_or_else(|| ImError::Parse("sync memberProjection missing revision".to_string()))?;
-    let effect_id = projection
-        .effect_id
-        .as_deref()
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| ImError::Parse("sync memberProjection missing effectId".to_string()))?
-        .to_string();
+    let (revision, effect_id) = crate::channel_update::require_member_projection_identity(
+        &projection,
+        "sync memberProjection",
+    )?;
     append_persona_columns(&mut row, persona);
     Ok(Some((row, projection, revision, effect_id)))
 }
@@ -1033,5 +1027,65 @@ impl ImModule {
         self.with_state_and_corr_allocator(|state, alloc| {
             crate::sync_scheduler::drain(state, &api_base_url, alloc, out);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build the smallest sync persona carrying a viewer-local member projection.
+    fn sync_persona(revision: u64, effect_id: &str) -> crate::sync_session::SyncPersona {
+        let channel_id = crate::state::test_channel_id(501);
+        crate::sync_session::SyncPersona {
+            membership_state: "active".to_string(),
+            epoch_start_seq: Some(Seq(1)),
+            epoch_end_seq: None,
+            member_projection: Some(serde_json::json!({
+                "channelId": channel_id.as_str(),
+                "userId": "viewer-501",
+                "projectionRevision": revision,
+                "effectId": effect_id,
+                "unreadCount": 0,
+                "lastReadSeq": 1
+            })),
+        }
+    }
+
+    /// A revision-one baseline is accepted by the offline sync projection barrier.
+    #[test]
+    fn sync_baseline_projection_identity_is_accepted() {
+        let channel_id = crate::state::test_channel_id(501);
+        let prepared = prepare_sync_projection(
+            &sync_persona(1, "effect-baseline"),
+            channel_id,
+            "viewer-501",
+        )
+        .expect("baseline projection should parse")
+        .expect("baseline projection should be present");
+
+        assert_eq!(prepared.2, 1);
+        assert_eq!(prepared.3, "effect-baseline");
+    }
+
+    /// A zero revision or blank effect is rejected before an offline persist is emitted.
+    #[test]
+    fn sync_projection_identity_rejects_uninitialized_values() {
+        let channel_id = crate::state::test_channel_id(501);
+        let revision_error =
+            prepare_sync_projection(&sync_persona(0, "effect-zero"), channel_id, "viewer-501")
+                .expect_err("zero revision must fail closed");
+        assert!(matches!(
+            revision_error,
+            ImError::Parse(message) if message == "sync memberProjection missing revision"
+        ));
+
+        let effect_error =
+            prepare_sync_projection(&sync_persona(1, "  "), channel_id, "viewer-501")
+                .expect_err("blank effect identity must fail closed");
+        assert!(matches!(
+            effect_error,
+            ImError::Parse(message) if message == "sync memberProjection missing effectId"
+        ));
     }
 }

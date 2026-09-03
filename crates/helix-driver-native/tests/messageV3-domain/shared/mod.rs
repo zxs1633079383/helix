@@ -342,6 +342,142 @@ pub(crate) struct SendEvidence {
     pub(crate) bus_envelope: Value,
 }
 
+/// 关闭一个本轮 Native WS，并把远端已先断开的竞态归一为幂等成功。
+async fn close_send_transport(transport: Arc<NativeTransport>, label: &str) -> Result<(), String> {
+    let result = timeout(Duration::from_secs(15), transport.close()).await;
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => {
+            let text = error.to_string();
+            if [
+                "closed connection",
+                "connection is closed",
+                "already closed",
+                "disconnected",
+            ]
+            .iter()
+            .any(|marker| text.contains(marker))
+            {
+                Ok(())
+            } else {
+                Err(format!("close {label}: {error}"))
+            }
+        }
+        Err(_) => Err(format!("close {label} timed out after 15s")),
+    }
+}
+
+/// 持有 `run_helix_send` 已创建的资源；错误、超时和成功都必须经过同一收敛路径。
+struct SendCleanup {
+    storage: Option<NativeStorage>,
+    db_path: PathBuf,
+    observer: Option<RawWs>,
+    actor_transport: Option<Arc<NativeTransport>>,
+    shutdown_tx: Option<oneshot::Sender<()>>,
+    engine: Option<JoinHandle<()>>,
+}
+
+impl SendCleanup {
+    /// 创建只拥有本轮 SQLite 的清理上下文，后续资源按启动顺序逐项登记。
+    fn new(storage: NativeStorage, db_path: PathBuf) -> Self {
+        Self {
+            storage: Some(storage),
+            db_path,
+            observer: None,
+            actor_transport: None,
+            shutdown_tx: None,
+            engine: None,
+        }
+    }
+
+    /// 借用本轮 Native SQLite；资源缺失时返回可诊断错误而不 panic。
+    fn storage(&self) -> Result<&NativeStorage, String> {
+        self.storage
+            .as_ref()
+            .ok_or_else(|| "send cleanup storage is not available".to_string())
+    }
+
+    /// 借用本轮 observer WS；等待路径不能绕过清理上下文取得旁路连接。
+    fn observer_mut(&mut self) -> Result<&mut RawWs, String> {
+        self.observer
+            .as_mut()
+            .ok_or_else(|| "send cleanup observer WS is not available".to_string())
+    }
+
+    /// 按 engine → actor WS → observer WS → SQLite 的顺序停止本轮资源并汇总失败。
+    async fn close(mut self) -> Result<(), String> {
+        let mut errors = Vec::new();
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            let _ = shutdown_tx.send(());
+        }
+        if let Some(mut engine) = self.engine.take() {
+            match timeout(Duration::from_secs(15), &mut engine).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => errors.push(format!("Helix engine task failed: {error}")),
+                Err(_) => {
+                    engine.abort();
+                    match engine.await {
+                        Ok(()) => errors.push(
+                            "Helix engine graceful shutdown timed out after 15s; engine aborted"
+                                .to_string(),
+                        ),
+                        Err(error) if error.is_cancelled() => errors.push(
+                            "Helix engine graceful shutdown timed out after 15s; engine aborted"
+                                .to_string(),
+                        ),
+                        Err(error) => errors.push(format!(
+                            "Helix engine graceful shutdown timed out after 15s; engine abort join failed: {error}"
+                        )),
+                    }
+                }
+            }
+        }
+        if let Some(actor_transport) = self.actor_transport.take() {
+            if let Err(error) = close_send_transport(actor_transport, "Helix actor WS").await {
+                errors.push(error);
+            }
+        }
+        if let Some(observer) = self.observer.take() {
+            if let Err(error) = close_send_transport(observer.transport, "Go observer WS").await {
+                errors.push(error);
+            }
+        }
+        // Engine/transport 已停止后释放最后一个 SQLite Arc，避免 remove 只删主文件而 WAL 残留。
+        drop(self.storage.take());
+        remove_test_storage(&self.db_path);
+        if self.db_path.exists()
+            || PathBuf::from(format!("{}-wal", self.db_path.display())).exists()
+            || PathBuf::from(format!("{}-shm", self.db_path.display())).exists()
+        {
+            errors.push(format!(
+                "send cleanup left SQLite files at {}",
+                self.db_path.display()
+            ));
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
+        }
+    }
+}
+
+/// 将业务结果与本轮资源清理结果合并，既保留首个业务错误又不吞掉 cleanup 失败。
+async fn finish_send_cleanup<T>(
+    result: Result<T, String>,
+    cleanup: SendCleanup,
+) -> Result<T, String> {
+    let cleanup_result = cleanup.close().await;
+    match (result, cleanup_result) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(cleanup_error)) => Err(format!("send cleanup failed: {cleanup_error}")),
+        (Err(error), Err(cleanup_error)) => {
+            Err(format!("{error}; send cleanup failed: {cleanup_error}"))
+        }
+    }
+}
+
 /// 持有一次真实 Helix native engine 会话；所有 Phase2-4 command Gate 共用这一条边界。
 ///
 /// 会话同时拥有 actor WS、NativeHttp、NativeStorage、NativeEventSink 和 engine task，
@@ -1018,16 +1154,49 @@ pub(crate) async fn open_raw_ws_at(
     let mut transport = NativeTransport::new(ws_url, TransportId::from_raw(raw_id), Some(tick_tx))
         .with_handshake_headers(ws_headers(persona));
     // 将 WS 外部等待限定在测试预算内，避免半关闭的 Go socket 令整批 Gate 永久悬挂。
-    let activation = timeout(Duration::from_secs(30), transport.connect())
-        .await
-        .map_err(|_| "real Go WS connect timed out after 30s".to_string())?
-        .map_err(|error| format!("real Go WS connect failed: {error}"))?;
-    timeout(Duration::from_secs(30), activation.activate())
-        .await
-        .map_err(|_| "real Go WS activation timed out after 30s".to_string())?
-        .map_err(|error| format!("real Go WS activation failed: {error}"))?;
+    let activation = match timeout(Duration::from_secs(30), transport.connect()).await {
+        Ok(Ok(activation)) => activation,
+        Ok(Err(error)) => {
+            let close_result = close_send_transport(Arc::new(transport), "real Go WS").await;
+            return Err(match close_result {
+                Ok(()) => format!("real Go WS connect failed: {error}"),
+                Err(close_error) => format!("real Go WS connect failed: {error}; {close_error}"),
+            });
+        }
+        Err(_) => {
+            let close_result = close_send_transport(Arc::new(transport), "real Go WS").await;
+            return Err(match close_result {
+                Ok(()) => "real Go WS connect timed out after 30s".to_string(),
+                Err(close_error) => {
+                    format!("real Go WS connect timed out after 30s; {close_error}")
+                }
+            });
+        }
+    };
+    let transport = Arc::new(transport);
+    match timeout(Duration::from_secs(30), activation.activate()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            let close_result = close_send_transport(Arc::clone(&transport), "real Go WS").await;
+            return Err(match close_result {
+                Ok(()) => format!("real Go WS activation failed: {error}"),
+                Err(close_error) => {
+                    format!("real Go WS activation failed: {error}; {close_error}")
+                }
+            });
+        }
+        Err(_) => {
+            let close_result = close_send_transport(Arc::clone(&transport), "real Go WS").await;
+            return Err(match close_result {
+                Ok(()) => "real Go WS activation timed out after 30s".to_string(),
+                Err(close_error) => {
+                    format!("real Go WS activation timed out after 30s; {close_error}")
+                }
+            });
+        }
+    }
     Ok(RawWs {
-        transport: Arc::new(transport),
+        transport,
         ticks,
         pending: VecDeque::new(),
     })
@@ -1824,20 +1993,37 @@ async fn create_channel_at(
         .ok_or_else(|| "channel/create SUCCESS response has no channel object".to_string())?;
     let channel_id = string_field(channel, &["id"])
         .ok_or_else(|| "channel/create SUCCESS response has no canonical channel id".to_string())?;
-    validate_active_channel_projection(channel, &channel_id, &display_name, started_at)?;
+    if let Err(error) =
+        validate_active_channel_projection(channel, &channel_id, &display_name, started_at)
+    {
+        let cleanup = close_channel_at(context, &channel_id, http_base, ws_url).await;
+        return Err(match cleanup {
+            Ok(()) => format!("channel/create projection validation failed: {error}"),
+            Err(cleanup_error) => {
+                format!("channel/create projection validation failed: {error}; channel cleanup failed: {cleanup_error}")
+            }
+        });
+    }
     let required_user_ids = BTreeSet::from([
         context.actor.user_id.clone(),
         context.observer.user_id.clone(),
         context.third.user_id.clone(),
     ]);
-    wait_active_channel_fixture(
+    if let Err(error) = wait_active_channel_fixture(
         &http,
         http_base,
         &channel_id,
         &display_name,
         &required_user_ids,
     )
-    .await?;
+    .await
+    {
+        let cleanup = close_channel_at(context, &channel_id, http_base, ws_url).await;
+        return Err(match cleanup {
+            Ok(()) => error,
+            Err(cleanup_error) => format!("{error}; channel cleanup failed: {cleanup_error}"),
+        });
+    }
     Ok(channel_id)
 }
 
@@ -2083,10 +2269,18 @@ pub(crate) async fn apply_im_schema(storage: &NativeStorage) -> Result<(), Strin
 pub(crate) async fn open_test_storage() -> Result<(NativeStorage, PathBuf), String> {
     let path = std::env::temp_dir().join(format!("{}.db", resource_name("sqlite")));
     let url = format!("sqlite:{}?mode=rwc", path.display());
-    let storage = NativeStorage::open(&url)
-        .await
-        .map_err(|error| format!("open test SQLite failed: {error}"))?;
-    apply_im_schema(&storage).await?;
+    let storage = match NativeStorage::open(&url).await {
+        Ok(storage) => storage,
+        Err(error) => {
+            remove_test_storage(&path);
+            return Err(format!("open test SQLite failed: {error}"));
+        }
+    };
+    if let Err(error) = apply_im_schema(&storage).await {
+        drop(storage);
+        remove_test_storage(&path);
+        return Err(error);
+    }
     Ok((storage, path))
 }
 
@@ -2096,6 +2290,54 @@ pub(crate) fn remove_test_storage(path: &Path) {
     for suffix in ["-wal", "-shm"] {
         let sidecar = PathBuf::from(format!("{}{}", path.display(), suffix));
         let _ = std::fs::remove_file(sidecar);
+    }
+}
+
+#[cfg(test)]
+mod send_cleanup_regression_tests {
+    use super::*;
+
+    /// 即使 engine 尚未启动，清理上下文也必须释放本轮 SQLite 文件。
+    #[tokio::test]
+    async fn cleanup_removes_owned_sqlite_without_started_engine() {
+        let (storage, db_path) = open_test_storage()
+            .await
+            .expect("test storage should open for cleanup regression");
+        let cleanup = SendCleanup::new(storage, db_path.clone());
+        cleanup
+            .close()
+            .await
+            .expect("cleanup without engine or transport should succeed");
+        assert!(!db_path.exists());
+        assert!(!PathBuf::from(format!("{}-wal", db_path.display())).exists());
+        assert!(!PathBuf::from(format!("{}-shm", db_path.display())).exists());
+    }
+
+    /// observer 收到迟到业务帧时只保留有界缓存，避免 cleanup 期间无界积压。
+    #[test]
+    fn observer_late_frames_are_bounded() {
+        let (tick_tx, ticks) = mpsc::channel(1);
+        let transport = NativeTransport::new(
+            "ws://127.0.0.1:0/never",
+            TransportId::from_raw(900),
+            Some(tick_tx),
+        );
+        let mut observer = RawWs {
+            transport: Arc::new(transport),
+            ticks,
+            pending: VecDeque::new(),
+        };
+        for sequence in 0..=MAX_PENDING_WS_FRAMES {
+            observer.remember(json!({"action": "post", "sequence": sequence}));
+        }
+        assert_eq!(observer.pending.len(), MAX_PENDING_WS_FRAMES);
+        assert_eq!(
+            observer
+                .pending
+                .front()
+                .and_then(|frame| frame["sequence"].as_u64()),
+            Some(1)
+        );
     }
 }
 
@@ -2340,193 +2582,217 @@ pub(crate) async fn run_helix_send(
 ) -> Result<SendEvidence, String> {
     let expected_type = canonical_wire_message_type(intent.message_type);
     let expected_text = intent.text.clone();
-    let mut observer = open_raw_ws(&context.observer, 20).await?;
-    wait_ws_hello(&mut observer).await?;
     let (storage, db_path) = open_test_storage().await?;
+    let mut cleanup = SendCleanup::new(storage, db_path);
+    let observer = match open_raw_ws(&context.observer, 20).await {
+        Ok(observer) => observer,
+        Err(error) => return finish_send_cleanup(Err(error), cleanup).await,
+    };
+    cleanup.observer = Some(observer);
     let (event_sink, mut events) = NativeEventSink::new();
-    let http = go_http(&context.actor).await?;
+    let result = async {
+        wait_ws_hello(cleanup.observer_mut()?).await?;
+        let http = go_http(&context.actor).await?;
 
-    let mut config = ImConfig::default();
-    config.ws_url = go_ws_url().to_string();
-    config.api_base_url = go_http_base().to_string();
-    config.default_api_base_url = main_api_base();
-    config.auth_user_id = context.actor.user_id.clone();
-    config.company_id = context.actor.company_id.clone();
-    config.user_name = context.actor.user_name.clone();
-    config.org_name = context.actor.org_name.clone();
-    config.dept_name = context.actor.dept_name.clone();
-    config.ping_interval_ms = 60_000;
-    config.send_timeout_ms = send_timeout_ms;
+        let mut config = ImConfig::default();
+        config.ws_url = go_ws_url().to_string();
+        config.api_base_url = go_http_base().to_string();
+        config.default_api_base_url = main_api_base();
+        config.auth_user_id = context.actor.user_id.clone();
+        config.company_id = context.actor.company_id.clone();
+        config.user_name = context.actor.user_name.clone();
+        config.org_name = context.actor.org_name.clone();
+        config.dept_name = context.actor.dept_name.clone();
+        config.ping_interval_ms = 60_000;
+        config.send_timeout_ms = send_timeout_ms;
 
-    let mut module = ImModule::new(config);
-    let channel = helix_im::state::ChannelId::from_str(channel_id)
-        .ok_or_else(|| format!("Go channel id is not a canonical Helix ChannelId: {channel_id}"))?;
-    module.register_channel(channel, 0);
-    let mut shell = ExecutionShell::new();
-    shell.register(module);
+        let mut module = ImModule::new(config);
+        let channel = helix_im::state::ChannelId::from_str(channel_id).ok_or_else(|| {
+            format!("Go channel id is not a canonical Helix ChannelId: {channel_id}")
+        })?;
+        module.register_channel(channel, 0);
+        let mut shell = ExecutionShell::new();
+        shell.register(module);
 
-    let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
-    let mut actor_transport = NativeTransport::new(
-        go_ws_url(),
-        TransportId::from_raw(21),
-        Some(tick_tx.clone()),
-    )
-    .with_handshake_headers(ws_headers(&context.actor));
-    let activation = actor_transport
-        .connect()
-        .await
-        .map_err(|error| format!("Helix actor WS connect failed: {error}"))?;
-    let actor_transport = Arc::new(actor_transport);
-    let mut transports = TransportTable::new();
-    transports.insert(TransportId::from_raw(21), Arc::clone(&actor_transport));
+        let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
+        let mut actor_transport = NativeTransport::new(
+            go_ws_url(),
+            TransportId::from_raw(21),
+            Some(tick_tx.clone()),
+        )
+        .with_handshake_headers(ws_headers(&context.actor));
+        let activation = match timeout(Duration::from_secs(30), actor_transport.connect()).await {
+            Ok(Ok(activation)) => activation,
+            Ok(Err(error)) => {
+                let close_result =
+                    close_send_transport(Arc::new(actor_transport), "Helix actor WS").await;
+                return Err(match close_result {
+                    Ok(()) => format!("Helix actor WS connect failed: {error}"),
+                    Err(close_error) => {
+                        format!("Helix actor WS connect failed: {error}; {close_error}")
+                    }
+                });
+            }
+            Err(_) => {
+                let close_result =
+                    close_send_transport(Arc::new(actor_transport), "Helix actor WS").await;
+                return Err(match close_result {
+                    Ok(()) => "Helix actor WS connect timed out after 30s".to_string(),
+                    Err(close_error) => {
+                        format!("Helix actor WS connect timed out after 30s; {close_error}")
+                    }
+                });
+            }
+        };
+        let actor_transport = Arc::new(actor_transport);
+        cleanup.actor_transport = Some(Arc::clone(&actor_transport));
+        let mut transports = TransportTable::new();
+        transports.insert(TransportId::from_raw(21), Arc::clone(&actor_transport));
 
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let config = EngineConfig::new(
-        storage.clone(),
-        http,
-        SharedFileUploader::default(),
-        event_sink,
-        8,
-    )
-    .with_metric_sink(Arc::new(NoopMetricSink));
-    let engine = tokio::spawn(run_engine_loop_with_transports(
-        shell,
-        tick_rx,
-        tick_tx.clone(),
-        config,
-        shutdown_rx,
-        transports,
-    ));
-    activation
-        .activate()
-        .await
-        .map_err(|error| format!("Helix actor WS activation failed: {error}"))?;
-
-    wait_domain_event(
-        &mut events,
-        "im:connection:established",
-        |_| true,
-        Duration::from_secs(20),
-    )
-    .await?;
-
-    let mut command = json!({
-        "channel_id": channel_id,
-        "type": intent.message_type,
-        "text": intent.text,
-        "props": intent.props,
-        "viewers": intent.viewers,
-        "mentions": intent.mentions
-    });
-    if let Some(replied) = intent.replied {
-        command["replied"] = replied;
-    }
-    tick_tx
-        .send(Tick::Command(AppCommand::new(
-            "im_send_message",
-            Bytes::from(serde_json::to_vec(&command).map_err(|error| error.to_string())?),
-        )))
-        .await
-        .map_err(|error| format!("send im_send_message Tick failed: {error}"))?;
-
-    let sending = wait_domain_event(
-        &mut events,
-        "im:post:sending",
-        |_| true,
-        Duration::from_secs(20),
-    )
-    .await?;
-    let sending_value: Value = serde_json::from_slice(sending.0.as_ref())
-        .map_err(|error| format!("decode sending event: {error}"))?;
-    let temporary_id = data_string(&sending_value, &["temporaryId", "temporary_id"])
-        .ok_or_else(|| "im:post:sending has no temporaryId".to_string())?;
-
-    let optimistic_row = scan_message_row(&storage, &temporary_id).await?;
-    if row_text(&optimistic_row, "send_status").as_deref() != Some("sending") {
-        return Err(format!(
-            "message {temporary_id} did not persist optimistic sending row: {:?}",
-            row_text(&optimistic_row, "send_status")
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let config = EngineConfig::new(
+            cleanup.storage()?.clone(),
+            http,
+            SharedFileUploader::default(),
+            event_sink,
+            8,
+        )
+        .with_metric_sink(Arc::new(NoopMetricSink));
+        let engine = tokio::spawn(run_engine_loop_with_transports(
+            shell,
+            tick_rx,
+            tick_tx.clone(),
+            config,
+            shutdown_rx,
+            transports,
         ));
-    }
+        cleanup.shutdown_tx = Some(shutdown_tx);
+        cleanup.engine = Some(engine);
+        timeout(Duration::from_secs(30), activation.activate())
+            .await
+            .map_err(|_| "Helix actor WS activation timed out after 30s".to_string())?
+            .map_err(|error| format!("Helix actor WS activation failed: {error}"))?;
 
-    let post_frame = wait_ws_action(
-        &mut observer,
-        "post",
-        |frame| {
-            extract_id(frame, &["temporaryId", "temporary_id"]).as_deref()
-                == Some(temporary_id.as_str())
-        },
-        Duration::from_secs(25),
-    )
-    .await?;
-    for (field, expected) in [
-        ("channelId", channel_id),
-        ("userId", context.actor.user_id.as_str()),
-        ("type", expected_type),
-        ("message", expected_text.as_str()),
-    ] {
-        if extract_id(&post_frame, &[field]).as_deref() != Some(expected) {
-            return Err(format!("observer WS post {field} mismatch: {post_frame}"));
+        wait_domain_event(
+            &mut events,
+            "im:connection:established",
+            |_| true,
+            Duration::from_secs(20),
+        )
+        .await?;
+
+        let mut command = json!({
+            "channel_id": channel_id,
+            "type": intent.message_type,
+            "text": intent.text,
+            "props": intent.props,
+            "viewers": intent.viewers,
+            "mentions": intent.mentions
+        });
+        if let Some(replied) = intent.replied {
+            command["replied"] = replied;
         }
-    }
-    let received = wait_domain_event(
-        &mut events,
-        "im:post:received",
-        |envelope| {
-            data_string(envelope, &["temporaryId", "temporary_id"]).as_deref()
-                == Some(temporary_id.as_str())
-        },
-        Duration::from_secs(25),
-    )
-    .await?;
-    let row =
-        wait_message_status(&storage, &temporary_id, &["sent"], Duration::from_secs(8)).await?;
-    for (column, expected) in [
-        ("channel_id", channel_id),
-        ("user_id", context.actor.user_id.as_str()),
-        ("type", expected_type),
-        ("message", expected_text.as_str()),
-    ] {
-        if row_text(&row, column).as_deref() != Some(expected) {
+        tick_tx
+            .send(Tick::Command(AppCommand::new(
+                "im_send_message",
+                Bytes::from(serde_json::to_vec(&command).map_err(|error| error.to_string())?),
+            )))
+            .await
+            .map_err(|error| format!("send im_send_message Tick failed: {error}"))?;
+
+        let sending = wait_domain_event(
+            &mut events,
+            "im:post:sending",
+            |_| true,
+            Duration::from_secs(20),
+        )
+        .await?;
+        let sending_value: Value = serde_json::from_slice(sending.0.as_ref())
+            .map_err(|error| format!("decode sending event: {error}"))?;
+        let temporary_id = data_string(&sending_value, &["temporaryId", "temporary_id"])
+            .ok_or_else(|| "im:post:sending has no temporaryId".to_string())?;
+
+        let optimistic_row = scan_message_row(cleanup.storage()?, &temporary_id).await?;
+        if row_text(&optimistic_row, "send_status").as_deref() != Some("sending") {
             return Err(format!(
-                "SQLite message.{column} mismatch for {temporary_id}"
+                "message {temporary_id} did not persist optimistic sending row: {:?}",
+                row_text(&optimistic_row, "send_status")
             ));
         }
-    }
-    if row_text(&row, "id").is_none_or(|id| id.is_empty()) {
-        return Err(format!("SQLite message.id missing for {temporary_id}"));
-    }
-    let bus_envelope = to_bus_envelope(&received);
-    if bus_event_name(&received).as_deref() != Some("im:post:received") {
-        return Err("NativeEventSink event cannot map to im:post:received bus channel".to_string());
-    }
-    if bus_envelope.get("channel").and_then(Value::as_str) != Some("im:post:received") {
-        return Err(format!("bad native bus envelope: {bus_envelope}"));
-    }
 
-    let _ = shutdown_tx.send(());
-    timeout(Duration::from_secs(10), engine)
-        .await
-        .map_err(|_| "Helix engine graceful shutdown timed out".to_string())?
-        .map_err(|error| format!("Helix engine task failed: {error}"))?;
-    actor_transport
-        .close()
-        .await
-        .map_err(|error| format!("close actor WS: {error}"))?;
-    observer
-        .transport
-        .close()
-        .await
-        .map_err(|error| format!("close observer WS: {error}"))?;
-    remove_test_storage(&db_path);
-    Ok(SendEvidence {
-        temporary_id,
-        sending,
-        post_frame,
-        received,
-        row,
-        bus_envelope,
-    })
+        let post_frame = wait_ws_action(
+            cleanup.observer_mut()?,
+            "post",
+            |frame| {
+                extract_id(frame, &["temporaryId", "temporary_id"]).as_deref()
+                    == Some(temporary_id.as_str())
+            },
+            Duration::from_secs(25),
+        )
+        .await?;
+        for (field, expected) in [
+            ("channelId", channel_id),
+            ("userId", context.actor.user_id.as_str()),
+            ("type", expected_type),
+            ("message", expected_text.as_str()),
+        ] {
+            if extract_id(&post_frame, &[field]).as_deref() != Some(expected) {
+                return Err(format!("observer WS post {field} mismatch: {post_frame}"));
+            }
+        }
+        let received = wait_domain_event(
+            &mut events,
+            "im:post:received",
+            |envelope| {
+                data_string(envelope, &["temporaryId", "temporary_id"]).as_deref()
+                    == Some(temporary_id.as_str())
+            },
+            Duration::from_secs(25),
+        )
+        .await?;
+        let row = wait_message_status(
+            cleanup.storage()?,
+            &temporary_id,
+            &["sent"],
+            Duration::from_secs(8),
+        )
+        .await?;
+        for (column, expected) in [
+            ("channel_id", channel_id),
+            ("user_id", context.actor.user_id.as_str()),
+            ("type", expected_type),
+            ("message", expected_text.as_str()),
+        ] {
+            if row_text(&row, column).as_deref() != Some(expected) {
+                return Err(format!(
+                    "SQLite message.{column} mismatch for {temporary_id}"
+                ));
+            }
+        }
+        if row_text(&row, "id").is_none_or(|id| id.is_empty()) {
+            return Err(format!("SQLite message.id missing for {temporary_id}"));
+        }
+        let bus_envelope = to_bus_envelope(&received);
+        if bus_event_name(&received).as_deref() != Some("im:post:received") {
+            return Err(
+                "NativeEventSink event cannot map to im:post:received bus channel".to_string(),
+            );
+        }
+        if bus_envelope.get("channel").and_then(Value::as_str) != Some("im:post:received") {
+            return Err(format!("bad native bus envelope: {bus_envelope}"));
+        }
+
+        Ok::<SendEvidence, String>(SendEvidence {
+            temporary_id,
+            sending,
+            post_frame,
+            received,
+            row,
+            bus_envelope,
+        })
+    }
+    .await;
+    finish_send_cleanup(result, cleanup).await
 }
 
 /// 在 engine 上发送一个不存在的 canonical channel，验证 send-failed 而非假 received。
@@ -2983,11 +3249,17 @@ pub(crate) async fn assert_isolated_send(
         },
     )
     .await;
+    // `assert_send_chain` 返回时 `run_helix_send` 已停止 engine/WS 并删除 SQLite；远端频道关闭必须
+    // 严格位于这个本地资源屏障之后，避免迟到帧在 cleanup 阶段触发二次 snapshot 错误。
     let cleanup = close_channel(&context, &channel_id).await;
-    if let Err(error) = cleanup {
-        return Err(format!("channel cleanup failed: {error}"));
-    }
-    let evidence = result?;
+    let evidence = match (result, cleanup) {
+        (Ok(evidence), Ok(())) => evidence,
+        (Err(error), Ok(())) => return Err(error),
+        (Ok(_), Err(error)) => return Err(format!("channel cleanup failed: {error}")),
+        (Err(error), Err(cleanup_error)) => {
+            return Err(format!("{error}; channel cleanup failed: {cleanup_error}"));
+        }
+    };
     if message_type == "TASK_CARD" {
         let post_props = evidence
             .post_frame

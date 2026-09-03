@@ -178,7 +178,7 @@ pub(crate) fn pending_send_reconciliations(
 pub fn batch_upsert_events(events: &[EventEnvelope]) -> Vec<StorageOp> {
     events
         .iter()
-        .map(crate::channel::event_to_upsert_op)
+        .map(crate::channel::event_to_sync_upsert_op)
         .collect()
 }
 

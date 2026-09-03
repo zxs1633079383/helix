@@ -31,7 +31,7 @@ fn message_upsert_keeps_dedicated_event_seq_across_historical_refill() {
     assert!(historical.exclude_from_update.contains(&"event_seq"));
 }
 
-/// Readback upsert must guard only missing fields while allowing explicit empty values.
+/// HTTP readback 只覆盖明确提供的富字段，且空 read_bits 不能倒退专用已读回执。
 #[test]
 fn message_readback_upsert_uses_presence_for_rich_columns() {
     let channel_id = crate::state::test_channel_id(2);
@@ -64,16 +64,85 @@ fn message_readback_upsert_uses_presence_for_rich_columns() {
     let StorageOp::BatchUpsert(explicit_spec) = event_to_readback_upsert_op(&explicit_event) else {
         panic!("readback post must use BatchUpsert");
     };
-    for column in [
-        "expedite_map",
-        "reply_id",
-        "reply_messages",
-        "reply_count",
-        "read_bits",
-    ] {
+    for column in ["expedite_map", "reply_id", "reply_messages", "reply_count"] {
         assert!(!explicit_spec.exclude_from_update.contains(&column));
     }
+    assert!(explicit_spec.exclude_from_update.contains(&"read_bits"));
     assert!(explicit_spec.exclude_from_update.contains(&"event_seq"));
+
+    let mut non_empty = explicit_event.fields.clone();
+    non_empty.read_bits = "10".to_string();
+    let non_empty_event = EventEnvelope::new(channel_id, Seq(0), EventKind::PostUpsert, non_empty);
+    let StorageOp::BatchUpsert(non_empty_spec) = event_to_readback_upsert_op(&non_empty_event)
+    else {
+        panic!("readback post must use BatchUpsert");
+    };
+    assert!(!non_empty_spec.exclude_from_update.contains(&"read_bits"));
+}
+
+/// Sync 快照缺省或空 read_bits 都不得覆盖已读位；显式清空必须走 type=6 专用写。
+#[test]
+fn message_sync_upsert_uses_presence_for_read_bits() {
+    let channel_id = crate::state::test_channel_id(3);
+    let missing = crate::sync_session::PostFields {
+        id: "post-sync".to_string(),
+        temporary_id: "tmp-sync".to_string(),
+        read_bits: String::new(),
+        ..Default::default()
+    };
+    let missing_event = EventEnvelope::new(channel_id, Seq(9), EventKind::PostUpsert, missing);
+    let StorageOp::BatchUpsert(missing_spec) = event_to_sync_upsert_op(&missing_event) else {
+        panic!("sync post must use BatchUpsert");
+    };
+    assert!(missing_spec.exclude_from_update.contains(&"read_bits"));
+
+    let mut explicit = crate::sync_session::PostFields {
+        id: "post-sync".to_string(),
+        temporary_id: "tmp-sync".to_string(),
+        read_bits: String::new(),
+        ..Default::default()
+    };
+    explicit.present_fields = crate::sync_session::POST_FIELD_READ_BITS;
+    let explicit_event = EventEnvelope::new(channel_id, Seq(9), EventKind::PostUpsert, explicit);
+    let StorageOp::BatchUpsert(explicit_spec) = event_to_sync_upsert_op(&explicit_event) else {
+        panic!("sync post must use BatchUpsert");
+    };
+    assert!(explicit_spec.exclude_from_update.contains(&"read_bits"));
+}
+
+/// 在线迟到的空 read_bits type=1 只能补消息体，不能擦除更新的 type=6 已读位。
+#[test]
+fn online_gate_post_upsert_preserves_non_empty_read_bits() {
+    let event = EventEnvelope::new(
+        crate::state::test_channel_id(4),
+        Seq(11),
+        EventKind::PostUpsert,
+        crate::sync_session::PostFields {
+            id: "post-online".to_string(),
+            temporary_id: "tmp-online".to_string(),
+            read_bits: String::new(),
+            ..Default::default()
+        },
+    );
+    let StorageOp::BatchUpsert(spec) = event_to_storage_op(&event) else {
+        panic!("online post must use BatchUpsert");
+    };
+    assert!(spec.exclude_from_update.contains(&"read_bits"));
+}
+
+/// gap timer 预览的 type=1 属于 sync 权威路径，空 read_bits 不得覆盖已读位。
+#[test]
+fn gap_peek_post_upsert_preserves_non_empty_read_bits() {
+    let mut channel = Channel::new(crate::state::test_channel_id(5), 0);
+    let mut effects = EffectSink::new();
+    channel
+        .ingest(gapped_ev(5, 2), &mut effects, 1_000)
+        .expect("buffer gapped post");
+    let operations = channel.peek_up_to(Seq(2));
+    let StorageOp::BatchUpsert(spec) = &operations[0] else {
+        panic!("gapped post must use BatchUpsert");
+    };
+    assert!(spec.exclude_from_update.contains(&"read_bits"));
 }
 
 fn is_too_long_emit(e: &Effect) -> bool {

@@ -481,7 +481,7 @@ impl ImModule {
         )
     }
 
-    /// 显式 retry 在 HTTP admission 后强制读取 Go 最新消息完成幂等对账。
+    /// 首发或显式 retry 在 HTTP admission 后读取 Go 最新消息，作为 WS echo 的有界兜底。
     pub(crate) fn start_authoritative_send_readback(
         &mut self,
         channel_id: ChannelId,
@@ -1148,7 +1148,7 @@ impl ImModule {
             tracing::warn!(
                 tmp_id = temporary_id.0.as_str(),
                 attempts = next_attempt,
-                "authoritative retry history still missing after bounded readback attempts"
+                "send history still missing after bounded authoritative readback attempts"
             );
             return;
         }
@@ -1166,11 +1166,11 @@ impl ImModule {
             tmp_id = temporary_id.0.as_str(),
             attempt = next_attempt,
             after_ms,
-            "scheduled authoritative retry history readback"
+            "scheduled authoritative send history readback"
         );
     }
 
-    /// 用 Go 历史中的同 temporaryId + 合法 server id 结算 retry，并撤销其超时令牌。
+    /// 用 Go 历史中的同 temporaryId + 合法 server id 结算发送，并撤销其超时令牌。
     fn reconcile_authoritative_send_readback(
         &mut self,
         channel_id: ChannelId,
@@ -1196,7 +1196,7 @@ impl ImModule {
         tracing::info!(
             channel_id = channel_id.as_str(),
             tmp_id = temporary_id.0.as_str(),
-            "explicit retry settled from authoritative history"
+            "send settled from authoritative history"
         );
         true
     }
@@ -1217,7 +1217,7 @@ impl ImModule {
         else {
             tracing::warn!(
                 tmp_id = temporary_id.0.as_str(),
-                "authoritative retry matched durable authority without a pending aggregate"
+                "authoritative send readback matched durable authority without a pending aggregate"
             );
             return false;
         };

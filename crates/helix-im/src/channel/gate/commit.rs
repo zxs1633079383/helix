@@ -1,6 +1,6 @@
 //! Correlated persistence commit and too-long reset.
 
-use super::{event_to_upsert_op, Channel};
+use super::{event_to_sync_upsert_op, Channel};
 use crate::error::ImError;
 use crate::state::{Cursor, Seq};
 use helix_core::effect::StorageOp;
@@ -16,7 +16,7 @@ impl Channel {
     pub fn peek_up_to(&self, target_seq: Seq) -> Vec<StorageOp> {
         self.buffer
             .range(..=target_seq)
-            .map(|(_, ev)| event_to_upsert_op(ev))
+            .map(|(_, ev)| event_to_sync_upsert_op(ev))
             .collect()
     }
 

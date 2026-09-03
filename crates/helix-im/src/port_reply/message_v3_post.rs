@@ -319,7 +319,7 @@ mod buffered_event_tests {
         assert!(matches!(
             out.as_slice(),
             [Effect::PersistAtomic { ops, .. }]
-                if matches!(ops.first(), Some(helix_core::effect::StorageOp::BatchUpdate(_)))
+                if matches!(ops.first(), Some(helix_core::effect::StorageOp::BatchUpdate(spec)) if spec.patch.is_empty())
                     && !ops.iter().any(|op| matches!(op, helix_core::effect::StorageOp::BatchUpsert(_)))
         ));
         assert!(module
@@ -332,6 +332,33 @@ mod buffered_event_tests {
             .corr_map
             .values()
             .any(|context| matches!(context, CorrelationContext::MessageV3PostPersist { .. })));
+    }
+
+    /// canonical stream 明确携带 readBits 时仍生成覆盖式单列写，不能误伤合法 type=6。
+    #[test]
+    fn buffered_post_read_with_explicit_bits_applies_read_patch() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let channel_id = crate::state::test_channel_id(92);
+        module.register_channel(channel_id, 0);
+        let mut fields = PostFields {
+            id: "post-stream-read".to_string(),
+            read_bits: "10".to_string(),
+            ..PostFields::default()
+        };
+        fields.present_fields = crate::sync_session::POST_FIELD_READ_BITS;
+        let event = EventEnvelope::new(channel_id, Seq(1), EventKind::PostRead, fields)
+            .with_msg_id(Some("post-stream-read".to_string()));
+        let mut out = EffectSink::new();
+
+        module.queue_next_message_v3_event(event, &mut out).unwrap();
+
+        assert!(matches!(
+            out.as_slice(),
+            [Effect::PersistAtomic { ops, .. }]
+                if matches!(ops.first(), Some(helix_core::effect::StorageOp::BatchUpdate(spec))
+                    if spec.patch.iter().any(|(column, value)| column == "read_bits"
+                        && matches!(value, helix_core::effect::SqlValue::Text(bits) if bits == "10")))
+        ));
     }
 }
 

@@ -792,9 +792,9 @@ mod readback_overlay_tests {
         }
     }
 
-    /// Explicit empty objects/arrays/strings/zero remain authoritative and are not overlaid.
+    /// Explicit empty rich fields remain authoritative in readback, while storage preserves type-6 read bits.
     #[test]
-    fn readback_explicit_empty_rich_fields_clear_local_values() {
+    fn readback_explicit_empty_rich_fields_render_empty_but_preserve_stored_read_bits() {
         let channel = channel();
         let local = local_rich_row(channel.as_str());
         let remote = json!({
@@ -846,7 +846,6 @@ mod readback_overlay_tests {
             "replied_message",
             "reply_messages",
             "reply_count",
-            "read_bits",
             "snapshot_id",
             "mentions",
             "topic",
@@ -857,6 +856,10 @@ mod readback_overlay_tests {
                 "explicit column {column} must remain writable"
             );
         }
+        assert!(
+            spec.exclude_from_update.contains(&"read_bits"),
+            "empty type-1 read_bits must not erase the dedicated type-6 projection"
+        );
     }
 
     /// Complete V3 payload wins over a different local rich projection and needs no guards.

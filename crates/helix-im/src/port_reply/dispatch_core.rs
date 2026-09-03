@@ -1452,7 +1452,10 @@ impl ImModule {
         match outcome {
             // posts/create HTTP 只代表 transport admission。服务端不会在该回包提供
             // success/post.id，终态必须继续等待 WS post 或权威 read-back。
-            PortOutcome::Ok(_) if authoritative_readback => {
+            PortOutcome::Ok(_)
+                if authoritative_readback
+                    && self.state.pending_sends.contains_key(&temporary_id) =>
+            {
                 self.start_authoritative_send_readback(
                     channel_id,
                     timeline_readback.window_token.as_deref(),

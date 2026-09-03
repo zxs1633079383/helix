@@ -45,9 +45,29 @@ fn start_posts_create(harness: &mut Harness, initial_effects: &[EffectKind]) -> 
     http_corr(&post_p1_effects)
 }
 
-/// HTTP 响应没有 WS/read-back 配对时必须保持 Sending。
+/// 断言 HTTP admission 只启动一次 Go history 权威读回，不提前产生其他业务副作用。
+fn authoritative_readback_corr(harness: &Harness, effects: &[EffectKind]) -> u64 {
+    use helix_core::effect::Effect;
+
+    assert_eq!(effects.len(), 1, "admission must only start one readback");
+    let corr = effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Http(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("admission must start getLatestPost readback");
+    assert!(harness.sink.as_slice().iter().any(|effect| matches!(
+        effect,
+        Effect::Http { corr: effect_corr, req }
+            if effect_corr.raw() == corr && req.url.ends_with("/posts/getLatestPost")
+    )));
+    corr
+}
+
+/// HTTP 响应启动 readback 后，在权威结果回来前必须保持 Sending。
 #[test]
-fn send_http_success_remains_sending_without_ws_or_readback() {
+fn send_http_success_remains_sending_while_readback_is_pending() {
     let mut h = Harness::new(&[1]);
     let initial_effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
     let h1 = start_posts_create(&mut h, &initial_effects);
@@ -63,7 +83,7 @@ fn send_http_success_remains_sending_without_ws_or_readback() {
     let reply = posts_create_reply(h1, json!({ "status": "SUCCESS", "data": { "id": sid(7) } }));
     let reply_effects = h.step(reply, 1100);
 
-    assert!(reply_effects.is_empty());
+    authoritative_readback_corr(&h, &reply_effects);
     assert_eq!(
         h.module.pending_send_status("tmp_f1"),
         Some(SendStatus::Sending),
@@ -81,16 +101,16 @@ fn send_http_body_server_id_is_not_authoritative() {
     let reply = posts_create_reply(h1, json!({ "status": "SUCCESS", "data": { "id": sid(7) } }));
     let reply_effects = h.step(reply, 1100);
 
-    assert!(reply_effects.is_empty());
+    authoritative_readback_corr(&h, &reply_effects);
     assert_eq!(
         h.module.pending_send_status("tmp_f1"),
         Some(SendStatus::Sending)
     );
 }
 
-/// 无 id 的正常 admission 保留 pending 以等待 echo。
+/// 无 id 的正常 admission 保留 pending，并同时等待 echo 或权威 readback。
 #[test]
-fn send_http_success_without_server_id_keeps_waiting_for_echo() {
+fn send_http_success_without_server_id_starts_authoritative_readback() {
     let mut h = Harness::new(&[1]);
     let initial_effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
     let h1 = start_posts_create(&mut h, &initial_effects);
@@ -98,7 +118,7 @@ fn send_http_success_without_server_id_keeps_waiting_for_echo() {
     let reply = posts_create_reply(h1, json!({ "status": "SUCCESS", "data": {} }));
     let reply_effects = h.step(reply, 1100);
 
-    assert!(reply_effects.is_empty());
+    authoritative_readback_corr(&h, &reply_effects);
     assert_eq!(
         h.module.pending_send_status("tmp_f1"),
         Some(SendStatus::Sending),
@@ -126,7 +146,8 @@ fn retry_http_success_without_second_echo_settles_from_authoritative_readback() 
         .expect("initial posts/create must schedule the send timeout");
 
     let admission = posts_create_reply(h1, json!({ "status": "SUCCESS" }));
-    assert!(h.step(admission, 1_100).is_empty());
+    let first_readback = h.step(admission, 1_100);
+    authoritative_readback_corr(&h, &first_readback);
     h.step(timer_tick(timeout_timer), 16_100);
     assert_eq!(
         h.module.pending_send_status("tmp_retry_readback"),

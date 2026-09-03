@@ -432,9 +432,14 @@ fn document_stays_sending_through_http_admission_and_keeps_props_until_sent() {
         ),
         NOW_MS + 2,
     );
+    assert_eq!(
+        admitted.len(),
+        1,
+        "DOCUMENT 的 HTTP admission 只能启动一次权威 readback，实测 {admitted:?}"
+    );
     assert!(
-        admitted.is_empty(),
-        "DOCUMENT 的 HTTP admission 同样不得写终态 / 取消 timer，实测 {admitted:?}"
+        matches!(admitted[0], EffectKind::Http(_)),
+        "DOCUMENT 的 HTTP admission 不得写终态或取消 timer，实测 {admitted:?}"
     );
     assert_eq!(
         harness.module.pending_send_status(&temporary_id),

@@ -58,7 +58,7 @@ pub struct PendingSend {
     /// 发给已 attach 的 surface，随后才允许这一跳 HTTP；上传链和 retry 也复用此闸，
     /// 防止重复的 projector 回包把同一 temporary_id 再次发出。
     pub http_started: bool,
-    /// 显式 retry 的 HTTP admission 后必须强制远端读回，避免服务端幂等确认不再广播 echo 时二次超时。
+    /// HTTP admission 后必须强制远端读回，避免 sender echo 缺失或 retry 幂等确认时悬挂。
     pub authoritative_readback_after_http: bool,
     /// 当前显式 retry 已完成的权威回读重试次数；只允许有界退避，避免读请求风暴。
     pub authoritative_readback_attempt: u8,
@@ -103,7 +103,7 @@ impl PendingSend {
             timeline_readback: TimelineReadbackContext::default(),
             body: None,
             http_started: false,
-            authoritative_readback_after_http: false,
+            authoritative_readback_after_http: true,
             authoritative_readback_attempt: 0,
             authoritative_readback_timer: None,
             remaining_uploads: 0,
@@ -261,6 +261,18 @@ impl PendingSend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 首次发送也必须启用 HTTP admission 后的权威回读，避免 sender WS echo 偶发缺失时悬挂。
+    #[test]
+    fn new_send_enables_authoritative_readback_fallback() {
+        let pending = PendingSend::new(
+            TemporaryId("tmp-first-send".to_string()),
+            TimerId::from_raw(1),
+            None,
+        );
+
+        assert!(pending.authoritative_readback_after_http);
+    }
 
     /// 退避序列必须单调且总时长留在 15s 发送终态之前。
     #[test]

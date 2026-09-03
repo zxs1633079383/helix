@@ -89,8 +89,8 @@ mod storage;
 pub use projection::{emit_for_canonical_kind, emit_for_kind};
 pub use storage::{
     apply_read_op, edit_content_op, event_to_online_upsert_op, event_to_readback_upsert_op,
-    event_to_storage_op, event_to_upsert_op, pin_state_op, posts_update_edit_op,
-    revoke_authority_op, revoke_op,
+    event_to_storage_op, event_to_sync_upsert_op, event_to_upsert_op, pin_state_op,
+    posts_update_edit_op, revoke_authority_op, revoke_op,
 };
 
 // ─── 单元测试 ────────────────────────────────────────────────────────────────

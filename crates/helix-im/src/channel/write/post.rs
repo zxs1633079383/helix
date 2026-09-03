@@ -235,7 +235,7 @@ pub(crate) fn message_v3_post_mutation_ops(
     // 在线 WS post 可能是稀疏 echo；Sync 则持有可覆盖本地行的完整 authority snapshot。
     let message_op = match source {
         PostUpsertSource::OnlineSparse => crate::channel::event_to_online_upsert_op(event),
-        PostUpsertSource::SyncSnapshot => crate::channel::event_to_upsert_op(event),
+        PostUpsertSource::SyncSnapshot => crate::channel::event_to_sync_upsert_op(event),
     };
     let mut ops = vec![
         message_op,

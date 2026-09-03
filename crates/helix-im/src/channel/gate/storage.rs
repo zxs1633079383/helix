@@ -41,6 +41,24 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
     event_to_upsert_op_with_policy(ev, false, false)
 }
 
+/// 将 sync 快照编译为 presence-aware upsert，避免晚到的稀疏快照擦除本地权威字段。
+///
+/// Sync 的 `messages` map 只保证快照中出现的字段可覆盖；解析器为缺省字段填充的空值
+/// 不能被误认为服务端明确清空。`read_bits` 另受单调回执保护：空位图不会覆盖已经由
+/// type=6 `post_read` 落地的非空位图；真正的清空仍由专用 `apply_read_op` 明确执行。
+pub fn event_to_sync_upsert_op(ev: &EventEnvelope) -> StorageOp {
+    let mut op = event_to_upsert_op_with_policy(ev, false, true);
+    if ev.fields.read_bits.is_empty() {
+        // Sync type=1 的空 read_bits 可能是旧快照晚到；不能回写覆盖更新的 type=6 回执。
+        if let StorageOp::BatchUpsert(spec) = &mut op {
+            if !spec.exclude_from_update.contains(&"read_bits") {
+                spec.exclude_from_update.push("read_bits");
+            }
+        }
+    }
+    op
+}
+
 /// 将在线 WS post 编译为“缺省富字段保留”的幂等 upsert。
 ///
 /// 在线 `post` 广播可能是发送确认的稀疏 payload：同一 `temporary_id` 的旧行已经由
@@ -50,9 +68,18 @@ pub fn event_to_online_upsert_op(ev: &EventEnvelope) -> StorageOp {
     event_to_upsert_op_with_policy(ev, true, false)
 }
 
-/// 将 HTTP readback 编译为 presence-aware upsert，避免缺失字段擦除本地富字段。
+/// 将 HTTP readback 编译为 presence-aware upsert，避免缺失或迟到空值擦除本地富字段。
 pub fn event_to_readback_upsert_op(ev: &EventEnvelope) -> StorageOp {
-    event_to_upsert_op_with_policy(ev, false, true)
+    let mut op = event_to_upsert_op_with_policy(ev, false, true);
+    if ev.fields.read_bits.is_empty() {
+        // HTTP 快照可能落后于 type=6；空位图不能清除专用已读回执刚写入的单调状态。
+        if let StorageOp::BatchUpsert(spec) = &mut op {
+            if !spec.exclude_from_update.contains(&"read_bits") {
+                spec.exclude_from_update.push("read_bits");
+            }
+        }
+    }
+    op
 }
 
 /// 按来源策略拼装 message upsert，保证 sync 全量与在线稀疏回声共享同一列映射。
@@ -577,10 +604,26 @@ pub fn event_to_storage_op(ev: &EventEnvelope) -> StorageOp {
         .filter(|s| !s.is_empty())
         .unwrap_or(ev.fields.id.as_str());
     match ev.kind {
-        EventKind::PostUpsert => event_to_upsert_op(ev),
+        // gate/stream 都是在线增量入口；迟到的稀疏 type=1 只能补消息事实，不能擦除
+        // 已由更新 type=6 落地的 read_bits 等本地权威列。
+        EventKind::PostUpsert => event_to_online_upsert_op(ev),
         EventKind::PostEdit => edit_content_op(msg_id, &ev.fields),
         EventKind::PostRevoke => revoke_op(msg_id),
-        EventKind::PostRead => apply_read_op(msg_id, ev.fields.read_bits.as_str()),
+        // canonical stream 的 type=6 只有明确携带 readBits 才能写；缺字段不是“清空”，
+        // 否则它会与专用 post_read(readMap) 直路竞争并倒退刚提交的权威位图。
+        EventKind::PostRead
+            if ev
+                .fields
+                .has_field(crate::sync_session::POST_FIELD_READ_BITS) =>
+        {
+            apply_read_op(msg_id, ev.fields.read_bits.as_str())
+        }
+        EventKind::PostRead => StorageOp::BatchUpdate(helix_core::effect::BatchUpdateSpec {
+            table: "message",
+            key_col: "id",
+            key_vals: Vec::new(),
+            patch: Vec::new(),
+        }),
         // type7 is intercepted by sync::flow and committed via PersistAtomic. Keep this defensive
         // no-op for callers that accidentally bypass that boundary; it must never materialize a post.
         EventKind::ChannelTerminalClosed => {

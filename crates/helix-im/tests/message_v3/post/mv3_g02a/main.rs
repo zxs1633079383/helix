@@ -91,8 +91,13 @@ fn http_admission_never_replaces_the_ws_or_readback_authority() {
         1_700_000_000_002,
     );
 
+    assert_eq!(
+        http_reply.len(),
+        1,
+        "HTTP admission must start exactly one authoritative readback"
+    );
     assert!(
-        http_reply.is_empty(),
+        matches!(http_reply[0], EffectKind::Http(_)),
         "HTTP admission must not write terminal state or cancel the echo timer"
     );
     assert_eq!(

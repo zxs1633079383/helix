@@ -77,7 +77,8 @@ impl ImModule {
                 fields.clone(),
             )
             .with_msg_id(Some(msg_id.clone()));
-            ops.push(crate::channel::event_to_upsert_op(&ev));
+            // too-long HTTP 窗口可能晚于在线 type=6 回执，按 sync 策略禁止空 read_bits 倒退。
+            ops.push(crate::channel::event_to_sync_upsert_op(&ev));
             channel_updates.push(crate::channel_update::PendingChannelUpdate::new(
                 channel_id,
                 seq,

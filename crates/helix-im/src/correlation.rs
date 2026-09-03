@@ -302,7 +302,7 @@ pub enum CorrelationContext {
     OutboundSendHttp {
         temporary_id: TemporaryId,
         channel_id: ChannelId,
-        /// 仅显式 retry 为 true；admission 成功后强制从 Go 权威历史按 temporaryId 对账。
+        /// admission 成功后是否从 Go 权威历史按 temporaryId 对账；首发与显式 retry 均启用。
         authoritative_readback: bool,
     },
     /// 发送对账终态持久化回报；retry 的 timeline 已由同一远端查询发布，普通 WS echo

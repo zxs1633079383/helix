@@ -7,7 +7,7 @@ top-level scripts.
 ## Core Gates
 
 - `gate-fast.sh` - scope-aware local/pre-push gate; scripts and low-risk crates run only relevant checks.
-- `gate.sh` - full CI/merge delivery gate for native + FFI.
+- `gate.sh` - full local/pre-push delivery gate for native + FFI；GitLab CI 主入口改为 MessageV3 real-chain。
 - `branch-identity.sh` - branch identity report for SESSION handoff.
 - `branch-sync-gate.sh` - branch/upstream drift guard.
 - `ddd-structure-gate.sh` - DDD/package boundary structure gate.
@@ -23,9 +23,28 @@ top-level scripts.
 - `host-cli-FULL-uc-e2e.sh` - canonical full UC e2e sweep.
 - `host-cli-dual-account-e2e.sh` - dual-account/broadcast e2e scenarios.
 - `messagev3/phase1-real-chain.mjs` - Phase1 `Domain → Gate` three-repo runner; internally targets Go `127.0.0.1:8066`, invokes Angular real WDIO classes, and fails closed when HTTP/WS/Native/DOM/storage evidence is incomplete.
-- `messagev3/phase1-5-real-chain.mjs` - Helix Phase1-5 的 92 Gate 串行真链入口；支持 `--phase`、`--domain`、`--gate`，并要求同轮 HTTP/WS、SQLite、EventSink 与清理证据才记 PASS。
+- `messagev3/phase1-5-real-chain.mjs` - Helix Phase1-5 的 83 个可执行 Gate 串行真链入口；支持 `--env`、`--phase`、`--domain`、`--gate`，并要求同轮 HTTP/WS、SQLite、EventSink 与清理证据才记 PASS。`NOT_APPLICABLE` 与 `NOT_IMPLEMENTED` 的 9 个 Gate 不进入执行分母。
+- `messagev3/real-chain-environment.mjs` - real-chain 环境 profile；默认 `pre`，内置 `local`，可用 `MESSAGEV3_GO_HTTP_BASE`、`MESSAGEV3_GO_WS_URL`、`MESSAGEV3_JAVA_API_BASE` 覆盖端点，未来环境可在变量齐全时直接扩展。
 - `ffi-verify.sh` - Flutter/FFI export and boundary validation.
 - `cpp-smoke.sh` - C++ FFI smoke check.
+
+### MessageV3 real-chain 环境
+
+`MESSAGEV3_ENV` 默认是 `pre`。CI 使用 pre 的 Go HTTP、Go WS 和 Java API；本地运行可切换
+到同一配置表中的 `local`，或为未来环境同时提供三类端点：
+
+```bash
+# PRE（默认，CI 同款）
+node scripts/messagev3/phase1-5-real-chain.mjs --all
+# 本地 Go/WS/Java
+MESSAGEV3_ENV=local node scripts/messagev3/phase1-5-real-chain.mjs --all
+# 自定义环境（环境名未登记时必须同时提供三类端点）
+MESSAGEV3_ENV=dev \
+MESSAGEV3_GO_HTTP_BASE=https://api-im-dev.example/api/cses \
+MESSAGEV3_GO_WS_URL=wss://ws-im-dev.example/api/v4/websocket \
+MESSAGEV3_JAVA_API_BASE=https://api-dev.example \
+node scripts/messagev3/phase1-5-real-chain.mjs --all
+```
 
 ## Setup And Shared Config
 

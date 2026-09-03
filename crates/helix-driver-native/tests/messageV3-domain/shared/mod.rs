@@ -3,7 +3,7 @@
 //!
 //! 这不是 fake server、fixture 回放或 Node 编排器：测试通过 native driver 的真实
 //! `NativeHttp`、`NativeTransport`、`NativeStorage` 和 `NativeEventSink`，把 Helix
-//! `ExecutionShell` 接到本机 Go 服务，并在同一轮核对 HTTP、WS、SQLite 与 emit。
+//! `ExecutionShell` 接到当前 profile 的 Go 服务，并在同一轮核对 HTTP、WS、SQLite 与 emit。
 //!
 //! 运行方式：
 //!
@@ -11,9 +11,8 @@
 //! cargo test -p helix-driver-native --test message_v3_domain -- --nocapture --test-threads=1
 //! ```
 //!
-//! 默认使用本地 18066 Compose 快照中的非秘密身份；仅可用 `HELIX_MAIN_API_BASE` 覆盖登录服务
-//! DNS，便于单独核验远端登录链。Phase1-5 共用同一套本地 Go/WS 前置。Go、登录服务
-//! 或对象存储不可达时显式失败为
+//! 默认使用 `pre` profile 的非秘密身份；可用 `MESSAGEV3_ENV` 与端点变量覆盖运行环境。
+//! Phase1-5 共用同一套 Go/WS 前置。Go、登录服务或对象存储不可达时显式失败为
 //! `BLOCKED_PRECONDITION/NOT_VERIFIED`，不会把 health 200、HTTP admission 或 fake WS 当成 PASS。
 
 use bytes::Bytes;
@@ -37,7 +36,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex, OnceCell};
 use tokio::task::JoinHandle;
@@ -48,12 +47,12 @@ mod chain;
 pub(crate) use chain::run_text_chain_gate;
 pub(crate) use chain::run_unimplemented_chain_gate;
 
-pub(crate) const GO_HTTP_BASE: &str = "http://127.0.0.1:18066/api/cses";
-pub(crate) const GO_WS_URL: &str = "ws://127.0.0.1:18066/api/v4/websocket";
-/// Phase5 与 Phase1-4 共用的本地 Go 容器端点。
-pub(crate) const CHAIN_GO_HTTP_BASE: &str = "http://127.0.0.1:18066/api/cses";
-/// Phase5 与 Phase1-4 共用的本地 Go WS 端点。
-pub(crate) const CHAIN_GO_WS_URL: &str = "ws://127.0.0.1:18066/api/v4/websocket";
+const PRE_GO_HTTP_BASE: &str = "http://api-im-pre.jinqidongli.com/api/cses";
+const PRE_GO_WS_URL: &str = "ws://ws-im-pre.jinqidongli.com/api/v4/websocket";
+const PRE_GO_HEALTH_URL: &str = "http://api-im-pre.jinqidongli.com/api/cses/health";
+const LOCAL_GO_HTTP_BASE: &str = "http://127.0.0.1:18066/api/cses";
+const LOCAL_GO_WS_URL: &str = "ws://127.0.0.1:18066/api/v4/websocket";
+const LOCAL_GO_HEALTH_URL: &str = "http://127.0.0.1:18066/api/cses/health";
 const CHAIN_COMPANY_ID: &str = "64118eebd2b665246b7880eb";
 const CHAIN_ACTOR_USER_ID: &str = "444";
 const CHAIN_OBSERVER_USER_ID: &str = "678";
@@ -61,17 +60,108 @@ const CHAIN_THIRD_USER_ID: &str = "447";
 // 远端 ES 已存在且三用户可见的只读 Search fixture；不写 ES，避免把测试数据送入共享索引。
 const SEARCH_FIXTURE_CHANNEL_ID: &str = "qub3kj8y8fn38rb3xoy6y4gnmc";
 const SEARCH_FIXTURE_KEYWORD: &str = "1";
-pub(crate) const MAIN_API_BASE: &str = "http://cses-server-paas25-test.cses.svc.cluster.local:3399";
-pub(crate) const GO_HEALTH_URL: &str = "http://127.0.0.1:18066/api/cses/health";
+const PRE_JAVA_API_BASE: &str = "https://api-pre.jinqidongli.com";
+const LOCAL_JAVA_API_BASE: &str = "http://127.0.0.1:3399";
+pub(crate) const MAIN_API_BASE: &str = PRE_JAVA_API_BASE;
 pub(crate) const CREDENTIALS_RELATIVE: &str =
     "angular/visual/cses-client/.wdio/credentials.local.json";
 
-/// 返回 driver-native 登录服务地址；默认沿用 pre 集群 DNS，只允许测试进程覆盖。
+/// 判断当前 real-chain profile 是否显式选择本地运行态。
+fn is_local_messagev3_profile() -> bool {
+    matches!(
+        std::env::var("MESSAGEV3_ENV")
+            .ok()
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("local")
+    )
+}
+
+/// 返回可覆盖的 Go HTTP 基地址；未设置变量时按 profile 选择 pre/local 默认值。
+pub(crate) fn go_http_base() -> &'static str {
+    static VALUE: OnceLock<String> = OnceLock::new();
+    VALUE
+        .get_or_init(|| {
+            std::env::var("MESSAGEV3_GO_HTTP_BASE")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| {
+                    if is_local_messagev3_profile() {
+                        LOCAL_GO_HTTP_BASE.to_string()
+                    } else {
+                        PRE_GO_HTTP_BASE.to_string()
+                    }
+                })
+        })
+        .as_str()
+}
+
+/// 返回可覆盖的 Go WebSocket 地址；未设置变量时按 profile 选择 pre/local 默认值。
+pub(crate) fn go_ws_url() -> &'static str {
+    static VALUE: OnceLock<String> = OnceLock::new();
+    VALUE
+        .get_or_init(|| {
+            std::env::var("MESSAGEV3_GO_WS_URL")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| {
+                    if is_local_messagev3_profile() {
+                        LOCAL_GO_WS_URL.to_string()
+                    } else {
+                        PRE_GO_WS_URL.to_string()
+                    }
+                })
+        })
+        .as_str()
+}
+
+/// 返回可覆盖的 Go health 地址；未设置变量时按 profile 选择 pre/local 默认值。
+pub(crate) fn go_health_url() -> &'static str {
+    static VALUE: OnceLock<String> = OnceLock::new();
+    VALUE
+        .get_or_init(|| {
+            std::env::var("MESSAGEV3_GO_HEALTH_URL")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| {
+                    if is_local_messagev3_profile() {
+                        LOCAL_GO_HEALTH_URL.to_string()
+                    } else {
+                        PRE_GO_HEALTH_URL.to_string()
+                    }
+                })
+        })
+        .as_str()
+}
+
+/// Phase5 与 Phase1-4 共用同一套可配置 Go HTTP 端点。
+pub(crate) fn chain_go_http_base() -> &'static str {
+    go_http_base()
+}
+
+/// Phase5 与 Phase1-4 共用同一套可配置 Go WebSocket 端点。
+pub(crate) fn chain_go_ws_url() -> &'static str {
+    go_ws_url()
+}
+
+/// 返回 driver-native 登录服务地址；默认 profile 为 pre，允许单独覆盖 Java API。
 pub(crate) fn main_api_base() -> String {
-    std::env::var("HELIX_MAIN_API_BASE")
+    std::env::var("MESSAGEV3_JAVA_API_BASE")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| MAIN_API_BASE.to_string())
+        .or_else(|| {
+            std::env::var("HELIX_MAIN_API_BASE")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+        .unwrap_or_else(|| {
+            if is_local_messagev3_profile() {
+                LOCAL_JAVA_API_BASE.to_string()
+            } else {
+                MAIN_API_BASE.to_string()
+            }
+        })
 }
 
 pub(crate) static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -353,10 +443,10 @@ pub(crate) async fn start_real_helix_session_as(
     persona: &Persona,
     channel_ids: &[&str],
 ) -> Result<RealHelixSession, String> {
-    start_real_helix_session_as_at(context, persona, channel_ids, GO_HTTP_BASE, GO_WS_URL).await
+    start_real_helix_session_as_at(context, persona, channel_ids, go_http_base(), go_ws_url()).await
 }
 
-/// 启动 Phase5 文字接龙专用的 18066 native engine，不改变既有 8066 Gate。
+/// 启动 Phase5 文字接龙 native engine，端点由当前 profile 提供。
 pub(crate) async fn start_chain_helix_session(
     context: &AuthContext,
     channel_ids: &[&str],
@@ -364,7 +454,7 @@ pub(crate) async fn start_chain_helix_session(
     start_chain_helix_session_as(context, &context.actor, channel_ids).await
 }
 
-/// 以指定登录身份启动 18066 文字接龙 native engine，供双设备同步 Gate 使用。
+/// 以指定登录身份启动文字接龙 native engine，供双设备同步 Gate 使用。
 pub(crate) async fn start_chain_helix_session_as(
     context: &AuthContext,
     persona: &Persona,
@@ -374,8 +464,8 @@ pub(crate) async fn start_chain_helix_session_as(
         context,
         persona,
         channel_ids,
-        CHAIN_GO_HTTP_BASE,
-        CHAIN_GO_WS_URL,
+        chain_go_http_base(),
+        chain_go_ws_url(),
     )
     .await
 }
@@ -525,7 +615,7 @@ pub(crate) async fn remote_setup() -> (tokio::sync::MutexGuard<'static, ()>, Arc
     (guard, context)
 }
 
-/// 串行化并准备 Phase5 的 18066 真实账号上下文；不触发既有 8066 health 检查。
+/// 串行化并准备 Phase5 的 profile 真实账号上下文。
 pub(crate) async fn remote_setup_chain() -> (tokio::sync::MutexGuard<'static, ()>, Arc<AuthContext>)
 {
     let guard = REMOTE_LOCK
@@ -535,7 +625,7 @@ pub(crate) async fn remote_setup_chain() -> (tokio::sync::MutexGuard<'static, ()
         .await;
     let context = CHAIN_AUTH_CONTEXT
         .get_or_init(|| async {
-            discover_auth_context_at(CHAIN_GO_HTTP_BASE, "http://127.0.0.1:18066/api/cses/health")
+            discover_auth_context_at(chain_go_http_base(), go_health_url())
                 .await
                 .map(Arc::new)
         })
@@ -545,8 +635,18 @@ pub(crate) async fn remote_setup_chain() -> (tokio::sync::MutexGuard<'static, ()
     (guard, context)
 }
 
-/// 在固定候选路径中寻找 Angular 现有凭据，不从环境变量或用户输入读取 secret。
+/// 优先读取 CI File 变量路径，再回退到现有 Angular workspace 凭据。
 pub(crate) fn discover_credentials_path() -> Result<PathBuf, String> {
+    if let Some(path) = std::env::var_os("CSES_WDIO_CREDENTIALS_FILE") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return Ok(path);
+        }
+        return Err(format!(
+            "CSES_WDIO_CREDENTIALS_FILE does not point to a readable file: {}",
+            path.display()
+        ));
+    }
     let mut candidates = vec![PathBuf::from(
         "/System/Volumes/Data/workspace/angular/visual/cses-client/.wdio/credentials.local.json",
     )];
@@ -565,7 +665,7 @@ pub(crate) fn discover_credentials_path() -> Result<PathBuf, String> {
 
 /// 创建一个没有身份头的 HTTP client，用于 Go health 或主登录接口。
 pub(crate) async fn anonymous_http(base: &str) -> Result<NativeHttp, String> {
-    anonymous_http_at(base, GO_WS_URL).await
+    anonymous_http_at(base, go_ws_url()).await
 }
 
 /// 构造不带身份头的 HTTP client，并显式绑定对应 WS 端点。
@@ -740,10 +840,10 @@ pub(crate) async fn login_account(
 
 /// 自动从现有账号池找出同一 companyId 下的 actor/observer/third 三个身份。
 pub(crate) async fn discover_auth_context() -> Result<AuthContext, String> {
-    discover_auth_context_at(GO_HTTP_BASE, GO_HEALTH_URL).await
+    discover_auth_context_at(go_http_base(), go_health_url()).await
 }
 
-/// 从指定 Go 端点验证 health 后寻找三个共享租户账号，避免 Phase5 误连 8066。
+/// 从指定 Go 端点验证 health 后寻找三个共享租户账号，避免跨 profile 误连。
 pub(crate) async fn discover_auth_context_at(
     go_http_base: &str,
     go_health_url: &str,
@@ -756,7 +856,7 @@ pub(crate) async fn discover_auth_context_at(
             health_response.status
         ));
     }
-    if go_http_base == CHAIN_GO_HTTP_BASE {
+    if is_local_messagev3_profile() {
         return Ok(local_chain_auth_context());
     }
 
@@ -809,7 +909,7 @@ pub(crate) async fn discover_auth_context_at(
     Err("could not find three logged-in accounts sharing one companyId".to_string())
 }
 
-/// 构造 18066 Compose 快照中的三用户身份；Cookieid 依照本地 C006 合同等于 userId。
+/// 构造 local profile 快照中的三用户身份；Cookieid 依照本地 C006 合同等于 userId。
 fn local_chain_auth_context() -> AuthContext {
     let persona = |user_id: &str, user_name: &str| Persona {
         user_id: user_id.to_string(),
@@ -829,19 +929,19 @@ fn local_chain_auth_context() -> AuthContext {
 
 /// 将本轮 health URL 的 HTTP 端口映射为 NativeHttp 所需的 WS URL。
 fn go_health_base_to_ws(health_url: &str) -> &str {
-    if health_url == GO_HEALTH_URL {
-        GO_WS_URL
+    if health_url == go_health_url() {
+        go_ws_url()
     } else {
-        CHAIN_GO_WS_URL
+        chain_go_ws_url()
     }
 }
 
 /// 构造带 Go 身份头的 native HTTP client；HTTP actor 与 body userId 必须保持一致。
 pub(crate) async fn go_http(persona: &Persona) -> Result<NativeHttp, String> {
-    go_http_at(persona, GO_HTTP_BASE, GO_WS_URL).await
+    go_http_at(persona, go_http_base(), go_ws_url()).await
 }
 
-/// 构造绑定指定 Go 端点的身份 HTTP client，供 Phase5 使用 18066。
+/// 构造绑定指定 Go 端点的身份 HTTP client，供 Phase5 使用。
 pub(crate) async fn go_http_at(
     persona: &Persona,
     http_base: &str,
@@ -884,7 +984,7 @@ pub(crate) fn ws_headers(persona: &Persona) -> Vec<(String, String)> {
 
 /// 打开真实 Go WS，先完成 upgrade/activation，再由调用方消费 Connected 与 hello。
 pub(crate) async fn open_raw_ws(persona: &Persona, raw_id: u32) -> Result<RawWs, String> {
-    open_raw_ws_at(persona, raw_id, GO_WS_URL).await
+    open_raw_ws_at(persona, raw_id, go_ws_url()).await
 }
 
 /// 打开指定 Go 端点的原始 WS，用于证明真实 fan-out frame 而不是本地 EventSink。
@@ -1246,7 +1346,7 @@ async fn finish_run_owned_channel<T>(
 
 /// 以 canonical channel/create body 创建 run-owned 私有群聊。
 pub(crate) async fn create_channel(context: &AuthContext) -> Result<String, String> {
-    create_channel_at(context, GO_HTTP_BASE, GO_WS_URL).await
+    create_channel_at(context, go_http_base(), go_ws_url()).await
 }
 
 /// 通过公开 `im_create_channel` Command 完成真实建群链，并逐跳核对 Go/WS/SQLite/EventSink。
@@ -1374,7 +1474,7 @@ pub(crate) async fn assert_channel_create_chain(
         let query = request_json(
             &http,
             "POST",
-            &format!("{GO_HTTP_BASE}/channel/query"),
+            &format!("{}/channel/query", go_http_base()),
             Some(json!({"id": channel_id, "pageNumber": 1, "pageSize": 1, "offset": 0})),
             "channel-create-readback",
         )
@@ -1388,7 +1488,7 @@ pub(crate) async fn assert_channel_create_chain(
         let snapshot = request_json(
             &http,
             "POST",
-            &format!("{GO_HTTP_BASE}/channel/member/snapshot"),
+            &format!("{}/channel/member/snapshot", go_http_base()),
             Some(json!({"channelId": channel_id, "startTime": 0, "endTime": CHANNEL_FIXTURE_SNAPSHOT_END_MS})),
             "channel-create-snapshot",
         )
@@ -1668,9 +1768,9 @@ pub(crate) async fn assert_local_draft_chain(
     Ok(())
 }
 
-/// 在指定 Go 端点创建三成员 run-owned 频道，Phase5 绑定 18066。
+/// 在指定 Go 端点创建三成员 run-owned 频道，供 Phase5 使用。
 pub(crate) async fn create_chain_channel(context: &AuthContext) -> Result<String, String> {
-    create_channel_at(context, CHAIN_GO_HTTP_BASE, CHAIN_GO_WS_URL).await
+    create_channel_at(context, chain_go_http_base(), chain_go_ws_url()).await
 }
 
 /// 创建并验证指定端点上的 run-owned 频道及成员快照。
@@ -1722,15 +1822,15 @@ async fn create_channel_at(
 
 /// 只关闭本测试刚创建的频道；不执行全库 truncate/flush。
 pub(crate) async fn close_channel(context: &AuthContext, channel_id: &str) -> Result<(), String> {
-    close_channel_at(context, channel_id, GO_HTTP_BASE, GO_WS_URL).await
+    close_channel_at(context, channel_id, go_http_base(), go_ws_url()).await
 }
 
-/// 关闭 Phase5 本轮 18066 上创建的 run-owned 频道。
+/// 关闭 Phase5 本轮 profile 上创建的 run-owned 频道。
 pub(crate) async fn close_chain_channel(
     context: &AuthContext,
     channel_id: &str,
 ) -> Result<(), String> {
-    close_channel_at(context, channel_id, CHAIN_GO_HTTP_BASE, CHAIN_GO_WS_URL).await
+    close_channel_at(context, channel_id, chain_go_http_base(), chain_go_ws_url()).await
 }
 
 /// 通过指定 Go 端点关闭单个本轮频道，拒绝全库清理。
@@ -1878,7 +1978,7 @@ pub(crate) async fn direct_post_as(
         let observation = request_json(
             &http,
             "POST",
-            &format!("{GO_HTTP_BASE}/posts/create"),
+            &format!("{}/posts/create", go_http_base()),
             Some(body),
             "post-create",
         )
@@ -2200,8 +2300,8 @@ pub(crate) async fn run_helix_send(
     let http = go_http(&context.actor).await?;
 
     let mut config = ImConfig::default();
-    config.ws_url = GO_WS_URL.to_string();
-    config.api_base_url = GO_HTTP_BASE.to_string();
+    config.ws_url = go_ws_url().to_string();
+    config.api_base_url = go_http_base().to_string();
     config.default_api_base_url = main_api_base();
     config.auth_user_id = context.actor.user_id.clone();
     config.company_id = context.actor.company_id.clone();
@@ -2219,9 +2319,12 @@ pub(crate) async fn run_helix_send(
     shell.register(module);
 
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
-    let mut actor_transport =
-        NativeTransport::new(GO_WS_URL, TransportId::from_raw(21), Some(tick_tx.clone()))
-            .with_handshake_headers(ws_headers(&context.actor));
+    let mut actor_transport = NativeTransport::new(
+        go_ws_url(),
+        TransportId::from_raw(21),
+        Some(tick_tx.clone()),
+    )
+    .with_handshake_headers(ws_headers(&context.actor));
     let activation = actor_transport
         .connect()
         .await
@@ -2392,8 +2495,8 @@ pub(crate) async fn run_helix_send_failure(
     let (event_sink, mut events) = NativeEventSink::new();
     let http = go_http(&context.actor).await?;
     let mut config = ImConfig::default();
-    config.ws_url = GO_WS_URL.to_string();
-    config.api_base_url = GO_HTTP_BASE.to_string();
+    config.ws_url = go_ws_url().to_string();
+    config.api_base_url = go_http_base().to_string();
     config.default_api_base_url = main_api_base();
     config.auth_user_id = context.actor.user_id.clone();
     config.company_id = context.actor.company_id.clone();
@@ -2408,9 +2511,12 @@ pub(crate) async fn run_helix_send_failure(
     let mut shell = ExecutionShell::new();
     shell.register(module);
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
-    let mut transport =
-        NativeTransport::new(GO_WS_URL, TransportId::from_raw(31), Some(tick_tx.clone()))
-            .with_handshake_headers(ws_headers(&context.actor));
+    let mut transport = NativeTransport::new(
+        go_ws_url(),
+        TransportId::from_raw(31),
+        Some(tick_tx.clone()),
+    )
+    .with_handshake_headers(ws_headers(&context.actor));
     let activation = transport
         .connect()
         .await
@@ -3584,7 +3690,7 @@ pub(crate) async fn assert_latest_timeline_gate(gate: &str) -> Result<(), String
             if let Ok(observation) = request_json(
                 &visibility_http,
                 "POST",
-                &format!("{GO_HTTP_BASE}/posts/get"),
+                &format!("{}/posts/get", go_http_base()),
                 Some(json!({"postIds": [post_id.clone()]})),
                 "timeline-seed-readback",
             )
@@ -3611,7 +3717,7 @@ pub(crate) async fn assert_latest_timeline_gate(gate: &str) -> Result<(), String
                     "first_failing_layer": "Go producer/consumer or remote post persistence",
                     "post_id": post_id,
                     "temporary_id": temporary_id,
-                    "runtime": "localhost:8066",
+                    "runtime": go_http_base(),
                 }),
             )?;
             return Err(format!(
@@ -4399,7 +4505,7 @@ pub(crate) async fn assert_post_pin_chain(
             Ok(http) => match request_json(
                 &http,
                 "POST",
-                &format!("{GO_HTTP_BASE}/channel/load/postPinned"),
+                &format!("{}/channel/load/postPinned", go_http_base()),
                 Some(json!({"channelId": channel})),
                 "pin-timeout-readback",
             )
@@ -4447,7 +4553,7 @@ async fn seed_announcement(
         request_json(
             &http,
             "POST",
-            &format!("{GO_HTTP_BASE}/post/announcement/save"),
+            &format!("{}/post/announcement/save", go_http_base()),
             Some(json!({
                 "id": post_id,
                 "temporaryId": post_id,
@@ -4477,7 +4583,7 @@ async fn seed_announcement(
         request_json(
             &http,
             "POST",
-            &format!("{GO_HTTP_BASE}/post/announcement/list"),
+            &format!("{}/post/announcement/list", go_http_base()),
             Some(json!({"channelId": channel_id})),
             "announcement-seed-list",
         )
@@ -4523,7 +4629,7 @@ async fn wait_remote_post_visible(
             request_json(
                 &http,
                 "POST",
-                &format!("{GO_HTTP_BASE}/posts/get"),
+                &format!("{}/posts/get", go_http_base()),
                 Some(json!({"postIds": [post_id]})),
                 "announcement-seed-post-readback",
             )
@@ -5949,7 +6055,7 @@ pub(crate) async fn assert_forward_chain(
             request_json(
                 &http,
                 "POST",
-                &format!("{GO_HTTP_BASE}/posts/get"),
+                &format!("{}/posts/get", go_http_base()),
                 Some(json!({"postIds": target_ids})),
                 "forward-readback",
             )
@@ -6059,7 +6165,7 @@ pub(crate) async fn assert_image_forward_chain(
             request_json(
                 &http,
                 "POST",
-                &format!("{GO_HTTP_BASE}/posts/createPosts"),
+                &format!("{}/posts/createPosts", go_http_base()),
                 Some(json!({
                     "postIds": [source_post_id],
                     "channelIds": [target]
@@ -6553,7 +6659,7 @@ pub(crate) async fn assert_schedule_chain(
                     request_json(
                         &http,
                         "POST",
-                        &format!("{GO_HTTP_BASE}/posts/getSchedule"),
+                        &format!("{}/posts/getSchedule", go_http_base()),
                         Some(json!({"channelId": channel})),
                         "schedule-create-readback",
                     )
@@ -6590,7 +6696,7 @@ pub(crate) async fn assert_schedule_chain(
                     request_json(
                         &http,
                         "POST",
-                        &format!("{GO_HTTP_BASE}/posts/getSchedule"),
+                        &format!("{}/posts/getSchedule", go_http_base()),
                         Some(json!({"channelId": channel})),
                         "schedule-cancel-readback",
                     )
@@ -6781,7 +6887,7 @@ pub(crate) async fn assert_announcement_save(
             request_json(
                 &http,
                 "POST",
-                &format!("{GO_HTTP_BASE}/post/announcement/list"),
+                &format!("{}/post/announcement/list", go_http_base()),
                 Some(json!({"channelId": channel})),
                 "announcement-save-list-readback",
             )
@@ -7039,7 +7145,7 @@ pub(crate) async fn assert_targeted_visibility(
             request_json(
                 &http,
                 "POST",
-                &format!("{GO_HTTP_BASE}/posts/get"),
+                &format!("{}/posts/get", go_http_base()),
                 Some(json!({"postIds": [post_id.clone()]})),
                 "targeted-readback",
             )

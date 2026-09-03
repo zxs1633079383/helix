@@ -18,7 +18,7 @@ first-failure: none（本轮已修复并复验 CHAIN-COM-G03）
 真实链 `PASS`。最新全量命令为：
 
 ```bash
-HELIX_MAIN_API_BASE=http://127.0.0.1:3399 \
+MESSAGEV3_ENV=local \
   cargo test -p helix-driver-native --test message_v3_domain phase5_chain_text \
   -- --nocapture --test-threads=1
 ```
@@ -85,8 +85,8 @@ driver-native raw WS helper 丢弃乱序业务帧造成，不是 Go 持久化或
 - Helix 分支：`codex/messagev3-text-chain-helix-20260819`
 - Go 源码：`/System/Volumes/Data/workspace/worktrees/messagev3-text-chain-20260819/go-server`
 - Angular 真源：`/System/Volumes/Data/workspace/angular/visual/cses-client`
-- 既有 Phase1-4 Go HTTP/WS：`http://127.0.0.1:8066/api/cses` / `ws://127.0.0.1:8066/api/v4/websocket`
-- Phase5 文字接龙 Go HTTP/WS：`http://127.0.0.1:18066/api/cses` / `ws://127.0.0.1:18066/api/v4/websocket`
+- 既有 Phase1-4 Go HTTP/WS（历史本地运行态）：`http://127.0.0.1:8066/api/cses` / `ws://127.0.0.1:8066/api/v4/websocket`
+- Phase5 文字接龙 Go HTTP/WS（历史本地运行态）：`http://127.0.0.1:18066/api/cses` / `ws://127.0.0.1:18066/api/v4/websocket`
 - 推送状态：未 push；运行证据目录未加入 Git
 
 ## Phase5 文字接龙交付
@@ -100,7 +100,7 @@ crates/helix-driver-native/tests/messageV3-domain/Phase5/Chain/Text/CHAIN-TXT-G0
 
 共享 harness 从公开 `Tick::Command` 进入 `helix-im`，由真实 `NativeHttp`、`NativeTransport`、`NativeStorage`、`NativeEventSink` 驱动 18066。写 Gate 覆盖 Go HTTP CommonRes、`im:post_chain:*` raw WS、Helix projection、SQLite `chain_*` read-back 和 run-owned channel/SQLite 清理；查询 Gate 按 `req_id` 精确消费 `im:read:result`，避免把启动阶段其他读结果误认成接龙结果。G03 还检查双 append 的唯一 seq/entry 与 reconcile 幂等，TXT-G02 检查两个 Helix session 的同一 entry 和各自 SQLite。
 
-本地 SQLite 表仍为 `chain_summary`、`chain_entry`、`chain_window`、`chain_mutation`、`chain_viewer` 及索引；本轮没有新增表，只为 `chain_summary` 增加 `title`、`description`、`deadline_at` 三个 additive 列及迁移，旧库可按已有重复列兼容策略升级。
+本地 SQLite 表仍为 `chain_summary`、`chain_entry`、`chain_window`、`chain_mutation`、`chain_viewer` 及索引；本轮没有新增表，只为 `chain_summary` 增加 `title`、`description`、`deadline_at` 三个 additive 列及迁移，旧库可按已有重复列兼容策略升级。当前 endpoint profile 见同目录 README，默认已切为 `pre`，本地需显式 `MESSAGEV3_ENV=local`。
 
 Go 已补齐 `POST /post-chain/update-draft`：在 PostgreSQL `chain` 行锁内校验 creator、DRAFT 状态和
 `expectedRevision`，原子更新 Chain 与 `TEXT_CHAIN` 声明 Post 快照，不依赖 Announcement、
@@ -118,10 +118,10 @@ cargo test -p helix-driver-native --test message_v3_domain phase5_chain_text -- 
 该命令可完成编译并运行 8 个 Gate；Gate 测试仍按照项目合同将真实前置缺失写入
 `BLOCKED_PRECONDITION`，因此最终账目必须读取同一轮
 `artifacts/messagev3-phase5-real-chain/**/evidence.json`。本轮通过
-`HELIX_MAIN_API_BASE=http://127.0.0.1:3399` 建立三账号同租户上下文，最新 run
+`MESSAGEV3_ENV=local` 建立三账号同租户上下文，最新 run
 `7620` 的 8 个业务 Gate 均为 `PASS`；host 端口仍为 `18066`，未占用 8066。
 
-登录服务 DNS 不是 Go IM 服务提供：Angular 的 canonical pre 地址来自 `release.json` 的 `cses-server-paas25-test.cses.svc.cluster.local:3399`，本地测试可用 `HELIX_MAIN_API_BASE` 覆盖为可解析的 Java CSES 地址；Go 18066 只提供接龙 HTTP/WS。driver-native 默认仍使用 canonical pre DNS，覆盖变量只用于测试前置，不能把 DNS 不可解析归因于 Go 链路。
+登录服务与 Go IM 服务分属两个可配置 endpoint：默认 `pre` profile 使用 `https://api-pre.jinqidongli.com`，`local` profile 使用 `http://127.0.0.1:3399`；也可用 `MESSAGEV3_JAVA_API_BASE` 或 `HELIX_MAIN_API_BASE` 单独覆盖 Java CSES 地址。Go HTTP/WS 分别由 `MESSAGEV3_GO_HTTP_BASE` 与 `MESSAGEV3_GO_WS_URL` 控制，不能把 DNS 不可解析归因于 Helix 链路。
 
 CHAIN-COM-G02 已完成草稿编辑、字段落库、同 mutation 幂等重试、旧 revision 冲突拒绝、publish revision=3、raw WS 和 SQLite mutation 断言；CHAIN-TXT-G02 已完成双 Helix session、同一 entry、late-join `post_chain_get`、`post_chain_reconcile`、actor/observer SQLite 对账。reconcile/draft 的 `eventSeq=0` 被明确视为非公共频道序号，不再误入 channel cursor gate。
 
@@ -189,7 +189,7 @@ Phase4: 16 PASS / 0 BLOCKED_PRECONDITION / 0 NOT_VERIFIED / 0 NOT_APPLICABLE
 
 PASS 证据覆盖的共同终态是：`Tick::Command → Helix Persist → im:post:sending（适用时）→ Go HTTP → Go WS → Helix canonical event → SQLite read-back → NativeEventSink/im:__bus__`。读、Pin、Search、Todo、Announcement 各自还带对应 canonical event、correlation/req_id 和领域字段断言。
 
-## 尚未完成的边界
+## 尚未完成的边界（历史 run）
 
 - 5 个 BLOCKED 是 Angular Java `fileDrive`/OSS 字节平面未在同轮运行，不是 Go stable-reference 消费链失败。
 - 5 个 NOT_VERIFIED 缺真实 TASK_CARD/VOTE/AVERAGE_SCORE/retry fixture 或按合同属于本地 draft owner。
@@ -205,4 +205,6 @@ cargo test -p helix-driver-native --test message_v3_domain phase3_ -- --nocaptur
 cargo test -p helix-driver-native --test message_v3_domain phase4_ -- --nocapture --test-threads=1
 ```
 
-这些命令需要 Go 已运行在 `localhost:8066`；不需要用户配置环境变量。若只验证本轮目标，使用缺口清单中的 focused 命令并重新检查对应最新证据即可。
+这些历史命令需要 Go 已运行在 `localhost:8066`；当前 real-chain runner 默认使用 `pre`，
+本地复验需显式 `MESSAGEV3_ENV=local`，或按 README 设置三类端点变量。若只验证本轮目标，
+使用缺口清单中的 focused 命令并重新检查对应最新证据即可。

@@ -1,25 +1,25 @@
-# Helix CI（Bun 对齐 3.5）—— 远端跑同一条 scripts/gate.sh，与本地 pre-push 闸门单一事实源。
-# 前提（runner 侧，详见 docs/ops/gitlab-ci-runner-交接说明.md + 本文件尾注）：
-#   1. 已注册 GitLab Runner（docker executor 推荐）；
-#   2. runner 能拉 harbor 私仓 rust:1.95.0_with_tools（已烤入 rustfmt/clippy/wasm32 + cargo-public-api 等）；
-#   3. 私有网若访问不了 crates.io，需配 cargo 镜像（见尾部注释）。
-# toolchain 版本由 rust-toolchain.toml 锁定（1.95.0 + rustfmt/clippy + wasm32）。
-# 镜像 _with_tools 已预装 rustfmt/clippy/wasm32 target → 不再在 before_script 跑
-# `rustup component/target add`（air-gapped runner 连不上 static.rust-lang.org 会失败）。
+# Helix CI：MessageV3 real-chain 是合并与分支流水线的唯一业务验收入口。
+# `scripts/gate.sh` 仍可供本地/人工使用，但 CI 不再把它或 api-surface 当作主门禁。
+# real-chain 的 pre/local/自定义环境由 scripts/messagev3/real-chain-environment.mjs
+# 与下列 profile/端点变量共同解析；默认 profile 为 pre，端点默认值只在该配置表维护一份。
 
 stages:
-  - gate
-  - api
+  - messagev3
 
 variables:
-  CARGO_HOME: "$CI_PROJECT_DIR/.cargo"   # 放进工作区，缓存才命中
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
   CARGO_TERM_COLOR: "always"
-  CARGO_INCREMENTAL: "0"                  # CI 关增量编译，缓存更稳
+  CARGO_INCREMENTAL: "0"
+  MESSAGEV3_CI_IMAGE: "harbor.jinqidongli.com/infra-ops/gitlab/rust:1.95.0_with_tools"
+  MESSAGEV3_ENV: "pre"
 
 default:
-  image: harbor.jinqidongli.com/infra-ops/gitlab/rust:1.95.0_with_tools
+  # 镜像必须同时提供 Rust 1.95、wasm32 target、cargo fmt/clippy 与 Node.js 20+。
+  # 若私仓现有 rust 镜像未烤入 Node，可在 GitLab 项目变量覆盖 MESSAGEV3_CI_IMAGE，
+  # 或由 ops 更新同名镜像；不能在 job 中临时联网安装运行时。
+  image: "$MESSAGEV3_CI_IMAGE"
   tags:
-    - docker                               # 命中 ops 注册的 project runner（bzoxCnA6·docker tag）
+    - docker
   cache:
     key:
       files:
@@ -30,58 +30,24 @@ default:
       - .cargo/git/db/
       - target/
   before_script:
-    # _with_tools 镜像已烤入 rustfmt/clippy/wasm32；仅自检不再联网 add（air-gapped 安全）
+    - command -v node >/dev/null 2>&1 || { echo "❌ CI image lacks Node.js 20+; set MESSAGEV3_CI_IMAGE"; exit 1; }
+    - node --version
     - rustup component list --installed
     - rustup target list --installed | grep -qx wasm32-unknown-unknown
     - cargo fmt --version && cargo clippy --version
 
-# ── 主闸门：三端 Rust check → Web final build → clippy/test → 依赖边界 → harness 索引 ──
-# gate.sh 的 public-api 步骤在本 job 未装工具时自动跳过，不影响主闸门；独立 job 负责公开面。
-gate:
-  stage: gate
+messagev3-real-chain:
+  stage: messagev3
   script:
-    - chmod +x scripts/gate.sh
-    - scripts/gate.sh
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH'
-
-# ── 公开面闸门（2.5 / 纪要拍板 #2）：cargo-public-api diff core 公开类型面 ──
-# 注意：cargo-public-api 依赖 nightly rustdoc JSON；故本 job 单独装 nightly。
-# 首次跑会生成基线（需 commit docs/api-baseline/helix-core.txt 后才真正卡红）。
-# 在基线入库前设 allow_failure，避免挡住 MR。
-api-surface:
-  stage: api
-  allow_failure: true
-  cache:
-    key: cargo-public-api-bin
+    # GitLab File variable；不把账号池复制到仓库或 artifact。
+    - test -n "${CSES_WDIO_CREDENTIALS_FILE:-}" || { echo "❌ missing GitLab File variable CSES_WDIO_CREDENTIALS_FILE"; exit 1; }
+    - test -f "$CSES_WDIO_CREDENTIALS_FILE" || { echo "❌ CSES_WDIO_CREDENTIALS_FILE is not a file"; exit 1; }
+    - node scripts/messagev3/phase1-5-real-chain.mjs --all
+  artifacts:
+    when: always
     paths:
-      - .cargo/bin/
-  before_script:
-    # _with_tools 镜像已烤入 nightly + rust-docs-json + cargo-public-api 时，下面两步全跳过（air-gapped 安全）；
-    # 否则才尝试联网安装（本 job allow_failure，缺工具不挡 MR）。
-    - rustup toolchain list | grep -q nightly || rustup toolchain install nightly --component rust-docs-json 2>/dev/null || rustup toolchain install nightly || true
-    - command -v cargo-public-api >/dev/null 2>&1 || cargo install cargo-public-api --locked || true
-  script:
-    - mkdir -p docs/api-baseline
-    - cargo +nightly public-api -p helix-core --simplified > /tmp/api.txt
-    - |
-      if [ -f docs/api-baseline/helix-core.txt ]; then
-        diff -u docs/api-baseline/helix-core.txt /tmp/api.txt \
-          || { echo "❌ helix-core 公开 API 面变化——确认后更新 docs/api-baseline/helix-core.txt"; exit 1; }
-      else
-        cp /tmp/api.txt docs/api-baseline/helix-core.txt
-        echo "✦ 首次生成 API 基线，请把 docs/api-baseline/helix-core.txt commit 进仓库"
-      fi
+      - artifacts/messagev3-phase1-5-real-chain/
+    expire_in: 14 days
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH'
-
-# ── 私有网无法访问 crates.io 时（air-gapped），在此或 ~/.cargo/config.toml 配镜像 ──
-# variables 加：
-#   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-# 或仓库根 .cargo/config.toml：
-#   [source.crates-io]
-#   replace-with = "mirror"
-#   [source.mirror]
-#   registry = "sparse+http://<你的私有 crates 镜像>/index/"

@@ -24,9 +24,10 @@ PC WDIO、Mobile GTest、Go 修改与跨仓 fixture 同步明确延期。
   `NOT_SYNCED_BY_SCOPE` / `NOT_RUN`，不得据此宣称三端 TGCR Green。
 - 四个 crates.io 公共包已统一发布为 `0.1.4`；workspace 内消费者以 Cargo manifest 的
   精确依赖为准。
-- 独立的 Native Phase1-5 真实链 runner 当前分母为 92 Gate，最近同轮结果为 72 PASS、
-  20 个非 PASS，状态仍是 `PARTIAL`；该结果不改变 Spec 047 的 30 producer Gate 分母，
-  也不能替代 PC/Mobile/Web 的 TGCR 证据。
+- 独立的 Native Phase1-5 真实链 runner 当前可执行分母为 83 Gate（32/16/15/12/8）；
+  五个 `NOT_APPLICABLE` 与四个 `NOT_IMPLEMENTED` Gate 从 runner 选择集排除。变更前的
+  92 Gate 历史结果仍为 `PARTIAL`，新 profile 尚未重跑全量；该结果不改变 Spec 047 的
+  30 producer Gate 分母，也不能替代 PC/Mobile/Web 的 TGCR 证据。
 
 ## 2. 不变平台地基
 

@@ -9,6 +9,10 @@ Phase/Domain 索引和文件链接，具体 Gate 规则按局部 AGENTS 的渐�
 [发送消息参考图](./发送消息.mmd)的逐跳粒度，描述 Angular/Port、Tauri/FFI/Web、Helix
 Tick/Effect/PortReply、SQLite/Go HTTP/WS 和最终 raw event 或 Command Result。
 
+说明：客户端合同仍保留完整 92 Gate；Helix Native real-chain runner 为独立的可执行子集，当前
+执行 83 个（32/16/15/12/8），其中 5 个 `NOT_APPLICABLE` 与 4 个 `NOT_IMPLEMENTED` 不进入
+real-chain/CI 选择集。两套分母不可互相替代。
+
 ## 分母与领域
 
 | Phase | 客户端阶段 | Domain | Gate 数 |

@@ -1,4 +1,4 @@
-//! Phase5 文字接龙真实 Gate：18066 Go、WS、Helix projection 和 SQLite read-back。
+//! Phase5 文字接龙真实 Gate：profile Go/WS、Helix projection 和 SQLite read-back。
 
 use super::*;
 use std::collections::BTreeSet;
@@ -26,7 +26,7 @@ impl ChainHarness {
     async fn start(context: &AuthContext, channel_id: &str) -> Result<Self, ChainRunError> {
         let raw_id =
             50_000_u32.saturating_add((RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed) % 1000) as u32);
-        let mut observer_ws = open_raw_ws_at(&context.observer, raw_id, CHAIN_GO_WS_URL)
+        let mut observer_ws = open_raw_ws_at(&context.observer, raw_id, chain_go_ws_url())
             .await
             .map_err(ChainRunError::Blocked)?;
         if let Err(error) = wait_ws_hello(&mut observer_ws).await {
@@ -157,9 +157,9 @@ pub(crate) async fn run_text_chain_gate(gate: &str) -> Result<(), String> {
                 gate,
                 "BLOCKED_PRECONDITION",
                 json!({
-                    "go_http": CHAIN_GO_HTTP_BASE,
-                    "go_ws": CHAIN_GO_WS_URL,
-                    "first_failing_layer": "18066 health/auth",
+                    "go_http": chain_go_http_base(),
+                    "go_ws": chain_go_ws_url(),
+                    "first_failing_layer": "profile health/auth",
                     "error": error,
                 }),
             )?;
@@ -176,8 +176,8 @@ pub(crate) async fn run_text_chain_gate(gate: &str) -> Result<(), String> {
                 gate,
                 "BLOCKED_PRECONDITION",
                 json!({
-                    "go_http": CHAIN_GO_HTTP_BASE,
-                    "first_failing_layer": "18066 channel fixture",
+                    "go_http": chain_go_http_base(),
+                    "first_failing_layer": "profile channel fixture",
                     "error": error,
                 }),
             )?;
@@ -206,7 +206,7 @@ pub(crate) async fn run_text_chain_gate(gate: &str) -> Result<(), String> {
                 gate,
                 "BLOCKED_PRECONDITION",
                 json!({
-                    "go_http": CHAIN_GO_HTTP_BASE,
+                    "go_http": chain_go_http_base(),
                     "first_failing_layer": "real HTTP/WS/Helix lifecycle",
                     "error": error,
                 }),
@@ -220,7 +220,7 @@ pub(crate) async fn run_text_chain_gate(gate: &str) -> Result<(), String> {
                 gate,
                 "NOT_VERIFIED",
                 json!({
-                    "go_http": CHAIN_GO_HTTP_BASE,
+                    "go_http": chain_go_http_base(),
                     "first_failing_layer": "Chain projection assertion",
                     "error": error,
                 }),
@@ -332,7 +332,7 @@ pub(crate) fn run_unimplemented_chain_gate(gate: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 以 18066 health、账号和共享锁装配可审计上下文；不触碰 8066。
+/// 以当前 profile 的 health、账号和共享锁装配可审计上下文。
 async fn prepare_chain_context(
 ) -> Result<(tokio::sync::MutexGuard<'static, ()>, Arc<AuthContext>), String> {
     let guard = REMOTE_LOCK
@@ -342,7 +342,7 @@ async fn prepare_chain_context(
         .await;
     let context = CHAIN_AUTH_CONTEXT
         .get_or_init(|| async {
-            discover_auth_context_at(CHAIN_GO_HTTP_BASE, "http://127.0.0.1:18066/api/cses/health")
+            discover_auth_context_at(chain_go_http_base(), go_health_url())
                 .await
                 .map(Arc::new)
         })

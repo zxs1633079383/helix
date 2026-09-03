@@ -9,7 +9,7 @@
 | 保存 Rust 文件 | `cargo fmt --all --quiet` | Codex PostToolUse hook |
 | 新会话 | 由 `scripts/session-start-context.sh` 读取 `docs/ROADMAP.md` P0、本手册与前端 UC 投影真源 | Codex SessionStart hook |
 | 准备提交或 push | `scripts/gate-fast.sh` | 人工；pre-push hook 兜底，按改动范围验证 |
-| 合并前 / GitLab CI | `scripts/gate.sh` | native + FFI 完整交付门 |
+| 合并前 / GitLab CI | `node scripts/messagev3/phase1-5-real-chain.mjs --all` | 83 个可执行 MessageV3 real-chain Gate；端点默认 `pre`，证据不完整即非零退出 |
 | 分支身份核对 | `scripts/branch-identity.sh --session` | 开局、worktree 收尾或身份不清时 |
 | FFI 仓内验收 | `scripts/ffi-verify.sh --no-demo` | gate 第 9 步 |
 | 真 Go 全 UC | `scripts/host-cli-FULL-uc-e2e.sh` | 环境就绪后人工触发 |
@@ -24,6 +24,9 @@
 - 自动：fmt、开局/收尾提醒、pre-push gate 等机械检查。
 - 人工：架构判断、跨仓决策、发布、回滚和多 agent 拆分。
 - 后台 agent 完成依赖任务通知，不做固定周期空轮询；外部 CI、部署队列等不可追踪状态才使用监控机制。
+
+GitLab CI 只执行 MessageV3 real-chain。`scripts/gate.sh` 仍保留给本地/pre-push 或人工完整 Rust/FFI
+检查，不再与 real-chain 争用 CI 主入口；客户端 92 Gate 合同与 real-chain 的 83 个可执行分母也不互相替代。
 
 ## 索引
 

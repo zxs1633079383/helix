@@ -149,7 +149,7 @@ async fn exercise_notify_chain(
             let query = shared::request_json(
                 &http,
                 "POST",
-                &format!("{}/channel/query", shared::GO_HTTP_BASE),
+                &format!("{}/channel/query", shared::go_http_base()),
                 Some(json!({
                     "id": channel,
                     "pageNumber": 1,

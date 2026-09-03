@@ -4,20 +4,46 @@ import { spawn } from 'node:child_process';
 import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveMessagev3Environment } from './real-chain-environment.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const HELIX_ROOT = path.resolve(SCRIPT_DIR, '../..');
 const TEST_ROOT = path.join(HELIX_ROOT, 'crates/helix-driver-native/tests/messageV3-domain');
 const TEST_ENTRY = path.join(HELIX_ROOT, 'crates/helix-driver-native/tests/message_v3_domain.rs');
 const DEFAULT_ARTIFACT_ROOT = path.join(HELIX_ROOT, 'artifacts/messagev3-phase1-5-real-chain');
-const EXPECTED_PHASE_COUNTS = new Map([[1, 33], [2, 20], [3, 15], [4, 12], [5, 12]]);
+const EXPECTED_PHASE_COUNTS = new Map([[1, 32], [2, 16], [3, 15], [4, 12], [5, 8]]);
+const EXPECTED_GATE_COUNT = 83;
+const EXCLUDED_GATE_KEYS = new Set([
+    'Phase1/post/MV3-G05L',
+    'Phase2/read/MV3-G06C',
+    'Phase2/read/MV3-G06E',
+    'Phase2/timeline/MV3-G11F',
+    'Phase2/sync/MV3-G13E',
+    'Phase5/acceptance/CHAIN-ACC-G01',
+    'Phase5/category_chain/CHAIN-CAT-G01',
+    'Phase5/category_chain/CHAIN-CAT-G02',
+    'Phase5/category_chain/CHAIN-CAT-G03'
+]);
+// 目录过滤之外还要传给 libtest，确保 --all 不执行被排除 Gate 的副作用。
+const EXCLUDED_TEST_FILTERS = [
+    'phase1_post_g05l',
+    'phase2_read_g06c',
+    'phase2_read_g06e',
+    'phase2_timeline_g11f',
+    'phase2_sync_g13e',
+    'phase5_chain_acceptance_acc_g01',
+    'phase5_chain_category_cat_g01',
+    'phase5_chain_category_cat_g02',
+    'phase5_chain_category_cat_g03'
+];
 
-/** 解析 Phase/Domain/Gate 选择器，并保持默认全量 92 Gate。 */
+/** 解析环境与 Phase/Domain/Gate 选择器，并保持默认全量 83 个可执行 Gate。 */
 function parseArgs(argv) {
     const options = {
         phases: [],
         domains: [],
         gates: [],
+        environment: undefined,
         list: false,
         dryRun: false,
         artifactRoot: DEFAULT_ARTIFACT_ROOT
@@ -39,6 +65,7 @@ function parseArgs(argv) {
         if (name === '--phase') options.phases.push(normalizePhase(value));
         else if (name === '--domain') options.domains.push(normalizeDomain(value));
         else if (name === '--gate') options.gates.push(value.toUpperCase());
+        else if (name === '--env' || name === '--environment') options.environment = value;
         else if (name === '--artifact-root') options.artifactRoot = path.resolve(value);
         else throw new Error(`不支持的参数: ${argument}`);
     }
@@ -85,7 +112,7 @@ async function loadModuleRegistry() {
     return registry;
 }
 
-/** 把物理目录映射为 92 Gate 的 canonical Phase/Domain/Gate 身份。 */
+/** 把物理目录映射为可执行 Gate 的 canonical Phase/Domain/Gate 身份。 */
 async function describeTest(file, registry) {
     const relative = path.relative(TEST_ROOT, file).split(path.sep);
     const phase = normalizePhase(relative[0]);
@@ -99,6 +126,9 @@ async function describeTest(file, registry) {
     };
     const domain = phase === 5 ? phase5Domains[relative[2]] : normalizeDomain(relative[1]);
     if (!domain) throw new Error(`未知 Phase5 Domain: ${relative.slice(0, -2).join('/')}`);
+    const gateName = gate.toUpperCase();
+    const key = `Phase${phase}/${domain}/${gateName}`;
+    if (EXCLUDED_GATE_KEYS.has(key)) return null;
     const source = await readFile(file, 'utf8');
     const functionName = source.match(/(?:async\s+)?fn\s+([a-zA-Z0-9_]+_real_chain)\s*\(/)?.[1];
     const moduleName = registry.get(file);
@@ -109,7 +139,7 @@ async function describeTest(file, registry) {
         phase,
         phaseName: `Phase${phase}`,
         domain,
-        gate: gate.toUpperCase(),
+        gate: gateName,
         file: path.relative(HELIX_ROOT, file),
         filter: `${moduleName}::${functionName}`
     };
@@ -127,18 +157,20 @@ function validateDenominator(tests) {
         const actual = tests.filter(test => test.phase === phase).length;
         if (actual !== expected) throw new Error(`Phase${phase} 分母漂移: expected=${expected} actual=${actual}`);
     }
-    if (tests.length !== 92) throw new Error(`总分母漂移: expected=92 actual=${tests.length}`);
+    if (tests.length !== EXPECTED_GATE_COUNT) {
+        throw new Error(`总分母漂移: expected=${EXPECTED_GATE_COUNT} actual=${tests.length}`);
+    }
 }
 
 /** 只验证 Go 前置在线；health 不会进入任何 Gate PASS 判断。 */
-async function assertGoReady() {
+async function assertGoReady(healthUrl) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5_000);
     try {
-        const response = await fetch('http://127.0.0.1:18066/api/cses/health', { signal: controller.signal });
+        const response = await fetch(healthUrl, { signal: controller.signal });
         const body = await response.json().catch(() => ({}));
         if (!response.ok || body?.status !== 'OK') {
-            throw new Error(`Go 18066 未就绪: HTTP ${response.status} status=${body?.status ?? 'UNKNOWN'}`);
+            throw new Error(`Go health 未就绪 (${healthUrl}): HTTP ${response.status} status=${body?.status ?? 'UNKNOWN'}`);
         }
     } finally {
         clearTimeout(timer);
@@ -153,8 +185,9 @@ async function runCargo(filter, exact, environment, logPath) {
         if (filter) args.push(filter);
         args.push('--', '--nocapture', '--test-threads=1');
         if (exact) args.push('--exact');
-        // Phase4/Todo is deliberately outside the 92-Gate denominator and can hang on obsolete flows.
+        // Phase4/Todo is deliberately outside the executable Gate denominator and can hang on obsolete flows.
         args.push('--skip', 'phase4_todo');
+        for (const filter of EXCLUDED_TEST_FILTERS) args.push('--skip', filter);
         const child = spawn('cargo', args, {
             cwd: HELIX_ROOT,
             env: environment,
@@ -220,6 +253,7 @@ function suiteId() {
 /** 执行筛选后的 Gate，并汇总真实业务状态。 */
 async function main() {
     const options = parseArgs(process.argv.slice(2));
+    const runtimeEnvironment = resolveMessagev3Environment(options.environment);
     const registry = await loadModuleRegistry();
     const files = await discoverMainFiles(TEST_ROOT);
     const tests = (await Promise.all(files.map(file => describeTest(file, registry))))
@@ -236,7 +270,7 @@ async function main() {
         for (const test of selected) console.log(`${test.phaseName}\t${test.domain}\t${test.gate}\t${test.filter}`);
         if (options.list || options.dryRun) return;
     }
-    await assertGoReady();
+    await assertGoReady(runtimeEnvironment.goHealthUrl);
     const suiteRunId = suiteId();
     const suiteRoot = path.join(options.artifactRoot, suiteRunId);
     await mkdir(suiteRoot, { recursive: true });
@@ -244,10 +278,18 @@ async function main() {
         ...process.env,
         MESSAGEV3_SUITE_RUN_ID: suiteRunId,
         MESSAGEV3_GATE_RUN_ID: suiteRunId,
-        HELIX_MESSAGEV3_ARTIFACT_ROOT: options.artifactRoot
+        HELIX_MESSAGEV3_ARTIFACT_ROOT: options.artifactRoot,
+        MESSAGEV3_ENV: runtimeEnvironment.name,
+        MESSAGEV3_GO_HTTP_BASE: runtimeEnvironment.goHttpBase,
+        MESSAGEV3_GO_WS_URL: runtimeEnvironment.goWsUrl,
+        MESSAGEV3_GO_HEALTH_URL: runtimeEnvironment.goHealthUrl,
+        MESSAGEV3_JAVA_API_BASE: runtimeEnvironment.javaApiBase,
+        HELIX_MAIN_API_BASE: runtimeEnvironment.javaApiBase
     };
     const singlePhaseBatch = options.phases.length === 1 && !options.domains.length && !options.gates.length;
-    const batchFilter = selected.length === 92 ? null : singlePhaseBatch ? `phase${options.phases[0]}_` : undefined;
+    const batchFilter = selected.length === EXPECTED_GATE_COUNT
+        ? null
+        : singlePhaseBatch ? `phase${options.phases[0]}_` : undefined;
     const executions = new Map();
     if (batchFilter !== undefined) {
         const execution = await runCargo(batchFilter, false, environment, path.join(suiteRoot, 'cargo.log'));
@@ -271,6 +313,7 @@ async function main() {
     const summary = {
         schema_version: 'messagev3-phase1-5-suite/v1',
         suite_run_id: suiteRunId,
+        environment: runtimeEnvironment.name,
         selected: results.length,
         passed: results.filter(result => result.status === 'PASS').length,
         results

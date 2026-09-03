@@ -17,7 +17,7 @@ description: 在 helix 上新增第二/第三业务模块（如 meeting/presence
 ## 参考实现
 
 - 完整范例：`crates/helix-im/src/module.rs`（路由表 pattern）+ 架构设计 §6.4 会议模块全链路图
-- 验收：`scripts/gate.sh` 全绿 + core 的 `git diff` 为空（证明零改内核）
+- 验收：对应 crate 的聚焦测试、格式检查和 `git diff --check` 通过 + core 的 `git diff` 为空（证明零改内核）；`scripts/gate.sh` 仅在用户或活动 CI/发布合同明确要求时追加
 
 ## 红线
 

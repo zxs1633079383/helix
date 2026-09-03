@@ -66,7 +66,7 @@ cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'
 bash scripts/structure-gate.sh
 ```
 
-Use `scripts/gate.sh` before committing behavior changes when feasible.
+Run affected focused checks before committing behavior changes. Run `scripts/gate.sh` only when the user explicitly requests the full gate or an active CI/release contract requires it.
 
 ## Modification Policy
 

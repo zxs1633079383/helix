@@ -47,7 +47,7 @@ bash scripts/structure-gate.sh
 bash scripts/trace-static-gate.sh
 ```
 
-Run `scripts/gate.sh` for default pre-commit behavioral verification when code changed.
+Do not run `scripts/gate.sh` automatically after code changes. Run the full gate only when the user explicitly requests it or an active CI/release contract requires it; otherwise use affected focused checks.
 
 ## Agent Rules
 

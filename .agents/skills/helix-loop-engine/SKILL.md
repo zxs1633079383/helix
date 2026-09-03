@@ -29,7 +29,7 @@ description: 通用真 Go 联调 loop Engine —— 任意 sync-v2/IM 功能调�
    - ② Go 日志显示 Go 侧失败（grpc/store/panic/handler error）→ **读 Go 代码定位精确 file:line + 错误串**，给用户精确指针；**不改 Go**（ADR-008，helix 适配 Go 不改 server）。能力范围内的 helix 适配（缺头/缺字段/路径前缀）则改 helix。
    - ③ 代码①对、日志②对、结果③不符 → 帧解析/路由层（parser classify_frame / module dispatch / emit ACL）→ 改 helix → 复验。
 4. **修/报**：
-   - **可在 helix 修**（缺 header、URL 前缀、字段名、解析、handler 逻辑、timer 自清等）→ 改 + `cargo test -p helix-im` + `scripts/gate.sh` → commit（结构化 body，引用本轮三层证据）。
+   - **可在 helix 修**（缺 header、URL 前缀、字段名、解析、handler 逻辑、timer 自清等）→ 改 + 受影响的聚焦测试（至少 `cargo test -p helix-im`）+ `cargo fmt --all -- --check` + `git diff --check` → commit（结构化 body，引用本轮三层证据）。完整 `scripts/gate.sh` 仅在用户明确要求或活动 CI/发布合同要求时执行。
    - **Go 侧根因**（grpc 服务、Go 数据、Go handler bug）→ 写清「精确 Go file:line + 错误 + 为何 helix 改不了」给用户，标为待 Go 侧；helix 这边能并行做的别阻塞。
 5. **复验**：同一 `FOCUS` 重跑 dev-loop → ③ 出现预期帧/emit + ② 无 error = 本圈闭合；否则带新证据进下一圈。
 
@@ -44,7 +44,7 @@ description: 通用真 Go 联调 loop Engine —— 任意 sync-v2/IM 功能调�
 
 - **三层都要看**：只看 helix 日志会误判 Go 侧问题为 helix bug；只看 Go 会漏 helix 解析 bug。代码↔日志↔结果交叉验证才定得准。
 - **Go 日志是真相源**：`/Users/mac28/workspace/mmlog/mattermost.log`，dev-loop 自动抓 delta。报 Go 侧问题必带 `caller`(file:line) + `error` 原文。
-- **不改 Go server**（ADR-008）；helix 侧适配（头/字段/路径/解析）随便改，改完过 gate.sh。
+- **不改 Go server**（ADR-008）；helix 侧适配（头/字段/路径/解析）随便改，改完先做受影响的聚焦验证；完整 gate 仅按显式授权执行。
 - **不假装跑通**：Go 没起、帧没到、判据没满足 → 如实说卡在哪层，别糊。
 - **沉淀**：同一根因栽 ≥ 3 次 → 即时落 `docs/harness/HX-C{NNN}` 坑卡（项目铁律）。
 

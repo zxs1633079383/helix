@@ -36,7 +36,7 @@ Treat Helix as a runtime-agnostic deterministic business-kernel project whose fi
 - `docs/harness/README.md`: HX-C index.
 - `docs/harness/OPERATING.md`: trigger matrix.
 - `docs/harness/decisions.md`: ADR-lite decisions.
-- `scripts/gate.sh`: current default verification.
+- `scripts/gate.sh`: full CI/release verification when explicitly required; not a default local check.
 - Crate entry points under `crates/*/src/lib.rs`.
 
 ## Output

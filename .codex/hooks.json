@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; DIRTY=$(git status --porcelain 2>/dev/null); RS=$(printf '%s' \"$DIRTY\" | grep -cE '\\.rs$' || true); DOC=$(printf '%s' \"$DIRTY\" | grep -cE '\\.md$' || true); MSG=''; [ \"${RS:-0}\" -gt 0 ] && MSG=\"$MSG⚠️ 未提交 .rs($RS)—commit/push 前 scripts/gate.sh 先验。 \"; [ \"${DOC:-0}\" -gt 0 ] && MSG=\"$MSG📄 未提交 .md($DOC)—状态变更查 docs/README.md + harness 索引不变量。\"; [ -n \"$MSG\" ] && echo \"$MSG\"; exit 0"
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; DIRTY=$(git status --porcelain 2>/dev/null); RS=$(printf '%s' \"$DIRTY\" | grep -cE '\\.rs$' || true); DOC=$(printf '%s' \"$DIRTY\" | grep -cE '\\.md$' || true); MSG=''; [ \"${RS:-0}\" -gt 0 ] && MSG=\"$MSG⚠️ 未提交 .rs($RS)—先运行受影响的聚焦检查和 git diff --check；完整 gate 仅在用户或 CI 明确要求时执行。 \"; [ \"${DOC:-0}\" -gt 0 ] && MSG=\"$MSG📄 未提交 .md($DOC)—状态变更查 docs/README.md + harness 索引不变量。\"; [ -n \"$MSG\" ] && echo \"$MSG\"; exit 0"
           }
         ]
       }

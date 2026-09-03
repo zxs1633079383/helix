@@ -33,6 +33,7 @@ use helix_driver_native::{
 use helix_im::{ImConfig, ImModule, IM_SCHEMA, IM_SCHEMA_MIGRATIONS};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -59,8 +60,7 @@ const CHAIN_COMPANY_ID: &str = "64118eebd2b665246b7880eb";
 const CHAIN_ACTOR_USER_ID: &str = "444";
 const CHAIN_OBSERVER_USER_ID: &str = "678";
 const CHAIN_THIRD_USER_ID: &str = "447";
-// 远端 ES 已存在且三用户可见的只读 Search fixture；不写 ES，避免把测试数据送入共享索引。
-const SEARCH_FIXTURE_CHANNEL_ID: &str = "qub3kj8y8fn38rb3xoy6y4gnmc";
+// Search 只使用远端 ES 中实时发现的只读消息；关键词固定，频道/帖子 ID 不固化。
 const SEARCH_FIXTURE_KEYWORD: &str = "1";
 const PRE_JAVA_API_BASE: &str = "https://api-pre.jinqidongli.com";
 const LOCAL_JAVA_API_BASE: &str = "http://127.0.0.1:3399";
@@ -170,6 +170,10 @@ pub(crate) static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 pub(crate) static AUTH_CONTEXT: OnceCell<Result<Arc<AuthContext>, String>> = OnceCell::const_new();
 pub(crate) static CHAIN_AUTH_CONTEXT: OnceCell<Result<Arc<AuthContext>, String>> =
     OnceCell::const_new();
+pub(crate) static SEARCH_AUTH_CONTEXT: OnceCell<Result<Arc<AuthContext>, String>> =
+    OnceCell::const_new();
+pub(crate) static SEARCH_FIXTURE: OnceCell<Result<Arc<SearchFixture>, String>> =
+    OnceCell::const_new();
 pub(crate) static REMOTE_LOCK: OnceCell<Mutex<()>> = OnceCell::const_new();
 
 const CHANNEL_FIXTURE_WAIT_SECS: u64 = 30;
@@ -178,6 +182,9 @@ const CHANNEL_FIXTURE_SNAPSHOT_END_MS: i64 = 9_000_000_000_000;
 const PHASE_POOL_MAX_CHANNELS: usize = 5;
 const PHASE_POOL_PING_INTERVAL_DEFAULT_MS: u64 = 15_000;
 const PHASE_POOL_EVENT_CAPACITY: usize = 16_384;
+const SESSION_SETUP_TIMEOUT_SECS: u64 = 30;
+const PHASE_RUNTIME_TASK_TIMEOUT_SECS: u64 = 60;
+const SEARCH_PREFLIGHT_TIMEOUT_SECS: u64 = 8;
 const CHAIN_ENTRY_ORDER: &[ScanOrder] = &[ScanOrder::asc("seq")];
 
 #[derive(Debug, Deserialize)]
@@ -228,10 +235,26 @@ pub(crate) struct Persona {
     pub(crate) companies: Vec<String>,
 }
 
+#[derive(Debug)]
 pub(crate) struct AuthContext {
     pub(crate) actor: Persona,
     pub(crate) observer: Persona,
     pub(crate) third: Persona,
+}
+
+/// Search Gate 的只读运行时夹具；频道与帖子 ID 从当前 ES 结果动态取出，避免过期常量。
+#[derive(Clone, Debug)]
+pub(crate) struct SearchFixture {
+    pub(crate) context: Arc<AuthContext>,
+    pub(crate) channel_id: String,
+    pub(crate) post_id: String,
+    pub(crate) keyword: String,
+}
+
+#[derive(Clone, Debug)]
+struct SearchFixtureSeed {
+    channel_id: String,
+    post_id: String,
 }
 
 #[derive(Debug)]
@@ -309,10 +332,9 @@ fn canonical_wire_message_type(message_type: &str) -> &str {
     }
 }
 
-/// 构造已经由 Angular 的 Java/fileDrive/OSS 平面收口后的稳定媒体引用。
+/// 构造媒体 Gate 的元数据 fixture；发送前由 `stage_media_inputs` 换成真实 mediaInput 字节。
 ///
-/// 该 fixture 只代表“媒体字节已经上传完成”，不会伪造 Java 票据或 OSS PUT；
-/// 真实 Go 测试从这里开始验证 `posts/create`、WS、Helix projection 和 SQLite。
+/// 这里保留 Gate 声明的文件名、MIME、尺寸和展示字段，不把固定 id/hash 当成上传证据。
 pub(crate) fn completed_media_ref(
     bucket: &str,
     id: &str,
@@ -336,6 +358,372 @@ pub(crate) fn completed_media_ref(
         node.extend(extra.clone());
     }
     Value::Object(node)
+}
+
+#[derive(Clone, Copy, Debug)]
+enum MediaSlot {
+    Files(usize),
+    File,
+    TemplateFile,
+}
+
+#[derive(Clone, Debug)]
+struct StagedMedia {
+    slot: MediaSlot,
+    name: String,
+    content_type: String,
+    size: u64,
+    sha256: String,
+    bucket: &'static str,
+    duration: Option<f64>,
+    width: Option<u64>,
+    height: Option<u64>,
+    local_path: PathBuf,
+}
+
+/// 为 real-chain 生成小型、可复验的媒体字节；哈希来自实际写入 OSS 的字节而非 fixture 常量。
+fn media_fixture_bytes(size: u64, seed: &str) -> Result<(Vec<u8>, String), String> {
+    const MAX_MEDIA_SIZE: u64 = 64 << 20;
+    if !(1..=MAX_MEDIA_SIZE).contains(&size) {
+        return Err(format!(
+            "media fixture size must be 1..={MAX_MEDIA_SIZE}, got {size}"
+        ));
+    }
+    let size =
+        usize::try_from(size).map_err(|_| "media fixture size exceeds host usize".to_string())?;
+    let seed_digest = Sha256::digest(seed.as_bytes());
+    let mut bytes = Vec::with_capacity(size);
+    for index in 0..size {
+        let salt = (index as u64).wrapping_mul(31) as u8;
+        bytes.push(seed_digest[index % seed_digest.len()] ^ salt);
+    }
+    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    Ok((bytes, sha256))
+}
+
+/// 把媒体名称收敛成安全临时文件名，不把用户路径或签名 URL 带入文件系统。
+fn media_fixture_path(gate: &str, ordinal: usize, name: &str) -> PathBuf {
+    let safe_gate = gate
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let safe_name = name
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    std::env::temp_dir().join(format!(
+        "helix-messagev3-{safe_gate}-{}-{ordinal}-{safe_name}",
+        std::process::id()
+    ))
+}
+
+/// 从旧 stable-reference fixture 提取展示元数据，并替换为 Helix Host 可解析的 mediaInput。
+async fn stage_media_node(
+    node: &mut Value,
+    gate: &str,
+    slot: MediaSlot,
+    ordinal: usize,
+    staged_paths: &mut Vec<PathBuf>,
+    staged: &mut Vec<StagedMedia>,
+) -> Result<(), String> {
+    let source = node
+        .as_object()
+        .ok_or_else(|| format!("{gate} media node must be object"))?;
+    let name = source
+        .get("name")
+        .or_else(|| source.get("fileName"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("{gate} media node missing name"))?
+        .to_string();
+    let content_type = source
+        .get("contentType")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("{gate} media node missing contentType"))?
+        .to_string();
+    let size = source
+        .get("size")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("{gate} media node missing integer size"))?;
+    let duration = source.get("duration").and_then(Value::as_f64);
+    let width = source.get("width").and_then(Value::as_u64);
+    let height = source.get("height").and_then(Value::as_u64);
+    let bucket = match slot {
+        MediaSlot::Files(_) if content_type.starts_with("image/") => "picture",
+        MediaSlot::Files(_) if content_type.starts_with("video/") => "attachment",
+        MediaSlot::Files(_) => {
+            return Err(format!(
+                "{gate} rich media contentType must be image/* or video/*"
+            ))
+        }
+        MediaSlot::File => "attachment",
+        MediaSlot::TemplateFile => "picture",
+    };
+    let (bytes, sha256) = media_fixture_bytes(size, &format!("{gate}:{ordinal}:{name}"))?;
+    let local_path = media_fixture_path(gate, ordinal, &name);
+    tokio::fs::write(&local_path, bytes)
+        .await
+        .map_err(|error| format!("{gate} write media fixture failed: {error}"))?;
+    staged_paths.push(local_path.clone());
+
+    let object = node
+        .as_object_mut()
+        .ok_or_else(|| format!("{gate} media node became non-object"))?;
+    for field in [
+        "bucket",
+        "id",
+        "uri",
+        "sha256",
+        "upload",
+        "name",
+        "fileName",
+        "contentType",
+        "size",
+        "fileId",
+        "objectKey",
+        "headers",
+        "url",
+        "publicUrl",
+        "method",
+        "state",
+        "etag",
+    ] {
+        object.remove(field);
+    }
+    object.insert(
+        "mediaInput".to_string(),
+        json!({
+            "localPath": local_path.display().to_string(),
+            "fileName": name.clone(),
+            "contentType": content_type.clone(),
+            "size": size,
+            "sha256": sha256.clone(),
+        }),
+    );
+    staged.push(StagedMedia {
+        slot,
+        name,
+        content_type,
+        size,
+        sha256,
+        bucket,
+        duration,
+        width,
+        height,
+        local_path,
+    });
+    Ok(())
+}
+
+/// 把媒体消息的 files/file/template.file 统一转成 Helix 上传状态机的输入，并负责失败回收。
+async fn stage_media_inputs(props: Value, gate: &str) -> Result<(Value, Vec<StagedMedia>), String> {
+    let mut staged_props = props;
+    let mut staged_paths = Vec::new();
+    let mut staged = Vec::new();
+    let result = async {
+        let has_files = staged_props
+            .get("files")
+            .and_then(Value::as_array)
+            .is_some();
+        let has_file = staged_props.get("file").is_some();
+        let has_template_file = staged_props.pointer("/template/file").is_some();
+        if [has_files, has_file, has_template_file]
+            .into_iter()
+            .filter(|present| *present)
+            .count()
+            != 1
+        {
+            return Err(format!(
+                "{gate} media props must contain exactly one of files, file, template.file"
+            ));
+        }
+
+        if let Some(files) = staged_props.get_mut("files").and_then(Value::as_array_mut) {
+            if files.is_empty() {
+                return Err(format!("{gate} media props.files must not be empty"));
+            }
+            for index in 0..files.len() {
+                stage_media_node(
+                    &mut files[index],
+                    gate,
+                    MediaSlot::Files(index),
+                    index,
+                    &mut staged_paths,
+                    &mut staged,
+                )
+                .await?;
+            }
+        } else if let Some(file) = staged_props.get_mut("file") {
+            stage_media_node(
+                file,
+                gate,
+                MediaSlot::File,
+                0,
+                &mut staged_paths,
+                &mut staged,
+            )
+            .await?;
+        } else if let Some(file) = staged_props.pointer_mut("/template/file") {
+            stage_media_node(
+                file,
+                gate,
+                MediaSlot::TemplateFile,
+                0,
+                &mut staged_paths,
+                &mut staged,
+            )
+            .await?;
+        }
+        Ok::<(), String>(())
+    }
+    .await;
+    if let Err(error) = result {
+        remove_staged_media_files(&staged_paths).await;
+        return Err(error);
+    }
+    Ok((staged_props, staged))
+}
+
+/// 删除本轮生成的本地媒体字节；只接收 stage_media_inputs 返回的明确路径。
+async fn remove_staged_media_files(paths: &[PathBuf]) {
+    for path in paths {
+        let _ = tokio::fs::remove_file(path).await;
+    }
+}
+
+/// 读取已上传消息中对应 slot 的稳定媒体节点。
+fn staged_media_node<'a>(props: &'a Value, slot: MediaSlot) -> Option<&'a Value> {
+    match slot {
+        MediaSlot::Files(index) => props.get("files")?.as_array()?.get(index),
+        MediaSlot::File => props.get("file"),
+        MediaSlot::TemplateFile => props.pointer("/template/file"),
+    }
+}
+
+/// 对账 Java/OSS/Helix 完成后的真实 fileId、uri、哈希和展示元数据，拒绝 fixture 回声冒充上传。
+fn assert_staged_media_projection(
+    actual_props: &Value,
+    staged: &[StagedMedia],
+    label: &str,
+) -> Result<(), String> {
+    for (index, fixture) in staged.iter().enumerate() {
+        let node = staged_media_node(actual_props, fixture.slot)
+            .ok_or_else(|| format!("{label} uploaded media slot {index} missing"))?;
+        let object = node
+            .as_object()
+            .ok_or_else(|| format!("{label} uploaded media slot {index} is not object"))?;
+        let actual_bucket = string_field(node, &["bucket"])
+            .ok_or_else(|| format!("{label} uploaded media slot {index} missing bucket"))?;
+        if actual_bucket != fixture.bucket {
+            return Err(format!(
+                "{label} uploaded media slot {index} bucket mismatch: expected {}, got {actual_bucket}",
+                fixture.bucket
+            ));
+        }
+        let file_id = string_field(node, &["id"])
+            .ok_or_else(|| format!("{label} uploaded media slot {index} missing Java fileId"))?;
+        let uri = string_field(node, &["uri"])
+            .ok_or_else(|| format!("{label} uploaded media slot {index} missing stable uri"))?;
+        let object_key = format!("media/{file_id}");
+        if uri != object_key && uri != format!("/{object_key}") {
+            return Err(format!(
+                "{label} uploaded media slot {index} uri must equal objectKey (with optional leading slash), got {uri}"
+            ));
+        }
+        let actual_name = string_field(node, &["name", "fileName"])
+            .ok_or_else(|| format!("{label} uploaded media slot {index} missing name"))?;
+        if actual_name != fixture.name {
+            return Err(format!(
+                "{label} uploaded media slot {index} name mismatch: expected {}, got {actual_name}",
+                fixture.name
+            ));
+        }
+        let actual_content_type = string_field(node, &["contentType"])
+            .ok_or_else(|| format!("{label} uploaded media slot {index} missing contentType"))?;
+        if actual_content_type != fixture.content_type {
+            return Err(format!(
+                "{label} uploaded media slot {index} contentType mismatch: expected {}, got {actual_content_type}",
+                fixture.content_type
+            ));
+        }
+        if node.get("size").and_then(Value::as_u64) != Some(fixture.size) {
+            return Err(format!(
+                "{label} uploaded media slot {index} size mismatch: expected {}, got {}",
+                fixture.size,
+                node.get("size").unwrap_or(&Value::Null)
+            ));
+        }
+        if string_field(node, &["sha256"]).as_deref() != Some(fixture.sha256.as_str()) {
+            return Err(format!(
+                "{label} uploaded media slot {index} sha256 does not match bytes written by Host"
+            ));
+        }
+        if object
+            .get("upload")
+            .and_then(|upload| upload.get("status"))
+            .and_then(Value::as_str)
+            != Some("completed")
+        {
+            return Err(format!(
+                "{label} uploaded media slot {index} did not reach upload.status=completed"
+            ));
+        }
+        for (field, expected) in [
+            ("duration", fixture.duration.map(Value::from)),
+            ("width", fixture.width.map(Value::from)),
+            ("height", fixture.height.map(Value::from)),
+        ] {
+            if let Some(expected) = expected {
+                let matches = match (object.get(field), &expected) {
+                    (Some(Value::Number(actual)), Value::Number(expected)) => {
+                        actual.as_f64() == expected.as_f64()
+                    }
+                    (Some(actual), expected) => actual == expected,
+                    (None, _) => false,
+                };
+                if !matches {
+                    return Err(format!(
+                        "{label} uploaded media slot {index} {field} mismatch: expected {expected}, got {}",
+                        object.get(field).unwrap_or(&Value::Null)
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 生成媒体证据摘要；不写入本地路径、票据 URL 或签名 headers。
+fn staged_media_evidence(staged: &[StagedMedia]) -> Value {
+    Value::Array(
+        staged
+            .iter()
+            .map(|fixture| {
+                json!({
+                    "bucket": fixture.bucket,
+                    "name": fixture.name,
+                    "content_type": fixture.content_type,
+                    "size": fixture.size,
+                    "sha256": fixture.sha256,
+                    "local_fixture": fixture.local_path.file_name().and_then(|name| name.to_str()),
+                    "slot": format!("{:?}", fixture.slot),
+                })
+            })
+            .collect(),
+    )
 }
 
 pub(crate) struct SendEvidence {
@@ -496,6 +884,7 @@ pub(crate) struct RealHelixSession {
     actor_transport: Arc<NativeTransport>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     engine: Option<JoinHandle<()>>,
+    raw_pump: Option<JoinHandle<()>>,
     db_path: PathBuf,
     /// 批量 Phase 模式下指向共享资源；句柄关闭只释放逻辑租约，不断开物理 WS。
     pool: Option<Arc<PooledSessionResource>>,
@@ -510,6 +899,7 @@ struct PooledSessionResource {
     actor_transport: Arc<NativeTransport>,
     shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
     engine: Mutex<Option<JoinHandle<()>>>,
+    raw_pump: Mutex<Option<JoinHandle<()>>>,
     db_path: PathBuf,
     closed: AtomicBool,
 }
@@ -552,6 +942,7 @@ impl PooledSessionResource {
             actor_transport: Arc::clone(&self.actor_transport),
             shutdown_tx: None,
             engine: None,
+            raw_pump: None,
             db_path: self.db_path.clone(),
             pool: Some(Arc::clone(self)),
         }
@@ -566,6 +957,8 @@ impl PooledSessionResource {
         if let Some(shutdown_tx) = self.shutdown_tx.lock().await.take() {
             let _ = shutdown_tx.send(());
         }
+        let raw_pump = self.raw_pump.lock().await.take();
+        stop_raw_pump(raw_pump).await;
         if let Some(mut engine) = self.engine.lock().await.take() {
             match timeout(Duration::from_secs(15), &mut engine).await {
                 Ok(Ok(())) => {}
@@ -692,6 +1085,7 @@ impl RealHelixSession {
             self.shutdown_tx,
             self.engine,
             self.actor_transport,
+            self.raw_pump,
             self.db_path,
             true,
         )
@@ -709,6 +1103,7 @@ impl RealHelixSession {
             self.shutdown_tx,
             self.engine,
             self.actor_transport,
+            self.raw_pump,
             db_path.clone(),
             false,
         )
@@ -767,6 +1162,7 @@ async fn close_session_parts(
     shutdown_tx: Option<oneshot::Sender<()>>,
     engine: Option<JoinHandle<()>>,
     actor_transport: Arc<NativeTransport>,
+    raw_pump: Option<JoinHandle<()>>,
     db_path: PathBuf,
     remove_db: bool,
 ) -> Result<(), String> {
@@ -774,6 +1170,8 @@ async fn close_session_parts(
     if let Some(shutdown_tx) = shutdown_tx {
         let _ = shutdown_tx.send(());
     }
+    // 先停止 transport→engine 的旁路泵，避免关闭阶段继续转发迟到帧或阻塞 Disconnected 入队。
+    stop_raw_pump(raw_pump).await;
     if let Some(mut engine) = engine {
         match timeout(Duration::from_secs(15), &mut engine).await {
             Ok(Ok(())) => {}
@@ -811,6 +1209,14 @@ async fn close_session_parts(
     }
 }
 
+/// 终止并 join raw WS 入站泵，保证 session/Phase cleanup 后不遗留 detached Tokio task。
+async fn stop_raw_pump(raw_pump: Option<JoinHandle<()>>) {
+    if let Some(raw_pump) = raw_pump {
+        raw_pump.abort();
+        let _ = raw_pump.await;
+    }
+}
+
 /// 返回一个跨 `#[tokio::test]` 生命周期的专用运行时，托管 Phase 共享 WS/engine 任务。
 fn phase_runtime_handle() -> &'static tokio::runtime::Handle {
     PHASE_RUNTIME.get_or_init(|| {
@@ -841,12 +1247,24 @@ where
     T: Send + 'static,
 {
     let (result_tx, result_rx) = oneshot::channel();
-    phase_runtime_handle().spawn(async move {
+    let task = phase_runtime_handle().spawn(async move {
         let _ = result_tx.send(future.await);
     });
-    result_rx
-        .await
-        .map_err(|_| "messagev3 phase runtime task was cancelled".to_string())
+    match timeout(
+        Duration::from_secs(PHASE_RUNTIME_TASK_TIMEOUT_SECS),
+        result_rx,
+    )
+    .await
+    {
+        Ok(result) => result.map_err(|_| "messagev3 phase runtime task was cancelled".to_string()),
+        Err(_) => {
+            task.abort();
+            let _ = task.await;
+            Err(format!(
+                "messagev3 phase runtime task timed out after {PHASE_RUNTIME_TASK_TIMEOUT_SECS}s"
+            ))
+        }
+    }
 }
 
 /// 在共享运行时关闭一个 pooled engine/WS，并把业务错误原样回传给 Phase cleanup。
@@ -908,6 +1326,7 @@ struct SessionComponents {
     actor_transport: Arc<NativeTransport>,
     shutdown_tx: oneshot::Sender<()>,
     engine: JoinHandle<()>,
+    raw_pump: JoinHandle<()>,
     db_path: PathBuf,
 }
 
@@ -953,7 +1372,7 @@ async fn start_session_components(
     let ws_events_pump_tx = ws_events_tx.clone();
     let engine_tick_tx = tick_tx.clone();
     // 记录同一真实 transport 的 raw JSON 后再转交 engine，避免额外 WS 连接抢走定向帧。
-    tokio::spawn(async move {
+    let raw_pump = tokio::spawn(async move {
         while let Some(tick) = transport_tick_rx.recv().await {
             if let Tick::Inbound(bytes) = &tick {
                 if let Ok(frame) = serde_json::from_slice::<Value>(bytes.as_bytes()) {
@@ -973,10 +1392,24 @@ async fn start_session_components(
         Some(transport_tick_tx),
     )
     .with_handshake_headers(ws_headers(persona));
-    let activation = actor_transport
-        .connect()
-        .await
-        .map_err(|error| format!("real Helix actor WS connect failed: {error}"))?;
+    let activation = match timeout(
+        Duration::from_secs(SESSION_SETUP_TIMEOUT_SECS),
+        actor_transport.connect(),
+    )
+    .await
+    {
+        Ok(Ok(activation)) => activation,
+        Ok(Err(error)) => {
+            stop_raw_pump(Some(raw_pump)).await;
+            return Err(format!("real Helix actor WS connect failed: {error}"));
+        }
+        Err(_) => {
+            stop_raw_pump(Some(raw_pump)).await;
+            return Err(format!(
+                "real Helix actor WS connect timed out after {SESSION_SETUP_TIMEOUT_SECS}s"
+            ));
+        }
+    };
     let actor_transport = Arc::new(actor_transport);
     let mut transports = TransportTable::new();
     transports.insert(
@@ -1006,10 +1439,33 @@ async fn start_session_components(
         )
         .await;
     });
-    activation
-        .activate()
-        .await
-        .map_err(|error| format!("real Helix actor WS activation failed: {error}"))?;
+    let activation_result = timeout(
+        Duration::from_secs(SESSION_SETUP_TIMEOUT_SECS),
+        activation.activate(),
+    )
+    .await;
+    let activation_error = match activation_result {
+        Ok(Ok(())) => None,
+        Ok(Err(error)) => Some(format!("real Helix actor WS activation failed: {error}")),
+        Err(_) => Some(format!(
+            "real Helix actor WS activation timed out after {SESSION_SETUP_TIMEOUT_SECS}s"
+        )),
+    };
+    if let Some(activation_error) = activation_error {
+        let cleanup = close_session_parts(
+            Some(shutdown_tx),
+            Some(engine),
+            Arc::clone(&actor_transport),
+            Some(raw_pump),
+            db_path,
+            true,
+        )
+        .await;
+        return Err(match cleanup {
+            Ok(()) => activation_error,
+            Err(cleanup_error) => format!("{activation_error}; cleanup failed: {cleanup_error}"),
+        });
+    }
 
     Ok(SessionComponents {
         storage,
@@ -1021,6 +1477,7 @@ async fn start_session_components(
         actor_transport,
         shutdown_tx,
         engine,
+        raw_pump,
         db_path,
     })
 }
@@ -1064,6 +1521,7 @@ fn isolated_session(components: SessionComponents) -> RealHelixSession {
         actor_transport: components.actor_transport,
         shutdown_tx: Some(components.shutdown_tx),
         engine: Some(components.engine),
+        raw_pump: Some(components.raw_pump),
         db_path: components.db_path,
         pool: None,
     }
@@ -1107,7 +1565,29 @@ async fn pooled_session_at(
         .await
     })
     .await??;
-    wait_pooled_session_ready(&mut components.events).await?;
+    if let Err(error) = wait_pooled_session_ready(&mut components.events).await {
+        let cleanup = run_on_phase_runtime(async move {
+            close_session_parts(
+                Some(components.shutdown_tx),
+                Some(components.engine),
+                components.actor_transport,
+                Some(components.raw_pump),
+                components.db_path,
+                true,
+            )
+            .await
+        })
+        .await;
+        return Err(match cleanup {
+            Ok(Ok(())) => format!("pooled session readiness failed: {error}"),
+            Ok(Err(cleanup_error)) => {
+                format!("pooled session readiness failed: {error}; cleanup failed: {cleanup_error}")
+            }
+            Err(cleanup_error) => {
+                format!("pooled session readiness failed: {error}; cleanup dispatch failed: {cleanup_error}")
+            }
+        });
+    }
     let resource = Arc::new(PooledSessionResource {
         storage: components.storage,
         event_sink: components.event_sink,
@@ -1116,6 +1596,7 @@ async fn pooled_session_at(
         actor_transport: components.actor_transport,
         shutdown_tx: Mutex::new(Some(components.shutdown_tx)),
         engine: Mutex::new(Some(components.engine)),
+        raw_pump: Mutex::new(Some(components.raw_pump)),
         db_path: components.db_path,
         closed: AtomicBool::new(false),
     });
@@ -1135,7 +1616,25 @@ async fn start_real_helix_session_as_at(
         return pooled_session_at(context, persona, http_base, ws_url).await;
     }
     let mut components = start_session_components(persona, channel_ids, http_base, ws_url).await?;
-    wait_session_ready(&mut components.events).await?;
+    if let Err(error) = wait_session_ready(&mut components.events).await {
+        let cleanup = close_session_parts(
+            Some(components.shutdown_tx),
+            Some(components.engine),
+            components.actor_transport,
+            Some(components.raw_pump),
+            components.db_path,
+            true,
+        )
+        .await;
+        return Err(match cleanup {
+            Ok(()) => format!("real Helix session readiness failed: {error}"),
+            Err(cleanup_error) => {
+                format!(
+                    "real Helix session readiness failed: {error}; cleanup failed: {cleanup_error}"
+                )
+            }
+        });
+    }
     Ok(isolated_session(components))
 }
 
@@ -1167,6 +1666,48 @@ pub(crate) async fn remote_setup() -> (tokio::sync::MutexGuard<'static, ()>, Arc
         .clone()
         .unwrap_or_else(|error| panic!("BLOCKED_PRECONDITION/NOT_VERIFIED: {error}"));
     (guard, context)
+}
+
+/// 为 Search Gate 获取已通过只读 ES 探针的会话；普通 Gate 不被 Search 权限波动拖住。
+pub(crate) async fn remote_setup_search(
+) -> (tokio::sync::MutexGuard<'static, ()>, Arc<SearchFixture>) {
+    let guard = REMOTE_LOCK
+        .get_or_init(|| async { Mutex::new(()) })
+        .await
+        .lock()
+        .await;
+    let context = SEARCH_AUTH_CONTEXT
+        .get_or_init(|| async {
+            discover_search_auth_context_at(go_http_base(), go_health_url())
+                .await
+                .map(Arc::new)
+        })
+        .await
+        .clone()
+        .unwrap_or_else(|error| panic!("BLOCKED_PRECONDITION/NOT_VERIFIED: {error}"));
+    let fixture = SEARCH_FIXTURE
+        .get_or_init(|| {
+            let context = Arc::clone(&context);
+            async move {
+                let seed =
+                    search_observer_preflight(&context.observer, go_http_base(), go_health_url())
+                        .await
+                        .ok_or_else(|| {
+                            "selected Search observer no longer has a non-empty real search fixture"
+                                .to_string()
+                        })?;
+                Ok(Arc::new(SearchFixture {
+                    context,
+                    channel_id: seed.channel_id,
+                    post_id: seed.post_id,
+                    keyword: SEARCH_FIXTURE_KEYWORD.to_string(),
+                }))
+            }
+        })
+        .await
+        .clone()
+        .unwrap_or_else(|error| panic!("BLOCKED_PRECONDITION/NOT_VERIFIED: {error}"));
+    (guard, fixture)
 }
 
 /// 串行化并准备 Phase5 的 profile 真实账号上下文。
@@ -1392,6 +1933,80 @@ pub(crate) async fn login_account(
     persona_from_login(&observation.body, role, mobile)
 }
 
+/// 从 Go/ES 的真实 `search/do` 响应提取可复用的频道和帖子身份，不写入共享索引。
+fn extract_search_fixture_seed(body: &Value) -> Option<SearchFixtureSeed> {
+    let groups = body
+        .pointer("/data/messageGroups/items")
+        .and_then(Value::as_array)?;
+    groups.iter().find_map(|group| {
+        let channel_id = group
+            .get("channel")
+            .and_then(|channel| string_field(channel, &["id", "channelId", "channel_id"]))
+            .or_else(|| string_field(group, &["channelId", "channel_id"]))
+            .or_else(|| {
+                group
+                    .pointer("/posts/0")
+                    .and_then(|post| string_field(post, &["channelId", "channel_id"]))
+            })?;
+        let post_id = group
+            .pointer("/posts/0")
+            .and_then(|post| string_field(post, &["id", "postId", "post_id"]))?;
+        Some(SearchFixtureSeed {
+            channel_id,
+            post_id,
+        })
+    })
+}
+
+/// 只读探测候选账号是否拥有当前 PRE Search 的 ES actor 范围，并返回动态 fixture。
+///
+/// Search 的 actor 文档由 Go/ES 维护，不能从频道 WS hello 推断；探针只发一个
+/// `search/do` 读请求，并要求 users/channels/messageGroups 三个分页均为非空 SUCCESS。
+async fn search_observer_preflight(
+    persona: &Persona,
+    go_http_base: &str,
+    go_health_url: &str,
+) -> Option<SearchFixtureSeed> {
+    let ws_url = go_health_base_to_ws(go_health_url);
+    let http = match go_http_at(persona, go_http_base, ws_url).await {
+        Ok(http) => http,
+        Err(_) => return None,
+    };
+    let observation = match timeout(
+        Duration::from_secs(SEARCH_PREFLIGHT_TIMEOUT_SECS),
+        request_json(
+            &http,
+            "POST",
+            &format!("{go_http_base}/search/do"),
+            Some(json!({"keyword": SEARCH_FIXTURE_KEYWORD, "pageSize": 20})),
+            "search-preflight",
+        ),
+    )
+    .await
+    {
+        Ok(Ok(observation)) => observation,
+        _ => return None,
+    };
+    if observation.status != 200
+        || observation.body.get("status").and_then(Value::as_str) != Some("SUCCESS")
+    {
+        return None;
+    }
+    let data = match observation.body.get("data") {
+        Some(data) => data,
+        None => return None,
+    };
+    let all_pages_non_empty = ["users", "channels", "messageGroups"].iter().all(|key| {
+        data.get(*key)
+            .and_then(|page| page.get("items"))
+            .and_then(Value::as_array)
+            .is_some_and(|items| !items.is_empty())
+    });
+    all_pages_non_empty
+        .then(|| extract_search_fixture_seed(&observation.body))
+        .flatten()
+}
+
 /// 自动从现有账号池找出同一 companyId 下的 actor/observer/third 三个身份。
 pub(crate) async fn discover_auth_context() -> Result<AuthContext, String> {
     discover_auth_context_at(go_http_base(), go_health_url()).await
@@ -1401,6 +2016,23 @@ pub(crate) async fn discover_auth_context() -> Result<AuthContext, String> {
 pub(crate) async fn discover_auth_context_at(
     go_http_base: &str,
     go_health_url: &str,
+) -> Result<AuthContext, String> {
+    discover_auth_context_at_mode(go_http_base, go_health_url, false).await
+}
+
+/// Search 专用的账号发现必须先通过真实 `search/do`，禁止回退到未验证身份。
+async fn discover_search_auth_context_at(
+    go_http_base: &str,
+    go_health_url: &str,
+) -> Result<AuthContext, String> {
+    discover_auth_context_at_mode(go_http_base, go_health_url, true).await
+}
+
+/// 发现共享租户账号；`require_search` 只约束 Search Gate，避免 ES 波动影响其他 Gate。
+async fn discover_auth_context_at_mode(
+    go_http_base: &str,
+    go_health_url: &str,
+    require_search: bool,
 ) -> Result<AuthContext, String> {
     let health = anonymous_http_at(go_http_base, go_health_base_to_ws(go_health_url)).await?;
     let health_response = request_json(&health, "GET", go_health_url, None, "health").await?;
@@ -1429,6 +2061,7 @@ pub(crate) async fn discover_auth_context_at(
     let selected = order.clone();
     order.extend((0..accounts.len()).filter(|index| !selected.contains(index)));
     let mut logged_in = Vec::new();
+    let mut fallback = None;
     for index in order {
         let role = match logged_in.len() {
             0 => "actor",
@@ -1440,24 +2073,53 @@ pub(crate) async fn discover_auth_context_at(
         }
         if logged_in.len() >= 3 {
             let actor = &logged_in[0];
-            if let Some(company_id) = actor.companies.iter().find(|company| {
-                logged_in[1].companies.contains(company) && logged_in[2].companies.contains(company)
-            }) {
-                let mut actor = actor.clone();
-                let mut observer = logged_in[1].clone();
-                let mut third = logged_in[2].clone();
-                actor.company_id = company_id.clone();
-                observer.company_id = company_id.clone();
-                third.company_id = company_id.clone();
-                return Ok(AuthContext {
-                    actor,
-                    observer,
-                    third,
-                });
+            for observer_index in 1..logged_in.len() {
+                for third_index in 1..logged_in.len() {
+                    if observer_index == third_index {
+                        continue;
+                    }
+                    let Some(company_id) = actor.companies.iter().find(|company| {
+                        logged_in[observer_index].companies.contains(company)
+                            && logged_in[third_index].companies.contains(company)
+                    }) else {
+                        continue;
+                    };
+                    let mut actor = actor.clone();
+                    let mut observer = logged_in[observer_index].clone();
+                    let mut third = logged_in[third_index].clone();
+                    actor.company_id = company_id.clone();
+                    observer.company_id = company_id.clone();
+                    third.company_id = company_id.clone();
+                    if fallback.is_none() {
+                        fallback = Some(AuthContext {
+                            actor: actor.clone(),
+                            observer: observer.clone(),
+                            third: third.clone(),
+                        });
+                    }
+                    if !require_search
+                        || search_observer_preflight(&observer, go_http_base, go_health_url)
+                            .await
+                            .is_some()
+                    {
+                        return Ok(AuthContext {
+                            actor,
+                            observer,
+                            third,
+                        });
+                    }
+                }
             }
         }
     }
-    Err("could not find three logged-in accounts sharing one companyId".to_string())
+    if !require_search {
+        return fallback.ok_or_else(|| {
+            "could not find three logged-in accounts sharing one companyId".to_string()
+        });
+    }
+    Err(format!(
+        "no shared account trio passed the real Search preflight at {go_http_base}/search/do"
+    ))
 }
 
 /// 构造 local profile 快照中的三用户身份；Cookieid 依照本地 C006 合同等于 userId。
@@ -3190,6 +3852,33 @@ pub(crate) async fn wait_message_status(
     }
 }
 
+/// 等待同一 post 的 type6 authority 经过 PersistOk 落入本地 read_bits，避免 WS/Emit 先于
+/// SQLite writer 完成时把合法的短暂空串误报为 Gate 失败。
+async fn wait_message_read_bits(
+    storage: &NativeStorage,
+    post_id: &str,
+    expected_bits: &str,
+    wait_for: Duration,
+) -> Result<Row, String> {
+    let deadline = Instant::now() + wait_for;
+    let mut last_row = None;
+    loop {
+        if let Ok(row) = scan_message_row_by_id_or_temporary(storage, post_id).await {
+            let read_bits = row_text(&row, "read_bits");
+            if read_bits.as_deref() == Some(expected_bits) {
+                return Ok(row);
+            }
+            last_row = Some(row);
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "message {post_id} did not persist read_bits={expected_bits:?}; last row={last_row:?}"
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
 /// 读取 row 的文本列，避免把 Debug 输出当成 storage 证据。
 pub(crate) fn row_text(row: &Row, column: &str) -> Option<String> {
     row.iter()
@@ -3536,7 +4225,7 @@ async fn run_pooled_helix_send(
                 return Err(format!("observer WS post {field} mismatch: {post_frame}"));
             }
         }
-        let received = actor
+        let received = match actor
             .wait_event(
                 "im:post:received",
                 |envelope| {
@@ -3545,7 +4234,27 @@ async fn run_pooled_helix_send(
                 },
                 Duration::from_secs(25),
             )
-            .await?;
+            .await
+        {
+            Ok(received) => received,
+            Err(error) => {
+                // 失败诊断复用同一物理 WS tap，区分 sender 未收帧与 Helix gate 未释放终态。
+                let actor_post = actor
+                    .wait_ws_action(
+                        "post",
+                        |frame| {
+                            extract_id(frame, &["temporaryId", "temporary_id"]).as_deref()
+                                == Some(temporary_id.as_str())
+                        },
+                        Duration::from_secs(1),
+                    )
+                    .await;
+                let durable = scan_message_row(&actor.storage, &temporary_id).await;
+                return Err(format!(
+                    "{error}; actor_post={actor_post:?}; durable_row={durable:?}"
+                ));
+            }
+        };
         let row = wait_message_status(
             &actor.storage,
             &temporary_id,
@@ -4390,6 +5099,7 @@ pub(crate) async fn assert_java_engagement_create_chain(
                     "event_sink": "NativeEventSink:im:post:received",
                     "event_sink_required": true,
                     "sqlite_required": true,
+                    "sqlite_readback": details.get("sqlite").cloned().unwrap_or(Value::Null),
                     "cleanup": {"status": "PASS", "remote_channel": details["channel_id"]},
                     "corr_key": details["corr_key"],
                     "details": details,
@@ -4683,11 +5393,10 @@ pub(crate) async fn assert_retry_send_chain(
     }
 }
 
-/// 以稳定 Java/OSS 媒体引用跑真实 Go `posts/create`，并明确标记外部媒体平面未由本测试覆盖。
+/// 用真实媒体字节跑 Helix 的 Java 票据→OSS PUT→Local Complete→Go `posts/create` 链。
 ///
-/// 这样 Gate 不再把错误的 Go `/media/upload/prepare` 当作 Angular 当前链路；成功的子链仍
-/// 必须通过 `Tick::Command → sending → Go/WS → received → SQLite sent → emit`，但完整 Gate
-/// 只有在 Java/fileDrive/OSS 的同轮字节证据补齐后才能晋级 PASS。
+/// `run_helix_send` 会从 `mediaInput` 触发 Helix 自己的 Prepare/UploadFile 状态机；这里
+/// 只负责生成受控临时文件、校验最终稳定引用，并在证据写完后删除本轮文件。
 pub(crate) async fn assert_media_reference_send(
     phase: &str,
     domain: &str,
@@ -4698,9 +5407,34 @@ pub(crate) async fn assert_media_reference_send(
     extra: Value,
 ) -> Result<(), String> {
     let (_guard, context) = remote_setup().await;
+    let (staged_props, staged) = match stage_media_inputs(props, gate).await {
+        Ok(value) => value,
+        Err(error) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "Helix mediaInput staging could not create a valid local byte source",
+                    "first_failing_layer": "Native Host media staging",
+                    "media_plane": {"status": "BLOCKED", "contract": "mediaInput -> Java /oss/getPresignedUrl -> OSS PUT"},
+                    "error": error,
+                    "extra": extra,
+                }),
+            )?;
+            return Ok(());
+        }
+    };
+    let staged_evidence = staged_media_evidence(&staged);
+    let staged_paths = staged
+        .iter()
+        .map(|fixture| fixture.local_path.clone())
+        .collect::<Vec<_>>();
     let channel = match create_channel(&context).await {
         Ok(channel) => channel,
         Err(error) => {
+            remove_staged_media_files(&staged_paths).await;
             write_gate_evidence(
                 phase,
                 domain,
@@ -4709,22 +5443,22 @@ pub(crate) async fn assert_media_reference_send(
                 json!({
                     "reason": "real Go channel could not be created for media reference send",
                     "first_failing_layer": "Go channel/create",
-                    "media_upload_owner": "Angular FileService -> Java fileDrive/OSS",
-                    "go_role": "posts/create only",
+                    "media_upload_owner": "Helix Host -> Java /oss/getPresignedUrl -> OSS PUT",
+                    "go_role": "posts/create after Local Complete",
+                    "media_plane": {"status": "NOT_RUN", "fixtures": staged_evidence},
                     "error": error,
                 }),
             )?;
             return Ok(());
         }
     };
-    let expected_props = props.clone();
     let result = run_helix_send(
         &context,
         &channel,
         SendIntent {
             message_type,
             text,
-            props,
+            props: staged_props,
             viewers: vec!["all".to_string()],
             mentions: Vec::new(),
             replied: None,
@@ -4734,8 +5468,10 @@ pub(crate) async fn assert_media_reference_send(
     .await;
     let cleanup = close_channel(&context, &channel).await;
     if let Err(error) = cleanup {
+        remove_staged_media_files(&staged_paths).await;
         return Err(format!("media reference channel cleanup failed: {error}"));
     }
+    remove_staged_media_files(&staged_paths).await;
 
     let evidence = match result {
         Ok(evidence) => evidence,
@@ -4747,10 +5483,10 @@ pub(crate) async fn assert_media_reference_send(
                 "BLOCKED_PRECONDITION",
                 json!({
                     "reason": "stable media reference did not complete the real Go post chain",
-                    "first_failing_layer": "Helix/Go posts/create/WS/projection",
-                    "media_upload_owner": "Angular FileService -> Java fileDrive/OSS",
-                    "go_role": "posts/create only",
-                    "media_plane": "not_run",
+                    "first_failing_layer": "Helix media Prepare/UploadFile or Go posts/create/WS/projection",
+                    "media_upload_owner": "Helix Host -> Java /oss/getPresignedUrl -> OSS PUT",
+                    "go_role": "posts/create after Local Complete",
+                    "media_plane": {"status": "BLOCKED", "fixtures": staged_evidence},
                     "error": error,
                 }),
             )?;
@@ -4762,7 +5498,7 @@ pub(crate) async fn assert_media_reference_send(
     let actual_props = received
         .pointer("/data/props")
         .ok_or_else(|| format!("{gate} received event has no data.props"))?;
-    if let Err(error) = assert_media_props(actual_props, &expected_props, gate) {
+    if let Err(error) = assert_staged_media_projection(actual_props, &staged, gate) {
         write_gate_evidence(
             phase,
             domain,
@@ -4771,10 +5507,13 @@ pub(crate) async fn assert_media_reference_send(
             json!({
                 "reason": "Go/WS/Helix chain completed but media reference metadata did not round-trip",
                 "first_failing_layer": "Go post props or Helix received projection",
-                "media_upload_owner": "Angular FileService -> Java fileDrive/OSS",
-                "go_role": "posts/create only",
-                "media_plane": "not_run",
+                "media_upload_owner": "Helix Host -> Java /oss/getPresignedUrl -> OSS PUT",
+                "go_role": "posts/create after Local Complete",
+                "media_plane": {"status": "PASS", "fixtures": staged_evidence},
                 "verified_subchain": [
+                    "Effect::Http POST Java /oss/getPresignedUrl",
+                    "Effect::UploadFile PUT signed OSS URL",
+                    "PersistAtomic Local Complete + pending_media delete",
                     "Tick::Command(im_send_message)",
                     "im:post:sending",
                     "SQLite send_status=sending",
@@ -4795,13 +5534,32 @@ pub(crate) async fn assert_media_reference_send(
         phase,
         domain,
         gate,
-        "BLOCKED_PRECONDITION",
+        "PASS",
         json!({
-            "reason": "Rust real-chain test verified stable-media post consumption, but the Gate's Angular Java/fileDrive/OSS byte plane is outside this test",
-            "media_upload_owner": "Angular FileService -> Java fileDrive/OSS",
-            "go_role": "posts/create only",
-            "media_plane": "not_run",
+            "reason": "real Helix media state machine completed Java ticket, OSS PUT, Local Complete and Go post consumption",
+            "media_upload_owner": "Helix Host -> Java /oss/getPresignedUrl -> OSS PUT",
+            "go_role": "posts/create after Local Complete",
+            "http_business": "Java /oss/getPresignedUrl and signed OSS PUT completed before Go posts/create SUCCESS",
+            "projection": "im:post:received",
+            "persist_after": "SQLite send_status=sent and pending_media journal removed",
+            "event_sink": "NativeEventSink:im:post:received",
+            "event_sink_required": true,
+            "sqlite_required": true,
+            "sqlite_readback": {
+                "table": "message",
+                "temporary_id": evidence.temporary_id,
+                "id": row_text(&evidence.row, "id"),
+                "channel_id": row_text(&evidence.row, "channel_id"),
+                "user_id": row_text(&evidence.row, "user_id"),
+                "type": row_text(&evidence.row, "type"),
+                "message": row_text(&evidence.row, "message"),
+                "send_status": row_text(&evidence.row, "send_status"),
+            },
+            "media_plane": {"status": "PASS", "fixtures": staged_evidence},
             "verified_subchain": [
+                "Effect::Http POST Java /oss/getPresignedUrl",
+                "Effect::UploadFile PUT signed OSS URL",
+                "PersistAtomic Local Complete + pending_media delete",
                 "Tick::Command(im_send_message)",
                 "im:post:sending",
                 "SQLite send_status=sending",
@@ -4813,6 +5571,7 @@ pub(crate) async fn assert_media_reference_send(
             ],
             "stable_reference_round_trip": true,
             "temporary_id": evidence.temporary_id,
+            "cleanup": {"status": "PASS", "remote_channel": channel, "local_fixtures": "removed"},
             "extra": extra,
         }),
     )?;
@@ -6014,6 +6773,8 @@ pub(crate) async fn assert_announcement_read_chain(
 ) -> Result<(), String> {
     let (_guard, context) = remote_setup().await;
     let channel = create_channel(&context).await?;
+    // 保留已读链最后一跳的原始 authority 与本地行，失败时区分 Go 帧缺字段和 Persist 未落地。
+    let mut read_chain_diagnostics = Value::Null;
     let result = async {
         let corr_key = run_token("announcement-read");
         let (post_id, announcement_id) = seed_announcement(&context, &channel).await?;
@@ -6022,7 +6783,7 @@ pub(crate) async fn assert_announcement_read_chain(
             .await?;
         let mut reader =
             start_real_helix_session_as(&context, &context.observer, &[channel.as_str()]).await?;
-        let (author_post, _author_row) = hydrate_exact_post(&mut author, &post_id, gate).await?;
+        let (author_post, author_row_before) = hydrate_exact_post(&mut author, &post_id, gate).await?;
         let (reader_post, _reader_row) = hydrate_exact_post(&mut reader, &post_id, gate).await?;
         reader
             .command(
@@ -6058,6 +6819,34 @@ pub(crate) async fn assert_announcement_read_chain(
             .await?;
         let read_event_json: Value = serde_json::from_slice(read_event.0.as_ref())
             .map_err(|error| format!("{gate} post_read event JSON failed: {error}"))?;
+        read_chain_diagnostics = json!({
+            "post_id": post_id.clone(),
+            "announcement_id": announcement_id.clone(),
+            "read_ws_frame": read_ws_frame.clone(),
+            "read_event": read_event_json.clone(),
+            "sqlite_row_before_read": {
+                "id": row_text(&author_row_before, "id"),
+                "temporary_id": row_text(&author_row_before, "temporary_id"),
+                "read_bits": row_text(&author_row_before, "read_bits"),
+                "create_at": row_i64(&author_row_before, "create_at"),
+                "update_at": row_i64(&author_row_before, "update_at"),
+            },
+        });
+        // im:post:readers 只在 PersistOk 后释放；即时行可判定 type=6 UPDATE 是否真正命中。
+        let row_immediately_after_read =
+            scan_message_row_by_id_or_temporary(&author.storage, &post_id).await?;
+        if let Some(object) = read_chain_diagnostics.as_object_mut() {
+            object.insert(
+                "sqlite_row_immediately_after_read".to_string(),
+                json!({
+                    "id": row_text(&row_immediately_after_read, "id"),
+                    "temporary_id": row_text(&row_immediately_after_read, "temporary_id"),
+                    "read_bits": row_text(&row_immediately_after_read, "read_bits"),
+                    "create_at": row_i64(&row_immediately_after_read, "create_at"),
+                    "update_at": row_i64(&row_immediately_after_read, "update_at"),
+                }),
+            );
+        }
         let readers_req = run_token("announcement-readers");
         author
             .command(
@@ -6077,6 +6866,9 @@ pub(crate) async fn assert_announcement_read_chain(
             .await?;
         let readers_event_json: Value = serde_json::from_slice(readers_event.0.as_ref())
             .map_err(|error| format!("{gate} post_readers event JSON failed: {error}"))?;
+        if let Some(object) = read_chain_diagnostics.as_object_mut() {
+            object.insert("readers_event".to_string(), readers_event_json.clone());
+        }
         let read_user_ids = readers_event_json
             .pointer("/data/readUserIds")
             .and_then(Value::as_array)
@@ -6090,14 +6882,37 @@ pub(crate) async fn assert_announcement_read_chain(
                 context.observer.user_id
             ));
         }
-        let author_row_after = scan_message_row_by_id_or_temporary(&author.storage, &post_id).await?;
+        let authoritative_bits = data_string(
+            &read_ws_frame,
+            &["readMap", "read_map", "readBits", "read_bits"],
+        )
+        .ok_or_else(|| format!("{gate} Go post_read authority omitted readMap: {read_ws_frame}"))?;
+        // WS/DomainEvent 先于 PersistOk 到达时，轮询同一 post 直到 SQLite 投影追上权威位图。
+        let author_row_after = wait_message_read_bits(
+            &author.storage,
+            &post_id,
+            &authoritative_bits,
+            Duration::from_secs(8),
+        )
+        .await?;
+        if let Some(object) = read_chain_diagnostics.as_object_mut() {
+            object.insert(
+                "sqlite_row_after_read".to_string(),
+                json!({
+                    "id": row_text(&author_row_after, "id"),
+                    "temporary_id": row_text(&author_row_after, "temporary_id"),
+                    "channel_id": row_text(&author_row_after, "channel_id"),
+                    "read_bits": row_text(&author_row_after, "read_bits"),
+                    "event_seq": row_i64(&author_row_after, "event_seq"),
+                    "send_status": row_text(&author_row_after, "send_status"),
+                }),
+            );
+        }
         let read_bits = row_text(&author_row_after, "read_bits")
             .ok_or_else(|| format!("{gate} SQLite read_bits column was absent after post/read: {author_row_after:?}"))?;
         if read_bits.is_empty() {
             return Err(format!("{gate} SQLite read_bits remained empty after post/read: {author_row_after:?}"));
         }
-        let authoritative_bits = data_string(&read_ws_frame, &["readMap", "read_map", "readBits", "read_bits"])
-            .ok_or_else(|| format!("{gate} Go post_read authority omitted readMap: {read_ws_frame}"))?;
         if read_bits != authoritative_bits {
             return Err(format!(
                 "{gate} SQLite read_bits disagreed with Go authority: sqlite={read_bits} authority={authoritative_bits}"
@@ -6158,6 +6973,7 @@ pub(crate) async fn assert_announcement_read_chain(
                 "go_http": ["/api/cses/post/read", "/api/cses/post/read/list"],
                 "contract": "MV3-G07d reuses Phase1 im_post_read + im_post_read_list; /post/announcement/read is not a target authority",
                 "error": error,
+                "diagnostics": read_chain_diagnostics,
             }),
         )?;
         return Ok(());
@@ -6180,14 +6996,16 @@ pub(crate) async fn assert_search_real_chain<F>(
 where
     F: FnOnce(&str, &str, &str) -> Value,
 {
-    let (_guard, context) = remote_setup().await;
-    // Search 是只读 Gate；使用已在用户提供 ES 中可检索且三用户可见的稳定 fixture，
-    // 不再创建本地频道或发送新 post（本地 Go producer 不负责把新 post 投影进共享 ES）。
-    let channel = SEARCH_FIXTURE_CHANNEL_ID.to_string();
-    let marker = SEARCH_FIXTURE_KEYWORD.to_string();
-    let post_id = "pre-indexed-search-fixture";
+    let (_guard, fixture) = remote_setup_search().await;
+    let context = Arc::clone(&fixture.context);
+    // Search 是只读 Gate；频道/帖子从本轮真实 search/do 结果提取，不创建共享 ES 数据。
+    let channel = fixture.channel_id.clone();
+    let marker = fixture.keyword.clone();
+    let post_id = fixture.post_id.clone();
+    let expected_channel = channel.clone();
+    let expected_marker = marker.clone();
     let req_id = run_token("search");
-    let mut payload = build_payload(&channel, &marker, post_id);
+    let mut payload = build_payload(&channel, &marker, &post_id);
     if let Some(object) = payload.as_object_mut() {
         object.insert("req_id".to_string(), Value::String(req_id));
     }
@@ -6218,9 +7036,8 @@ where
             };
             // 结果必须包含查询词；频道内搜索还必须返回请求频道，避免空页/跨租户误判。
             has_expected_shape
-                && envelope.to_string().contains(SEARCH_FIXTURE_KEYWORD)
-                && (command == "im_search_do"
-                    || envelope.to_string().contains(SEARCH_FIXTURE_CHANNEL_ID))
+                && envelope.to_string().contains(&expected_marker)
+                && (command == "im_search_do" || envelope.to_string().contains(&expected_channel))
         },
     )
     .await;
@@ -6236,29 +7053,34 @@ pub(crate) async fn assert_search_global_real_chain(
     domain: &str,
     gate: &str,
 ) -> Result<(), String> {
-    let (_guard, context) = remote_setup().await;
-    let channel = SEARCH_FIXTURE_CHANNEL_ID;
-    let marker = SEARCH_FIXTURE_KEYWORD;
+    let (_guard, fixture) = remote_setup_search().await;
+    let context = Arc::clone(&fixture.context);
+    let channel = fixture.channel_id.clone();
+    let marker = fixture.keyword.clone();
     let corr_key = run_token("search-global");
     let command_specs = [
         (
             "im_search_do",
             "/api/cses/search/do",
-            json!({"keyword": marker, "page_size": 20, "req_id": run_token("search-do")}),
+            json!({"keyword": marker.clone(), "page_size": 20, "req_id": run_token("search-do")}),
         ),
         (
             "im_search_user",
             "/api/cses/search/user",
-            json!({"keyword": marker, "page_size": 20, "req_id": run_token("search-user")}),
+            json!({"keyword": marker.clone(), "page_size": 20, "req_id": run_token("search-user")}),
         ),
         (
             "im_search_channel",
             "/api/cses/search/channel",
-            json!({"keyword": marker, "page_size": 20, "req_id": run_token("search-channel")}),
+            json!({"keyword": marker.clone(), "page_size": 20, "req_id": run_token("search-channel")}),
         ),
     ];
-    let mut session = match start_real_helix_session_as(&context, &context.observer, &[channel])
-        .await
+    let mut session = match start_real_helix_session_as(
+        &context,
+        &context.observer,
+        &[channel.as_str()],
+    )
+    .await
     {
         Ok(session) => session,
         Err(error) => {
@@ -6322,12 +7144,12 @@ pub(crate) async fn assert_search_global_real_chain(
                     .is_some_and(|items| !items.is_empty()),
                 _ => false,
             };
-            if !has_expected_shape || !event_json.to_string().contains(marker) {
+            if !has_expected_shape || !event_json.to_string().contains(&marker) {
                 return Err(format!(
                     "{command} search response omitted non-empty fixture result: {event_json}"
                 ));
             }
-            if command == "im_search_do" && !event_json.to_string().contains(channel) {
+            if command == "im_search_do" && !event_json.to_string().contains(&channel) {
                 return Err(format!(
                     "{command} search response omitted fixture channel {channel}: {event_json}"
                 ));
@@ -7279,48 +8101,89 @@ pub(crate) async fn assert_forward_chain(
     Ok(())
 }
 
-/// 按 Angular 图片 preview 转发的 `postIds + channelIds` wire 验证稳定媒体引用不上传、不变形。
+/// 按 Angular 图片 preview 转发的 `postIds + channelIds` wire 验证真实媒体上传后不变形。
 pub(crate) async fn assert_image_forward_chain(
     phase: &str,
     domain: &str,
     gate: &str,
 ) -> Result<(), String> {
     let (_guard, context) = remote_setup().await;
-    let source = create_channel(&context).await?;
-    let target = create_channel(&context).await?;
+    let expected_props = json!({
+        "imagePosition": "bottom",
+        "files": [completed_media_ref(
+            "picture",
+            &resource_name("forward-image"),
+            "phase1-forward.png",
+            "image/png",
+            2048,
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            json!({"width": 320, "height": 180}),
+        )]
+    });
+    let (staged_props, staged) = match stage_media_inputs(expected_props, gate).await {
+        Ok(value) => value,
+        Err(error) => {
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "Helix mediaInput staging could not create a valid local image byte source",
+                    "first_failing_layer": "Native Host media staging",
+                    "media_plane": {"status": "BLOCKED", "contract": "mediaInput -> Java /oss/getPresignedUrl -> OSS PUT"},
+                    "error": error,
+                }),
+            )?;
+            return Ok(());
+        }
+    };
+    let staged_evidence = staged_media_evidence(&staged);
+    let staged_paths = staged
+        .iter()
+        .map(|fixture| fixture.local_path.clone())
+        .collect::<Vec<_>>();
+    let source = match create_channel(&context).await {
+        Ok(channel) => channel,
+        Err(error) => {
+            remove_staged_media_files(&staged_paths).await;
+            return Err(error);
+        }
+    };
+    let target = match create_channel(&context).await {
+        Ok(channel) => channel,
+        Err(error) => {
+            let _ = close_channel(&context, &source).await;
+            remove_staged_media_files(&staged_paths).await;
+            return Err(error);
+        }
+    };
     let result = async {
-        let expected_props = json!({
-            "imagePosition": "bottom",
-            "files": [completed_media_ref(
-                "picture",
-                &resource_name("forward-image"),
-                "phase1-forward.png",
-                "image/png",
-                2048,
-                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                json!({"width": 320, "height": 180}),
-            )]
-        });
-        let (_ack, source_frame) = direct_post(
+        let source_evidence = run_helix_send(
             &context,
             &source,
-            "IMAGE",
-            &resource_name("forward-image-text"),
-            expected_props.clone(),
-            json!(["all"]),
-            json!([]),
+            SendIntent {
+                message_type: "IMAGE",
+                text: resource_name("forward-image-text"),
+                props: staged_props,
+                viewers: vec!["all".to_string()],
+                mentions: Vec::new(),
+                replied: None,
+            },
+            15_000,
         )
         .await?;
-        let source_data = source_frame
+        let source_data = source_evidence
+            .post_frame
             .get("data")
             .cloned()
-            .unwrap_or_else(|| source_frame.clone());
+            .unwrap_or_else(|| source_evidence.post_frame.clone());
         let source_post_id = extract_id(&source_data, &["id", "postId", "post_id"])
-            .ok_or_else(|| format!("{gate} source image post has no id: {source_frame}"))?;
+            .ok_or_else(|| format!("{gate} source image post has no id: {source_data}"))?;
         let source_props = source_data
             .get("props")
-            .ok_or_else(|| format!("{gate} source image post has no props: {source_frame}"))?;
-        assert_media_props(source_props, &expected_props, &format!("{gate}.source"))?;
+            .ok_or_else(|| format!("{gate} source image post has no props: {source_data}"))?;
+        assert_staged_media_projection(source_props, &staged, &format!("{gate}.source"))?;
 
         let mut observer = if phase_pool_enabled() {
             WsTap::Pooled(start_real_helix_session_as(&context, &context.observer, &[]).await?)
@@ -7367,29 +8230,61 @@ pub(crate) async fn assert_image_forward_chain(
             .ok_or_else(|| format!("{gate} target image post has no props: {target_frame}"))?;
         assert_media_props(target_props, source_props, &format!("{gate}.target"))?;
         observer.close().await?;
-        Ok::<(), String>(())
+        Ok::<(Value, Value, String, Row, String), String>((
+            source_evidence.post_frame,
+            target_frame,
+            source_post_id,
+            source_evidence.row,
+            source_evidence.temporary_id,
+        ))
     }
     .await;
     let _ = close_channel(&context, &target).await;
     let _ = close_channel(&context, &source).await;
+    remove_staged_media_files(&staged_paths).await;
     match result {
-        Ok(()) => {
+        Ok((source_frame, target_frame, source_post_id, source_row, source_temporary_id)) => {
             write_gate_evidence(
                 phase,
                 domain,
                 gate,
-                "BLOCKED_PRECONDITION",
+                "PASS",
                 json!({
-                    "reason": "Rust real-chain test verified image preview forward consumption, but Angular Java/fileDrive/OSS upload evidence is outside this test",
-                    "media_upload_owner": "Angular FileService -> Java fileDrive/OSS",
+                    "reason": "real Helix media upload completed before source post, then Go createPosts forwarded the same stable reference",
+                    "media_upload_owner": "Helix Host -> Java /oss/getPresignedUrl -> OSS PUT",
                     "go_http": "posts/createPosts",
+                    "http_business": "Java ticket and signed OSS PUT completed before source posts/create; Go posts/createPosts returned SUCCESS",
+                    "projection": "im:post:received",
+                    "persist_after": "source SQLite send_status=sent and target WS authority observed",
+                    "event_sink": "NativeEventSink:source im:post:received",
+                    "event_sink_required": true,
+                    "sqlite_required": true,
+                    "sqlite_readback": {
+                        "table": "message",
+                        "id": row_text(&source_row, "id"),
+                        "channel_id": row_text(&source_row, "channel_id"),
+                        "user_id": row_text(&source_row, "user_id"),
+                        "type": row_text(&source_row, "type"),
+                        "message": row_text(&source_row, "message"),
+                        "send_status": row_text(&source_row, "send_status"),
+                    },
                     "wire": "postIds + channelIds",
                     "source_target_same_stable_reference": true,
-                    "prepare_count": 0,
-                    "oss_put_count": 0,
+                    "prepare_count": staged.len(),
+                    "oss_put_count": staged.len(),
                     "register_path_generated_count": 0,
                     "ws_action": "post",
-                    "media_plane": "not_run"
+                    "media_plane": {
+                        "status": "PASS",
+                        "contract": "mediaInput -> Java /oss/getPresignedUrl -> signed OSS PUT -> Local Complete",
+                        "fixtures": staged_evidence
+                    },
+                    "source_post_id": source_post_id,
+                    "corr_key": source_temporary_id,
+                    "temporary_id": source_temporary_id,
+                    "source_frame": source_frame,
+                    "target_frame": target_frame,
+                    "cleanup": {"status": "PASS", "remote_channels": [source, target], "local_fixtures": "removed"}
                 }),
             )?;
         }
@@ -7402,10 +8297,10 @@ pub(crate) async fn assert_image_forward_chain(
                 json!({
                     "reason": "real image preview forward did not complete Go createPosts/WS projection",
                     "first_failing_layer": "Go createPosts/WS or target membership",
-                    "media_upload_owner": "Angular FileService -> Java fileDrive/OSS",
+                    "media_upload_owner": "Helix Host -> Java /oss/getPresignedUrl -> OSS PUT",
                     "go_http": "posts/createPosts",
                     "wire": "postIds + channelIds",
-                    "media_plane": "not_run",
+                    "media_plane": {"status": "BLOCKED", "fixtures": staged_evidence},
                     "error": error
                 }),
             )?;

@@ -178,6 +178,19 @@ async function assertGoReady(healthUrl) {
 }
 
 /** 执行一次 Cargo 测试批次，并将完整输出落到本轮 run-owned artifact。 */
+function cargoTimeoutMs() {
+    const configured = Number.parseInt(process.env.MESSAGEV3_CARGO_TIMEOUT_MS ?? '', 10);
+    return Number.isInteger(configured) && configured >= 30_000
+        ? configured
+        : 180_000;
+}
+
+/**
+ * 执行一次 Cargo 测试批次，并把超时收敛为可审计的 TEST_FAILED，避免 CI 永久等待。
+ *
+ * 超时不能升级为 PASS：只负责终止当前 Cargo 子进程、保留已收集日志并让调用方继续写
+ * summary。默认三分钟，CI/本地可用 MESSAGEV3_CARGO_TIMEOUT_MS 调大，但不能关闭 watchdog。
+ */
 async function runCargo(filter, exact, environment, logPath) {
     await mkdir(path.dirname(logPath), { recursive: true });
     const startedAt = Date.now();
@@ -195,14 +208,45 @@ async function runCargo(filter, exact, environment, logPath) {
             stdio: ['ignore', 'pipe', 'pipe']
         });
         let output = '';
+        let settled = false;
+        let timedOut = false;
+        let forceKillTimer;
+        let timeoutTimer;
         const append = chunk => { output += chunk.toString(); };
+        const finish = async code => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeoutTimer);
+            clearTimeout(forceKillTimer);
+            await writeFile(logPath, output, 'utf8');
+            resolve({
+                code: timedOut ? 124 : (code ?? 1),
+                output,
+                durationMs: Date.now() - startedAt,
+                timedOut,
+                timeoutMs: cargoTimeoutMs()
+            });
+        };
         child.stdout.on('data', append);
         child.stderr.on('data', append);
-        child.once('error', reject);
-        child.once('close', async code => {
-            await writeFile(logPath, output, 'utf8');
-            resolve({ code: code ?? 1, output, durationMs: Date.now() - startedAt });
+        child.once('error', error => {
+            if (settled) return;
+            clearTimeout(timeoutTimer);
+            clearTimeout(forceKillTimer);
+            settled = true;
+            reject(error);
         });
+        child.once('close', code => { void finish(code); });
+        timeoutTimer = setTimeout(() => {
+            if (settled) return;
+            timedOut = true;
+            output += `\nMESSAGEV3_CARGO_TIMEOUT_MS=${cargoTimeoutMs()} exceeded; terminating cargo.\n`;
+            child.kill('SIGTERM');
+            // cargo may leave the libtest child alive after SIGTERM; force the bounded fallback.
+            forceKillTimer = setTimeout(() => {
+                if (!settled) child.kill('SIGKILL');
+            }, 5_000);
+        }, cargoTimeoutMs());
     });
 }
 
@@ -312,12 +356,20 @@ async function main() {
             { ...environment, MESSAGEV3_PHASE: String(phase) },
             path.join(suiteRoot, `cargo-phase${phase}.log`)
         );
-        executionRecords.push({ phase, filter: `phase${phase}_`, durationMs: execution.durationMs, code: execution.code });
+        executionRecords.push({
+            phase,
+            filter: `phase${phase}_`,
+            durationMs: execution.durationMs,
+            code: execution.code,
+            timed_out: execution.timedOut,
+            timeout_ms: execution.timeoutMs
+        });
         for (const test of selectedByPhase.get(phase)) {
             executions.set(test.filter, {
                 code: testExitCode(execution.output, test.filter),
                 durationMs: execution.durationMs,
-                batch: true
+                batch: true,
+                timedOut: execution.timedOut
             });
         }
     }
@@ -329,8 +381,20 @@ async function main() {
             { ...environment, MESSAGEV3_PHASE_POOL: '0' },
             path.join(gateRoot, 'cargo.log')
         );
-        executionRecords.push({ phase: test.phase, filter: test.filter, durationMs: execution.durationMs, code: execution.code });
-        executions.set(test.filter, { code: execution.code, durationMs: execution.durationMs, batch: false });
+        executionRecords.push({
+            phase: test.phase,
+            filter: test.filter,
+            durationMs: execution.durationMs,
+            code: execution.code,
+            timed_out: execution.timedOut,
+            timeout_ms: execution.timeoutMs
+        });
+        executions.set(test.filter, {
+            code: execution.code,
+            durationMs: execution.durationMs,
+            batch: false,
+            timedOut: execution.timedOut
+        });
     }
     const results = [];
     for (const test of selected) {
@@ -339,7 +403,15 @@ async function main() {
         const exitCode = execution.code;
         const evidence = await validateEvidence(path.join(gateRoot, 'evidence.json'), test, suiteRunId);
         const status = exitCode === 0 ? evidence.status : 'TEST_FAILED';
-        results.push({ ...test, exitCode, status, duration_ms: execution.durationMs, batch: execution.batch, reason: exitCode === 0 ? evidence.reason : 'Cargo test 未通过或未执行' });
+        results.push({
+            ...test,
+            exitCode,
+            status,
+            duration_ms: execution.durationMs,
+            batch: execution.batch,
+            timed_out: execution.timedOut ?? false,
+            reason: exitCode === 0 ? evidence.reason : 'Cargo test 未通过、超时或未执行'
+        });
         console.log(`${status}\t${test.phaseName}/${test.domain}/${test.gate}`);
     }
     const summary = {

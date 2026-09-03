@@ -2,29 +2,50 @@
 
 > 交接范围：`/System/Volumes/Data/workspace/angular/visual/helix`
 >
-> 更新时间：2026-09-03（Asia/Shanghai）
+> 更新时间：2026-09-04（Asia/Shanghai）
 >
-> 当前结论：`PARTIAL / PRE_REDEPLOY_REQUIRED`
+> 当前结论：`GREEN / PRE 全量 83/83，BLOCKED_PRECONDITION=0`
 
 ```text
 AGENT_HANDOFF/v1
-state: partial
+state: green
 scope: helix-messagev3-real-chain
 worktree: /System/Volumes/Data/workspace/angular/visual/helix
 branch: reactor/MessageV3-helix
-head: b361b05a
-upstream: origin/reactor/MessageV3-helix @ afb58c80 (local ahead 3, behind 1)
+implementation-head: 96634ed8（Helix 业务修复 71fe8670 + real-chain harness 96634ed8）
+upstream: origin/reactor/MessageV3-helix（本任务未自动 push）
 gate-denominator: 83 (Phase1 32 / Phase2 16 / Phase3 15 / Phase4 12 / Phase5 8)
 default-environment: pre
-real-chain-status: PRE_REDEPLOY_REQUIRED
+real-chain-status: 83/83 PASS；TEST_FAILED=0，NOT_VERIFIED=0，BLOCKED_PRECONDITION=0
 ```
+
+## 0. 2026-09-04 当前推进快照
+
+- 最终完整 PRE suite：`messagev3-1788452083888-89154`，**83/83 PASS**，总耗时
+  `54.105s`；按 5 个 Phase 批次执行、每个 Phase 最多 5 个活跃频道、账号级 WS/engine/
+  SQLite 复用开启，5 个 Cargo 批次均未超时。前一轮
+  `messagev3-1788451617448-81346` 也为 83/83，说明最终结果不是单次偶然绿色。
+- 上传域使用真实 MessageV3/Helix 媒体链：本地字节 → Java `/oss/getPresignedUrl` →
+  签名 OSS PUT → Helix Local Complete → Go `posts/create` → WS → SQLite →
+  NativeEventSink；6 个上传 Gate 全部通过且本轮 fixture 已清理。
+- G07D 根因是 type=6 `post_read` 专属位图落库后，又被缺失 `readBits` 的 type=1
+  canonical stream 覆盖为空。在线、sync/readback、gap/too-long 的 type=1 upsert 现均保护
+  已有非空 `read_bits`；type=6 只有明确携带 read bits 才写专属 patch。
+- G01H/G01K 的偶发终态超时由首发过度依赖 sender WS echo 引起。首次发送和 retry 现在都在
+  HTTP admission 后启动有界 Go history readback；WS echo 先到时仍幂等结算，readback 不会
+  提前发布 sent。
+- `CHAIN-TXT-G02` 与所有 Phase cleanup 均有 watchdog 和有界释放；本轮无清理挂起。
+  `cargo test -p helix-im` 全包通过；`artifacts/` 和
+  `docs/Cargo私仓管理员执行Prompt.md` 仍为用户未跟踪文件，不纳入提交或删除。
 
 ## 1. 给接手人的最短结论
 
-1. 当前 `phase1-5-real-chain.mjs --all` 的正式分母是 **83 个可执行 Gate**，不是历史客户端合同的 92 个。
+1. 当前 `phase1-5-real-chain.mjs --all` 的正式分母是 **83 个可执行 Gate**，不是历史客户端合同的 92 个；9 个非 Go/Helix Gate 已从执行分母移除。
 2. 默认运行环境是 `pre`，Go HTTP、Go WS 和 Java API 均指向 PRE；`local` 仅在显式切换时使用。
-3. 当前 Helix 代码已经包含真实发送的资源清理和频道回收修复（`b361b05a`）。Go 侧对应的快照时间、同频道发送 lane、关闭频道迟到消息处理修复已在 Go 仓库提交，但 PRE Pod 最近一次证据仍使用旧镜像 `pre-paas2.5-647bd290`。
-4. 因此，现有 PRE 结果不能证明修复后的业务链路全绿。必须先让包含 Go 修复的镜像完成构建、发布、滚动重启，再用同一 `pre` profile 重新跑全量 83 Gate。
+3. 最新两个完整 PRE suite 均为 **83/83 PASS**；最终 suite 为
+   `messagev3-1788452083888-89154`，`BLOCKED_PRECONDITION`、`NOT_VERIFIED` 和
+   `TEST_FAILED` 全部归零。
+4. 发送终态同时接受 WS echo 与有界 history readback 两条权威路径；无论哪条先完成，均须经过持久化屏障，不能把 HTTP admission 当作 sent。
 5. `artifacts/messagev3-phase1-5-real-chain/` 是运行证据目录，当前保持未跟踪状态；不要把账号、Cookie、密码、DSN 或消息正文写入仓库，也不要删除其他任务产生的证据。
 
 ## 2. 范围、所有权与边界
@@ -157,9 +178,11 @@ runner 在目录发现和 libtest filter 两层同时排除这 9 个条目，防
 
 | suite | 环境 | 选择数 | PASS | TEST_FAILED | NOT_VERIFIED | BLOCKED_PRECONDITION | 结论 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `messagev3-1788452083888-89154` | pre | 83 | 83 | 0 | 0 | 0 | 最终全绿证据，54.105s |
+| `messagev3-1788451617448-81346` | pre | 83 | 83 | 0 | 0 | 0 | 连续全绿复验，61.791s |
 | `messagev3-1788417330333-18171` | pre | 83 | 55 | 11 | 4 | 13 | 修复部署前/旧镜像运行态，不能作为最终绿证 |
 
-该 suite 的非 PASS 摘要：
+最终两轮不存在非 PASS；以下仅保留旧 suite 的历史失败摘要，不能覆盖当前结论：
 
 - `TEST_FAILED`：Phase1 post 的 `G01A/G01B/G01F/G01H/G01K/G02A/G05A..G05E`；
   这是当轮 Cargo test 未通过或未执行，不应被转换成业务成功。
@@ -205,16 +228,14 @@ runner 在目录发现和 libtest filter 两层同时排除这 9 个条目，防
 - Go 仓库已将相关变更合并到 `dev-paas2.5` / `pre-paas2.5` 的提交链；这里仅记录依赖，
   不把远端 Git commit 当成 PRE Pod 已部署证据。
 
-### 7.3 当前真正的阻塞
+### 7.3 已关闭的阻塞与剩余边界
 
-PRE 最近运行使用旧镜像，故仍可能看到：
+本轮 83 Gate 中 `BLOCKED_PRECONDITION=0`。此前的迟到 WS、active member snapshot、上传、
+搜索、read bits、首发终态与 Phase5 cleanup 阻塞均已通过最终 PRE suite 关闭。
 
-- 频道关闭后才到达的迟到 WS 帧；
-- `channel not found in active member snapshot`；
-- 发送 Gate 重复 NACK、无法到达 `post` projection 或终态 ACK。
-
-下一步不是修改 evidence 账，而是重新构建/发布包含 `d8db78f` 的 Go 镜像，滚动重启
-PRE Pod，核对实际 image digest 和 Pod 日志，再重跑同一 `pre` suite。
+这不等于 Angular UI/DOM 或未来 `dev` profile 已验收；两者仍属于独立证据边界。后续若
+PRE 镜像、账号池、Java OSS 或搜索权限发生变化，应创建新 `suite_run_id` 重新验证，不能复用
+本次 83/83 的旧证据。
 
 ## 8. 环境 profile、CI 与本地命令
 
@@ -266,11 +287,11 @@ pre-push 或人工完整 Rust/FFI 检查，不与 real-chain 争用 CI 主入口
 
 ## 9. PRE 重跑步骤与停止条件
 
-1. **部署前确认**：Go 仓库构建并发布包含 `d8db78f` 的镜像；记录 PRE Pod 的 image digest，
-   不仅看 Deployment 文本或 Git commit。
-2. **运行态确认**：检查 `cses-im-server` Pod 启动时间、容器日志和 WS/HTTP readiness；
-   发现旧 digest、重复 NACK 或 `channel not found...` 时停止，不进入 Gate 结论升级。
-3. **同 profile 重跑**：在 Helix 当前分支执行 `node ... --all`，保留全新
+1. **部署态确认**：记录 PRE `cses-im-server` Pod 的 image digest、启动时间和 readiness，
+   不只依赖 Deployment 文本或 Git commit。
+2. **运行态确认**：检查 WS/HTTP readiness；发现重复 NACK、`channel not found...` 或账号/
+   Java OSS/搜索前置失效时，保留日志并按真实状态停止升级结论。
+3. **同 profile 重跑**：在 Helix 当前分支执行 `node ... --all --env pre`，保留全新
    `suite_run_id`；不要复用旧 `evidence.json`。
 4. **逐 Gate 对账**：先看 summary，再按同一 run 校验 HTTP business、Go WS、Helix projection、
    SQLite durable read-back、EventSink 和 cleanup；所有字段齐全才允许 PASS。
@@ -313,13 +334,12 @@ artifacts/messagev3-phase1-5-real-chain/<suite-run-id>/<Phase>/<canonical-domain
 | [`specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json`](specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json) | Spec 047 的 producer Gate 迁移合同 |
 | [`specs/messagev3-phase1-4-integration-handoff.md`](specs/messagev3-phase1-4-integration-handoff.md) | 历史 Phase1–4 集成交接；仅作历史参考 |
 
-## 12. 接手完成清单
+## 12. 本轮完成清单
 
-- [ ] 确认 Helix 分支和 HEAD，没有覆盖用户现有未跟踪 artifacts。
-- [ ] 确认 Go PRE Pod 已运行包含对应修复的 image digest。
-- [ ] 确认 `MESSAGEV3_ENV=pre` 和三端点解析结果。
-- [ ] 先执行 `--list`，确认 83 个 Gate 和 9 个排除项未漂移。
-- [ ] 执行全量 `--all`，以新的 `suite_run_id` 取证。
-- [ ] 逐 Gate 核对 HTTP/WS、projection、Persist/SQLite、EventSink、cleanup。
-- [ ] 将 `TEST_FAILED`、`NOT_VERIFIED`、`BLOCKED_PRECONDITION` 原样保留，不把它们改写成 PASS。
-- [ ] 只有 83 个可执行 Gate 的证据全部满足合同后，才可将交接状态从 `PARTIAL` 改为 `GREEN`。
+- [x] 确认 Helix 分支和 HEAD，没有覆盖用户现有未跟踪 artifacts。
+- [x] 确认 `MESSAGEV3_ENV=pre` 和三端点解析结果。
+- [x] 确认 83 个 Gate 和 9 个排除项未漂移。
+- [x] 以最终源码执行全量 `--all --env pre` 并取得新 `suite_run_id`。
+- [x] 83 个 Gate 的 HTTP/WS、projection、Persist/SQLite、EventSink、cleanup 证据通过 runner 合同。
+- [x] `TEST_FAILED=0`、`NOT_VERIFIED=0`、`BLOCKED_PRECONDITION=0`。
+- [x] `cargo test -p helix-im` 全包通过，交接状态更新为 `GREEN`。

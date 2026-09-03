@@ -1,10 +1,10 @@
 # helix-im 局部指令（就近优先，全局见根 AGENTS.md）
 
-> 📐 **设计图（当前能力 + 流程）→ [`docs/design/`](docs/design/)**（mermaid 流程图，先读其 `README.md` 索引）。
+> 📐 **历史设计图 → [`docs/design/`](docs/design/)**（旧模块布局与流程快照；当前行为先读源码、Spec 047 和当前运行时流程文档）。
 
 ## 本 crate 文档索引（`docs/` · 按需 Read）
 
-- **🟢 UC 消费视角真源（SessionStart 必读）** → [`docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md)：Gate、command、Effect、projection、HTTP、WS、Go DB、Helix storage 与 UI VM 综合对齐。
+- **⚪ V1/旧链历史参考** → [`docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md)：只用于迁移前字段、HTTP/WS 输入与兼容风险核验，不是当前 MessageV3 真源，也不是 SessionStart 必读。
 - **🟢 当前 30 Gate 机器真源** → [`../../specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json`](../../specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json)：Gate 分母、领域 owner、独立测试 target、删除清单、生成文件与迁移状态。
 - **🟢 MessageV3 出站 schema** → [`../../specs/047-im-event-gate-inventory/contracts/message-v3-event.schema.json`](../../specs/047-im-event-gate-inventory/contracts/message-v3-event.schema.json)：业务信封只含 `event` 与 `data`；字段必须来自真实 Gate 测试及本地/远端事实。
 - **⚪ 历史 Matrix 与投影文档** → `contracts/strict-matrix.v1.json`、`contracts/command-api.v1.json`、`docs/Strict Matrix/`、`docs/projection-schema.md` 已标记 `RETIRED_HISTORICAL`，只供迁移审计，不得作为当前实现或完成证据。

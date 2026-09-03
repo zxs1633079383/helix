@@ -1,5 +1,5 @@
 %% Phase2 / sync / MV3-G13e 账号 Runtime 与 Renderer 释放
-%% 客户端合同真源: /System/Volumes/Data/workspace/worktrees/sync-event-alignment/cses-client/specs/003-messagev3-gate-inventory/gates/sync/mv3-g13e/contract.json
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/sync/mv3-g13e/contract.json
 %% UI owners: src-tauri/src/features/auth/context.rs::AuthState::clear → helix_im::lifecycle::shutdown；src-tauri/src/features/auth/context.rs::set_auth → helix_im::lifecycle::start_or_restart；src-tauri/src/features/helix_im/lifecycle.rs::start_or_restart（identity 变化先 shutdown_and_wait 旧 generation）
 sequenceDiagram
   autonumber

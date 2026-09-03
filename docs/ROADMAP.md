@@ -4,7 +4,7 @@
 > [`harness/decisions.md`](./harness/decisions.md)，MessageV3 实施真源见
 > [`specs/047-im-event-gate-inventory`](../specs/047-im-event-gate-inventory/)。
 >
-> Snapshot：2026-08-28（代码基线 `caf20f3b`）。旧 Frame/Surface 报告属于历史证据，不自动继承为当前 Green。
+> Snapshot：2026-09-03（代码基线 `6f8d957a`）。旧 Frame/Surface 报告属于历史证据，不自动继承为当前 Green。
 
 ## 1. 当前结论
 
@@ -22,6 +22,11 @@ PC WDIO、Mobile GTest、Go 修改与跨仓 fixture 同步明确延期。
 - deterministic、contract 与 Rust driver integration 为 `PASS`，30 Gate × 4 canonical JSON 已生成并校验；
 - PC/Mobile canonical consumer、真实宿主、真实 Go/WS 与双用户证据仍为
   `NOT_SYNCED_BY_SCOPE` / `NOT_RUN`，不得据此宣称三端 TGCR Green。
+- 四个 crates.io 公共包已统一发布为 `0.1.4`；workspace 内消费者以 Cargo manifest 的
+  精确依赖为准。
+- 独立的 Native Phase1-5 真实链 runner 当前分母为 92 Gate，最近同轮结果为 72 PASS、
+  20 个非 PASS，状态仍是 `PARTIAL`；该结果不改变 Spec 047 的 30 producer Gate 分母，
+  也不能替代 PC/Mobile/Web 的 TGCR 证据。
 
 ## 2. 不变平台地基
 

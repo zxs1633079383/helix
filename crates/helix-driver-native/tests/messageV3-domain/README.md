@@ -3,7 +3,7 @@
 相关交付文档：
 
 - [Phase1-4 非通过 Gate 证据缺口清单](Phase1-4-非通过Gate证据缺口清单.md)
-- [真实 Gate handoff](../../../../handoff.md)
+- [真实 Gate handoff](./handoff.md)
 
 ## 目录合同
 

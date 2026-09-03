@@ -194,7 +194,7 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 | 文档 | 视角 | 一句话 |
 |---|---|---|
 | [`specs/047-im-event-gate-inventory/spec.md`](specs/047-im-event-gate-inventory/spec.md) | **MessageV3 Gate Event 目标合同（ADR-017）** | Helix 当前方向：Command/Inbound → Effect/PersistOk → `Effect::Emit {event,data}`；三端只原样交付与消费 bytes |
-| [`crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md) | **UC 消费视角真源** | Gate、command、Effect、投影字段、HTTP、WS、Go DB、Helix storage 和 UI VM 的最新代码分析；SessionStart 必读 |
+| [`crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md) | **V1/旧链历史参考** | 仅用于核对迁移前字段、HTTP/WS 输入和兼容风险；不得作为当前 MessageV3 事件、状态或完成证据 |
 | [`specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json`](specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json) | **当前 30 Gate 机器真源** | Gate 分母、领域 owner、独立测试 target、删除清单、生成文件与迁移状态 |
 | [`specs/047-im-event-gate-inventory/contracts/message-v3-event.schema.json`](specs/047-im-event-gate-inventory/contracts/message-v3-event.schema.json) | **MessageV3 出站 schema** | 业务信封只含 `event` 与 `data`；具体字段由真实 Gate 测试和本地/远端事实生成 |
 | [`crates/helix-im/docs/csesapi-migration/真机curl真源.md`](crates/helix-im/docs/csesapi-migration/真机curl真源.md) | **outbound 请求体/头 ground truth（真抓包 > 源码推断）** | 现网 cses-client 实抓 6 个 curl（posts/create·makeTopic·revoke·channel/create·member/change·close）逐字 body+头；helix-im outbound 命令体必须对齐此处（send 无回声真因=体不对·非 Pulsar；普通发消息 WS 推 `post` 非 `posted`）|

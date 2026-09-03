@@ -23,7 +23,7 @@
 ## 客户端 92 Gate 分母
 
 这里的分母来自 PC 参考客户端
-`/System/Volumes/Data/workspace/worktrees/sync-event-alignment/cses-client`，不是 Helix Spec 047 的
+`/System/Volumes/Data/workspace/angular/visual/cses-client`，不是 Helix Spec 047 的
 30 个 producer Gate。机器真源为：
 
 - `specs/003-messagev3-gate-inventory/contracts/gate-registry.json`
@@ -62,13 +62,17 @@ Phase1/<domain>/Gate-<gate-suffix>-<中文名称>.mmd
 Phase2/<domain>/Gate-<gate-suffix>-<中文名称>.mmd
 Phase3/<domain>/Gate-<gate-suffix>-<中文名称>.mmd
 Phase4/<domain>/Gate-<gate-suffix>-<中文名称>.mmd
+Phase5/<domain>/Gate-<gate-suffix>-<中文名称>.mmd
 ```
+
+Phase1～4 的首部指向各 Gate `contract.json`；Phase5 当前没有独立 per-Gate contract，首部以
+`phase5.manifest.json` 加实际 Angular/Helix/Go owner 作为真源。不得为满足模板虚构 contract。
 
 首部至少保留以下可追溯信息：
 
 ```mermaid
 %% PhaseN / <domain> / MV3-Gxx
-%% 客户端合同真源: <cses-client gate contract.json>
+%% 客户端合同真源: <cses-client gate contract.json；Phase5 为 phase5.manifest.json>
 %% UI owners: <源码入口和行号>
 ```
 

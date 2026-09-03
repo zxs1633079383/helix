@@ -3,7 +3,7 @@
 阅读或修改本目录前先看 [`AGENTS.md`](./AGENTS.md)；本 README 承载 92 Gate 的分母、
 Phase/Domain 索引和文件链接，具体 Gate 规则按局部 AGENTS 的渐进式披露顺序下钻。
 
-本目录以只读客户端 `/System/Volumes/Data/workspace/worktrees/sync-event-alignment/cses-client`
+本目录以客户端仓根 `/System/Volumes/Data/workspace/angular/visual/cses-client`
 的 Phase1～5 manifest 为机器真源：Phase1～4 为 80 Gate，Phase5 为 12 Gate，总计 **92 Gate**。
 按 `Phase → Domain → Gate` 组织 Mermaid 时序图。每张图都沿用
 [发送消息参考图](./发送消息.mmd)的逐跳粒度，描述 Angular/Port、Tauri/FFI/Web、Helix

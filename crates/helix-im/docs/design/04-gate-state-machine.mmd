@@ -1,3 +1,4 @@
+%% RETIRED_HISTORICAL: 旧模块布局与 raw im:* 事件阶段快照，不作为当前实现真源。
 %% helix-im 设计图 04 —— channel gate 三阶段状态机（peek/落库/commit + cursor 单调 + too_long）
 %% 真源: src/channel.rs（Channel::{ingest,on_persist_ok,peek_up_to,commit_cursor,reset_for_too_long,buffer_and_arm_gate}）
 %% 关联: HX-C005（event_to_upsert_op 单 INSERT O(1) ON CONFLICT temporary_id，无 read-modify-write）

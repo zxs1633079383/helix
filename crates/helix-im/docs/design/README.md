@@ -1,7 +1,8 @@
-# helix-im 设计图（mermaid · 当前已具备 IM 业务能力）
+# helix-im 历史设计图（Mermaid）
 
-> IM 是跑在 helix-core（runtime-agnostic 确定性内核）上的**第一个业务模块**。
-> 本目录的 `.mmd` 沉淀 helix-im **当前已落地**的能力与设计——全部从真实 `src/` 反推核实（非愿景）。
+> **RETIRED_HISTORICAL**：本目录冻结于旧模块布局与 raw `im:*` 事件阶段，其中
+> `module.rs`、`pending_send.rs`、`channel.rs` 等 owner 已被当前分层实现替代。图只用于追溯
+> 早期机制，不是当前能力、事件全集或完成证据。
 > 图例：✅ 已具备能力 · ⚠️ 边界/降级/兜底路径 · ❌ 缺口/stub。
 >
 > **不变量提醒**：handle 同步纯函数（副作用只经 `out.push(Effect::…)`，零 I/O 零 await）；
@@ -17,7 +18,7 @@
 | [`03-sync-flow.mmd`](./03-sync-flow.mmd) | flowchart | **同步流**：在线增量 push（increment_channel×N → end）+ 离线 pull（sync/notify，cursor 锚 nextSeq，SyncResponse 4 态）+ E3 续拉 + B2 冷启动自愈 + too_long 兜底 | `module.rs::{on_start,handle_scan_reply,handle_sync_reply,maybe_continue_sync}` · `ws/handlers/increment_channel_end.rs` · `sync_session.rs` | C008（nextSeq 锚 · len≥500 续拉 · too_long）· C010（迭代前 sort 确定性）|
 | [`04-gate-state-machine.mmd`](./04-gate-state-machine.mmd) | stateDiagram | **gate 三阶段状态机**：Synced/Gapped + peek→落库→commit（写成功才推 cursor）+ cursor 单调不回退 + buffer 上限(16384)/服务端 too_long → 清内存 + drop local messages + 重拉 | `channel.rs`（`Channel::{ingest,on_persist_ok,peek_up_to,commit_cursor,reset_for_too_long}`）| C005（单 INSERT O(1) ON CONFLICT，无 RMW）· C008 |
 
-## 当前能力速览（图覆盖的已落地清单）
+## 历史能力快照
 
 - **WS 入站 dispatch ✅**：`WsFrame::parse` 一趟解析 → registry（`inventory` 分散提交 + `OnceLock` 按 action O(1)）→ 7 类 handler：
   hello 握手 / post（真 Go 在线新消息）/ posted（echo 对账）/ increment_channel / increment_channel_end / legacy_event（无 action）/ ignored（status_change·typing·presence·multiple_channels_viewed）。未知 action → `UnsupportedWsAction`。
@@ -30,7 +31,7 @@
 
 ## 维护铁律
 
-- **真源同步**：`.mmd` 描述的是 `src/` 实际行为，源码改动后图必须同步（漂移即修）。
-- **`im:*` 事件名唯一源** = `src/acl/to_effect.rs` 生成点；图中引用必须与之一致。
-- **能力标注诚实**：只把 `src/` 已落地的标 ✅；stub / `todo!()` / 缺口标 ⚠️/❌，不画愿景。
-- 当前 UC/HTTP/WS/存储综合口径见同目录上级 [`../前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](../前端UC投影指令与数据清单-最新代码分析-2026-07-09.md)；本目录只画**机制流程**。
+- 不用本目录的 owner、事件数量或路径判断当前实现。
+- 当前生产事实回到 `crates/helix-im/src/`、Spec 047 manifest/schema 和真实 Gate 测试。
+- 同目录上级 [`../前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](../前端UC投影指令与数据清单-最新代码分析-2026-07-09.md)
+  同属迁移前历史参考，不能为本目录恢复现行真源地位。

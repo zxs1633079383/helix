@@ -1,3 +1,9 @@
+🎯 EXPECT 每日 Markdown 熵管理只修改有当前代码/manifest 证据的文档；可证伪断言：① 四个公开 crate README 与 docs 索引统一对齐 Cargo `0.1.4`；② Metrics 文档精确对齐 registry 的 182/129/40/11/2 分母与新增 6 个 MessageV3/Web Runtime 指标；③ docs/mmd 的 92 Gate 客户端合同入口从已落后的 sync-event-alignment worktree 切到当前 cses-client 仓根，92/92 contract 路径存在且 Phase 33/20/15/12/12；④ 不修改 Rust、JSON、TOML、脚本或生成产物；⑤ 本轮直接相关链接、索引、manifest 与 diff checker 全部通过，既有 checker Drift 单列不冒充本轮失败 | 赌注 中 | 可逆 是 | @2026-09-03T08:15:00+0800
+
+✅ DONE 每日 Markdown 熵管理已对齐 0.1.4 版本、182/129/40/11/2 指标分母、92 Gate 当前 cses-client 真源、ROADMAP 与历史设计文档边界；90 个变更文件仅为 Markdown/Mermaid，本地链接 1589/1589、Gate 92/92、Mermaid 94/94、HX-C 18/18、Spec047 30/30 默认校验、strict-matrix 50/54/13 与 diff check 通过；既有 generated/agent/full-map checker Drift 已单列，未冒充本轮失败 | @2026-09-03T08:30:03+0800
+
+⚡ DRIFT-PRED 原预期把新增量写成“6 个 MessageV3/Web Runtime”，源码 registry 实际为 7 个 MessageV3 Runtime 修订且 `WebEventBatchSize` 仍为 Planned → 候选教训：指标分类必须同时从 availability match arm 与真实 caller 计算，不能按名称分组估算 | @2026-09-03T08:30:03+0800
+
 ⚠️ PARTIAL 三仓远端合并后 Helix Phase1–5 最终回归 @2026-09-01 | 集成 HEAD `193f6e3e`，Go fresh Pod `41726d…` 与 PRE ES forward 上执行 `scripts/messagev3/phase1-5-real-chain.mjs --all`，summary `72 PASS/92`，5 NOT_VERIFIED、6 BLOCKED_PRECONDITION、4 NOT_IMPLEMENTED、5 NOT_APPLICABLE，runner exit 1；Cargo 94/0 通过；未 push/未打新 Tag | 详见 `docs/reports/0901-跨仓Phase1-5验收报告.md`
 
 🎯 EXPECT 修复指标 Skill/Agent 的全局发现路径；可证伪断言：① Skill 同时存在于 `/Users/xpa-12/.agents/skills/otel-prometheus-metrics` 与 `/Users/xpa-12/.codex/skills/otel-prometheus-metrics`，含 `SKILL.md` 与 `agents/openai.yaml`；② Agent 以可解析 TOML 安装到 `/Users/xpa-12/.codex/agents/helix-otel-prometheus-metrics-agent.toml`；③ bundle installer、README、evaluator 同步且不触碰既有未跟踪 artifacts；④ 官方用户目录、全局 Agent 内容校验、Skill/bundle/diff 检查通过；⑤ 需新任务或重启 Codex 刷新 slash 索引，不把当前旧会话列表冒充已刷新 | 赌注 低 | 可逆 是 | @2026-08-31T14:02:00+0800

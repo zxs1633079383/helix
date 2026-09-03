@@ -145,16 +145,26 @@ fn build_simple_message_short_text_full() {
 }
 
 #[test]
-fn build_legacy_image_simple_message_is_normalized_to_rich() {
-    let mut input = base_input("配图说明", 1);
-    input.msg_type = "IMAGE";
-    input.props = json!({
-        "files": [{"name": "a.png"}],
-        "imagePosition": "bottom"
-    });
-    let body = build_message_object(&input).unwrap();
-    assert_eq!(body["type"], json!("RICH"));
-    assert_eq!(body["simpleMessage"], json!("[媒体]配图说明"));
+fn build_rich_simple_message_describes_media() {
+    for (msg_type, content_types, text, expected) in [
+        ("IMAGE", &["image/png"][..], "配图说明", "[图片] 配图说明"),
+        ("RICH", &["image/png", "image/jpeg"][..], "", "[图片] 2个"),
+        ("RICH", &["video/mp4"][..], "演示", "[视频] 演示"),
+        ("RICH", &["video/mp4", "video/webm"][..], "", "[视频] 2个"),
+        (
+            "RICH",
+            &["image/png", "video/mp4"][..],
+            "项目素材",
+            "[媒体] 2个 项目素材",
+        ),
+    ] {
+        let mut input = base_input(text, 1);
+        input.msg_type = msg_type;
+        input.props = json!({"files": content_types.iter().map(|content_type| json!({"contentType": content_type})).collect::<Vec<_>>()});
+        let body = build_message_object(&input).unwrap();
+        assert_eq!(body["type"], json!("RICH"));
+        assert_eq!(body["simpleMessage"], json!(expected));
+    }
 }
 
 #[test]

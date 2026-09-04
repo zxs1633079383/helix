@@ -41,9 +41,7 @@ messagev3-real-chain:
   resource_group: messagev3-pre
   timeout: 30m
   script:
-    # Masked JSON 为首选；File 变量只保留为兼容兜底，两者都不会写入 artifact。
-    - test -n "${CSES_WDIO_CREDENTIALS_JSON:-}${CSES_WDIO_CREDENTIALS_FILE:-}" || { echo "❌ missing masked CSES_WDIO_CREDENTIALS_JSON (or File fallback)"; exit 1; }
-    - test -z "${CSES_WDIO_CREDENTIALS_FILE:-}" || test -f "$CSES_WDIO_CREDENTIALS_FILE" || { echo "❌ CSES_WDIO_CREDENTIALS_FILE is not a file"; exit 1; }
+    # PRE 测试账号池由 real-chain 配置内置，运维无需额外配置凭据变量。
     - node scripts/messagev3/phase1-5-real-chain.mjs --all --env pre
   artifacts:
     when: always

@@ -4,7 +4,10 @@ import { spawn } from 'node:child_process';
 import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveMessagev3Environment } from './real-chain-environment.mjs';
+import {
+    resolveMessagev3CredentialEnvironment,
+    resolveMessagev3Environment
+} from './real-chain-environment.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const HELIX_ROOT = path.resolve(SCRIPT_DIR, '../..');
@@ -325,6 +328,7 @@ async function main() {
     );
     const environment = {
         ...process.env,
+        ...resolveMessagev3CredentialEnvironment(runtimeEnvironment.name),
         MESSAGEV3_SUITE_RUN_ID: suiteRunId,
         MESSAGEV3_GATE_RUN_ID: suiteRunId,
         HELIX_MESSAGEV3_ARTIFACT_ROOT: options.artifactRoot,

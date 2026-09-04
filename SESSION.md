@@ -1,3 +1,7 @@
+🎯 EXPECT 将用户明确授权的 PRE 测试账号池内置到 real-chain 配置；可证伪断言：① `--env pre` 在无凭据变量时自动注入 16 个测试账号且不打印密码，已有 JSON/File 仍可覆盖；② local/未来其他 profile 不误用 PRE 账号；③ CI 不再要求运维配置凭据，只要求 Node.js 20+ 与现有 Rust/Cargo；④ Node 凭据选择断言、83 Gate dry-run、GitLab CI lint 与 `git diff --check` 通过；⑤ 只提交脚本/CI/SESSION，不纳入当前 helix-im 用户改动与未跟踪产物 | 赌注 中 | 可逆 是 | @2026-09-04T10:01:00+0800
+
+✅ DONE PRE real-chain 已内置 16 个用户明确授权的测试账号，无凭据变量时自动向 Native Gate 注入且不输出密码；显式 JSON/File 可覆盖，local profile 保持隔离。CI 已删除凭据变量前置，只保留现有 Rust/Cargo 与 Node.js 20+ 要求；账号池/覆盖/隔离断言、83 Gate dry-run、Node 语法、GitLab CI lint 和 `git diff --check` 通过。未运行远端 PRE 写入回归，当前 helix-im 并行改动及未跟踪产物均未纳入 | @2026-09-04T10:04:00+0800
+
 🎯 EXPECT 将 PRE real-chain 凭据入口从强制 GitLab File 扩展为 Masked JSON 环境变量；可证伪断言：① `CSES_WDIO_CREDENTIALS_JSON` 优先且不写入仓库、日志或 artifact，File/local path 仅作兼容兜底；② 账号发现仍按稳定顺序只选出三个共享 `companyId` 的身份，不随机制造不可复现失败；③ CI 命令固定 `--env pre`，同一 PRE 门禁串行执行且 30 分钟有界；④ credential focused test、GitLab CI lint 与 `git diff --check` 通过；⑤ 不触碰既有 artifacts、tmp 与 Cargo 私仓 Prompt | 赌注 中 | 可逆 是 | @2026-09-04T09:40:23+0800
 
 ✅ DONE PRE real-chain 已支持 `CSES_WDIO_CREDENTIALS_JSON` Masked 内联账号池并保留 File/local 兜底；账号仍以稳定顺序寻找三个同租户身份。GitLab job 固定 `--env pre`、同资源组串行、30 分钟有界并校验 Node.js 20+；credential focused test 4/4、PRE profile 三端点断言、GitLab CI lint 与 `git diff --check` 全部通过。未运行远端 PRE Gate，未写入或输出账号明文，既有 artifacts/tmp/私仓 Prompt 保持未跟踪 | @2026-09-04T09:44:00+0800
@@ -621,3 +625,4 @@
 ✅ DONE MessageV3 PRE real-chain 已收敛为 83/83 PASS：最终 suite `messagev3-1788452083888-89154` 以 5 个 Phase 批次、最多 5 个活跃频道和账号级持久 WS/engine/SQLite 在 54.105s 完成，TEST_FAILED/NOT_VERIFIED/BLOCKED_PRECONDITION 全为 0；前一轮 `messagev3-1788451617448-81346` 同样 83/83。上传改走 Java presign+OSS PUT+Helix+Go post 真链，type1 不再清空 type6 `read_bits`，首次发送在 HTTP admission 后启用有界 history readback，CHAIN-TXT-G02 与 Cargo 均有 watchdog。`cargo test -p helix-im` 全包、fmt、Node 语法与 diff check 通过；handoff 已更新为 GREEN，既有 artifacts/Prompt 未纳入。@2026-09-04T00:16:40+0800
 
 ⚡ DRIFT-PRED 原预期把剩余阻断主要分为远端能力边界，但真实闭环还暴露 type1/type6 双写覆盖与首发只依赖 sender WS echo 两个 Helix 生命周期缺口；候选教训：真实链非 PASS 必须同时检查远端前置与本地权威源竞争，HTTP admission 后应保留可幂等的第二权威终态路径。@2026-09-04T00:16:40+0800
+🎯 EXPECT 将用户明确授权的 PRE 测试账号池内置到 real-chain 配置；可证伪断言：① `--env pre` 在无凭据变量时自动注入 16 个测试账号且不打印密码，已有 JSON/File 仍可覆盖；② local/未来其他 profile 不误用 PRE 账号；③ CI 不再要求运维配置凭据，只要求 Node.js 20+ 与现有 Rust/Cargo；④ Node 凭据选择断言、credential Rust test、GitLab CI lint 与 `git diff --check` 通过；⑤ 只提交脚本/CI/SESSION，不纳入当前 helix-im 用户改动与未跟踪产物 | 赌注 中 | 可逆 是 | @2026-09-04T10:01:00+0800

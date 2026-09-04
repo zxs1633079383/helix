@@ -266,7 +266,7 @@ manifest/README/Mermaid 验证合同。
 - 类型驱动：make-invalid-states-unrepresentable；tagged union(enum) 优于一堆 Option/bool；newtype 不透明
 - 错误：`thiserror` 边界类型 / 不滥 `anyhow`；外部输入（WS 帧 / sync 响应 / FFI 入参）**零 `unwrap`/`expect`**，走 `Result`
 - 命名/模块：高内聚低耦合，many small files；mod.rs 只 re-export
-- 每一个新增或修改的方法/函数都必须有紧邻的精简注释，覆盖 public/private/test/helper；公开 API 用 `///`，其余至少一行。注释只写职责、边界、「为什么」或非显然副作用（invariant / SAFETY / 三栖偏差），不逐句复述实现
+- 公开 API 用 `///` 说明合同；非显然不变量、SAFETY 条件、副作用和三栖偏差须就近解释。private/test/helper 在名称与实现已清楚表达职责时不强制补注释，不逐句复述代码。
 
 ## 6. 提交规范（commit / PR / tag）
 

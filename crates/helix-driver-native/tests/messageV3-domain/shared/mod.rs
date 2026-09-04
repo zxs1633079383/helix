@@ -1730,7 +1730,7 @@ pub(crate) async fn remote_setup_chain() -> (tokio::sync::MutexGuard<'static, ()
     (guard, context)
 }
 
-/// 优先读取 CI File 变量路径，再回退到现有 Angular workspace 凭据。
+/// 读取 CI File 变量路径，未配置时回退到现有 Angular workspace 凭据。
 pub(crate) fn discover_credentials_path() -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os("CSES_WDIO_CREDENTIALS_FILE") {
         let path = PathBuf::from(path);
@@ -1756,6 +1756,33 @@ pub(crate) fn discover_credentials_path() -> Result<PathBuf, String> {
             "credentials.local.json not found at the existing Angular workspace path; +             install/use the existing local account pool before running real Phase1 tests"
                 .to_string()
         })
+}
+
+/// 校验内联账号池非空，避免 CI 把空 Masked 变量静默回退到开发机文件。
+fn validate_inline_credentials(content: Option<String>) -> Result<Option<String>, String> {
+    match content {
+        Some(content) if content.trim().is_empty() => {
+            Err("CSES_WDIO_CREDENTIALS_JSON is configured but empty".to_string())
+        }
+        content => Ok(content),
+    }
+}
+
+/// 优先读取 Masked JSON 账号池，并保留 GitLab File 与本地文件兼容入口。
+fn load_credentials_content() -> Result<String, String> {
+    let inline = match std::env::var("CSES_WDIO_CREDENTIALS_JSON") {
+        Ok(content) => Some(content),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err("CSES_WDIO_CREDENTIALS_JSON must be valid UTF-8".to_string());
+        }
+    };
+    if let Some(content) = validate_inline_credentials(inline)? {
+        return Ok(content);
+    }
+    let credentials_path = discover_credentials_path()?;
+    std::fs::read_to_string(&credentials_path)
+        .map_err(|error| format!("read credentials file failed: {error}"))
 }
 
 /// 创建一个没有身份头的 HTTP client，用于 Go health 或主登录接口。
@@ -2046,9 +2073,7 @@ async fn discover_auth_context_at_mode(
         return Ok(local_chain_auth_context());
     }
 
-    let credentials_path = discover_credentials_path()?;
-    let content = std::fs::read_to_string(&credentials_path)
-        .map_err(|error| format!("read credentials file failed: {error}"))?;
+    let content = load_credentials_content()?;
     let credentials: CredentialFile = serde_json::from_str(&content)
         .map_err(|error| format!("parse credentials file failed: {error}"))?;
     let accounts = credentials.accounts();
@@ -3403,6 +3428,24 @@ mod credential_file_regression_tests {
         .expect("object credential pool should deserialize");
         assert_eq!(pool.accounts().len(), 1);
         assert_eq!(pool.default_index(), 3);
+    }
+
+    /// 内联账号池必须保持原始 JSON，供统一解析器读取。
+    #[test]
+    fn inline_credential_pool_accepts_non_empty_json() {
+        let content = r#"[{"mobile":"13800000002","password":"redacted"}]"#.to_string();
+        assert_eq!(
+            validate_inline_credentials(Some(content.clone())).expect("inline JSON should pass"),
+            Some(content)
+        );
+    }
+
+    /// 显式配置的空账号池必须 fail-closed，不能意外读取开发机凭据。
+    #[test]
+    fn inline_credential_pool_rejects_empty_json() {
+        let error = validate_inline_credentials(Some("  \n".to_string()))
+            .expect_err("empty inline JSON must fail closed");
+        assert!(error.contains("configured but empty"));
     }
 }
 

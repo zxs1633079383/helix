@@ -11,7 +11,6 @@ variables:
   CARGO_TERM_COLOR: "always"
   CARGO_INCREMENTAL: "0"
   MESSAGEV3_CI_IMAGE: "harbor.jinqidongli.com/infra-ops/gitlab/rust:1.95.0_with_tools"
-  MESSAGEV3_ENV: "pre"
   # 完整 Phase 批次启用最多五个频道和按账号复用的保活 WS；设为 0 可回退逐 Gate 隔离调试。
   MESSAGEV3_PHASE_POOL: "1"
 
@@ -33,18 +32,21 @@ default:
       - target/
   before_script:
     - command -v node >/dev/null 2>&1 || { echo "❌ CI image lacks Node.js 20+; set MESSAGEV3_CI_IMAGE"; exit 1; }
-    - node --version
+    - |
+      node -e 'const major = Number(process.versions.node.split(".")[0]); if (major < 20) { console.error(`❌ Node.js 20+ required, found ${process.version}`); process.exit(1); }'
     - rustup component list --installed
     - rustup target list --installed | grep -qx wasm32-unknown-unknown
     - cargo fmt --version && cargo clippy --version
 
 messagev3-real-chain:
   stage: messagev3
+  resource_group: messagev3-pre
+  timeout: 30m
   script:
-    # GitLab File variable；不把账号池复制到仓库或 artifact。
-    - test -n "${CSES_WDIO_CREDENTIALS_FILE:-}" || { echo "❌ missing GitLab File variable CSES_WDIO_CREDENTIALS_FILE"; exit 1; }
-    - test -f "$CSES_WDIO_CREDENTIALS_FILE" || { echo "❌ CSES_WDIO_CREDENTIALS_FILE is not a file"; exit 1; }
-    - node scripts/messagev3/phase1-5-real-chain.mjs --all --env "$MESSAGEV3_ENV"
+    # Masked JSON 为首选；File 变量只保留为兼容兜底，两者都不会写入 artifact。
+    - test -n "${CSES_WDIO_CREDENTIALS_JSON:-}${CSES_WDIO_CREDENTIALS_FILE:-}" || { echo "❌ missing masked CSES_WDIO_CREDENTIALS_JSON (or File fallback)"; exit 1; }
+    - test -z "${CSES_WDIO_CREDENTIALS_FILE:-}" || test -f "$CSES_WDIO_CREDENTIALS_FILE" || { echo "❌ CSES_WDIO_CREDENTIALS_FILE is not a file"; exit 1; }
+    - node scripts/messagev3/phase1-5-real-chain.mjs --all --env pre
   artifacts:
     when: always
     paths:

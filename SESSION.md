@@ -1,3 +1,7 @@
+🎯 EXPECT 将 PRE real-chain 凭据入口从强制 GitLab File 扩展为 Masked JSON 环境变量；可证伪断言：① `CSES_WDIO_CREDENTIALS_JSON` 优先且不写入仓库、日志或 artifact，File/local path 仅作兼容兜底；② 账号发现仍按稳定顺序只选出三个共享 `companyId` 的身份，不随机制造不可复现失败；③ CI 命令固定 `--env pre`，同一 PRE 门禁串行执行且 30 分钟有界；④ credential focused test、GitLab CI lint 与 `git diff --check` 通过；⑤ 不触碰既有 artifacts、tmp 与 Cargo 私仓 Prompt | 赌注 中 | 可逆 是 | @2026-09-04T09:40:23+0800
+
+✅ DONE PRE real-chain 已支持 `CSES_WDIO_CREDENTIALS_JSON` Masked 内联账号池并保留 File/local 兜底；账号仍以稳定顺序寻找三个同租户身份。GitLab job 固定 `--env pre`、同资源组串行、30 分钟有界并校验 Node.js 20+；credential focused test 4/4、PRE profile 三端点断言、GitLab CI lint 与 `git diff --check` 全部通过。未运行远端 PRE Gate，未写入或输出账号明文，既有 artifacts/tmp/私仓 Prompt 保持未跟踪 | @2026-09-04T09:44:00+0800
+
 🎯 EXPECT real-chain `--all` 将按 Phase 拆为 5 个 Cargo 批次；每个批次最多 5 个 run-owned 频道、按账号复用一条长连接并保活，Phase 末统一关闭；Gate 的 HTTP/WS/Projection/SQLite/EventSink/corr/cleanup 证据字段不削弱；Focused Rust/Node 静态校验通过，并记录一次 PRE 执行的 Cargo 进程、频道创建、WS 连接和总耗时对照 | 赌注 高 | 可逆 是 | @2026-09-03T18:35:38+0800
 
 🎯 EXPECT 每日 Markdown 熵管理只修改有当前代码/manifest 证据的文档；可证伪断言：① 四个公开 crate README 与 docs 索引统一对齐 Cargo `0.1.4`；② Metrics 文档精确对齐 registry 的 182/129/40/11/2 分母与新增 6 个 MessageV3/Web Runtime 指标；③ docs/mmd 的 92 Gate 客户端合同入口从已落后的 sync-event-alignment worktree 切到当前 cses-client 仓根，92/92 contract 路径存在且 Phase 33/20/15/12/12；④ 不修改 Rust、JSON、TOML、脚本或生成产物；⑤ 本轮直接相关链接、索引、manifest 与 diff checker 全部通过，既有 checker Drift 单列不冒充本轮失败 | 赌注 中 | 可逆 是 | @2026-09-03T08:15:00+0800

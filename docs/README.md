@@ -3,7 +3,7 @@
 > `docs/` 的单一入口。本文只维护 canonical 路由、证据层级和熵管理规则，不复制任务
 > 流水或 Green 数字。
 >
-> 最近代码对账：2026-08-28，基线 `caf20f3b`。对账范围：当前 workspace、Cargo manifest、
+> 最近代码对账：2026-09-04，基线 `088184df`。对账范围：当前 workspace、Cargo manifest、
 > `helix-core` / `helix-im` / driver 源码、Spec 047 manifest 与验证记录。
 
 ---
@@ -105,7 +105,7 @@ PC / Mobile / Web shell
 - host：`crates/helix-driver-host/`，提供共享 SQLite、HTTP、WS、timer、metrics 与执行驱动。
 - native/FFI/Web：`crates/helix-driver-{native,ffi,web}/`，只兑现平台边界并原样交付事件 bytes。
 - 当前四个 crates.io 公共包为 `cses-helix-core`、`helix-im`、`helix-driver-host`、
-  `helix-driver-native`，版本均为 `0.1.4`。
+  `helix-driver-native`，版本均为 `0.1.7`。
 
 ### PC / Mobile
 

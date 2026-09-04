@@ -56,6 +56,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 每日 Markdown 熵管理只修改有当前代码、Cargo manifest、脚本或测试证据的文档；可证伪断言：① 四个公开 crate README、docs 索引与 ROADMAP 都精确对齐 `0.1.7`；② `docs/README.md` 与 `docs/ROADMAP.md` 的代码快照更新至本轮独立 worktree 基线 `088184df`；③ 不修改 Rust、JSON、TOML、脚本或生成产物；④ 直接相关链接、版本、索引与 `git diff --check` 均通过；⑤ 缺失 `helix-v-0.1.7` 注释 Tag 只报告为发布流程 Drift，不以文档掩盖 | 赌注 低 | 可逆 是 | @2026-09-04T08:00:55+0800
+
+✅ DONE 每日 Markdown 熵管理已将四个公共 crate README、docs 索引与 ROADMAP 对齐当前 `0.1.7` manifest/registry 事实，并更新代码快照至 `088184df`；本轮 7 个文件只含 Markdown，链接 1599/1599、Cargo metadata、四个 `cargo search` 版本、旧 `0.1.4` 文本扫描与 `git diff --check` 通过；`helix-v-0.1.7` 仍缺失，作为发布流程 Drift 单列，不以文档掩盖 | @2026-09-04T08:17:07+0800
+
 🎯 EXPECT 收敛已发布的 Helix `0.1.5` 版本事务并沉淀发布后提交/Tag 铁律；可证伪断言：① 四个公开 crate 与四个内部消费者 manifest、`Cargo.lock` 全部保持同一 `0.1.5` 依赖图；② 四个 crates.io 包均能被 `cargo search` 解析为 `0.1.5`；③ 根 `AGENTS.md` 明确发布后必须提交版本号并创建注释 Tag；④ 只提交本次发布版本改动、规则和必要 SESSION 记录，保留既有未跟踪 `artifacts/` 与 Cargo 私仓 Prompt；⑤ `git diff --check`、发布脚本回归和 metadata 解析通过，创建 `helix-v-0.1.5` 且不覆盖已有 `helix-v0.1.5` | 赌注 中 | 可逆 Tag 前是、Tag 后否 | @2026-09-03T
 
 ✅ DONE Helix `0.1.5` crates.io 版本事务已完成核验：四个公开包均由 `cargo search` 解析为 `0.1.5`，8 个 workspace manifest 与 `Cargo.lock` 保持同批依赖图；发布脚本回归 7/7、metadata、三端 Rust check、core 16/16、Web WASM build 与 HX-C001 零运行时检查通过。既有未跟踪 artifacts/私仓 Prompt 未纳入；本次发布提交与 `helix-v-0.1.5` 注释 Tag 随任务落地 | @2026-09-03T

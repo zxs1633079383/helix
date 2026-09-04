@@ -15,8 +15,8 @@ variables:
   MESSAGEV3_PHASE_POOL: "1"
 
 default:
-  # 镜像必须同时提供 Rust 1.95、wasm32 target、cargo fmt/clippy 与 Node.js 20+。
-  # 若私仓现有 rust 镜像未烤入 Node，可在 GitLab 项目变量覆盖 MESSAGEV3_CI_IMAGE，
+  # real-chain 只需要现有 Rust/Cargo 与 Node.js 20+，不执行 WASM、fmt 或 clippy。
+  # 若私仓现有 Rust 镜像未烤入 Node，可在 GitLab 项目变量覆盖 MESSAGEV3_CI_IMAGE，
   # 或由 ops 更新同名镜像；不能在 job 中临时联网安装运行时。
   image: "$MESSAGEV3_CI_IMAGE"
   tags:
@@ -34,9 +34,7 @@ default:
     - command -v node >/dev/null 2>&1 || { echo "❌ CI image lacks Node.js 20+; set MESSAGEV3_CI_IMAGE"; exit 1; }
     - |
       node -e 'const major = Number(process.versions.node.split(".")[0]); if (major < 20) { console.error(`❌ Node.js 20+ required, found ${process.version}`); process.exit(1); }'
-    - rustup component list --installed
-    - rustup target list --installed | grep -qx wasm32-unknown-unknown
-    - cargo fmt --version && cargo clippy --version
+    - rustc --version && cargo --version
 
 messagev3-real-chain:
   stage: messagev3

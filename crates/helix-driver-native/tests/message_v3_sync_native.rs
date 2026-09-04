@@ -1260,7 +1260,7 @@ async fn create_real_post(
     let response = real_chain::request_json(
         http,
         "POST",
-        &format!("{}/posts/create", real_chain::CHAIN_GO_HTTP_BASE),
+        &format!("{}/posts/create", real_chain::chain_go_http_base()),
         Some(serde_json::json!({
             "channelId": channel_id,
             "teamId": sender.company_id,
@@ -1373,7 +1373,7 @@ async fn real_go_gap_projects_first_unread_then_recovers_second() {
         .expect("create run-owned real channel");
     let (storage, path) = open_storage().await;
     let mut observer =
-        real_chain::open_raw_ws_at(&context.observer, 61_001, real_chain::CHAIN_GO_WS_URL)
+        real_chain::open_raw_ws_at(&context.observer, 61_001, real_chain::chain_go_ws_url())
             .await
             .expect("open observer real WS");
     real_chain::wait_ws_hello(&mut observer)
@@ -1383,14 +1383,14 @@ async fn real_go_gap_projects_first_unread_then_recovers_second() {
     let result: Result<(), String> = async {
         let actor_http = real_chain::go_http_at(
             &context.actor,
-            real_chain::CHAIN_GO_HTTP_BASE,
-            real_chain::CHAIN_GO_WS_URL,
+            real_chain::chain_go_http_base(),
+            real_chain::chain_go_ws_url(),
         )
         .await?;
         let observer_http = real_chain::go_http_at(
             &context.observer,
-            real_chain::CHAIN_GO_HTTP_BASE,
-            real_chain::CHAIN_GO_WS_URL,
+            real_chain::chain_go_http_base(),
+            real_chain::chain_go_ws_url(),
         )
         .await?;
         let first = create_real_post(
@@ -1410,7 +1410,7 @@ async fn real_go_gap_projects_first_unread_then_recovers_second() {
         let mut config = ImConfig::default();
         config.auth_user_id = context.observer.user_id.clone();
         config.company_id = context.observer.company_id.clone();
-        config.api_base_url = real_chain::CHAIN_GO_HTTP_BASE.to_string();
+        config.api_base_url = real_chain::chain_go_http_base().to_string();
         let mut module = ImModule::new(config);
         let channel = ChannelId::from_str(&channel_id)
             .ok_or_else(|| format!("real channel id rejected: {channel_id}"))?;
@@ -1434,14 +1434,14 @@ async fn real_go_gap_projects_first_unread_then_recovers_second() {
 
         let third_http = real_chain::go_http_at(
             &context.third,
-            real_chain::CHAIN_GO_HTTP_BASE,
-            real_chain::CHAIN_GO_WS_URL,
+            real_chain::chain_go_http_base(),
+            real_chain::chain_go_ws_url(),
         )
         .await?;
         let read = real_chain::request_json(
             &third_http,
             "POST",
-            &format!("{}/post/read", real_chain::CHAIN_GO_HTTP_BASE),
+            &format!("{}/post/read", real_chain::chain_go_http_base()),
             Some(serde_json::json!({"channelId": channel_id, "posts": [post_id]})),
             "sync-real-read",
         )

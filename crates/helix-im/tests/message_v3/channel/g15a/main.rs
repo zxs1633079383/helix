@@ -26,12 +26,13 @@ struct PersonaTrace {
 
 type TestResult<T> = Result<T, String>;
 
-/// 构造 HTTP/WS 共用的新频道权威对象。
+/// 构造 HTTP/WS 共用的新频道权威对象，并保留创建时的群导向。
 fn authority() -> Value {
     json!({
         "id": CHANNEL_ID,
         "type": "O",
         "displayName": "G15a MessageV3 Group",
+        "orient": "持续交付",
         "teamId": "g15a-company",
         "createAt": 1_700_001_500_000_i64,
         "members": [
@@ -131,6 +132,7 @@ fn g15a_emits_committed_channel_and_roster_for_both_personas() -> TestResult<()>
         assert_eq!(trace.events[1]["event"], "im:channel:members");
         assert_eq!(trace.events[0]["data"]["channelId"], CHANNEL_ID);
         assert_eq!(trace.events[0]["data"]["memberCount"], 2);
+        assert_eq!(trace.events[0]["data"]["orient"], "持续交付");
         let members = trace.events[1]["data"]["members"]
             .as_array()
             .ok_or_else(|| "members must be an array".to_string())?;
@@ -174,7 +176,7 @@ fn g15a_writes_reviewable_dual_persona_artifacts() -> TestResult<()> {
         sender.events,
         receiver.events,
         json!([
-            {"table": "channel", "columns": ["id", "display_name", "type", "owner", "create_at"]},
+            {"table": "channel", "columns": ["id", "display_name", "orient", "type", "owner", "create_at"]},
             {"table": "channel_member", "columns": ["channel_id", "user_id", "role", "nick_name"]}
         ]),
         json!([

@@ -28,6 +28,7 @@ fn create_command() -> Tick {
             "user_ids": [RECEIVER_A_ID, RECEIVER_B_ID],
             "display_name": "Phase 1 验收群",
             "force_create": false,
+            "orient": "持续交付",
             "req_id": "req-mv3-g08a-001"
         }),
     )
@@ -40,6 +41,7 @@ fn channel_authority() -> Value {
         "type": "P",
         "userId": ACTOR_ID,
         "displayName": "Phase 1 验收群",
+        "orient": "持续交付",
         "mentionPermission": "MANAGER",
         "noticePermission": "MANAGER",
         "topPermission": "MANAGER",
@@ -118,6 +120,7 @@ fn assert_created_projection(event: &Value, viewer_role: &str) {
             "type": "P",
             "userId": ACTOR_ID,
             "displayName": "Phase 1 验收群",
+            "orient": "持续交付",
             "mentionPermission": "MANAGER",
             "noticePermission": "MANAGER",
             "topPermission": "MANAGER",
@@ -170,7 +173,8 @@ fn sender_create_is_http_then_persist_then_absolute_projection() {
             "type": "P",
             "userIds": [RECEIVER_A_ID, RECEIVER_B_ID],
             "displayName": "Phase 1 验收群",
-            "forceCreate": false
+            "forceCreate": false,
+            "orient": "持续交付"
         })
     );
 

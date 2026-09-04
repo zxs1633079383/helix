@@ -428,6 +428,7 @@ fn make_topic_forwards_optional_user_confirmed_display_name() {
 }
 
 #[test]
+/// 建群 adapter 必须保真映射可选 orient 与 source，且不泄漏 req_id。
 fn create_channel_maps_only_canonical_fields() {
     let (url, body) = one_http(run(
         "im_create_channel",
@@ -435,7 +436,9 @@ fn create_channel_maps_only_canonical_fields() {
             "type": "O",
             "user_ids": ["u1", "u2"],
             "display_name": "群",
-            "force_create": true
+            "force_create": true,
+            "orient": "持续交付",
+            "source": { "type": "meeting", "id": "meeting-1", "title": "产品周会" }
         }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/create");
@@ -445,18 +448,28 @@ fn create_channel_maps_only_canonical_fields() {
             "type": "O",
             "userIds": ["u1", "u2"],
             "displayName": "群",
-            "forceCreate": true
+            "forceCreate": true,
+            "orient": "持续交付",
+            "source": { "type": "meeting", "id": "meeting-1", "title": "产品周会" }
         })
     );
 }
 
 #[test]
+/// 建群与话题命令对未知字段、错误类型和半份来源一律 fail-closed。
 fn create_channel_and_make_topic_reject_legacy_unknown_and_wrong_types() {
     assert!(err(
         "im_create_channel",
         json!({
             "type": "O", "user_ids": ["u1"], "display_name": "群",
             "force_create": true, "picture": "legacy-client-avatar"
+        })
+    ));
+    assert!(err(
+        "im_create_channel",
+        json!({
+            "type": "O", "user_ids": ["u1"], "display_name": "群",
+            "force_create": true, "orient": "1234567890123456789012345678901"
         })
     ));
     assert!(err(
@@ -478,6 +491,13 @@ fn create_channel_and_make_topic_reject_legacy_unknown_and_wrong_types() {
         json!({
             "type": "O", "user_ids": ["u1"], "display_name": "群",
             "force_create": "true"
+        })
+    ));
+    assert!(err(
+        "im_create_channel",
+        json!({
+            "type": "O", "user_ids": ["u1"], "display_name": "群",
+            "force_create": true, "source": { "type": "meeting", "id": "meeting-1" }
         })
     ));
 

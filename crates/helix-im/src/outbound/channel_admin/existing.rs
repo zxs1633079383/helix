@@ -48,16 +48,25 @@ inventory::submit! {
 /// G-15a POST /api/cses/channel/create — Helix 只做 canonical command 到 Go boundary 的 casing
 /// adapter。会话身份、team、成员角色与默认 USER 头像均由 Go 根据 session 派生，不能由跨端内核
 /// 生成或信任；自定义 PICTURE 头像只可走独立的改头像命令。可选 `req_id` 仅用于生成
-/// `Cses-Track-Id` transport header，不进入 Go mutation body。
+/// `Cses-Track-Id` transport header，不进入 Go mutation body；可选群导向使用 Go 权威键 `orient`。
 struct CreateChannelCommand;
 impl OutboundCommand for CreateChannelCommand {
     fn name(&self) -> &'static str {
         "im_create_channel"
     }
+    /// 把 canonical 建群意图映射为 Go casing，并严格校验可选来源快照。
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         require_exact_keys(
             args,
-            &["type", "user_ids", "display_name", "force_create", "req_id"],
+            &[
+                "type",
+                "user_ids",
+                "display_name",
+                "force_create",
+                "orient",
+                "source",
+                "req_id",
+            ],
             self.name(),
         )?;
         let channel_type = require_str(args, "type", self.name())?;
@@ -67,16 +76,49 @@ impl OutboundCommand for CreateChannelCommand {
         if args.get("req_id").is_some() {
             require_str(args, "req_id", self.name())?;
         }
-        Ok((
-            "channel/create",
-            json!({
-                "type": channel_type,
-                "userIds": user_ids,
-                "displayName": display_name,
-                "forceCreate": force_create,
-            }),
-        ))
+        let mut body = json!({
+            "type": channel_type,
+            "userIds": user_ids,
+            "displayName": display_name,
+            "forceCreate": force_create,
+        });
+        if let Some(orient) = args.get("orient") {
+            let orient = orient
+                .as_str()
+                .ok_or_else(|| ImError::Parse(format!("{}: orient 必须为字符串", self.name())))?;
+            if orient.chars().count() > 30 {
+                return Err(ImError::Parse(format!(
+                    "{}: orient 最多 30 个字符",
+                    self.name()
+                )));
+            }
+            body["orient"] = json!(orient);
+        }
+        if let Some(source) = args.get("source") {
+            body["source"] = require_channel_source(source, self.name())?;
+        }
+        Ok(("channel/create", body))
     }
+}
+
+/// 校验建群来源只含 type/id/title 三个非空字符串，并保持值原样进入 Go DTO。
+fn require_channel_source(source: &Value, cmd: &str) -> Result<Value, ImError> {
+    let object = source
+        .as_object()
+        .ok_or_else(|| ImError::Parse(format!("{cmd}: source 必须为 object")))?;
+    if object.len() != 3
+        || object
+            .keys()
+            .any(|key| !["type", "id", "title"].contains(&key.as_str()))
+    {
+        return Err(ImError::Parse(format!(
+            "{cmd}: source 只允许 type/id/title"
+        )));
+    }
+    for key in ["type", "id", "title"] {
+        require_str(source, key, cmd)?;
+    }
+    Ok(source.clone())
 }
 static CREATE_CHANNEL: CreateChannelCommand = CreateChannelCommand;
 inventory::submit! {

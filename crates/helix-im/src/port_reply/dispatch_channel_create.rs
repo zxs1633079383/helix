@@ -208,6 +208,7 @@ fn build_message_v3_created_projection(
             "userId",
             "type",
             "source",
+            "orient",
             "createAt",
             "createBy",
         ] {
@@ -303,6 +304,7 @@ mod tests {
                 "title": "破坏者的快速会议",
                 "type": "meeting"
             },
+            "orient": "持续交付",
             "owner": {"id": "444"}
         });
 
@@ -313,6 +315,7 @@ mod tests {
         assert_eq!(projection["pictureType"], "USER");
         assert_eq!(projection["picture"]["userIds"], json!(["444"]));
         assert_eq!(projection["source"]["type"], "meeting");
+        assert_eq!(projection["orient"], "持续交付");
         assert_eq!(projection["createAt"], 1787120607046_i64);
         assert_eq!(projection["createBy"], "444");
     }

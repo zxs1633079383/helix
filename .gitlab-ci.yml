@@ -10,7 +10,7 @@ variables:
   CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
   CARGO_TERM_COLOR: "always"
   CARGO_INCREMENTAL: "0"
-  MESSAGEV3_CI_IMAGE: "harbor.jinqidongli.com/infra-ops/gitlab/rust:1.95.0_with_tools"
+  MESSAGEV3_CI_IMAGE: "harbor.jinqidongli.com/infra-ops/gitlab/rust:1.95.0_with_tools_node20"
   # 完整 Phase 批次启用最多五个频道和按账号复用的保活 WS；设为 0 可回退逐 Gate 隔离调试。
   MESSAGEV3_PHASE_POOL: "1"
 

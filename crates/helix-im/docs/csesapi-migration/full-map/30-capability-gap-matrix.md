@@ -1,6 +1,8 @@
-# 执行级能力缺口矩阵（cses-im-server 替代 mattermost csesapi）
+# 执行级能力缺口矩阵（历史快照）
 
-> 生成时间：2026-06-16 · 合并自 4 个 `partials/gap-*.md`
+> `RETIRED_HISTORICAL`：生成时间：2026-06-16 · 合并自 4 个 `partials/gap-*.md`。这些统计只
+> 反映旧迁移快照，不参与当前 MessageV3 Gate 或 cses-im-server 运行态判定；当前 Helix
+> producer 真源见 [`../../../../../specs/047-im-event-gate-inventory/`](../../../../../specs/047-im-event-gate-inventory/)。
 > 三态判据：
 > - **covered（✅ 已迁移）**：路由 + app + DB + WS 全链路就位，wire 契约 verbatim 对齐
 > - **partial（🟡 部分迁移）**：路由+入参已注册，但 WS 表达/字段形态/消费侧编排/空桩 有差异

@@ -1,9 +1,9 @@
-# 真机 curl 真源 —— outbound 命令请求体/头的 ground truth
+# 历史真机 curl wire 参考 —— outbound 命令请求体/头
 
 > 来源：用户 2026-06-22 从**现网 cses-client 实际抓的 curl**（api-im-pre.jinqidongli.com，可换 `localhost:8065`）。
-> 用途：helix-im 各 outbound 命令（`crates/helix-im/src/commands.rs` + `handle_send_message`）的请求体/头**必须逐字对齐这里**，
-> 否则 Go 收下但不处理/不推回声（实测 send 无回声的真因 = 体不对，**非 Pulsar**）。
-> 这是比 `full-map/partials/{1,2}-*.md`（读 Go 源码反推）**更高优先级**的真源（真抓包 > 源码推断）。
+> 这里冻结的是当日 outbound wire 的 body/headers，不是当前 Helix 实现状态快照；当前字段是否已对齐，
+> 必须以 `crates/helix-im/src/` 和对应测试复核。它的 wire 事实优先于
+> `full-map/partials/{1,2}-*.md`（读 Go 源码反推），但不能用历史抓包替代当前代码证据。
 
 ---
 
@@ -37,7 +37,11 @@ POST /api/cses/posts/create
 ```json
 {"viewers":["all"],"message":"1","mentions":[],"temporaryId":"6a38b61dd2ce3c849a1cc1a0","type":"TEXT","simpleMessage":"1","channelId":"e9wnenyb1brbpfxssfuyfhcw5h","userId":"676cc4ccfbbc501161d5cd65","teamId":"6111fb0a202d425d221c53db","userSnapshot":{"orgName":"后端开发","deptName":"技术部","userName":"张立超","userId":"676cc4ccfbbc501161d5cd65","teamId":"6111fb0a202d425d221c53db"},"id":"","props":{},"topicId":"","revoke":false}
 ```
-**🔴 helix 现状不符（send 无回声真因）**：`handle_send_message` 只发 `{channel_id, temporary_id, message}`（snake_case + 缺字段）。真源要 `channelId`/`temporaryId`（camelCase）+ `viewers`/`type:"TEXT"`/`simpleMessage`/`userId`/`teamId`/`userSnapshot`/`mentions`/`props`/`topicId`/`revoke`/`id`。**字段名 + 必填集合都要改。**
+**✅ 当前 Helix builder 已对齐主要字段**：`outbound/send_build.rs` 的 `handle_send_message` 现在生成
+`channelId`/`temporaryId`（camelCase）以及 `viewers`、`type`、`simpleMessage`、`userId`、`teamId`、
+`userSnapshot`、`mentions`、`props`、`topicId`、`revoke`、`id` 和 `createAt`；
+`tests/p1_send_build_test.rs` 覆盖这些字段。上面的 curl 仍是外部 wire 参考，不能再作为“只发 snake_case”
+的当前 Helix 结论。
 
 ---
 
@@ -50,7 +54,10 @@ POST /api/cses/posts/makeTopic    （头带 Cses-Track-Id）
 ```json
 {"rootId":"e9wnenyb1brbpfxssfuyfhcw5h","teamId":"6111fb0a202d425d221c53db","postId":"1j5q6c87fbg55fr3bo3kni7c9o","displayName":"1","type":"T","users":[{"id":"6008f761453b4e60700f01e2","role":"MEMBER","teamId":"6111fb0a202d425d221c53db"},{"id":"676cc4ccfbbc501161d5cd65","role":"CREATOR","teamId":"6111fb0a202d425d221c53db"}],"picturetype":"USER","picture":{"userIds":["6008f761453b4e60700f01e2","676cc4ccfbbc501161d5cd65"]},"forceCreate":true}
 ```
-**🔴 helix 现状**：`im_make_topic` 仅校验 `postId` 透传 raw body。真源需 `rootId`/`teamId`/`postId`/`displayName`/`type:"T"`/`users[]`(含 CREATOR/MEMBER role)/`picturetype`/`picture`/`forceCreate`。
+**🟡 当前 Helix 实现仍是部分映射**：`MakeTopicCommand` 已不再只校验 `postId`，而是要求
+`root_id`、`user_ids`、`req_id`（可选 `display_name`），输出 `rootId`、`userIds` 和可选 `displayName`。
+抓包中的 `teamId`、`type`、`users`、`picturetype`、`picture`、`forceCreate` 尚未由该 builder 表达；
+这属于代码待核/待补缺口，不能把历史 curl 写成当前已完成。
 
 ---
 
@@ -110,12 +117,12 @@ POST /api/cses/channel/close
 
 ---
 
-## 对账小结（helix-im 待改清单）
+## 对账小结（抓包与当前 Helix 实现）
 
 | 命令 | endpoint | helix 现状 | 动作 |
 |---|---|---|---|
-| send | posts/create | 🔴 snake_case + 缺 ~10 必填字段 + 回声 action 是 `post` 非 `posted` | **改 handle_send_message body + 回声/对账 action** |
-| makeTopic | posts/makeTopic | 🔴 仅校验 postId | 补 rootId/teamId/displayName/type/users/picture/forceCreate |
+| send | posts/create | ✅ 当前 builder 已生成 camelCase 与主要必填字段；回声 action 是 `post` 非 `posted` | 继续以源码/测试复核 wire 兼容 |
+| makeTopic | posts/makeTopic | 🟡 builder 已生成 rootId/userIds/displayName，但仍少抓包中的 teamId/type/users/picture/forceCreate | 代码 owner 继续核对真实 wire |
 | create | channel/create | 🟡 raw 透传 | 给 repl 真源模板 |
 | member change | channel/member/change | ❓ 缺（只有 member/leave）| 核实是否新增 im_channel_member_change(join/leave) |
 | revoke | posts/revoke | ✅ 一致 | — |

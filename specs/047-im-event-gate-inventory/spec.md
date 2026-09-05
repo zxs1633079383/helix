@@ -49,7 +49,7 @@
 
 ### User Story 1 - 统一 Gate 分母与命名 (Priority: P1)
 
-作为 Gate 评审者，我需要先知道截图、当前 Strict Matrix 和仓内测试各自包含哪些 Gate，
+作为 Gate 评审者，我需要先知道截图、迁移前 Strict Matrix 快照和仓内测试各自包含哪些 Gate，
 避免把“第一批 WDIO Gate”误称为“全量产品 Gate”。
 
 **Why this priority**: 分母不一致会直接导致遗漏媒体、后续业务域或错误的完成率。
@@ -59,9 +59,9 @@
 
 **Acceptance Scenarios**:
 
-1. **Given** 截图列出 30 个 Gate，**When** 与当前 Matrix 对账，**Then** 明确截图不是
-   当前 Matrix 的全部 50 个 Gate。
-2. **Given** 当前 Matrix 包含 G-03，**When** 检查截图，**Then** G-03 被标为截图遗漏，
+1. **Given** 截图列出 30 个 Gate，**When** 与已退役 Strict Matrix epoch 13 快照对账，**Then** 明确截图不是
+   迁移前快照的全部 50 个 Gate。
+2. **Given** 已退役 Matrix epoch 13 包含 G-03，**When** 检查截图，**Then** G-03 被标为截图遗漏，
    而不是被默认为不存在或 excluded。
 3. **Given** G-17 至 G-27 不在截图，**When** 输出本轮范围，**Then** 它们被标为后续范围，
    不混入本轮 30 Gate 的双视角表。
@@ -219,9 +219,9 @@ Out Of Scope）。`.v1` 生成物具备 byte-exact 可镜像性即视为满足�
 ### Functional Requirements
 
 - **FR-001**: 规格 MUST 以截图中 30 个 Gate 作为本轮审阅分母，并记录精确 Gate ID。
-- **FR-002**: 规格 MUST 同时记录当前 Matrix 分母为 50、active 为 47、excluded 为 3，
-  避免把截图称为全量 Matrix。
-- **FR-003**: 规格 MUST 将 G-03 标记为截图遗漏但当前 Matrix active。
+- **FR-002**: 规格 MUST 记录已退役 Strict Matrix epoch 13 的历史分母为 50、active 为 47、excluded 为 3，
+  并明确它不能替代当前 30 Gate migration manifest。
+- **FR-003**: 规格 MUST 将 G-03 标记为截图遗漏，但注明它在已退役 Matrix epoch 13 中曾为 active。
 - **FR-004**: 规格 MUST 将 G-17 至 G-27 标记为本轮范围外，而不是已覆盖。
 - **FR-005**: 每个 Gate MUST 归入 post、schedule、timeline/read、channel、
   channel-member 或 sync/recovery 之一。
@@ -364,14 +364,14 @@ Out Of Scope）。`.v1` 生成物具备 byte-exact 可镜像性即视为满足�
 `G-10b`、`G-10c`、`G-10d`、`G-11`、`G-11a`、`G-12`、`G-13`、`G-14`、
 `G-14a`、`G-15a`、`G-15`、`G-16`、`G-16b`、`G-16c`。
 
-### 与当前 Matrix 的差异
+### 与已退役 Strict Matrix 快照的差异
 
-| 差异 | 当前事实 | 本规格处理 |
+| 差异 | 历史快照事实 | 本规格处理 |
 |---|---|---|
-| G-03 不在截图 | 当前 Matrix 为 active，Helix 与 WDIO 均已有媒体相关测试源 | 标记为截图遗漏，等待决定是否加入本批 |
-| G-17 至 G-27 不在截图 | 当前 Matrix 仍定义后续业务 Gate，其中 G-22/G-23/G-24 excluded | 不进入本轮 30 Gate 主表 |
-| Matrix epoch 漂移 | 当前 JSON 为 epoch 12、50 Gate；Roadmap 部分摘要仍写 epoch 11 | 以当前 JSON 为本轮静态真源，文档漂移另记 |
-| 旧 UI 合同漂移 | 当前 Matrix 仍含 `im:interaction:frame` 投影 | 本规格不继承该投影；以 raw Emit 合同记录为待收敛目标 |
+| G-03 不在截图 | 已退役 Matrix epoch 13 中曾为 active，Helix 与 WDIO 均有媒体相关测试源 | 标记为截图遗漏，等待决定是否加入本批 |
+| G-17 至 G-27 不在截图 | 已退役 Matrix 仍记录后续业务 Gate，其中 G-22/G-23/G-24 为 excluded | 不进入本轮 30 Gate 主表 |
+| Matrix 生命周期 | 已退役 JSON 为 epoch 13、50 Gate（47 active、3 excluded） | 仅作历史差异记录；当前分母以 30 Gate migration manifest 为准 |
+| 旧 UI 合同漂移 | 已退役 Matrix 含 `im:interaction:frame` 投影 | 本规格不继承该投影；以 raw Emit 合同记录为待收敛目标 |
 
 ## Gate Inventory
 
@@ -475,14 +475,14 @@ Out Of Scope）。`.v1` 生成物具备 byte-exact 可镜像性即视为满足�
 
 - **SC-001**: 截图中的 30/30 Gate 均有事件域、触发、Actor、Observer、完成条件和覆盖状态。
 - **SC-002**: 30/30 Gate 均明确属于“双端传播”“双端独立恢复”或“persona-local 不传播”。
-- **SC-003**: 当前 Matrix 与截图的差集全部列出，未解释的 Gate 数为 0。
+- **SC-003**: 已退役 Matrix 快照与截图的差集全部列出，未解释的 Gate 数为 0。
 - **SC-004**: 所有覆盖声明均带证据等级，本轮误报 runtime Green 的数量为 0。
 - **SC-005**: 当前场景未覆盖的行为全部使用 `MISSING`，推导目标全部使用 `INFERRED`。
 - **SC-006**: 至少识别 10 个可由用户确认、删除或补充的具体覆盖缺口。
 - **SC-007**: 用户能够仅根据本规格逐 Gate 判断“分类正确 / 角色错误 / 需要新增场景”，
   无需先阅读实现代码。
 - **SC-008**: 规格质量清单全部通过，未保留模板占位符或未解释的 clarification。
-- **SC-009**: Helix 生产源、当前测试源、当前 Matrix 与当前合同文档对
+- **SC-009**: Helix 生产源、当前测试源、已退役 Matrix 快照与当前合同文档对
   `InteractionFrame|SurfaceMutation|ActionBinding|UiDirective|FrameApplied` 的
   MessageV3 业务引用均为 0；仅允许明确标记的历史文档归档命中。客户端仓库按 FR-044
   保持 `NOT_SYNCED_BY_SCOPE`，其既有引用不得借入本版本的零引用结论。

@@ -73,7 +73,7 @@ JavaScript 生成器不是业务 producer。它只读取
 普通测试适合开发阶段快速验证行为：
 
 ```bash
-cd /System/Volumes/Data/workspace/rust/helix
+cd "$(git rev-parse --show-toplevel)"
 
 cargo test -p helix-im --test message_v3_g01 -- --nocapture
 ```
@@ -105,7 +105,7 @@ jq -r --arg gate "$GATE" \
 下面以 G-01 为例：
 
 ```bash
-cd /System/Volumes/Data/workspace/rust/helix
+cd "$(git rev-parse --show-toplevel)"
 
 OUT="$PWD/specs/047-im-event-gate-inventory/.v1/gates/G-01/generated"
 mkdir -p "$OUT"
@@ -162,7 +162,7 @@ specs/047-im-event-gate-inventory/.v1/gates/G-01/generated/
 推荐使用总生成器：
 
 ```bash
-cd /System/Volumes/Data/workspace/rust/helix
+cd "$(git rev-parse --show-toplevel)"
 
 node specs/047-im-event-gate-inventory/scripts/generate-v1-evidence.mjs
 ```

@@ -1,8 +1,9 @@
-# InteractionFrame V2 当前代码对接：按 UC
+# InteractionFrame V2 历史代码对接记录：按 UC
 
-> 源码审计时间：2026-07-24 PDT。本目录只描述当前生产代码，不再保存 Frame V1 历史页，
-> 也不复制已完成的 Spec/Plan/Tasks。正式实施历史与验收任务见
-> [018 InteractionFrame V2 cutover](../../specs/018-interaction-frame-v2-cutover/)。
+> `RETIRED_HISTORICAL`。源码审计时间：2026-07-24 PDT。本目录记录已退役的 InteractionFrame
+> V2 方案，不再描述当前生产代码。当前 MessageV3 实施与 Gate 真源见
+> [`../../specs/047-im-event-gate-inventory/`](../../specs/047-im-event-gate-inventory/)；本目录
+> 仅用于追溯 018 及其后续历史决策。
 
 ## 结论
 

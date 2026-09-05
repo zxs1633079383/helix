@@ -66,6 +66,12 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 每日 Markdown 熵管理只修改有当前代码、manifest、配置、测试或脚本证据的文档；可证伪断言：① 只在本轮独立 worktree 产生 Markdown/必要 SESSION 改动，不触碰 Rust、JSON、TOML、脚本、生成产物或共享 checkout 未跟踪资产；② 远端 `origin/reactor/MessageV3-helix` 基线固定为 `0ef1692890670e3e3e8f14f455c771d377cbef3a`，所有版本、路径、Gate/Spec/索引结论均可回溯到该 tip 或当前真源；③ 直接相关链接、路径、索引、checker 与 `git diff --check` 通过；④ 若发现既有 checker/Tag/生成物 Drift，仅报告不越界修复；⑤ 有真实 Drift 才提交并普通非强制推送，否则报告 `NO_CHANGES` | 赌注 中 | 可逆 是 | @2026-09-05T08:01:00+0800
+
+✅ DONE 本轮仅更新 Markdown：四个公共 crate README、docs/README 与 ROADMAP 对齐 `0.1.9` 和 `0ef16928`；根索引、Spec 047、历史 Strict Matrix/Frame/full-map/fixture/curl 文档已明确 `RETIRED_HISTORICAL`、30 Gate 当前 manifest、epoch 13 历史分母和真实 producer 路径。验证：Markdown 链接 1605/1605、cutover checker 30 Gate PASS、manifest test path 30/30、Strict Matrix retired epoch 13 为 50（47 active/3 excluded）、Cargo metadata 四包均 0.1.9、`git diff --check` PASS；未改 Rust/JSON/TOML/脚本/生成物或共享 checkout | @2026-09-05T08:55:14+0800
+
+⚡ DRIFT-PRED 严格 Matrix `--check-generated` 仍因既有 generated hash 漂移失败，`helix-v-0.1.9` 本地与远端均缺失；两项均按预期保留为发布/生成流程债务，未用文档改动掩盖 | @2026-09-05T08:55:14+0800
+
 🎯 EXPECT 每日 Markdown 熵管理只修改有当前代码、Cargo manifest、脚本或测试证据的文档；可证伪断言：① 四个公开 crate README、docs 索引与 ROADMAP 都精确对齐 `0.1.7`；② `docs/README.md` 与 `docs/ROADMAP.md` 的代码快照更新至本轮独立 worktree 基线 `088184df`；③ 不修改 Rust、JSON、TOML、脚本或生成产物；④ 直接相关链接、版本、索引与 `git diff --check` 均通过；⑤ 缺失 `helix-v-0.1.7` 注释 Tag 只报告为发布流程 Drift，不以文档掩盖 | 赌注 低 | 可逆 是 | @2026-09-04T08:00:55+0800
 
 ✅ DONE 每日 Markdown 熵管理已将四个公共 crate README、docs 索引与 ROADMAP 对齐当前 `0.1.7` manifest/registry 事实，并更新代码快照至 `088184df`；本轮 7 个文件只含 Markdown，链接 1599/1599、Cargo metadata、四个 `cargo search` 版本、旧 `0.1.4` 文本扫描与 `git diff --check` 通过；`helix-v-0.1.7` 仍缺失，作为发布流程 Drift 单列，不以文档掩盖 | @2026-09-04T08:17:07+0800

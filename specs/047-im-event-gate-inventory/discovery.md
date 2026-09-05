@@ -5,34 +5,37 @@
 **Implementation Scope**: 精确 30 Gate；`G-03` 与 `G-17` 至 `G-27` 均为
 `OUT_OF_SCOPE`。本版本只生成 Helix `.v1` 产物，不同步 PC/Mobile 消费者。
 
-**Evidence Baseline**: 当前已有源码、fixture 与 WDIO 入口仅登记为
-`SOURCE_PRESENT / NOT_RUN`。MessageV3 的 deterministic、contract、integration、
-runtime、dual-user、canonical 六级证据必须分别执行和登记。
+**Evidence Baseline（规格创建时）**: 本规格初始登记的源码、fixture 与 WDIO 入口仅记为
+`SOURCE_PRESENT / NOT_RUN`；这不是当前执行结果。MessageV3 的 deterministic、contract、
+integration、runtime、dual-user、canonical 六级证据必须分别执行和登记，当前结果以对应
+verification/evidence 记录为准。
 
 ## Facts *(mandatory)*
 
-- **F-001**: 当前 Strict Matrix 的合同版本为 epoch 12，定义 50 个 Gate，其中 active 47、excluded 3；截图中的 Gate 不是当前 Matrix 全量分母。 | **Evidence**: `crates/helix-im/contracts/strict-matrix.v1.json:3`
-- **F-002**: 截图列出的本轮分母为 30 个 Gate；逐项可在当前 Matrix 找到，但截图遗漏
-  active 的 G-03，且未包含后续 G-17 至 G-27。 |
+- **F-001**: 已退役 Strict Matrix 的合同版本为 epoch 13，记录 50 个 Gate，其中 active 47、excluded 3；截图中的 Gate 不是迁移前快照全量分母。 | **Evidence**: `crates/helix-im/contracts/strict-matrix.v1.json:3`
+- **F-002**: 截图列出的本轮分母为 30 个 Gate；逐项可在已退役 Matrix 快照找到，但截图遗漏
+  曾 active 的 G-03，且未包含后续 G-17 至 G-27。 |
   **Evidence**: `crates/helix-im/contracts/strict-matrix.v1.json:48`,
   `crates/helix-im/contracts/strict-matrix.v1.json:52`,
   `crates/helix-im/contracts/strict-matrix.v1.json:77`
-- **F-003**: 本轮 30 个 Gate 均存在 Helix producer/fixture 合同源；G-10b、G-10c、
-  G-10d、G-11a 使用 timeline formal producer，其余第一批 Gate 有对应完整流程或
-  canonical fixture producer。此事实只证明测试源存在，不证明本轮已执行。 |
-  **Evidence**: `crates/helix-im/tests/g01_wdio_fixture_contract_test.rs:1`,
-  `crates/helix-im/tests/g10d_wdio_fixture_contract_test.rs:1`,
-  `crates/helix-im/tests/g11a_wdio_fixture_contract_test.rs:1`
+- **F-003**: 当前 migration manifest 的 30 个 Gate 均有 Helix producer target；G-10b、
+  G-10c、G-10d、G-11a 使用 timeline formal producer，其余 Gate 由对应
+  `tests/message_v3/<domain>/<gate>/main.rs` target 负责。此事实只证明测试源存在，
+  不证明本轮已执行。 |
+  **Evidence**: `specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json:47`,
+  `crates/helix-im/tests/message_v3/post/g01/main.rs:1`,
+  `crates/helix-im/tests/message_v3/timeline/g10d/main.rs:1`,
+  `crates/helix-im/tests/message_v3/timeline/g11a/main.rs:1`
 - **F-004**: 本轮 30 个 Gate 均存在 WDIO mock、single-real、dual-real 场景源；
   dual-real 文件以两个隔离 profile 的 Actor/Observer 作为角色。源码存在不等于
   Mock、Native、Go、WS、双账号或真实应用可见状态已在本轮通过。 |
   **Evidence**:
   `/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g01-dual-real.e2e.ts:49`,
   `/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g16-dual-real.e2e.ts:16`
-- **F-005**: G-03 当前仍是 active Gate，并存在 Helix durable media 合同与 WDIO
-  dual-real 场景，因此不能因为截图遗漏而判定为退役或 excluded。 |
-  **Evidence**: `crates/helix-im/contracts/strict-matrix.v1.json:620`,
-  `crates/helix-im/tests/g03_media_durable_restart_contract_test.rs:1`,
+- **F-005**: G-03 在已退役 Matrix epoch 13 中曾是 active Gate；其历史 Helix durable media
+  合同文件当前工作树已不再保留，但 WDIO dual-real 场景仍存在，因此不能因为截图遗漏而
+  把它写成当前 30 Gate 或 excluded。 |
+  **Evidence**: `crates/helix-im/contracts/strict-matrix.v1.json:626`,
   `/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g03-dual-real.e2e.ts:1`
 - **F-006**: Matrix 可继续提供 Gate ID、canonical command 和完成条件，但其中旧 UI
   投影不再作为本规格的业务出站；G-01、G-15、G-16c 必须分别回到当前 producer 的
@@ -105,8 +108,8 @@ runtime、dual-user、canonical 六级证据必须分别执行和登记。
 
 ## Decisions
 
-- **D-001**: 本规格主表以截图 30 Gate 为人工审阅分母，同时单列当前 Matrix
-  50/47/3 分母与差集，禁止混算完成率。
+- **D-001**: 本规格主表以截图 30 Gate 为人工审阅分母，同时单列已退役 Matrix
+  epoch 13 的 50/47/3 历史分母与差集，禁止混算完成率。
 - **D-002**: 统一使用 Actor/Observer 作为角色上位词；只有消息投递时再细化为
   Sender/Receiver，恢复、分页、定位、已读和定时隐私不强套双向传播。
 - **D-003**: 当前覆盖统一记录为 `SOURCE_PRESENT / NOT_RUN`；fixture、静态源码、

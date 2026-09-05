@@ -3,7 +3,7 @@
 > `docs/` 的单一入口。本文只维护 canonical 路由、证据层级和熵管理规则，不复制任务
 > 流水或 Green 数字。
 >
-> 最近代码对账：2026-09-04，基线 `088184df`。对账范围：当前 workspace、Cargo manifest、
+> 最近代码对账：2026-09-05，基线 `0ef16928`。对账范围：当前 workspace、Cargo manifest、
 > `helix-core` / `helix-im` / driver 源码、Spec 047 manifest 与验证记录。
 
 ---
@@ -105,7 +105,7 @@ PC / Mobile / Web shell
 - host：`crates/helix-driver-host/`，提供共享 SQLite、HTTP、WS、timer、metrics 与执行驱动。
 - native/FFI/Web：`crates/helix-driver-{native,ffi,web}/`，只兑现平台边界并原样交付事件 bytes。
 - 当前四个 crates.io 公共包为 `cses-helix-core`、`helix-im`、`helix-driver-host`、
-  `helix-driver-native`，版本均为 `0.1.7`。
+  `helix-driver-native`，版本均为 `0.1.9`。
 
 ### PC / Mobile
 
@@ -150,7 +150,7 @@ PC / Mobile / Web shell
 | 在线/离线消息发送 | [`在线与离线发送消息全流程.md`](../crates/helix-im/docs/消息发送全流程/在线与离线发送消息全流程.md) |
 | 频道同步分页 | [`频道同步分页协议.md`](../crates/helix-im/docs/频道同步分页协议.md) |
 | UC/HTTP/WS/storage 历史代码分析 | [`前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](../crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md) |
-| 真机 curl wire 真源 | [`真机curl真源.md`](../crates/helix-im/docs/csesapi-migration/真机curl真源.md) |
+| 历史真机 curl wire 参考 | [`真机curl真源.md`](../crates/helix-im/docs/csesapi-migration/真机curl真源.md) |
 | FFI 合同 | [`crates/helix-driver-ffi/docs/`](../crates/helix-driver-ffi/docs/) |
 | Runtime Metrics | [`Metrics/Prometheus指标说明.md`](./Metrics/Prometheus指标说明.md) |
 | MessageV3 观测环境迁移 | [`Metrics/MessageV3全链路观测环境迁移手册.md`](./Metrics/MessageV3全链路观测环境迁移手册.md) |

@@ -197,23 +197,23 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 | [`crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md) | **V1/旧链历史参考** | 仅用于核对迁移前字段、HTTP/WS 输入和兼容风险；不得作为当前 MessageV3 事件、状态或完成证据 |
 | [`specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json`](specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json) | **当前 30 Gate 机器真源** | Gate 分母、领域 owner、独立测试 target、删除清单、生成文件与迁移状态 |
 | [`specs/047-im-event-gate-inventory/contracts/message-v3-event.schema.json`](specs/047-im-event-gate-inventory/contracts/message-v3-event.schema.json) | **MessageV3 出站 schema** | 业务信封只含 `event` 与 `data`；具体字段由真实 Gate 测试和本地/远端事实生成 |
-| [`crates/helix-im/docs/csesapi-migration/真机curl真源.md`](crates/helix-im/docs/csesapi-migration/真机curl真源.md) | **outbound 请求体/头 ground truth（真抓包 > 源码推断）** | 现网 cses-client 实抓 6 个 curl（posts/create·makeTopic·revoke·channel/create·member/change·close）逐字 body+头；helix-im outbound 命令体必须对齐此处（send 无回声真因=体不对·非 Pulsar；普通发消息 WS 推 `post` 非 `posted`）|
-| [`crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md`](crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md) | **全量图谱总索引** | backend-\*（源端 HTTP/WS 清单）+ client-\*（前端用例/渲染/Tauri）+ gap-\* 三类导读 |
-| [`crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md`](crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md) | **缺口矩阵** | covered 86 / partial 30 / missing 7 + 替代 mattermost 阻塞能力优先级 |
-| `…/full-map/partials/1-…posts` · `2-…channel-sync` · `3-…user-misc` · `4-…bot-agent` | **后端 HTTP** | 124 接口四域全清单 + wire 契约字段 + 命名陷阱 |
-| `…/full-map/partials/5--backend-ws-events.md` | **后端 WS 推送** | 19 事件常量真源（`websocket_message.go`）+ `event_seq` 注入铁律 |
-| `…/full-map/partials/6--client-usecases.md` · `7--client-ui-rendering.md` · `8--client-tauri-im.md` | **前端用例/渲染/Tauri** | message-v3 service 42 用例 + UI readBits/字段契约 + src-tauri Rust IM 核心 14 用例集 |
-| `…/full-map/partials/9..12-gap-*.md` | **三态缺口** | posts/channel/user-misc/bot-agent 各域 covered/partial/missing 对照 |
+| [`crates/helix-im/docs/csesapi-migration/真机curl真源.md`](crates/helix-im/docs/csesapi-migration/真机curl真源.md) | **历史 outbound wire 抓包参考** | 冻结现网实抓的 6 个 curl（posts/create·makeTopic·revoke·channel/create·member/change·close）；当前 Helix 命令体与回声字段必须回到源码/测试复核，不把历史抓包当完成证据 |
+| [`crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md`](crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md) | **历史全量图谱快照** | 2026-06-16 的 backend-\* / client-\* / gap-\* 导读；只作旧链追溯，不作当前 Gate 分母 |
+| [`crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md`](crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md) | **历史缺口矩阵快照** | 2026-06-16 的 covered 86 / partial 30 / missing 7；只作旧迁移追溯，不作当前运行态判定 |
+| `…/full-map/partials/1-…posts` · `2-…channel-sync` · `3-…user-misc` · `4-…bot-agent` | **历史后端 HTTP** | 旧快照的 124 接口四域清单、wire 契约字段与命名陷阱 |
+| `…/full-map/partials/5--backend-ws-events.md` | **历史后端 WS 推送** | 旧快照的 19 事件常量与 `event_seq` 记录；当前事件以代码/测试为准 |
+| `…/full-map/partials/6--client-usecases.md` · `7--client-ui-rendering.md` · `8--client-tauri-im.md` | **历史前端用例/渲染/Tauri** | 旧快照的 message-v3 service、UI readBits 与 src-tauri Rust IM 清单 |
+| `…/full-map/partials/9..12-gap-*.md` | **历史三态缺口** | 旧快照的 posts/channel/user-misc/bot-agent covered/partial/missing 对照 |
 | [`crates/helix-im/docs/csesapi-migration/01-接口可达性清单.md`](crates/helix-im/docs/csesapi-migration/01-接口可达性清单.md) · [`02-迁移蓝图.md`](crates/helix-im/docs/csesapi-migration/02-迁移蓝图.md) | **可达性 + 蓝图** | 接口可达性逐条 + 迁移蓝图 |
 
 ### 4.5.2 客户端 Phase → Domain → Gate 交互图（按需披露）
 
-涉及客户端 84 Gate、`docs/mmd/`、Mermaid 时序图或“客户端现在如何与 Helix 交互”的任务，
+涉及客户端 92 Gate、`docs/mmd/`、Mermaid 时序图或“客户端现在如何与 Helix 交互”的任务，
 进入局部规则 [`docs/mmd/AGENTS.md`](docs/mmd/AGENTS.md)。遵循 **L0 根指令 → L1 局部
 AGENTS → L2 README 分母/索引 → L3 单 Gate 图 → L4 客户端源码、contract、Helix 与运行态
-证据** 的渐进式披露顺序；根文件只负责路由，不复制 84 张图的正文。
+证据** 的渐进式披露顺序；根文件只负责路由，不复制 92 张图的正文。
 
-该目录以 cses-client 的 `gate-registry.json` 和 phase manifest 为客户端 84 Gate 真源；
+该目录以 cses-client 的 `gate-registry.json` 和 phase manifest 为客户端 92 Gate 真源；
 Helix Spec 047 的 30 个 producer Gate 仍只用于实现接缝核对，不能替代客户端分母。新增、
 移动或修改 Gate 图时，必须同时遵守局部 `AGENTS.md` 的目录、首部真源注释、负向事实和
 manifest/README/Mermaid 验证合同。

@@ -13,11 +13,11 @@
 - `fixture/index.html` 是真实浏览器 harness 入口，不是产品页面。
 
 生成 wasm-bindgen 的 `pkg/` 后，用静态服务器托管 crate 目录。CLI 版本必须与
-`Cargo.lock` 中的 crate 版本一致（当前为 `0.2.122`）：
+`Cargo.lock` 中的 crate 版本一致（当前为 `0.2.126`）：
 
 ```bash
 cargo build --target wasm32-unknown-unknown -p helix-driver-web
-cargo install wasm-bindgen-cli --version 0.2.122 --locked
+cargo install wasm-bindgen-cli --version 0.2.126 --locked
 wasm-bindgen \
   --target web \
   --out-dir crates/helix-driver-web/pkg \

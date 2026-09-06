@@ -3,7 +3,8 @@ flowchart TB
         CMD["Tick::Command(im_send_message)"]
         BUILD["校验命令并由 Helix 分配 temporaryId"]
         P1["Effect::Persist(message, send_status=sending)"]
-        E1["Effect::Emit(im:post:sending)"]
+        P1A["Effect::PersistAtomic(message + pending_media journal)"]
+        E1["PersistOk 后 Effect::Emit { event: DomainEventBytes }\nim:post:sending"]
         PR1["Tick::PortReply(P1)"]
         MEDIA["检测 IMAGE / FILE 的本地媒体"]
         PREP["Effect::Http(POST /oss/getPresignedUrl)"]
@@ -20,8 +21,8 @@ flowchart TB
         PR2["Tick::PortReply(authority PersistAtomic)"]
         READ["Effect::Persist(ScopedGet channel_member)"]
         PR3["Tick::PortReply(readback rows)"]
-        UI["Effect::Emit(im:post:received + im:channel:update)"]
-        FAIL["Persist send_status=unsend + CancelTimer + Emit send-failed"]
+        UI["Effect::Emit { event: DomainEventBytes }\nim:post:received + im:channel:update"]
+        FAIL["Persist send_status=unsend + CancelTimer +\nEffect::Emit { event: DomainEventBytes } send-failed"]
         RETRY["Tick::Command(im_retry_send, same temporaryId)"]
         LOOKUP["必要时 Get message by temporary_id"]
         LPR["Tick::PortReply(durable message Get)"]
@@ -49,10 +50,11 @@ flowchart TB
     end
 
     CMD --> BUILD
-    BUILD --> P1
-    BUILD --> E1
+    BUILD -->|"无附件"| P1
+    BUILD -->|"IMAGE / FILE"| P1A
     P1 --> STORE --> PR1
-    E1 --> SINK
+    P1A --> STORE --> PR1
+    PR1 --> E1 --> SINK
     PR1 --> MEDIA
     MEDIA -->|"无附件"| HTTP
     MEDIA -->|"IMAGE / FILE"| PREP --> HTTPPORT

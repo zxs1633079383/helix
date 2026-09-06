@@ -1,3 +1,28 @@
+---
+id: HX-C016
+title: 真 Go e2e 环境恢复与快 harness 取舍
+status: active
+severity: major
+scope: helix
+created: 2026-06-24
+source: 2026-06-24 用户明确 + 长会话反复实证
+recurrence_count: 2
+trigger_paths:
+  - "scripts/host-cli-*-e2e.sh"
+  - "crates/helix-driver-native/tests/messageV3-domain/**"
+trigger_keywords:
+  - "WS hello"
+  - "tp-connect"
+  - "real-chain"
+  - "wait_for"
+related:
+  - HX-C008
+  - HX-C015
+graduates_to:
+  - AGENTS.md
+inline_target:
+---
+
 # HX-C016 — 真 Go e2e：WS 环境恢复 + 快 harness 模式 + 快 smoke vs 精确 per-UC 取舍
 
 > 状态：active　|　沉淀：2026-06-24（用户明确 + 长会话反复实证）

@@ -4,7 +4,7 @@
 
 本目录把 Spec 047 的 30 个 IM Gate 分别做成独立 Rust integration test target。
 每个 Gate 使用确定性输入驱动真实 `ImModule::handle`，检查持久化前后顺序和
-`Effect::Emit {event,data}`，并可从同一次回放写出 sender/receiver 双视角
+`Effect::Emit { event: DomainEventBytes }`（bytes 内含 `{event,data}`），并可从同一次回放写出 sender/receiver 双视角
 canonical JSON。
 
 完整链路是：
@@ -14,7 +14,7 @@ Gate Rust test
   -> 构造 Tick / PortReply
   -> ImModule::handle
   -> Persist / PersistOk
-  -> Effect::Emit {event,data}
+  -> Effect::Emit { event: DomainEventBytes }
   -> sender/receiver 事件断言
   -> Rust artifact writer
   -> .v1/gates/<Gate>/generated/*.json
@@ -60,13 +60,15 @@ JavaScript 生成器不是业务 producer。它只读取
 | G-S3 | pong gap 补偿 | `message_v3_gs3` | `sync/gs3/main.rs` |
 | G-S4 | 陌生频道自动补全 | `message_v3_gs4` | `sync/gs4/main.rs` |
 
-三个公共合同 target：
+五个公共合同 target：
 
 | 合同 | Cargo target | 职责 |
 |---|---|---|
 | MessageV3 信封 | `message_v3_event_contract` | 事件只能包含 `event` 与 `data` |
 | 产物 schema | `message_v3_artifact_schema` | 校验四类 JSON、字段禁集和全树 |
 | Gate 注册表 | `message_v3_gate_registry` | 校验 manifest、Cargo target 和 30 Gate 集合完全一致 |
+| Phase1 registry | `message_v3_phase1_registry` | 校验 Phase1 Gate target 与 manifest 映射 |
+| Phase3 registry | `message_v3_contracts_phase3_registry` | 校验 Phase3 contract target 与 manifest 映射 |
 
 ## 3. 执行单个 Gate，不生成 JSON
 

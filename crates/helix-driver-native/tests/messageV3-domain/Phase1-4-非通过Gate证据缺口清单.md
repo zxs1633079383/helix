@@ -1,4 +1,8 @@
-# MessageV3 Phase1-4 非通过 Gate 证据缺口清单
+# MessageV3 Phase1-4 非通过 Gate 证据缺口清单（历史快照）
+
+> **状态：`RETIRED_HISTORICAL`。** 更新时间与分母来自 2026-08-11 的 Phase1-4 运行态，
+> 证据根目录为旧 `artifacts/messagev3-phase1-4-real-chain`。当前 runner 已按现行 manifest 演进，
+> 本文不更新旧计数；要判断当前状态，请运行当前测试并读取本轮 run-owned evidence.json。
 
 ## 当前结论
 

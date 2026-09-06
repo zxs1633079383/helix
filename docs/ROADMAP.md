@@ -4,22 +4,27 @@
 > [`harness/decisions.md`](./harness/decisions.md)，MessageV3 实施真源见
 > [`specs/047-im-event-gate-inventory`](../specs/047-im-event-gate-inventory/)。
 >
-> Snapshot：2026-09-05（代码基线 `0ef16928`）。旧 Frame/Surface 报告属于历史证据，不自动继承为当前 Green。
+> Snapshot：2026-09-06（代码基线 `1355772d`）。旧 Frame/Surface 报告属于历史证据，不自动继承为当前 Green。
+> `verification.md` 与 `evidence/p7-final-validation.txt` 记录的是固定历史 evidence window；当前 checkout 的
+> `.v1` 被 Git 忽略且未生成，`review-ledger.json` 仍为 `verifying`，因此下文不能单独作为当前 final Green。
 
 ## 1. 当前结论
 
 `helix-im` 已从旧呈现套壳与旧 V1 compatibility 硬切到 MessageV3 Gate Event。
-唯一业务出站合同为 `Effect::Emit {event,data}`；driver 只批量交付 bytes，平台不重建业务 reducer。
+唯一业务出站合同为 `Effect::Emit { event: DomainEventBytes }`，其中 bytes 载荷为 `{event,data}`；driver 只批量交付 bytes，平台不重建业务 reducer。
 
-本轮分母为 Spec 047 冻结的 30 Gate。G-03 与 G-17 至 G-27 为 `OUT_OF_SCOPE`。本版本只
-完成 Helix 生产接码、真实回放测试、V2/V1 物理下线和被忽略的 `.v1` canonical JSON；
+本轮分母为 Spec 047 冻结的 30 Gate。G-03 与 G-17 至 G-27 为 `OUT_OF_SCOPE`。本版本登记了
+Helix 生产接码、真实回放测试与 V2/V1 物理下线；历史 evidence window 曾生成被忽略的 `.v1`
+canonical JSON，但当前 checkout 需重新生成并绑定当前 revision 后才能复用；
 PC WDIO、Mobile GTest、Go 修改与跨仓 fixture 同步明确延期。
 
 当前状态：
 
 - Constitution 2.0 与 ADR-017 已确立 MessageV3 唯一真源；
-- Spec 047 的 P0-P7、T001-T090 与 R4 已完成，30 Gate 均为 `MIGRATED`；
-- deterministic、contract 与 Rust driver integration 为 `PASS`，30 Gate × 4 canonical JSON 已生成并校验；
+- Spec 047 的 P0-P7、T001-T090 已登记完成，30 Gate 均为 `MIGRATED`；R4 仍以固定历史 evidence window 记录，当前
+  `review-ledger.json` 阶段为 `verifying`，不能写成已 close；
+- 历史 evidence window 的 deterministic、contract 与 Rust driver integration 记录为 `PASS`，30 Gate × 4 canonical JSON
+  的当前 checkout 产物状态为 `NOT_GENERATED`，不能把历史 hash 代替当前产物；
 - PC/Mobile canonical consumer、真实宿主、真实 Go/WS 与双用户证据仍为
   `NOT_SYNCED_BY_SCOPE` / `NOT_RUN`，不得据此宣称三端 TGCR Green。
 - 四个 crates.io 公共包已统一发布为 `0.1.9`；workspace 内消费者以 Cargo manifest 的
@@ -121,8 +126,8 @@ PC WDIO、Mobile GTest、Go 修改与跨仓 fixture 同步明确延期。
 
 ## 5. 工作树与提交边界
 
-- 当前分支：`reactor/MessageV3-helix`。
-- 保留用户现有未跟踪 `artifacts/messagev3-phase1-4-real-chain/` 与
-  `docs/Cargo私仓管理员执行Prompt.md`，不纳入文档对齐提交。
+- 目标发布分支：`reactor/MessageV3-helix`；本轮运行分支、upstream、dirty 资产与 worktree 隔离记录在根 `SESSION.md`，
+  不把某一运行 worktree 的分支/未跟踪文件写成所有 checkout 的当前事实。
+- 源 checkout 若存在未跟踪 `artifacts/` 或私仓 Prompt，文档对齐不纳入；具体文件以本轮 `git status` 为准。
 - 每个可独立验收的 Task/Phase 聚焦验证后立即 Conventional Commit，不自动 push。
 - Rust 编码全程遵守 Cargo 2-3 次纪律；不做改一行跑一次的编译循环。

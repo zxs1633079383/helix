@@ -36,7 +36,7 @@ graduates_to:
 ## §2 当前决策
 
 ADR-017 已取代 ADR-015。Headless 的当前含义是：`helix-im` 拥有平台无关的业务事实、
-权限、未读、排序、恢复和完成条件，但只通过 `Effect::Emit {event,data}` 交付已提交结果。
+权限、未读、排序、恢复和完成条件，但只通过 `Effect::Emit { event: DomainEventBytes }` 交付已提交结果，bytes 载荷为 `{event,data}`。
 driver 与 shell 不拥有第二套业务状态机，也不使用 Frame/Surface/Action/Directive 套壳。
 
 ## §3 Required / Forbidden

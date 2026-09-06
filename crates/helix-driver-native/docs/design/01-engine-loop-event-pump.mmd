@@ -1,5 +1,5 @@
 %% helix-driver-native — engine_loop 事件泵全景
-%% 真源：src/engine_loop.rs run_engine_loop_with_transports（1119 行）
+%% 真源：src/engine_loop.rs 的 run_engine_loop_with_transports；共享泵核实现在 helix-driver-host/src/engine.rs
 %% tokio::spawn 在此层（不在 helix-core）；core 保持零运行时依赖。
 %% 能力 ✅ / 缺口 ⚠️
 flowchart TD
@@ -31,6 +31,7 @@ flowchart TD
     subgraph SINK["Effect 兑现器（详见图 03）"]
         SP_P["Persist BoundedSpawner ✅<br/>per-table-set 懒建 N=1"]
         SP_H["Http BoundedSpawner ✅<br/>N=8 Block"]
+        SP_U["UploadFile BoundedSpawner ✅<br/>独立池·Block·进度回灌"]
         SP_HF["HttpFire BoundedSpawner ⚠️<br/>N=8 DropNewest（满即丢当前·零生产者·类型对称 eager 建）"]
         SENDW["Effect::Send → transports.get(id) → WS ✅"]
         EMITW["Effect::Emit → NativeEventSink::emit ✅"]
@@ -40,6 +41,7 @@ flowchart TD
 
     DISPATCH --> SP_P
     DISPATCH --> SP_H
+    DISPATCH --> SP_U
     DISPATCH --> SP_HF
     DISPATCH --> SENDW
     DISPATCH --> EMITW
@@ -52,6 +54,7 @@ flowchart TD
     %% ── PortReply 回灌闭环 ──
     SP_P ==>|"写完 reply_tx.send(PortReply) 不等泵收"| RRX
     SP_H ==>|"resp/err 包 PortReply"| RRX
+    SP_U ==>|"upload resp/err 包 PortReply；progress 走 PortProgress"| RRX
     %% HttpFire 无 corr·fire-and-forget·不回灌
 
     classDef gap fill:#fff3cd,stroke:#d39e00,color:#663c00

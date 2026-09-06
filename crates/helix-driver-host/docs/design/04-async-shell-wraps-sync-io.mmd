@@ -22,7 +22,7 @@ flowchart TD
     subgraph WHY["为什么这样分层 ✅"]
         WHY1["SQLite/rusqlite = 同步阻塞 C 库，\n直接在 tokio worker 上调 → 阻塞整个 runtime 线程"]
         WHY2["spawn_blocking 把同步阻塞挪到专用 blocking 池\n→ async runtime 继续调度其它任务"]
-        WHY3["⚑ HX-C006 / ADR-005：FFI 侧同步调用必须 spawn_blocking 包裹\n（open / execute_raw / with_reader / 4 个写 op）"]
+        WHY3["⚑ HX-C006 / ADR-005：FFI 侧同步调用必须 spawn_blocking 包裹\n（open / execute_raw / with_reader / 6 个写 op）"]
         WHY1 --- WHY2 --- WHY3
     end
     SB -.-> WHY

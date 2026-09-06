@@ -1,6 +1,6 @@
 # helix-host-cli — 设计图索引
 
-> native 最小宿主二进制：把 `ExecutionShell` + `ImModule` + `helix-driver-native` 接成端到端可跑闭环，用于**真连现网 Go 服务端**联调（L2 冒烟）。已实测真连 `localhost:8065` WS 升级成功 + 握手 + increment + 落库。
+> native 最小宿主二进制：把 `ExecutionShell` + `ImModule` + `helix-driver-native` 接成端到端可跑闭环，用于**真连现网 Go 服务端**联调（L2 冒烟）。默认连接 `localhost:8066`；历史 8065 实测只保留为旧运行态证据。
 
 | 图 | 一句话 |
 |---|---|
@@ -9,7 +9,7 @@
 
 ## 角色
 - **不是产品交付端**（产品端是 native Tauri 壳 + Flutter FFI 壳），是**联调/冒烟宿主**。
-- 全 env 配置：`HELIX_WS_URL`(默认 `ws://127.0.0.1:8065/api/v4/websocket`) · `HELIX_API_BASE`(默认 `http://127.0.0.1:8065/api/cses`) · `HELIX_COOKIE_ID`(=userId，鉴权主键) · `HELIX_COMPANY_ID` · `HELIX_DB`(tenant SQLite 路径)。
+- 配置真源：`helix.config.yaml`（`--config` 可覆盖路径）；默认 `ws://127.0.0.1:8066/api/v4/websocket` 与 `http://127.0.0.1:8066/api/cses`。`--cookie-id`/`--company-id` 只覆盖联调身份，`HELIX_*` 逃生口仅 debug 构建有效，release 不作为配置合同。
 - 现网 Go 在 WS 升级阶段按 `cookieId=userId` 建 session；session 空则不发 hello、~5s 超时关（实测验证）。
 
 ## 关联

@@ -1,6 +1,6 @@
 %% helix-driver-native — BoundedSpawner 统一背压模型（刀2-driver）
-%% 真源：src/engine_loop.rs struct BoundedSpawner / Overflow / submit
-%% 一个原语三态实例化：有界 mpsc(cap=K) + N worker + 溢出策略 + 独立 unbounded reply_tx
+%% 真源：helix-driver-host/src/spawner.rs（BoundedSpawner / Overflow / submit）· native 只负责装配
+%% 一个原语四类实例化：有界 mpsc(cap=K) + N worker + 溢出策略 + 独立 unbounded reply_tx
 %% 五不变量见 crate AGENTS.md；🔴 = 死锁红线
 flowchart TD
     PUMP["事件泵主循环（单生产者）<br/>dispatch_effects 内 submit"]
@@ -27,9 +27,17 @@ flowchart TD
         FNOTE["⚠️ 当前零生产者<br/>helix-im 三 Http 均必达<br/>与 http_pool 类型对称 eager 建<br/>第二模块接入时重审/删"]
     end
 
+    subgraph UPLOAD["④ UploadFile BoundedSpawner ✅（独立池·必达）"]
+        UQ["有界 mpsc 队列 cap=1024"]
+        UW["N=max_upload_inflight worker<br/>FileUploader + progress reporter"]
+        UO{"溢出=Block ✅<br/>上传终态回 PortReply；进度回 PortProgress"}
+        UQ --> UW
+    end
+
     PUMP -->|"Effect::Persist/PersistFire<br/>routing key = 涉及全部 table 名"| PO
     PUMP -->|"Effect::Http（corr）"| HO
     PUMP -->|"Effect::HttpFire（无 corr）"| FO
+    PUMP -->|"Effect::UploadFile（corr）"| UO
 
     PO -->|未满立即返回| PQ
     HO -->|未满立即返回| HQ
@@ -40,11 +48,13 @@ flowchart TD
     PW -->|"run = execute_storage_ops → host SQLite"| PIO["host Storage 落盘 ✅"]
     HW -->|"run = run_http → reqwest"| HIO["host HTTP 出站 ✅"]
     FW -->|"run = run_http → reqwest"| HIO
+    UW -->|"run = FileUploader::upload → HTTP PUT"| UIO["host upload + progress ✅"]
 
     %% ── PortReply 回灌（独立 unbounded，红线①）──
     RTX["reply_tx (unbounded mpsc) ✅"]
     PIO ==>|"corr=Some → PortReply"| RTX
     HIO ==>|"corr=Some → PortReply"| RTX
+    UIO ==>|"corr=Some → PortReply；progress → PortProgress"| RTX
     RTX ==>|biased 优先消费| PUMP
 
     subgraph REDLINE["🔴 死锁安全（单向 DAG：泵等 worker·worker 不等泵）"]
@@ -57,4 +67,4 @@ flowchart TD
     classDef ok fill:#d4edda,stroke:#28a745,color:#155724
     class FO,FW,FQ,FNOTE,HTTPFIRE gap
     class RTX,R1,R2,REDLINE red
-    class PO,HO,PIO,HIO ok
+    class PO,HO,UPLOAD,UO,PIO,HIO,UIO ok

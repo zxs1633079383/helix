@@ -3,7 +3,7 @@
 > `docs/` 的单一入口。本文只维护 canonical 路由、证据层级和熵管理规则，不复制任务
 > 流水或 Green 数字。
 >
-> 最近代码对账：2026-09-05，基线 `0ef16928`。对账范围：当前 workspace、Cargo manifest、
+> 最近代码对账：2026-09-06，基线 `1355772d`。对账范围：当前 workspace、Cargo manifest、
 > `helix-core` / `helix-im` / driver 源码、Spec 047 manifest 与验证记录。
 
 ---

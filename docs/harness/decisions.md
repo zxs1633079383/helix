@@ -119,7 +119,7 @@
 
 ## ADR-017 — MessageV3 Gate Event 是唯一跨端业务真源
 
-- **决策**：`helix-im` 只通过 `Effect::Emit {event,data}` 发布跨端业务事实。
+- **决策**：`helix-im` 只通过 `Effect::Emit { event: DomainEventBytes }` 发布跨端业务事实，bytes 载荷为 `{event,data}`。
   InteractionFrame、Surface、SurfaceMutation、ActionBinding、UiDirective 与 FrameApplied
   退出目标架构；Native channel、FFI batch 与 Web bridge 仅原样交付同一 event bytes。
 - **持久屏障**：声称 durable 的 event 必须在 matching `PersistOk` 后由 tenant-local

@@ -1,6 +1,10 @@
-# MessageV3 Phase1-4 与 Phase5 文字接龙真实 Gate 交接
+# MessageV3 Phase1-4 与 Phase5 文字接龙真实 Gate 历史交接
 
-## 2026-08-20 当前文字接龙交接（本节为最新真源）
+> **状态：`RETIRED_HISTORICAL`。** 本文锁定 2026-08-20 的旧 worktree、旧端口与旧运行证据，
+> 不代表当前 `reactor/MessageV3-helix` 的 Gate 结果。当前 driver-native runner 分母与证据路径
+> 以同目录 README、当前测试脚本和本轮 run-owned `artifacts/` 为准；旧证据只能说明当时那一轮。
+
+## 2026-08-20 文字接龙交接（历史快照）
 
 ```text
 AGENT_HANDOFF/v1

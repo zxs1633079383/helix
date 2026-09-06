@@ -1,4 +1,8 @@
-# UC 全量指令集总谱（入网 invoke × 出网 HTTP × WS 入站 × 内部通知 UI 层 · 面向自动化测试生成）
+# UC 全量指令集总谱（历史 InteractionFrame 自动化快照）
+
+> **状态：`RETIRED_HISTORICAL`。** 本文仍可帮助追溯旧 UC/HTTP/WS 字段，但其 projection
+> 引用与内部通知模型属于硬切前历史。当前 MessageV3 producer、事件 schema 与 Gate 分母请改读
+> Spec 047、`tests/message_v3/` 和当前 `src/event/`；不得按本文生成当前 runtime reducer。
 
 > **一句话**：helix-im 接管全部 IM 业务逻辑后，loopforge-tauri-im 退化为纯 UI 渲染壳。本文把
 > 「一个 UC 从 UI 触发 → helix 入网命令 → 出网 HTTP → 后端 → WS 入站 → helix 投影 → 内部通知总线

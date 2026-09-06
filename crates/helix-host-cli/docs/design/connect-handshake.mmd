@@ -1,7 +1,7 @@
-%% helix-host-cli ↔ 真 Go 服务端 WS 握手时序（实测 localhost:8065）
+%% helix-host-cli ↔ 真 Go 服务端 WS 握手时序（默认 localhost:8066；旧 8065 为历史证据）
 sequenceDiagram
     participant H as host-cli<br/>(NativeTransport)
-    participant G as 真 Go 服务端<br/>(mattermost csesapi :8065)
+    participant G as 真 Go 服务端<br/>(mattermost csesapi :8066)
     participant E as ExecutionShell<br/>+ ImModule
 
     H->>G: WS upgrade (ws://.../api/v4/websocket)<br/>带 cookieId/companyId 身份头

@@ -17,7 +17,7 @@
 ### Session 2026-07-29
 
 - Q: 切断 InteractionFrame V2 与旧 V1 后，哪一种结构作为唯一运行时业务合同？ → A:
-  MessageV3 只保留 Gate 定义的 `Effect::Emit {event,data}`；不再存在 Frame、Surface 或
+  MessageV3 只保留 Gate 定义的 `Effect::Emit { event: DomainEventBytes }`（bytes 载荷为 `{event,data}`）；不再存在 Frame、Surface 或
   平台业务套壳，`.v1` 只表示本地证据目录/JSON schema 版本，不代表旧 V1 协议。
 - Q: V2 Frame 与旧 V1 代码采用何种切断顺序？ → A: 按 Gate 纵向硬切；单个 Gate 的
   MessageV3 生产测试、真实代码路径和 canonical JSON 生成通过后，立即删除 Helix 内该
@@ -41,7 +41,7 @@
   `64118eebd2b665246b7880eb__999/tenant.db`；两库均实时读取到 9 张同构表。
 - 冻结结构位于 `contracts/storage-schema-lock.v1.json`。它只保存表、列和 JSON/JSON-text
   键形，不复制真实业务行，也不保存账号凭证。
-- PostgreSQL row、Go WS wire、SQLite row 和 `Effect::Emit {event,data}` 是四个不同边界。
+- PostgreSQL row、Go WS wire、SQLite row 和 `Effect::Emit { event: DomainEventBytes }`（bytes 载荷 `{event,data}`）是四个不同边界。
   样例不得凭表结构猜测 wire，也不得凭 wire 自由拼 Emit；必须显式声明远端持久依据、本地
   PersistOk 后读回依据和未直接落库的派生字段。
 
@@ -291,7 +291,7 @@ Out Of Scope）。`.v1` 生成物具备 byte-exact 可镜像性即视为满足�
   `.v1/gates/<Gate>/generated/{inbound.json,outbound.sender.json,outbound.receiver.json}`
   是"审核输入 vs 权威产物"两层：实现完成后以 generated/* 为唯一权威合同，sample 文件仅作
   人工比对基线保留，二者的 schema 与字段命名各自独立、不得互相顶替或倒灌。
-- **FR-037**: MessageV3 MUST 以 Gate 定义的 `Effect::Emit {event,data}` 作为唯一跨端
+- **FR-037**: MessageV3 MUST 以 Gate 定义的 `Effect::Emit { event: DomainEventBytes }`（bytes 载荷为 `{event,data}`）作为唯一跨端
   业务出站合同。生产路径和测试路径均不得再产生、包装或消费 InteractionFrame、
   Surface、SurfaceMutation、ActionBinding、UiDirective、FrameApplied 或平台业务 VM。
 - **FR-038**: 旧 V1 inbound/outbound producer、parser、subscription、fixture、fallback、
@@ -509,5 +509,5 @@ Out Of Scope）。`.v1` 生成物具备 byte-exact 可镜像性即视为满足�
 - 对建群、退出和设置变更，角色差异优先于两端 VM 字节完全一致。
 - 当前 Helix 测试与 WDIO 场景源码是现状分析输入；WDIO 场景本轮不运行、不产生跨仓 Green。
   Helix 侧则相反：每个 Gate 必须由本轮新增的真实回放测试跑出 Green 才能标 `MIGRATED`。
-- MessageV3 的 `Effect::Emit {event,data}` 是唯一跨端业务出站真源；Native channel 与
+- MessageV3 的 `Effect::Emit { event: DomainEventBytes }`（bytes 载荷为 `{event,data}`）是唯一跨端业务出站真源；Native channel 与
   FFI batch 仅交付同一 bytes，端侧不得补造第二套业务状态机或 Frame/Surface 套壳。

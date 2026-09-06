@@ -66,6 +66,12 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 每日 Markdown 熵管理只修改能由当前 `1355772d` 代码、Cargo manifest、配置、测试或脚本证明漂移的 Markdown 与必要 SESSION 记录；可证伪断言：① 不修改 Rust、JSON、TOML、脚本、生成产物或共享 checkout 未跟踪资产；② README/AGENTS/GOAL/ROADMAP/Spec/contract/harness/链接与路径结论均可回溯到当前真源；③ 直接相关链接、索引、checker 与 `git diff --check` 通过；④ 既有生成 hash、Tag 或代码问题只报告不越界修复；⑤ 有真实 Drift 才创建结构化中文 commit 并普通推送，否则报告 `NO_CHANGES` | 赌注 中 | 可逆 是 | @2026-09-06T08:02:30+0800
+
+✅ DONE 本轮在独立 worktree 仅更新 Markdown/Mermaid 与本条 SESSION：对齐 core 7 Tick/11 Effect/9 StorageOp/9 ports、host scoped storage 与 UploadFile/3 秒 drain、native host-pump 路由、host-cli 8066 YAML 配置；修正 MessageV3 `Effect::Emit { event: DomainEventBytes }`（bytes `{event,data}`）及 PersistOk 后 sending 语义；为旧 InteractionFrame/Frame projection、UC automation、Phase1-4/Phase5 交接补 `RETIRED_HISTORICAL` 边界；补 HX-C016 YAML 元数据。验证：`git diff --check` PASS；相对 Markdown 链接 1596 条、broken=0（另有 10 条绝对路径引用）；cutover checker default/self-test PASS；strict-matrix default PASS；18/18 harness metadata PASS；Cargo metadata 四包均 0.1.9；未修改 Rust/JSON/TOML/脚本/生成物或共享 checkout 资产 | @2026-09-06T08:50:51+0800
+
+⚡ DRIFT-PRED 当前 checkout 的 `specs/047-im-event-gate-inventory/.v1/gates` 未生成，`--require-generated` 仍失败；`scripts/strict-matrix/check.mjs --check-generated` 仍报告既有生成矩阵漂移；跨仓 docs/mmd 与旧 InteractionFrame 目录仍保留未逐文件清理。它们均属本轮明确不生成/不扩张的边界，后续需绑定当前 revision 的独立收敛任务 | @2026-09-06T08:50:51+0800
+
 🎯 EXPECT 每日 Markdown 熵管理只修改有当前代码、manifest、配置、测试或脚本证据的文档；可证伪断言：① 只在本轮独立 worktree 产生 Markdown/必要 SESSION 改动，不触碰 Rust、JSON、TOML、脚本、生成产物或共享 checkout 未跟踪资产；② 远端 `origin/reactor/MessageV3-helix` 基线固定为 `0ef1692890670e3e3e8f14f455c771d377cbef3a`，所有版本、路径、Gate/Spec/索引结论均可回溯到该 tip 或当前真源；③ 直接相关链接、路径、索引、checker 与 `git diff --check` 通过；④ 若发现既有 checker/Tag/生成物 Drift，仅报告不越界修复；⑤ 有真实 Drift 才提交并普通非强制推送，否则报告 `NO_CHANGES` | 赌注 中 | 可逆 是 | @2026-09-05T08:01:00+0800
 
 ✅ DONE 本轮仅更新 Markdown：四个公共 crate README、docs/README 与 ROADMAP 对齐 `0.1.9` 和 `0ef16928`；根索引、Spec 047、历史 Strict Matrix/Frame/full-map/fixture/curl 文档已明确 `RETIRED_HISTORICAL`、30 Gate 当前 manifest、epoch 13 历史分母和真实 producer 路径。验证：Markdown 链接 1605/1605、cutover checker 30 Gate PASS、manifest test path 30/30、Strict Matrix retired epoch 13 为 50（47 active/3 excluded）、Cargo metadata 四包均 0.1.9、`git diff --check` PASS；未改 Rust/JSON/TOML/脚本/生成物或共享 checkout | @2026-09-05T08:55:14+0800

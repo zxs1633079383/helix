@@ -1,9 +1,9 @@
 %% helix-host-cli 装配链路 + 真 Go 连接时序
-%% ✅ 已实测真连 localhost:8065 WS 升级成功
+%% 默认连接 localhost:8066；旧 8065 仅为历史运行态证据
 
 flowchart TD
     subgraph 启动装配["① 启动装配（main.rs）"]
-        ENV["读 env 配置<br/>HELIX_WS_URL / HELIX_API_BASE<br/>HELIX_COOKIE_ID(=userId) / HELIX_COMPANY_ID<br/>HELIX_DB(tenant SQLite)"]
+        ENV["读 helix.config.yaml（--config 可覆盖）<br/>connection / identity / client / runtime<br/>debug 构建才允许 HELIX_* 逃生口<br/>--cookie-id / --company-id 可覆盖身份"]
         DB["建 NativeStorage<br/>（委托 helix-driver-host rusqlite）<br/>IM schema 建表 ✅"]
         NET["建 NativeHttp + WsManager<br/>HostNetworkConfig(api_base, ws_url)<br/>注入全局头：appType / deviceId / cookieId"]
         SHELL["建 ExecutionShell<br/>register(ImModule)<br/>start() → on_start Effect"]

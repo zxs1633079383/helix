@@ -1,8 +1,8 @@
-%% helix-driver-native — Effect 兑现路由（9 种 Effect → native 兑现器）
-%% 真源：src/engine_loop.rs dispatch_effects match + consume_effects
+%% helix-driver-native — Effect 兑现路由（11 种 Effect → native/host 兑现器）
+%% 真源：helix-driver-host/src/dispatch.rs dispatch_effects match + native 装配
 %% core 吐 &[Effect] → OwnedEffect → 按 type 分流；能力 ✅ / 缺口 ⚠️ / 回灌 ==>
 flowchart TD
-    CORE["ExecutionShell::step → &[Effect] ✅<br/>9 个变体（helix-core effect.rs）"]
+    CORE["ExecutionShell::step → &[Effect] ✅<br/>11 个变体（helix-core effect/operation.rs）"]
     OWN["consume_effects → Vec&lt;OwnedEffect&gt; ✅<br/>脱 shell.scratch 借用·Bytes O(1) clone"]
     CORE --> OWN
 
@@ -21,27 +21,37 @@ flowchart TD
     M -->|"PersistFire{ops}"| PERF["table_set_key → 同 Persist 实例 ✅<br/>submit Job{corr:None} → 不回报"]
     PERF --> PERIO
 
-    %% ── 4. Http（必达回报）──
+    %% ── 4. PersistAtomic（全有或全无）──
+    M -->|"PersistAtomic{corr, ops}"| PEA["table_set_key → atomic write worker ✅<br/>submit Job{corr:Some} → PersistAtomic"]
+    PEA --> PEIO["execute_storage_ops_atomic → host SQLite transaction ✅"]
+    PEIO ==>|"PortReply{corr, Ok/Err}"| RTX
+
+    %% ── 5. Http（必达回报）──
     M -->|"Http{corr, req}"| HTTP["http_pool.submit Job{corr:Some} ✅<br/>Http BoundedSpawner(N=8, Block)"]
     HTTP --> HTTPIO["run_http → NativeHttp::request → reqwest ✅<br/>resp 包 {status,headers,body(base64)} JSON"]
     HTTPIO ==>|"PortReply{corr, Ok(ReplyBytes)/Err}"| RTX
 
-    %% ── 5. HttpFire（可丢·不回报）──
+    %% ── 6. HttpFire（可丢·不回报）──
     M -->|"HttpFire{req}"| HF["http_fire_pool.submit Job{corr:None} ⚠️<br/>HttpFire BoundedSpawner(N=8, DropNewest：满即丢当前)<br/>当前零生产者（类型对称 eager 建）"]
     HF --> HTTPIO
 
-    %% ── 6. Request（方向① stub）──
+    %% ── 7. UploadFile（必达回报）──
+    M -->|"UploadFile{corr, req}"| UP["upload_pool.submit Job{corr:Some} ✅<br/>独立 upload pool，Overflow::Block"]
+    UP --> UPIO["SharedFileUploader::upload → HTTP PUT + progress reporter"]
+    UPIO ==>|"PortReply{corr, Ok/Err}"| RTX
+
+    %% ── 8. Request（方向① stub）──
     M -->|"Request{corr, kind, payload}"| REQ["⚠️ deferred stub<br/>HostRequester port 未接·仅 tracing::warn<br/>core 侧闭环已由 request_reply_replay.rs 验证"]
 
-    %% ── 7. Emit（同步非阻塞）──
+    %% ── 9. Emit（同步非阻塞）──
     M -->|"Emit{event}"| EMIT["event_sink.emit(DomainEventBytes) ✅<br/>NativeEventSink broadcast(cap=1024)<br/>无接收者静默 .ok()·lagged 消费侧 EventReceiver 显式上报(E7)"]
     EMIT --> BUS([订阅者 → im:__bus__ 信封<br/>to_bus_envelope · M2 Tauri app.emit])
 
-    %% ── 8. ScheduleTimer ──
+    %% ── 10. ScheduleTimer ──
     M -->|"ScheduleTimer{id, after_ms}"| ST["timer_registry.schedule ✅<br/>先 cancel 同 id（覆盖幂等）→ spawn sleep"]
     ST --> TFIRE["到期 tick_tx.send(Tick::Timer(id)) ✅<br/>经入站通道回泵（统一汇流）"]
 
-    %% ── 9. CancelTimer ──
+    %% ── 11. CancelTimer ──
     M -->|"CancelTimer{id}"| CT["timer_registry.cancel ✅<br/>abort JoinHandle·幂等（id 不存在静默）"]
 
     RTX["reply_tx (unbounded) ✅<br/>🔴 永不有界"] ==>|biased 优先| CORE
@@ -51,4 +61,4 @@ flowchart TD
     classDef ok fill:#d4edda,stroke:#28a745,color:#155724
     class HF,REQ gap
     class RTX red
-    class SEND,PER,HTTP,EMIT,ST,CT,PERIO,HTTPIO ok
+    class SEND,PER,HTTP,UP,EMIT,ST,CT,PERIO,PEIO,HTTPIO,UPIO ok

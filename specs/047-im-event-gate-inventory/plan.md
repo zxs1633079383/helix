@@ -4,7 +4,7 @@
 **Spec**: [spec.md](./spec.md)
 
 **Input**: 在同一 Spec 047 内完成冻结 30 Gate 的 Helix MessageV3 重构：以
-`Effect::Emit {event,data}` 为唯一跨端业务合同，按 Gate 删除 InteractionFrame V2 与旧 V1
+`Effect::Emit { event: DomainEventBytes }`（bytes 载荷为 `{event,data}`）为唯一跨端业务合同，按 Gate 删除 InteractionFrame V2 与旧 V1
 inbound/outbound，并由真实 Rust 回放测试生成被 Git 忽略的 `.v1` canonical JSON。
 
 ## Summary

@@ -8,9 +8,9 @@
 - **🟢 当前 30 Gate 机器真源** → [`../../specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json`](../../specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json)：Gate 分母、领域 owner、独立测试 target、删除清单、生成文件与迁移状态。
 - **🟢 MessageV3 出站 schema** → [`../../specs/047-im-event-gate-inventory/contracts/message-v3-event.schema.json`](../../specs/047-im-event-gate-inventory/contracts/message-v3-event.schema.json)：业务信封只含 `event` 与 `data`；字段必须来自真实 Gate 测试及本地/远端事实。
 - **⚪ 历史 Matrix 与投影文档** → `contracts/strict-matrix.v1.json`、`contracts/command-api.v1.json`、`docs/Strict Matrix/`、`docs/projection-schema.md` 已标记 `RETIRED_HISTORICAL`，只供迁移审计，不得作为当前实现或完成证据。
-- **🟢 UC 自动化编排谱（依赖序 + 数据流）** → [`docs/uc-automation/uc-test-order-spec.md`](docs/uc-automation/uc-test-order-spec.md)：搭自动化测试用的执行顺序真源——DAG（连接→建群→发消息→操作→历史/管理→终结）+ 变量提取登记表（上游产出 post_id/channel_id 等→下游输入）+ 分阶段 UC×HTTP×WS 表 + 5 条防本末倒置铁律。排除 bot/agent+Notification。
-- **🔴 outbound 请求体真源（真抓包）** → [`docs/csesapi-migration/真机curl真源.md`](docs/csesapi-migration/真机curl真源.md)：现网实抓 6 curl 逐字 body+头 + 附录 A createPosts 三方证据定论；改任何 outbound 命令体（send/makeTopic/create/revoke/close/member/createPosts）前**必读**。真抓包 > 源码推断。
-- **csesapi → cses-im-server 迁移全量图谱** → [`docs/csesapi-migration/full-map/00-README-index.md`](docs/csesapi-migration/full-map/00-README-index.md)：现网后端 HTTP(124)/WS(19 事件) + 前端 message-v3 用例/UI 渲染/src-tauri Tauri 交互全清单 + 三态缺口矩阵（[`30-capability-gap-matrix.md`](docs/csesapi-migration/full-map/30-capability-gap-matrix.md)）。接口可达性 + 蓝图见 [`csesapi-migration/01-接口可达性清单.md`](docs/csesapi-migration/01-接口可达性清单.md) · [`02-迁移蓝图.md`](docs/csesapi-migration/02-迁移蓝图.md)。
+- **⚪ UC 自动化编排旧谱** → [`docs/uc-automation/uc-test-order-spec.md`](docs/uc-automation/uc-test-order-spec.md)：文件已标记 `SUPERSEDED`，只供迁移前依赖序追溯；当前 Gate 顺序、target 和产物入口以 Spec 047 manifest、`tests/message_v3/README.md` 与当前 Cargo 注册为准。
+- **⚪ outbound 请求体历史抓包** → [`docs/csesapi-migration/真机curl真源.md`](docs/csesapi-migration/真机curl真源.md)：保留现网抓包作为兼容风险参考；当前命令体必须回到 `src/outbound/`、源码测试与当前运行证据复核，本文不是 MessageV3 完成证据。
+- **⚪ csesapi 迁移全量图谱历史快照** → [`docs/csesapi-migration/full-map/00-README-index.md`](docs/csesapi-migration/full-map/00-README-index.md)：目录已标 `RETIRED_HISTORICAL`，只作旧链追溯；当前接口/事件以代码、Spec 047 和当前测试为准。
 - 根 AGENTS.md §4.5.1 已挂同一索引（每次对话自动加载）。
 
 ## 本 crate 不变量

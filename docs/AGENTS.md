@@ -1,6 +1,8 @@
-# InteractionFrame 文档路由
+# docs/InteractionFrame 历史文档路由
 
-本文件只为下列两个目录增加专项约束，不改变 `docs/` 其他文档的既有真源和写法：
+> **状态：`RETIRED_HISTORICAL`。** 当前生产协议不包含 InteractionFrame/Surface；MessageV3
+> 实施与 Gate 证据必须先走 [`README.md`](README.md)、Spec 047 与当前源码。本文件只为下列两个
+> 历史目录保留迁移约束，不改变 `docs/` 其他文档的当前真源和写法：
 
 - `interaction-frame-v2-全量替换-按UC/`
 - `interaction-frame-v2-移动端全量替换-按UC/`
@@ -14,7 +16,7 @@
 
 ## 共享真源
 
-1. Helix `ActionBinding -> ActionInvocationEnvelope -> Tick -> Effect -> PersistAtomic/PersistOk -> SurfaceComposer -> InteractionFrameV2` 由 PC 目录对应 Gate 和当前 Helix 源码共同定义。
+1. 历史 Helix `ActionBinding -> ActionInvocationEnvelope -> Tick -> Effect -> PersistAtomic/PersistOk -> SurfaceComposer -> InteractionFrameV2` 仅用于解释旧迁移窗口，不能定义当前 MessageV3 producer/consumer。
 2. Go HTTP、WS、远端 PostgreSQL 与 Helix SQLite 字段以当前 Go/Helix 源码为准。Mobile 文档可以索引复用，不能复制后自行改义。
 3. Mobile 只负责平台适配：`InteractionFrameV2` 进入 C ABI batch 后，由 C++ 校验、原子应用并向 QuickJS 暴露只读 Surface VM；业务 reducer 不回到 C++/JS。
 4. Flutter 仅作为 Mobile 公共架构的外联消费面。逐 Gate UI 真源是 Venus QuickJS 页面，不凭空创建 Widget 树。

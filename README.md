@@ -54,18 +54,23 @@ rustup target add wasm32-unknown-unknown
 cargo build --target wasm32-unknown-unknown -p helix-driver-web
 ```
 
-这条构建已纳入正式 CI/HX-C003，并与 native 单测、双目标 clippy、Web 依赖边界一起执行；它仍不能冒充浏览器 bootstrap 或真 Go E2E，不能据此宣称 Web 产品已经交付。
+这条构建属于本地 `scripts/gate.sh` / pre-push 的 HX-C003 检查项；当前 GitLab CI 的业务 job 只执行
+MessageV3 real-chain（要求 Rust/Cargo 与 Node.js 20+），不执行 WASM、fmt 或 clippy。WASM 构建仍不能冒充浏览器 bootstrap 或真 Go E2E，不能据此宣称 Web 产品已经交付。
 
-## 验收红线（CI 强制）
+## 验收红线（`scripts/gate.sh` / pre-push）
 
 ```bash
-# helix-core 不含任何 IM 业务词汇
-grep -r "channel\|message\|cursor\|temporaryId\|im:" \
-     crates/helix-core/src/  && echo "FAIL" || echo "PASS"
+# helix-core 不含业务标识符（注释不计入）
+HITS=$( (grep -rn 'channel\|message\|temporaryId' crates/helix-core/src/ || true) \
+  | (grep -v '//' || true) | wc -l | tr -d ' ' )
+[ "$HITS" -eq 0 ] && echo "PASS" || { echo "FAIL ($HITS)"; exit 1; }
 
-# helix-core 不含 tokio/sqlx/web-sys
-grep -E "tokio|sqlx|reqwest|tungstenite|web.sys" \
-     crates/helix-core/Cargo.toml && echo "FAIL" || echo "PASS"
+# helix-core 依赖树不含运行时
+if cargo tree -p cses-helix-core | grep -qiE 'tokio|sqlx|reqwest|web-sys|tauri'; then
+  echo "FAIL (runtime dependency)"; exit 1
+else
+  echo "PASS"
+fi
 ```
 
 ## Crate 结构

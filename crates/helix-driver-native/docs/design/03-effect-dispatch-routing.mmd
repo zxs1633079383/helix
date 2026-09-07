@@ -27,17 +27,17 @@ flowchart TD
     PEIO ==>|"PortReply{corr, Ok/Err}"| RTX
 
     %% ── 5. Http（必达回报）──
-    M -->|"Http{corr, req}"| HTTP["http_pool.submit Job{corr:Some} ✅<br/>Http BoundedSpawner(N=8, Block)"]
+    M -->|"Http{corr, req}"| HTTP["http_pool.submit Job{corr:Some} ✅<br/>Http BoundedSpawner(N=max_http_inflight，默认8，Block)"]
     HTTP --> HTTPIO["run_http → NativeHttp::request → reqwest ✅<br/>resp 包 {status,headers,body(base64)} JSON"]
     HTTPIO ==>|"PortReply{corr, Ok(ReplyBytes)/Err}"| RTX
 
     %% ── 6. HttpFire（可丢·不回报）──
-    M -->|"HttpFire{req}"| HF["http_fire_pool.submit Job{corr:None} ⚠️<br/>HttpFire BoundedSpawner(N=8, DropNewest：满即丢当前)<br/>当前零生产者（类型对称 eager 建）"]
+    M -->|"HttpFire{req}"| HF["http_fire_pool.submit Job{corr:None} ⚠️<br/>HttpFire BoundedSpawner(N=max_http_inflight，默认8，DropNewest：满即丢当前)<br/>当前零生产者（类型对称 eager 建）"]
     HF --> HTTPIO
 
     %% ── 7. UploadFile（必达回报）──
     M -->|"UploadFile{corr, req}"| UP["upload_pool.submit Job{corr:Some} ✅<br/>独立 upload pool，Overflow::Block"]
-    UP --> UPIO["SharedFileUploader::upload → HTTP PUT + progress reporter"]
+    UP --> UPIO["SharedFileUploader::upload → HTTP PUT + progress reporter<br/>独立池 N=max_http_inflight（默认8）"]
     UPIO ==>|"PortReply{corr, Ok/Err}"| RTX
 
     %% ── 8. Request（方向① stub）──

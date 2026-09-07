@@ -1,5 +1,5 @@
 %% Helix · helix-driver-host · StorageOp → SQL 兑现
-%% 真源：src/ops.rs（execute_storage_ops / table_set_key）· src/storage.rs（9 个 Storage trait 方法）
+%% 真源：src/ops.rs（execute_storage_ops / execute_storage_ops_atomic / table_set_key）· src/storage.rs（10 个 Storage trait 方法）
 %% 关联：HX-C005（热路径零分配 O(1)）· ADR-007（host 单一真源）
 flowchart TD
     OPS["execute_storage_ops(&storage, ops)\n顺序执行；任一失败短路；\n返回最后一次 Get/Scan 结果（rows JSON bytes），写返回空 bytes"]
@@ -47,6 +47,10 @@ flowchart TD
         DEL1["DELETE FROM t WHERE scope_col = ?\nAND key_col IN (?..)\n复合 PK 作用域删，绝不跨 scope 误删"]
     end
 
+    subgraph ATOMIC["Effect::PersistAtomic ✅（StorageOp 批次外层的原子事务）"]
+        ATOMIC1["execute_storage_ops_atomic → Storage::atomic_write\n只接受写 StorageOp；任一失败整批回滚\nPortReply 在事务完成后回灌"]
+    end
+
     GET --> RC["convert_row → Vec&lt;(name, SqlValue)&gt;\n→ rows_to_reply_bytes（JSON）"]
     SGET --> RC
     SCAN --> RC
@@ -62,6 +66,7 @@ flowchart TD
     GB -.-> DISC
     SGB -.-> DISC
     DEL -.-> DISC
+    ATOMIC -.-> DISC
 
     ROUTE["table_set_key(ops)：取各 op 的表名去重排序\n→ ordered persist worker 的分片路由键\n（MonotonicUpsert 归 _helix_monotonic）"]
     OPS -.-> ROUTE

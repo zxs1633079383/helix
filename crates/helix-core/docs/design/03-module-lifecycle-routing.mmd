@@ -23,16 +23,18 @@ flowchart TD
     %% ── 运行阶段（多模块定向路由）──
     READY --> RUN["运行期 step() 循环（见 01-step-event-loop）"]:::shell
     RUN --> DISP{"Tick 类型"}:::host
-    DISP -->|"Inbound/Command"| SCAN["✅ dispatch_inbound：遍历 modules<br/>first-match accepts() 排他命中<br/>（accepts 必须纯函数，不改 self）"]:::host
+    DISP -->|"Inbound/Command/Connected/Disconnected"| SCAN["✅ dispatch_inbound：遍历 modules<br/>first-match accepts() 排他命中<br/>（accepts 必须纯函数，不改 self）"]:::host
     DISP -->|"PortReply"| BYCORR["✅ corr_map.consume(corr) → idx<br/>定向 dispatch_reply(idx)<br/>（不走 accepts，避免误吞）"]:::host
+    DISP -->|"PortProgress"| BYPROGRESS["✅ corr_map.peek(corr) → idx<br/>定向 dispatch_reply(idx)，不消费终态 corr"]:::host
     DISP -->|"Timer"| BYTIMER["✅ timer_map.peek(id) → idx<br/>定向 dispatch_reply(idx)"]:::host
 
     SCAN --> HANDLE["✅ Module::handle(&tick, now_ms, out)<br/>同步纯函数 · out.push(Effect)"]:::life
     BYCORR --> HANDLE
+    BYPROGRESS --> HANDLE
     BYTIMER --> HANDLE
 
     %% ── 周期行为：无 tick() 方法，靠 self-arm ──
-    HANDLE -.->|"周期心跳：on_start 吐 ScheduleTimer<br/>handle(Timer) 内 re-arm 实现无限循环"| HANDLE
+    HANDLE -.->|"周期心跳：on_start 吐 ScheduleTimer<br/>Timer 命中后 one-shot 移除；handle(Timer) 吐新 id 再 arm"| HANDLE
 
     %% ── 停止阶段（逆序 LIFO）──
     RUN --> STOP["✅ shell.stop() → host.stop_all<br/>逆序（LIFO）调 on_stop<br/>典型吐 CancelTimer(所有) + Send(close)"]:::shell

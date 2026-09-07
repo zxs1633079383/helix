@@ -18,7 +18,7 @@ flowchart TD
     TTX["tick_tx (mpsc, cap=256) ✅<br/>有界：背压在此汇聚回压"]
 
     subgraph PUMP["事件泵主循环（单线程串行 step）"]
-        SEL{"tokio::select! biased ✅<br/>① reply_rx 优先（不变量④ 回灌优先）<br/>② shutdown_rx（armed-once 防 panic）<br/>③ tick_rx.recv()"}
+        SEL{"tokio::select! biased ✅<br/>① reply_rx 优先（不变量④ 回灌优先）<br/>② transport_rx（连接句柄入表，不进 step）<br/>③ shutdown_rx（armed-once 防 panic）<br/>④ tick_rx.recv()<br/>连续 64 条回灌后强制取 1 条入站"}
         STEP["ExecutionShell::step(tick, now_ms) ✅<br/>纯状态机·确定性·now_ms 由 NativeClock 注入"]
         CONSUME["consume_effects(&[Effect]) ✅<br/>立即把借 shell.scratch 的 &[Effect]<br/>转 Vec&lt;OwnedEffect&gt;（脱借用，Bytes O(1) clone）"]
         DISPATCH["dispatch_effects(...) ✅<br/>按 Effect type 分流兑现<br/>submit 即返回·绝不在泵 await worker（红线②）"]
@@ -26,13 +26,14 @@ flowchart TD
 
     TTX --> SEL
     RRX["reply_rx (unbounded mpsc) ✅<br/>🔴 红线①：永不有界<br/>否则 Block 死锁环回来"] -.->|biased 优先| SEL
+    TRX["transport_rx (unbounded) ✅<br/>connect 成功后注册句柄；insert 后 continue，不进入 step"] -.-> SEL
     SEL --> STEP --> CONSUME --> DISPATCH
 
     subgraph SINK["Effect 兑现器（详见图 03）"]
         SP_P["Persist BoundedSpawner ✅<br/>per-table-set 懒建 N=1"]
-        SP_H["Http BoundedSpawner ✅<br/>N=8 Block"]
-        SP_U["UploadFile BoundedSpawner ✅<br/>独立池·Block·进度回灌"]
-        SP_HF["HttpFire BoundedSpawner ⚠️<br/>N=8 DropNewest（满即丢当前·零生产者·类型对称 eager 建）"]
+        SP_H["Http BoundedSpawner ✅<br/>N=max_http_inflight（默认8）·Block"]
+        SP_U["UploadFile BoundedSpawner ✅<br/>N=max_http_inflight（默认8）·独立池·Block·进度回灌"]
+        SP_HF["HttpFire BoundedSpawner ⚠️<br/>N=max_http_inflight（默认8）·DropNewest（满即丢当前·零生产者·类型对称 eager 建）"]
         SENDW["Effect::Send → transports.get(id) → WS ✅"]
         EMITW["Effect::Emit → NativeEventSink::emit ✅"]
         TIMW["Schedule/Cancel Timer → TimerRegistry ✅"]

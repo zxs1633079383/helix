@@ -72,6 +72,12 @@
 
 ⚡ DRIFT-PRED 当前 checkout 的 `specs/047-im-event-gate-inventory/.v1/gates` 未生成，`--require-generated` 仍失败；`scripts/strict-matrix/check.mjs --check-generated` 仍报告既有生成矩阵漂移；跨仓 docs/mmd 与旧 InteractionFrame 目录仍保留未逐文件清理。它们均属本轮明确不生成/不扩张的边界，后续需绑定当前 revision 的独立收敛任务 | @2026-09-06T08:50:51+0800
 
+🎯 EXPECT 每日 Markdown 熵管理只修改有当前代码、manifest、配置、测试或脚本证据的现行文档；可证伪断言：① 仅更新 core/host/native 当前设计图与说明及必要 SESSION，不修改 Rust、JSON、TOML、脚本、生成产物或共享 checkout 未跟踪资产；② Tick、Storage、engine route、worker 并发、FFI query 与 reconnect 文档与 `b8868f4f` 基线源码一致；③ 现行 Markdown 相对链接、Gate/Spec/harness 索引和 `git diff --check` 通过；④ `.v1`、generated hash、历史 allowlist 等非 Markdown owner Drift 只报告；⑤ 有真实 Drift 才创建结构化中文 commit 并普通非强制推送，否则报告 `NO_CHANGES` | 赌注 中 | 可逆 是 | @2026-09-07T08:02:26+0800
+
+✅ DONE 本轮在独立 worktree 仅更新 17 份 Markdown/Mermaid/SESSION（90 行新增、62 行删除）：对齐 7 Tick、10 Storage 方法、PortProgress/one-shot timer、PersistAtomic/UploadFile correlation、EngineDeps/transport registration/fairness、HostStorage 单 writer + 可选 ReadPool、`max_http_inflight` worker、`helix_query` 元信息边界与 ReconnectPolicy。验证：10/10 Mermaid PASS；Markdown 本地链接 1596 条、broken=0；InteractionFrame index PASS；Spec047 30 Gate default/self-test PASS；Strict Matrix 50/54/epoch13 PASS；harness 索引 18/18；Cargo metadata 四包 0.1.9；source assertions PASS；`git diff --check` PASS。未修改 Rust、JSON、TOML、脚本、生成产物或共享 checkout 未跟踪资产 | @2026-09-07T08:02:26+0800
+
+⚡ DRIFT-PRED 初始审计范围为当前 design/ 文档，复核后发现同一运行时事实也落在 native AGENTS 与 host 并发规范，故扩展到两个现行规则/规范 Markdown；候选教训：文档真源审计必须按同一运行时事实的所有现行入口收敛，而不能只按 design/ 目录筛选 | @2026-09-07T08:02:26+0800
+
 🎯 EXPECT 每日 Markdown 熵管理只修改有当前代码、manifest、配置、测试或脚本证据的文档；可证伪断言：① 只在本轮独立 worktree 产生 Markdown/必要 SESSION 改动，不触碰 Rust、JSON、TOML、脚本、生成产物或共享 checkout 未跟踪资产；② 远端 `origin/reactor/MessageV3-helix` 基线固定为 `0ef1692890670e3e3e8f14f455c771d377cbef3a`，所有版本、路径、Gate/Spec/索引结论均可回溯到该 tip 或当前真源；③ 直接相关链接、路径、索引、checker 与 `git diff --check` 通过；④ 若发现既有 checker/Tag/生成物 Drift，仅报告不越界修复；⑤ 有真实 Drift 才提交并普通非强制推送，否则报告 `NO_CHANGES` | 赌注 中 | 可逆 是 | @2026-09-05T08:01:00+0800
 
 ✅ DONE 本轮仅更新 Markdown：四个公共 crate README、docs/README 与 ROADMAP 对齐 `0.1.9` 和 `0ef16928`；根索引、Spec 047、历史 Strict Matrix/Frame/full-map/fixture/curl 文档已明确 `RETIRED_HISTORICAL`、30 Gate 当前 manifest、epoch 13 历史分母和真实 producer 路径。验证：Markdown 链接 1605/1605、cutover checker 30 Gate PASS、manifest test path 30/30、Strict Matrix retired epoch 13 为 50（47 active/3 excluded）、Cargo metadata 四包均 0.1.9、`git diff --check` PASS；未改 Rust/JSON/TOML/脚本/生成物或共享 checkout | @2026-09-05T08:55:14+0800

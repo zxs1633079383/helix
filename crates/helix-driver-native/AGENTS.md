@@ -12,7 +12,7 @@
    🔴 红线：reply_tx 绝不能改有界——否则 Block 死锁环回来（泵 block 入队 → 不消费 reply → reply 满 → worker block 回报 → 不抽队列）。
 2. **主循环不等 I/O（Block 传导回源）**：Persist / 必达 Http 入有界队列即返回；队满时 `submit().await` 把背压传导回 tick_tx（慢而不丢，绝不 drop）。HttpFire 走 DropNewest（try_send 满即丢当前条目 + warn，泵不阻塞）。
    🔴 红线：抽水绝不放泵循环——任何「dispatch 末尾 await worker 完成」都会引入自死锁。抽水在独立 worker task，submit 即返回循环。
-3. **同 key 写顺序**：Persist per-table-set BoundedSpawner **强制 N=1**（单消费者保序）；多表 ops 走组合键独立实例（跨 key 不保证相对顺序——需有序就合进同一 Persist）。Http/HttpFire 无写序要求（N=8）。
+3. **同 key 写顺序**：Persist per-table-set BoundedSpawner **强制 N=1**（单消费者保序）；多表 ops 走组合键独立实例（跨 key 不保证相对顺序——需有序就合进同一 Persist）。Http/HttpFire/UploadFile 的 worker 数统一取 `max_http_inflight`（默认 8），无写序要求。
 4. **回灌优先但不饿死入站**：biased select reply_rx 在前；连续 64 条 PortReply 后若 tick 已排队，强制消费 1 条入站，再恢复回灌优先
 5. **graceful drain**：「run_engine_loop 返回 = 全部已接收 Persist **已落地** + 必达 Http **已持久化(乐观态)**」。Persist drain 无上限（本地 DB 写，毫秒级，`shutdown` drop tx → join workers → drain replies）；**必达 Http drain 有上限**（`shutdown_with_timeout(HTTP_DRAIN_LIMIT=3s)`，在途 reqwest 超时则 abort，**生命周期绝不被网络 I/O 阻塞**，fix/lifecycle-net-decouple）。「必达」由乐观态(status=Sending)落库 + 重连重发对账承担，不由「drain 必等满网络」承担。HttpFire 可丢，不纳入「必达落地」保证。
 
@@ -28,7 +28,7 @@
 
 ## Storage 约定
 
-- 三池：sync 写(1) / 用户写(1) / 读(4)，共享 WAL；batch_upsert 整批一事务（E2，写放大 ~1.0x）
+- HostStorage：一个 writer 连接（N=1）+ 目标支持共享 reader 时的 ReadPool（N=4），共享 WAL；Persist per-table-set 保持 N=1，batch_upsert 整批一事务（E2，写放大 ~1.0x）。
 - 本 crate 是 SystemTime/线程等 ambient API 的**唯一合法落点**（clippy 在此 allow）
 - rows→bytes / HTTP envelope JSON 约定真源在 `helix-driver-host`（`codec` / `http_envelope`）；本 crate engine_loop 仅 re-export 转出，helix-im 反序列化端必须对齐
 

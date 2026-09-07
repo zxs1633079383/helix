@@ -5,12 +5,12 @@
 flowchart TD
     subgraph ENTRIES["三类入口并发到 HostStorage"]
         WS["① WS 入站帧\nTick::Inbound → step → Effect::Persist\n（写：batch_upsert / monotonic_upsert）"]
-        HTTP["② HTTP sync pull\nPortReply → step → Effect::Persist + Get/Scan\n（读 + 写混合）"]
-        QUERY["③ helix_query（FFI 同步读路径）\nstub（FFI_UNIMPLEMENTED）\n暂未实装，路径已就绪"]
+        HTTP["② HTTP sync pull\nPortReply → step → Effect::Persist + Get/ScopedGet/Scan\n（读 + 写混合）"]
+        QUERY["③ 业务查询 Command（FFI helix_command）\n异步进入 Helix → Effect::Persist Get/Scan\nhelix_query 仅保留 capabilities/version 元信息"]
     end
 
     subgraph ENGINE["engine.rs · run_engine_loop（泵主循环）"]
-        BIASED["biased select!:\n① reply_rx（PortReply 优先）\n② shutdown_rx\n③ tick_rx（入站）"]
+        BIASED["biased select!:\n① reply_rx（PortReply/Progress 优先）\n② transport_rx（连接句柄注册）\n③ shutdown_rx\n④ tick_rx（入站）\n连续 64 条回灌后强制取 1 条入站"]
         STEP["shell.step(tick, now_ms)\n→ Vec&lt;Effect&gt;（纯同步）"]
         DISPATCH["dispatch_effects()\n按 Effect 类型分流"]
     end
@@ -25,7 +25,7 @@ flowchart TD
         WAL_W["SQLite WAL 写者\n① batch_upsert：整批一事务（E2）\n② monotonic_upsert：MAX guard 防回退\n③ batch_update：单条 UPDATE WHERE PK\n全部 O(1)（HX-C005）"]
     end
 
-    subgraph READ_PATH["读路径（Effect::Persist Get/Scan）"]
+    subgraph READ_PATH["读路径（Effect::Persist Get/ScopedGet/Scan）"]
         RP["ReadPool\npermits: Semaphore(4)\nidle: Mutex&lt;Vec&lt;Connection&gt;&gt;（借/还）"]
         ACQUIRE["acquire_owned().await\n满载（4 连接全用）时异步挂起\n→ 背压自然传导，不占线程"]
         POP["spawn_blocking → idle.lock().pop()\n（持 permit = idle 必有 conn，不会 pop 空）"]
@@ -39,7 +39,7 @@ flowchart TD
 
     DISPATCH -->|"Persist（写 ops）"| BS
     BS --> SB_W --> WAL_W
-    DISPATCH -->|"Persist（读 ops：Get/Scan）"| RP
+    DISPATCH -->|"Persist（读 ops：Get/ScopedGet/Scan）"| RP
     RP --> ACQUIRE --> POP --> WAL_R --> RETURN
     RP -->|"readers=None"| FB --> SB_W
 

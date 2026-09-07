@@ -21,7 +21,7 @@ flowchart TD
 
     subgraph HTTPFIRE["③ HttpFire BoundedSpawner ⚠️（全局单例·可丢）"]
         FQ["有界 mpsc 队列 cap=1024"]
-        FW["N=8 worker"]
+        FW["N=max_http_inflight（默认8） worker"]
         FQ --> FW
         FO{"溢出=DropNewest ⚠️<br/>try_send 满即丢本条（最新来的）+ warn<br/>泵永不阻塞·丢失靠 cursor-gate 重发自愈"}
         FNOTE["⚠️ 当前零生产者<br/>helix-im 三 Http 均必达<br/>与 http_pool 类型对称 eager 建<br/>第二模块接入时重审/删"]
@@ -29,7 +29,7 @@ flowchart TD
 
     subgraph UPLOAD["④ UploadFile BoundedSpawner ✅（独立池·必达）"]
         UQ["有界 mpsc 队列 cap=1024"]
-        UW["N=max_upload_inflight worker<br/>FileUploader + progress reporter"]
+        UW["N=max_http_inflight（默认8） worker<br/>FileUploader + progress reporter"]
         UO{"溢出=Block ✅<br/>上传终态回 PortReply；进度回 PortProgress"}
         UQ --> UW
     end

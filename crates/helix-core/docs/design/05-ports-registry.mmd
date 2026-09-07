@@ -13,7 +13,7 @@ flowchart LR
         direction TB
         PLAT["✅ platform.rs<br/>MaybeSend/MaybeSync = cfg 切<br/>native: Send/Sync · wasm: 空（单线程）"]:::core
         T["✅ FrameSender（async）<br/>send(frame) only"]:::port
-        S["✅ Storage（async）<br/>batch_upsert/batch_update/batch_delete<br/>monotonic_upsert/guarded_bump/get/scan"]:::port
+        S["✅ Storage（async，10 个方法）<br/>batch_upsert/batch_update/batch_delete<br/>monotonic_upsert/guarded_bump/scoped_guarded_bump<br/>get/scoped_get/scan/atomic_write"]:::port
         CL["✅ Clock（sync）<br/>now_ms()→u64 墙钟<br/>（std::Instant wasm 会 panic）"]:::port
         ES["✅ EventSink（sync）<br/>emit(DomainEventBytes) 非阻塞"]:::port
         ID["✅ IdSource + Random（sync）<br/>new_uuid / random_u64(jitter)"]:::port

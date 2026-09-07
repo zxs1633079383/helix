@@ -1,14 +1,14 @@
 %% Helix · helix-driver-host · sync-v2 三入口写负载流图
 %% 真源：crates/helix-im/src/（channel.rs / module.rs / acl/to_effect.rs）
 %%       crates/helix-driver-host/src/（engine.rs / spawner.rs / storage.rs）
-%% 分支：feat/sync-v2-full-replacement（worktrees/sync-v2-full-align）
+%% 当前真源：helix-im/helix-driver-host 源码与测试；不引用已删除 worktree/分支快照
 %% 关联：HX-C005（O(1) 热路径）· HX-C008（sync cursor 契约）
 
 flowchart TD
     subgraph SOURCES["sync-v2 三类入站来源"]
         WS_FRAME["WS 推送帧\n（posted / increment_channel / posted_reaction / …）"]
         SYNC_REPLY["HTTP sync pull PortReply\n（sync/notify 拉 → 批量历史帧 + cursor）"]
-        QUERY_R["helix_query（FFI 只读查询）\n→ 只走 Get/Scan，不产生写 Effect"]
+        QUERY_R["业务查询 Command（helix_command）\n→ 由 Helix 产生 Get/Scan Effect\nhelix_query 只读元信息"]
     end
 
     subgraph IM_MODULE["helix-im ImModule（纯同步状态机）"]
@@ -59,7 +59,7 @@ flowchart TD
 
     subgraph READ_CONCURRENT["并发读（与写互不阻塞）"]
         SYNC_READ["sync pull 中的 Get/Scan\n→ ReadPool Semaphore(4)\n→ READ_ONLY 连接 WAL 快照\n看 writer 上次提交状态"]
-        QUERY_READ["helix_query（FFI）\n→ 同 ReadPool（暂 stub）"]
+        QUERY_READ["业务查询 Command 的 Get/Scan\n→ 同 ReadPool；结果经 PortReply 回灌\nhelix_query 不进入此路径"]
     end
 
     WAL -.->|"WAL 快照"| SYNC_READ

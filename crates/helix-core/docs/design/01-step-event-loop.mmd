@@ -12,7 +12,7 @@ flowchart TD
     CLR["✅ scratch.clear()<br/>跨 step 复用 EffectSink，零分配（轴①）"]:::core
 
     DRV -->|"喂入 Tick + now_ms（Clock 注入读数）"| IN
-    IN --> CLR --> MATCH{"match &tick<br/>6 个 Tick 变体"}:::route
+    IN --> CLR --> MATCH{"match &tick<br/>7 个 Tick 变体"}:::route
 
     %% ── 路由分支 1：内容路由（accepts 线性扫描）──
     MATCH -->|"Inbound / Command / Connected / Disconnected"| SCAN["✅ host.dispatch_inbound<br/>线性扫描 modules，first-match accepts()<br/>（预期模块数 <10，实践 O(1)）"]:::route
@@ -26,8 +26,14 @@ flowchart TD
     CMHIT -->|"Some(idx)"| H2["✅ dispatch_reply(idx) → Module::handle"]:::module
     CMHIT -->|"None"| CMWARN["⚠️ tracing::warn unknown correlation<br/>（PersistFire 误发 / 模块停后迟到响应，静默忽略）"]:::route
 
-    %% ── 路由分支 3：Timer 定向（timer_map O(1)）──
-    MATCH -->|"Timer(id)"| TM["✅ timer_map.peek(id)<br/>O(1) 只读不移除（recurring 可 re-arm）"]:::route
+    %% ── 路由分支 3：PortProgress 定向（corr_map O(1)，只读不消费）──
+    MATCH -->|"PortProgress{corr, progress}"| PM["✅ corr_map.peek(corr)<br/>O(1) 只读定位，保留终态 PortReply 路由"]:::route
+    PM --> PMHIT{"corr 已注册?"}:::route
+    PMHIT -->|"Some(idx)"| H2P["✅ dispatch_reply(idx) → Module::handle"]:::module
+    PMHIT -->|"None"| PMDBG["⚠️ tracing::debug unknown correlation<br/>（终态已消费或迟到进度，静默忽略）"]:::route
+
+    %% ── 路由分支 4：Timer 定向（timer_map O(1)）──
+    MATCH -->|"Timer(id)"| TM["✅ timer_map.peek(id)<br/>O(1) 只读定位；命中后 one-shot 移除"]:::route
     TM --> TMHIT{"timer_id 已注册?"}:::route
     TMHIT -->|"Some(idx)"| H3["✅ dispatch_reply(idx) → Module::handle"]:::module
     TMHIT -->|"None"| TMDBG["⚠️ tracing::debug unknown timer<br/>（CancelTimer 后迟到触发，静默忽略）"]:::route
@@ -35,11 +41,13 @@ flowchart TD
     %% ── 汇合：handle 吐 Effect → 注册 corr/timer → 返回切片 ──
     H1 --> OUT["✅ out.push(Effect)<br/>模块只声明意图，零 I/O"]:::module
     H2 --> OUT
+    H2P --> OUT
     H3 --> OUT
-    OUT --> REG["✅ register_effects_to_maps(idx, start=0)<br/>扫新增 Effect 注册 corr/timer 路由<br/>Persist/Http/Request → corr_map.register<br/>ScheduleTimer → timer_map.register<br/>CancelTimer → timer_map.remove<br/>HttpFire/Emit/PersistFire → 不注册（无 corr）"]:::core
+    OUT --> REG["✅ register_effects_to_maps(idx, start=0)<br/>扫新增 Effect 注册 corr/timer 路由<br/>Persist/PersistAtomic/Http/UploadFile/Request → corr_map.register<br/>ScheduleTimer → timer_map.register<br/>CancelTimer → timer_map.remove<br/>HttpFire/Emit/PersistFire → 不注册（无 corr）"]:::core
 
     REG --> RET["✅ Ok(&[Effect])<br/>借 scratch，下次 step 前有效"]:::core
     NOP --> RET
     CMWARN --> RET
+    PMDBG --> RET
     TMDBG --> RET
     RET -->|"driver 异步兑现 Effect，结果包成下个 Tick 回灌"| DRV

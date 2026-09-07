@@ -1,3 +1,8 @@
+✅ DONE PRE验收设施独立批次：统一有界观察预算，失败分类/关联/清理证据及pin原始WS断言；聚焦3/3、固定远端基线PRE82/83，G10E/G05F/G05G通过。G02C已落库sent却无匹配received，整体业务修复仍PARTIAL，MR按草稿提交。
+⚡ DRIFT-PRED 起始本地基线83/83未在远端基线上保持；G02C重复超时，提前独立订阅终态仍失败，撤销该假设改动。禁止把观察设施修复称为生产根因闭环。
+🎯 EXPECT 修复PRE四Gate失败：定位重试/置顶seed终态和notify重开回读；保持现有业务断言，聚焦红绿与PRE --all验证；仅在独立worktree提交并提MR，不纳入主仓脏文件 | 赌注 中 | 可逆 是 | @2026-09-07T17:32:36.969089
+分支：codex/0907-pre-four-gates；基线 a288f7ae；目标 reactor/MessageV3-helix；无自动删除
+
 🎯 EXPECT 将用户明确授权的 PRE 测试账号池内置到 real-chain 配置；可证伪断言：① `--env pre` 在无凭据变量时自动注入 16 个测试账号且不打印密码，已有 JSON/File 仍可覆盖；② local/未来其他 profile 不误用 PRE 账号；③ CI 不再要求运维配置凭据，只要求 Node.js 20+ 与现有 Rust/Cargo；④ Node 凭据选择断言、83 Gate dry-run、GitLab CI lint 与 `git diff --check` 通过；⑤ 只提交脚本/CI/SESSION，不纳入当前 helix-im 用户改动与未跟踪产物 | 赌注 中 | 可逆 是 | @2026-09-04T10:01:00+0800
 
 🎯 EXPECT 本轮只修改 CI 与诊断脚本；所有作业 timeout=6m，诊断前置逐项限时且失败退出，Cargo 超时后终止进程组；不修改 Rust 业务代码 | 赌注 中 | 可逆 是 | @2026-09-07

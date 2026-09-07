@@ -272,6 +272,18 @@ pub(crate) struct RawWs {
 const MAX_PENDING_WS_FRAMES: usize = 256;
 
 impl RawWs {
+    /// 先释放不再消费的观察队列，避免关闭的Disconnected被满队列反压。
+    async fn close(self) -> Result<(), String> {
+        let Self {
+            transport,
+            ticks,
+            pending,
+        } = self;
+        drop(ticks);
+        drop(pending);
+        close_send_transport(transport, "Go observer WS").await
+    }
+
     /// 从缓存帧中取出当前等待器可消费的第一帧，保留跨 action 的乱序广播。
     fn take_pending<F>(&mut self, actions: &[&str], predicate: &F) -> Option<Value>
     where
@@ -746,6 +758,7 @@ async fn close_send_transport(transport: Arc<NativeTransport>, label: &str) -> R
                 "closed connection",
                 "connection is closed",
                 "already closed",
+                "Sending after closing is not allowed",
                 "disconnected",
             ]
             .iter()
@@ -831,7 +844,7 @@ impl SendCleanup {
             }
         }
         if let Some(observer) = self.observer.take() {
-            if let Err(error) = close_send_transport(observer.transport, "Go observer WS").await {
+            if let Err(error) = observer.close().await {
                 errors.push(error);
             }
         }
@@ -1185,7 +1198,7 @@ impl WsTap {
     async fn close(self) -> Result<(), String> {
         match self {
             Self::Pooled(session) => session.close().await,
-            Self::Raw(ws) => close_send_transport(ws.transport, "Go observer WS").await,
+            Self::Raw(ws) => ws.close().await,
         }
     }
 }
@@ -3800,6 +3813,44 @@ mod send_cleanup_regression_tests {
         assert!(!db_path.exists());
         assert!(!PathBuf::from(format!("{}-wal", db_path.display())).exists());
         assert!(!PathBuf::from(format!("{}-shm", db_path.display())).exists());
+    }
+
+    /// 满观察队列也能关闭并回收reader，不能等待无人消费的Disconnected。
+    #[tokio::test]
+    async fn observer_close_releases_full_tick_queue() {
+        use futures_util::StreamExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            while let Some(message) = socket.next().await {
+                if matches!(
+                    message,
+                    Ok(tokio_tungstenite::tungstenite::Message::Close(_))
+                ) {
+                    break;
+                }
+            }
+        });
+        let (tick_tx, ticks) = mpsc::channel(1);
+        let mut transport = NativeTransport::new(&url, TransportId::from_raw(901), Some(tick_tx));
+        let activation = transport.connect().await.unwrap();
+        activation.activate().await.unwrap();
+        assert_eq!(ticks.len(), 1, "Connected must fill the queue before close");
+        let observer = RawWs {
+            transport: Arc::new(transport),
+            ticks,
+            pending: VecDeque::new(),
+        };
+        timeout(Duration::from_secs(2), observer.close())
+            .await
+            .expect("close must not wait for the abandoned observer")
+            .unwrap();
+        timeout(Duration::from_secs(2), server)
+            .await
+            .unwrap()
+            .unwrap();
     }
 
     /// observer 收到迟到业务帧时只保留有界缓存，避免 cleanup 期间无界积压。

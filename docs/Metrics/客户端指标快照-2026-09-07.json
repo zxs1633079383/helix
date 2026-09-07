@@ -1,0 +1,333 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-09-07T14:57:40.659809+08:00",
+  "prometheus": "http://192.168.6.66:30090",
+  "selector": "{service_name=\"cses-client-pre\",__name__=~\"im_.*|otel_helix_.*\"}",
+  "helix_source_revision": "fb5346a09487d538c7dc674bc5d1f5138f5eb836",
+  "client_source_revision": "8d465d287fde43f8a1bfb7b3d5ffc735404d288c",
+  "client_manifest_helix_version": "0.1.9",
+  "runtime_revision_verified": false,
+  "series_count": 1521,
+  "series_name_count": 151,
+  "resource_labels": {
+    "service_name": "cses-client-pre",
+    "deployment_environment": "pre",
+    "platform": "native",
+    "scenario": "canary",
+    "profile": "baseline"
+  },
+  "families": [
+    {
+      "name": "otel_helix_command_to_http_dispatch_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_command_to_http_response_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_command_to_persist_reply_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_command_to_projection_emit_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_core_empty_effect_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_core_step_duration_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_effect_amplification_ratio",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_effect_bytes_per_tick",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_effect_dispatch_duration_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_effects_per_tick",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_effects_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_engine_loop_iteration_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_event_batch_size",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_event_emit_duration_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_event_emitted_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_http_inflight",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_http_queue_wait_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_http_request_bytes",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_http_request_duration_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_http_response_bytes",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_http_status_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_im_tick_stage_duration_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_metrics_dropped_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_metrics_export_batch_size",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_metrics_export_duration_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_metrics_export_errors_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_metrics_exporter_state",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_metrics_last_success_age_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_metrics_queue_capacity",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_metrics_queue_depth",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_operations_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_persist_queue_wait_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_pool_enqueue_block_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_pool_execution_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_pool_inflight_ratio",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_pool_queue_depth_ratio",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_pool_queue_residency_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_port_pending_ratio",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_port_reply_queue_depth_ratio",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_port_reply_queue_wait_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_port_reply_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_port_roundtrip_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_process_resident_memory_bytes",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_spans_created_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_spans_sampled_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_storage_batch_rows",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_storage_inflight_ratio",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_storage_rows_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_storage_tx_duration_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_telemetry_canary_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_tick_inflight_ratio",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_tick_queue_capacity",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_tick_queue_depth",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_tick_queue_wait_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_ticks_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_timer_active_ratio",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_timer_delivery_wait_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_timer_fired_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_timer_lateness_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_timer_scheduled_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_traces_export_batch_size",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_traces_export_duration_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_traces_exporter_state",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_traces_last_success_age_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_traces_queue_depth_ratio",
+      "type": "gauge"
+    },
+    {
+      "name": "otel_helix_ws_frame_bytes",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_ws_frames_total",
+      "type": "counter"
+    },
+    {
+      "name": "otel_helix_ws_inbound_last_seen_age_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_ws_ingress_to_effect_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_ws_ingress_to_event_seconds",
+      "type": "histogram"
+    },
+    {
+      "name": "otel_helix_ws_send_duration_seconds",
+      "type": "histogram"
+    }
+  ],
+  "missing_business_families": [
+    "otel_helix_im_message_client_terminal_total",
+    "otel_helix_im_message_e2e_view_updated_duration_seconds"
+  ],
+  "trace_derived_families": [
+    {
+      "name": "otel_traces_span_metrics_calls_total",
+      "type": "counter",
+      "job": "opentelemetry-collector"
+    },
+    {
+      "name": "otel_traces_span_metrics_duration_milliseconds",
+      "type": "histogram",
+      "job": "opentelemetry-collector"
+    },
+    {
+      "name": "calls_total",
+      "type": "counter",
+      "job": "jaeger-v2"
+    },
+    {
+      "name": "duration_milliseconds",
+      "type": "histogram",
+      "job": "jaeger-v2"
+    }
+  ],
+  "evidence_level": "PROM_QUERY",
+  "real_business_triggered": false
+}

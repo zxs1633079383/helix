@@ -152,6 +152,7 @@ PC / Mobile / Web shell
 | UC/HTTP/WS/storage 历史代码分析 | [`前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](../crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md) |
 | 真机 curl wire 真源 | [`真机curl真源.md`](../crates/helix-im/docs/csesapi-migration/真机curl真源.md) |
 | FFI 合同 | [`crates/helix-driver-ffi/docs/`](../crates/helix-driver-ffi/docs/) |
+| Metrics 与用户/群聊诊断入口 | [`Metrics/README.md`](./Metrics/README.md) |
 | Runtime Metrics | [`Metrics/Prometheus指标说明.md`](./Metrics/Prometheus指标说明.md) |
 | MessageV3 观测环境迁移 | [`Metrics/MessageV3全链路观测环境迁移手册.md`](./Metrics/MessageV3全链路观测环境迁移手册.md) |
 | Harness | [`harness/README.md`](./harness/README.md) |

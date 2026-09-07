@@ -1,0 +1,621 @@
+{
+  "schemaVersion": 1,
+  "uid": "helix-client-channel-v1",
+  "title": "客户端与群聊观测：全局、用户、登录与Gap",
+  "snapshot": "../../docs/Metrics/客户端指标快照-2026-09-07.json",
+  "review": "APPROVED_ARTIFACT_ONLY",
+  "diagnosticsStatus": "PLANNED_NO_PRODUCER",
+  "diagnosticService": "helix-im-diagnostics",
+  "maxLogLines": 1000,
+  "scopeFields": [
+    "tenant_id",
+    "user_id",
+    "channel_id",
+    "login_attempt_id",
+    "device_session_id"
+  ],
+  "defaults": {
+    "environment": "pre",
+    "service": "cses-client-pre",
+    "prometheusUid": "prometheus",
+    "lokiUid": "loki"
+  },
+  "plannedLabels": {
+    "platform": [
+      "native",
+      "ffi",
+      "web",
+      "host"
+    ],
+    "path": [
+      "live_ws",
+      "sync_replay",
+      "offline_recovery"
+    ],
+    "trigger": [
+      "login",
+      "reconnect",
+      "notify",
+      "gap",
+      "manual"
+    ],
+    "seq_domain": [
+      "event_seq",
+      "stream_seq",
+      "ws_delivery_seq"
+    ],
+    "visibility": [
+      "visible",
+      "redacted",
+      "filtered",
+      "unknown"
+    ],
+    "stage": [
+      "auth",
+      "store",
+      "hello",
+      "inventory",
+      "ws",
+      "accepted",
+      "persist",
+      "projection",
+      "renderer",
+      "export"
+    ],
+    "result": [
+      "success",
+      "partial",
+      "failed",
+      "timeout",
+      "cancelled",
+      "interrupted",
+      "unknown"
+    ],
+    "reason": [
+      "none",
+      "auth_failed",
+      "tenant_mismatch",
+      "store_open_failed",
+      "hello_timeout",
+      "membership_missing",
+      "page_missing",
+      "page_stalled",
+      "persist_failed",
+      "projection_failed",
+      "renderer_failed",
+      "visibility_skipped",
+      "retention_compacted",
+      "reorder_recovered",
+      "replay_deduplicated",
+      "protocol_mismatch",
+      "confirmed_missing",
+      "capacity_limit",
+      "export_failed",
+      "shutdown",
+      "deadline",
+      "unknown",
+      "other"
+    ]
+  },
+  "metrics": [
+    {
+      "name": "otel_helix_command_to_http_dispatch_seconds",
+      "type": "histogram",
+      "title": "command_to_http_dispatch_seconds",
+      "group": "命令里程碑",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_command_to_http_response_seconds",
+      "type": "histogram",
+      "title": "command_to_http_response_seconds",
+      "group": "命令里程碑",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_command_to_persist_reply_seconds",
+      "type": "histogram",
+      "title": "command_to_persist_reply_seconds",
+      "group": "命令里程碑",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_command_to_projection_emit_seconds",
+      "type": "histogram",
+      "title": "command_to_projection_emit_seconds",
+      "group": "命令里程碑",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_core_empty_effect_total",
+      "type": "counter",
+      "title": "空 Effect Tick 数",
+      "group": "Tick与内核",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_core_step_duration_seconds",
+      "type": "histogram",
+      "title": "core_step_duration_seconds",
+      "group": "Tick与内核",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_effect_amplification_ratio",
+      "type": "histogram",
+      "title": "effect_amplification_ratio",
+      "group": "Effect与事件",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_effect_bytes_per_tick",
+      "type": "histogram",
+      "title": "effect_bytes_per_tick",
+      "group": "Effect与事件",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_effect_dispatch_duration_seconds",
+      "type": "histogram",
+      "title": "effect_dispatch_duration_seconds",
+      "group": "Effect与事件",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_effects_per_tick",
+      "type": "histogram",
+      "title": "effects_per_tick",
+      "group": "Effect与事件",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_effects_total",
+      "type": "counter",
+      "title": "Effect 总量",
+      "group": "Effect与事件",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_engine_loop_iteration_seconds",
+      "type": "histogram",
+      "title": "engine_loop_iteration_seconds",
+      "group": "Tick与内核",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_event_batch_size",
+      "type": "histogram",
+      "title": "event_batch_size",
+      "group": "Effect与事件",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_event_emit_duration_seconds",
+      "type": "histogram",
+      "title": "event_emit_duration_seconds",
+      "group": "Effect与事件",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_event_emitted_total",
+      "type": "counter",
+      "title": "event_emitted_total",
+      "group": "Effect与事件",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_http_inflight",
+      "type": "gauge",
+      "title": "http_inflight",
+      "group": "HTTP",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_http_queue_wait_seconds",
+      "type": "histogram",
+      "title": "http_queue_wait_seconds",
+      "group": "HTTP",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_http_request_bytes",
+      "type": "histogram",
+      "title": "http_request_bytes",
+      "group": "HTTP",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_http_request_duration_seconds",
+      "type": "histogram",
+      "title": "http_request_duration_seconds",
+      "group": "HTTP",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_http_response_bytes",
+      "type": "histogram",
+      "title": "http_response_bytes",
+      "group": "HTTP",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_http_status_total",
+      "type": "counter",
+      "title": "http_status_total",
+      "group": "HTTP",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_im_tick_stage_duration_seconds",
+      "type": "histogram",
+      "title": "IM Tick 分阶段耗时",
+      "group": "IM阶段",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_dropped_total",
+      "type": "counter",
+      "title": "metrics_dropped_total",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_export_batch_size",
+      "type": "histogram",
+      "title": "metrics_export_batch_size",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_export_duration_seconds",
+      "type": "histogram",
+      "title": "metrics_export_duration_seconds",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_export_errors_total",
+      "type": "counter",
+      "title": "metrics_export_errors_total",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_exporter_state",
+      "type": "gauge",
+      "title": "metrics_exporter_state",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_last_success_age_seconds",
+      "type": "histogram",
+      "title": "metrics_last_success_age_seconds",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_queue_capacity",
+      "type": "gauge",
+      "title": "metrics_queue_capacity",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_queue_depth",
+      "type": "gauge",
+      "title": "metrics_queue_depth",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_operations_total",
+      "type": "counter",
+      "title": "operations_total",
+      "group": "Tick与内核",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_persist_queue_wait_seconds",
+      "type": "histogram",
+      "title": "persist_queue_wait_seconds",
+      "group": "SQLite与持久化",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_pool_enqueue_block_seconds",
+      "type": "histogram",
+      "title": "pool_enqueue_block_seconds",
+      "group": "工作池与Port",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_pool_execution_seconds",
+      "type": "histogram",
+      "title": "pool_execution_seconds",
+      "group": "工作池与Port",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_pool_inflight_ratio",
+      "type": "gauge",
+      "title": "pool_inflight_ratio",
+      "group": "工作池与Port",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_pool_queue_depth_ratio",
+      "type": "gauge",
+      "title": "pool_queue_depth_ratio",
+      "group": "工作池与Port",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_pool_queue_residency_seconds",
+      "type": "histogram",
+      "title": "pool_queue_residency_seconds",
+      "group": "工作池与Port",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_port_pending_ratio",
+      "type": "gauge",
+      "title": "port_pending_ratio",
+      "group": "工作池与Port",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_port_reply_queue_depth_ratio",
+      "type": "gauge",
+      "title": "port_reply_queue_depth_ratio",
+      "group": "工作池与Port",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_port_reply_queue_wait_seconds",
+      "type": "histogram",
+      "title": "port_reply_queue_wait_seconds",
+      "group": "工作池与Port",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_port_reply_total",
+      "type": "counter",
+      "title": "port_reply_total",
+      "group": "工作池与Port",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_port_roundtrip_seconds",
+      "type": "histogram",
+      "title": "port_roundtrip_seconds",
+      "group": "工作池与Port",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_process_resident_memory_bytes",
+      "type": "histogram",
+      "title": "process_resident_memory_bytes",
+      "group": "进程资源",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_spans_created_total",
+      "type": "counter",
+      "title": "spans_created_total",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_spans_sampled_total",
+      "type": "counter",
+      "title": "采样 Span 总量",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_storage_batch_rows",
+      "type": "histogram",
+      "title": "storage_batch_rows",
+      "group": "SQLite与持久化",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_storage_inflight_ratio",
+      "type": "gauge",
+      "title": "storage_inflight_ratio",
+      "group": "SQLite与持久化",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_storage_rows_total",
+      "type": "counter",
+      "title": "storage_rows_total",
+      "group": "SQLite与持久化",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_storage_tx_duration_seconds",
+      "type": "histogram",
+      "title": "storage_tx_duration_seconds",
+      "group": "SQLite与持久化",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_telemetry_canary_total",
+      "type": "counter",
+      "title": "telemetry_canary_total",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_tick_inflight_ratio",
+      "type": "gauge",
+      "title": "tick_inflight_ratio",
+      "group": "Tick与内核",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_tick_queue_capacity",
+      "type": "gauge",
+      "title": "tick_queue_capacity",
+      "group": "Tick与内核",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_tick_queue_depth",
+      "type": "gauge",
+      "title": "tick_queue_depth",
+      "group": "Tick与内核",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_tick_queue_wait_seconds",
+      "type": "histogram",
+      "title": "tick_queue_wait_seconds",
+      "group": "Tick与内核",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ticks_total",
+      "type": "counter",
+      "title": "Tick 总量",
+      "group": "Tick与内核",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_timer_active_ratio",
+      "type": "gauge",
+      "title": "timer_active_ratio",
+      "group": "Timer",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_timer_delivery_wait_seconds",
+      "type": "histogram",
+      "title": "timer_delivery_wait_seconds",
+      "group": "Timer",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_timer_fired_total",
+      "type": "counter",
+      "title": "定时器触发总量",
+      "group": "Timer",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_timer_lateness_seconds",
+      "type": "histogram",
+      "title": "timer_lateness_seconds",
+      "group": "Timer",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_timer_scheduled_total",
+      "type": "counter",
+      "title": "定时器调度总量",
+      "group": "Timer",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_traces_export_batch_size",
+      "type": "histogram",
+      "title": "traces_export_batch_size",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_traces_export_duration_seconds",
+      "type": "histogram",
+      "title": "traces_export_duration_seconds",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_traces_exporter_state",
+      "type": "gauge",
+      "title": "traces_exporter_state",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_traces_last_success_age_seconds",
+      "type": "histogram",
+      "title": "traces_last_success_age_seconds",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_traces_queue_depth_ratio",
+      "type": "gauge",
+      "title": "traces_queue_depth_ratio",
+      "group": "遥测导出",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ws_frame_bytes",
+      "type": "histogram",
+      "title": "ws_frame_bytes",
+      "group": "WebSocket",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ws_frames_total",
+      "type": "counter",
+      "title": "ws_frames_total",
+      "group": "WebSocket",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ws_inbound_last_seen_age_seconds",
+      "type": "histogram",
+      "title": "距最近 WS 入站的秒数分布",
+      "group": "WebSocket",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ws_ingress_to_effect_seconds",
+      "type": "histogram",
+      "title": "ws_ingress_to_effect_seconds",
+      "group": "WebSocket",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ws_ingress_to_event_seconds",
+      "type": "histogram",
+      "title": "ws_ingress_to_event_seconds",
+      "group": "WebSocket",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ws_send_duration_seconds",
+      "type": "histogram",
+      "title": "ws_send_duration_seconds",
+      "group": "WebSocket",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    }
+  ],
+  "traceMetrics": [
+    {
+      "name": "otel_traces_span_metrics_calls_total",
+      "type": "counter",
+      "job": "opentelemetry-collector"
+    },
+    {
+      "name": "otel_traces_span_metrics_duration_milliseconds",
+      "type": "histogram",
+      "job": "opentelemetry-collector"
+    },
+    {
+      "name": "calls_total",
+      "type": "counter",
+      "job": "jaeger-v2"
+    },
+    {
+      "name": "duration_milliseconds",
+      "type": "histogram",
+      "job": "jaeger-v2"
+    }
+  ]
+}

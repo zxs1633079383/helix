@@ -1,3 +1,7 @@
+🎯 EXPECT 沉淀客户端实测指标清单与用户/群聊诊断设计，生成独立 Grafana 看板；可证伪断言：① 71 个实测 Helix family 与快照逐项一致；② 用户/群聊筛选不把无身份标签的全局值当作个人数据；③ 登录、落库、Gap、seq 区分当前接入与拟新增；④ JSON/生成一致性/查询及 diff 检查通过；⑤ 不修改 Rust/Angular/Go 业务、运行配置，不部署、不 push，用户未跟踪文件保留 | 赌注 中 | 可逆 是 | @2026-09-07T15:17:43.008550+08:00
+
+✅ DONE 本轮文档/看板artifact已完成：docs/Metrics沉淀71族实测快照、登录/用户/群聊/Gap/seq设计与验证记录；独立评审APPROVED_ARTIFACT_ONLY，独立UID看板含98个面板/分组及164条查询。静态生成一致性、42个文档链接、Node语法、diff检查与PRE顺序只读332/332查询通过；71族对应151条查询有数据，4个Span派生族因缺环境维度保留隔离为空。业务诊断producer/OTLP Logs pipeline/latest-state服务未实施，Grafana未发布、未做真实业务或UI验收，未改Rust/Angular/Go及用户既有未跟踪产物 | @2026-09-07T15:42:43.669094+08:00
+
 🎯 EXPECT 将用户明确授权的 PRE 测试账号池内置到 real-chain 配置；可证伪断言：① `--env pre` 在无凭据变量时自动注入 16 个测试账号且不打印密码，已有 JSON/File 仍可覆盖；② local/未来其他 profile 不误用 PRE 账号；③ CI 不再要求运维配置凭据，只要求 Node.js 20+ 与现有 Rust/Cargo；④ Node 凭据选择断言、83 Gate dry-run、GitLab CI lint 与 `git diff --check` 通过；⑤ 只提交脚本/CI/SESSION，不纳入当前 helix-im 用户改动与未跟踪产物 | 赌注 中 | 可逆 是 | @2026-09-04T10:01:00+0800
 
 ✅ DONE PRE real-chain 已内置 16 个用户明确授权的测试账号，无凭据变量时自动向 Native Gate 注入且不输出密码；显式 JSON/File 可覆盖，local profile 保持隔离。CI 已删除凭据变量前置，只保留现有 Rust/Cargo 与 Node.js 20+ 要求；账号池/覆盖/隔离断言、83 Gate dry-run、Node 语法、GitLab CI lint 和 `git diff --check` 通过。未运行远端 PRE 写入回归，当前 helix-im 并行改动及未跟踪产物均未纳入 | @2026-09-04T10:04:00+0800

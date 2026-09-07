@@ -44,6 +44,8 @@ async fn main() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
     let diagnostic_config = helix_driver_host::diagnostics::DiagnosticConfig::from_env();
     let diagnostic_enabled = diagnostic_config.enabled;
+    let login_attempt = helix_driver_host::diagnostics::new_session_id();
+    let diagnostic_device = helix_driver_host::diagnostics::device_session_id();
     let mut diagnostic_runtime = helix_driver_host::diagnostics::DiagnosticRuntime::start(
         diagnostic_config,
         Arc::clone(&metrics),
@@ -63,6 +65,7 @@ async fn main() {
         )
         .with(diagnostic_runtime.as_ref().map(|runtime| runtime.layer()))
         .init();
+    tracing::info!(target:"helix::diagnostics",event="login_started",tenant_id=cfg.identity.company_id.as_str(),user_id=cfg.identity.cookie_id.as_str(),login_attempt_id=login_attempt.as_str(),device_session_id=diagnostic_device,result="started");
 
     let otel = cfg
         .observability
@@ -198,6 +201,8 @@ async fn main() {
         ("deviceId", device_id.as_str()),
         ("appVersion", app_version.as_str()),
         ("osVersion", os_version.as_str()),
+        ("X-CSES-Login-Attempt-Id", login_attempt.as_str()),
+        ("X-CSES-Device-Session-Id", diagnostic_device),
     ]
     .into_iter()
     .filter(|(_, v)| !v.is_empty())
@@ -234,11 +239,11 @@ async fn main() {
         })
         .with_diagnostic_session(
             if diagnostic_enabled {
-                helix_driver_host::diagnostics::new_session_id()
+                login_attempt.clone()
             } else {
                 String::new()
             },
-            helix_driver_host::diagnostics::device_session_id().to_string(),
+            diagnostic_device.to_string(),
         ),
     );
 
@@ -324,6 +329,7 @@ async fn main() {
         transports,
     )
     .await;
+    tracing::info!(target:"helix::diagnostics",event="runtime_stopped",tenant_id=company_id.as_str(),user_id=cookie_id.as_str(),login_attempt_id=login_attempt.as_str(),device_session_id=diagnostic_device,result="stopped",reason="engine_shutdown");
     if let Some(runtime) = diagnostic_runtime.as_mut() {
         let outcome = runtime.shutdown(std::time::Duration::from_secs(10));
         tracing::info!(?outcome, "诊断导出关闭");

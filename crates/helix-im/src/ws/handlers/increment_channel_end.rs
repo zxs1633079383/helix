@@ -8,12 +8,18 @@ use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler
 
 const INCREMENT_CHANNEL_END_ACTION: &str = "increment_channel_end";
 
+/// 封口既有增量批次，并把原批次标识移动到其持久化回执上下文。
 pub(crate) fn apply_increment_end(
     ctx: &mut ImWsContext<'_>,
     channel_id: Option<ChannelId>,
     out: &mut EffectSink,
 ) {
-    ctx.state.pending_increment_batch_id = None;
+    // 单频道结束只通知该频道；只有全局封口才能消费全局批次身份。
+    let batch_id = if channel_id.is_none() {
+        ctx.state.pending_increment_batch_id.take()
+    } else {
+        None
+    };
     match channel_id {
         Some(channel_id) => {
             tracing::info!(
@@ -103,7 +109,10 @@ pub(crate) fn apply_increment_end(
             out.push(Effect::PersistAtomic { corr, ops });
             ctx.state.corr_map.insert(
                 corr,
-                crate::state::CorrelationContext::IncrementBatchPersist { projections },
+                crate::state::CorrelationContext::IncrementBatchPersist {
+                    projections,
+                    batch_id,
+                },
             );
         }
     }
@@ -156,6 +165,9 @@ pub(crate) fn apply_scoped_increment_end(
     }
 
     let parent_channel_id = channel_id.expect("checked above");
+    let diagnostic_batch_id = batch_id
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
     let batch_id = batch_id
         .filter(|value| !value.is_empty())
         .unwrap_or("legacy");
@@ -206,6 +218,7 @@ pub(crate) fn apply_scoped_increment_end(
         crate::state::CorrelationContext::SubtopicIncrementBatchPersist {
             parent_channel_id,
             batch_key,
+            batch_id: diagnostic_batch_id,
             projections,
         },
     );

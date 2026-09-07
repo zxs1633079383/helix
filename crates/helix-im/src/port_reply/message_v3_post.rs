@@ -84,6 +84,8 @@ impl ImModule {
         self.diagnose(crate::diagnostics::Observation {
             event: "delivery_stage",
             stage: "persist_terminal",
+            domain: "legacy_event_seq",
+            business_event_id: event.event_id.as_str(),
             path: "live_ws",
             result: if matches!(outcome, PortOutcome::Ok(_)) {
                 "success"

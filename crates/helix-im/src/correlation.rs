@@ -217,12 +217,16 @@ pub enum CorrelationContext {
     /// hello increment 全批 channel/member/cursor 事务回报。
     IncrementBatchPersist {
         projections: Vec<(ChannelId, Vec<u8>)>,
+        /// 原WS批次标识随既有相关事务移动，仅用于跨端诊断。
+        batch_id: Option<String>,
     },
 
     /// 话题增量批次的原子落库回执；成功只发布 subtopics-sync-ready。
     SubtopicIncrementBatchPersist {
         parent_channel_id: ChannelId,
         batch_key: String,
+        /// 缺失时保持None，不将兼容用的legacy哨兵伪装为服务端批次。
+        batch_id: Option<String>,
         projections: Vec<(ChannelId, Vec<u8>)>,
     },
 

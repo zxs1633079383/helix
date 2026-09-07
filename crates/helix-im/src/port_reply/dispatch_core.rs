@@ -16,6 +16,8 @@ impl ImModule {
         self.diagnose(crate::diagnostics::Observation {
             event: "delivery_stage",
             stage: "persist_terminal",
+            domain: "stream_seq",
+            business_event_id: event.event_id.as_str(),
             path: "live_ws",
             result: if matches!(outcome, PortOutcome::Ok(_)) {
                 "success"
@@ -505,6 +507,7 @@ impl ImModule {
     pub(super) fn handle_increment_batch_persist_reply(
         &mut self,
         _projections: Vec<(ChannelId, Vec<u8>)>,
+        batch_id: Option<String>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -517,6 +520,7 @@ impl ImModule {
         self.state.channel_sync_persist_inflight -= 1;
         self.diagnose(crate::diagnostics::Observation {
             event: "channel_inventory_persisted",
+            batch_id: batch_id.as_deref().unwrap_or(""),
             stage: "persist",
             result: if matches!(outcome, PortOutcome::Ok(_)) {
                 "success"
@@ -528,6 +532,15 @@ impl ImModule {
         });
         if matches!(outcome, PortOutcome::Ok(_)) {
             for (channel, _) in &_projections {
+                self.diagnose(crate::diagnostics::Observation {
+                    event: "channel_inventory_item_committed",
+                    stage: "persist",
+                    result: "success",
+                    channel: channel.as_str(),
+                    batch_id: batch_id.as_deref().unwrap_or(""),
+                    count: 1,
+                    ..Default::default()
+                });
                 self.diagnose_checkpoint(*channel, "inventory_committed");
             }
         }
@@ -564,10 +577,27 @@ impl ImModule {
         &mut self,
         parent_channel_id: crate::state::ChannelId,
         batch_key: String,
+        batch_id: Option<String>,
         _projections: Vec<(crate::state::ChannelId, Vec<u8>)>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        self.diagnose(crate::diagnostics::Observation {
+            event: "channel_inventory_persisted", stage: "persist",
+            channel: parent_channel_id.as_str(), batch_id: batch_id.as_deref().unwrap_or(""),
+            result: if matches!(outcome, PortOutcome::Ok(_)) { "success" } else { "failed" },
+            count: _projections.len(), ..Default::default()
+        });
+        if matches!(outcome, PortOutcome::Ok(_)) {
+            for (channel, _) in &_projections {
+                self.diagnose(crate::diagnostics::Observation {
+                    event: "channel_inventory_item_committed", stage: "persist", result: "success",
+                    channel: channel.as_str(), batch_id: batch_id.as_deref().unwrap_or(""),
+                    count: 1, ..Default::default()
+                });
+                self.diagnose_checkpoint(*channel, "inventory_committed");
+            }
+        }
         self.state.subtopic_sync_active = None;
         match outcome {
             PortOutcome::Ok(_) => {
@@ -1715,6 +1745,7 @@ mod channel_sync_contract_tests {
         module
             .handle_increment_batch_persist_reply(
                 Vec::new(),
+                None,
                 &PortOutcome::Err(helix_core::tick::PortError::Storage(1)),
                 &mut out,
             )
@@ -1734,6 +1765,7 @@ mod channel_sync_contract_tests {
         module
             .handle_increment_batch_persist_reply(
                 Vec::new(),
+                None,
                 &PortOutcome::Ok(ReplyBytes(Bytes::new())),
                 &mut out,
             )
@@ -1759,6 +1791,7 @@ mod channel_sync_contract_tests {
         module
             .handle_increment_batch_persist_reply(
                 Vec::new(),
+                None,
                 &PortOutcome::Ok(ReplyBytes(Bytes::new())),
                 &mut out,
             )
@@ -1767,6 +1800,7 @@ mod channel_sync_contract_tests {
         module
             .handle_increment_batch_persist_reply(
                 Vec::new(),
+                None,
                 &PortOutcome::Ok(ReplyBytes(Bytes::new())),
                 &mut out,
             )
@@ -1774,6 +1808,7 @@ mod channel_sync_contract_tests {
         assert_eq!(out.as_slice().len(), 1);
     }
 
+    /// 后续批次持久化完成仍等待当前分页会话关闭，不替换活动会话。
     #[test]
     fn active_channel_sync_session_is_not_replaced_until_complete() {
         let mut module = module();
@@ -1783,6 +1818,7 @@ mod channel_sync_contract_tests {
         module
             .handle_increment_batch_persist_reply(
                 Vec::new(),
+                None,
                 &PortOutcome::Ok(ReplyBytes(Bytes::new())),
                 &mut out,
             )
@@ -1799,6 +1835,7 @@ mod channel_sync_contract_tests {
         module
             .handle_increment_batch_persist_reply(
                 Vec::new(),
+                None,
                 &PortOutcome::Ok(ReplyBytes(Bytes::new())),
                 &mut out,
             )

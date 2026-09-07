@@ -695,6 +695,7 @@ mod tests {
                 .get(&helix_core::Correlation::from_raw(8)),
             Some(&crate::state::CorrelationContext::IncrementBatchPersist {
                 projections: Vec::new(),
+                batch_id: None,
             })
         );
     }
@@ -924,6 +925,7 @@ mod tests {
     }
 
     // 验证普通频道收尾也必须匹配 increment 批次，旧 end 不得提前推进持久化屏障。
+    /// 旧收尾不封口，新收尾将原批次标识带到真实持久化回执。
     #[test]
     fn dispatch_ws_declared_channels_scope_rejects_stale_batch_id() {
         let mut state = ImState::new();
@@ -963,6 +965,20 @@ mod tests {
             ctx.state.pending_increment_batch_id.as_deref(),
             Some("batch-current")
         );
+        let single_end = frame_from_json(serde_json::json!({
+            "action": "increment_channel_end", "data": { "channelId": channel_id.as_str() }
+        }));
+        dispatch_ws(&mut ctx, &single_end, &mut stale_out).unwrap();
+        assert_eq!(ctx.state.pending_increment_batch_id.as_deref(), Some("batch-current"));
+        let valid_end = frame_from_json(serde_json::json!({
+            "action": "increment_channel_end",
+            "data": { "scope": "channels", "batchId": "batch-current" }
+        }));
+        dispatch_ws(&mut ctx, &valid_end, &mut stale_out).unwrap();
+        assert!(ctx.state.pending_increment_batch_id.is_none());
+        assert!(ctx.state.corr_map.values().any(|context| matches!(context,
+            crate::state::CorrelationContext::IncrementBatchPersist { batch_id: Some(id), .. } if id == "batch-current"
+        )));
     }
 
     #[test]

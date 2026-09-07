@@ -24,6 +24,9 @@ pub(crate) struct Observation<'a> {
     pub result: &'static str,
     pub reason: &'static str,
     pub channel: &'a str,
+    pub business_event_id: &'a str,
+    pub traceparent: &'a str,
+    pub batch_id: &'a str,
     pub seq: Option<u64>,
     pub from: Option<u64>,
     pub next: Option<u64>,
@@ -66,7 +69,7 @@ impl ImModule {
         tracing::info!(target:"helix::diagnostics",
             event=record.event,tenant_id=self.config.company_id.as_str(),user_id=self.config.auth_user_id.as_str(),
             login_attempt_id=self.diagnostics.login.as_str(),device_session_id=self.diagnostics.device.as_str(),
-            channel_id=record.channel,stage=record.stage,path=record.path,result=record.result,reason=record.reason,
+            batch_id=record.batch_id,business_event_id=record.business_event_id,traceparent=record.traceparent,channel_id=record.channel,stage=record.stage,path=record.path,result=record.result,reason=record.reason,
             seq_domain=if record.domain.is_empty() {"channel_cursor"} else {record.domain},event_seq=%OptionalNumber(record.seq),from_seq=%OptionalNumber(record.from),
             next_seq=%OptionalNumber(record.next),local_contiguous_seq=%OptionalNumber(record.cursor),
             expected_seq=%OptionalNumber(record.expected),received_seq=%OptionalNumber(record.received),
@@ -178,6 +181,11 @@ impl ImModule {
                 v.get("channelId")
                     .or_else(|| v.get("channel_id"))
                     .or_else(|| {
+                        (frame.action().ok() == Some("increment_channel"))
+                            .then(|| v.get("id"))
+                            .flatten()
+                    })
+                    .or_else(|| {
                         v.get("post")
                             .and_then(|p| p.get("channel_id").or_else(|| p.get("channelId")))
                     })
@@ -185,6 +193,32 @@ impl ImModule {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
         let seq = frame.event_seq().map(|value| value.0);
+        if matches!(
+            frame.action().ok(),
+            Some("increment_channel" | "increment_channel_end")
+        ) {
+            self.diagnose(Observation {
+                event: if frame.action().ok() == Some("increment_channel") {
+                    "channel_inventory_item_received"
+                } else {
+                    "channel_inventory_end_received"
+                },
+                stage: "ws_received",
+                result: "received",
+                channel,
+                batch_id: data
+                    .and_then(|value| value.get("batchId"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(""),
+                traceparent: frame
+                    .root()
+                    .get("tracing")
+                    .and_then(|value| value.get("traceparent"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(""),
+                ..Default::default()
+            });
+        }
         let cursor = crate::state::ChannelId::from_str(channel)
             .and_then(|id| self.state.channels.get(&id))
             .map(|ch| ch.cursor.value().0);
@@ -199,6 +233,21 @@ impl ImModule {
                 },
                 event: "delivery_stage",
                 stage: "ws_received",
+                result: if cursor.zip(seq).is_some_and(|(c, s)| s <= c) {
+                    "already_committed"
+                } else {
+                    "received"
+                },
+                business_event_id: data
+                    .and_then(|d| d.get("event_id").or_else(|| d.get("eventId")))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(""),
+                traceparent: frame
+                    .root()
+                    .get("tracing")
+                    .and_then(|v| v.get("traceparent"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(""),
                 path: "live_ws",
                 channel,
                 seq,

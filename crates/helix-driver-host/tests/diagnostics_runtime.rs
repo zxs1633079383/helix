@@ -56,7 +56,7 @@ fn exports_exact_fields_without_sensitive_payload_or_identity_labels() {
     let subscriber = tracing_subscriber::registry().with(runtime.layer());
     tracing::subscriber::with_default(subscriber, || {
         tracing::info!(user_id = "ignored", "ordinary log");
-        tracing::info!(target: "helix::diagnostics", event="channel_checkpoint", user_id="user-1", channel_id="channel-1", local_contiguous_seq=9007199254740993u64, token="secret", message_body="private");
+        tracing::info!(target: "helix::diagnostics", event="channel_checkpoint", message_id="message-1", user_id="user-1", channel_id="channel-1", local_contiguous_seq=9007199254740993u64, from_seq=9007199254740993u64, next_seq=9007199254740994u64, server_horizon_seq=9007199254740995u64, token="secret", message_body="private");
     });
     assert_eq!(
         runtime.shutdown(Duration::from_secs(5)),
@@ -70,6 +70,10 @@ fn exports_exact_fields_without_sensitive_payload_or_identity_labels() {
         serde_json::from_str(body["streams"][0]["values"][0][1].as_str().unwrap()).unwrap();
     assert_eq!(record["local_contiguous_seq"], "9007199254740993");
     assert_eq!(record["user_id"], "user-1");
+    assert_eq!(record["message_id"], "message-1");
+    assert_eq!(record["from_seq"], "9007199254740993");
+    assert_eq!(record["next_seq"], "9007199254740994");
+    assert_eq!(record["server_horizon_seq"], "9007199254740995");
     assert!(record.get("token").is_none());
     assert!(record.get("message_body").is_none());
     assert_eq!(runtime.snapshot().exported, 1);
@@ -114,6 +118,49 @@ fn oversized_identity_is_rejected_before_queueing() {
         runtime.shutdown(Duration::from_secs(2)),
         ShutdownOutcome::Drained
     );
+}
+
+/// 无有效业务记录时也输出实例级缺口，避免非法身份造成静默缺样。
+#[test]
+fn invalid_only_input_exports_unscoped_coverage_gap() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let receiver = std::thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&receive_body(&mut socket)).unwrap();
+        socket
+            .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .unwrap();
+        body
+    });
+    let mut runtime = DiagnosticRuntime::start(
+        DiagnosticConfig {
+            enabled: true,
+            loki_url: format!("http://{address}/loki/api/v1/push"),
+            export_interval: Duration::from_millis(10),
+            ..Default::default()
+        },
+        Arc::new(NoopMetricSink),
+    )
+    .unwrap();
+    let identity = "x".repeat(129);
+    tracing::subscriber::with_default(tracing_subscriber::registry().with(runtime.layer()), || {
+        tracing::info!(target:"helix::diagnostics",event="delivery_stage",user_id=identity.as_str());
+    });
+    assert_eq!(
+        runtime.shutdown(Duration::from_secs(5)),
+        ShutdownOutcome::Drained
+    );
+    let body = receiver.join().unwrap();
+    let record: serde_json::Value =
+        serde_json::from_str(body["streams"][0]["values"][0][1].as_str().unwrap()).unwrap();
+    assert_eq!(record["event"], "diagnostic_coverage_gap");
+    assert_eq!(record["coverage_scope"], "producer_runtime");
+    assert_eq!(record["unknown"], 1);
+    assert_eq!(record["evidence_complete"], false);
+    assert!(record.get("user_id").is_none());
+    assert_eq!(runtime.snapshot().accepted, 0);
+    assert_eq!(runtime.snapshot().exported, 1);
 }
 
 /// 仅解析本地HTTP测试请求；body保持原字节用于重试一致性验证。
@@ -219,4 +266,59 @@ fn saturated_queue_rejects_without_unbounded_growth() {
     );
     assert_eq!(runtime.snapshot().exported, 0);
     assert_eq!(runtime.snapshot().queue_depth, 0);
+}
+
+/// 两个真实采集阶段经HTTP导出后形成同一窗口，分批上限与W3C关联保持一致。
+#[test]
+fn closes_received_commit_window_and_inherits_trace() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let receiver = std::thread::spawn(move || {
+        let mut records = Vec::new();
+        for _ in 0..3 {
+            let (mut socket, _) = listener.accept().unwrap();
+            let body: serde_json::Value =
+                serde_json::from_slice(&receive_body(&mut socket)).unwrap();
+            let values = body["streams"][0]["values"].as_array().unwrap();
+            assert_eq!(values.len(), 1, "derived records obey batch_max too");
+            for value in values {
+                records.push(
+                    serde_json::from_str::<serde_json::Value>(value[1].as_str().unwrap()).unwrap(),
+                );
+            }
+            socket
+                .write_all(
+                    b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+        }
+        records
+    });
+    let mut runtime = DiagnosticRuntime::start(
+        DiagnosticConfig {
+            enabled: true,
+            loki_url: format!("http://{address}/loki/api/v1/push"),
+            batch_max: 1,
+            export_interval: Duration::from_millis(10),
+            ..Default::default()
+        },
+        Arc::new(NoopMetricSink),
+    )
+    .unwrap();
+    tracing::subscriber::with_default(tracing_subscriber::registry().with(runtime.layer()), || {
+        tracing::info!(target:"helix::diagnostics",event="delivery_stage",stage="ws_received",result="received",tenant_id="t",user_id="u",device_session_id="d",login_attempt_id="l",channel_id="c",seq_domain="stream_seq",event_seq=9007199254740993u64,traceparent="00-0123456789abcdef0123456789abcdef-0123456789abcdef-01");
+        tracing::info!(target:"helix::diagnostics",event="delivery_stage",stage="persist_terminal",result="success",tenant_id="t",user_id="u",device_session_id="d",login_attempt_id="l",channel_id="c",seq_domain="stream_seq",event_seq=9007199254740993u64);
+    });
+    assert_eq!(
+        runtime.shutdown(Duration::from_secs(5)),
+        ShutdownOutcome::Drained
+    );
+    let records = receiver.join().unwrap();
+    assert_eq!(records[1]["trace_id"], "0123456789abcdef0123456789abcdef");
+    assert_eq!(records[2]["event"], "delivery_cohort_closed");
+    assert_eq!(records[2]["observed"], 1);
+    assert_eq!(records[2]["committed"], 1);
+    assert_eq!(records[2]["evidence_complete"], true);
+    assert_eq!(runtime.snapshot().accepted, 2);
+    assert_eq!(runtime.snapshot().exported, 3);
 }

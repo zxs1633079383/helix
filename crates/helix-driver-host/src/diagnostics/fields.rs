@@ -3,6 +3,10 @@ use std::fmt::Write;
 use tracing::field::{Field, Visit};
 const NAMES: &[&str] = &[
     "event",
+    "business_event_id",
+    "message_id",
+    "batch_id",
+    "traceparent",
     "tenant_id",
     "user_id",
     "channel_id",
@@ -67,15 +71,15 @@ impl std::fmt::Write for Text {
     }
 }
 pub(super) struct Fields {
-    values: [Text; 35],
+    values: [Text; NAMES.len()],
     pub invalid: bool,
     pub observed_ns: u128,
 }
 impl Default for Fields {
-    /// 每条最多35个128字节标量，队列内存上界固定。
+    /// 字段容量与白名单同步，避免新增字段越界；每个标量最多128字节。
     fn default() -> Self {
         Self {
-            values: [Text::default(); 35],
+            values: [Text::default(); NAMES.len()],
             invalid: false,
             observed_ns: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

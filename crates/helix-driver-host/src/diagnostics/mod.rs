@@ -1,4 +1,5 @@
 //! 专用诊断旁路：业务线程仅复制有限标量，后台批量写 Loki，身份不进入索引。
+mod cohort;
 mod fields;
 mod worker;
 

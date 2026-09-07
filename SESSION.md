@@ -1,3 +1,5 @@
+🎯 EXPECT 补全双端生产观测接线：持续有界采集、精确字段全量导出、消息身份与Trace关联、真实终态统计、默认客户端接线和看板；可证伪：全部看板业务查询有对应producer，身份筛选无全局误归属，聚焦失败/去重/重启测试通过；仅最后真实用户操作可保留待验 | 赌注 中 | 可逆 是 | @2026-09-07
+
 ✅ DONE 本轮独立业务诊断producer与Native采集验证：真实Go双身份收发seq5、离线重登seq6，两端SQLite与Loki对账通过；Promtail 6/6上线，看板v3与332查询通过。Angular真实页面、PRE新二进制与严格端到端率仍未验收，不将本批提交称为生产闭环。详见 docs/Metrics/业务埋点与真实链验收-2026-09-07.md。
 ⚡ DRIFT-PRED 本机diagnostic-local不在既有Metrics环境白名单，样本归unknown；新队列Gauge单位1出现ratio后缀，源代码修正为空单位 → 候选教训：新增Gauge必须核对Collector实际输出名与资源标签。
 🎯 EXPECT 补齐Helix/Angular真实登录同步、WS接收与匹配持久终态、缺口区间和群水位诊断，接入有界Loki导出及OTel低基数自观测；可证伪：诊断不改变Effect/SQLite结果，身份与seq不进入时序索引，失败提交不报成功，聚焦失败路径/采集新样本/中文行为标题通过；真实宿主缺口必须保留，不push | 赌注 中 | 可逆 是 | @2026-09-07
@@ -636,3 +638,5 @@
 
 ⚡ DRIFT-PRED 原预期把剩余阻断主要分为远端能力边界，但真实闭环还暴露 type1/type6 双写覆盖与首发只依赖 sender WS echo 两个 Helix 生命周期缺口；候选教训：真实链非 PASS 必须同时检查远端前置与本地权威源竞争，HTTP admission 后应保留可幂等的第二权威终态路径。@2026-09-04T00:16:40+0800
 🎯 EXPECT 将用户明确授权的 PRE 测试账号池内置到 real-chain 配置；可证伪断言：① `--env pre` 在无凭据变量时自动注入 16 个测试账号且不打印密码，已有 JSON/File 仍可覆盖；② local/未来其他 profile 不误用 PRE 账号；③ CI 不再要求运维配置凭据，只要求 Node.js 20+ 与现有 Rust/Cargo；④ Node 凭据选择断言、credential Rust test、GitLab CI lint 与 `git diff --check` 通过；⑤ 只提交脚本/CI/SESSION，不纳入当前 helix-im 用户改动与未跟踪产物 | 赌注 中 | 可逆 是 | @2026-09-04T10:01:00+0800
+
+✅ DONE 本机观测接线独立批次：Host 有界窗口与采集缺口、实际群批次贯穿 Persist、HTTP/WS 关联头、Native 实际OTLP；Host 7项、客户端候选24项、三端check与Web wasm通过。真实在线/离线与跨进程Trace见 docs/Metrics/生产接线本机联调证据-2026-09-07.json。正式客户端依赖与PRE部署仍待后续收尾。

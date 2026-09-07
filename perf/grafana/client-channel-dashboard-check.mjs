@@ -64,6 +64,10 @@ for (const { panel, target } of targets) {
     assert.ok(query.includes(`service_name="${contract.diagnosticService}"`));
     assert.ok(!query.includes('$__rate_interval'), 'Loki不能使用Prometheus专有rate_interval');
     for (const field of contract.scopeFields) {
+      if (panel.title === '登录后群聊是否完整' && field === 'channel_id') {
+        assert.ok(!query.includes('selected_channel_id'), '登录总览不受单群筛选误伤');
+        continue;
+      }
       assert.ok(query.includes(`selected_${field}="" or ${field}=\${${field}:doublequote}`));
       assert.ok(query.includes(`label_format selected_${field}=\${${field}:doublequote}`));
     }
@@ -77,6 +81,7 @@ assert.ok(ratio.includes('evidence_complete="true"'));
 assert.ok(ratio.includes('matured > 0'));
 assert.ok(ratio.includes('by (tenant_id,user_id,channel_id,device_session_id,login_attempt_id,cohort_id)'));
 assert.ok(ratio.includes('unwrap committed') && ratio.includes('unwrap matured'));
+assert.ok(ratio.includes('unless') && ratio.includes('evidence_complete!="true"') && ratio.includes('diagnostic_coverage_gap') && ratio.includes('dropped_records > 0'), '不能只对幸存完整样本显示百分比');
 const checkpoint = panels.find((panel) => panel.targets?.some(target => target.expr.includes('event=~"channel_checkpoint"')));
 const groupBy = checkpoint.transformations.find((item) => item.id === 'groupBy');
 for (const field of [...contract.scopeFields, 'seq_domain', 'stream_epoch']) assert.equal(groupBy.options.fields[field].operation, 'groupby');
@@ -108,12 +113,13 @@ async function checkLive() {
   const lokiUrl = process.env.HELIX_DIAGNOSTIC_LOKI_URL ?? 'http://192.168.6.66:31000';
   const requests = [];
   for (const entry of targets) {
+    if (process.argv.includes('--loki-only') && entry.target.datasource.type !== 'loki') continue;
     requests.push({ ...entry, scope: 'global', selected: {} });
     requests.push({ ...entry, scope: 'user', selected: { user_id: 'scope-check-nonexistent' } });
   }
   // 用一个代表性technical query分别验证其他身份过滤维度，不构造真实账号数据。
   const representative = targets.find(({ target }) => target.datasource.type === 'prometheus');
-  for (const field of contract.scopeFields.filter((value) => value !== 'user_id')) requests.push({ ...representative, scope: field, selected: { [field]: 'scope-check-nonexistent' } });
+  if (!process.argv.includes('--loki-only')) for (const field of contract.scopeFields.filter((value) => value !== 'user_id')) requests.push({ ...representative, scope: field, selected: { [field]: 'scope-check-nonexistent' } });
   const results = await mapBounded(requests, async ({ panel, target, scope, selected }) => {
     const isProm = target.datasource.type === 'prometheus';
     const endpoint = isProm ? '/api/v1/query' : target.queryType === 'instant' ? '/loki/api/v1/query' : '/loki/api/v1/query_range';

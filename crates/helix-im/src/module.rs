@@ -106,6 +106,7 @@ impl Default for ImConfig {
 /// IM 业务模块（实现 helix_core::Module trait）
 pub struct ImModule {
     pub(crate) config: ImConfig,
+    pub(crate) diagnostics: crate::diagnostics::Session,
     pub(crate) state: ImState,
     /// 平台注入的本地存储能力；coverage 仍由 query 状态机逐次证明。
     pub(crate) local_store_mode: crate::query::LocalStoreMode,
@@ -156,6 +157,7 @@ impl ImModule {
     ) -> Self {
         Self {
             config,
+            diagnostics: crate::diagnostics::Session::default(),
             state: ImState::new(),
             local_store_mode,
             next_corr: 1,
@@ -322,6 +324,7 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), CoreError> {
+        self.diagnose_inbound(frame);
         let module_name = self.name();
         let api_base_url = self.config.api_base_url.as_str();
         let auth_user_id = self.config.auth_user_id.as_str();

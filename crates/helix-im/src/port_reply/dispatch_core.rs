@@ -6,12 +6,27 @@ use helix_core::tick::PortOutcome;
 use helix_core::{Effect, EffectSink};
 
 impl ImModule {
+    /// canonical原子回执仍是唯一提交边界，诊断只旁路记录该结果。
     pub(super) fn handle_canonical_stream_persist_reply(
         &mut self,
         event: crate::sync_session::EventEnvelope,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        self.diagnose(crate::diagnostics::Observation {
+            event: "delivery_stage",
+            stage: "persist_terminal",
+            path: "live_ws",
+            result: if matches!(outcome, PortOutcome::Ok(_)) {
+                "success"
+            } else {
+                "failed"
+            },
+            channel: event.channel_id.as_str(),
+            seq: Some(event.seq.0),
+            count: 1,
+            ..Default::default()
+        });
         if !matches!(outcome, PortOutcome::Ok(_)) {
             if let Some(channel) = self.state.channels.get_mut(&event.channel_id) {
                 channel.restore_message_v3_post(event, out);
@@ -58,6 +73,7 @@ impl ImModule {
         if !committed {
             return Ok(());
         }
+        self.diagnose_checkpoint(event.channel_id, "persist_committed");
         if terminal {
             out.push(crate::acl::to_effect_s1::emit_channel_closed(
                 event.channel_id,
@@ -259,6 +275,7 @@ impl ImModule {
         Ok(())
     }
 
+    /// 同步批次只在matching回执后报告提交结果；cursor仍由原状态机推进。
     pub(super) fn handle_channel_persist_reply(
         &mut self,
         corr: helix_core::Correlation,
@@ -273,6 +290,21 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        self.diagnose(crate::diagnostics::Observation {
+            event: "sync_persist_terminal",
+            stage: "persist",
+            path: "sync_replay",
+            result: if matches!(outcome, PortOutcome::Ok(_)) {
+                "success"
+            } else {
+                "failed"
+            },
+            channel: channel_id.as_str(),
+            corr: Some(corr.raw()),
+            count: pending_domain_events.len(),
+            has_more: wants_continuation,
+            ..Default::default()
+        });
         match outcome {
             PortOutcome::Ok(_) => {
                 let has_durable_message_changes = !pending_domain_events.is_empty();
@@ -318,6 +350,9 @@ impl ImModule {
                     wants_continuation,
                     "sync atomic write committed"
                 );
+                if committed {
+                    self.diagnose_checkpoint(channel_id, "sync_committed");
+                }
                 let recovery_active = self
                     .state
                     .recovery_session
@@ -480,6 +515,22 @@ impl ImModule {
             return Ok(());
         }
         self.state.channel_sync_persist_inflight -= 1;
+        self.diagnose(crate::diagnostics::Observation {
+            event: "channel_inventory_persisted",
+            stage: "persist",
+            result: if matches!(outcome, PortOutcome::Ok(_)) {
+                "success"
+            } else {
+                "failed"
+            },
+            count: _projections.len(),
+            ..Default::default()
+        });
+        if matches!(outcome, PortOutcome::Ok(_)) {
+            for (channel, _) in &_projections {
+                self.diagnose_checkpoint(*channel, "inventory_committed");
+            }
+        }
         match outcome {
             PortOutcome::Ok(_) => {
                 // PersistOk 是唯一 ready 屏障；活动 session 未 complete 前不能被新批次覆盖。
@@ -1518,6 +1569,15 @@ impl ImModule {
         match outcome {
             PortOutcome::Ok(reply) => {
                 if let Err(error) = self.handle_sync_reply(corr, channel_id, trigger, reply, out) {
+                    self.diagnose(crate::diagnostics::Observation {
+                        event: "sync_terminal",
+                        result: "failed",
+                        reason: "response_invalid",
+                        path: "sync_replay",
+                        channel: channel_id.as_str(),
+                        corr: Some(corr.raw()),
+                        ..Default::default()
+                    });
                     if trigger == SyncTrigger::Hydration {
                         self.fail_hydration_for_channel(
                             channel_id,
@@ -1530,6 +1590,15 @@ impl ImModule {
                 }
             }
             PortOutcome::Err(e) => {
+                self.diagnose(crate::diagnostics::Observation {
+                    event: "sync_terminal",
+                    result: "failed",
+                    reason: "request_failed",
+                    path: "sync_replay",
+                    channel: channel_id.as_str(),
+                    corr: Some(corr.raw()),
+                    ..Default::default()
+                });
                 if trigger == SyncTrigger::Hydration {
                     self.fail_hydration_for_channel(channel_id, "hydration sync failed", out);
                 }

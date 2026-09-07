@@ -1,0 +1,32 @@
+{
+  "match": {
+    "selector": "{namespace=\"cses\",container=\"cses-im-server\"} |= \"helix-im-diagnostics\"",
+    "pipeline_name": "helix_business_diagnostics",
+    "stages": [
+      {
+        "json": {
+          "expressions": {
+            "service_name": "service_name",
+            "deployment_environment": "deployment_environment",
+            "platform": "platform",
+            "observed_at": "observed_at"
+          }
+        }
+      },
+      {
+        "labels": {
+          "service_name": null,
+          "deployment_environment": null,
+          "platform": null
+        }
+      },
+      {
+        "timestamp": {
+          "source": "observed_at",
+          "format": "RFC3339Nano",
+          "action_on_failure": "skip"
+        }
+      }
+    ]
+  }
+}

@@ -2,7 +2,7 @@
   "id": null,
   "uid": "helix-client-channel-v1",
   "title": "登录与群聊：消息接收、保存和补齐情况",
-  "description": "实测技术指标与拟接入的用户/群聊诊断分开；无数据不伪装成功。",
+  "description": "按用户与群聊查看真实收发、保存和同步事实；本地验证与PRE部署状态分开。",
   "tags": [
     "Helix",
     "MessageV3",
@@ -46,7 +46,7 @@
         "name": "environment",
         "label": "环境",
         "type": "custom",
-        "query": "pre,dev,prod,local,test",
+        "query": "pre,dev,prod,local,test,diagnostic-local",
         "current": {
           "text": "pre",
           "value": "pre"
@@ -135,7 +135,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "noValue": "无数据 / 待接入",
+          "noValue": "当前筛选时段没有记录",
           "color": {
             "mode": "palette-classic"
           }
@@ -145,12 +145,12 @@
       "targets": [],
       "options": {
         "mode": "markdown",
-        "content": "默认身份留空=当前授权范围全局；输入准确用户/群聊/登录/设备ID，或点击表格ID下钻。\n\n技术指标来源：2026-09-07 PRE快照71族；无身份标签，选择身份后技术面板为空。业务诊断依赖尚未接入的 `helix-im-diagnostics` JSON流，不能将空值解释为0%/100%。\n\n现有Grafana 12.2.1、Loki 2.9.3；原生OTLP Logs接入须处理Loki升级/兼容适配。变量不是租户授权，数据源必须限制可读范围。"
+        "content": "默认身份留空=当前授权范围全局；输入准确用户/群聊/登录/设备ID，或点击表格ID下钻。\n\n技术指标来源：2026-09-07 PRE快照71族；无身份标签，选择身份后技术面板为空。业务诊断使用 `helix-im-diagnostics` JSON流，候选Helix与Go本机已验证真实业务，环境为 diagnostic-local；PRE旧二进制仍需发布。不能将空值解释为0%/100%。\n\n现有Grafana 12.2.1、Loki 2.9.3；客户端经有界后台直接写入日志；服务端经专用日志采集规则接入。变量不是租户授权，数据源必须限制可读范围。"
       }
     },
     {
       "id": 2,
-      "title": "[待接入] 登录后群聊是否完整",
+      "title": "登录后群聊是否完整",
       "type": "table",
       "gridPos": {
         "x": 0,
@@ -160,7 +160,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "noValue": "无数据 / 待接入",
+          "noValue": "当前筛选时段没有记录",
           "color": {
             "mode": "palette-classic"
           }
@@ -297,7 +297,7 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "{service_name=\"helix-im-diagnostics\",deployment_environment=${environment:doublequote}} | json | __error__=\"\" | label_format selected_tenant_id=${tenant_id:doublequote} | selected_tenant_id=\"\" or tenant_id=${tenant_id:doublequote} | label_format selected_user_id=${user_id:doublequote} | selected_user_id=\"\" or user_id=${user_id:doublequote} | label_format selected_channel_id=${channel_id:doublequote} | selected_channel_id=\"\" or channel_id=${channel_id:doublequote} | label_format selected_login_attempt_id=${login_attempt_id:doublequote} | selected_login_attempt_id=\"\" or login_attempt_id=${login_attempt_id:doublequote} | label_format selected_device_session_id=${device_session_id:doublequote} | selected_device_session_id=\"\" or device_session_id=${device_session_id:doublequote} | event=~\"login_started|login_sync_terminal\"",
+          "expr": "{service_name=\"helix-im-diagnostics\",deployment_environment=${environment:doublequote}} | json | __error__=\"\" | label_format selected_tenant_id=${tenant_id:doublequote} | selected_tenant_id=\"\" or tenant_id=${tenant_id:doublequote} | label_format selected_user_id=${user_id:doublequote} | selected_user_id=\"\" or user_id=${user_id:doublequote} | label_format selected_channel_id=${channel_id:doublequote} | selected_channel_id=\"\" or channel_id=${channel_id:doublequote} | label_format selected_login_attempt_id=${login_attempt_id:doublequote} | selected_login_attempt_id=\"\" or login_attempt_id=${login_attempt_id:doublequote} | label_format selected_device_session_id=${device_session_id:doublequote} | selected_device_session_id=\"\" or device_session_id=${device_session_id:doublequote} | event=~\"login_started|login_sync_started|login_sync_terminal|runtime_stopped|channel_inventory_page_returned|channel_inventory_persisted|channel_inventory_applied\"",
           "queryType": "range",
           "maxLines": 1000
         }
@@ -306,7 +306,7 @@
         "type": "loki",
         "uid": "${DS_LOKI}"
       },
-      "description": "同一membership快照下逐阶段集合差；expected_known=false时完整性未知，认证前user_id可能为空。 来源为拟新增专用诊断JSON；最多1000行，空数据不表示零故障。",
+      "description": "同一membership快照下逐阶段集合差；expected_known=false时完整性未知，认证前user_id可能为空。 来源为专用业务诊断JSON；最多1000行，空数据不表示零故障。",
       "transformations": [
         {
           "id": "extractFields",
@@ -329,8 +329,10 @@
                 "login_attempt_id",
                 "device_session_id",
                 "event",
+                "stage",
                 "result",
                 "reason",
+                "count",
                 "expected_known",
                 "membership_revision",
                 "expected_channels",
@@ -369,7 +371,7 @@
     },
     {
       "id": 3,
-      "title": "[待接入] 重新登录或恢复连接后，消息是否补齐",
+      "title": "重新登录或恢复连接后，消息是否补齐",
       "type": "table",
       "gridPos": {
         "x": 0,
@@ -379,7 +381,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "noValue": "无数据 / 待接入",
+          "noValue": "当前筛选时段没有记录",
           "color": {
             "mode": "palette-classic"
           }
@@ -516,7 +518,7 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "{service_name=\"helix-im-diagnostics\",deployment_environment=${environment:doublequote}} | json | __error__=\"\" | label_format selected_tenant_id=${tenant_id:doublequote} | selected_tenant_id=\"\" or tenant_id=${tenant_id:doublequote} | label_format selected_user_id=${user_id:doublequote} | selected_user_id=\"\" or user_id=${user_id:doublequote} | label_format selected_channel_id=${channel_id:doublequote} | selected_channel_id=\"\" or channel_id=${channel_id:doublequote} | label_format selected_login_attempt_id=${login_attempt_id:doublequote} | selected_login_attempt_id=\"\" or login_attempt_id=${login_attempt_id:doublequote} | label_format selected_device_session_id=${device_session_id:doublequote} | selected_device_session_id=\"\" or device_session_id=${device_session_id:doublequote} | event=~\"sync_started|sync_terminal\"",
+          "expr": "{service_name=\"helix-im-diagnostics\",deployment_environment=${environment:doublequote}} | json | __error__=\"\" | label_format selected_tenant_id=${tenant_id:doublequote} | selected_tenant_id=\"\" or tenant_id=${tenant_id:doublequote} | label_format selected_user_id=${user_id:doublequote} | selected_user_id=\"\" or user_id=${user_id:doublequote} | label_format selected_channel_id=${channel_id:doublequote} | selected_channel_id=\"\" or channel_id=${channel_id:doublequote} | label_format selected_login_attempt_id=${login_attempt_id:doublequote} | selected_login_attempt_id=\"\" or login_attempt_id=${login_attempt_id:doublequote} | label_format selected_device_session_id=${device_session_id:doublequote} | selected_device_session_id=\"\" or device_session_id=${device_session_id:doublequote} | event=~\"sync_started|sync_terminal|sync_page_returned|sync_page_received|sync_persist_terminal\"",
           "queryType": "range",
           "maxLines": 1000
         }
@@ -525,7 +527,7 @@
         "type": "loki",
         "uid": "${DS_LOKI}"
       },
-      "description": "同轮、同设备的分页和终态；成功HTTP不等于同步完成。 来源为拟新增专用诊断JSON；最多1000行，空数据不表示零故障。",
+      "description": "同轮、同设备的分页和终态；成功HTTP不等于同步完成。 来源为专用业务诊断JSON；最多1000行，空数据不表示零故障。",
       "transformations": [
         {
           "id": "extractFields",
@@ -555,6 +557,12 @@
                 "pages",
                 "events_received",
                 "events_committed",
+                "count",
+                "events_returned",
+                "sync_kind",
+                "requested_from_seq",
+                "response_next_seq",
+                "has_more",
                 "deduplicated",
                 "redacted",
                 "from_seq",
@@ -588,7 +596,7 @@
     },
     {
       "id": 4,
-      "title": "[待接入] 收到的消息走到了哪一步",
+      "title": "收到的消息走到了哪一步",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -598,7 +606,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "noValue": "无数据 / 待接入",
+          "noValue": "当前筛选时段没有记录",
           "color": {
             "mode": "palette-classic"
           },
@@ -622,12 +630,12 @@
         "type": "loki",
         "uid": "${DS_LOKI}"
       },
-      "description": "诊断记录/秒；需去重才能解释为唯一业务事件数。当前producer未接入，不填零。",
+      "description": "诊断记录/秒；需去重才能解释为唯一业务事件数。无记录不填零；本地真实业务与PRE按环境隔离。",
       "interval": "1m"
     },
     {
       "id": 5,
-      "title": "[待接入] 收到的消息有多少确认保存成功",
+      "title": "[待完善] 收到的消息有多少确认保存成功",
       "type": "stat",
       "gridPos": {
         "x": 0,
@@ -637,7 +645,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "noValue": "无数据 / 待接入",
+          "noValue": "当前筛选时段没有记录",
           "color": {
             "mode": "palette-classic"
           },
@@ -675,7 +683,7 @@
     },
     {
       "id": 6,
-      "title": "[待接入] 消息保存成功、失败和仍待确认的情况",
+      "title": "消息保存成功、失败和仍待确认的情况",
       "type": "table",
       "gridPos": {
         "x": 0,
@@ -685,7 +693,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "noValue": "无数据 / 待接入",
+          "noValue": "当前筛选时段没有记录",
           "color": {
             "mode": "palette-classic"
           }
@@ -831,7 +839,7 @@
         "type": "loki",
         "uid": "${DS_LOKI}"
       },
-      "description": "接受前取消排除；接受后取消保留pending；中断不能恢复为unknown。unknown/partial不混进成功率。 来源为拟新增专用诊断JSON；最多1000行，空数据不表示零故障。",
+      "description": "接受前取消排除；接受后取消保留pending；中断不能恢复为unknown。unknown/partial不混进成功率。 来源为专用业务诊断JSON；最多1000行，空数据不表示零故障。",
       "transformations": [
         {
           "id": "extractFields",
@@ -889,7 +897,7 @@
     },
     {
       "id": 7,
-      "title": "[待接入] 发现了多少次消息序号缺口",
+      "title": "[待完善] 发现了多少次消息序号缺口",
       "type": "stat",
       "gridPos": {
         "x": 0,
@@ -899,7 +907,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "noValue": "无数据 / 待接入",
+          "noValue": "当前筛选时段没有记录",
           "color": {
             "mode": "palette-classic"
           }
@@ -936,7 +944,7 @@
     },
     {
       "id": 8,
-      "title": "[待接入] 什么时候发现消息序号缺口",
+      "title": "什么时候发现消息序号缺口",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -946,7 +954,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "noValue": "无数据 / 待接入",
+          "noValue": "当前筛选时段没有记录",
           "color": {
             "mode": "palette-classic"
           },
@@ -970,12 +978,12 @@
         "type": "loki",
         "uid": "${DS_LOKI}"
       },
-      "description": "诊断记录/秒；需去重才能解释为唯一业务事件数。当前producer未接入，不填零。",
+      "description": "诊断记录/秒；需去重才能解释为唯一业务事件数。无记录不填零；本地真实业务与PRE按环境隔离。",
       "interval": "1m"
     },
     {
       "id": 9,
-      "title": "[待接入] 哪些消息序号不连续，后来是否补齐",
+      "title": "哪些消息序号不连续，后来是否补齐",
       "type": "table",
       "gridPos": {
         "x": 0,
@@ -985,7 +993,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "noValue": "无数据 / 待接入",
+          "noValue": "当前筛选时段没有记录",
           "color": {
             "mode": "palette-classic"
           }
@@ -1122,7 +1130,7 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "{service_name=\"helix-im-diagnostics\",deployment_environment=${environment:doublequote}} | json | __error__=\"\" | label_format selected_tenant_id=${tenant_id:doublequote} | selected_tenant_id=\"\" or tenant_id=${tenant_id:doublequote} | label_format selected_user_id=${user_id:doublequote} | selected_user_id=\"\" or user_id=${user_id:doublequote} | label_format selected_channel_id=${channel_id:doublequote} | selected_channel_id=\"\" or channel_id=${channel_id:doublequote} | label_format selected_login_attempt_id=${login_attempt_id:doublequote} | selected_login_attempt_id=\"\" or login_attempt_id=${login_attempt_id:doublequote} | label_format selected_device_session_id=${device_session_id:doublequote} | selected_device_session_id=\"\" or device_session_id=${device_session_id:doublequote} | event=~\"gap_opened|gap_updated|gap_repair_result|gap_terminal\"",
+          "expr": "{service_name=\"helix-im-diagnostics\",deployment_environment=${environment:doublequote}} | json | __error__=\"\" | label_format selected_tenant_id=${tenant_id:doublequote} | selected_tenant_id=\"\" or tenant_id=${tenant_id:doublequote} | label_format selected_user_id=${user_id:doublequote} | selected_user_id=\"\" or user_id=${user_id:doublequote} | label_format selected_channel_id=${channel_id:doublequote} | selected_channel_id=\"\" or channel_id=${channel_id:doublequote} | label_format selected_login_attempt_id=${login_attempt_id:doublequote} | selected_login_attempt_id=\"\" or login_attempt_id=${login_attempt_id:doublequote} | label_format selected_device_session_id=${device_session_id:doublequote} | selected_device_session_id=\"\" or device_session_id=${device_session_id:doublequote} | event=~\"gap_opened|gap_updated|gap_observed|gap_repair_result|gap_terminal\"",
           "queryType": "range",
           "maxLines": 1000
         }
@@ -1131,7 +1139,7 @@
         "type": "loki",
         "uid": "${DS_LOKI}"
       },
-      "description": "跳号仅是疑似缺口；分清重排/重复/合法不可见/裁剪/提交失败/证据不足。精确seq保留字符串。 来源为拟新增专用诊断JSON；最多1000行，空数据不表示零故障。",
+      "description": "跳号仅是疑似缺口；分清重排/重复/合法不可见/裁剪/提交失败/证据不足。精确seq保留字符串。 来源为专用业务诊断JSON；最多1000行，空数据不表示零故障。",
       "transformations": [
         {
           "id": "extractFields",
@@ -1159,6 +1167,8 @@
                 "stream_epoch",
                 "expected_seq",
                 "received_seq",
+                "declared_from_seq",
+                "declared_to_seq",
                 "missing_ranges",
                 "local_contiguous_seq",
                 "observed_high_seq",
@@ -1193,7 +1203,7 @@
     },
     {
       "id": 10,
-      "title": "[待接入] 每个群的消息已保存到哪个序号",
+      "title": "每个群的消息已保存到哪个序号",
       "type": "table",
       "gridPos": {
         "x": 0,
@@ -1203,7 +1213,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "noValue": "无数据 / 待接入",
+          "noValue": "当前筛选时段没有记录",
           "color": {
             "mode": "palette-classic"
           }
@@ -1349,7 +1359,7 @@
         "type": "loki",
         "uid": "${DS_LOKI}"
       },
-      "description": "按设备/登录/群/seq域/epoch分组取窗口内最后观察。时钟偏差、迟到版本及窗口外频道需latest-state服务权威对账；不能用max(seq)。 来源为拟新增专用诊断JSON；最多1000行，空数据不表示零故障。",
+      "description": "按设备/登录/群/seq域/epoch分组取窗口内最后观察。时钟偏差、迟到版本及窗口外频道需latest-state服务权威对账；不能用max(seq)。 来源为专用业务诊断JSON；最多1000行，空数据不表示零故障。",
       "transformations": [
         {
           "id": "extractFields",
@@ -1487,7 +1497,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "noValue": "无数据 / 待接入",
+          "noValue": "当前筛选时段没有记录",
           "color": {
             "mode": "palette-classic"
           }
@@ -6007,7 +6017,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "noValue": "无数据 / 待接入",
+          "noValue": "当前筛选时段没有记录",
           "color": {
             "mode": "palette-classic"
           }

@@ -1,3 +1,7 @@
+✅ DONE 本轮独立业务诊断producer与Native采集验证：真实Go双身份收发seq5、离线重登seq6，两端SQLite与Loki对账通过；Promtail 6/6上线，看板v3与332查询通过。Angular真实页面、PRE新二进制与严格端到端率仍未验收，不将本批提交称为生产闭环。详见 docs/Metrics/业务埋点与真实链验收-2026-09-07.md。
+⚡ DRIFT-PRED 本机diagnostic-local不在既有Metrics环境白名单，样本归unknown；新队列Gauge单位1出现ratio后缀，源代码修正为空单位 → 候选教训：新增Gauge必须核对Collector实际输出名与资源标签。
+🎯 EXPECT 补齐Helix/Angular真实登录同步、WS接收与匹配持久终态、缺口区间和群水位诊断，接入有界Loki导出及OTel低基数自观测；可证伪：诊断不改变Effect/SQLite结果，身份与seq不进入时序索引，失败提交不报成功，聚焦失败路径/采集新样本/中文行为标题通过；真实宿主缺口必须保留，不push | 赌注 中 | 可逆 是 | @2026-09-07
+
 ✅ DONE 用户追加授权后已将独立看板发布到 PRE Grafana Helix 文件夹，UID helix-client-channel-v1、版本1；98个面板/分组、164条查询与变量回读一致，绑定现有Prometheus/loki-pre。未修改数据源或业务producer，诊断无数据与浏览器未验收边界保留，凭据不落盘、不push | @2026-09-07T15:52:07+08:00
 
 🎯 EXPECT 沉淀客户端实测指标清单与用户/群聊诊断设计，生成独立 Grafana 看板；可证伪断言：① 71 个实测 Helix family 与快照逐项一致；② 用户/群聊筛选不把无身份标签的全局值当作个人数据；③ 登录、落库、Gap、seq 区分当前接入与拟新增；④ JSON/生成一致性/查询及 diff 检查通过；⑤ 不修改 Rust/Angular/Go 业务、运行配置，不部署、不 push，用户未跟踪文件保留 | 赌注 中 | 可逆 是 | @2026-09-07T15:17:43.008550+08:00

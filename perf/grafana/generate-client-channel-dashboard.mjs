@@ -44,7 +44,7 @@ export function buildDashboard() {
   // 面板基线统一保留No data语义，不给未接入业务染成成功。
   function base(title, type, datasource, height = 8) {
     const panel = { id: id++, title, type, gridPos: { x: 0, y, w: 24, h: height },
-      fieldConfig: { defaults: { noValue: '无数据 / 待接入', color: { mode: 'palette-classic' } }, overrides: [] }, targets: [] };
+      fieldConfig: { defaults: { noValue: '当前筛选时段没有记录', color: { mode: 'palette-classic' } }, overrides: [] }, targets: [] };
     if (datasource) panel.datasource = datasource;
     y += height;
     return panel;
@@ -69,8 +69,8 @@ export function buildDashboard() {
 
   // 表格从JSON保留精确字符串，不把seq经float转换；所有表均受1000行窗口限制。
   function logTable(title, events, fields, description, checkpoint = false) {
-    const panel = base(`[待接入] ${title}`, 'table', loki, 10);
-    panel.description = `${description} 来源为拟新增专用诊断JSON；最多${contract.maxLogLines}行，空数据不表示零故障。`;
+    const panel = base(title, 'table', loki, 10);
+    panel.description = `${description} 来源为专用业务诊断JSON；最多${contract.maxLogLines}行，空数据不表示零故障。`;
     panel.targets = [{ refId: 'A', datasource: loki, expr: `${dq} | event=~"${events.join('|')}"`, queryType: 'range', maxLines: contract.maxLogLines }];
     panel.transformations = [{ id: 'extractFields', options: { source: 'Line', format: 'json', replace: true, keepTime: true } }];
     if (checkpoint) {
@@ -91,20 +91,20 @@ export function buildDashboard() {
 
   // 诊断记录数只作为观测量，不把日志重试次数称为唯一消息或gap episode数量。
   function logCount(title, event, group) {
-    const panel = base(`[待接入] ${title}`, 'timeseries', loki);
-    panel.description = '诊断记录/秒；需去重才能解释为唯一业务事件数。当前producer未接入，不填零。';
+    const panel = base(title, 'timeseries', loki);
+    panel.description = '诊断记录/秒；需去重才能解释为唯一业务事件数。无记录不填零；本地真实业务与PRE按环境隔离。';
     panel.targets = [{ refId: 'A', datasource: loki, expr: `sum by (${group}) (rate(${dq} | event="${event}" [$__interval]))`, queryType: 'range', legendFormat: `{{${group}}}` }];
     panel.fieldConfig.defaults.unit = 'ops';
     panel.interval = '1m';
     panels.push(panel);
   }
 
-  note('范围与数据可用性', `默认身份留空=当前授权范围全局；输入准确用户/群聊/登录/设备ID，或点击表格ID下钻。\n\n技术指标来源：2026-09-07 PRE快照71族；无身份标签，选择身份后技术面板为空。业务诊断依赖尚未接入的 \`${contract.diagnosticService}\` JSON流，不能将空值解释为0%/100%。\n\n现有Grafana 12.2.1、Loki 2.9.3；原生OTLP Logs接入须处理Loki升级/兼容适配。变量不是租户授权，数据源必须限制可读范围。`, 7);
-  logTable('登录后群聊是否完整', ['login_started', 'login_sync_terminal'],
-    ['event', 'result', 'reason', 'expected_known', 'membership_revision', 'expected_channels', 'returned_channels', 'persisted_channels', 'projected_channels', 'applied_channels', 'filtered_channels', 'missing_count', 'elapsed_seconds', 'evidence_complete', 'dropped_records'],
+  note('范围与数据可用性', `默认身份留空=当前授权范围全局；输入准确用户/群聊/登录/设备ID，或点击表格ID下钻。\n\n技术指标来源：2026-09-07 PRE快照71族；无身份标签，选择身份后技术面板为空。业务诊断使用 \`${contract.diagnosticService}\` JSON流，候选Helix与Go本机已验证真实业务，环境为 diagnostic-local；PRE旧二进制仍需发布。不能将空值解释为0%/100%。\n\n现有Grafana 12.2.1、Loki 2.9.3；客户端经有界后台直接写入日志；服务端经专用日志采集规则接入。变量不是租户授权，数据源必须限制可读范围。`, 7);
+  logTable('登录后群聊是否完整', ['login_started', 'login_sync_started', 'login_sync_terminal', 'runtime_stopped', 'channel_inventory_page_returned', 'channel_inventory_persisted', 'channel_inventory_applied'],
+    ['event', 'stage', 'result', 'reason', 'count', 'expected_known', 'membership_revision', 'expected_channels', 'returned_channels', 'persisted_channels', 'projected_channels', 'applied_channels', 'filtered_channels', 'missing_count', 'elapsed_seconds', 'evidence_complete', 'dropped_records'],
     '同一membership快照下逐阶段集合差；expected_known=false时完整性未知，认证前user_id可能为空。');
-  logTable('重新登录或恢复连接后，消息是否补齐', ['sync_started', 'sync_terminal'],
-    ['event', 'sync_session_id', 'trigger', 'result', 'reason', 'pages', 'events_received', 'events_committed', 'deduplicated', 'redacted', 'from_seq', 'next_seq', 'horizon_seq', 'elapsed_seconds', 'evidence_complete'],
+  logTable('重新登录或恢复连接后，消息是否补齐', ['sync_started', 'sync_terminal', 'sync_page_returned', 'sync_page_received', 'sync_persist_terminal'],
+    ['event', 'sync_session_id', 'trigger', 'result', 'reason', 'pages', 'events_received', 'events_committed', 'count', 'events_returned', 'sync_kind', 'requested_from_seq', 'response_next_seq', 'has_more', 'deduplicated', 'redacted', 'from_seq', 'next_seq', 'horizon_seq', 'elapsed_seconds', 'evidence_complete'],
     '同轮、同设备的分页和终态；成功HTTP不等于同步完成。');
   logCount('收到的消息走到了哪一步', 'delivery_stage', 'stage');
 
@@ -113,7 +113,7 @@ export function buildDashboard() {
   const cohortKey = 'tenant_id,user_id,channel_id,device_session_id,login_attempt_id,cohort_id';
   const numerator = `sum(last_over_time(${cohortFilter} | unwrap committed | __error__="" [$__range]) by (${cohortKey}))`;
   const denominator = `sum(last_over_time(${cohortFilter} | unwrap matured | __error__="" [$__range]) by (${cohortKey}))`;
-  const ratio = base('[待接入] 收到的消息有多少确认保存成功', 'stat', loki, 5);
+  const ratio = base('[待完善] 收到的消息有多少确认保存成功', 'stat', loki, 5);
   ratio.description = '按关闭时间窗统计 committed/(committed+failed+timeout)，同cohort去重。pending/unknown/partial和观测丢弃单列；不代表服务端audience端到端送达率。';
   ratio.targets = [{ refId: 'A', datasource: loki, expr: `(${numerator} / ${denominator}) and (${denominator} > 0)`, queryType: 'instant' }];
   ratio.fieldConfig.defaults.unit = 'percentunit';
@@ -122,14 +122,14 @@ export function buildDashboard() {
   logTable('消息保存成功、失败和仍待确认的情况', ['delivery_cohort_closed'],
     ['cohort_id', 'path', 'matured', 'committed', 'failed', 'timeout', 'pending', 'unknown', 'evidence_complete', 'dropped_records'],
     '接受前取消排除；接受后取消保留pending；中断不能恢复为unknown。unknown/partial不混进成功率。');
-  const gapCount = base('[待接入] 发现了多少次消息序号缺口', 'stat', loki, 5);
+  const gapCount = base('[待完善] 发现了多少次消息序号缺口', 'stat', loki, 5);
   gapCount.description = '仅统计窗口内有gap_opened记录且gap_id非空的episode；不等于真实丢失数，也不等于全部仍未关闭Gap。观测丢弃时是不完整证据。';
   gapCount.targets = [{ refId: 'A', datasource: loki, expr: `count(count by (tenant_id,user_id,channel_id,device_session_id,seq_domain,stream_epoch,gap_id) (count_over_time(${dq} | event="gap_opened" | gap_id!="" [$__range])))`, queryType: 'instant' }];
   gapCount.options = { reduceOptions: { calcs: ['lastNotNull'], fields: '', values: false }, colorMode: 'none', graphMode: 'none' };
   panels.push(gapCount);
   logCount('什么时候发现消息序号缺口', 'gap_opened', 'seq_domain');
-  logTable('哪些消息序号不连续，后来是否补齐', ['gap_opened', 'gap_updated', 'gap_repair_result', 'gap_terminal'],
-    ['event', 'gap_id', 'seq_domain', 'stream_epoch', 'expected_seq', 'received_seq', 'missing_ranges', 'local_contiguous_seq', 'observed_high_seq', 'server_horizon_seq', 'result', 'reason', 'elapsed_seconds', 'evidence_complete'],
+  logTable('哪些消息序号不连续，后来是否补齐', ['gap_opened', 'gap_updated', 'gap_observed', 'gap_repair_result', 'gap_terminal'],
+    ['event', 'gap_id', 'seq_domain', 'stream_epoch', 'expected_seq', 'received_seq', 'declared_from_seq', 'declared_to_seq', 'missing_ranges', 'local_contiguous_seq', 'observed_high_seq', 'server_horizon_seq', 'result', 'reason', 'elapsed_seconds', 'evidence_complete'],
     '跳号仅是疑似缺口；分清重排/重复/合法不可见/裁剪/提交失败/证据不足。精确seq保留字符串。');
   logTable('每个群的消息已保存到哪个序号', ['channel_checkpoint'],
     ['observed_at', 'checkpoint_version', 'local_contiguous_seq', 'local_persisted_high_seq', 'observed_high_seq', 'server_horizon_seq', 'requested_from_seq', 'response_next_seq', 'pending_ranges', 'evidence_complete'],
@@ -177,12 +177,12 @@ export function buildDashboard() {
   const variables = [
     { name: 'DS_PROMETHEUS', label: '运行指标数据源', type: 'datasource', query: 'prometheus', current: { text: contract.defaults.prometheusUid, value: contract.defaults.prometheusUid }, refresh: 1 },
     { name: 'DS_LOKI', label: '业务明细数据源', type: 'datasource', query: 'loki', current: { text: contract.defaults.lokiUid, value: contract.defaults.lokiUid }, refresh: 1 },
-    { name: 'environment', label: '环境', type: 'custom', query: 'pre,dev,prod,local,test', current: { text: 'pre', value: 'pre' } },
+    { name: 'environment', label: '环境', type: 'custom', query: 'pre,dev,prod,local,test,diagnostic-local', current: { text: 'pre', value: 'pre' } },
     { name: 'service', label: '技术指标服务', type: 'textbox', query: contract.defaults.service, current: { text: contract.defaults.service, value: contract.defaults.service } },
   ];
   const labels = { tenant_id: '租户ID', user_id: '用户ID', channel_id: '群聊ID', login_attempt_id: '登录ID', device_session_id: '设备会话ID' };
   for (const field of contract.scopeFields) variables.push({ name: field, label: `${labels[field]}（空=全部）`, type: 'textbox', query: '', current: { text: '', value: '' }, skipUrlSync: false });
-  return { id: null, uid: contract.uid, title: contract.title, description: '实测技术指标与拟接入的用户/群聊诊断分开；无数据不伪装成功。', tags: ['Helix', 'MessageV3', 'Metrics', '用户诊断'],
+  return { id: null, uid: contract.uid, title: contract.title, description: '按用户与群聊查看真实收发、保存和同步事实；本地验证与PRE部署状态分开。', tags: ['Helix', 'MessageV3', 'Metrics', '用户诊断'],
     editable: true, schemaVersion: 39, version: 1, timezone: 'Asia/Shanghai', time: { from: 'now-30m', to: 'now' }, refresh: '30s',
     templating: { list: variables }, annotations: { list: [] }, panels };
 }

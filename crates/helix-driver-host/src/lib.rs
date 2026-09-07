@@ -2,6 +2,7 @@
 
 pub mod batch_sink;
 pub mod codec;
+pub mod diagnostics;
 pub mod dispatch;
 pub mod engine;
 pub mod http_cross;

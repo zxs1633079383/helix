@@ -28,6 +28,7 @@ impl Module for ImModule {
 
     /// 处理一个 Tick，零 I/O，零 await。
     fn handle(&mut self, tick: &Tick, now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError> {
+        self.diagnostics.now_ms = now_ms;
         match tick {
             Tick::Inbound(bytes) => {
                 // 入口保留旧容错：坏 JSON inbound 是可丢 WS 噪音，不升级为 CoreError。
@@ -609,6 +610,12 @@ impl Module for ImModule {
 
     /// 启动：先 Scan `channel_event_cursor` 与 `channel` 投影，过滤终态后才触发 proactive sync。
     fn on_start(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
+        self.diagnose(crate::diagnostics::Observation {
+            event: "login_sync_started",
+            stage: "store",
+            result: "started",
+            ..Default::default()
+        });
         self.start_lifecycle(out)
             .map_err(|e| CoreError::ModuleError {
                 module: self.name(),
@@ -634,6 +641,12 @@ impl Module for ImModule {
 
     /// 停止：取消所有 timer + 关闭连接
     fn on_stop(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
+        self.diagnose(crate::diagnostics::Observation {
+            event: "runtime_stopped",
+            result: "interrupted",
+            reason: "runtime_stopped",
+            ..Default::default()
+        });
         self.stop_lifecycle(out)
             .map_err(|e| CoreError::ModuleError {
                 module: self.name(),

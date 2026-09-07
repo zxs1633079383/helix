@@ -81,6 +81,20 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        self.diagnose(crate::diagnostics::Observation {
+            event: "delivery_stage",
+            stage: "persist_terminal",
+            path: "live_ws",
+            result: if matches!(outcome, PortOutcome::Ok(_)) {
+                "success"
+            } else {
+                "failed"
+            },
+            channel: event.channel_id.as_str(),
+            seq: Some(event.seq.0),
+            count: 1,
+            ..Default::default()
+        });
         if !matches!(outcome, PortOutcome::Ok(_)) {
             if let Some(channel) = self.state.channels.get_mut(&event.channel_id) {
                 channel.restore_message_v3_post(event, out);
@@ -93,6 +107,7 @@ impl ImModule {
             .channels
             .get_mut(&event.channel_id)
             .and_then(|channel| channel.commit_message_v3_post(event.seq));
+        self.diagnose_checkpoint(event.channel_id, "persist_committed");
         let readback_corr = self.alloc_corr_internal();
         out.push(Effect::Persist {
             corr: readback_corr,
@@ -199,6 +214,15 @@ impl ImModule {
         let Some(channel) = channel_update_from_member_readback(outcome)? else {
             return Ok(());
         };
+        self.diagnose(crate::diagnostics::Observation {
+            event: "delivery_stage",
+            stage: "persist_verified",
+            path: "live_ws",
+            result: "success",
+            channel: channel_id.as_str(),
+            count: 1,
+            ..Default::default()
+        });
         self.queue_message_v3_client_ack(&received_data, out)?;
         let received = crate::event::post::received(received_data)?;
         out.push(received.into_effect());

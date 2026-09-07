@@ -109,6 +109,9 @@ macro_rules! metric_registry {
 }
 
 metric_registry! {
+    DiagnosticRecordsTotal => ("helix_diagnostic_records_total", Counter, "1"),
+    DiagnosticQueueDepth => ("helix_diagnostic_queue_depth", Gauge, ""),
+    DiagnosticExportErrorsTotal => ("helix_diagnostic_export_errors_total", Counter, "1"),
     OperationsTotal => ("helix_operations_total", Counter, "operations"),
     ErrorsTotal => ("helix_errors_total", Counter, "errors"),
     CommandAcceptedTotal => ("helix_command_accepted_total", Counter, "1"),

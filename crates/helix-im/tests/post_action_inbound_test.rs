@@ -597,3 +597,40 @@ fn echo_reconciles_even_when_channel_unregistered() {
         late
     );
 }
+
+/// 诊断开启不改变公开入站与提交接缝，失败仍保留原游标。
+#[test]
+fn diagnostic_session_preserves_persist_success_and_failure_contract() {
+    for success in [true, false] {
+        let mut plain = harness_with_seed(1, 40_112);
+        let mut observed = harness_with_seed(1, 40_112);
+        observed.module = observed
+            .module
+            .with_diagnostic_session("login-1".into(), "device-1".into());
+        let input = || post_frame(1, 40_113, "diag-post", "7xq3r6nqrjrm8nydit6awaaaaa", "body");
+        let expected = plain.step(input(), 1_100);
+        assert_eq!(observed.step(input(), 1_100), expected);
+        let corr = expected
+            .iter()
+            .find_map(|kind| {
+                if let EffectKind::PersistAtomic(corr) = kind {
+                    Some(*corr)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let reply = || {
+            if success {
+                port_reply_ok(corr)
+            } else {
+                port_reply_err(corr)
+            }
+        };
+        assert_eq!(observed.step(reply(), 1_101), plain.step(reply(), 1_101));
+        assert_eq!(
+            observed.module.cursor_for(channel_id(1)),
+            Some(if success { 40_113 } else { 40_112 })
+        );
+    }
+}

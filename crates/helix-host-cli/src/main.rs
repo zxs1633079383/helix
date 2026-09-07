@@ -24,15 +24,9 @@ use helix_driver_native::{
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
 
+/// 组合业务内核与宿主端口，并管理指标和诊断出口的生命周期。
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
-
     // YAML 为主真源；debug env 只覆盖非 OTel 字段，identity flags 最高优先。
     let cli = config::parse_args(std::env::args().skip(1));
     let mut cfg = match config::Config::load(&cli.config_path) {
@@ -47,6 +41,25 @@ async fn main() {
     cfg.apply_cli_overrides(&cli); // 双账号 e2e：flag 覆盖 identity（最高优先级）
     let metric_runtime = metric_runtime::HostMetricRuntime::start(&cfg);
     let metrics = metric_runtime.sink();
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
+    let diagnostic_config = helix_driver_host::diagnostics::DiagnosticConfig::from_env();
+    let diagnostic_enabled = diagnostic_config.enabled;
+    let mut diagnostic_runtime = helix_driver_host::diagnostics::DiagnosticRuntime::start(
+        diagnostic_config,
+        Arc::clone(&metrics),
+    )
+    .map_err(|error| eprintln!("业务诊断导出未启用：{error}"))
+    .ok();
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer().with_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+            ),
+        )
+        .with(diagnostic_runtime.as_ref().map(|runtime| runtime.layer()))
+        .init();
+
     let otel = cfg
         .observability
         .otel_runtime_with_metrics(Arc::clone(&metrics));
@@ -200,20 +213,30 @@ async fn main() {
             "identity.cookie_id 为空 → ImConfig.auth_user_id 为空，post_updates 将退化为「自己消息也计未读」（离线未读偏高）"
         );
     }
-    shell.register(ImModule::new(ImConfig {
-        ws_url: ws_url.clone(),
-        api_base_url,
-        default_api_base_url, // spec06 方案 A：vote/score 第二网关
-        auth_user_id: cookie_id.clone(),
-        // companyId 之前只灌了 HTTP/WS 全局头，没进 ImConfig；现注入 → outbound posts/create
-        // body 的 teamId/userSnapshot.teamId 才有真值（真机curl真源 §1，send 回声前置条件）。
-        company_id: company_id.clone(),
-        // P6 blocker(a)：userSnapshot 三占位转真值（ucenter 展开，host 注入，HX-C001）。
-        user_name: user_name.clone(),
-        org_name: org_name.clone(),
-        dept_name: dept_name.clone(),
-        ..Default::default()
-    }));
+    shell.register(
+        ImModule::new(ImConfig {
+            ws_url: ws_url.clone(),
+            api_base_url,
+            default_api_base_url, // spec06 方案 A：vote/score 第二网关
+            auth_user_id: cookie_id.clone(),
+            // companyId 之前只灌了 HTTP/WS 全局头，没进 ImConfig；现注入 → outbound posts/create
+            // body 的 teamId/userSnapshot.teamId 才有真值（真机curl真源 §1，send 回声前置条件）。
+            company_id: company_id.clone(),
+            // P6 blocker(a)：userSnapshot 三占位转真值（ucenter 展开，host 注入，HX-C001）。
+            user_name: user_name.clone(),
+            org_name: org_name.clone(),
+            dept_name: dept_name.clone(),
+            ..Default::default()
+        })
+        .with_diagnostic_session(
+            if diagnostic_enabled {
+                helix_driver_host::diagnostics::new_session_id()
+            } else {
+                String::new()
+            },
+            helix_driver_host::diagnostics::device_session_id().to_string(),
+        ),
+    );
 
     // ── tick 通道（入站有界 cap=256）────────────────────────
     let (tick_tx, tick_rx) = tick_ingress_channel_observed(256, Arc::clone(&metrics));
@@ -297,6 +320,10 @@ async fn main() {
         transports,
     )
     .await;
+    if let Some(runtime) = diagnostic_runtime.as_mut() {
+        let outcome = runtime.shutdown(std::time::Duration::from_secs(10));
+        tracing::info!(?outcome, "诊断导出关闭");
+    }
     metric_runtime.shutdown();
     tracing::info!("engine loop 退出");
 }

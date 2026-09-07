@@ -207,8 +207,42 @@ impl ImModule {
         let response = parse_sync_response(raw_body.as_ref(), channel_id)
             .map_err(|e| ImError::Parse(format!("sync response parse error: {}", e)))?;
 
+        let (next, count, has_more, result) = match &response {
+            SyncResponse::NoChange { next_seq, .. } => (Some(next_seq.0), 0, false, "no_change"),
+            SyncResponse::Events {
+                next_seq,
+                events,
+                needs_continuation,
+                ..
+            } => (
+                Some(next_seq.0),
+                events.len(),
+                *needs_continuation,
+                "page_received",
+            ),
+            SyncResponse::TooLong { reset_to } => (Some(reset_to.0), 0, false, "history_compacted"),
+            _ => (None, 0, false, "snapshot_received"),
+        };
+        self.diagnose(crate::diagnostics::Observation {
+            event: "sync_page_received",
+            stage: "response",
+            path: "sync_replay",
+            result,
+            channel: channel_id.as_str(),
+            corr: Some(corr.raw()),
+            next,
+            from: self
+                .state
+                .channels
+                .get(&channel_id)
+                .map(|ch| ch.cursor.value().0),
+            count,
+            has_more,
+            ..Default::default()
+        });
         match response {
             SyncResponse::NoChange { next_seq, persona } => {
+                self.diagnose_checkpoint(channel_id, "authority_no_change");
                 let local_cursor = self
                     .state
                     .channels

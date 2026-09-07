@@ -1,4 +1,5 @@
-✅ DONE PRE验收设施独立批次：统一有界观察预算，失败分类/关联/清理证据及pin原始WS断言；聚焦3/3、固定远端基线PRE82/83，G10E/G05F/G05G通过。G02C已落库sent却无匹配received，整体业务修复仍PARTIAL，MR按草稿提交。
+✅ DONE G02C后续根因修复：HTTPauthority原先提前发sent，晚WS已被cursor去重；改为窄写集PersistOk后received。403个lib、6个G02C focused、满队列observer关闭回归和最终PRE83/83（53.195秒）通过。正常pre-push结果另记MR，不绕过hook、不自动合并。
+✅ DONE PRE验收设施独立批次：统一有界观察预算，失败分类/关联/清理证据及pin原始WS断言；聚焦3/3、固定远端基线PRE82/83，G10E/G05F/G05G通过。G02C已落库sent却无匹配received，当时业务修复仍PARTIAL，未创建MR。
 ⚡ DRIFT-PRED 起始本地基线83/83未在远端基线上保持；G02C重复超时，提前独立订阅终态仍失败，撤销该假设改动。禁止把观察设施修复称为生产根因闭环。
 🎯 EXPECT 修复PRE四Gate失败：定位重试/置顶seed终态和notify重开回读；保持现有业务断言，聚焦红绿与PRE --all验证；仅在独立worktree提交并提MR，不纳入主仓脏文件 | 赌注 中 | 可逆 是 | @2026-09-07T17:32:36.969089
 分支：codex/0907-pre-four-gates；基线 a288f7ae；目标 reactor/MessageV3-helix；无自动删除

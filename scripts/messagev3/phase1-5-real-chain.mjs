@@ -180,7 +180,12 @@ async function assertGoReady(healthUrl) {
     }
 }
 
-/** 执行一次 Cargo 测试批次，并将完整输出落到本轮 run-owned artifact。 */
+/** 输出带时间的编排进度；阶段完成不代表业务 Gate 通过。 */
+function logProgress(stage, message) {
+    console.log(`[${new Date().toISOString()}] [${stage}] ${message}`);
+}
+
+/** 读取每个 Cargo 批次的超时预算。 */
 function cargoTimeoutMs() {
     const configured = Number.parseInt(process.env.MESSAGEV3_CARGO_TIMEOUT_MS ?? '', 10);
     return Number.isInteger(configured) && configured >= 30_000
@@ -197,6 +202,8 @@ function cargoTimeoutMs() {
 async function runCargo(filter, exact, environment, logPath) {
     await mkdir(path.dirname(logPath), { recursive: true });
     const startedAt = Date.now();
+    const stage = exact ? `Gate ${filter}` : `Phase${environment.MESSAGEV3_PHASE}`;
+    logProgress(stage, `开始 Cargo 编译/测试 timeout_ms=${cargoTimeoutMs()} log=${logPath}`);
     return new Promise((resolve, reject) => {
         const args = ['test', '-p', 'helix-driver-native', '--test', 'message_v3_domain'];
         if (filter) args.push(filter);
@@ -215,13 +222,18 @@ async function runCargo(filter, exact, environment, logPath) {
         let timedOut = false;
         let forceKillTimer;
         let timeoutTimer;
+        // 保留现有证据缓存，同时实时透传编译与测试输出。
         const append = chunk => { output += chunk.toString(); };
+        child.stdout.pipe(process.stdout, { end: false });
+        child.stderr.pipe(process.stderr, { end: false });
+        // 子进程关闭后记录真实退出码，业务结果仍由下游证据校验决定。
         const finish = async code => {
             if (settled) return;
             settled = true;
             clearTimeout(timeoutTimer);
             clearTimeout(forceKillTimer);
             await writeFile(logPath, output, 'utf8');
+            logProgress(stage, `结束 elapsed_ms=${Date.now() - startedAt} exit_code=${timedOut ? 124 : (code ?? 1)} timed_out=${timedOut}`);
             resolve({
                 code: timedOut ? 124 : (code ?? 1),
                 output,
@@ -232,11 +244,13 @@ async function runCargo(filter, exact, environment, logPath) {
         };
         child.stdout.on('data', append);
         child.stderr.on('data', append);
+        // 启动失败时同步暴露阶段位置，沿用原有错误传播。
         child.once('error', error => {
             if (settled) return;
             clearTimeout(timeoutTimer);
             clearTimeout(forceKillTimer);
             settled = true;
+            logProgress(stage, `启动失败: ${error.message}`);
             reject(error);
         });
         child.once('close', code => { void finish(code); });
@@ -244,10 +258,14 @@ async function runCargo(filter, exact, environment, logPath) {
             if (settled) return;
             timedOut = true;
             output += `\nMESSAGEV3_CARGO_TIMEOUT_MS=${cargoTimeoutMs()} exceeded; terminating cargo.\n`;
+            logProgress(stage, `超时，发送 SIGTERM elapsed_ms=${Date.now() - startedAt}`);
             child.kill('SIGTERM');
             // cargo may leave the libtest child alive after SIGTERM; force the bounded fallback.
             forceKillTimer = setTimeout(() => {
-                if (!settled) child.kill('SIGKILL');
+                if (!settled) {
+                    logProgress(stage, '尚未关闭，发送 SIGKILL');
+                    child.kill('SIGKILL');
+                }
             }, 5_000);
         }, cargoTimeoutMs());
     });
@@ -318,7 +336,9 @@ async function main() {
         for (const test of selected) console.log(`${test.phaseName}\t${test.domain}\t${test.gate}\t${test.filter}`);
         if (options.list || options.dryRun) return;
     }
+    logProgress('前置检查', `开始 env=${runtimeEnvironment.name} selected=${selected.length} health_timeout_ms=5000`);
     await assertGoReady(runtimeEnvironment.goHealthUrl);
+    logProgress('前置检查', 'Go health 通过');
     const suiteRunId = suiteId();
     const suiteRoot = path.join(options.artifactRoot, suiteRunId);
     await mkdir(suiteRoot, { recursive: true });
@@ -400,6 +420,7 @@ async function main() {
             timedOut: execution.timedOut
         });
     }
+    logProgress('证据校验', `开始 selected=${selected.length}`);
     const results = [];
     for (const test of selected) {
         const gateRoot = path.join(suiteRoot, test.phaseName, test.domain, test.gate);
@@ -437,6 +458,7 @@ async function main() {
         results
     };
     await writeFile(path.join(suiteRoot, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+    logProgress('汇总', `passed=${summary.passed}/${summary.selected} elapsed_ms=${summary.execution.elapsed_ms} summary=${path.join(suiteRoot, 'summary.json')}`);
     if (summary.passed !== summary.selected) process.exitCode = 1;
 }
 

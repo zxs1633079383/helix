@@ -1,0 +1,14 @@
+--- a/src-tauri/Cargo.toml
++++ b/src-tauri/Cargo.toml
+@@ -87,4 +87,4 @@
+-helix-core = { package = "cses-helix-core", version = "=0.1.9" }
+-helix-im = "=0.1.9"
+-helix-driver-host = "=0.1.9"
+-helix-driver-native = "=0.1.9"
++helix-core = { package = "cses-helix-core", version = "=0.1.10" }
++helix-im = "=0.1.10"
++helix-driver-host = "=0.1.10"
++helix-driver-native = "=0.1.10"
+@@ -193 +193 @@
+-default = ["custom-protocol"]
++default = ["custom-protocol", "business-diagnostics"]

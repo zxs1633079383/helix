@@ -1,0 +1,7 @@
+{
+  "http_status": 204,
+  "records": 91,
+  "source": "/System/Volumes/Data/workspace/golang/cses-im-server/docs/reports/0907-Go持续观测证据/完整业务诊断.jsonl",
+  "delivery": "one-off exact real stdout replay",
+  "production_collection_proof": false
+}

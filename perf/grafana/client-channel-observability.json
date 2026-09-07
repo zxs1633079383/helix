@@ -1,7 +1,7 @@
 {
   "id": null,
   "uid": "helix-client-channel-v1",
-  "title": "客户端与群聊观测：全局、用户、登录与Gap",
+  "title": "登录与群聊：消息接收、保存和补齐情况",
   "description": "实测技术指标与拟接入的用户/群聊诊断分开；无数据不伪装成功。",
   "tags": [
     "Helix",
@@ -22,7 +22,7 @@
     "list": [
       {
         "name": "DS_PROMETHEUS",
-        "label": "Prometheus",
+        "label": "运行指标数据源",
         "type": "datasource",
         "query": "prometheus",
         "current": {
@@ -33,7 +33,7 @@
       },
       {
         "name": "DS_LOKI",
-        "label": "Loki诊断数据源",
+        "label": "业务明细数据源",
         "type": "datasource",
         "query": "loki",
         "current": {
@@ -150,7 +150,7 @@
     },
     {
       "id": 2,
-      "title": "[待接入] 每次登录与少群定位（点击 user_id 选择用户）",
+      "title": "[待接入] 登录后群聊是否完整",
       "type": "table",
       "gridPos": {
         "x": 0,
@@ -369,7 +369,7 @@
     },
     {
       "id": 3,
-      "title": "[待接入] 每轮离线/重连同步结果",
+      "title": "[待接入] 重新登录或恢复连接后，消息是否补齐",
       "type": "table",
       "gridPos": {
         "x": 0,
@@ -588,7 +588,7 @@
     },
     {
       "id": 4,
-      "title": "[待接入] 接收→落库→应用的诊断记录速率",
+      "title": "[待接入] 收到的消息走到了哪一步",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -627,7 +627,7 @@
     },
     {
       "id": 5,
-      "title": "[待接入] 已闭合且证据完整 cohort 的接收后落库率",
+      "title": "[待接入] 收到的消息有多少确认保存成功",
       "type": "stat",
       "gridPos": {
         "x": 0,
@@ -675,7 +675,7 @@
     },
     {
       "id": 6,
-      "title": "[待接入] 落库 cohort：成功、失败、pending 与 unknown",
+      "title": "[待接入] 消息保存成功、失败和仍待确认的情况",
       "type": "table",
       "gridPos": {
         "x": 0,
@@ -889,7 +889,7 @@
     },
     {
       "id": 7,
-      "title": "[待接入] 窗口内Gap episode数（按gap_id去重）",
+      "title": "[待接入] 发现了多少次消息序号缺口",
       "type": "stat",
       "gridPos": {
         "x": 0,
@@ -936,7 +936,7 @@
     },
     {
       "id": 8,
-      "title": "[待接入] Gap建立与终态的诊断记录速率",
+      "title": "[待接入] 什么时候发现消息序号缺口",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -975,7 +975,7 @@
     },
     {
       "id": 9,
-      "title": "[待接入] Gap具体区间与补拉结论",
+      "title": "[待接入] 哪些消息序号不连续，后来是否补齐",
       "type": "table",
       "gridPos": {
         "x": 0,
@@ -1193,7 +1193,7 @@
     },
     {
       "id": 10,
-      "title": "[待接入] 各群最后观测seq（窗口内，不保证全量当前态）",
+      "title": "[待接入] 每个群的消息已保存到哪个序号",
       "type": "table",
       "gridPos": {
         "x": 0,
@@ -1477,7 +1477,7 @@
     },
     {
       "id": 11,
-      "title": "全局技术指标（以下分组可展开）",
+      "title": "全局运行情况：收发、保存和页面更新",
       "type": "text",
       "gridPos": {
         "x": 0,
@@ -1503,7 +1503,7 @@
     {
       "id": 12,
       "type": "row",
-      "title": "命令里程碑（4个实测族）",
+      "title": "点击操作后是否及时完成",
       "collapsed": true,
       "gridPos": {
         "x": 0,
@@ -1514,7 +1514,7 @@
       "panels": [
         {
           "id": 13,
-          "title": "全局 · command_to_http_dispatch_seconds",
+          "title": "全局 · 点击操作后多久开始请求",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -1583,7 +1583,7 @@
         },
         {
           "id": 14,
-          "title": "全局 · command_to_http_response_seconds",
+          "title": "全局 · 点击操作后多久收到响应",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -1652,7 +1652,7 @@
         },
         {
           "id": 15,
-          "title": "全局 · command_to_persist_reply_seconds",
+          "title": "全局 · 点击操作后多久完成保存",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -1721,7 +1721,7 @@
         },
         {
           "id": 16,
-          "title": "全局 · command_to_projection_emit_seconds",
+          "title": "全局 · 点击操作后多久通知页面更新",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -1793,7 +1793,7 @@
     {
       "id": 17,
       "type": "row",
-      "title": "Tick与内核（9个实测族）",
+      "title": "客户端处理用户事件是否顺畅",
       "collapsed": true,
       "gridPos": {
         "x": 0,
@@ -1804,7 +1804,7 @@
       "panels": [
         {
           "id": 18,
-          "title": "全局 · 空 Effect Tick 数",
+          "title": "全局 · 有多少次处理无需后续操作",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -1855,7 +1855,7 @@
         },
         {
           "id": 19,
-          "title": "全局 · core_step_duration_seconds",
+          "title": "全局 · 处理一次用户事件要多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -1924,7 +1924,7 @@
         },
         {
           "id": 20,
-          "title": "全局 · engine_loop_iteration_seconds",
+          "title": "全局 · 客户端完成一轮处理要多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -1993,7 +1993,7 @@
         },
         {
           "id": 21,
-          "title": "全局 · operations_total",
+          "title": "全局 · 客户端处理了多少操作",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2044,7 +2044,7 @@
         },
         {
           "id": 22,
-          "title": "全局 · tick_inflight_ratio",
+          "title": "全局 · 用户事件处理能力使用了多少",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2095,7 +2095,7 @@
         },
         {
           "id": 23,
-          "title": "全局 · tick_queue_capacity",
+          "title": "全局 · 用户事件最多能排队多少条",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2146,7 +2146,7 @@
         },
         {
           "id": 24,
-          "title": "全局 · tick_queue_depth",
+          "title": "全局 · 有多少用户事件等待处理",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2197,7 +2197,7 @@
         },
         {
           "id": 25,
-          "title": "全局 · tick_queue_wait_seconds",
+          "title": "全局 · 用户事件处理前排队多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2266,7 +2266,7 @@
         },
         {
           "id": 26,
-          "title": "全局 · Tick 总量",
+          "title": "全局 · 客户端处理了多少次用户事件",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2320,7 +2320,7 @@
     {
       "id": 27,
       "type": "row",
-      "title": "Effect与事件（8个实测族）",
+      "title": "处理结果是否及时交付页面",
       "collapsed": true,
       "gridPos": {
         "x": 0,
@@ -2331,7 +2331,7 @@
       "panels": [
         {
           "id": 28,
-          "title": "全局 · effect_amplification_ratio",
+          "title": "全局 · 一次用户事件引发多少后续操作",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2400,7 +2400,7 @@
         },
         {
           "id": 29,
-          "title": "全局 · effect_bytes_per_tick",
+          "title": "全局 · 一次用户事件产生多少数据",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2469,7 +2469,7 @@
         },
         {
           "id": 30,
-          "title": "全局 · effect_dispatch_duration_seconds",
+          "title": "全局 · 派发后续操作要多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2538,7 +2538,7 @@
         },
         {
           "id": 31,
-          "title": "全局 · effects_per_tick",
+          "title": "全局 · 一次用户事件需要多少处理步骤",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2607,7 +2607,7 @@
         },
         {
           "id": 32,
-          "title": "全局 · Effect 总量",
+          "title": "全局 · 客户端正在执行多少后续操作",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2658,7 +2658,7 @@
         },
         {
           "id": 33,
-          "title": "全局 · event_batch_size",
+          "title": "全局 · 每次向页面交付多少条更新",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2727,7 +2727,7 @@
         },
         {
           "id": 34,
-          "title": "全局 · event_emit_duration_seconds",
+          "title": "全局 · 向页面交付更新要多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2796,7 +2796,7 @@
         },
         {
           "id": 35,
-          "title": "全局 · event_emitted_total",
+          "title": "全局 · 页面收到了多少次更新通知",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2850,7 +2850,7 @@
     {
       "id": 36,
       "type": "row",
-      "title": "HTTP（6个实测族）",
+      "title": "请求是否及时返回",
       "collapsed": true,
       "gridPos": {
         "x": 0,
@@ -2861,7 +2861,7 @@
       "panels": [
         {
           "id": 37,
-          "title": "全局 · http_inflight",
+          "title": "全局 · 有多少请求正在等待响应",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2912,7 +2912,7 @@
         },
         {
           "id": 38,
-          "title": "全局 · http_queue_wait_seconds",
+          "title": "全局 · 请求发出前排队多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -2981,7 +2981,7 @@
         },
         {
           "id": 39,
-          "title": "全局 · http_request_bytes",
+          "title": "全局 · 每次请求发送多少数据",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3050,7 +3050,7 @@
         },
         {
           "id": 40,
-          "title": "全局 · http_request_duration_seconds",
+          "title": "全局 · 请求响应要等多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3119,7 +3119,7 @@
         },
         {
           "id": 41,
-          "title": "全局 · http_response_bytes",
+          "title": "全局 · 每次请求返回多少数据",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3188,7 +3188,7 @@
         },
         {
           "id": 42,
-          "title": "全局 · http_status_total",
+          "title": "全局 · 请求返回了哪些结果",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3242,7 +3242,7 @@
     {
       "id": 43,
       "type": "row",
-      "title": "IM阶段（1个实测族）",
+      "title": "消息处理在哪一步耗时",
       "collapsed": true,
       "gridPos": {
         "x": 0,
@@ -3253,7 +3253,7 @@
       "panels": [
         {
           "id": 44,
-          "title": "全局 · IM Tick 分阶段耗时",
+          "title": "全局 · 消息在各处理阶段耗时多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3325,7 +3325,7 @@
     {
       "id": 45,
       "type": "row",
-      "title": "遥测导出（16个实测族）",
+      "title": "观测数据是否持续上传",
       "collapsed": true,
       "gridPos": {
         "x": 0,
@@ -3336,7 +3336,7 @@
       "panels": [
         {
           "id": 46,
-          "title": "全局 · metrics_dropped_total",
+          "title": "全局 · 有多少观测记录未能保留",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3387,7 +3387,7 @@
         },
         {
           "id": 47,
-          "title": "全局 · metrics_export_batch_size",
+          "title": "全局 · 每次上传多少指标记录",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3456,7 +3456,7 @@
         },
         {
           "id": 48,
-          "title": "全局 · metrics_export_duration_seconds",
+          "title": "全局 · 上传指标要多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3525,7 +3525,7 @@
         },
         {
           "id": 49,
-          "title": "全局 · metrics_export_errors_total",
+          "title": "全局 · 指标上传失败了多少次",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3576,7 +3576,7 @@
         },
         {
           "id": 50,
-          "title": "全局 · metrics_exporter_state",
+          "title": "全局 · 指标上传是否正常工作",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3627,7 +3627,7 @@
         },
         {
           "id": 51,
-          "title": "全局 · metrics_last_success_age_seconds",
+          "title": "全局 · 多久没有成功上传指标",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3696,7 +3696,7 @@
         },
         {
           "id": 52,
-          "title": "全局 · metrics_queue_capacity",
+          "title": "全局 · 指标最多能排队多少条",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3747,7 +3747,7 @@
         },
         {
           "id": 53,
-          "title": "全局 · metrics_queue_depth",
+          "title": "全局 · 有多少指标正在等待上传",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3798,7 +3798,7 @@
         },
         {
           "id": 54,
-          "title": "全局 · spans_created_total",
+          "title": "全局 · 记录了多少次操作过程",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3849,7 +3849,7 @@
         },
         {
           "id": 55,
-          "title": "全局 · 采样 Span 总量",
+          "title": "全局 · 保留了多少次操作过程用于分析",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3900,7 +3900,7 @@
         },
         {
           "id": 56,
-          "title": "全局 · telemetry_canary_total",
+          "title": "全局 · 观测通道自检触发了多少次",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -3951,7 +3951,7 @@
         },
         {
           "id": 57,
-          "title": "全局 · traces_export_batch_size",
+          "title": "全局 · 每次上传多少操作记录",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4020,7 +4020,7 @@
         },
         {
           "id": 58,
-          "title": "全局 · traces_export_duration_seconds",
+          "title": "全局 · 上传操作记录要多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4089,7 +4089,7 @@
         },
         {
           "id": 59,
-          "title": "全局 · traces_exporter_state",
+          "title": "全局 · 操作记录上传是否正常",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4140,7 +4140,7 @@
         },
         {
           "id": 60,
-          "title": "全局 · traces_last_success_age_seconds",
+          "title": "全局 · 多久没有成功上传操作记录",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4209,7 +4209,7 @@
         },
         {
           "id": 61,
-          "title": "全局 · traces_queue_depth_ratio",
+          "title": "全局 · 操作记录等待队列是否拥挤",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4263,7 +4263,7 @@
     {
       "id": 62,
       "type": "row",
-      "title": "SQLite与持久化（5个实测族）",
+      "title": "消息是否及时保存到本机",
       "collapsed": true,
       "gridPos": {
         "x": 0,
@@ -4274,7 +4274,7 @@
       "panels": [
         {
           "id": 63,
-          "title": "全局 · persist_queue_wait_seconds",
+          "title": "全局 · 保存消息前排队多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4343,7 +4343,7 @@
         },
         {
           "id": 64,
-          "title": "全局 · storage_batch_rows",
+          "title": "全局 · 每次批量保存多少条数据",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4412,7 +4412,7 @@
         },
         {
           "id": 65,
-          "title": "全局 · storage_inflight_ratio",
+          "title": "全局 · 保存任务使用了多少处理能力",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4463,7 +4463,7 @@
         },
         {
           "id": 66,
-          "title": "全局 · storage_rows_total",
+          "title": "全局 · 已保存多少行本地数据",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4514,7 +4514,7 @@
         },
         {
           "id": 67,
-          "title": "全局 · storage_tx_duration_seconds",
+          "title": "全局 · 本地数据提交要多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4586,7 +4586,7 @@
     {
       "id": 68,
       "type": "row",
-      "title": "工作池与Port（10个实测族）",
+      "title": "后台任务是否排队积压",
       "collapsed": true,
       "gridPos": {
         "x": 0,
@@ -4597,7 +4597,7 @@
       "panels": [
         {
           "id": 69,
-          "title": "全局 · pool_enqueue_block_seconds",
+          "title": "全局 · 后台任务提交时阻塞多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4666,7 +4666,7 @@
         },
         {
           "id": 70,
-          "title": "全局 · pool_execution_seconds",
+          "title": "全局 · 后台任务执行要多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4735,7 +4735,7 @@
         },
         {
           "id": 71,
-          "title": "全局 · pool_inflight_ratio",
+          "title": "全局 · 后台处理能力使用了多少",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4786,7 +4786,7 @@
         },
         {
           "id": 72,
-          "title": "全局 · pool_queue_depth_ratio",
+          "title": "全局 · 后台等待队列占用了多少",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4837,7 +4837,7 @@
         },
         {
           "id": 73,
-          "title": "全局 · pool_queue_residency_seconds",
+          "title": "全局 · 后台任务排队多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4906,7 +4906,7 @@
         },
         {
           "id": 74,
-          "title": "全局 · port_pending_ratio",
+          "title": "全局 · 有多少操作仍在等待完成",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -4957,7 +4957,7 @@
         },
         {
           "id": 75,
-          "title": "全局 · port_reply_queue_depth_ratio",
+          "title": "全局 · 已完成结果的等待队列是否拥挤",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5008,7 +5008,7 @@
         },
         {
           "id": 76,
-          "title": "全局 · port_reply_queue_wait_seconds",
+          "title": "全局 · 处理完成结果排队多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5077,7 +5077,7 @@
         },
         {
           "id": 77,
-          "title": "全局 · port_reply_total",
+          "title": "全局 · 有多少操作返回了结果",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5128,7 +5128,7 @@
         },
         {
           "id": 78,
-          "title": "全局 · port_roundtrip_seconds",
+          "title": "全局 · 后台操作从开始到返回要多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5200,7 +5200,7 @@
     {
       "id": 79,
       "type": "row",
-      "title": "进程资源（1个实测族）",
+      "title": "客户端运行是否占用过多资源",
       "collapsed": true,
       "gridPos": {
         "x": 0,
@@ -5211,7 +5211,7 @@
       "panels": [
         {
           "id": 80,
-          "title": "全局 · process_resident_memory_bytes",
+          "title": "全局 · 客户端占用多少内存",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5283,7 +5283,7 @@
     {
       "id": 81,
       "type": "row",
-      "title": "Timer（5个实测族）",
+      "title": "延时任务是否准时执行",
       "collapsed": true,
       "gridPos": {
         "x": 0,
@@ -5294,7 +5294,7 @@
       "panels": [
         {
           "id": 82,
-          "title": "全局 · timer_active_ratio",
+          "title": "全局 · 延时任务使用了多少容量",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5345,7 +5345,7 @@
         },
         {
           "id": 83,
-          "title": "全局 · timer_delivery_wait_seconds",
+          "title": "全局 · 延时任务触发后等待多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5414,7 +5414,7 @@
         },
         {
           "id": 84,
-          "title": "全局 · 定时器触发总量",
+          "title": "全局 · 有多少延时任务已触发",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5465,7 +5465,7 @@
         },
         {
           "id": 85,
-          "title": "全局 · timer_lateness_seconds",
+          "title": "全局 · 延时任务比计划晚了多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5534,7 +5534,7 @@
         },
         {
           "id": 86,
-          "title": "全局 · 定时器调度总量",
+          "title": "全局 · 安排了多少次延时任务",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5588,7 +5588,7 @@
     {
       "id": 87,
       "type": "row",
-      "title": "WebSocket（6个实测族）",
+      "title": "客户端与服务器是否正常收发",
       "collapsed": true,
       "gridPos": {
         "x": 0,
@@ -5599,7 +5599,7 @@
       "panels": [
         {
           "id": 88,
-          "title": "全局 · ws_frame_bytes",
+          "title": "全局 · 连接每次收发多少数据",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5668,7 +5668,7 @@
         },
         {
           "id": 89,
-          "title": "全局 · ws_frames_total",
+          "title": "全局 · 连接收发了多少帧数据",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5719,7 +5719,7 @@
         },
         {
           "id": 90,
-          "title": "全局 · 距最近 WS 入站的秒数分布",
+          "title": "全局 · 多久没有收到服务器数据",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5788,7 +5788,7 @@
         },
         {
           "id": 91,
-          "title": "全局 · ws_ingress_to_effect_seconds",
+          "title": "全局 · 收到服务器数据后多久开始处理",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5857,7 +5857,7 @@
         },
         {
           "id": 92,
-          "title": "全局 · ws_ingress_to_event_seconds",
+          "title": "全局 · 收到服务器数据后多久通知页面",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5926,7 +5926,7 @@
         },
         {
           "id": 93,
-          "title": "全局 · ws_send_duration_seconds",
+          "title": "全局 · 向服务器发送数据要多久",
           "type": "timeseries",
           "gridPos": {
             "x": 0,
@@ -5997,7 +5997,7 @@
     },
     {
       "id": 94,
-      "title": "Trace派生指标边界",
+      "title": "操作过程记录能说明哪些情况",
       "type": "text",
       "gridPos": {
         "x": 0,
@@ -6022,7 +6022,7 @@
     },
     {
       "id": 95,
-      "title": "全局 · opentelemetry-collector · otel_traces_span_metrics_calls_total",
+      "title": "全局 · 记录了多少次操作调用（采集服务）",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -6058,7 +6058,7 @@
     },
     {
       "id": 96,
-      "title": "全局 · opentelemetry-collector · otel_traces_span_metrics_duration_milliseconds",
+      "title": "全局 · 操作调用耗时多久（采集服务）",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -6094,7 +6094,7 @@
     },
     {
       "id": 97,
-      "title": "全局 · jaeger-v2 · calls_total",
+      "title": "全局 · 记录了多少次操作调用（采集服务）",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -6130,7 +6130,7 @@
     },
     {
       "id": 98,
-      "title": "全局 · jaeger-v2 · duration_milliseconds",
+      "title": "全局 · 操作调用耗时多久（采集服务）",
       "type": "timeseries",
       "gridPos": {
         "x": 0,

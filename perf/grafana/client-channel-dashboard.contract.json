@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "uid": "helix-client-channel-v1",
-  "title": "客户端与群聊观测：全局、用户、登录与Gap",
+  "title": "登录与群聊：消息接收、保存和补齐情况",
   "snapshot": "../../docs/Metrics/客户端指标快照-2026-09-07.json",
   "review": "APPROVED_ARTIFACT_ONLY",
   "diagnosticsStatus": "PLANNED_NO_PRODUCER",
@@ -101,498 +101,498 @@
     {
       "name": "otel_helix_command_to_http_dispatch_seconds",
       "type": "histogram",
-      "title": "command_to_http_dispatch_seconds",
-      "group": "命令里程碑",
+      "title": "点击操作后多久开始请求",
+      "group": "点击操作后是否及时完成",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_command_to_http_response_seconds",
       "type": "histogram",
-      "title": "command_to_http_response_seconds",
-      "group": "命令里程碑",
+      "title": "点击操作后多久收到响应",
+      "group": "点击操作后是否及时完成",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_command_to_persist_reply_seconds",
       "type": "histogram",
-      "title": "command_to_persist_reply_seconds",
-      "group": "命令里程碑",
+      "title": "点击操作后多久完成保存",
+      "group": "点击操作后是否及时完成",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_command_to_projection_emit_seconds",
       "type": "histogram",
-      "title": "command_to_projection_emit_seconds",
-      "group": "命令里程碑",
+      "title": "点击操作后多久通知页面更新",
+      "group": "点击操作后是否及时完成",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_core_empty_effect_total",
       "type": "counter",
-      "title": "空 Effect Tick 数",
-      "group": "Tick与内核",
+      "title": "有多少次处理无需后续操作",
+      "group": "客户端处理用户事件是否顺畅",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_core_step_duration_seconds",
       "type": "histogram",
-      "title": "core_step_duration_seconds",
-      "group": "Tick与内核",
+      "title": "处理一次用户事件要多久",
+      "group": "客户端处理用户事件是否顺畅",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_effect_amplification_ratio",
       "type": "histogram",
-      "title": "effect_amplification_ratio",
-      "group": "Effect与事件",
+      "title": "一次用户事件引发多少后续操作",
+      "group": "处理结果是否及时交付页面",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_effect_bytes_per_tick",
       "type": "histogram",
-      "title": "effect_bytes_per_tick",
-      "group": "Effect与事件",
+      "title": "一次用户事件产生多少数据",
+      "group": "处理结果是否及时交付页面",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_effect_dispatch_duration_seconds",
       "type": "histogram",
-      "title": "effect_dispatch_duration_seconds",
-      "group": "Effect与事件",
+      "title": "派发后续操作要多久",
+      "group": "处理结果是否及时交付页面",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_effects_per_tick",
       "type": "histogram",
-      "title": "effects_per_tick",
-      "group": "Effect与事件",
+      "title": "一次用户事件需要多少处理步骤",
+      "group": "处理结果是否及时交付页面",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_effects_total",
       "type": "counter",
-      "title": "Effect 总量",
-      "group": "Effect与事件",
+      "title": "客户端正在执行多少后续操作",
+      "group": "处理结果是否及时交付页面",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_engine_loop_iteration_seconds",
       "type": "histogram",
-      "title": "engine_loop_iteration_seconds",
-      "group": "Tick与内核",
+      "title": "客户端完成一轮处理要多久",
+      "group": "客户端处理用户事件是否顺畅",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_event_batch_size",
       "type": "histogram",
-      "title": "event_batch_size",
-      "group": "Effect与事件",
+      "title": "每次向页面交付多少条更新",
+      "group": "处理结果是否及时交付页面",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_event_emit_duration_seconds",
       "type": "histogram",
-      "title": "event_emit_duration_seconds",
-      "group": "Effect与事件",
+      "title": "向页面交付更新要多久",
+      "group": "处理结果是否及时交付页面",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_event_emitted_total",
       "type": "counter",
-      "title": "event_emitted_total",
-      "group": "Effect与事件",
+      "title": "页面收到了多少次更新通知",
+      "group": "处理结果是否及时交付页面",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_http_inflight",
       "type": "gauge",
-      "title": "http_inflight",
-      "group": "HTTP",
+      "title": "有多少请求正在等待响应",
+      "group": "请求是否及时返回",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_http_queue_wait_seconds",
       "type": "histogram",
-      "title": "http_queue_wait_seconds",
-      "group": "HTTP",
+      "title": "请求发出前排队多久",
+      "group": "请求是否及时返回",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_http_request_bytes",
       "type": "histogram",
-      "title": "http_request_bytes",
-      "group": "HTTP",
+      "title": "每次请求发送多少数据",
+      "group": "请求是否及时返回",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_http_request_duration_seconds",
       "type": "histogram",
-      "title": "http_request_duration_seconds",
-      "group": "HTTP",
+      "title": "请求响应要等多久",
+      "group": "请求是否及时返回",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_http_response_bytes",
       "type": "histogram",
-      "title": "http_response_bytes",
-      "group": "HTTP",
+      "title": "每次请求返回多少数据",
+      "group": "请求是否及时返回",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_http_status_total",
       "type": "counter",
-      "title": "http_status_total",
-      "group": "HTTP",
+      "title": "请求返回了哪些结果",
+      "group": "请求是否及时返回",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_im_tick_stage_duration_seconds",
       "type": "histogram",
-      "title": "IM Tick 分阶段耗时",
-      "group": "IM阶段",
+      "title": "消息在各处理阶段耗时多久",
+      "group": "消息处理在哪一步耗时",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_metrics_dropped_total",
       "type": "counter",
-      "title": "metrics_dropped_total",
-      "group": "遥测导出",
+      "title": "有多少观测记录未能保留",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_metrics_export_batch_size",
       "type": "histogram",
-      "title": "metrics_export_batch_size",
-      "group": "遥测导出",
+      "title": "每次上传多少指标记录",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_metrics_export_duration_seconds",
       "type": "histogram",
-      "title": "metrics_export_duration_seconds",
-      "group": "遥测导出",
+      "title": "上传指标要多久",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_metrics_export_errors_total",
       "type": "counter",
-      "title": "metrics_export_errors_total",
-      "group": "遥测导出",
+      "title": "指标上传失败了多少次",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_metrics_exporter_state",
       "type": "gauge",
-      "title": "metrics_exporter_state",
-      "group": "遥测导出",
+      "title": "指标上传是否正常工作",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_metrics_last_success_age_seconds",
       "type": "histogram",
-      "title": "metrics_last_success_age_seconds",
-      "group": "遥测导出",
+      "title": "多久没有成功上传指标",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_metrics_queue_capacity",
       "type": "gauge",
-      "title": "metrics_queue_capacity",
-      "group": "遥测导出",
+      "title": "指标最多能排队多少条",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_metrics_queue_depth",
       "type": "gauge",
-      "title": "metrics_queue_depth",
-      "group": "遥测导出",
+      "title": "有多少指标正在等待上传",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_operations_total",
       "type": "counter",
-      "title": "operations_total",
-      "group": "Tick与内核",
+      "title": "客户端处理了多少操作",
+      "group": "客户端处理用户事件是否顺畅",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_persist_queue_wait_seconds",
       "type": "histogram",
-      "title": "persist_queue_wait_seconds",
-      "group": "SQLite与持久化",
+      "title": "保存消息前排队多久",
+      "group": "消息是否及时保存到本机",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_pool_enqueue_block_seconds",
       "type": "histogram",
-      "title": "pool_enqueue_block_seconds",
-      "group": "工作池与Port",
+      "title": "后台任务提交时阻塞多久",
+      "group": "后台任务是否排队积压",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_pool_execution_seconds",
       "type": "histogram",
-      "title": "pool_execution_seconds",
-      "group": "工作池与Port",
+      "title": "后台任务执行要多久",
+      "group": "后台任务是否排队积压",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_pool_inflight_ratio",
       "type": "gauge",
-      "title": "pool_inflight_ratio",
-      "group": "工作池与Port",
+      "title": "后台处理能力使用了多少",
+      "group": "后台任务是否排队积压",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_pool_queue_depth_ratio",
       "type": "gauge",
-      "title": "pool_queue_depth_ratio",
-      "group": "工作池与Port",
+      "title": "后台等待队列占用了多少",
+      "group": "后台任务是否排队积压",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_pool_queue_residency_seconds",
       "type": "histogram",
-      "title": "pool_queue_residency_seconds",
-      "group": "工作池与Port",
+      "title": "后台任务排队多久",
+      "group": "后台任务是否排队积压",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_port_pending_ratio",
       "type": "gauge",
-      "title": "port_pending_ratio",
-      "group": "工作池与Port",
+      "title": "有多少操作仍在等待完成",
+      "group": "后台任务是否排队积压",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_port_reply_queue_depth_ratio",
       "type": "gauge",
-      "title": "port_reply_queue_depth_ratio",
-      "group": "工作池与Port",
+      "title": "已完成结果的等待队列是否拥挤",
+      "group": "后台任务是否排队积压",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_port_reply_queue_wait_seconds",
       "type": "histogram",
-      "title": "port_reply_queue_wait_seconds",
-      "group": "工作池与Port",
+      "title": "处理完成结果排队多久",
+      "group": "后台任务是否排队积压",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_port_reply_total",
       "type": "counter",
-      "title": "port_reply_total",
-      "group": "工作池与Port",
+      "title": "有多少操作返回了结果",
+      "group": "后台任务是否排队积压",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_port_roundtrip_seconds",
       "type": "histogram",
-      "title": "port_roundtrip_seconds",
-      "group": "工作池与Port",
+      "title": "后台操作从开始到返回要多久",
+      "group": "后台任务是否排队积压",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_process_resident_memory_bytes",
       "type": "histogram",
-      "title": "process_resident_memory_bytes",
-      "group": "进程资源",
+      "title": "客户端占用多少内存",
+      "group": "客户端运行是否占用过多资源",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_spans_created_total",
       "type": "counter",
-      "title": "spans_created_total",
-      "group": "遥测导出",
+      "title": "记录了多少次操作过程",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_spans_sampled_total",
       "type": "counter",
-      "title": "采样 Span 总量",
-      "group": "遥测导出",
+      "title": "保留了多少次操作过程用于分析",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_storage_batch_rows",
       "type": "histogram",
-      "title": "storage_batch_rows",
-      "group": "SQLite与持久化",
+      "title": "每次批量保存多少条数据",
+      "group": "消息是否及时保存到本机",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_storage_inflight_ratio",
       "type": "gauge",
-      "title": "storage_inflight_ratio",
-      "group": "SQLite与持久化",
+      "title": "保存任务使用了多少处理能力",
+      "group": "消息是否及时保存到本机",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_storage_rows_total",
       "type": "counter",
-      "title": "storage_rows_total",
-      "group": "SQLite与持久化",
+      "title": "已保存多少行本地数据",
+      "group": "消息是否及时保存到本机",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_storage_tx_duration_seconds",
       "type": "histogram",
-      "title": "storage_tx_duration_seconds",
-      "group": "SQLite与持久化",
+      "title": "本地数据提交要多久",
+      "group": "消息是否及时保存到本机",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_telemetry_canary_total",
       "type": "counter",
-      "title": "telemetry_canary_total",
-      "group": "遥测导出",
+      "title": "观测通道自检触发了多少次",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_tick_inflight_ratio",
       "type": "gauge",
-      "title": "tick_inflight_ratio",
-      "group": "Tick与内核",
+      "title": "用户事件处理能力使用了多少",
+      "group": "客户端处理用户事件是否顺畅",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_tick_queue_capacity",
       "type": "gauge",
-      "title": "tick_queue_capacity",
-      "group": "Tick与内核",
+      "title": "用户事件最多能排队多少条",
+      "group": "客户端处理用户事件是否顺畅",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_tick_queue_depth",
       "type": "gauge",
-      "title": "tick_queue_depth",
-      "group": "Tick与内核",
+      "title": "有多少用户事件等待处理",
+      "group": "客户端处理用户事件是否顺畅",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_tick_queue_wait_seconds",
       "type": "histogram",
-      "title": "tick_queue_wait_seconds",
-      "group": "Tick与内核",
+      "title": "用户事件处理前排队多久",
+      "group": "客户端处理用户事件是否顺畅",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_ticks_total",
       "type": "counter",
-      "title": "Tick 总量",
-      "group": "Tick与内核",
+      "title": "客户端处理了多少次用户事件",
+      "group": "客户端处理用户事件是否顺畅",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_timer_active_ratio",
       "type": "gauge",
-      "title": "timer_active_ratio",
-      "group": "Timer",
+      "title": "延时任务使用了多少容量",
+      "group": "延时任务是否准时执行",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_timer_delivery_wait_seconds",
       "type": "histogram",
-      "title": "timer_delivery_wait_seconds",
-      "group": "Timer",
+      "title": "延时任务触发后等待多久",
+      "group": "延时任务是否准时执行",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_timer_fired_total",
       "type": "counter",
-      "title": "定时器触发总量",
-      "group": "Timer",
+      "title": "有多少延时任务已触发",
+      "group": "延时任务是否准时执行",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_timer_lateness_seconds",
       "type": "histogram",
-      "title": "timer_lateness_seconds",
-      "group": "Timer",
+      "title": "延时任务比计划晚了多久",
+      "group": "延时任务是否准时执行",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_timer_scheduled_total",
       "type": "counter",
-      "title": "定时器调度总量",
-      "group": "Timer",
+      "title": "安排了多少次延时任务",
+      "group": "延时任务是否准时执行",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_traces_export_batch_size",
       "type": "histogram",
-      "title": "traces_export_batch_size",
-      "group": "遥测导出",
+      "title": "每次上传多少操作记录",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_traces_export_duration_seconds",
       "type": "histogram",
-      "title": "traces_export_duration_seconds",
-      "group": "遥测导出",
+      "title": "上传操作记录要多久",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_traces_exporter_state",
       "type": "gauge",
-      "title": "traces_exporter_state",
-      "group": "遥测导出",
+      "title": "操作记录上传是否正常",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_traces_last_success_age_seconds",
       "type": "histogram",
-      "title": "traces_last_success_age_seconds",
-      "group": "遥测导出",
+      "title": "多久没有成功上传操作记录",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_traces_queue_depth_ratio",
       "type": "gauge",
-      "title": "traces_queue_depth_ratio",
-      "group": "遥测导出",
+      "title": "操作记录等待队列是否拥挤",
+      "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_ws_frame_bytes",
       "type": "histogram",
-      "title": "ws_frame_bytes",
-      "group": "WebSocket",
+      "title": "连接每次收发多少数据",
+      "group": "客户端与服务器是否正常收发",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_ws_frames_total",
       "type": "counter",
-      "title": "ws_frames_total",
-      "group": "WebSocket",
+      "title": "连接收发了多少帧数据",
+      "group": "客户端与服务器是否正常收发",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_ws_inbound_last_seen_age_seconds",
       "type": "histogram",
-      "title": "距最近 WS 入站的秒数分布",
-      "group": "WebSocket",
+      "title": "多久没有收到服务器数据",
+      "group": "客户端与服务器是否正常收发",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_ws_ingress_to_effect_seconds",
       "type": "histogram",
-      "title": "ws_ingress_to_effect_seconds",
-      "group": "WebSocket",
+      "title": "收到服务器数据后多久开始处理",
+      "group": "客户端与服务器是否正常收发",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_ws_ingress_to_event_seconds",
       "type": "histogram",
-      "title": "ws_ingress_to_event_seconds",
-      "group": "WebSocket",
+      "title": "收到服务器数据后多久通知页面",
+      "group": "客户端与服务器是否正常收发",
       "evidence": "PROM_QUERY_SNAPSHOT"
     },
     {
       "name": "otel_helix_ws_send_duration_seconds",
       "type": "histogram",
-      "title": "ws_send_duration_seconds",
-      "group": "WebSocket",
+      "title": "向服务器发送数据要多久",
+      "group": "客户端与服务器是否正常收发",
       "evidence": "PROM_QUERY_SNAPSHOT"
     }
   ],

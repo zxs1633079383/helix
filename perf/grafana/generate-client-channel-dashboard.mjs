@@ -100,41 +100,41 @@ export function buildDashboard() {
   }
 
   note('范围与数据可用性', `默认身份留空=当前授权范围全局；输入准确用户/群聊/登录/设备ID，或点击表格ID下钻。\n\n技术指标来源：2026-09-07 PRE快照71族；无身份标签，选择身份后技术面板为空。业务诊断依赖尚未接入的 \`${contract.diagnosticService}\` JSON流，不能将空值解释为0%/100%。\n\n现有Grafana 12.2.1、Loki 2.9.3；原生OTLP Logs接入须处理Loki升级/兼容适配。变量不是租户授权，数据源必须限制可读范围。`, 7);
-  logTable('每次登录与少群定位（点击 user_id 选择用户）', ['login_started', 'login_sync_terminal'],
+  logTable('登录后群聊是否完整', ['login_started', 'login_sync_terminal'],
     ['event', 'result', 'reason', 'expected_known', 'membership_revision', 'expected_channels', 'returned_channels', 'persisted_channels', 'projected_channels', 'applied_channels', 'filtered_channels', 'missing_count', 'elapsed_seconds', 'evidence_complete', 'dropped_records'],
     '同一membership快照下逐阶段集合差；expected_known=false时完整性未知，认证前user_id可能为空。');
-  logTable('每轮离线/重连同步结果', ['sync_started', 'sync_terminal'],
+  logTable('重新登录或恢复连接后，消息是否补齐', ['sync_started', 'sync_terminal'],
     ['event', 'sync_session_id', 'trigger', 'result', 'reason', 'pages', 'events_received', 'events_committed', 'deduplicated', 'redacted', 'from_seq', 'next_seq', 'horizon_seq', 'elapsed_seconds', 'evidence_complete'],
     '同轮、同设备的分页和终态；成功HTTP不等于同步完成。');
-  logCount('接收→落库→应用的诊断记录速率', 'delivery_stage', 'stage');
+  logCount('收到的消息走到了哪一步', 'delivery_stage', 'stage');
 
   // 同一完整关闭cohort的最后一份不可变摘要去重后相除；不存在/零分母不补值。
   const cohortFilter = `${dq} | event="delivery_cohort_closed" | evidence_complete="true" | matured > 0`;
   const cohortKey = 'tenant_id,user_id,channel_id,device_session_id,login_attempt_id,cohort_id';
   const numerator = `sum(last_over_time(${cohortFilter} | unwrap committed | __error__="" [$__range]) by (${cohortKey}))`;
   const denominator = `sum(last_over_time(${cohortFilter} | unwrap matured | __error__="" [$__range]) by (${cohortKey}))`;
-  const ratio = base('[待接入] 已闭合且证据完整 cohort 的接收后落库率', 'stat', loki, 5);
+  const ratio = base('[待接入] 收到的消息有多少确认保存成功', 'stat', loki, 5);
   ratio.description = '按关闭时间窗统计 committed/(committed+failed+timeout)，同cohort去重。pending/unknown/partial和观测丢弃单列；不代表服务端audience端到端送达率。';
   ratio.targets = [{ refId: 'A', datasource: loki, expr: `(${numerator} / ${denominator}) and (${denominator} > 0)`, queryType: 'instant' }];
   ratio.fieldConfig.defaults.unit = 'percentunit';
   ratio.options = { reduceOptions: { calcs: ['lastNotNull'], fields: '', values: false }, colorMode: 'none', graphMode: 'none' };
   panels.push(ratio);
-  logTable('落库 cohort：成功、失败、pending 与 unknown', ['delivery_cohort_closed'],
+  logTable('消息保存成功、失败和仍待确认的情况', ['delivery_cohort_closed'],
     ['cohort_id', 'path', 'matured', 'committed', 'failed', 'timeout', 'pending', 'unknown', 'evidence_complete', 'dropped_records'],
     '接受前取消排除；接受后取消保留pending；中断不能恢复为unknown。unknown/partial不混进成功率。');
-  const gapCount = base('[待接入] 窗口内Gap episode数（按gap_id去重）', 'stat', loki, 5);
+  const gapCount = base('[待接入] 发现了多少次消息序号缺口', 'stat', loki, 5);
   gapCount.description = '仅统计窗口内有gap_opened记录且gap_id非空的episode；不等于真实丢失数，也不等于全部仍未关闭Gap。观测丢弃时是不完整证据。';
   gapCount.targets = [{ refId: 'A', datasource: loki, expr: `count(count by (tenant_id,user_id,channel_id,device_session_id,seq_domain,stream_epoch,gap_id) (count_over_time(${dq} | event="gap_opened" | gap_id!="" [$__range])))`, queryType: 'instant' }];
   gapCount.options = { reduceOptions: { calcs: ['lastNotNull'], fields: '', values: false }, colorMode: 'none', graphMode: 'none' };
   panels.push(gapCount);
-  logCount('Gap建立与终态的诊断记录速率', 'gap_opened', 'seq_domain');
-  logTable('Gap具体区间与补拉结论', ['gap_opened', 'gap_updated', 'gap_repair_result', 'gap_terminal'],
+  logCount('什么时候发现消息序号缺口', 'gap_opened', 'seq_domain');
+  logTable('哪些消息序号不连续，后来是否补齐', ['gap_opened', 'gap_updated', 'gap_repair_result', 'gap_terminal'],
     ['event', 'gap_id', 'seq_domain', 'stream_epoch', 'expected_seq', 'received_seq', 'missing_ranges', 'local_contiguous_seq', 'observed_high_seq', 'server_horizon_seq', 'result', 'reason', 'elapsed_seconds', 'evidence_complete'],
     '跳号仅是疑似缺口；分清重排/重复/合法不可见/裁剪/提交失败/证据不足。精确seq保留字符串。');
-  logTable('各群最后观测seq（窗口内，不保证全量当前态）', ['channel_checkpoint'],
+  logTable('每个群的消息已保存到哪个序号', ['channel_checkpoint'],
     ['observed_at', 'checkpoint_version', 'local_contiguous_seq', 'local_persisted_high_seq', 'observed_high_seq', 'server_horizon_seq', 'requested_from_seq', 'response_next_seq', 'pending_ranges', 'evidence_complete'],
     '按设备/登录/群/seq域/epoch分组取窗口内最后观察。时钟偏差、迟到版本及窗口外频道需latest-state服务权威对账；不能用max(seq)。', true);
-  note('全局技术指标（以下分组可展开）', '下方71个族来自实测快照，Counter使用rate，Histogram使用rate(bucket)分位数，Gauge保持当前值。所有身份过滤非空时不回退全局。技术指标不能单独证明当前用户送达或SQLite业务完整性。');
+  note('全局运行情况：收发、保存和页面更新', '下方71个族来自实测快照，Counter使用rate，Histogram使用rate(bucket)分位数，Gauge保持当前值。所有身份过滤非空时不回退全局。技术指标不能单独证明当前用户送达或SQLite业务完整性。');
 
   const groups = new Map();
   for (const metric of contract.metrics) {
@@ -142,7 +142,7 @@ export function buildDashboard() {
     groups.get(metric.group).push(metric);
   }
   for (const [name, metrics] of groups) {
-    const row = { id: id++, type: 'row', title: `${name}（${metrics.length}个实测族）`, collapsed: true, gridPos: { x: 0, y: y++, w: 24, h: 1 }, panels: [] };
+    const row = { id: id++, type: 'row', title: `${name}`, collapsed: true, gridPos: { x: 0, y: y++, w: 24, h: 1 }, panels: [] };
     for (const metric of metrics) {
       const panel = base(`全局 · ${metric.title}`, 'timeseries', prom);
       panel.description = `实测族：${metric.name}；类型：${metric.type}；范围仅全局。身份筛选非空时无身份维度。快照不证明本轮业务被触发。`;
@@ -163,9 +163,9 @@ export function buildDashboard() {
     }
     panels.push(row);
   }
-  note('Trace派生指标边界', 'Collector和Jaeger各有调用Counter与耗时Histogram。这是Span观测，受采样/重试/配置影响，两个管道不能相加作为业务消息数量。');
+  note('操作过程记录能说明哪些情况', 'Collector和Jaeger各有调用Counter与耗时Histogram。这是Span观测，受采样/重试/配置影响，两个管道不能相加作为业务消息数量。');
   for (const metric of contract.traceMetrics) {
-    const panel = base(`全局 · ${metric.job} · ${metric.name}`, 'timeseries', prom);
+    const panel = base(`全局 · ${metric.type === 'counter' ? '记录了多少次操作调用' : '操作调用耗时多久'}（${metric.job === 'jaeger' ? '追踪服务' : '采集服务'}）`, 'timeseries', prom);
     panel.description = 'Span派生，非业务送达。当前4个族缺deployment_environment；严格环境筛选下为空，不能撤掉过滤后把跨环境Span当本环境。选择身份时也不回退全局。';
     panel.fieldConfig.defaults.noValue = '缺环境/身份维度，或无数据';
     panel.targets = [{ refId: 'A', datasource: prom, expr: metric.type === 'counter'
@@ -175,8 +175,8 @@ export function buildDashboard() {
     panels.push(panel);
   }
   const variables = [
-    { name: 'DS_PROMETHEUS', label: 'Prometheus', type: 'datasource', query: 'prometheus', current: { text: contract.defaults.prometheusUid, value: contract.defaults.prometheusUid }, refresh: 1 },
-    { name: 'DS_LOKI', label: 'Loki诊断数据源', type: 'datasource', query: 'loki', current: { text: contract.defaults.lokiUid, value: contract.defaults.lokiUid }, refresh: 1 },
+    { name: 'DS_PROMETHEUS', label: '运行指标数据源', type: 'datasource', query: 'prometheus', current: { text: contract.defaults.prometheusUid, value: contract.defaults.prometheusUid }, refresh: 1 },
+    { name: 'DS_LOKI', label: '业务明细数据源', type: 'datasource', query: 'loki', current: { text: contract.defaults.lokiUid, value: contract.defaults.lokiUid }, refresh: 1 },
     { name: 'environment', label: '环境', type: 'custom', query: 'pre,dev,prod,local,test', current: { text: 'pre', value: 'pre' } },
     { name: 'service', label: '技术指标服务', type: 'textbox', query: contract.defaults.service, current: { text: contract.defaults.service, value: contract.defaults.service } },
   ];

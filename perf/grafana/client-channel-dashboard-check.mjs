@@ -47,6 +47,7 @@ for (const field of contract.scopeFields) {
   assert.equal(new URL(rendered, 'http://grafana.invalid').searchParams.get(`var-${field}`), value);
 }
 for (const panel of panels) {
+  assert.ok(!/[A-Za-z_]/.test(panel.title), `面板标题必须使用中文行为描述: ${panel.title}`);
   const { x, y, w, h } = panel.gridPos;
   assert.ok(x >= 0 && y >= 0 && w > 0 && h > 0 && x + w <= 24);
 }
@@ -71,12 +72,12 @@ for (const { panel, target } of targets) {
     assert.ok(selected.includes('user_id="user\\"A"'), 'ID按字符串安全转义');
   }
 }
-const ratio = targets.find(({ panel }) => panel.title.includes('落库率')).target.expr;
+const ratio = targets.find(({ target }) => target.expr.includes('unwrap committed')).target.expr;
 assert.ok(ratio.includes('evidence_complete="true"'));
 assert.ok(ratio.includes('matured > 0'));
 assert.ok(ratio.includes('by (tenant_id,user_id,channel_id,device_session_id,login_attempt_id,cohort_id)'));
 assert.ok(ratio.includes('unwrap committed') && ratio.includes('unwrap matured'));
-const checkpoint = panels.find((panel) => panel.title.includes('最后观测seq'));
+const checkpoint = panels.find((panel) => panel.targets?.some(target => target.expr.includes('event=~"channel_checkpoint"')));
 const groupBy = checkpoint.transformations.find((item) => item.id === 'groupBy');
 for (const field of [...contract.scopeFields, 'seq_domain', 'stream_epoch']) assert.equal(groupBy.options.fields[field].operation, 'groupby');
 assert.deepEqual(groupBy.options.fields.local_contiguous_seq.aggregations, ['lastNotNull']);

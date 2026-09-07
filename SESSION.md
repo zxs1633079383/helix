@@ -647,4 +647,4 @@
 ⚡ DRIFT-PRED 原预期把剩余阻断主要分为远端能力边界，但真实闭环还暴露 type1/type6 双写覆盖与首发只依赖 sender WS echo 两个 Helix 生命周期缺口；候选教训：真实链非 PASS 必须同时检查远端前置与本地权威源竞争，HTTP admission 后应保留可幂等的第二权威终态路径。@2026-09-04T00:16:40+0800
 🎯 EXPECT 将用户明确授权的 PRE 测试账号池内置到 real-chain 配置；可证伪断言：① `--env pre` 在无凭据变量时自动注入 16 个测试账号且不打印密码，已有 JSON/File 仍可覆盖；② local/未来其他 profile 不误用 PRE 账号；③ CI 不再要求运维配置凭据，只要求 Node.js 20+ 与现有 Rust/Cargo；④ Node 凭据选择断言、credential Rust test、GitLab CI lint 与 `git diff --check` 通过；⑤ 只提交脚本/CI/SESSION，不纳入当前 helix-im 用户改动与未跟踪产物 | 赌注 中 | 可逆 是 | @2026-09-04T10:01:00+0800
 
-✅ DONE 限时诊断探针本地 DNS/TCP/Go health/Java login 全部通过；Cargo 进程组超时模拟返回 124 并写证据，现有合同测试 3/3 通过。CI 两个作业均为 6m，脚本预算 5m，项目默认 360s；Runner 实证由本次诊断 pipeline 产物给出。
+✅ DONE 限时诊断探针本地 DNS/TCP/Go health/Java login 全部通过；Cargo 进程组超时模拟返回 124 并写证据，现有合同测试 3/3 通过。CI 两个作业均为 6m，脚本预算 5m，项目默认 360s 被 GitLab 最低 10 分钟限制拒绝、保持原值，两个作业显式 6m 生效；Runner 实证由本次诊断 pipeline 产物给出。

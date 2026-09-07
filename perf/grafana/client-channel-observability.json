@@ -37,8 +37,8 @@
         "type": "datasource",
         "query": "loki",
         "current": {
-          "text": "loki",
-          "value": "loki"
+          "text": "ef65piv34jegwd",
+          "value": "ef65piv34jegwd"
         },
         "refresh": 1
       },

@@ -1,3 +1,5 @@
+✅ DONE 用户追加授权后已将独立看板发布到 PRE Grafana Helix 文件夹，UID helix-client-channel-v1、版本1；98个面板/分组、164条查询与变量回读一致，绑定现有Prometheus/loki-pre。未修改数据源或业务producer，诊断无数据与浏览器未验收边界保留，凭据不落盘、不push | @2026-09-07T15:52:07+08:00
+
 🎯 EXPECT 沉淀客户端实测指标清单与用户/群聊诊断设计，生成独立 Grafana 看板；可证伪断言：① 71 个实测 Helix family 与快照逐项一致；② 用户/群聊筛选不把无身份标签的全局值当作个人数据；③ 登录、落库、Gap、seq 区分当前接入与拟新增；④ JSON/生成一致性/查询及 diff 检查通过；⑤ 不修改 Rust/Angular/Go 业务、运行配置，不部署、不 push，用户未跟踪文件保留 | 赌注 中 | 可逆 是 | @2026-09-07T15:17:43.008550+08:00
 
 ✅ DONE 本轮文档/看板artifact已完成：docs/Metrics沉淀71族实测快照、登录/用户/群聊/Gap/seq设计与验证记录；独立评审APPROVED_ARTIFACT_ONLY，独立UID看板含98个面板/分组及164条查询。静态生成一致性、42个文档链接、Node语法、diff检查与PRE顺序只读332/332查询通过；71族对应151条查询有数据，4个Span派生族因缺环境维度保留隔离为空。业务诊断producer/OTLP Logs pipeline/latest-state服务未实施，Grafana未发布、未做真实业务或UI验收，未改Rust/Angular/Go及用户既有未跟踪产物 | @2026-09-07T15:42:43.669094+08:00

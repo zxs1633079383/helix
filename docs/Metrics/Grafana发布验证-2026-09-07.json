@@ -1,0 +1,26 @@
+{
+  "observed_at": "2026-09-07T07:52:07.921659+00:00",
+  "grafana_url": "http://192.168.6.66:30300",
+  "dashboard_url": "http://192.168.6.66:30300/d/helix-client-channel-v1/fd6d377",
+  "publish": {
+    "folderUid": "helix",
+    "id": 324,
+    "slug": "fd6d377",
+    "status": "success",
+    "uid": "helix-client-channel-v1",
+    "url": "/d/helix-client-channel-v1/fd6d377",
+    "version": 1
+  },
+  "folder_uid": "helix",
+  "panel_and_row_count": 98,
+  "query_count": 164,
+  "query_sha256": "eed5ed6751f56be702c14ff3d5e876586b22f11a9fca71a49be9c938384dda9a",
+  "readback_queries_equal": true,
+  "readback_variables_equal": true,
+  "datasources": {
+    "prometheus": "prometheus",
+    "loki": "ef65piv34jegwd"
+  },
+  "browser_render": "NOT_RUN",
+  "diagnostic_producer": "PLANNED_NO_PRODUCER"
+}

@@ -18,7 +18,7 @@
     "environment": "pre",
     "service": "cses-client-pre",
     "prometheusUid": "prometheus",
-    "lokiUid": "loki"
+    "lokiUid": "ef65piv34jegwd"
   },
   "plannedLabels": {
     "platform": [

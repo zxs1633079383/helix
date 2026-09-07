@@ -20,7 +20,7 @@ node perf/grafana/client-channel-dashboard-check.mjs --live
 
 `--live` 只读查询 PRE Prometheus/Loki，校验全局与指定用户的插值/语法/不回退全局。日志空数据不算producer验收。可通过 `HELIX_PRE_PROMETHEUS_URL` 与 `HELIX_DIAGNOSTIC_LOKI_URL` 覆盖目标。
 
-导入：Grafana → Dashboards → New → Import → 上传 JSON；导入后在看板顶部的数据源变量中选择现有 Prometheus 和 Loki（默认 UID 仅为占位值，可切换）。当前已确认 Grafana `12.2.1`、PRE Prometheus 可用、Loki `2.9.3` 可查询；没有执行 Grafana 写入或数据源配置。
+已发布：[打开客户端与群聊观测看板](http://192.168.6.66:30300/d/helix-client-channel-v1/fd6d377)，位于 Helix 文件夹，版本1。默认绑定现有 `Prometheus`（UID `prometheus`）和 `loki-pre`（UID `ef65piv34jegwd`），未修改数据源配置。Grafana `12.2.1`、PRE Prometheus 和 Loki `2.9.3` 已通过认证数据源代理查询。其他环境可上传 JSON 导入，并在顶部数据源变量中选择对应实例。
 
 - 默认 user_id/channel_id/login_attempt_id/device_session_id 留空，表示当前授权范围全局。
 - 在顶部输入准确 ID，或在登录/诊断表格的 ID 单元格点击下钻。没有虚构“自动列出所有用户”的变量：Loki 未索引的 JSON user_id 不能通过 label_values 枚举。

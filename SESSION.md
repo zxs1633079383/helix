@@ -1,3 +1,4 @@
+⚠️ 发布BLOCKED：本轮G02C修复后PRE83/83，完整门禁Native113/113；旧Phase1 localhost:8066前置失败，改PRE诊断另有G01K/G02B两项独立失败。遵守无关失败停止扩张规则，诊断改动已撤销，未绕过hook；push失败、MR未创建。详见0907-PRE四项验收复核与修复报告。
 ✅ DONE G02C后续根因修复：HTTPauthority原先提前发sent，晚WS已被cursor去重；改为窄写集PersistOk后received。403个lib、6个G02C focused、满队列observer关闭回归和最终PRE83/83（53.195秒）通过。正常pre-push结果另记MR，不绕过hook、不自动合并。
 ✅ DONE PRE验收设施独立批次：统一有界观察预算，失败分类/关联/清理证据及pin原始WS断言；聚焦3/3、固定远端基线PRE82/83，G10E/G05F/G05G通过。G02C已落库sent却无匹配received，当时业务修复仍PARTIAL，未创建MR。
 ⚡ DRIFT-PRED 起始本地基线83/83未在远端基线上保持；G02C重复超时，提前独立订阅终态仍失败，撤销该假设改动。禁止把观察设施修复称为生产根因闭环。

@@ -835,3 +835,218 @@ fn send_and_receive_interleaved() {
         "pending send should still be 1 after receiving other message"
     );
 }
+
+/// 通过完整查询、缓存提交与读回建立空时间线，避免直接改内部附着状态。
+fn attach_empty_send_timeline(h: &mut Harness, channel: u64) {
+    let query = h.step(send_timeline_query(channel), 100);
+    let remote = h.step(
+        port_reply_with_body(p1_corr(&query), bytes::Bytes::from_static(b"[]")),
+        101,
+    );
+    let cache = h.step(
+        port_reply_with_body(
+            http_corr(&remote),
+            enveloped(bytes::Bytes::from_static(
+                br#"{"status":"SUCCESS","data":[]}"#,
+            )),
+        ),
+        102,
+    );
+    let readback = h.step(port_reply_ok(p1_corr(&cache)), 103);
+    let ready = h.step(
+        port_reply_with_body(p1_corr(&readback), bytes::Bytes::from_static(b"[]")),
+        104,
+    );
+    assert!(ready
+        .iter()
+        .any(|effect| matches!(effect, EffectKind::Emit)));
+}
+
+/// 查询同一窗口以模拟滚动刷新或连续操作推进查询代际。
+fn send_timeline_query(channel: u64) -> helix_core::Tick {
+    helix_core::Tick::Command(helix_core::tick::AppCommand::new(
+        "im_query_messages_by_channel",
+        serde_json::to_vec(&serde_json::json!({"channel_id": cid(channel), "window_token": "send-race", "limit": 20})).unwrap(),
+    ))
+}
+
+/// 旧窗口读回可以丢弃投影，但已持久化消息仍必须发送并启动独立超时。
+#[test]
+fn superseded_send_readback_still_sends_and_times_out() {
+    let mut h = Harness::new(&[1]);
+    attach_empty_send_timeline(&mut h, 1);
+    let initial = h.step(send_message_cmd(1, "race_a", "hello"), 1000);
+    let readback = acknowledge_optimistic_persist(&mut h, &initial, 1001);
+    assert!(!readback
+        .iter()
+        .any(|effect| matches!(effect, EffectKind::Http(_) | EffectKind::ScheduleTimer(_))));
+    h.step(send_timeline_query(1), 1002);
+    let completed = h.step(
+        port_reply_with_body(p1_corr(&readback), bytes::Bytes::from_static(b"[]")),
+        1003,
+    );
+    assert_eq!(
+        completed
+            .iter()
+            .filter(|effect| matches!(effect, EffectKind::Http(_)))
+            .count(),
+        1,
+        "superseding a UI query must not cancel sending"
+    );
+    assert!(
+        !completed
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Emit)),
+        "stale window must not overwrite the current view"
+    );
+    let timer = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::ScheduleTimer { id, after_ms } => {
+                assert_eq!(*after_ms, 15_000);
+                Some(id.raw())
+            }
+            _ => None,
+        })
+        .expect("each send needs its timeout");
+    h.step(timer_tick(timer), 16003);
+    assert!(failed_projection_for_tmp(&h, "race_a").is_some());
+}
+
+/// 千条消息跨四频道交错落库并逆序读回：每条发送恰好一次，各自拥有 timer。
+#[test]
+fn concurrent_send_readbacks_keep_independent_http_and_timers() {
+    let mut h = Harness::new(&[1, 2, 3, 4]);
+    for channel in 1..=4 {
+        attach_empty_send_timeline(&mut h, channel);
+    }
+    let mut pending = Vec::new();
+    for index in 0..1024_u64 {
+        let channel = index % 4 + 1;
+        let temporary_id = format!("burst_{index}");
+        let initial = h.step(
+            send_message_cmd(channel, &temporary_id, "burst"),
+            1000 + index * 2,
+        );
+        let readback = acknowledge_optimistic_persist(&mut h, &initial, 1001 + index * 2);
+        pending.push((p1_corr(&readback), channel, temporary_id));
+    }
+    for channel in 1..=4 {
+        h.step(send_timeline_query(channel), 4000);
+    }
+    let mut timers = std::collections::HashSet::new();
+    for (corr, channel, temporary_id) in pending.into_iter().rev() {
+        let effects = h.step(
+            port_reply_with_body(corr, bytes::Bytes::from_static(b"[]")),
+            5000,
+        );
+        assert_eq!(
+            effects
+                .iter()
+                .filter(|effect| matches!(effect, EffectKind::Http(_)))
+                .count(),
+            1
+        );
+        let body = h.last_http_body().expect("matching posts/create");
+        assert_eq!(body["temporaryId"], temporary_id);
+        assert_eq!(body["channelId"], cid(channel));
+        let timer_ids: Vec<_> = h
+            .sink
+            .as_slice()
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::ScheduleTimer { id, after_ms } => {
+                    assert_eq!(*after_ms, 15_000);
+                    Some(id.raw())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(timer_ids.len(), 1);
+        assert!(
+            timers.insert(timer_ids[0]),
+            "timer must belong to exactly one message"
+        );
+        assert!(!effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Emit)));
+        let duplicate = h.step(
+            port_reply_with_body(corr, bytes::Bytes::from_static(b"[]")),
+            5001,
+        );
+        assert!(
+            duplicate.is_empty(),
+            "duplicate reply must not resend or rearm"
+        );
+        h.step(timer_tick(timer_ids[0]), 20000);
+        assert!(failed_projection_for_tmp(&h, &temporary_id).is_some());
+    }
+    assert_eq!(timers.len(), 1024);
+}
+
+/// WS 断线不能取消已成功落库、仍等待本地读回的 HTTP 发送。
+#[test]
+fn disconnected_send_readback_still_sends() {
+    let mut h = Harness::new(&[1]);
+    attach_empty_send_timeline(&mut h, 1);
+    let initial = h.step(send_message_cmd(1, "disconnect_a", "hello"), 1000);
+    let readback = acknowledge_optimistic_persist(&mut h, &initial, 1001);
+    h.step(
+        helix_core::Tick::Disconnected(helix_core::effect::TransportId::from_raw(0)),
+        1002,
+    );
+    let effects = h.step(
+        port_reply_with_body(p1_corr(&readback), bytes::Bytes::from_static(b"[]")),
+        1003,
+    );
+    assert_eq!(
+        effects
+            .iter()
+            .filter(|effect| matches!(effect, EffectKind::Http(_)))
+            .count(),
+        1
+    );
+    assert_eq!(
+        effects
+            .iter()
+            .filter(|effect| matches!(effect, EffectKind::ScheduleTimer(_)))
+            .count(),
+        1
+    );
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, EffectKind::Emit)));
+}
+
+/// 身份切换必须撤销旧账号读回，即使之前经历过 transport reset。
+#[test]
+fn identity_change_discards_deferred_send_readback() {
+    let mut h = Harness::new(&[1]);
+    attach_empty_send_timeline(&mut h, 1);
+    let initial = h.step(send_message_cmd(1, "identity_a", "hello"), 1000);
+    let readback = acknowledge_optimistic_persist(&mut h, &initial, 1001);
+    h.step(
+        helix_core::Tick::Disconnected(helix_core::effect::TransportId::from_raw(0)),
+        1002,
+    );
+    h.step(
+        helix_core::Tick::Command(helix_core::tick::AppCommand::new(
+            helix_im::module::RUNTIME_IDENTITY_COMMAND,
+            serde_json::to_vec(
+                &serde_json::json!({"auth_user_id": "other-actor", "company_id": "other-tenant"}),
+            )
+            .unwrap(),
+        )),
+        1003,
+    );
+    let effects = h.step(
+        port_reply_with_body(p1_corr(&readback), bytes::Bytes::from_static(b"[]")),
+        1004,
+    );
+    assert!(
+        effects.is_empty(),
+        "old actor must not send or publish into the new session"
+    );
+}

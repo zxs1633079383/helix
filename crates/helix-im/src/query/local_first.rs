@@ -704,6 +704,7 @@ impl ImModule {
         Ok(())
     }
 
+    /// 消费本地读回；过期窗口只丢弃投影，已持久化发送仍按消息衔接。
     pub(crate) fn handle_message_query_local_reply(
         &mut self,
         request: MessageQueryRequest,
@@ -722,6 +723,9 @@ impl ImModule {
             query_session_epoch,
             query_generation,
         ) {
+            // 查询代际/WS 断线只撤销投影；身份切换已从 corr_map 删除此衔接。
+            // 仅查找当前 temporaryId，不扫描其它 pending sends 或处理废弃行。
+            self.emit_deferred_posts_create_after_timeline_event(deferred_send_http, out)?;
             return Ok(());
         }
         let mut local_rows_desc = match outcome {

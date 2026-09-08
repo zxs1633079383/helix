@@ -1,3 +1,7 @@
+✅ DONE 源码修复：查询代际与 WS 断线不再吞掉已落库发送衔接，身份切换仍撤销旧回包。18 项发送、1,434 项 IM 全量、3 项 release 承压及 PRE 真链 G01A/G02C 2/2 通过；未发布新 crate/客户端，未验收 Angular 感叹号及网络容量。详见 docs/0908-发送衔接竞态修复与验证.md。
+
+🎯 EXPECT 修复附着时间线查询代际淘汰导致发送与 15 秒 timer 丢失：公开 ImModule::handle 红绿回归，覆盖交错并发、乱序、重复与超时；保持 P1 持久化门槛及旧窗口不回写，不把回放当容量或桌面验收 | @2026-09-08
+
 ✅ DONE 0.1.11 跨仓发布交付：四包 crates.io 发布成功，发布提交 5ba66ba9 与注释 Tag helix-v-0.1.11 已推送；客户端 884857a04a 精确依赖已推送 monorepo-message，PRE cargo check 与剪贴板 7/7 通过，忽略的本地锁文件四包来源为 crates.io。Go dev-paas2.5 已推送 55e05c5，PRE c391ddcf Ready/Available=1；Helix core/IM 1453 项、八包 check、Web/WASM 与 pre-push 检查通过。仅完成 crates 发布及客户端依赖升级，未发布桌面安装包，Angular 真页面终态仍待验；三仓既有非本任务配置/产物保留。
 
 ✅ DONE Helix 0.1.11 四个公共 crate 已经 canonical 发布脚本完成八包 check、逐包 dry-run/上传和 crates.io 解析；core/IM 154 组 1453 项测试通过。版本提交及 helix-v-0.1.11 Tag 绑定此批 manifest；客户端依赖更新与开发分支同步继续执行。

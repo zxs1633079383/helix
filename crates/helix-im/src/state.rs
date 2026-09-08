@@ -470,13 +470,17 @@ impl ImState {
         self.clear_pending_action_state();
     }
 
-    /// 丢弃断线后不可再消费的 query correlation，并推进 session epoch 使迟到回包 fail closed。
+    /// 撤销旧窗口查询；transport reset 保留本地发送衔接，身份 reset 全部撤销。
     fn drop_query_session_correlations(&mut self, preserve_authoritative_readback: bool) {
         self.recent_message_coverage.clear();
         self.timeline_navigation_coverage.clear();
         self.timeline_navigation_pending.clear();
         self.message_query_generations.clear();
         self.corr_map.retain(|_, context| match context {
+            // 本地发送读回不依赖 WS；仅 transport reset 保留，身份切换仍删除。
+            CorrelationContext::MessageQueryLocal {
+                deferred_send_http, ..
+            } if preserve_authoritative_readback => deferred_send_http.is_some(),
             CorrelationContext::MessageQueryRemote {
                 authoritative_send_readback,
                 ..

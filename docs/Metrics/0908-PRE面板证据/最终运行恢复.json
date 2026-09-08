@@ -1,0 +1,251 @@
+{
+  "time": "2026-09-08T05:59:34Z",
+  "rows": {
+    "grafana": {
+      "data": [
+        {
+          "metric": {
+            "service_instance_id": "0acabe9bd00aa0f4cea9f77deaa4bb17"
+          },
+          "value": [
+            1788847174,
+            "5107"
+          ]
+        },
+        {
+          "metric": {
+            "service_instance_id": "fbd6b26c05e46d53b9b034ad7ec90b4c"
+          },
+          "value": [
+            1788847174,
+            "5429"
+          ]
+        },
+        {
+          "metric": {
+            "service_instance_id": "fec2e737e8cd6eb9126b7679824f4925"
+          },
+          "value": [
+            1788847174,
+            "4968"
+          ]
+        }
+      ]
+    },
+    "prometheus": {
+      "result": "{service_instance_id=\"0acabe9bd00aa0f4cea9f77deaa4bb17\"} => 5107 @[1788847174]\n{service_instance_id=\"fbd6b26c05e46d53b9b034ad7ec90b4c\"} => 5429 @[1788847174]\n{service_instance_id=\"fec2e737e8cd6eb9126b7679824f4925\"} => 4968 @[1788847174]",
+      "warnings": null
+    }
+  },
+  "resets": {
+    "grafana": {
+      "data": [
+        {
+          "metric": {
+            "service_instance_id": "0acabe9bd00aa0f4cea9f77deaa4bb17"
+          },
+          "value": [
+            1788847174,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "service_instance_id": "fbd6b26c05e46d53b9b034ad7ec90b4c"
+          },
+          "value": [
+            1788847174,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "service_instance_id": "fec2e737e8cd6eb9126b7679824f4925"
+          },
+          "value": [
+            1788847174,
+            "0"
+          ]
+        }
+      ]
+    },
+    "prometheus": {
+      "result": "{service_instance_id=\"0acabe9bd00aa0f4cea9f77deaa4bb17\"} => 0 @[1788847174]\n{service_instance_id=\"fbd6b26c05e46d53b9b034ad7ec90b4c\"} => 0 @[1788847174]\n{service_instance_id=\"fec2e737e8cd6eb9126b7679824f4925\"} => 0 @[1788847174]",
+      "warnings": null
+    }
+  },
+  "errors": {
+    "grafana": {
+      "data": [
+        {
+          "metric": {
+            "service_instance_id": "0acabe9bd00aa0f4cea9f77deaa4bb17"
+          },
+          "value": [
+            1788847174,
+            "2"
+          ]
+        },
+        {
+          "metric": {
+            "service_instance_id": "fbd6b26c05e46d53b9b034ad7ec90b4c"
+          },
+          "value": [
+            1788847174,
+            "7"
+          ]
+        },
+        {
+          "metric": {
+            "service_instance_id": "fec2e737e8cd6eb9126b7679824f4925"
+          },
+          "value": [
+            1788847174,
+            "6"
+          ]
+        }
+      ]
+    },
+    "prometheus": {
+      "result": "{service_instance_id=\"0acabe9bd00aa0f4cea9f77deaa4bb17\"} => 2 @[1788847174]\n{service_instance_id=\"fbd6b26c05e46d53b9b034ad7ec90b4c\"} => 7 @[1788847174]\n{service_instance_id=\"fec2e737e8cd6eb9126b7679824f4925\"} => 6 @[1788847174]",
+      "warnings": null
+    }
+  },
+  "drops": {
+    "grafana": {
+      "data": [
+        {
+          "metric": {
+            "service_instance_id": "0acabe9bd00aa0f4cea9f77deaa4bb17"
+          },
+          "value": [
+            1788847174,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "service_instance_id": "fbd6b26c05e46d53b9b034ad7ec90b4c"
+          },
+          "value": [
+            1788847174,
+            "1575"
+          ]
+        },
+        {
+          "metric": {
+            "service_instance_id": "fec2e737e8cd6eb9126b7679824f4925"
+          },
+          "value": [
+            1788847174,
+            "11347"
+          ]
+        }
+      ]
+    },
+    "prometheus": {
+      "result": "{service_instance_id=\"0acabe9bd00aa0f4cea9f77deaa4bb17\"} => 0 @[1788847174]\n{service_instance_id=\"fbd6b26c05e46d53b9b034ad7ec90b4c\"} => 1575 @[1788847174]\n{service_instance_id=\"fec2e737e8cd6eb9126b7679824f4925\"} => 11347 @[1788847174]",
+      "warnings": null
+    }
+  },
+  "state": {
+    "grafana": {
+      "data": [
+        {
+          "metric": {
+            "__name__": "otel_helix_metrics_exporter_state",
+            "channel_shape": "hot-1",
+            "container": "opentelemetry-collector",
+            "deployment_environment": "pre",
+            "endpoint": "metrics",
+            "exported_instance": "0acabe9bd00aa0f4cea9f77deaa4bb17",
+            "exported_job": "helix-pre-verification-final",
+            "instance": "10.200.8.216:8889",
+            "job": "opentelemetry-collector",
+            "namespace": "monitoring",
+            "otel_scope_name": "helix-driver-host",
+            "platform": "native",
+            "pod": "opentelemetry-collector-6bc8ff4869-r7bwz",
+            "profile": "baseline",
+            "scenario": "l1_core",
+            "service": "opentelemetry-collector",
+            "service_instance_id": "0acabe9bd00aa0f4cea9f77deaa4bb17",
+            "service_name": "helix-pre-verification-final",
+            "stage": "telemetry",
+            "telemetry_sdk_language": "rust",
+            "telemetry_sdk_name": "opentelemetry",
+            "telemetry_sdk_version": "0.32.1"
+          },
+          "value": [
+            1788847174,
+            "2"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "otel_helix_metrics_exporter_state",
+            "channel_shape": "hot-1",
+            "container": "opentelemetry-collector",
+            "deployment_environment": "pre",
+            "endpoint": "metrics",
+            "exported_instance": "fbd6b26c05e46d53b9b034ad7ec90b4c",
+            "exported_job": "helix-pre-verification-final",
+            "instance": "10.200.8.216:8889",
+            "job": "opentelemetry-collector",
+            "namespace": "monitoring",
+            "otel_scope_name": "helix-driver-host",
+            "platform": "native",
+            "pod": "opentelemetry-collector-6bc8ff4869-r7bwz",
+            "profile": "baseline",
+            "scenario": "l1_core",
+            "service": "opentelemetry-collector",
+            "service_instance_id": "fbd6b26c05e46d53b9b034ad7ec90b4c",
+            "service_name": "helix-pre-verification-final",
+            "stage": "telemetry",
+            "telemetry_sdk_language": "rust",
+            "telemetry_sdk_name": "opentelemetry",
+            "telemetry_sdk_version": "0.32.1"
+          },
+          "value": [
+            1788847174,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "otel_helix_metrics_exporter_state",
+            "channel_shape": "hot-1",
+            "container": "opentelemetry-collector",
+            "deployment_environment": "pre",
+            "endpoint": "metrics",
+            "exported_instance": "fec2e737e8cd6eb9126b7679824f4925",
+            "exported_job": "helix-pre-verification-final",
+            "instance": "10.200.8.216:8889",
+            "job": "opentelemetry-collector",
+            "namespace": "monitoring",
+            "otel_scope_name": "helix-driver-host",
+            "platform": "native",
+            "pod": "opentelemetry-collector-6bc8ff4869-r7bwz",
+            "profile": "baseline",
+            "scenario": "l1_core",
+            "service": "opentelemetry-collector",
+            "service_instance_id": "fec2e737e8cd6eb9126b7679824f4925",
+            "service_name": "helix-pre-verification-final",
+            "stage": "telemetry",
+            "telemetry_sdk_language": "rust",
+            "telemetry_sdk_name": "opentelemetry",
+            "telemetry_sdk_version": "0.32.1"
+          },
+          "value": [
+            1788847174,
+            "1"
+          ]
+        }
+      ]
+    },
+    "prometheus": {
+      "result": "otel_helix_metrics_exporter_state{channel_shape=\"hot-1\", container=\"opentelemetry-collector\", deployment_environment=\"pre\", endpoint=\"metrics\", exported_instance=\"0acabe9bd00aa0f4cea9f77deaa4bb17\", exported_job=\"helix-pre-verification-final\", instance=\"10.200.8.216:8889\", job=\"opentelemetry-collector\", namespace=\"monitoring\", otel_scope_name=\"helix-driver-host\", platform=\"native\", pod=\"opentelemetry-collector-6bc8ff4869-r7bwz\", profile=\"baseline\", scenario=\"l1_core\", service=\"opentelemetry-collector\", service_instance_id=\"0acabe9bd00aa0f4cea9f77deaa4bb17\", service_name=\"helix-pre-verification-final\", stage=\"telemetry\", telemetry_sdk_language=\"rust\", telemetry_sdk_name=\"opentelemetry\", telemetry_sdk_version=\"0.32.1\"} => 2 @[1788847174]\notel_helix_metrics_exporter_state{channel_shape=\"hot-1\", container=\"opentelemetry-collector\", deployment_environment=\"pre\", endpoint=\"metrics\", exported_instance=\"fbd6b26c05e46d53b9b034ad7ec90b4c\", exported_job=\"helix-pre-verification-final\", instance=\"10.200.8.216:8889\", job=\"opentelemetry-collector\", namespace=\"monitoring\", otel_scope_name=\"helix-driver-host\", platform=\"native\", pod=\"opentelemetry-collector-6bc8ff4869-r7bwz\", profile=\"baseline\", scenario=\"l1_core\", service=\"opentelemetry-collector\", service_instance_id=\"fbd6b26c05e46d53b9b034ad7ec90b4c\", service_name=\"helix-pre-verification-final\", stage=\"telemetry\", telemetry_sdk_language=\"rust\", telemetry_sdk_name=\"opentelemetry\", telemetry_sdk_version=\"0.32.1\"} => 1 @[1788847174]\notel_helix_metrics_exporter_state{channel_shape=\"hot-1\", container=\"opentelemetry-collector\", deployment_environment=\"pre\", endpoint=\"metrics\", exported_instance=\"fec2e737e8cd6eb9126b7679824f4925\", exported_job=\"helix-pre-verification-final\", instance=\"10.200.8.216:8889\", job=\"opentelemetry-collector\", namespace=\"monitoring\", otel_scope_name=\"helix-driver-host\", platform=\"native\", pod=\"opentelemetry-collector-6bc8ff4869-r7bwz\", profile=\"baseline\", scenario=\"l1_core\", service=\"opentelemetry-collector\", service_instance_id=\"fec2e737e8cd6eb9126b7679824f4925\", service_name=\"helix-pre-verification-final\", stage=\"telemetry\", telemetry_sdk_language=\"rust\", telemetry_sdk_name=\"opentelemetry\", telemetry_sdk_version=\"0.32.1\"} => 1 @[1788847174]",
+      "warnings": null
+    }
+  }
+}

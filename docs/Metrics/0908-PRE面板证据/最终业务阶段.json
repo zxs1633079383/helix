@@ -1,0 +1,294 @@
+{
+  "time": "2026-09-08T06:00:37Z",
+  "stages": {
+    "data": [
+      {
+        "timestamp": "1788847237.000",
+        "value": 3,
+        "labels": {
+          "event": "channel_checkpoint",
+          "producer_service": "helix-pre-verification-final",
+          "stage": "authority_no_change"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 2,
+        "labels": {
+          "event": "channel_checkpoint",
+          "producer_service": "helix-pre-verification-final",
+          "stage": "inventory_committed"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 11,
+        "labels": {
+          "event": "channel_checkpoint",
+          "producer_service": "helix-pre-verification-final",
+          "stage": "persist_committed"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 3,
+        "labels": {
+          "event": "channel_checkpoint",
+          "producer_service": "helix-pre-verification-final",
+          "stage": "sync_committed"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 1,
+        "labels": {
+          "event": "channel_inventory_end_received",
+          "producer_service": "helix-pre-verification-final",
+          "result": "received",
+          "stage": "ws_received"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 2,
+        "labels": {
+          "event": "channel_inventory_item",
+          "producer_service": "cses-im-server",
+          "result": "published",
+          "stage": "selected"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 2,
+        "labels": {
+          "event": "channel_inventory_item_committed",
+          "producer_service": "helix-pre-verification-final",
+          "result": "success",
+          "stage": "persist"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 2,
+        "labels": {
+          "event": "channel_inventory_item_received",
+          "producer_service": "helix-pre-verification-final",
+          "result": "received",
+          "stage": "ws_received"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 1,
+        "labels": {
+          "event": "channel_inventory_persisted",
+          "producer_service": "helix-pre-verification-final",
+          "result": "success",
+          "stage": "persist"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 1,
+        "labels": {
+          "event": "channel_inventory_snapshot_closed",
+          "producer_service": "cses-im-server",
+          "result": "success",
+          "stage": "publish_submitted"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 1,
+        "labels": {
+          "event": "channel_inventory_snapshot_started",
+          "producer_service": "cses-im-server",
+          "result": "pending",
+          "stage": "started"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 15,
+        "labels": {
+          "event": "delivery_cohort_closed",
+          "producer_service": "helix-pre-verification-final"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 14,
+        "labels": {
+          "event": "delivery_stage",
+          "producer_service": "cses-im-server",
+          "result": "success",
+          "stage": "audience_resolved"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 4,
+        "labels": {
+          "event": "delivery_stage",
+          "producer_service": "cses-im-server",
+          "result": "success",
+          "stage": "server_committed"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 21,
+        "labels": {
+          "event": "delivery_stage",
+          "producer_service": "cses-im-server",
+          "result": "success",
+          "stage": "server_enqueued"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 21,
+        "labels": {
+          "event": "delivery_stage",
+          "producer_service": "cses-im-server",
+          "result": "success",
+          "stage": "socket_written"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 5,
+        "labels": {
+          "event": "delivery_stage",
+          "producer_service": "helix-pre-verification-final",
+          "result": "already_committed",
+          "stage": "ws_received"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 19,
+        "labels": {
+          "event": "delivery_stage",
+          "producer_service": "helix-pre-verification-final",
+          "result": "received",
+          "stage": "ws_received"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 11,
+        "labels": {
+          "event": "delivery_stage",
+          "producer_service": "helix-pre-verification-final",
+          "result": "success",
+          "stage": "persist_terminal"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 3,
+        "labels": {
+          "event": "gap_opened",
+          "producer_service": "helix-pre-verification-final"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 3,
+        "labels": {
+          "event": "gap_terminal",
+          "producer_service": "helix-pre-verification-final",
+          "result": "cursor_caught_up"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 2,
+        "labels": {
+          "event": "gap_updated",
+          "producer_service": "helix-pre-verification-final"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 3,
+        "labels": {
+          "event": "sync_page_received",
+          "producer_service": "helix-pre-verification-final",
+          "result": "no_change",
+          "stage": "response"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 3,
+        "labels": {
+          "event": "sync_page_received",
+          "producer_service": "helix-pre-verification-final",
+          "result": "page_received",
+          "stage": "response"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 10,
+        "labels": {
+          "event": "sync_page_returned",
+          "producer_service": "cses-im-server",
+          "result": "success",
+          "stage": "complete"
+        }
+      },
+      {
+        "timestamp": "1788847237.000",
+        "value": 3,
+        "labels": {
+          "event": "sync_persist_terminal",
+          "producer_service": "helix-pre-verification-final",
+          "result": "success",
+          "stage": "persist"
+        }
+      }
+    ],
+    "metadata": {
+      "linesReturned": 26,
+      "maxLinesAllowed": 100,
+      "resultsTruncated": false,
+      "totalLinesScanned": 1919,
+      "endTime": "2026-09-08T06:00:37Z"
+    }
+  },
+  "go_diagnostics": {
+    "data": [
+      {
+        "metric": {
+          "result": "generated"
+        },
+        "value": [
+          1788847237,
+          "1"
+        ]
+      },
+      {
+        "metric": {
+          "result": "written"
+        },
+        "value": [
+          1788847237,
+          "2447"
+        ]
+      },
+      {
+        "metric": {
+          "result": "accepted"
+        },
+        "value": [
+          1788847237,
+          "2446"
+        ]
+      }
+    ]
+  }
+}

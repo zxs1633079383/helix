@@ -1,0 +1,185 @@
+{
+  "time": "2026-09-08T05:42:16Z",
+  "rows": {
+    "grafana": {
+      "data": [
+        {
+          "metric": {
+            "service_instance_id": "62ea1d492f838211dcbb232ccadcebdd"
+          },
+          "value": [
+            1788846136,
+            "5379"
+          ]
+        },
+        {
+          "metric": {
+            "service_instance_id": "b5e2b7ab6040590450a58acdb391b1cc"
+          },
+          "value": [
+            1788846136,
+            "5074"
+          ]
+        }
+      ]
+    },
+    "prometheus": {
+      "result": "{service_instance_id=\"62ea1d492f838211dcbb232ccadcebdd\"} => 5379 @[1788846136]\n{service_instance_id=\"b5e2b7ab6040590450a58acdb391b1cc\"} => 5074 @[1788846136]",
+      "warnings": null
+    }
+  },
+  "resets": {
+    "grafana": {
+      "data": [
+        {
+          "metric": {
+            "service_instance_id": "62ea1d492f838211dcbb232ccadcebdd"
+          },
+          "value": [
+            1788846136,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "service_instance_id": "b5e2b7ab6040590450a58acdb391b1cc"
+          },
+          "value": [
+            1788846136,
+            "0"
+          ]
+        }
+      ]
+    },
+    "prometheus": {
+      "result": "{service_instance_id=\"62ea1d492f838211dcbb232ccadcebdd\"} => 0 @[1788846136]\n{service_instance_id=\"b5e2b7ab6040590450a58acdb391b1cc\"} => 0 @[1788846136]",
+      "warnings": null
+    }
+  },
+  "errors": {
+    "grafana": {
+      "data": [
+        {
+          "metric": {
+            "service_instance_id": "62ea1d492f838211dcbb232ccadcebdd"
+          },
+          "value": [
+            1788846136,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "service_instance_id": "b5e2b7ab6040590450a58acdb391b1cc"
+          },
+          "value": [
+            1788846136,
+            "0"
+          ]
+        }
+      ]
+    },
+    "prometheus": {
+      "result": "{service_instance_id=\"62ea1d492f838211dcbb232ccadcebdd\"} => 0 @[1788846136]\n{service_instance_id=\"b5e2b7ab6040590450a58acdb391b1cc\"} => 0 @[1788846136]",
+      "warnings": null
+    }
+  },
+  "drops": {
+    "grafana": {
+      "data": [
+        {
+          "metric": {
+            "service_instance_id": "62ea1d492f838211dcbb232ccadcebdd"
+          },
+          "value": [
+            1788846136,
+            "0"
+          ]
+        },
+        {
+          "metric": {
+            "service_instance_id": "b5e2b7ab6040590450a58acdb391b1cc"
+          },
+          "value": [
+            1788846136,
+            "0"
+          ]
+        }
+      ]
+    },
+    "prometheus": {
+      "result": "{service_instance_id=\"62ea1d492f838211dcbb232ccadcebdd\"} => 0 @[1788846136]\n{service_instance_id=\"b5e2b7ab6040590450a58acdb391b1cc\"} => 0 @[1788846136]",
+      "warnings": null
+    }
+  },
+  "state": {
+    "grafana": {
+      "data": [
+        {
+          "metric": {
+            "__name__": "otel_helix_metrics_exporter_state",
+            "channel_shape": "hot-1",
+            "container": "opentelemetry-collector",
+            "deployment_environment": "pre",
+            "endpoint": "metrics",
+            "exported_instance": "62ea1d492f838211dcbb232ccadcebdd",
+            "exported_job": "helix-pre-verification-v3",
+            "instance": "10.200.8.216:8889",
+            "job": "opentelemetry-collector",
+            "namespace": "monitoring",
+            "otel_scope_name": "helix-driver-host",
+            "platform": "native",
+            "pod": "opentelemetry-collector-6bc8ff4869-r7bwz",
+            "profile": "baseline",
+            "scenario": "l1_core",
+            "service": "opentelemetry-collector",
+            "service_instance_id": "62ea1d492f838211dcbb232ccadcebdd",
+            "service_name": "helix-pre-verification-v3",
+            "stage": "telemetry",
+            "telemetry_sdk_language": "rust",
+            "telemetry_sdk_name": "opentelemetry",
+            "telemetry_sdk_version": "0.32.1"
+          },
+          "value": [
+            1788846136,
+            "1"
+          ]
+        },
+        {
+          "metric": {
+            "__name__": "otel_helix_metrics_exporter_state",
+            "channel_shape": "hot-1",
+            "container": "opentelemetry-collector",
+            "deployment_environment": "pre",
+            "endpoint": "metrics",
+            "exported_instance": "b5e2b7ab6040590450a58acdb391b1cc",
+            "exported_job": "helix-pre-verification-v3",
+            "instance": "10.200.8.216:8889",
+            "job": "opentelemetry-collector",
+            "namespace": "monitoring",
+            "otel_scope_name": "helix-driver-host",
+            "platform": "native",
+            "pod": "opentelemetry-collector-6bc8ff4869-r7bwz",
+            "profile": "baseline",
+            "scenario": "l1_core",
+            "service": "opentelemetry-collector",
+            "service_instance_id": "b5e2b7ab6040590450a58acdb391b1cc",
+            "service_name": "helix-pre-verification-v3",
+            "stage": "telemetry",
+            "telemetry_sdk_language": "rust",
+            "telemetry_sdk_name": "opentelemetry",
+            "telemetry_sdk_version": "0.32.1"
+          },
+          "value": [
+            1788846136,
+            "1"
+          ]
+        }
+      ]
+    },
+    "prometheus": {
+      "result": "otel_helix_metrics_exporter_state{channel_shape=\"hot-1\", container=\"opentelemetry-collector\", deployment_environment=\"pre\", endpoint=\"metrics\", exported_instance=\"62ea1d492f838211dcbb232ccadcebdd\", exported_job=\"helix-pre-verification-v3\", instance=\"10.200.8.216:8889\", job=\"opentelemetry-collector\", namespace=\"monitoring\", otel_scope_name=\"helix-driver-host\", platform=\"native\", pod=\"opentelemetry-collector-6bc8ff4869-r7bwz\", profile=\"baseline\", scenario=\"l1_core\", service=\"opentelemetry-collector\", service_instance_id=\"62ea1d492f838211dcbb232ccadcebdd\", service_name=\"helix-pre-verification-v3\", stage=\"telemetry\", telemetry_sdk_language=\"rust\", telemetry_sdk_name=\"opentelemetry\", telemetry_sdk_version=\"0.32.1\"} => 1 @[1788846136]\notel_helix_metrics_exporter_state{channel_shape=\"hot-1\", container=\"opentelemetry-collector\", deployment_environment=\"pre\", endpoint=\"metrics\", exported_instance=\"b5e2b7ab6040590450a58acdb391b1cc\", exported_job=\"helix-pre-verification-v3\", instance=\"10.200.8.216:8889\", job=\"opentelemetry-collector\", namespace=\"monitoring\", otel_scope_name=\"helix-driver-host\", platform=\"native\", pod=\"opentelemetry-collector-6bc8ff4869-r7bwz\", profile=\"baseline\", scenario=\"l1_core\", service=\"opentelemetry-collector\", service_instance_id=\"b5e2b7ab6040590450a58acdb391b1cc\", service_name=\"helix-pre-verification-v3\", stage=\"telemetry\", telemetry_sdk_language=\"rust\", telemetry_sdk_name=\"opentelemetry\", telemetry_sdk_version=\"0.32.1\"} => 1 @[1788846136]",
+      "warnings": null
+    }
+  }
+}

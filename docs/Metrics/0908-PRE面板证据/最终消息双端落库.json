@@ -1,0 +1,42 @@
+{
+  "actor": [
+    {
+      "id": "srxqcetrhj85tbdnhjsuni19mo",
+      "message": "观测验收消息-最终修复-在线",
+      "send_status": "sent",
+      "event_seq": 5
+    },
+    {
+      "id": "pm4pp1f3wjdzmeunhznwodh3dh",
+      "message": "观测验收消息-最终修复-离线补齐",
+      "send_status": "sent",
+      "event_seq": 6
+    },
+    {
+      "id": "81xxi1h1ginatk6579xt5xde1r",
+      "message": "观测验收消息-最终修复-短导出中断",
+      "send_status": "sent",
+      "event_seq": 7
+    }
+  ],
+  "peer": [
+    {
+      "id": "srxqcetrhj85tbdnhjsuni19mo",
+      "message": "观测验收消息-最终修复-在线",
+      "send_status": "sent",
+      "event_seq": 5
+    },
+    {
+      "id": "pm4pp1f3wjdzmeunhznwodh3dh",
+      "message": "观测验收消息-最终修复-离线补齐",
+      "send_status": "sent",
+      "event_seq": 6
+    },
+    {
+      "id": "81xxi1h1ginatk6579xt5xde1r",
+      "message": "观测验收消息-最终修复-短导出中断",
+      "send_status": "sent",
+      "event_seq": 7
+    }
+  ]
+}

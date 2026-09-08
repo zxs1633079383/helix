@@ -4,7 +4,7 @@
   "title": "登录与群聊：消息接收、保存和补齐情况",
   "snapshot": "../../docs/Metrics/客户端指标快照-2026-09-07.json",
   "review": "APPROVED_ARTIFACT_ONLY",
-  "diagnosticsStatus": "LOCAL_REAL_BUSINESS_VERIFIED_PRE_PENDING",
+  "diagnosticsStatus": "PRE_GO_NATIVE_VERIFIED_CLIENT_TERMINAL_PENDING",
   "diagnosticService": "helix-im-diagnostics",
   "maxLogLines": 1000,
   "scopeFields": [

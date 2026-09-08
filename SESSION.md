@@ -1,3 +1,6 @@
+✅ DONE 本轮 Go PRE/Helix Native 指标修复与证据 @2026-09-08 | Go CI35/CD16 已部署；Helix provider身份+Cumulative+selfcursor修复，19定向测试、最终Native在线/离线/OTLP故障发送双端SQLite与155双MCP对拍。现役Tauri crates发布及Angular终态仍PARTIAL；见 [验收说明](docs/Metrics/0908-PRE面板证据/验收说明.md)。
+
+
 🎯 EXPECT 补全双端生产观测接线：持续有界采集、精确字段全量导出、消息身份与Trace关联、真实终态统计、默认客户端接线和看板；可证伪：全部看板业务查询有对应producer，身份筛选无全局误归属，聚焦失败/去重/重启测试通过；仅最后真实用户操作可保留待验 | 赌注 中 | 可逆 是 | @2026-09-07
 
 ✅ DONE 本轮独立业务诊断producer与Native采集验证：真实Go双身份收发seq5、离线重登seq6，两端SQLite与Loki对账通过；Promtail 6/6上线，看板v3与332查询通过。Angular真实页面、PRE新二进制与严格端到端率仍未验收，不将本批提交称为生产闭环。详见 docs/Metrics/业务埋点与真实链验收-2026-09-07.md。

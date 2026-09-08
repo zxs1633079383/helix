@@ -145,7 +145,7 @@
       "targets": [],
       "options": {
         "mode": "markdown",
-        "content": "默认身份留空=当前授权范围全局；输入准确用户/群聊/登录/设备ID，在顶部筛选对应的记录。\n\n技术指标来源：2026-09-07 PRE快照71族；无身份标签，选择身份后技术面板为空。业务诊断使用 `helix-im-diagnostics` JSON流，候选Helix与Go本机已验证真实业务，环境为 diagnostic-local；PRE旧二进制仍需发布。不能将空值解释为0%/100%。\n\n现有Grafana 12.2.1、Loki 2.9.3；客户端经有界后台直接写入日志；服务端经专用日志采集规则接入。变量不是租户授权，数据源必须限制可读范围。"
+        "content": "默认身份留空=当前授权范围全局；输入准确用户/群聊/登录/设备ID，在顶部筛选对应的记录。\n\n技术指标来源：71族技术指标，无业务身份标签，选择身份后技术面板为空。业务诊断使用 `helix-im-diagnostics` JSON流。2026-09-08 Go PRE发布 c391ddcf 已验证提交与推送诊断；独立 Native 验证服务 helix-pre-verification / helix-pre-verification-v2 已完成在线保存及离线重登补齐；helix-pre-verification-final 为最终累计快照与自观测修复验证服务，已完成真实保存和导出中断恢复复验。该证据不代表当前客户端 Angular 登录收尾或渲染已验收；选择对应服务与时间窗查看。不能将空值解释为0%/100%。\n\n现有Grafana 12.2.1、Loki 2.9.3；客户端经有界后台直接写入日志；服务端经专用日志采集规则接入。变量不是租户授权，数据源必须限制可读范围。"
       }
     },
     {
@@ -241,6 +241,18 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "producer_service"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "产出服务"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "event"
             },
             "properties": [
@@ -306,6 +318,18 @@
                   {
                     "type": "value",
                     "options": {
+                      "server_committed": {
+                        "text": "服务端已提交"
+                      },
+                      "audience_resolved": {
+                        "text": "服务端已确定接收范围"
+                      },
+                      "server_enqueued": {
+                        "text": "服务端已入发送队列"
+                      },
+                      "socket_written": {
+                        "text": "服务端已写入连接"
+                      },
                       "ws_received": {
                         "text": "已从连接收到"
                       },
@@ -785,6 +809,7 @@
                 "channel_id",
                 "login_attempt_id",
                 "device_session_id",
+                "producer_service",
                 "event",
                 "stage",
                 "result",
@@ -923,6 +948,18 @@
               {
                 "id": "displayName",
                 "value": "设备会话"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "producer_service"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "产出服务"
               }
             ]
           },
@@ -1146,6 +1183,7 @@
                 "channel_id",
                 "login_attempt_id",
                 "device_session_id",
+                "producer_service",
                 "event",
                 "batch_id",
                 "inventory_snapshot_id",
@@ -1265,6 +1303,18 @@
               {
                 "id": "displayName",
                 "value": "设备会话"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "producer_service"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "产出服务"
               }
             ]
           },
@@ -1694,6 +1744,7 @@
                 "channel_id",
                 "login_attempt_id",
                 "device_session_id",
+                "producer_service",
                 "event",
                 "sync_session_id",
                 "trigger",
@@ -1758,6 +1809,54 @@
           "unit": "ops"
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "server_committed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端已提交"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "audience_resolved"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端已确定接收范围"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "server_enqueued"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端已入发送队列"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "socket_written"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端已写入连接"
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -2556,6 +2655,18 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "producer_service"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "产出服务"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "stage"
             },
             "properties": [
@@ -2569,6 +2680,18 @@
                   {
                     "type": "value",
                     "options": {
+                      "server_committed": {
+                        "text": "服务端已提交"
+                      },
+                      "audience_resolved": {
+                        "text": "服务端已确定接收范围"
+                      },
+                      "server_enqueued": {
+                        "text": "服务端已入发送队列"
+                      },
+                      "socket_written": {
+                        "text": "服务端已写入连接"
+                      },
                       "ws_received": {
                         "text": "已从连接收到"
                       },
@@ -2859,6 +2982,7 @@
                 "channel_id",
                 "login_attempt_id",
                 "device_session_id",
+                "producer_service",
                 "stage",
                 "result",
                 "reason",
@@ -3028,6 +3152,18 @@
               {
                 "id": "displayName",
                 "value": "设备会话"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "producer_service"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "产出服务"
               }
             ]
           },
@@ -3269,6 +3405,7 @@
                 "channel_id",
                 "login_attempt_id",
                 "device_session_id",
+                "producer_service",
                 "cohort_id",
                 "evidence_scope",
                 "path",
@@ -3371,6 +3508,54 @@
           "unit": "ops"
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "server_committed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端已提交"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "audience_resolved"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端已确定接收范围"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "server_enqueued"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端已入发送队列"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "socket_written"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端已写入连接"
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -4169,6 +4354,18 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "producer_service"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "产出服务"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "event"
             },
             "properties": [
@@ -4535,6 +4732,7 @@
                 "channel_id",
                 "login_attempt_id",
                 "device_session_id",
+                "producer_service",
                 "event",
                 "gap_id",
                 "seq_domain",
@@ -4662,6 +4860,18 @@
               {
                 "id": "displayName",
                 "value": "设备会话"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "producer_service (lastNotNull)"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "产出服务"
               }
             ]
           },
@@ -4884,6 +5094,12 @@
               "stream_epoch": {
                 "aggregations": [],
                 "operation": "groupby"
+              },
+              "producer_service": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
               },
               "observed_at": {
                 "aggregations": [

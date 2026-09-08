@@ -30,7 +30,7 @@ assert.deepEqual(dashboard, buildDashboard(), '生成物必须与generator/contr
 assert.equal(dashboard.uid, 'helix-client-channel-v1');
 assert.equal(snapshot.families.length, 71);
 assert.equal(contract.review, 'APPROVED_ARTIFACT_ONLY');
-assert.equal(contract.diagnosticsStatus, 'LOCAL_REAL_BUSINESS_VERIFIED_PRE_PENDING');
+assert.equal(contract.diagnosticsStatus, 'PRE_GO_NATIVE_VERIFIED_CLIENT_TERMINAL_PENDING');
 assert.deepEqual(contract.metrics.map(({ name, type }) => ({ name, type })), snapshot.families);
 assert.equal(new Set(panels.map((panel) => panel.id)).size, panels.length, 'panel ID唯一');
 assert.equal(new Set(contract.plannedLabels.reason).size, contract.plannedLabels.reason.length);

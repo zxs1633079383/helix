@@ -396,3 +396,16 @@ rate(helix_telemetry_canary_total[5m])
 4. 文档中的数字必须带 revision；分支或 worktree 未合并的指标只能放在“未纳入当前基线”中。
 5. Prometheus 样本验收必须绑定真实运行窗口、service/resource label 和 query 结果；注册表单元测试
    不能单独升级为 Prometheus runtime PASS。
+
+
+## 2026-09-08：客户端 writer 身份与累计导出
+
+OTLP 的每个 `SdkMeterProvider` 使用独立、固定的 `service.instance.id`，以隔离同进程多个
+FFI handle 或多个桌面进程。这个 Resource 身份不包含用户、频道或 run ID，不进入
+`MetricLabels`。Prometheus PRE 保留 `service_instance_id`/`exported_instance`，scrape 的
+`instance` 仍是 Collector endpoint；全局查询用 sum/rate 显式聚合 writer。
+
+Counter/Histogram 使用 Cumulative snapshot，一次网络导出失败后 SDK 内已经记录的观察
+仍留在累计值中。worker 根据 exporter 是否已保留失败 batch 推进自观测 cursor，避免
+重复计算错误/丢弃增量；export 成功状态不提前。队列满/熔断时的保护性丢弃不能由累计值
+恢复，不能把这段窗口称为完整观测。详见 [PRE 面板证据](0908-PRE面板证据/验收说明.md)。

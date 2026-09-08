@@ -640,3 +640,19 @@
 🎯 EXPECT 将用户明确授权的 PRE 测试账号池内置到 real-chain 配置；可证伪断言：① `--env pre` 在无凭据变量时自动注入 16 个测试账号且不打印密码，已有 JSON/File 仍可覆盖；② local/未来其他 profile 不误用 PRE 账号；③ CI 不再要求运维配置凭据，只要求 Node.js 20+ 与现有 Rust/Cargo；④ Node 凭据选择断言、credential Rust test、GitLab CI lint 与 `git diff --check` 通过；⑤ 只提交脚本/CI/SESSION，不纳入当前 helix-im 用户改动与未跟踪产物 | 赌注 中 | 可逆 是 | @2026-09-04T10:01:00+0800
 
 ✅ DONE 本机观测接线独立批次：Host 有界窗口与采集缺口、实际群批次贯穿 Persist、HTTP/WS 关联头、Native 实际OTLP；Host 7项、客户端候选24项、三端check与Web wasm通过。真实在线/离线与跨进程Trace见 docs/Metrics/生产接线本机联调证据-2026-09-07.json。正式客户端依赖与PRE部署仍待后续收尾。
+# 0907 Markdown 输入、渲染与搜索
+
+run_id=0907-message-markdown；分支 codex/0907-message-markdown；基线 9bcba4dc；保留原仓未提交内容，不自动合并、发布或提版。
+
+🎯 EXPECT Markdown 原文在输入发送、wire、SQLite 读回与投影保持一致；HTML 字面量不作为 DOM 执行；消息正文和搜索摘要可读；普通文本继续使用现有精确高度，Markdown 使用自然测量。预计修改输入组件、文本 Renderer、高度策略、搜索摘要/高亮，Helix send_build 与隔离存储测试；不改 Go 权威搜索算法。赌注 中；可逆 是。
+
+测试边界来自用户明确要求：输入公开事件/回填、Angular DOM、Helix 组包和 Tick/Effect、真实隔离 SQLite Storage 读回、搜索 HTTP 透传和搜索结果高亮。每个切片先红后绿。真实 Go/Native 证据须另记，focused 不替代真实链。
+
+Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message原文不变；发送组包37例、全局搜索读回16例、真实文件SQLite关闭重开1例通过。client四crate本地patch编译通过。来源、输入/渲染/搜索合同和未验收项见配对client worktree packages/message/docs/Markdown输入渲染与搜索.md。当前worktree codex/0907-message-markdown@9bcba4dc，未提交、未提版、未发布。
+
+## 2026-09-07 Markdown 所见即所得图文合同补充
+
+- Angular 编辑器正文保持 Markdown；RICH 使用 `props.richText = { version: 1, markdown }` 保存图文顺序，图片通过 `cses-media:<files index>` 关联稳定附件。Helix 校验版本、长度、引用范围，拒绝本地 blob/file 图片地址。
+- RICH 摘要从正文提取可见文字，原始格式和布局保留到 props；没有新增 SQLite schema。
+- TDD：非法引用用例红绿通过；发送构建 38 项、搜索 relay 16 项通过。SQLite 集成 2 项覆盖 TEXT 与 RICH 的 Command、持久化、关闭重开和原文/布局/附件 ID 读回。
+- 实际登录态 Native 发送、远端 Go/ES 索引未验收；跨重启未发送图片草稿仍不支持，不能用本地测试替代这些证据。未提交、推送或发布。

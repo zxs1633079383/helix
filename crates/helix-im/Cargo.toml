@@ -22,6 +22,8 @@ bytes       = { workspace = true }
 inventory   = "0.3"
 tracing     = { workspace = true }
 sha2        = "0.10"
+# 纯 CommonMark 解析，不引入平台、I/O 或 HTML 渲染依赖。
+pulldown-cmark = { version = "0.13", default-features = false }
 
 [dev-dependencies]
 proptest = "1"

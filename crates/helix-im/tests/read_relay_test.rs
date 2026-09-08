@@ -761,3 +761,72 @@ fn is_read_marks_read_family_only() {
     // 未认领命令 → 非读（不 panic）。
     assert!(!commands::is_read("not_a_command"));
 }
+
+/// 聚合搜索必须走读回 correlation，并把 Go 三段结果作为权威 JSON 原样交付。
+#[test]
+fn markdown_search_preserves_literal_query_and_authority() {
+    assert!(commands::is_read("im_search_do"), "聚合搜索必须为读族");
+    let mut h = Harness::new(&[]);
+    h.step(
+        outbound_cmd(
+            "im_search_do",
+            serde_json::json!({
+                "req_id": "search-do-1",
+                "keyword": "Vec<T> + [x]",
+                "user_cursor": "user-opaque-1",
+                "channel_cursor": "channel-opaque-1",
+                "message_group_cursor": "message-opaque-1",
+                "page_size": 20
+            }),
+        ),
+        1000,
+    );
+    let (corr, wire_body) = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, req } => Some((
+                corr.raw(),
+                serde_json::from_slice::<serde_json::Value>(
+                    req.body.as_ref().expect("search/do 必须有 JSON body"),
+                )
+                .expect("search/do wire body 必须是合法 JSON"),
+            )),
+            _ => None,
+        })
+        .expect("search/do 必须产生 HTTP");
+    assert_eq!(
+        wire_body,
+        serde_json::json!({
+            "keyword": "Vec<T> + [x]",
+            "userCursor": "user-opaque-1",
+            "channelCursor": "channel-opaque-1",
+            "messageGroupCursor": "message-opaque-1",
+            "pageSize": 20
+        })
+    );
+
+    let authority = serde_json::json!({
+        "users": { "items": [{ "id": "u1" }], "nextCursor": null, "hasMore": false },
+        "channels": { "items": [{ "id": "c1" }], "nextCursor": null, "hasMore": false },
+        "posts": {
+            "groups": [{ "channel": { "id": "c1" }, "items": [{ "id": "p1", "message": "**Rust** 与 `Vec<T>`", "highlight": "**Rust** 与 `<em>Vec&lt;T&gt;</em>`" }] }],
+            "nextCursor": "post-next",
+            "hasMore": true
+        }
+    });
+    h.step(
+        port_reply_with_body(
+            corr,
+            enveloped(bytes::Bytes::from(
+                serde_json::to_vec(&authority).expect("静态三段结果必须可序列化"),
+            )),
+        ),
+        1001,
+    );
+    let result = emit_json(&h.sink).expect("search/do HTTP Ok 必须回灌");
+    assert_eq!(result["event"], "im:read:result");
+    assert_eq!(result["data"]["req_id"], "search-do-1");
+    assert_eq!(result["data"]["body"], authority);
+}

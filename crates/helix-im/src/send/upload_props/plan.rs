@@ -68,8 +68,50 @@ pub fn build_upload_plan(
     })
 }
 
+/// 校验版本化图文布局，附件索引在上传前后都绑定同一有序数组。
+fn validate_rich_markdown(props: &Value) -> Result<(), ImError> {
+    let Some(rich) = props.get("richText") else {
+        return Ok(());
+    };
+    if rich.get("version").and_then(Value::as_u64) != Some(1) {
+        return Err(ImError::Parse("unsupported richText version".into()));
+    }
+    let source = rich
+        .get("markdown")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ImError::Parse("richText.markdown must be string".into()))?;
+    if source.len() > 32_000 {
+        return Err(ImError::Parse("richText.markdown exceeds limit".into()));
+    }
+    let count = props
+        .get("files")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    for event in pulldown_cmark::Parser::new(source) {
+        if let pulldown_cmark::Event::Start(pulldown_cmark::Tag::Image { dest_url, .. }) = event {
+            if let Some(index) = dest_url.strip_prefix("cses-media:") {
+                if index.is_empty()
+                    || !index.bytes().all(|byte| byte.is_ascii_digit())
+                    || index.parse::<usize>().map_or(true, |index| index >= count)
+                {
+                    return Err(ImError::Parse(
+                        "richText media index is out of range".into(),
+                    ));
+                }
+            } else if dest_url.starts_with("blob:") || dest_url.starts_with("file:") {
+                return Err(ImError::Parse(
+                    "richText must not contain local resource URLs".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// 线性扫描富媒体项；正式 RICH 接受图片和视频，旧 IMAGE 输入只作为同义入站处理。
 fn build_rich_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
+    validate_rich_markdown(props)?;
     if props.get("file").is_some() {
         return Err(ImError::Parse(
             "rich message must not contain props.file".to_string(),
@@ -645,5 +687,17 @@ mod tests {
         )
         .expect_err("eleven images must fail closed");
         assert!(error.to_string().contains("at most 10"));
+    }
+    /// 图文引用按附件数组校验，禁止保存悬空索引或未知版本。
+    #[test]
+    fn rich_markdown_rejects_invalid_references() {
+        let props = json!({"imagePosition":"bottom", "files":[{"mediaInput":{"localPath":"/tmp/a.png","fileName":"a.png","contentType":"image/png","size":3,"sha256":VALID_SHA256}}], "richText":{"version":1,"markdown":"前文 ![图](cses-media:9) 后文"}});
+        assert!(build_upload_plan("RICH", "前文 后文", props.clone()).is_err());
+        let mut valid = props.clone();
+        valid["richText"]["markdown"] = json!("前文 ![图](cses-media:0) 后文");
+        let plan = build_upload_plan("RICH", "前文 后文", valid.clone()).unwrap();
+        assert_eq!(plan.props["richText"], valid["richText"]);
+        valid["richText"]["version"] = json!(2);
+        assert!(build_upload_plan("RICH", "前文 后文", valid).is_err());
     }
 }

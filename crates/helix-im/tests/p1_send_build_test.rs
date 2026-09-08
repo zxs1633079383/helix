@@ -730,3 +730,48 @@ fn send_timeout_marks_unsend_when_no_echo() {
 fn sid(n: u64) -> String {
     server_id(n).as_str().to_string()
 }
+
+/// Markdown 原文用于发送/落库；摘要只包含用户可见文本。
+#[test]
+fn markdown_body_preserves_source_and_summarizes_visible_text() {
+    let source = "# 标题\n\n**重点** 和 [链接](https://example.com)\n\n```html\n  <button>按钮</button>\n```";
+    let body = build_message_object(&base_input(source, 1700)).unwrap();
+    assert_eq!(body["message"], source);
+    assert_eq!(
+        body["simpleMessage"],
+        "标题 重点 和 链接 <button>按钮</button>"
+    );
+}
+
+/// @所有人的文本模板同样保存原文，并派生可读摘要。
+#[test]
+fn markdown_text_template_preserves_source_and_summary() {
+    let source = "@所有人 **重点** `Vec<T>`";
+    let mut input = base_input(source, 1700);
+    input.msg_type = "TEMPLATE";
+    input.props = json!({ "template": { "type": "TEXT", "text": source } });
+    let body = build_message_object(&input).unwrap();
+    assert_eq!(body["message"], source);
+    assert_eq!(body["props"]["template"]["text"], source);
+    assert_eq!(body["simpleMessage"], "@所有人 重点 Vec<T>");
+}
+
+/// 只有分隔线的有效 Markdown 仍保留非空会话摘要。
+#[test]
+fn markdown_rule_has_nonempty_summary() {
+    let body = build_message_object(&base_input("---", 1700)).unwrap();
+    assert_eq!(body["message"], "---");
+    assert_eq!(body["simpleMessage"], "[消息]");
+}
+
+/// 图文顺序独立于上传 URL，摘要按可见 Markdown 文字派生。
+#[test]
+fn rich_markdown_preserves_layout_and_visible_summary() {
+    let mut input = base_input("**前文** 后文", 1700);
+    input.msg_type = "RICH";
+    input.props = json!({"imagePosition":"bottom", "files":[{"contentType":"image/png"}], "richText":{"version":1,"markdown":"**前文** ![图](cses-media:0) 后文"}});
+    let body = build_message_object(&input).unwrap();
+    assert_eq!(body["props"]["richText"], input.props["richText"]);
+    assert_eq!(body["message"], "**前文** 后文");
+    assert_eq!(body["simpleMessage"], "[媒体]前文 后文");
+}

@@ -324,7 +324,22 @@ fn has_non_empty_str(object: &Map<String, Value>, key: &str) -> bool {
         .is_some_and(|value| !value.is_empty())
 }
 
+/// 从原文派生摘要，绝不覆盖消息正文或改变搜索索引输入。
 fn simple_message(msg_type: &str, message: &str, props: &Value) -> String {
+    let visible_text;
+    let message = if matches!(msg_type, "TEXT" | "RICH" | "IMAGE")
+        || (msg_type == "TEMPLATE"
+            && props.pointer("/template/type").and_then(Value::as_str) == Some("TEXT"))
+    {
+        visible_text = markdown_text(message);
+        if visible_text.is_empty() {
+            "[消息]"
+        } else {
+            visible_text.as_str()
+        }
+    } else {
+        message
+    };
     let (prefix, content) = match msg_type {
         "RICH" | "IMAGE" => ("[媒体]", message),
         "FILE" => (
@@ -573,4 +588,32 @@ fn parse_replied_snapshot(snapshot: &Value) -> Option<RepliedSnapshot> {
             })
             .unwrap_or_default(),
     })
+}
+
+/// O(n) 提取 CommonMark 可见文本；代码/HTML 保留字面量，块边界折叠为单个空格。
+fn markdown_text(source: &str) -> String {
+    use pulldown_cmark::{Event, Options, Parser, TagEnd};
+    let options =
+        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let mut text = String::with_capacity(source.len());
+    for event in Parser::new_ext(source, options) {
+        match event {
+            Event::Text(value)
+            | Event::Code(value)
+            | Event::Html(value)
+            | Event::InlineHtml(value) => text.push_str(&value),
+            Event::SoftBreak | Event::HardBreak | Event::Rule => text.push(' '),
+            Event::End(
+                TagEnd::Paragraph
+                | TagEnd::Heading(_)
+                | TagEnd::CodeBlock
+                | TagEnd::Item
+                | TagEnd::TableCell
+                | TagEnd::TableRow,
+            ) => text.push(' '),
+            Event::TaskListMarker(checked) => text.push_str(if checked { "[x] " } else { "[ ] " }),
+            _ => {}
+        }
+    }
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }

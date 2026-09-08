@@ -772,7 +772,7 @@ fn retry_send_falls_back_from_temporary_id_to_server_id_lookup() {
 
 #[test]
 /// 证明超时持久化只触发一次，重复 timer 不会重复失败写入。
-fn send_echo_reconcile_cancels_timer() {
+fn duplicate_timeout_does_not_repeat_failed_persist() {
     let mut h = Harness::new(&[1]);
     let initial_effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
     let effects = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
@@ -787,12 +787,7 @@ fn send_echo_reconcile_cancels_timer() {
         })
         .expect("timeout timer");
 
-    // 模拟 echo 通过 inbound_event 不太直接（需要 parser 支持 temporary_id 字段）
-    // 此处用 PendingSend.reconcile 路径通过直接触发验证
-    // （echo 字段解析是后续 Phase 工作，此处验证 reconcile 的 Effect 形状）
-    //
-    // 通过调用 handle_echo 等效路径验证（需要直接触发）：
-    // 我们通过 timer_tick 模拟超时先到，再验证幂等（已 Sent 的忽略）
+    // 此测试仅覆盖重复超时；真实回声由 self_echo_with_channel_gap_* 回放。
     let timeout_effects = h.step(timer_tick(timeout_timer), 16_001);
     assert!(
         timeout_effects
@@ -1049,4 +1044,115 @@ fn identity_change_discards_deferred_send_readback() {
         effects.is_empty(),
         "old actor must not send or publish into the new session"
     );
+}
+
+/// 自端回声已经确认发送，缺少前序频道事件不能让发送终态永久依赖 gate 补齐。
+#[test]
+fn self_echo_with_channel_gap_delivers_durable_send_terminal() {
+    let mut h = Harness::new_with_identity(&[1], "user_1", "company", "", "", "");
+    let initial = h.step(send_message_cmd(1, "tmp-2", "message-2"), 1000);
+    let sending = acknowledge_optimistic_persist(&mut h, &initial, 1001);
+    let timer = sending
+        .iter()
+        .find_map(|e| match e {
+            EffectKind::ScheduleTimer(id) => Some(*id),
+            _ => None,
+        })
+        .unwrap();
+    let echo = h.step(inbound_event(1, 2, 1), 1002);
+    assert!(echo.contains(&EffectKind::CancelTimer(timer)));
+    assert_eq!(h.module.pending_send_count(), 0);
+    assert_eq!(h.module.cursor_for(channel_id(1)), Some(0));
+    assert!(
+        !echo.contains(&EffectKind::Emit),
+        "durable terminal waits for its persist"
+    );
+    let terminal = h.step(port_reply_ok(p1_corr(&echo)), 1003);
+    assert!(terminal.contains(&EffectKind::Emit), "timer cancellation must have an independent durable terminal continuation, even while seq=1 is missing");
+    assert_eq!(
+        h.module.cursor_for(channel_id(1)),
+        Some(0),
+        "send acknowledgement must not advance the channel cursor"
+    );
+}
+
+/// 生成本端权威回声；不通过内部状态捷径模拟网络输入。
+fn send_echo_frame(channel: u64, temporary_id: &str) -> helix_core::Tick {
+    let frame = serde_json::json!({"action":"post","data":{
+        "id":sid(channel),"temporaryId":temporary_id,"channelId":cid(channel),
+        "event_seq":2,"userId":"user_1","type":"TEXT","message":"confirmed","createAt":1000
+    }});
+    helix_core::Tick::Inbound(helix_core::tick::InboundBytes(
+        serde_json::to_vec(&frame).unwrap().into(),
+    ))
+}
+
+/// 多频道确认逆序交付时，每条发送独立释放终态，重复回声/回执/超时均不重复结算。
+#[test]
+fn concurrent_gap_echo_terminals_are_independent_and_idempotent() {
+    let channels: Vec<u64> = (1..=256).collect();
+    let mut h = Harness::new_with_identity(&channels, "user_1", "company", "", "", "");
+    let mut sends = Vec::new();
+    for channel in channels {
+        let temporary_id = format!("concurrent-{channel}");
+        let initial = h.step(send_message_cmd(channel, &temporary_id, "confirmed"), 1000);
+        let sending = acknowledge_optimistic_persist(&mut h, &initial, 1001);
+        let timer = sending
+            .iter()
+            .find_map(|e| match e {
+                EffectKind::ScheduleTimer(id) => Some(*id),
+                _ => None,
+            })
+            .unwrap();
+        sends.push((channel, temporary_id, timer));
+    }
+    for (channel, temporary_id, timer) in sends.into_iter().rev() {
+        let echo = h.step(send_echo_frame(channel, &temporary_id), 1002);
+        assert!(echo.contains(&EffectKind::CancelTimer(timer)));
+        let corr = p1_corr(&echo);
+        h.step(port_reply_ok(corr), 1003);
+        let emitted = emit_jsons(&h.sink);
+        assert_eq!(
+            emitted
+                .iter()
+                .filter(|v| v["event"] == "im:post:sent"
+                    && v["data"]["temporaryId"] == temporary_id
+                    && v["data"]["sendStatus"] == "sent")
+                .count(),
+            1
+        );
+        assert!(!h
+            .step(port_reply_ok(corr), 1004)
+            .contains(&EffectKind::Emit));
+        assert!(!h.step(timer_tick(timer), 16002).contains(&EffectKind::Emit));
+        assert!(!h
+            .step(send_echo_frame(channel, &temporary_id), 16003)
+            .contains(&EffectKind::Emit));
+        assert_eq!(h.module.cursor_for(channel_id(channel)), Some(0));
+    }
+    assert_eq!(h.module.pending_send_count(), 0);
+}
+
+/// 发送确认存储失败时不得发布伪造的 durable sent；失败不能被算作成功验收。
+#[test]
+fn gap_echo_persist_error_never_emits_sent() {
+    let mut h = Harness::new_with_identity(&[1], "user_1", "company", "", "", "");
+    let initial = h.step(send_message_cmd(1, "tmp-2", "hello"), 1000);
+    acknowledge_optimistic_persist(&mut h, &initial, 1001);
+    let echo = h.step(inbound_event(1, 2, 1), 1002);
+    h.step(port_reply_err(p1_corr(&echo)), 1003);
+    assert!(!emit_jsons(&h.sink)
+        .iter()
+        .any(|v| v["event"] == "im:post:sent"));
+}
+
+/// 只读取真实 Module 产出的事件 bytes，不在测试中构造期望业务投影。
+fn emit_jsons(sink: &helix_core::EffectSink) -> Vec<Value> {
+    sink.as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Emit { event } => Some(serde_json::from_slice(&event.0).expect("valid event")),
+            _ => None,
+        })
+        .collect()
 }

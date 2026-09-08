@@ -55,7 +55,7 @@ impl WsMessageHandler for PostHandler {
         let echo_tmp_id = ev.fields.temporary_id.clone();
         let echo_server_id = ServerId::from_str(ev.fields.id.as_str());
         let is_echo = is_echo_frame(ctx, &echo_tmp_id, &ev, frame);
-        reconcile_post_echo(ctx, &echo_tmp_id, echo_server_id, out);
+        reconcile_post_echo(ctx, &echo_tmp_id, echo_server_id, out)?;
 
         // S3 path3：未读 +1 决策（未读自增 SQL + lastPost 组）。**⑤ 修复（gate 单一发出点）**：
         // 决策在此用「原始帧 + auth + 完整 echo 判定」算定后 attach 到 envelope，由 gate 在

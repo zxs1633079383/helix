@@ -720,6 +720,21 @@ impl ImModule {
                     out,
                 )?;
             }
+            CorrelationContext::AuthoritativeSendTerminalPersist {
+                temporary_id,
+                terminal_event,
+            } => {
+                // corr已由统一dispatcher取走；重复/迟到回报不能再次释放终态。
+                match outcome {
+                    PortOutcome::Ok(_) => out.push(helix_core::Effect::Emit {
+                        event: helix_core::effect::DomainEventBytes(terminal_event),
+                    }),
+                    PortOutcome::Err(error) => tracing::warn!(
+                        tmp_id = temporary_id.0.as_str(), error = ?error,
+                        "authoritative send terminal persist failed; suppress received"
+                    ),
+                }
+            }
             CorrelationContext::AuthoritativeSendReconcilePersist { temporary_id } => {
                 if let PortOutcome::Err(error) = outcome {
                     tracing::warn!(

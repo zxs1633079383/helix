@@ -1,3 +1,10 @@
+⚠️ 发布BLOCKED：本轮G02C修复后PRE83/83，完整门禁Native113/113；旧Phase1 localhost:8066前置失败，改PRE诊断另有G01K/G02B两项独立失败。遵守无关失败停止扩张规则，诊断改动已撤销，未绕过hook；push失败、MR未创建。详见0907-PRE四项验收复核与修复报告。
+✅ DONE G02C后续根因修复：HTTPauthority原先提前发sent，晚WS已被cursor去重；改为窄写集PersistOk后received。403个lib、6个G02C focused、满队列observer关闭回归和最终PRE83/83（53.195秒）通过。正常pre-push结果另记MR，不绕过hook、不自动合并。
+✅ DONE PRE验收设施独立批次：统一有界观察预算，失败分类/关联/清理证据及pin原始WS断言；聚焦3/3、固定远端基线PRE82/83，G10E/G05F/G05G通过。G02C已落库sent却无匹配received，当时业务修复仍PARTIAL，未创建MR。
+⚡ DRIFT-PRED 起始本地基线83/83未在远端基线上保持；G02C重复超时，提前独立订阅终态仍失败，撤销该假设改动。禁止把观察设施修复称为生产根因闭环。
+🎯 EXPECT 修复PRE四Gate失败：定位重试/置顶seed终态和notify重开回读；保持现有业务断言，聚焦红绿与PRE --all验证；仅在独立worktree提交并提MR，不纳入主仓脏文件 | 赌注 中 | 可逆 是 | @2026-09-07T17:32:36.969089
+分支：codex/0907-pre-four-gates；基线 a288f7ae；目标 reactor/MessageV3-helix；无自动删除
+
 🎯 EXPECT 将用户明确授权的 PRE 测试账号池内置到 real-chain 配置；可证伪断言：① `--env pre` 在无凭据变量时自动注入 16 个测试账号且不打印密码，已有 JSON/File 仍可覆盖；② local/未来其他 profile 不误用 PRE 账号；③ CI 不再要求运维配置凭据，只要求 Node.js 20+ 与现有 Rust/Cargo；④ Node 凭据选择断言、83 Gate dry-run、GitLab CI lint 与 `git diff --check` 通过；⑤ 只提交脚本/CI/SESSION，不纳入当前 helix-im 用户改动与未跟踪产物 | 赌注 中 | 可逆 是 | @2026-09-04T10:01:00+0800
 
 🎯 EXPECT 本轮只修改 CI 与诊断脚本；所有作业 timeout=6m，诊断前置逐项限时且失败退出，Cargo 超时后终止进程组；不修改 Rust 业务代码 | 赌注 中 | 可逆 是 | @2026-09-07

@@ -272,6 +272,18 @@ pub(crate) struct RawWs {
 const MAX_PENDING_WS_FRAMES: usize = 256;
 
 impl RawWs {
+    /// 先释放不再消费的观察队列，避免关闭的Disconnected被满队列反压。
+    async fn close(self) -> Result<(), String> {
+        let Self {
+            transport,
+            ticks,
+            pending,
+        } = self;
+        drop(ticks);
+        drop(pending);
+        close_send_transport(transport, "Go observer WS").await
+    }
+
     /// 从缓存帧中取出当前等待器可消费的第一帧，保留跨 action 的乱序广播。
     fn take_pending<F>(&mut self, actions: &[&str], predicate: &F) -> Option<Value>
     where
@@ -746,6 +758,7 @@ async fn close_send_transport(transport: Arc<NativeTransport>, label: &str) -> R
                 "closed connection",
                 "connection is closed",
                 "already closed",
+                "Sending after closing is not allowed",
                 "disconnected",
             ]
             .iter()
@@ -831,7 +844,7 @@ impl SendCleanup {
             }
         }
         if let Some(observer) = self.observer.take() {
-            if let Err(error) = close_send_transport(observer.transport, "Go observer WS").await {
+            if let Err(error) = observer.close().await {
                 errors.push(error);
             }
         }
@@ -868,6 +881,27 @@ async fn finish_send_cleanup<T>(
         (Err(error), Err(cleanup_error)) => {
             Err(format!("{error}; send cleanup failed: {cleanup_error}"))
         }
+    }
+}
+
+/// 保留首个业务失败并合并两项清理失败；清理未完成时不能发布PASS。
+pub(crate) fn finish_gate_cleanup<T>(
+    result: Result<T, String>,
+    session: Result<(), String>,
+    channel: Result<(), String>,
+) -> Result<T, String> {
+    let mut errors = Vec::new();
+    if let Err(error) = session {
+        errors.push(format!("session cleanup failed: {error}"));
+    }
+    if let Err(error) = channel {
+        errors.push(format!("channel cleanup failed: {error}"));
+    }
+    match (result, errors.is_empty()) {
+        (Ok(value), true) => Ok(value),
+        (Ok(_), false) => Err(errors.join("; ")),
+        (Err(error), true) => Err(error),
+        (Err(error), false) => Err(format!("{error}; {}", errors.join("; "))),
     }
 }
 
@@ -1018,6 +1052,11 @@ async fn phase_resource_pool() -> &'static Mutex<PhaseResourcePool> {
 }
 
 impl RealHelixSession {
+    /// 暴露本轮数据库位置，供关闭失败后的清理核验保留资源身份。
+    pub(crate) fn storage_path(&self) -> &Path {
+        &self.db_path
+    }
+
     /// 判断当前句柄是否只持有 Phase 共享资源的逻辑租约。
     pub(crate) fn is_pooled(&self) -> bool {
         self.pool.is_some()
@@ -1096,7 +1135,14 @@ impl RealHelixSession {
     pub(crate) async fn close_preserving_db(self) -> Result<PathBuf, String> {
         let db_path = self.db_path.clone();
         if let Some(pool) = self.pool {
-            shutdown_pooled_resource_on_phase_runtime(pool).await?;
+            shutdown_pooled_resource_on_phase_runtime(Arc::clone(&pool)).await?;
+            // 重开验收拥有该物理资源；从池移除最后的缓存租约后再交还数据库路径。
+            phase_resource_pool()
+                .await
+                .lock()
+                .await
+                .sessions
+                .retain(|_, resource| !Arc::ptr_eq(resource, &pool));
             return Ok(db_path);
         }
         close_session_parts(
@@ -1152,7 +1198,7 @@ impl WsTap {
     async fn close(self) -> Result<(), String> {
         match self {
             Self::Pooled(session) => session.close().await,
-            Self::Raw(ws) => close_send_transport(ws.transport, "Go observer WS").await,
+            Self::Raw(ws) => ws.close().await,
         }
     }
 }
@@ -1330,6 +1376,11 @@ struct SessionComponents {
     db_path: PathBuf,
 }
 
+/// 为真实链的延迟断言创建有界观察队列；不改变产品 EventSink 默认容量。
+fn new_session_event_sink() -> (NativeEventSink, broadcast::Receiver<DomainEventBytes>) {
+    NativeEventSink::new_with_capacity(PHASE_POOL_EVENT_CAPACITY)
+}
+
 /// 按给定 Go HTTP/WS 端点装配完整 Native 生命周期；业务仍只在 helix-im 内执行。
 async fn start_session_components(
     persona: &Persona,
@@ -1338,11 +1389,7 @@ async fn start_session_components(
     ws_url: &str,
 ) -> Result<SessionComponents, String> {
     let (storage, db_path) = open_test_storage().await?;
-    let (event_sink, events) = if phase_pool_enabled() {
-        NativeEventSink::new_with_capacity(PHASE_POOL_EVENT_CAPACITY)
-    } else {
-        NativeEventSink::new()
-    };
+    let (event_sink, events) = new_session_event_sink();
     let http = go_http_at(persona, http_base, ws_url).await?;
 
     let mut im_config = ImConfig::default();
@@ -2341,7 +2388,7 @@ pub(crate) async fn wait_ws_hello(ws: &mut RawWs) -> Result<Value, String> {
     wait_ws_action(ws, "hello", |_| true, Duration::from_secs(10)).await
 }
 
-/// 等待指定领域事件，并按 data/temporaryId 做精确匹配。
+/// 精确等待领域事件；超时仅保留最近16条事件身份元数据，不记录业务载荷。
 pub(crate) async fn wait_domain_event<F>(
     receiver: &mut broadcast::Receiver<DomainEventBytes>,
     event_name: &str,
@@ -2351,6 +2398,7 @@ pub(crate) async fn wait_domain_event<F>(
 where
     F: Fn(&Value) -> bool,
 {
+    let mut observed = std::collections::VecDeque::with_capacity(16);
     timeout(timeout_duration, async {
         loop {
             let event = receiver
@@ -2359,6 +2407,16 @@ where
                 .map_err(|error| format!("event sink receive error: {error}"))?;
             let envelope: Value = serde_json::from_slice(event.0.as_ref())
                 .map_err(|error| format!("invalid Helix DomainEvent JSON: {error}"))?;
+            if observed.len() == 16 {
+                observed.pop_front();
+            }
+            observed.push_back(json!({
+                "event": envelope.get("event"),
+                "id": envelope.pointer("/data/id"),
+                "temporaryId": envelope.pointer("/data/temporaryId"),
+                "channelId": envelope.pointer("/data/channelId"),
+                "eventSeq": envelope.pointer("/data/eventSeq"),
+            }));
             if envelope.get("event").and_then(Value::as_str) == Some(event_name)
                 && predicate(&envelope)
             {
@@ -2367,7 +2425,9 @@ where
         }
     })
     .await
-    .map_err(|_| format!("timed out waiting Helix event '{event_name}'"))?
+    .map_err(|_| {
+        format!("timed out waiting Helix event '{event_name}'; recent_event_metadata={observed:?}")
+    })?
 }
 
 /// 从 event envelope 的 data 中取一个字符串字段，兼容 snake/camel wire。
@@ -3356,6 +3416,71 @@ async fn close_channel_at(
 }
 
 #[cfg(test)]
+mod gate_observation_regression_tests {
+    use super::*;
+
+    /// 成功业务遇到清理失败仍失败，同时保留业务首因与两个清理错误。
+    #[test]
+    fn cleanup_failure_cannot_publish_pass() {
+        assert!(finish_gate_cleanup(Ok(()), Err("session".into()), Ok(())).is_err());
+        assert!(finish_gate_cleanup(Ok(()), Ok(()), Err("channel".into())).is_err());
+        let error = finish_gate_cleanup::<()>(
+            Err("business".into()),
+            Err("session".into()),
+            Err("channel".into()),
+        )
+        .unwrap_err();
+        assert!(error.starts_with("business;"));
+        assert!(error.contains("session cleanup failed"));
+        assert!(error.contains("channel cleanup failed"));
+    }
+
+    /// 启动恢复突发不能挤掉先到的目标终态，单Gate与整Phase使用同一观察预算。
+    #[tokio::test]
+    async fn recovery_burst_keeps_the_earlier_terminal_event() {
+        let (sink, mut receiver) = new_session_event_sink();
+        let terminal = DomainEventBytes(Bytes::from_static(
+            br#"{"event":"im:post:received","data":{"temporaryId":"target"}}"#,
+        ));
+        sink.emit(terminal.clone());
+        for _ in 0..2048 {
+            sink.emit(DomainEventBytes(Bytes::from_static(
+                br#"{"event":"im:channel:update","data":{}}"#,
+            )));
+        }
+        let observed = wait_domain_event(
+            &mut receiver,
+            "im:post:received",
+            |value| value.pointer("/data/temporaryId").and_then(Value::as_str) == Some("target"),
+            Duration::from_secs(1),
+        )
+        .await
+        .expect("recovery burst must preserve terminal evidence");
+        assert_eq!(observed.0, terminal.0);
+    }
+
+    /// 超预算必须显式失败，禁止跳过Lagged后把剩余终态当作完整证据。
+    #[tokio::test]
+    async fn overflow_still_fails_closed() {
+        let (sink, mut receiver) = NativeEventSink::new_with_capacity(2);
+        for _ in 0..4 {
+            sink.emit(DomainEventBytes(Bytes::from_static(
+                br#"{"event":"im:post:received","data":{}}"#,
+            )));
+        }
+        let error = wait_domain_event(
+            &mut receiver,
+            "im:post:received",
+            |_| true,
+            Duration::from_secs(1),
+        )
+        .await
+        .expect_err("lagged evidence must fail");
+        assert!(error.contains("lagged"));
+    }
+}
+
+#[cfg(test)]
 mod channel_fixture_regression_tests {
     use super::*;
 
@@ -3688,6 +3813,44 @@ mod send_cleanup_regression_tests {
         assert!(!db_path.exists());
         assert!(!PathBuf::from(format!("{}-wal", db_path.display())).exists());
         assert!(!PathBuf::from(format!("{}-shm", db_path.display())).exists());
+    }
+
+    /// 满观察队列也能关闭并回收reader，不能等待无人消费的Disconnected。
+    #[tokio::test]
+    async fn observer_close_releases_full_tick_queue() {
+        use futures_util::StreamExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            while let Some(message) = socket.next().await {
+                if matches!(
+                    message,
+                    Ok(tokio_tungstenite::tungstenite::Message::Close(_))
+                ) {
+                    break;
+                }
+            }
+        });
+        let (tick_tx, ticks) = mpsc::channel(1);
+        let mut transport = NativeTransport::new(&url, TransportId::from_raw(901), Some(tick_tx));
+        let activation = transport.connect().await.unwrap();
+        activation.activate().await.unwrap();
+        assert_eq!(ticks.len(), 1, "Connected must fill the queue before close");
+        let observer = RawWs {
+            transport: Arc::new(transport),
+            ticks,
+            pending: VecDeque::new(),
+        };
+        timeout(Duration::from_secs(2), observer.close())
+            .await
+            .expect("close must not wait for the abandoned observer")
+            .unwrap();
+        timeout(Duration::from_secs(2), server)
+            .await
+            .unwrap()
+            .unwrap();
     }
 
     /// observer 收到迟到业务帧时只保留有界缓存，避免 cleanup 期间无界积压。
@@ -5212,7 +5375,7 @@ pub(crate) async fn assert_retry_send_chain(
                     "error": error,
                 }),
             )?;
-            return Ok(());
+            return Err(error);
         }
     };
     let mut session =
@@ -5236,13 +5399,16 @@ pub(crate) async fn assert_retry_send_chain(
                         "error": error,
                     }),
                 )?;
-                return Ok(());
+                return Err(error);
             }
         };
 
     let marker = resource_name("retry");
     let first_req_id = run_token("retry-first");
     let retry_req_id = run_token("retry-second");
+    let mut attempted_temporary_id = None;
+    let mut stage = "initial_send";
+    let mut retry_ws_metadata = Value::Null;
     let first_result = async {
         helix_driver_native::configure_wdio_fail_next_post_create(true);
         session
@@ -5270,6 +5436,8 @@ pub(crate) async fn assert_retry_send_chain(
             .map_err(|error| format!("{gate} retry sending event JSON failed: {error}"))?;
         let temporary_id = data_string(&sending_json, &["temporaryId", "temporary_id"])
             .ok_or_else(|| format!("{gate} retry sending event has no temporaryId"))?;
+        attempted_temporary_id = Some(temporary_id.clone());
+        stage = "failed_row";
         let failed = session
             .wait_event(
                 "im:post:send-failed",
@@ -5306,6 +5474,7 @@ pub(crate) async fn assert_retry_send_chain(
                 Duration::from_secs(20),
             )
             .await?;
+        stage = "retry_ws_post";
         let retry_frame = session
             .wait_ws_action(
                 "post",
@@ -5318,8 +5487,16 @@ pub(crate) async fn assert_retry_send_chain(
                 Duration::from_secs(25),
             )
             .await?;
-        let received = session
-            .wait_event(
+        retry_ws_metadata = json!({
+            "id": retry_frame.pointer("/data/id"),
+            "temporaryId": retry_frame.pointer("/data/temporaryId"),
+            "channelId": retry_frame.pointer("/data/channelId"),
+            "event_seq": retry_frame.get("event_seq"),
+            "data_event_seq": retry_frame.pointer("/data/event_seq"),
+            "data_seq": retry_frame.pointer("/data/seq"),
+        });
+        stage = "retry_received";
+        let received = session.wait_event(
                 "im:post:received",
                 |envelope| {
                     data_string(envelope, &["temporaryId", "temporary_id"]).as_deref()
@@ -5374,6 +5551,22 @@ pub(crate) async fn assert_retry_send_chain(
     }
     .await;
     helix_driver_native::configure_wdio_fail_next_post_create(false);
+    // 失败快照必须在关闭/删除SQLite之前采集，仅记录状态与关联身份。
+    let failure_storage = if first_result.is_err() {
+        if let Some(temporary_id) = &attempted_temporary_id {
+            match scan_message_row(&session.storage, temporary_id).await {
+                Ok(row) => {
+                    json!({"id": row_text(&row, "id"), "send_status": row_text(&row, "send_status"),
+                    "channel_id": row_text(&row, "channel_id"), "temporary_id": temporary_id})
+                }
+                Err(error) => json!({"error": error}),
+            }
+        } else {
+            Value::Null
+        }
+    } else {
+        Value::Null
+    };
     let session_cleanup = session.close().await;
     let channel_cleanup = close_channel(&context, &channel).await;
     match (first_result, session_cleanup, channel_cleanup) {
@@ -5425,13 +5618,18 @@ pub(crate) async fn assert_retry_send_chain(
                 "NOT_VERIFIED",
                 json!({
                     "reason": "real failed-row/retry attempt did not complete all terminal assertions",
+                    "stage": stage,
+                    "retry_ws_metadata": retry_ws_metadata,
+                    "failure_storage": failure_storage,
+                    "corr_key": attempted_temporary_id,
+                    "cleanup": {"session": "attempted", "channel": "attempted"},
                     "first_failing_layer": "Helix retry state or Go posts/create/WS",
                     "command": "im_send_message → im_retry_send",
                     "go_http": "/api/cses/posts/create",
                     "error": error,
                 }),
             )?;
-            Ok(())
+            Err(error)
         }
     }
 }
@@ -6316,26 +6514,30 @@ pub(crate) async fn assert_post_pin_chain(
     let (_guard, context) = remote_setup().await;
     let channel = create_channel(&context).await?;
     let mut attempted_post_id = None::<String>;
+    let mut stage = "session_setup";
+    let mut attempted_temporary_id = None;
+    let mut session = match start_real_helix_session(&context, &[channel.as_str()]).await {
+        Ok(session) => session,
+        Err(error) => {
+            let cleanup = close_channel(&context, &channel).await;
+            write_gate_evidence(
+                phase,
+                domain,
+                gate,
+                "BLOCKED_PRECONDITION",
+                json!({
+                    "reason": "real Helix session unavailable",
+                    "first_failing_layer": "Helix native transport/auth",
+                    "command": command,
+                    "go_http": endpoint,
+                    "error": error,
+                }),
+            )?;
+            return Err(format!("{error}; channel_cleanup={cleanup:?}"));
+        }
+    };
     let result = async {
-        let mut session = match start_real_helix_session(&context, &[channel.as_str()]).await {
-            Ok(session) => session,
-            Err(error) => {
-                write_gate_evidence(
-                    phase,
-                    domain,
-                    gate,
-                    "BLOCKED_PRECONDITION",
-                    json!({
-                        "reason": "real Helix session unavailable",
-                        "first_failing_layer": "Helix native transport/auth",
-                        "command": command,
-                        "go_http": endpoint,
-                        "error": error,
-                    }),
-                )?;
-                return Ok::<(), String>(());
-            }
-        };
+        stage = "seed_sending";
         session
             .command(
                 "im_send_message",
@@ -6360,6 +6562,8 @@ pub(crate) async fn assert_post_pin_chain(
             .map_err(|error| format!("{gate} sending event JSON failed: {error}"))?;
         let actual_temporary_id = data_string(&sending_json, &["temporaryId", "temporary_id"])
             .ok_or_else(|| format!("{gate} sending event has no temporaryId"))?;
+        attempted_temporary_id = Some(actual_temporary_id.clone());
+        stage = "seed_received";
         let _sending_row = scan_message_row(&session.storage, &actual_temporary_id).await?;
         let received = session
             .wait_event(
@@ -6383,9 +6587,11 @@ pub(crate) async fn assert_post_pin_chain(
             Duration::from_secs(8),
         )
         .await?;
+        stage = "seed_remote_readback";
         // Go 的 post WS 回声先于异步 producer durable commit；pin mutation 必须等远端可读。
         wait_remote_post_visible(&context, &post_id, None, gate).await?;
         // 取消置顶必须先建立同一 post 的置顶状态；Go 对不存在的 pin 是幂等 no-op，不会发 WS。
+        stage = "pin_mutation";
         let (updated_json, props_json, setup_projection) = if expected_pinned {
             session
                 .command(
@@ -6433,14 +6639,18 @@ pub(crate) async fn assert_post_pin_chain(
                 })),
             )
         };
-        // 先关闭 native session，再落 PASS 证据，避免成功证据领先于 engine/WS 清理。
-        session.close().await?;
-        write_gate_evidence(
-            phase,
-            domain,
-            gate,
-            "PASS",
+        stage = "pin_ws_readback";
+        let operation = if expected_pinned { "add" } else { "remove" };
+        let pin_frame = session.wait_ws_action(
+            "post_pin",
+            |frame| frame.pointer("/data/postId").and_then(Value::as_str) == Some(post_id.as_str())
+                && frame.pointer("/data/channelId").and_then(Value::as_str) == Some(channel.as_str())
+                && frame.pointer("/data/operation").and_then(Value::as_str) == Some(operation),
+            Duration::from_secs(20),
+        ).await?;
+        Ok::<Value, String>(
             json!({
+                "ws_frame": pin_frame,
                 "corr_key": actual_temporary_id,
                 "command": command,
                 "go_http": endpoint,
@@ -6459,13 +6669,21 @@ pub(crate) async fn assert_post_pin_chain(
                 "persist_required": true,
                 "sqlite_readback": props_json,
                 "sqlite_required": true,
-                "cleanup": "native session closed before PASS evidence; channel/close attempted by helper"
-            }),
-        )?;
-        Ok(())
+                "cleanup": "session lease and channel cleanup accepted; pooled physical cleanup checked at Phase end"
+            }))
     }
     .await;
-    let _ = close_channel(&context, &channel).await;
+    let session_cleanup = session.close().await;
+    let channel_cleanup = close_channel(&context, &channel).await;
+    let cleanup_evidence = json!({
+        "session": {"ok": session_cleanup.is_ok(), "error": session_cleanup.as_ref().err()},
+        "channel": {"ok": channel_cleanup.is_ok(), "error": channel_cleanup.as_ref().err()},
+        "physical_scope": if phase_pool_enabled() { "Phase cleanup" } else { "Gate cleanup" },
+    });
+    let result = finish_gate_cleanup(result, session_cleanup, channel_cleanup);
+    if let Ok(details) = &result {
+        write_gate_evidence(phase, domain, gate, "PASS", details.clone())?;
+    }
     if let Err(error) = &result {
         let pin_readback = match go_http(&context.actor).await {
             Ok(http) => match request_json(
@@ -6492,7 +6710,11 @@ pub(crate) async fn assert_post_pin_chain(
             "BLOCKED_PRECONDITION",
             json!({
                 "reason": "real post pin chain did not reach terminal projection/storage assertion",
-                "first_failing_layer": "Helix/Go post pin route, WS producer, or local Persist",
+                "stage": stage,
+                "corr_key": attempted_temporary_id,
+                "pin_command_reached": matches!(stage, "pin_mutation" | "pin_ws_readback"),
+                "cleanup": cleanup_evidence,
+                "first_failing_layer": stage,
                 "command": command,
                 "go_http": endpoint,
                 "error": error,
@@ -6500,7 +6722,7 @@ pub(crate) async fn assert_post_pin_chain(
                 "pin_readback": pin_readback,
             }),
         )?;
-        return Ok(());
+        return Err(error.clone());
     }
     Ok(())
 }

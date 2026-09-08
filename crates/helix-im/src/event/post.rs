@@ -26,6 +26,11 @@ pub fn sending_from_local_body(
     user_id: &str,
     body: &Value,
 ) -> Result<MessageV3Event, crate::ImError> {
+    sending(local_send_data(channel_id, temporary_id, user_id, body))
+}
+
+/// 复用已落库发送意图的固定投影字段，避免发送/确认重复序列化或跨层补字段。
+fn local_send_data(channel_id: &str, temporary_id: &str, user_id: &str, body: &Value) -> Value {
     let mut data = serde_json::json!({
         "channelId": channel_id,
         "temporaryId": temporary_id,
@@ -58,7 +63,25 @@ pub fn sending_from_local_body(
             data[key] = serde_json::json!(value);
         }
     }
-    sending(data)
+    data
+}
+
+/// 从已持久化的发送意图和权威 serverId 生成独立发送确认，不声明频道 cursor 已推进。
+pub(crate) fn sent_from_local_body(
+    temporary_id: &str,
+    server_id: &str,
+    user_id: &str,
+    body: &Value,
+) -> Result<MessageV3Event, crate::ImError> {
+    let channel_id = body
+        .get("channelId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| crate::ImError::Parse("sent confirmation missing channelId".to_string()))?;
+    let mut data = local_send_data(channel_id, temporary_id, user_id, body);
+    data["id"] = serde_json::json!(server_id);
+    data["serverId"] = serde_json::json!(server_id);
+    data["sendStatus"] = serde_json::json!("sent");
+    super::encode("im:post:sent", data)
 }
 
 /// 构造服务端已接收消息事实。

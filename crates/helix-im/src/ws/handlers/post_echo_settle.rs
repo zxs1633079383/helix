@@ -73,8 +73,8 @@ pub(super) fn is_echo_frame(
 ///   状态推进到 Sent）。
 /// - 之后从 `pending_sends` + `corr_map`(OptimisticSend) 移除该记录（防泄漏）。
 ///
-/// 普通自发 WS 回声不再注册 timeline latest 回读；同一 `post` handler 会继续完成
-/// MessageV3 原子提交和 `im:post:received` 权威投影，Angular 直接按 temporaryId 替换本地壳。
+/// 普通自发 WS 回声在发送对账 PersistOk 后独立发出 `im:post:sent`，不等待频道缺号补齐。
+/// 同一 `post` handler 仍按 gate 完成原子提交和 `im:post:received`，不额外请求 latest。
 ///
 /// **不推进 cursor**：cursor 已由调用方 `ch.ingest` 推进（HX-C008 单调，避免双推）。
 /// 非 echo（`temporary_id` 空 / 不在 pending_sends / `id` 非合法 26 字符 ServerId）→ no-op，
@@ -84,21 +84,37 @@ pub(super) fn reconcile_post_echo(
     temporary_id: &str,
     server_id: Option<ServerId>,
     out: &mut EffectSink,
-) {
+) -> Result<(), crate::ImError> {
     // 空 temporary_id（他人推送的新消息）→ 非 echo，不动发送态。
     if temporary_id.is_empty() {
-        return;
+        return Ok(());
     }
     // server_id 必须是合法 26 字符 Id26（reconcile 覆写 message.id 必须用合法 server id；
     // 非法/缺失 → 不 reconcile，留待 sync 兜底覆盖）。
     let Some(server_id) = server_id else {
-        return;
+        return Ok(());
     };
     let tmp = TemporaryId(temporary_id.to_string());
     // 仅当命中在途 PendingSend 才对账（先分配 corr 避免双重可变借用）。
     if !ctx.state.pending_sends.contains_key(&tmp) {
-        return;
+        return Ok(());
     }
+    // 编码先于 pending/timer 变更；P1 body 已持久化，sent 只补充权威 id 和发送终态。
+    let terminal_event = ctx
+        .state
+        .pending_sends
+        .get(&tmp)
+        .and_then(|pending| pending.body.as_ref())
+        .map(|body| {
+            crate::event::post::sent_from_local_body(
+                temporary_id,
+                server_id.as_str(),
+                ctx.auth_user_id,
+                body,
+            )
+            .map(|event| event.into_bytes())
+        })
+        .transpose()?;
     let reconcile_corr = ctx.alloc_corr();
     // R4-retain：取出该 send 的 P1 Persist corr（send 时回填），用于 O(1) 清路由。
     let persist_corr = ctx
@@ -125,13 +141,16 @@ pub(super) fn reconcile_post_echo(
     if let Some(timer_id) = authoritative_readback_timer {
         out.push(helix_core::Effect::CancelTimer { id: timer_id });
     }
-    // The regular post handler owns the authoritative MessageV3 projection. This
-    // bookkeeping persist only closes the send reconciliation and must not issue a
-    // second `getLatestPost` request for the same WS echo.
-    ctx.state.corr_map.insert(
-        reconcile_corr,
-        CorrelationContext::AuthoritativeSendReconcilePersist { temporary_id: tmp },
-    );
+    // 发送终态等待自己的 PersistOk；频道 gate 的 received 仍独立等待连续提交。
+    let continuation = match terminal_event {
+        Some(terminal_event) => CorrelationContext::AuthoritativeSendTerminalPersist {
+            temporary_id: tmp,
+            terminal_event: bytes::Bytes::from(terminal_event),
+        },
+        None => CorrelationContext::AuthoritativeSendReconcilePersist { temporary_id: tmp },
+    };
+    ctx.state.corr_map.insert(reconcile_corr, continuation);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -183,7 +202,8 @@ mod tests {
                 temporary_id.0.as_str(),
                 Some(crate::state::test_server_id(41)),
                 &mut sink,
-            );
+            )
+            .expect("echo reconciliation");
         }
 
         let terminal_corr = sink
@@ -233,7 +253,8 @@ mod tests {
                 temporary_id.0.as_str(),
                 Some(crate::state::test_server_id(42)),
                 &mut sink,
-            );
+            )
+            .expect("echo reconciliation");
         }
 
         let terminal_corr = sink

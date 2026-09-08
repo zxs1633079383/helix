@@ -7,6 +7,7 @@ pub const BUS_CHANNEL: &str = "im:__bus__";
 
 pub const PUBLIC_EVENTS: &[&str] = &[
     "im:post:sending",
+    "im:post:sent",
     "im:post:received",
     "im:post:updated",
     "im:post:updates",

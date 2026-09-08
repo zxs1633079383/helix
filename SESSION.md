@@ -1,3 +1,7 @@
+✅ DONE Helix 0.1.13 四包 dry-run、上传和 registry 解析通过，八包 cargo check 通过，发布前 helix-im 1437 测试通过；客户端升级继续执行。
+
+🎯 EXPECT 发布 Helix 0.1.13 并更新客户端 registry 精确依赖；发送终态独立投递定向回归及 PRE Native 两项通过，真实 WebView 本轮未复现，历史根因与存储失败恢复边界仍保留。详见 docs/0908-发送终态独立投递与验证.md。
+
 ✅ DONE 发布 Helix 0.1.12：四公共 crate dry-run、上传及 registry 解析通过；完整八包 check 通过，包含发送衔接修复 10fc4000。客户端精确依赖、monorepo 合并及 yarn start 验证正在交付；三仓统一 Tag 0908-1617-basic-message 待绑定最终提交。
 
 ✅ DONE 源码修复：查询代际与 WS 断线不再吞掉已落库发送衔接，身份切换仍撤销旧回包。18 项发送、1,434 项 IM 全量、3 项 release 承压及 PRE 真链 G01A/G02C 2/2 通过；未发布新 crate/客户端，未验收 Angular 感叹号及网络容量。详见 docs/0908-发送衔接竞态修复与验证.md。

@@ -289,3 +289,58 @@ fn persist_failure_suppresses_terminal_projection() {
         .iter()
         .any(|effect| matches!(effect, Effect::Emit { .. })));
 }
+
+/// 配额拒绝必须保留请求关联和Go文案，重复回包不能重复提示或产生持久化。
+#[test]
+fn quota_rejection_emits_correlated_failure_once() {
+    let mut harness = Harness::new_with_identity(&[], ACTOR_ID, "company-phase1", "", "", "");
+    harness.step(create_command(), NOW_MS);
+    let corr = correlation_of(harness.sink.as_slice(), "http");
+    let body=enveloped(Bytes::from(serde_json::to_vec(&json!({"status":"failed","message":"同一用户在每个公司最多只能创建 200 个未关闭的群聊"})).unwrap()));
+    harness.step(port_reply_with_body(corr, body.clone()), NOW_MS + 1);
+    let failure = emitted_event(harness.sink.as_slice(), "im:channel:create-failed");
+    assert_eq!(
+        failure["data"],
+        json!({"requestId":"req-mv3-g08a-001","reason":"business_rejected","message":"同一用户在每个公司最多只能创建 200 个未关闭的群聊"})
+    );
+    assert!(harness
+        .sink
+        .as_slice()
+        .iter()
+        .all(|effect| matches!(effect, Effect::Emit { .. })));
+    assert_eq!(harness.sink.as_slice().len(), 1);
+    assert!(harness
+        .step(port_reply_with_body(corr, body), NOW_MS + 2)
+        .is_empty());
+}
+
+/// 端口失败与畸形HTTP回包必须有可消费失败终态，不能污染成功持久化链。
+#[test]
+fn create_transport_and_invalid_reply_fail_closed_once() {
+    for transport in [true, false] {
+        let mut harness = Harness::new_with_identity(&[], ACTOR_ID, "company-phase1", "", "", "");
+        harness.step(create_command(), NOW_MS);
+        let corr = correlation_of(harness.sink.as_slice(), "http");
+        let reply = if transport {
+            port_reply_err(corr)
+        } else {
+            port_reply_with_body(corr, enveloped(Bytes::from_static(b"{invalid")))
+        };
+        harness.step(reply, NOW_MS + 1);
+        let failure = emitted_event(harness.sink.as_slice(), "im:channel:create-failed");
+        assert_eq!(
+            failure["data"]["reason"],
+            if transport {
+                "transport_failed"
+            } else {
+                "invalid_response"
+            }
+        );
+        assert!(harness
+            .sink
+            .as_slice()
+            .iter()
+            .all(|effect| matches!(effect, Effect::Emit { .. })));
+        assert!(harness.step(port_reply_err(corr), NOW_MS + 2).is_empty());
+    }
+}

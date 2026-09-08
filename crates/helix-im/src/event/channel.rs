@@ -8,6 +8,18 @@ pub fn created(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:channel:created", data)
 }
 
+/// 表达建群命令的失败结果；仅请求关联和authority错误，不含伪频道事实。
+pub fn create_failed(
+    request_id: &str,
+    reason: &str,
+    message: &str,
+) -> Result<MessageV3Event, crate::ImError> {
+    super::encode(
+        "im:channel:create-failed",
+        serde_json::json!({"requestId":request_id,"reason":reason,"message":message}),
+    )
+}
+
 /// 构造频道 roster 权威快照。
 pub fn members(data: Value) -> Result<MessageV3Event, crate::ImError> {
     super::encode("im:channel:members", data)

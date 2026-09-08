@@ -33,6 +33,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:channel:update",
     "im:sync:state",
     "im:channel:created",
+    "im:channel:create-failed",
     "im:channel:closed",
     "im:channel:schedule-created",
     "im:channel:schedule-canceled",

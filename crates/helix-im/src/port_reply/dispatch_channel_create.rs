@@ -43,7 +43,13 @@ impl ImModule {
             PortOutcome::Err(error) => {
                 tracing::warn!(
                     error = ?error,
-                    "channel create http failed; waiting for authoritative retry or websocket projection"
+                    "channel create http failed"
+                );
+                emit_create_failure(
+                    request_id.as_deref(),
+                    "transport_failed",
+                    "创建群聊结果未确认，请稍后查看群列表",
+                    out,
                 );
                 return;
             }
@@ -51,7 +57,11 @@ impl ImModule {
         let mut channel = match decode_created_channel(reply) {
             Ok(channel) => channel,
             Err(error) => {
-                tracing::warn!(error = ?error, "channel create http reply cannot build projection");
+                tracing::warn!(
+                    reason = error.reason,
+                    "channel create http reply cannot build projection"
+                );
+                emit_create_failure(request_id.as_deref(), error.reason, &error.message, out);
                 return;
             }
         };
@@ -258,26 +268,73 @@ fn build_message_v3_members(member_rows: &[serde_json::Value]) -> Vec<serde_json
     members
 }
 
-/// 解包并校验 channel/create 的 SUCCESS 权威对象。
-fn decode_created_channel(reply: &ReplyBytes) -> Result<serde_json::Value, ImError> {
-    let raw = crate::http_envelope::unwrap_sync_envelope(reply.0.as_ref())?;
-    let response: serde_json::Value = serde_json::from_slice(&raw)
-        .map_err(|error| ImError::Parse(format!("channel create response parse error: {error}")))?;
+/// 建群失败保留业务文案与稳定原因，不把诊断前缀展示给用户。
+#[derive(Debug)]
+struct CreateReplyFailure {
+    reason: &'static str,
+    message: String,
+}
 
+/// 未确认结果不宣称远端未创建，避免诱导用户重复建群。
+fn invalid_create_reply(_: impl std::fmt::Display) -> CreateReplyFailure {
+    CreateReplyFailure {
+        reason: "invalid_response",
+        message: "创建群聊响应异常，请稍后查看群列表".to_string(),
+    }
+}
+
+/// 失败事件只回到持有requestId的调用窗口，不制造频道或持久化成功。
+fn emit_create_failure(
+    request_id: Option<&str>,
+    reason: &'static str,
+    message: &str,
+    out: &mut EffectSink,
+) {
+    let Some(request_id) = request_id.filter(|id| !id.is_empty()) else {
+        return;
+    };
+    match crate::event::channel::create_failed(request_id, reason, message) {
+        Ok(event) => out.push(event.into_effect()),
+        Err(error) => tracing::warn!(?error, "channel create failure event encoding failed"),
+    }
+}
+
+/// 解包并校验channel/create权威对象，完整保留Go的业务拒绝文案。
+fn decode_created_channel(reply: &ReplyBytes) -> Result<serde_json::Value, CreateReplyFailure> {
+    let raw = crate::http_envelope::unwrap_sync_envelope(reply.0.as_ref())
+        .map_err(invalid_create_reply)?;
+    let response: serde_json::Value = serde_json::from_slice(&raw).map_err(invalid_create_reply)?;
     if let Some(status) = response.get("status").and_then(serde_json::Value::as_str) {
         if !status.eq_ignore_ascii_case("SUCCESS") {
-            return Err(ImError::Parse(format!(
-                "channel create response status is {status}"
-            )));
+            return Err(CreateReplyFailure {
+                reason: "business_rejected",
+                message: response
+                    .get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or("创建群聊失败")
+                    .to_string(),
+            });
         }
     }
-
-    if response.get("status").is_some() {
-        return response.get("data").cloned().ok_or_else(|| {
-            ImError::Parse("channel create response missing object `data`".to_string())
-        });
+    let channel = if response.get("status").is_some() {
+        response
+            .get("data")
+            .cloned()
+            .ok_or_else(|| invalid_create_reply("missing data"))?
+    } else {
+        response
+    };
+    if !channel.is_object()
+        || channel
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(ChannelId::from_str)
+            .is_none()
+    {
+        return Err(invalid_create_reply("invalid channel"));
     }
-    Ok(response)
+    Ok(channel)
 }
 
 #[cfg(test)]

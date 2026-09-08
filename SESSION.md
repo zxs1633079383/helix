@@ -1,3 +1,5 @@
+✅ DONE 0.1.11 跨仓发布交付：四包 crates.io 发布成功，发布提交 5ba66ba9 与注释 Tag helix-v-0.1.11 已推送；客户端 884857a04a 精确依赖已推送 monorepo-message，PRE cargo check 与剪贴板 7/7 通过，忽略的本地锁文件四包来源为 crates.io。Go dev-paas2.5 已推送 55e05c5，PRE c391ddcf Ready/Available=1；Helix core/IM 1453 项、八包 check、Web/WASM 与 pre-push 检查通过。仅完成 crates 发布及客户端依赖升级，未发布桌面安装包，Angular 真页面终态仍待验；三仓既有非本任务配置/产物保留。
+
 ✅ DONE Helix 0.1.11 四个公共 crate 已经 canonical 发布脚本完成八包 check、逐包 dry-run/上传和 crates.io 解析；core/IM 154 组 1453 项测试通过。版本提交及 helix-v-0.1.11 Tag 绑定此批 manifest；客户端依赖更新与开发分支同步继续执行。
 
 🎯 EXPECT 发布四个公共 crate 0.1.11，同步八个 workspace manifest 与 Cargo.lock；四包可从 crates.io 解析、发布提交与注释 Tag 同源；客户端精确 pin 升级且保留既有配置改动，三仓当前开发分支同步远端 | 赌注 中 | 可逆 首包上传前是 | @2026-09-08T14:29:10+08:00

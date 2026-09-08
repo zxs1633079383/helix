@@ -82,6 +82,7 @@ fn drain_ready(
     }
 }
 
+// 批次只记录一次；自观测游标按聚合器保留推进，成功状态仍按网络确认推进。
 async fn export_batch<E: BatchMetricExporter>(
     config: &MetricRuntimeConfig,
     exporter: &mut E,
@@ -136,8 +137,10 @@ async fn export_batch<E: BatchMetricExporter>(
         start.elapsed().as_nanos().min(u64::MAX as u128) as u64,
         Ordering::Relaxed,
     );
-    if result.is_ok() {
+    if result.is_ok() || exporter.retains_failed_batch() {
         *self_cursor = next_cursor;
+    }
+    if result.is_ok() {
         if !self_cursor.export_success_logged {
             tracing::info!(
                 marker = "HELIX_METRICS_EXPORT_OK",

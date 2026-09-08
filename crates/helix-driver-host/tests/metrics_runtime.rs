@@ -323,3 +323,78 @@ fn circuit_opens_and_drops_without_blocking_producer() {
         ShutdownOutcome::Drained
     );
 }
+
+struct RetainingFailTwiceExporter {
+    calls: usize,
+    recorded: Arc<Mutex<Vec<Vec<MetricEvent>>>>,
+}
+
+impl BatchMetricExporter for RetainingFailTwiceExporter {
+    // 模拟 SDK 已接受记录但前两次网络导出失败，所有 batch 都保留在累计聚合器。
+    fn export_batch(&mut self, batch: &[MetricEvent]) -> Result<(), MetricExportError> {
+        self.recorded.lock().unwrap().push(batch.to_vec());
+        self.calls += 1;
+        if self.calls <= 2 {
+            Err(MetricExportError {
+                message: "recorded then network failed".to_string(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    // 失败只涉及网络，recorded 中的自观测增量不能在后续批次重复计入。
+    fn retains_failed_batch(&self) -> bool {
+        true
+    }
+}
+
+// 两次连续失败后恢复，累计错误数必须等于实际失败数，业务事件只记录一次。
+#[test]
+fn retained_failed_batches_do_not_repeat_self_metric_deltas() {
+    let recorded = Arc::new(Mutex::new(Vec::new()));
+    let config = MetricRuntimeConfig {
+        export_interval: Duration::from_millis(10),
+        circuit_failure_threshold: 10,
+        ..enabled_config()
+    };
+    let runtime = BoundedMetricRuntime::start_with_exporter(
+        config,
+        RetainingFailTwiceExporter {
+            calls: 0,
+            recorded: Arc::clone(&recorded),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        runtime.sink().try_record(operation()),
+        RecordOutcome::Accepted
+    );
+    for _ in 0..100 {
+        if runtime.snapshot().exported_batches_total > 0 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(runtime.snapshot().export_errors_total, 2);
+    assert!(runtime.snapshot().exported_batches_total > 0);
+    assert_eq!(
+        runtime.shutdown(Duration::from_secs(1)),
+        ShutdownOutcome::Drained
+    );
+    let batches = recorded.lock().unwrap();
+    let errors: f64 = batches
+        .iter()
+        .flatten()
+        .filter(|e| e.id == MetricId::MetricsExportErrorsTotal)
+        .map(|e| e.value)
+        .sum();
+    let operations: f64 = batches
+        .iter()
+        .flatten()
+        .filter(|e| e.id == MetricId::OperationsTotal)
+        .map(|e| e.value)
+        .sum();
+    assert_eq!(errors, 2.0);
+    assert_eq!(operations, 1.0);
+}

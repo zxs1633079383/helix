@@ -1,11 +1,13 @@
 use std::time::Duration;
 
 use opentelemetry::metrics::{Counter, Gauge, Histogram, MeterProvider as _};
+use opentelemetry::trace::TraceId;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::metrics::{
     Aggregation, Instrument as SdkInstrument, PeriodicReader, SdkMeterProvider, Stream, Temporality,
 };
+use opentelemetry_sdk::trace::{IdGenerator, RandomIdGenerator};
 use opentelemetry_sdk::Resource;
 
 use super::{
@@ -13,8 +15,8 @@ use super::{
     ALL_METRIC_IDS,
 };
 
-// 客户端实例共享低基数标签；Delta 由 Collector 统一累加，禁止退回进程级累计值互相覆盖。
-const OTLP_METRIC_TEMPORALITY: Temporality = Temporality::Delta;
+// 独立 provider 输出累计快照；一次导出失败后，下次成功仍保留此前观测。
+const OTLP_METRIC_TEMPORALITY: Temporality = Temporality::Cumulative;
 
 enum Instrument {
     Counter(Counter<f64>),
@@ -73,8 +75,18 @@ impl BatchMetricExporter for OtlpMetricExporter {
             })
     }
 
+    // 已建 pipeline 时 record 已完成；累计聚合器在 flush 失败后仍保留批次。
+    fn retains_failed_batch(&self) -> bool {
+        self.pipeline.is_some()
+    }
+
+    // 仅重试已记录的 pipeline，禁止懒建失败后把空 flush 误计为成功。
     fn retry_flush(&mut self) -> Result<(), MetricExportError> {
-        self.pipeline()?
+        self.pipeline
+            .as_mut()
+            .ok_or_else(|| MetricExportError {
+                message: "OTLP metrics batch was not recorded".to_string(),
+            })?
             .provider
             .force_flush()
             .map_err(|error| MetricExportError {
@@ -95,12 +107,13 @@ impl BatchMetricExporter for OtlpMetricExporter {
     }
 }
 
+// 懒建一个 provider 及其固定 Resource，业务线程不参与网络导出。
 fn build_pipeline(config: &MetricRuntimeConfig) -> Result<OtlpPipeline, MetricExportError> {
     let exporter = opentelemetry_otlp::MetricExporter::builder()
         .with_tonic()
         .with_endpoint(config.endpoint.clone())
         .with_timeout(config.export_timeout)
-        // 多个客户端进程共享低基数标签；Delta 让 Collector 按批累加，避免累计值互相 reset/覆盖。
+        // 累计快照需要唯一 writer 身份，跨实例由 PromQL 显式聚合。
         .with_temporality(OTLP_METRIC_TEMPORALITY)
         .build()
         .map_err(|error| MetricExportError {
@@ -109,51 +122,7 @@ fn build_pipeline(config: &MetricRuntimeConfig) -> Result<OtlpPipeline, MetricEx
     let reader = PeriodicReader::builder(exporter)
         .with_interval(config.export_interval)
         .build();
-    let resource = Resource::builder()
-        .with_service_name(config.service_name.clone())
-        .with_attributes([
-            KeyValue::new(
-                "deployment.environment",
-                bounded_value(
-                    &config.deployment_environment,
-                    &["local", "test", "dev", "pre", "prod"],
-                    "unknown",
-                ),
-            ),
-            KeyValue::new(
-                "platform",
-                bounded_value(
-                    &config.platform,
-                    &["host", "native", "ffi", "web"],
-                    "unknown",
-                ),
-            ),
-            KeyValue::new(
-                "scenario",
-                bounded_value(
-                    &config.scenario,
-                    &["canary", "l1_core", "l2_mixed"],
-                    "unknown",
-                ),
-            ),
-            KeyValue::new(
-                "channel_shape",
-                bounded_value(
-                    &config.channel_shape,
-                    &["none", "hot-1", "parallel-50", "fan-in-50-to-1-client"],
-                    "unknown",
-                ),
-            ),
-            KeyValue::new(
-                "profile",
-                bounded_value(
-                    &config.profile,
-                    &["baseline", "steady", "burst", "soak", "profile_only"],
-                    "unknown",
-                ),
-            ),
-        ])
-        .build();
+    let resource = build_resource(config, new_instance_id());
     let provider = SdkMeterProvider::builder()
         .with_reader(reader)
         .with_resource(resource)
@@ -202,6 +171,67 @@ fn build_pipeline(config: &MetricRuntimeConfig) -> Result<OtlpPipeline, MetricEx
         provider,
         instruments,
     })
+}
+
+// 每个 SDK provider 创建一次独立 writer 身份，避免同进程多个 FFI handle 互相覆盖。
+fn new_instance_id() -> String {
+    let generator = RandomIdGenerator::default();
+    loop {
+        let id = generator.new_trace_id();
+        if id != TraceId::INVALID {
+            return id.to_string();
+        }
+    }
+}
+
+// 实例身份只属于 Resource；显式值覆盖环境 detector，不进入业务 MetricLabels。
+fn build_resource(config: &MetricRuntimeConfig, instance_id: String) -> Resource {
+    Resource::builder()
+        .with_service_name(config.service_name.clone())
+        .with_attribute(KeyValue::new("service.instance.id", instance_id))
+        .with_attributes([
+            KeyValue::new(
+                "deployment.environment",
+                bounded_value(
+                    &config.deployment_environment,
+                    &["local", "test", "dev", "pre", "prod"],
+                    "unknown",
+                ),
+            ),
+            KeyValue::new(
+                "platform",
+                bounded_value(
+                    &config.platform,
+                    &["host", "native", "ffi", "web"],
+                    "unknown",
+                ),
+            ),
+            KeyValue::new(
+                "scenario",
+                bounded_value(
+                    &config.scenario,
+                    &["canary", "l1_core", "l2_mixed"],
+                    "unknown",
+                ),
+            ),
+            KeyValue::new(
+                "channel_shape",
+                bounded_value(
+                    &config.channel_shape,
+                    &["none", "hot-1", "parallel-50", "fan-in-50-to-1-client"],
+                    "unknown",
+                ),
+            ),
+            KeyValue::new(
+                "profile",
+                bounded_value(
+                    &config.profile,
+                    &["baseline", "steady", "burst", "soak", "profile_only"],
+                    "unknown",
+                ),
+            ),
+        ])
+        .build()
 }
 
 fn histogram_boundaries(name: &str) -> Option<Vec<f64>> {
@@ -254,11 +284,38 @@ fn bounded_value(value: &str, allowed: &[&'static str], fallback: &'static str) 
 
 #[cfg(test)]
 mod tests {
-    use super::{bounded_value, histogram_boundaries, Temporality, OTLP_METRIC_TEMPORALITY};
+    use super::{
+        bounded_value, build_resource, histogram_boundaries, new_instance_id, MetricRuntimeConfig,
+        Temporality, OTLP_METRIC_TEMPORALITY,
+    };
+    use opentelemetry::Key;
 
+    // 同进程的独立 provider 必须有不同 writer，且资源在生命周期内保持稳定。
     #[test]
-    fn client_metrics_export_delta_for_collector_aggregation() {
-        assert_eq!(OTLP_METRIC_TEMPORALITY, Temporality::Delta);
+    fn provider_resources_keep_distinct_stable_writer_identity() {
+        let config = MetricRuntimeConfig::default();
+        let first_id = new_instance_id();
+        let second_id = new_instance_id();
+        assert_ne!(first_id, second_id);
+        for id in [&first_id, &second_id] {
+            assert_eq!(id.len(), 32);
+            assert!(id
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
+            assert_ne!(id, "00000000000000000000000000000000");
+        }
+        let first = build_resource(&config, first_id.clone());
+        let second = build_resource(&config, second_id.clone());
+        let key = Key::from_static_str("service.instance.id");
+        assert_eq!(first.get(&key).unwrap().to_string(), first_id);
+        assert_eq!(second.get(&key).unwrap().to_string(), second_id);
+        assert_eq!(first.get(&key).unwrap().to_string(), first_id);
+    }
+
+    // 保持累计快照，重试只重新采集而不重复记录业务 batch。
+    #[test]
+    fn client_metrics_export_cumulative_per_provider() {
+        assert_eq!(OTLP_METRIC_TEMPORALITY, Temporality::Cumulative);
     }
 
     #[test]

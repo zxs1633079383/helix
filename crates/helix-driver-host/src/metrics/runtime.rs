@@ -97,6 +97,11 @@ pub enum MetricRuntimeError {
 pub trait BatchMetricExporter: Send + 'static {
     fn export_batch(&mut self, batch: &[MetricEvent]) -> Result<(), MetricExportError>;
 
+    /// 最近失败的 batch 是否已保留在聚合器；保留后不得重记自观测增量。
+    fn retains_failed_batch(&self) -> bool {
+        false
+    }
+
     fn retry_flush(&mut self) -> Result<(), MetricExportError> {
         Err(MetricExportError {
             message: "exporter does not support record-once flush retry".to_string(),

@@ -28,6 +28,13 @@ impl WsMessageHandler for HelloHandler {
             return Ok(());
         };
 
+        // 同一活跃物理连接的重复握手不重置恢复；断线后的同 ID 重连仍须重新初始化。
+        if ctx.state.conn == ConnState::Connected
+            && ctx.state.connection_id.as_deref() == Some(connection_id)
+        {
+            return Ok(());
+        }
+
         ctx.state.conn = ConnState::Connected;
         ctx.state.connection_id = Some(connection_id.to_string());
         // This registry handler is the production hello entrypoint. Establish

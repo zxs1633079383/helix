@@ -120,6 +120,78 @@ fn hello_triggers_increment_http_not_resync() {
     );
 }
 
+/// 同一物理连接的重复 hello 不得清空已收到的增量或创建第二个恢复请求。
+#[test]
+fn duplicate_hello_preserves_increment_and_original_scan() {
+    let mut h = Harness::new(&[]);
+    h.start(0);
+    h.step(Tick::Connected(TransportId::from_raw(0)), 100);
+    h.step(hello_inbound("CONN_DEDUP"), 200);
+    let original = message_timestamp_scan_corr(&h.sink).expect("initial watermark scan");
+    h.module
+        .ingest_increment(&inc(77, 42, false, "{}"), &mut h.sink);
+    h.step(hello_inbound("CONN_DEDUP"), 201);
+    assert!(
+        h.sink.as_slice().is_empty(),
+        "duplicate hello emitted effects"
+    );
+    assert!(
+        h.module.increment_fetched_contains(channel_id(77)),
+        "duplicate hello reset increment batch"
+    );
+    h.step(
+        port_reply_with_body(original, bytes::Bytes::from_static(b"[]")),
+        202,
+    );
+    assert_eq!(
+        http_reqs(&h.sink).len(),
+        1,
+        "original recovery must remain live"
+    );
+    h.step(hello_inbound("CONN_DEDUP"), 203);
+    assert!(
+        h.sink.as_slice().is_empty(),
+        "duplicate hello restarted submitted recovery"
+    );
+    h.step(hello_inbound("CONN_NEW"), 204);
+    assert!(
+        message_timestamp_scan_corr(&h.sink).is_some(),
+        "new connection must recover"
+    );
+    assert!(
+        !h.module.increment_fetched_contains(channel_id(77)),
+        "new connection must reset old batch"
+    );
+}
+
+/// 断线后即使服务端复用连接 ID，也必须启动新恢复并丢弃旧连接的迟到回包。
+#[test]
+fn reconnect_hello_recovers_and_old_connection_scan_is_ignored() {
+    let mut h = Harness::new(&[]);
+    h.start(0);
+    h.step(Tick::Connected(TransportId::from_raw(0)), 100);
+    h.step(hello_inbound("CONN_OLD"), 101);
+    let old = message_timestamp_scan_corr(&h.sink).expect("old scan");
+    h.step(Tick::Disconnected(TransportId::from_raw(0)), 102);
+    h.step(Tick::Connected(TransportId::from_raw(0)), 103);
+    h.step(hello_inbound("CONN_NEW"), 104);
+    let current = message_timestamp_scan_corr(&h.sink).expect("new scan");
+    h.step(
+        port_reply_with_body(old, bytes::Bytes::from_static(b"[]")),
+        105,
+    );
+    assert!(h.sink.as_slice().is_empty());
+    h.step(
+        port_reply_with_body(current, bytes::Bytes::from_static(b"[]")),
+        106,
+    );
+    assert_eq!(http_reqs(&h.sink).len(), 1);
+    h.step(Tick::Disconnected(TransportId::from_raw(0)), 107);
+    h.step(Tick::Connected(TransportId::from_raw(0)), 108);
+    h.step(hello_inbound("CONN_NEW"), 109);
+    assert!(message_timestamp_scan_corr(&h.sink).is_some());
+}
+
 // ─── ② increment_channel → 注册 channel + cursor 种子 + emit im:channel:increment ─
 
 #[test]

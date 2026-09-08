@@ -177,6 +177,10 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
         "empty local message scan must send timestamp 0"
     );
 
+    // 重复握手不得吞掉启动扫描完成后的合法二阶段补偿。
+    h.step(hello_inbound("CONN_1"), 170);
+    assert!(h.sink.as_slice().is_empty());
+
     // 然后 cursor scan 回报（已握手完成/Connected）；删除过滤完成后再补发 bootstrap/sync。
     let scan_body = scan_reply(&[(1, 10), (2, 20), (3, 30)]);
     let scan_port_reply = port_reply_with_body(scan_persist_corr, scan_body);

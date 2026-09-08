@@ -24,7 +24,7 @@ use helix_core::module_host::Module;
 use helix_core::ports::{EventSink, HttpRequester, Storage};
 use helix_core::tick::{AppCommand, Tick};
 use helix_core::ExecutionShell;
-use helix_driver_host::{execute_storage_ops, HostNetworkConfig, NoopMetricSink};
+use helix_driver_host::{execute_storage_ops, AsyncMetricSink, HostNetworkConfig, NoopMetricSink};
 use helix_driver_native::{
     bus_event_name, run_engine_loop_with_transports, to_bus_envelope, EngineConfig,
     NativeEventSink, NativeHttp, NativeStorage, NativeTransport, SharedFileUploader,
@@ -46,6 +46,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
 mod chain;
+mod metrics;
 #[allow(unused_imports)]
 pub(crate) use chain::run_text_chain_gate;
 pub(crate) use chain::run_unimplemented_chain_gate;
@@ -1388,9 +1389,14 @@ async fn start_session_components(
     http_base: &str,
     ws_url: &str,
 ) -> Result<SessionComponents, String> {
+    let metric_runtime = metrics::start();
+    let metric_sink = metric_runtime.sink();
     let (storage, db_path) = open_test_storage().await?;
+    let storage = storage.with_metric_sink(Arc::clone(&metric_sink));
     let (event_sink, events) = new_session_event_sink();
-    let http = go_http_at(persona, http_base, ws_url).await?;
+    let event_sink = event_sink.with_metric_sink(Arc::clone(&metric_sink));
+    let http =
+        go_http_at_with_metrics(persona, http_base, ws_url, Arc::clone(&metric_sink)).await?;
 
     let mut im_config = ImConfig::default();
     im_config.ws_url = ws_url.to_string();
@@ -1438,7 +1444,8 @@ async fn start_session_components(
         TransportId::from_raw(transport_raw),
         Some(transport_tick_tx),
     )
-    .with_handshake_headers(ws_headers(persona));
+    .with_handshake_headers(ws_headers(persona))
+    .with_metric_sink(Arc::clone(&metric_sink));
     let activation = match timeout(
         Duration::from_secs(SESSION_SETUP_TIMEOUT_SECS),
         actor_transport.connect(),
@@ -1480,11 +1487,12 @@ async fn start_session_components(
                 engine_event_sink,
                 8,
             )
-            .with_metric_sink(Arc::new(NoopMetricSink)),
+            .with_metric_sink(metric_sink),
             shutdown_rx,
             transports,
         )
         .await;
+        metrics::shutdown(metric_runtime).await;
     });
     let activation_result = timeout(
         Duration::from_secs(SESSION_SETUP_TIMEOUT_SECS),
@@ -2232,8 +2240,19 @@ pub(crate) async fn go_http_at(
     http_base: &str,
     ws_url: &str,
 ) -> Result<NativeHttp, String> {
-    let http = NativeHttp::with_config(HostNetworkConfig::new(http_base, ws_url))
-        .map_err(|error| format!("Go NativeHttp init failed: {error}"))?;
+    go_http_at_with_metrics(persona, http_base, ws_url, Arc::new(NoopMetricSink)).await
+}
+
+/// Engine 的 HTTP adapter 与其他端口共用同一 sink；辅助请求保持原有 Noop 边界。
+async fn go_http_at_with_metrics(
+    persona: &Persona,
+    http_base: &str,
+    ws_url: &str,
+    sink: Arc<dyn AsyncMetricSink>,
+) -> Result<NativeHttp, String> {
+    let http =
+        NativeHttp::with_config_and_metric_sink(HostNetworkConfig::new(http_base, ws_url), sink)
+            .map_err(|error| format!("Go NativeHttp init failed: {error}"))?;
     for (name, value) in [
         ("Cookieid", persona.cookie_id.as_str()),
         ("userId", persona.user_id.as_str()),
@@ -4152,17 +4171,26 @@ pub(crate) async fn run_helix_send(
     }
     let expected_type = canonical_wire_message_type(intent.message_type);
     let expected_text = intent.text.clone();
+    let metric_runtime = metrics::start();
+    let metric_sink = metric_runtime.sink();
     let (storage, db_path) = open_test_storage().await?;
-    let mut cleanup = SendCleanup::new(storage, db_path);
+    let mut cleanup = SendCleanup::new(storage.with_metric_sink(Arc::clone(&metric_sink)), db_path);
     let observer = match open_raw_ws(&context.observer, 20).await {
         Ok(observer) => observer,
         Err(error) => return finish_send_cleanup(Err(error), cleanup).await,
     };
     cleanup.observer = Some(observer);
     let (event_sink, mut events) = NativeEventSink::new();
+    let event_sink = event_sink.with_metric_sink(Arc::clone(&metric_sink));
     let result = async {
         wait_ws_hello(cleanup.observer_mut()?).await?;
-        let http = go_http(&context.actor).await?;
+        let http = go_http_at_with_metrics(
+            &context.actor,
+            go_http_base(),
+            go_ws_url(),
+            Arc::clone(&metric_sink),
+        )
+        .await?;
 
         let mut config = ImConfig::default();
         config.ws_url = go_ws_url().to_string();
@@ -4190,7 +4218,8 @@ pub(crate) async fn run_helix_send(
             TransportId::from_raw(21),
             Some(tick_tx.clone()),
         )
-        .with_handshake_headers(ws_headers(&context.actor));
+        .with_handshake_headers(ws_headers(&context.actor))
+        .with_metric_sink(Arc::clone(&metric_sink));
         let activation = match timeout(Duration::from_secs(30), actor_transport.connect()).await {
             Ok(Ok(activation)) => activation,
             Ok(Err(error)) => {
@@ -4227,15 +4256,20 @@ pub(crate) async fn run_helix_send(
             event_sink,
             8,
         )
-        .with_metric_sink(Arc::new(NoopMetricSink));
-        let engine = tokio::spawn(run_engine_loop_with_transports(
-            shell,
-            tick_rx,
-            tick_tx.clone(),
-            config,
-            shutdown_rx,
-            transports,
-        ));
+        .with_metric_sink(metric_sink);
+        let engine_tick_tx = tick_tx.clone();
+        let engine = tokio::spawn(async move {
+            run_engine_loop_with_transports(
+                shell,
+                tick_rx,
+                engine_tick_tx,
+                config,
+                shutdown_rx,
+                transports,
+            )
+            .await;
+            metrics::shutdown(metric_runtime).await;
+        });
         cleanup.shutdown_tx = Some(shutdown_tx);
         cleanup.engine = Some(engine);
         timeout(Duration::from_secs(30), activation.activate())
@@ -4524,124 +4558,141 @@ pub(crate) async fn run_helix_send_failure(
     domain: &str,
     gate: &str,
 ) -> Result<(), String> {
+    let metric_runtime = metrics::start();
+    let metric_sink = metric_runtime.sink();
     let (storage, db_path) = open_test_storage().await?;
-    let storage_for_engine = storage.clone();
-    let (event_sink, mut events) = NativeEventSink::new();
-    let http = go_http(&context.actor).await?;
-    let mut config = ImConfig::default();
-    config.ws_url = go_ws_url().to_string();
-    config.api_base_url = go_http_base().to_string();
-    config.default_api_base_url = main_api_base();
-    config.auth_user_id = context.actor.user_id.clone();
-    config.company_id = context.actor.company_id.clone();
-    config.send_timeout_ms = 2_000;
-    config.ping_interval_ms = messagev3_ping_interval_ms();
-    let mut module = ImModule::new(config);
-    module.register_channel(
-        helix_im::state::ChannelId::from_str(invalid_channel_id)
-            .ok_or_else(|| "failure test channel id is not canonical".to_string())?,
-        0,
-    );
-    let mut shell = ExecutionShell::new();
-    shell.register(module);
-    let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
-    let mut transport = NativeTransport::new(
-        go_ws_url(),
-        TransportId::from_raw(31),
-        Some(tick_tx.clone()),
-    )
-    .with_handshake_headers(ws_headers(&context.actor));
-    let activation = transport
-        .connect()
-        .await
-        .map_err(|error| format!("failure actor WS connect failed: {error}"))?;
-    let transport = Arc::new(transport);
-    let mut transports = TransportTable::new();
-    transports.insert(TransportId::from_raw(31), Arc::clone(&transport));
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let engine = tokio::spawn(run_engine_loop_with_transports(
-        shell,
-        tick_rx,
-        tick_tx.clone(),
-        EngineConfig::new(
-            storage_for_engine,
-            http,
-            SharedFileUploader::default(),
-            event_sink,
-            8,
-        ),
-        shutdown_rx,
-        transports,
-    ));
-    activation
-        .activate()
-        .await
-        .map_err(|error| format!("failure actor WS activation failed: {error}"))?;
-    wait_domain_event(
-        &mut events,
-        "im:connection:established",
-        |_| true,
-        Duration::from_secs(20),
-    )
-    .await?;
-    let command = json!({
-        "channel_id": invalid_channel_id,
-        "type": "TEXT",
-        "text": "phase1 failure probe",
-        "props": {},
-        "viewers": ["all"],
-        "mentions": []
-    });
-    tick_tx
-        .send(Tick::Command(AppCommand::new(
-            "im_send_message",
-            Bytes::from(serde_json::to_vec(&command).map_err(|error| error.to_string())?),
-        )))
-        .await
-        .map_err(|error| format!("failure command send failed: {error}"))?;
-    let failed_event = wait_domain_event(
-        &mut events,
-        "im:post:send-failed",
-        |_| true,
-        Duration::from_secs(20),
-    )
-    .await?;
-    let failed_value: Value = serde_json::from_slice(failed_event.0.as_ref())
-        .map_err(|error| format!("decode send-failed event: {error}"))?;
-    let failed_temporary_id = data_string(&failed_value, &["temporaryId", "temporary_id"])
-        .ok_or_else(|| "im:post:send-failed has no temporaryId".to_string())?;
-    let failed_row = wait_message_status(
-        &storage,
-        &failed_temporary_id,
-        &["unsend", "failed"],
-        Duration::from_secs(8),
-    )
-    .await?;
-    let received_after_failure = wait_domain_event(
-        &mut events,
-        "im:post:received",
-        |envelope| {
-            data_string(envelope, &["temporaryId", "temporary_id"]).as_deref()
-                == Some(failed_temporary_id.as_str())
-        },
-        Duration::from_millis(500),
-    )
-    .await;
-    if received_after_failure.is_ok() {
-        return Err(format!(
-            "failed message {failed_temporary_id} unexpectedly emitted im:post:received"
-        ));
+    let storage = storage.with_metric_sink(Arc::clone(&metric_sink));
+    let mut cleanup = SendCleanup::new(storage.clone(), db_path);
+    let result = async {
+        let storage_for_engine = storage.clone();
+        let (event_sink, mut events) = NativeEventSink::new();
+        let event_sink = event_sink.with_metric_sink(Arc::clone(&metric_sink));
+        let http = go_http_at_with_metrics(
+            &context.actor,
+            go_http_base(),
+            go_ws_url(),
+            Arc::clone(&metric_sink),
+        )
+        .await?;
+        let mut config = ImConfig::default();
+        config.ws_url = go_ws_url().to_string();
+        config.api_base_url = go_http_base().to_string();
+        config.default_api_base_url = main_api_base();
+        config.auth_user_id = context.actor.user_id.clone();
+        config.company_id = context.actor.company_id.clone();
+        config.send_timeout_ms = 2_000;
+        config.ping_interval_ms = messagev3_ping_interval_ms();
+        let mut module = ImModule::new(config);
+        module.register_channel(
+            helix_im::state::ChannelId::from_str(invalid_channel_id)
+                .ok_or_else(|| "failure test channel id is not canonical".to_string())?,
+            0,
+        );
+        let mut shell = ExecutionShell::new();
+        shell.register(module);
+        let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
+        let mut transport = NativeTransport::new(
+            go_ws_url(),
+            TransportId::from_raw(31),
+            Some(tick_tx.clone()),
+        )
+        .with_handshake_headers(ws_headers(&context.actor))
+        .with_metric_sink(Arc::clone(&metric_sink));
+        let activation = transport
+            .connect()
+            .await
+            .map_err(|error| format!("failure actor WS connect failed: {error}"))?;
+        let transport = Arc::new(transport);
+        cleanup.actor_transport = Some(Arc::clone(&transport));
+        let mut transports = TransportTable::new();
+        transports.insert(TransportId::from_raw(31), Arc::clone(&transport));
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let engine_tick_tx = tick_tx.clone();
+        let engine = tokio::spawn(async move {
+            run_engine_loop_with_transports(
+                shell,
+                tick_rx,
+                engine_tick_tx,
+                EngineConfig::new(
+                    storage_for_engine,
+                    http,
+                    SharedFileUploader::default(),
+                    event_sink,
+                    8,
+                )
+                .with_metric_sink(metric_sink),
+                shutdown_rx,
+                transports,
+            )
+            .await;
+            metrics::shutdown(metric_runtime).await;
+        });
+        cleanup.shutdown_tx = Some(shutdown_tx);
+        cleanup.engine = Some(engine);
+        activation
+            .activate()
+            .await
+            .map_err(|error| format!("failure actor WS activation failed: {error}"))?;
+        wait_domain_event(
+            &mut events,
+            "im:connection:established",
+            |_| true,
+            Duration::from_secs(20),
+        )
+        .await?;
+        let command = json!({
+            "channel_id": invalid_channel_id,
+            "type": "TEXT",
+            "text": "phase1 failure probe",
+            "props": {},
+            "viewers": ["all"],
+            "mentions": []
+        });
+        tick_tx
+            .send(Tick::Command(AppCommand::new(
+                "im_send_message",
+                Bytes::from(serde_json::to_vec(&command).map_err(|error| error.to_string())?),
+            )))
+            .await
+            .map_err(|error| format!("failure command send failed: {error}"))?;
+        let failed_event = wait_domain_event(
+            &mut events,
+            "im:post:send-failed",
+            |_| true,
+            Duration::from_secs(20),
+        )
+        .await?;
+        let failed_value: Value = serde_json::from_slice(failed_event.0.as_ref())
+            .map_err(|error| format!("decode send-failed event: {error}"))?;
+        let failed_temporary_id = data_string(&failed_value, &["temporaryId", "temporary_id"])
+            .ok_or_else(|| "im:post:send-failed has no temporaryId".to_string())?;
+        let failed_row = wait_message_status(
+            &storage,
+            &failed_temporary_id,
+            &["unsend", "failed"],
+            Duration::from_secs(8),
+        )
+        .await?;
+        let received_after_failure = wait_domain_event(
+            &mut events,
+            "im:post:received",
+            |envelope| {
+                data_string(envelope, &["temporaryId", "temporary_id"]).as_deref()
+                    == Some(failed_temporary_id.as_str())
+            },
+            Duration::from_millis(500),
+        )
+        .await;
+        if received_after_failure.is_ok() {
+            return Err(format!(
+                "failed message {failed_temporary_id} unexpectedly emitted im:post:received"
+            ));
+        }
+        Ok((failed_temporary_id, failed_row, failed_value))
     }
-    let _ = shutdown_tx.send(());
-    timeout(Duration::from_secs(10), engine)
-        .await
-        .map_err(|_| "failure engine graceful shutdown timed out".to_string())?
-        .map_err(|error| format!("failure engine task failed: {error}"))?;
-    transport
-        .close()
-        .await
-        .map_err(|error| format!("close failure actor WS: {error}"))?;
-    remove_test_storage(&db_path);
+    .await;
+    let (failed_temporary_id, failed_row, failed_value) =
+        finish_send_cleanup(result, cleanup).await?;
     write_gate_evidence(
         phase,
         domain,

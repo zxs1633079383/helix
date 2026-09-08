@@ -64,8 +64,14 @@ pub(crate) fn apply_increment_hydration(
 
 /// 将单个 increment 快照编译为频道写与当前 viewer 的单调成员态写。
 fn apply_increment_effects(ctx: &mut ImWsContext<'_>, inc: &IncrementChannel) -> Vec<Effect> {
-    let mut effects = Vec::with_capacity(4);
+    commit_increment_state(ctx, inc);
+    compile_increment_effects(ctx, inc)
+}
+
+/// HTTP 分页在 PersistOk 后才应用内存事实；旧 WS 路径保持既有接收时应用顺序。
+pub(crate) fn commit_increment_state(ctx: &mut ImWsContext<'_>, inc: &IncrementChannel) {
     let channel_id = inc.channel_id;
+    ctx.state.channel_sync_batch_pending = true;
     // 冷启动真新 channel（DB 无 cursor，on_start Scan 未载入）首次注册时，内存 cursor 种子
     // 必须是 0（= 本地未确认任何 event），不是帧的 lastEventSeq（服务端水位）。
     // 误种水位 → from_seq=cursor=max → Go no_change → 离线 backfill 永不触发，且 B2 heal 的
@@ -103,6 +109,22 @@ fn apply_increment_effects(ctx: &mut ImWsContext<'_>, inc: &IncrementChannel) ->
         *target = inc.last_event_seq;
     }
 
+    // UC-10：收集本群「about-me」post id（mention + urgent）累入会话缓冲——global-end 收尾时
+    // build queryTodoList 拉待办内容（真源 channel.rs:142-149）。零信任：缺/坏字段 → 空，不报错。
+    if let Ok(data) = serde_json::from_slice::<serde_json::Value>(inc.raw.as_ref()) {
+        ctx.state
+            .about_me_post_ids
+            .extend(crate::todo::collect_about_me_ids(&data));
+    }
+}
+
+/// 纯粹编译频道和成员写操作，不修改恢复集合或频道内存态。
+pub(crate) fn compile_increment_effects(
+    ctx: &mut ImWsContext<'_>,
+    inc: &IncrementChannel,
+) -> Vec<Effect> {
+    let mut effects = Vec::with_capacity(4);
+    let channel_id = inc.channel_id;
     // S3 path1：全量 upsert（52 列）落库。从帧 data（`inc.raw`，parser 已零信任校验）逐列计算。
     // BLOCKING-1：user_id 列写 host 注入的真身份（ctx.auth_user_id，非硬编码空串）；空串=无身份退化。
     // now_ms 由 host 经 Clock 注入（确定性）。非法 data（缺 id）→ program_full None → 跳落库（仍 emit）。
@@ -197,14 +219,6 @@ fn apply_increment_effects(ctx: &mut ImWsContext<'_>, inc: &IncrementChannel) ->
         if let Some(eff) = crate::acl::to_effect_s1::delete_channel_members(channel_id, leaves) {
             effects.push(eff);
         }
-    }
-
-    // UC-10：收集本群「about-me」post id（mention + urgent）累入会话缓冲——global-end 收尾时
-    // build queryTodoList 拉待办内容（真源 channel.rs:142-149）。零信任：缺/坏字段 → 空，不报错。
-    if let Ok(data) = serde_json::from_slice::<serde_json::Value>(inc.raw.as_ref()) {
-        ctx.state
-            .about_me_post_ids
-            .extend(crate::todo::collect_about_me_ids(&data));
     }
 
     effects

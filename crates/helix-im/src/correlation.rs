@@ -167,7 +167,11 @@ pub enum CorrelationContext {
     /// on_start `Scan(channel)` 回报：把已删除/已关闭频道标记为 terminal 后再启动补偿。
     ScanChannelProjections,
 
-    /// hello increment 前的本地 message 水位扫描；回报后才组装带 timestamp 的 HTTP 请求。
+    /// 一页增量恢复 HTTP 回包，必须等待当前页持久化后才能续拉。
+    IncrementPullHttp,
+    /// 一页频道快照的持久化屏障。
+    IncrementPullPersist,
+    /// hello 前本地消息水位扫描，用于冻结恢复 timestamp 与 cursor 快照。
     IncrementMessageTimestampScan {
         connection_id: Option<String>,
         cursors: Vec<(ChannelId, crate::state::Seq)>,

@@ -573,6 +573,14 @@ impl Module for ImModule {
             }
 
             Tick::Disconnected(_transport) => {
+                self.state.increment_pull = None;
+                self.state.corr_map.retain(|_, context| {
+                    !matches!(
+                        context,
+                        CorrelationContext::IncrementPullHttp
+                            | CorrelationContext::IncrementPullPersist
+                    )
+                });
                 self.state.conn = ConnState::Disconnected;
                 self.state.recovery_session.phase = crate::sync_session::RecoveryPhase::Failed;
                 self.state.reset_transport_query_session();

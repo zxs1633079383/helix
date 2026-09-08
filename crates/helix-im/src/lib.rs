@@ -36,6 +36,7 @@ mod forward_shape;
 pub mod http_envelope;
 mod http_outcome;
 mod increment_hydration;
+mod increment_pull;
 pub mod mobile_contract;
 pub mod module;
 pub mod outbound;

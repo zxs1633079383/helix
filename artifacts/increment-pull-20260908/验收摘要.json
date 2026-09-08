@@ -1,0 +1,33 @@
+{
+  "time": "2026-09-08T18:34:54.234698+08:00",
+  "status": "PASS_LOCAL_REAL_CHAIN",
+  "im_tests": 1444,
+  "core_tests": 23,
+  "focused_tests": 22,
+  "native_channels": 2436,
+  "native_terminal": "im:channel-sync-ready",
+  "native_elapsed_seconds": 8.62,
+  "native_http_pages": 39,
+  "go_instances": 2,
+  "page_limit": 64,
+  "go_ws_broadcasts": 0,
+  "go_warnings": 0,
+  "ws_race": "PASS",
+  "go_vet": "PASS",
+  "five_crate_check": "PASS",
+  "wasm_build": "PASS",
+  "cleanup": "PASS",
+  "metrics": "DISABLED_NO_ENDPOINT",
+  "deployment": "NOT_DEPLOYED",
+  "pre_full_suite": "NOT_RERUN_NEW_CODE",
+  "go_package_tests": {
+    "app": "PASS",
+    "app_coverage": 98.1,
+    "api": "FAIL_QUOTA_FIXTURE_THEN_FOCUSED_FIX_PASS",
+    "api_coverage": 100.0,
+    "api_channel_coverage": 19.6,
+    "ws_coverage": 100.0
+  },
+  "go_commit_gate": "BLOCKED_C019_100_PERCENT",
+  "review": "NO_BLOCKING_CORRECTNESS_FINDINGS"
+}

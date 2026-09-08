@@ -42,6 +42,10 @@ impl ImModule {
                 0
             }
         };
+        if self.state.increment_page_supported {
+            self.start_increment_pull(timestamp, cursors, out);
+            return Ok(());
+        }
         let increment_corr = self.alloc_corr_internal();
         out.push(crate::acl::to_effect::increment_http_trigger(
             &self.config.api_base_url,

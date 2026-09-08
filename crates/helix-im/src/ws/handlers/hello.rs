@@ -42,6 +42,11 @@ impl WsMessageHandler for HelloHandler {
         // registry dispatch.
         ctx.state.recovery_session.begin(ctx.auth_user_id);
         ctx.state.reset_increment_batch();
+        ctx.state.increment_page_supported = frame
+            .data()
+            .and_then(|data| data.get("incrementPageVersion"))
+            .and_then(serde_json::Value::as_u64)
+            == Some(1);
         out.push(crate::acl::to_effect::emit_connection_established(
             connection_id,
         ));

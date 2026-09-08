@@ -343,6 +343,12 @@ impl ImModule {
                 }
             },
 
+            CorrelationContext::IncrementPullHttp => {
+                self.handle_increment_pull_http(corr, outcome, now_ms, out)
+            }
+            CorrelationContext::IncrementPullPersist => {
+                self.handle_increment_pull_persist(corr, outcome, out)
+            }
             CorrelationContext::IncrementMessageTimestampScan {
                 connection_id,
                 cursors,
@@ -396,9 +402,10 @@ impl ImModule {
                 out,
             )?,
 
-            CorrelationContext::IncrementBatchPersist { projections, batch_id } => {
-                self.handle_increment_batch_persist_reply(projections, batch_id, outcome, out)?
-            }
+            CorrelationContext::IncrementBatchPersist {
+                projections,
+                batch_id,
+            } => self.handle_increment_batch_persist_reply(projections, batch_id, outcome, out)?,
 
             CorrelationContext::SubtopicIncrementBatchPersist {
                 parent_channel_id,

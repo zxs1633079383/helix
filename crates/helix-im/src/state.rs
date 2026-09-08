@@ -199,6 +199,9 @@ pub struct ImState {
     /// scan 回包加载持久 cursor 后需补发一次 bootstrap increment，避免冷启动只走 sync/notify
     /// 而缺失 `increment_channel` / `im:channel:increment`。
     pub pending_increment_bootstrap_after_scan: bool,
+    /// hello 显式协商的恢复分页能力，旧 Go 保持原 WS 协议。
+    pub(crate) increment_page_supported: bool,
+    pub(crate) increment_pull: Option<crate::increment_pull::IncrementPull>,
 
     /// 启动 channel 投影扫描成功后才允许向 Go/心跳发送 active cursor 集合。
     /// 扫描失败保持 false，避免未知的删除频道重新进入补偿链路。
@@ -375,6 +378,8 @@ impl ImState {
             pong_gap_batch: crate::sync::pong_batch::PongGapBatch::default(),
             about_me_post_ids: Vec::new(),
             pending_increment_bootstrap_after_scan: false,
+            increment_page_supported: false,
+            increment_pull: None,
             startup_channel_projection_ready: false,
             pending_increment_ops: Vec::new(),
             pending_increment_projections: Vec::new(),
@@ -416,6 +421,13 @@ impl ImState {
 
     /// 会话边界 reset：每个 hello 窗口起点清空 increment/sync/todo 批次状态。
     pub fn reset_increment_batch(&mut self) {
+        self.increment_pull = None;
+        self.corr_map.retain(|_, context| {
+            !matches!(
+                context,
+                CorrelationContext::IncrementPullHttp | CorrelationContext::IncrementPullPersist
+            )
+        });
         self.increment_fetched.clear();
         self.increment_order.clear();
         self.need_sync_skip.clear();
@@ -505,6 +517,7 @@ impl ImState {
 
     /// 身份切换时清除旧 viewer 的附着窗口、相关性与覆盖证明。
     pub(crate) fn reset_message_v3_identity(&mut self) {
+        self.increment_pull = None;
         self.recovery_session.invalidate();
         // Tenant/actor facts are never portable.  A B session must rediscover
         // channels and cursors from its own store rather than treating A's
@@ -553,6 +566,8 @@ impl ImState {
                     | CorrelationContext::SyncPull { .. }
                     | CorrelationContext::ScanChannelProjections
                     | CorrelationContext::IncrementMessageTimestampScan { .. }
+                    | CorrelationContext::IncrementPullHttp
+                    | CorrelationContext::IncrementPullPersist
                     | CorrelationContext::TooLongReload { .. }
                     | CorrelationContext::TooLongReloadPersist { .. }
                     | CorrelationContext::IncrementBatchPersist { .. }

@@ -143,19 +143,25 @@
 
 ## ADR-018 — GitLab CI 以可配置 MessageV3 real-chain 为唯一主入口
 
-- **决策**：GitLab CI 的主 job 只执行 `node scripts/messagev3/phase1-5-real-chain.mjs --all`，不再调用
+- **决策**：GitLab CI 的默认业务 job 执行 `node scripts/messagev3/phase1-5-real-chain.mjs --all --env pre`，不再调用
   `scripts/gate.sh` 或独立 `api-surface` job。real-chain 执行分母固定为 83（Phase1–5 为
   `32/16/15/12/8`）；五个 `NOT_APPLICABLE` 与四个 `NOT_IMPLEMENTED` Gate 仍保留在客户端/历史
   合同目录，但从该脚本的发现、选择和 CI 执行集中排除。
 - **环境配置**：`scripts/messagev3/real-chain-environment.mjs` 是 profile 真源，默认 `pre`；内置
   `local`。Go HTTP、Go WS、Java API 和 Go health 均可用 `MESSAGEV3_*` 变量逐项覆盖；未登记的未来
   环境（如 `dev`）在同时提供三类端点时可直接运行，无需修改 runner。CI 默认只选择 `pre` profile，
-  端点默认值由配置表维护；账号池通过 GitLab File 变量 `CSES_WDIO_CREDENTIALS_FILE` 注入，不进入仓库或 artifact。
+  端点默认值由配置表维护；PRE 测试账号池已内置于该配置模块。完整 runner 优先使用显式
+  `CSES_WDIO_CREDENTIALS_JSON`，其次允许 `CSES_WDIO_CREDENTIALS_FILE` 覆盖；非 PRE 不注入内置账号池。
 - **理由**：CI 需要执行与人工真实链一致的 HTTP/WS/Native/SQLite/EventSink 证据，而不是只运行静态
   Rust/FFI 检查；同时 profile 把 PRE、local 和后续环境的物理地址从测试逻辑中抽离，避免切换环境改源码。
   `scripts/gate.sh` 仍是本地/pre-push 的完整 Rust/FFI 检查入口，不与 real-chain 互相宣称同一证据等级。
-- **状态**：已定（2026-09-03，用户拍板）；当前 CI job 仍依赖具备 Node.js 20+、Rust 1.95 和 wasm32
-  的私仓镜像，以及可达 PRE 服务和 GitLab File 凭据变量；缺任一前置必须 fail-closed，不得降级成 health/静态 PASS。
+- **当前实现**：`.gitlab-ci.yml` 已加入 `MESSAGEV3_DIAGNOSE=1` 分支：排除完整业务 job，先运行
+  `ci-diagnose.mjs`，成功后仅运行 `MV3-G07B`；诊断通过不能替代 83 Gate 验收。两 job 的 timeout
+  均为 6m，Runner 脚本预算声明为 5m；Cargo 批次默认 watchdog 为 180000ms，日志实时透传。
+- **状态**：已定（2026-09-03，用户拍板）；实现对账于 2026-09-08。当前默认私仓镜像为
+  `rust:1.95.0_with_tools_node20`，前置检查要求 Node.js 20+、现有 Rust/Cargo 和可达 PRE 服务，
+  不执行 WASM、fmt 或 clippy，也不强制额外配置 File 凭据。仓库配置不证明 Runner/项目运行态
+  已生效；探针与业务证据缺失必须 fail-closed，不得降级成 health/静态 PASS。
 
 ---
 

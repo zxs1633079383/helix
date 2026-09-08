@@ -10,6 +10,7 @@
 | 新会话 | 由 `scripts/session-start-context.sh` 读取 `docs/ROADMAP.md` P0、本手册与前端 UC 投影真源 | Codex SessionStart hook |
 | 准备提交或 push | `scripts/gate-fast.sh` | 人工；pre-push hook 兜底，按改动范围验证 |
 | 合并前 / GitLab CI | `node scripts/messagev3/phase1-5-real-chain.mjs --all` | 83 个可执行 MessageV3 real-chain Gate；端点默认 `pre`，证据不完整即非零退出 |
+| CI 诊断（`MESSAGEV3_DIAGNOSE=1`） | `node scripts/messagev3/ci-diagnose.mjs` 后执行 `--gate MV3-G07B --env pre` | 前置失败即停止；此模式排除完整 real-chain 作业 |
 | 分支身份核对 | `scripts/branch-identity.sh --session` | 开局、worktree 收尾或身份不清时 |
 | FFI 仓内验收 | `scripts/ffi-verify.sh --no-demo` | gate 第 9 步 |
 | 真 Go 全 UC | `scripts/host-cli-FULL-uc-e2e.sh` | 环境就绪后人工触发 |
@@ -25,7 +26,8 @@
 - 人工：架构判断、跨仓决策、发布、回滚和多 agent 拆分。
 - 后台 agent 完成依赖任务通知，不做固定周期空轮询；外部 CI、部署队列等不可追踪状态才使用监控机制。
 
-GitLab CI 只执行 MessageV3 real-chain。`scripts/gate.sh` 仍保留给本地/pre-push 或人工完整 Rust/FFI
+GitLab CI 默认执行完整 MessageV3 real-chain；诊断变量为 `1` 时仅执行限时前置探针与 G07B。
+两个 job 均声明 6 分钟 timeout、脚本预算 5 分钟；详见 [CI 诊断与限时](../../scripts/README.md#messagev3-ci-诊断与限时)。`scripts/gate.sh` 仍保留给本地/pre-push 或人工完整 Rust/FFI
 检查，不再与 real-chain 争用 CI 主入口；客户端 92 Gate 合同与 real-chain 的 83 个可执行分母也不互相替代。
 
 ## 索引

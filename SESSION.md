@@ -68,6 +68,15 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 本轮 Markdown 日检仅对齐已有 CI/脚本事实；可证伪断言：只修改 README、scripts/README、Harness OPERATING/decisions 与 SESSION，诊断入口、6m/5m/180000ms 超时层级及 PRE 凭据覆盖顺序均能在当前配置找到；923 份 Markdown 的相对路径链接与聚焦 checker 通过，不修改代码/配置/生成物 | 赌注 低 | 可逆 是 | @2026-09-08T08:04:17+0800
+
+本轮隔离：`codex/helix-markdown-20260908-0801`，upstream `origin/reactor/MessageV3-helix`，基线 `68dbf21c`；worktree `/System/Volumes/Data/workspace/angular/visual/helix-markdown-20260908-0801`，初始 clean，保留供追溯、不自动删除。源 checkout `3d421dbb` 的四组未跟踪资产不纳入。
+
+清单/真源映射：923 份 tracked Markdown；根 README/AGENTS/GOAL/ROADMAP → Cargo workspace、Spec047 manifest 与当前 CI；crate 文档 → 各 crate manifest/src/tests；API/脚本说明 → contracts/schema 与 scripts；Harness → HX-C 文件/索引/checker；历史 Spec/Frame 报告仅核对定位与链接。上轮 `9bcba4dc` 后非 Markdown 变化只有 `.gitlab-ci.yml` 和两个 MessageV3 runner/诊断脚本，本轮语义核对重点为这些变化，未逐条重证全部既有 API/运行态声明。
+
+✅ DONE 本轮 5 份 Markdown 已对齐 CI 诊断分支、6m/5m/180000ms 限时、实时日志与 PRE 凭据顺序；删除强制 File/WASM 前置的失效描述。923 份 Markdown 的 1599 条相对路径链接、HX-C 18/18/18、8 个 workspace member/四公共 README 0.1.9、83 Gate 只读测试 3/3、Spec047 默认 checker、Strict Matrix、InteractionFrame 历史索引、CI/凭据源码断言与 gate-fast 均退出 0。Spec047 当前产物仍为 NOT_GENERATED；未重跑既有生成物/跨仓 agent 检查，未执行 Cargo、PRE 登录或真实业务链。已具备本轮文档提交条件，push 结果由自动化报告记录 | @2026-09-08T08:05:24+0800
+
+
 🎯 EXPECT 每日 Markdown 熵管理只修改能由当前 `1355772d` 代码、Cargo manifest、配置、测试或脚本证明漂移的 Markdown 与必要 SESSION 记录；可证伪断言：① 不修改 Rust、JSON、TOML、脚本、生成产物或共享 checkout 未跟踪资产；② README/AGENTS/GOAL/ROADMAP/Spec/contract/harness/链接与路径结论均可回溯到当前真源；③ 直接相关链接、索引、checker 与 `git diff --check` 通过；④ 既有生成 hash、Tag 或代码问题只报告不越界修复；⑤ 有真实 Drift 才创建结构化中文 commit 并普通推送，否则报告 `NO_CHANGES` | 赌注 中 | 可逆 是 | @2026-09-06T08:02:30+0800
 
 ✅ DONE 本轮在独立 worktree 仅更新 Markdown/Mermaid 与本条 SESSION：对齐 core 7 Tick/11 Effect/9 StorageOp/9 ports、host scoped storage 与 UploadFile/3 秒 drain、native host-pump 路由、host-cli 8066 YAML 配置；修正 MessageV3 `Effect::Emit { event: DomainEventBytes }`（bytes `{event,data}`）及 PersistOk 后 sending 语义；为旧 InteractionFrame/Frame projection、UC automation、Phase1-4/Phase5 交接补 `RETIRED_HISTORICAL` 边界；补 HX-C016 YAML 元数据。验证：`git diff --check` PASS；相对 Markdown 链接 1596 条、broken=0（另有 10 条绝对路径引用）；cutover checker default/self-test PASS；strict-matrix default PASS；18/18 harness metadata PASS；Cargo metadata 四包均 0.1.9；未修改 Rust/JSON/TOML/脚本/生成物或共享 checkout 资产 | @2026-09-06T08:50:51+0800

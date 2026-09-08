@@ -1,3 +1,5 @@
+✅ DONE 发布 Helix 0.1.12：四公共 crate dry-run、上传及 registry 解析通过；完整八包 check 通过，包含发送衔接修复 10fc4000。客户端精确依赖、monorepo 合并及 yarn start 验证正在交付；三仓统一 Tag 0908-1617-basic-message 待绑定最终提交。
+
 ✅ DONE 源码修复：查询代际与 WS 断线不再吞掉已落库发送衔接，身份切换仍撤销旧回包。18 项发送、1,434 项 IM 全量、3 项 release 承压及 PRE 真链 G01A/G02C 2/2 通过；未发布新 crate/客户端，未验收 Angular 感叹号及网络容量。详见 docs/0908-发送衔接竞态修复与验证.md。
 
 🎯 EXPECT 修复附着时间线查询代际淘汰导致发送与 15 秒 timer 丢失：公开 ImModule::handle 红绿回归，覆盖交错并发、乱序、重复与超时；保持 P1 持久化门槛及旧窗口不回写，不把回放当容量或桌面验收 | @2026-09-08

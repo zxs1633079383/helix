@@ -1,6 +1,8 @@
-# csesapi → cses-im-server 全量迁移图谱（full-map）索引
+# csesapi → cses-im-server 全量迁移图谱（full-map）历史索引
 
-> 生成时间：2026-06-16 · 分支 `feat/im-sync-v2-backend`
+> `RETIRED_HISTORICAL`：生成时间：2026-06-16 · 分支 `feat/im-sync-v2-backend`。本目录是旧
+> csesapi 迁移快照，不是当前 MessageV3 Gate、HTTP/WS 或客户端分母的真源；当前 Helix
+> producer 入口见 [`../../../../../specs/047-im-event-gate-inventory/`](../../../../../specs/047-im-event-gate-inventory/)。
 > 目的：把「mattermost/server/channels/csesapi 这套 RESTful 后端 + WS 推送」全量映射到迁移目标后端 `cses-im-server`，并以**客户端真实用例**为消费视角，给出**执行级缺口矩阵**，回答「cses-im-server 现在能不能替代 mattermost」。
 >
 > 三库基准（活体源码 2026-06-16，GitNexus 索引偏旧，字段以源码为准）：

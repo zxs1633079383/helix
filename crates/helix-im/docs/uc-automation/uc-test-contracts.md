@@ -1,4 +1,8 @@
-# UC 四面机读契约（每 UC 一块 YAML · 测试生成直接消费）
+# UC 四面机读契约（历史 InteractionFrame 测试快照）
+
+> **状态：`RETIRED_HISTORICAL`。** 这些 YAML contract 面向旧四面 Frame 测试生成器，不能替代
+> 当前 MessageV3 `{event,data}` producer contract 或真实 Gate evidence。当前入口见 Spec 047
+> 与 `crates/helix-im/tests/message_v3/`。
 
 > **用途**：自动化测试生成器读本文每个 UC 的 YAML `contract` 块，生成四面断言用例。人读列在 YAML 上方一行。
 > **配套**：拓扑/依赖/变量真源 → `uc-command-set-spec.md`；字段集冻结 → `../projection-schema.md`；wire body → `../csesapi-migration/真机curl真源.md`。

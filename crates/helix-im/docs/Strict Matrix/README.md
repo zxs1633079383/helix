@@ -1,6 +1,11 @@
 # Helix IM Strict Matrix
 
-本目录是 Helix IM 的 UC 发布真源入口。它回答的不是“代码有没有写”，而是“一个 UC 是否已经具备可发布的全链路证据”。
+> `RETIRED_HISTORICAL`：本目录及其生成矩阵只保留 InteractionFrame 时代的 UC 发布快照，
+> 不参与当前 Gate 分母或 Green 判定。当前 MessageV3 producer 真源见
+> [`specs/047-im-event-gate-inventory/`](../../../../specs/047-im-event-gate-inventory/)。
+
+本目录是 Helix IM 的历史 UC 发布矩阵入口。它回答的不是“当前代码有没有写”，而是“当时的
+一个 UC 是否已经具备可发布的全链路证据”。
 
 ## 文件职责
 

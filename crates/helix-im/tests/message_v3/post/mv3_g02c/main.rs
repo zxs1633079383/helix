@@ -123,3 +123,102 @@ fn duplicate_retry_clicks_keep_one_inflight_attempt() {
         "duplicate retry must not enqueue another Persist/HTTP/timer: {duplicate:?}"
     );
 }
+
+/// 解码公开 seam 本批次的消息终态，不接受其他事件替代发送完成。
+fn terminal_events(harness: &Harness) -> Vec<serde_json::Value> {
+    harness
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| {
+            let helix_core::Effect::Emit { event } = effect else {
+                return None;
+            };
+            let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).ok()?;
+            matches!(
+                value["event"].as_str(),
+                Some("im:post:received" | "im:post:sent")
+            )
+            .then_some(value)
+        })
+        .collect()
+}
+
+/// 复现HTTP权威回读先于WS：回读已找到服务端消息，但PersistOk之前不能发终态。
+fn retry_authority_before_echo() -> (Harness, u64) {
+    let mut harness = Harness::new_with_identity(&[1], "actor", "company", "", "", "");
+    let initial = harness.step(send_message_cmd(1, "tmp-retry-authority", "重试正文"), 1000);
+    let admitted = harness.step(port_reply_ok(correlation_of(&initial, "persist")), 1001);
+    harness.step(port_reply_err(correlation_of(&admitted, "http")), 1002);
+    let retry = harness.step(retry_command("tmp-retry-authority"), 1003);
+    let admitted = harness.step(port_reply_ok(correlation_of(&retry, "persist")), 1004);
+    let query = harness.step(port_reply_ok(correlation_of(&admitted, "http")), 1005);
+    let response = serde_json::json!({"status":"SUCCESS","data":{"posts":[{
+        "id": common::sid(1), "temporaryId":"tmp-retry-authority", "channelId":common::cid(1),
+        "userId":"actor", "type":"TEXT", "message":"重试正文", "createAt":1000,
+        "props":{}, "viewers":["all"], "event_seq":8
+    }]}});
+    harness.step(
+        common::port_reply_with_body(
+            correlation_of(&query, "http"),
+            common::enveloped(bytes::Bytes::from(serde_json::to_vec(&response).unwrap())),
+        ),
+        1006,
+    );
+    assert!(
+        terminal_events(&harness).is_empty(),
+        "HTTP authority must wait for durable settlement"
+    );
+    let corr = harness.sink.as_slice().iter().find_map(|effect| {
+        let helix_core::Effect::Persist { corr, ops } = effect else { return None; };
+        ops.iter().any(|op| matches!(op, helix_core::effect::StorageOp::BatchUpsert(spec)
+            if spec.table == "message" && spec.rows.iter().any(|row| row.iter().any(|(key,_)| key=="send_status"))))
+            .then_some(corr.raw())
+    }).expect("authority must persist the send reconciliation");
+    (harness, corr)
+}
+
+/// 同一authority在持久化成功后只发received，重复回报不能重复终态。
+#[test]
+fn authority_retry_emits_received_only_after_persist_success() {
+    let (mut harness, corr) = retry_authority_before_echo();
+    harness.step(port_reply_ok(corr), 1007);
+    let events = terminal_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["event"], "im:post:received");
+    assert_eq!(events[0]["data"]["temporaryId"], "tmp-retry-authority");
+    harness.step(port_reply_ok(corr), 1008);
+    assert!(terminal_events(&harness).is_empty());
+}
+
+/// 对账写失败不能把HTTP成功包装成任何消息成功终态。
+#[test]
+fn authority_retry_persist_failure_suppresses_terminal() {
+    let (mut harness, corr) = retry_authority_before_echo();
+    harness.step(port_reply_err(corr), 1007);
+    assert!(terminal_events(&harness).is_empty());
+}
+
+/// sync已推进cursor后迟到的同一WS echo不能再次发终态或重放旧message/channel写集。
+#[test]
+fn late_echo_after_authority_does_not_replay_committed_stream() {
+    let (mut harness, corr) = retry_authority_before_echo();
+    harness.step(port_reply_ok(corr), 1007);
+    assert_eq!(terminal_events(&harness).len(), 1);
+    harness.module.register_channel(common::channel_id(1), 8);
+    let frame = serde_json::json!({"action":"post", "data": {
+        "id":common::sid(1), "temporaryId":"tmp-retry-authority", "channelId":common::cid(1),
+        "event_seq":8, "userId":"actor", "type":"TEXT", "message":"过期正文", "createAt":1000
+    }});
+    let effects = harness.step(
+        helix_core::Tick::Inbound(helix_core::tick::InboundBytes(bytes::Bytes::from(
+            serde_json::to_vec(&frame).unwrap(),
+        ))),
+        1008,
+    );
+    assert!(terminal_events(&harness).is_empty());
+    assert!(!effects.iter().any(|effect| matches!(
+        effect,
+        EffectKind::Persist(_) | EffectKind::PersistAtomic(_) | EffectKind::PersistFire
+    )));
+}

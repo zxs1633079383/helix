@@ -6,7 +6,7 @@
 
 最小 native 宿主 bin（sync-v2 Phase A 落地）：把 `ExecutionShell` + `ImModule` + `NativeTransport` 接成端到端可跑闭环，真连 Go 验证收发/握手。host 装配层 = 选 driver、建 ports、分配 TransportId、跑 `run_engine_loop_with_transports`。
 
-> **身份定位**：host-cli 是 **headless native 宿主**——未来 Tauri `src-tauri` 的同构孪生（无 UI）。三层架构里它和 Tauri 同属平台驱动层；唯一区别是最外层 I/O 边界：host-cli = **stdin/stdout（终端遥控器）**，Tauri = **IPC bridge（前端 invoke / `im:__bus__` emit）**。中间 `ExecutionShell + ImModule + ports` 完全一致。它不是一次性测试产物，也不是出货客户端，而是 native 端**唯一无需前端就能真连 Go 的 e2e 宿主** + M2 Tauri 接入的参照实现。身份头注入（cookieId/companyId/deviceId）现走 env，未来 Tauri 改从登录态注入——driver 注入代码不变。
+> **身份定位**：host-cli 是 **headless native 宿主**——未来 Tauri `src-tauri` 的同构孪生（无 UI）。三层架构里它和 Tauri 同属平台驱动层；唯一区别是最外层 I/O 边界：host-cli = **stdin/stdout（终端遥控器）**，Tauri = **IPC bridge（前端 invoke / `im:__bus__` emit）**。中间 `ExecutionShell + ImModule + ports` 完全一致。它不是一次性测试产物，也不是出货客户端，而是 native 端**唯一无需前端就能真连 Go 的 e2e 宿主** + M2 Tauri 接入的参照实现。身份头注入（cookieId/companyId/deviceId）由 YAML 配置与 CLI 身份覆盖提供；debug 构建保留 HELIX_* 逃生口，未来 Tauri 改从登录态注入——driver 注入代码不变。
 
 ## 模块布局（src/）
 
@@ -26,8 +26,8 @@
 ## 本 crate 约定
 
 1. **host 是 ambient API 合法落点**：`std::env`/`println`/`SystemTime` 等在此 allow（clippy `disallowed_methods=allow`）——与 driver 同级，core/im 才 deny。
-2. **TransportId 由 host 集中分配**：`0 = 主 WS 连接`；第二模块/多端口（如 3399）用 1、2…，host 是唯一知道全部连接的地方（设计见 `docs/过会方案/helix-core-im-架构设计.md §4.4`）。
-3. **身份头分层**：`cookieId=userId` 由 host 注入——**WS 握手头**（`with_handshake_headers`，Go 升级阶段建 session）**与** HTTP 全局头（`set_global_header`）两处都要带；`connectionId` 由 helix-im 收 hello 后盖章（core/im 不认识 userId）。
+2. **TransportId 由 host 集中分配**：`0 = 主 WS 连接`；第二模块/多端口（如 3399）用 1、2…，host 是唯一知道全部连接的地方（设计见 [`helix-driver-native/docs/design/README.md`](../helix-driver-native/docs/design/README.md)）。
+3. **身份头分层**：`cookieId=userId` 由 host 配置注入——**WS 握手头**（`with_handshake_headers`，Go 升级阶段建 session）**与** HTTP 全局头（`set_global_header`）两处都要带；`connectionId` 由 helix-im 收 hello 后盖章（core/im 不认识 userId）。
 4. **connect 触发**：A1/A2 选 host 主动 `connect()`（连不上不退，进泵走 Send-warn 兜底）。`Effect::Connect` 意图驱动是后续可选项（未引入）。
 5. **配置去 env 化（PRD §4.2，`src/config.rs`）**：单一 YAML 真源 `helix.config.yaml`（repo 根，默认 `./helix.config.yaml`，`--config <path>` 覆盖）。分组 `connection`(ws_url/api_base/default_api_base) · `identity`(cookie_id/company_id/tenant/user_name/org_name/dept_name) · `client`(app_type/device/device_id/language/app_version/os_version) · `runtime`(db/http_max_inflight/dump_frames)。`api_base` 是 Go IM，`default_api_base` 是前端/平台单独提供的 Java/default 网关；二者可以不同 origin，空 Java 保持为空并 fail-closed，禁止从 Go URL 裁路径推测。覆盖链（低→高）：YAML < `HELIX_<FIELD>` env 逃生口（**仅 debug 构建**，release no-op，不文档化）< `--cookie-id`/`--company-id` flag（双账号 e2e）。`go_log`/`go_port`/`start_hint` 仅脚本（yq）用，serde 默认忽略。
 6. **P6 userSnapshot（ucenter 展开）**：`identity.user_name/org_name/dept_name` 注入 `ImConfig.user_name/org_name/dept_name`（P1 占位转真值，posts/create body 的 userSnapshot 三字段）；缺省空（非阻断，Go 落库主键 = userId/teamId）。Tauri 壳改从登录态展开注入，driver 代码不变。

@@ -1,4 +1,9 @@
-# projection-schema.md — `im:__bus__` 投影 payload 字段集冻结（C2 真源）
+# projection-schema.md — 历史 `im:__bus__` 投影 payload 字段集（C2 旧真源）
+
+> **状态：`RETIRED_HISTORICAL`。** 本文记录 InteractionFrame / `im:__bus__` 时代的旧字段冻结，
+> 不再是当前 MessageV3 合同。当前业务事件以 `specs/047-im-event-gate-inventory/`、
+> `crates/helix-im/src/event/mod.rs` 与 `tests/message_v3/` 的 `{event,data}` bytes 合同为准；
+> 本文只用于迁移回放与历史字段对照，不得据此新增当前 producer 或 UI reducer。
 
 > **本文件是 cutover 契约真源**：helix 经单总线 `im:__bus__` emit 出的**每个业务 channel 的
 > `payload.data` 字段集**冻结于此。配套强制测试 `tests/projection_schema_test.rs` 是本文档的

@@ -312,6 +312,11 @@ pub enum CorrelationContext {
     /// 发送对账终态持久化回报；retry 的 timeline 已由同一远端查询发布，普通 WS echo
     /// 则由 `post` handler 的 MessageV3 权威投影发布，因此两者都不再触发额外 latest 回读。
     AuthoritativeSendReconcilePersist { temporary_id: TemporaryId },
+    /// HTTP权威回读的独立发送终态；仅在对应窄写集PersistOk后释放canonical received。
+    AuthoritativeSendTerminalPersist {
+        temporary_id: TemporaryId,
+        terminal_event: bytes::Bytes,
+    },
     /// 发送事实已由本地存储确认后，重新读取已 attach 的 timeline。
     ///
     /// P1、HTTP 对账和失败终态使用“durable fact -> local-first readback -> MessageV3 event”

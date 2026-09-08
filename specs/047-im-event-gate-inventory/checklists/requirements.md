@@ -33,7 +33,7 @@
 
 - 规格中的 `H-FULL`、`H-FORMAL`、`W-M/S/D` 只表示测试源码入口存在，统一附带
   `NOT_RUN`，没有升级为运行态证据。
-- 当前 Strict Matrix 的 epoch 12/50 Gate 与截图 30 Gate 差异已进入范围对账。
+- 已退役 Strict Matrix 的 epoch 13/50 Gate（47 active、3 excluded）与截图 30 Gate 差异已进入范围对账。
 - 30 个 Gate 的 outbound 审阅样例已统一为 sender/receiver 双视角；persona-local
   receiver 空集、G14 read/readers 分流与 G16b roster/left 分流均有机器断言。
 - G04 已区分 Go 的 `posts_update` 必达主广播与条件式 `update_channel` 副广播；目标 raw

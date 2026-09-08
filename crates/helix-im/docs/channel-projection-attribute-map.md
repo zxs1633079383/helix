@@ -1,4 +1,8 @@
-# 左侧会话列表 Channel Projection 属性映射
+# 左侧会话列表 Channel Projection 属性映射（历史快照）
+
+> **状态：`RETIRED_HISTORICAL`。** 本文描述旧 `im:interaction:frame` / `DialogListFrameState`
+> 投影链，保留作迁移对照。当前 channel/dialog 事件与查询合同以 Spec 047、
+> `crates/helix-im/src/event/` 和 `tests/message_v3/` 为准；不得把本文旧 frame schema 当作现行事件。
 
 ## 目的与边界
 

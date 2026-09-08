@@ -257,120 +257,144 @@ async fn exercise_notify_chain(
     result
 }
 
-/// MV3-G10e：三态免打扰/强提醒真实链，含重启后 SQLite 读回。
+/// 删除并核验本轮重开数据库及sidecar，残留或无法检查均不计清理成功。
+fn remove_restart_storage(db_path: &std::path::Path) -> Result<(), String> {
+    shared::remove_test_storage(db_path);
+    for suffix in ["", "-wal", "-shm"] {
+        let path = std::path::PathBuf::from(format!("{}{suffix}", db_path.display()));
+        if path
+            .try_exists()
+            .map_err(|error| format!("SQLite cleanup inspection failed: {error}"))?
+        {
+            return Err(format!("SQLite cleanup left file: {}", path.display()));
+        }
+    }
+    Ok(())
+}
+
+/// 重开真实SQLite并校验通知值；所有读回错误先释放句柄与文件，再交还调用方。
+async fn verify_restart(db_path: &std::path::Path, channel: &str) -> Result<Value, String> {
+    let result = async {
+        let reopened = NativeStorage::open(&format!("sqlite:{}?mode=rw", db_path.display()))
+            .await
+            .map_err(|error| format!("reopen SQLite failed: {error}"))?;
+        let rows = reopened
+            .scan(ScanSpec {
+                table: "channel",
+                limit: Some(4),
+                filter: Some(("id", SqlValue::Text(channel.to_string()))),
+                order_by: &[],
+            })
+            .await
+            .map_err(|error| format!("restart readback failed: {error}"))?;
+        let row = rows
+            .first()
+            .ok_or_else(|| "restart channel row missing".to_string())?;
+        let notify = shared::row_text(row, "notify_props");
+        if notify.as_deref() != Some("IGNORE") {
+            return Err(format!(
+                "restart notify_props mismatch: expected=IGNORE actual={notify:?}"
+            ));
+        }
+        Ok(json!({"channelNotifyProps": notify, "channelId": channel}))
+    }
+    .await;
+    shared::finish_gate_cleanup(result, remove_restart_storage(db_path), Ok(()))
+}
+
+/// MV3-G10e：三态通知完整终态与重启读回都成功、且清理完成后才发布PASS。
 #[tokio::test]
 async fn mv3_g10e_real_chain() {
     let (_guard, context) = shared::remote_setup().await;
     let channel = shared::create_channel(&context)
         .await
-        .unwrap_or_else(|error| panic!("MV3-G10e channel setup failed: {error}"));
-    let mut session = match shared::start_real_helix_session(&context, &[channel.as_str()]).await {
-        Ok(session) => session,
-        Err(error) => {
-            shared::write_gate_evidence(
-                "Phase3",
-                "Channel",
-                GATE,
-                "BLOCKED_PRECONDITION",
-                json!({"reason": "real Helix session unavailable", "first_failing_layer": "Helix native transport/auth", "go_http": ENDPOINT, "error": error}),
+        .unwrap_or_else(|error| panic!("{GATE} channel setup failed: {error}"));
+    let mut stage = "session_setup";
+    let mut session_cleanup = json!({"status": "not_started"});
+    let result = async {
+        let mut session = shared::start_real_helix_session(&context, &[channel.as_str()]).await?;
+        stage = "notify_chain";
+        let business = async {
+            shared::insert_channel_fixture(
+                &session.storage,
+                &channel,
+                &context.actor.company_id,
+                &context.actor.user_id,
+                "P",
+                "",
+                &[context.actor.user_id.as_str()],
             )
-            .unwrap_or_else(|write_error| panic!("MV3-G10e evidence failed: {write_error}"));
-            let _ = shared::close_channel(&context, &channel).await;
-            return;
+            .await?;
+            exercise_notify_chain(&context, &channel, &mut session).await
         }
-    };
-    shared::insert_channel_fixture(
-        &session.storage,
-        &channel,
-        &context.actor.company_id,
-        &context.actor.user_id,
-        "P",
-        "",
-        &[context.actor.user_id.as_str()],
-    )
-    .await
-    .unwrap_or_else(|error| panic!("MV3-G10e channel fixture failed: {error}"));
-
-    match exercise_notify_chain(&context, &channel, &mut session).await {
-        Ok(mut evidence) => {
-            let db_path = session
-                .close_preserving_db()
-                .await
-                .unwrap_or_else(|error| panic!("MV3-G10e session shutdown failed: {error}"));
-            let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
-            let reopened = NativeStorage::open(&db_url)
-                .await
-                .unwrap_or_else(|error| panic!("MV3-G10e reopen SQLite failed: {error}"));
-            let rows = reopened
-                .scan(ScanSpec {
-                    table: "channel",
-                    limit: Some(4),
-                    filter: Some(("id", SqlValue::Text(channel.clone()))),
-                    order_by: &[],
-                })
-                .await
-                .unwrap_or_else(|error| panic!("MV3-G10e restart readback failed: {error}"));
-            let row = rows
-                .into_iter()
-                .next()
-                .unwrap_or_else(|| panic!("MV3-G10e restart channel row missing"));
-            assert_eq!(
-                shared::row_text(&row, "notify_props").as_deref(),
-                Some("IGNORE")
-            );
-            evidence["restartReadback"] = json!({
-                "channelNotifyProps": shared::row_text(&row, "notify_props"),
-                "channelId": channel,
-            });
-            drop(reopened);
-            shared::remove_test_storage(&db_path);
-            shared::write_gate_evidence(
-                "Phase3",
-                "Channel",
-                GATE,
-                "PASS",
-                json!({
-                    "corr_key": channel,
-                    "entry": "Tick::Command → NativeHttp → Go HTTP/WS → Persist → EventSink",
-                    "command_contract": "im_channel_member_notify",
-                    "go_http": ENDPOINT,
-                    "http_business": "Go notify mutation reached SUCCESS terminal projections for NORMAL, STRONG and IGNORE",
-                    "ws_action": "update_channel",
-                    "terminal_event": "im:channel:update",
-                    "projection": evidence["reentry"].clone(),
-                    "event_sink": "NativeEventSink::broadcast",
-                    "event_sink_required": true,
-                    "formal_notify_shape": "data.notifyProps scalar",
-                    "chain": evidence,
-                    "persist_after": {
-                        "table": "channel",
-                        "channel_id": channel,
-                        "notify_props": "IGNORE"
-                    },
-                    "persist_required": true,
-                    "sqlite_readback": {
-                        "table": "channel",
-                        "channel_id": channel,
-                        "notify_props": "IGNORE",
-                        "restart": true
-                    },
-                    "sqlite_required": true,
-                    "cleanup": "session.close_preserving_db, SQLite restart readback, sidecar removal, channel/close"
-                }),
-            )
-            .unwrap_or_else(|error| panic!("MV3-G10e evidence failed: {error}"));
-        }
-        Err(error) => {
-            let _ = session.close().await;
-            shared::write_gate_evidence(
-                "Phase3",
-                "Channel",
-                GATE,
-                "BLOCKED_PRECONDITION",
-                json!({"reason": "notify terminal chain not observed", "first_failing_layer": "Go notify route/WS or Helix Persist/readback", "go_http": ENDPOINT, "error": error}),
-            )
-            .unwrap_or_else(|write_error| panic!("MV3-G10e blocked evidence failed: {write_error}"));
+        .await;
+        // 无论业务是否成功都停止engine，失败也保留关闭错误，并移除本轮SQLite。
+        let owned_db_path = session.storage_path().to_path_buf();
+        let shutdown = session.close_preserving_db().await;
+        session_cleanup = json!({"ok": shutdown.is_ok(), "error": shutdown.as_ref().err()});
+        match (business, shutdown) {
+            (Ok(mut evidence), Ok(db_path)) => {
+                stage = "restart_readback";
+                evidence["restartReadback"] = verify_restart(&db_path, &channel).await?;
+                Ok(evidence)
+            }
+            (Err(error), Ok(db_path)) => {
+                shared::finish_gate_cleanup(Err(error), remove_restart_storage(&db_path), Ok(()))
+            }
+            (result, Err(error)) => shared::finish_gate_cleanup(
+                result,
+                Err(error),
+                remove_restart_storage(&owned_db_path),
+            ),
         }
     }
-    let _ = shared::close_channel(&context, &channel).await;
+    .await;
+    let cleanup = shared::close_channel(&context, &channel).await;
+    let cleanup_evidence = json!({
+        "session": session_cleanup,
+        "channel": {"ok": cleanup.is_ok(), "error": cleanup.as_ref().err()},
+        "physical_scope": "engine stopped; pooled channels finalized at Phase cleanup",
+    });
+    let result = shared::finish_gate_cleanup(result, Ok(()), cleanup);
+    match result {
+        Ok(evidence) => {
+            shared::write_gate_evidence("Phase3", "Channel", GATE, "PASS", json!({
+                "corr_key": channel,
+                "entry": "Tick::Command → NativeHttp → Go HTTP/WS → Persist → EventSink",
+                "command_contract": "im_channel_member_notify",
+                "go_http": ENDPOINT,
+                "http_business": "Go notify mutation reached terminal projections for NORMAL, STRONG and IGNORE",
+                "ws_action": "update_channel",
+                "terminal_event": "im:channel:update",
+                "projection": evidence["reentry"],
+                "event_sink": "NativeEventSink::broadcast", "event_sink_required": true,
+                "formal_notify_shape": "data.notifyProps scalar",
+                "persist_after": evidence["restartReadback"], "persist_required": true,
+                "sqlite_readback": evidence["restartReadback"], "sqlite_required": true,
+                "chain": evidence,
+                "cleanup": "engine/WS closed, SQLite restart verified and removed, channel cleanup completed"
+            })).unwrap_or_else(|error| panic!("{GATE} evidence failed: {error}"));
+        }
+        Err(error) => {
+            shared::write_gate_evidence(
+                "Phase3",
+                "Channel",
+                GATE,
+                if stage == "session_setup" {
+                    "BLOCKED_PRECONDITION"
+                } else {
+                    "TEST_FAILED"
+                },
+                json!({
+                    "corr_key": channel,
+                    "reason": "notify lifecycle or restart assertion failed",
+                    "go_http": ENDPOINT, "error": error,
+                    "first_failing_layer": stage,
+                    "cleanup": cleanup_evidence
+                }),
+            )
+            .unwrap_or_else(|write_error| panic!("{GATE} evidence failed: {write_error}"));
+            panic!("{GATE} FAIL: {error}");
+        }
+    }
 }

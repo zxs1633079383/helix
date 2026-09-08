@@ -332,7 +332,7 @@ fn simple_message(msg_type: &str, message: &str, props: &Value) -> String {
             && props.pointer("/template/type").and_then(Value::as_str) == Some("TEXT"))
     {
         visible_text = markdown_text(message);
-        if visible_text.is_empty() {
+        if visible_text.is_empty() && !matches!(msg_type, "RICH" | "IMAGE") {
             "[消息]"
         } else {
             visible_text.as_str()
@@ -340,8 +340,26 @@ fn simple_message(msg_type: &str, message: &str, props: &Value) -> String {
     } else {
         message
     };
+    if matches!(msg_type, "RICH" | "IMAGE") {
+        let files = props.get("files").and_then(Value::as_array);
+        let kind = if media_files_are(files, "image/") {
+            "图片"
+        } else if media_files_are(files, "video/") {
+            "视频"
+        } else {
+            "媒体"
+        };
+        let mut summary = format!("[{kind}]");
+        if let Some(count) = files.filter(|files| files.len() > 1).map(Vec::len) {
+            summary.push_str(&format!(" {count}个"));
+        }
+        if !message.trim().is_empty() {
+            summary.push(' ');
+            summary.push_str(message.trim());
+        }
+        return summary.chars().take(50).collect();
+    }
     let (prefix, content) = match msg_type {
-        "RICH" | "IMAGE" => ("[媒体]", message),
         "FILE" => (
             "[文件]",
             props
@@ -365,6 +383,18 @@ fn simple_message(msg_type: &str, message: &str, props: &Value) -> String {
         _ => ("", message),
     };
     prefix.chars().chain(content.chars()).take(50).collect()
+}
+
+fn media_files_are(files: Option<&Vec<Value>>, prefix: &str) -> bool {
+    files.is_some_and(|files| {
+        !files.is_empty()
+            && files.iter().all(|file| {
+                file.get("contentType")
+                    .or_else(|| file.pointer("/mediaInput/contentType"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|content_type| content_type.starts_with(prefix))
+            })
+    })
 }
 
 /// 按 message-v3 `buildRepliedMessageInfo` 规则生成 Go 接受的 camelCase 引用快照。

@@ -13,6 +13,7 @@ variables:
   MESSAGEV3_CI_IMAGE: "harbor.jinqidongli.com/infra-ops/gitlab/rust:1.95.0_with_tools_node20"
   # 完整 Phase 批次启用最多五个频道和按账号复用的保活 WS；设为 0 可回退逐 Gate 隔离调试。
   MESSAGEV3_PHASE_POOL: "1"
+  RUNNER_SCRIPT_TIMEOUT: "5m"
 
 default:
   # real-chain 只需要现有 Rust/Cargo 与 Node.js 20+，不执行 WASM、fmt 或 clippy。
@@ -39,7 +40,7 @@ default:
 messagev3-real-chain:
   stage: messagev3
   resource_group: messagev3-pre
-  timeout: 30m
+  timeout: 6m
   script:
     # PRE 测试账号池由 real-chain 配置内置，运维无需额外配置凭据变量。
     - node scripts/messagev3/phase1-5-real-chain.mjs --all --env pre
@@ -49,5 +50,24 @@ messagev3-real-chain:
       - artifacts/messagev3-phase1-5-real-chain/
     expire_in: 14 days
   rules:
+    - if: '$MESSAGEV3_DIAGNOSE == "1"'
+      when: never
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH'
+
+# 显式变量触发一次诊断；普通 push 继续运行完整业务验收。
+messagev3-diagnose:
+  stage: messagev3
+  resource_group: messagev3-pre
+  timeout: 6m
+  script:
+    - node scripts/messagev3/ci-diagnose.mjs
+    - node scripts/messagev3/phase1-5-real-chain.mjs --gate MV3-G07B --env pre
+  artifacts:
+    when: always
+    paths:
+      - artifacts/messagev3-diagnose/
+      - artifacts/messagev3-phase1-5-real-chain/
+    expire_in: 7 days
+  rules:
+    - if: '$MESSAGEV3_DIAGNOSE == "1"'

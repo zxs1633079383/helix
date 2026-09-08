@@ -37,7 +37,7 @@ IM 是首个业务模块，不是内核特例。`helix-core` 只提供 sans-IO �
 
 ## 3. MessageV3 Gate Event 合同
 
-- 唯一业务出站信封为 `Effect::Emit {event,data}`。
+- 唯一业务出站为 `Effect::Emit { event: DomainEventBytes }`；其 bytes 载荷为 `{event,data}`。
 - `event` 使用 Gate 注册的稳定名称；`data` 只含已提交存储事实、已观测 wire 字段或明确
   声明的 correlation/query/role 派生字段。
 - sender 与 receiver 各自从 tenant-local 持久事实生成绝对态；shell 不消费 delta 补算

@@ -1,7 +1,9 @@
-# Mobile InteractionFrame V2 全量替换：Spec 输入
+# Mobile InteractionFrame V2 全量替换：历史 Spec 输入
 
-> 审计时间：2026-07-24 PDT。本文档集是创建正式 Mobile Spec 前的源码事实与目标边界，
-> 不是 Spec、Plan、Tasks，也不把 PC 018 的静态硬切升级为移动端或删除后二次 E2E 完成。
+> `RETIRED_HISTORICAL`。审计时间：2026-07-24 PDT。本文档集记录创建正式 Mobile Spec 前的
+> 源码事实与目标边界，不是当前 Spec、Plan、Tasks，也不把 PC 018 的静态硬切升级为移动端或
+> 删除后二次 E2E 完成。当前 MessageV3 实施与 Gate 真源见
+> [`../../specs/047-im-event-gate-inventory/`](../../specs/047-im-event-gate-inventory/)。
 
 ## 结论先行
 

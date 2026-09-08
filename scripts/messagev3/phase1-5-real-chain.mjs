@@ -213,6 +213,7 @@ async function runCargo(filter, exact, environment, logPath) {
         args.push('--skip', 'phase4_todo');
         for (const filter of EXCLUDED_TEST_FILTERS) args.push('--skip', filter);
         const child = spawn('cargo', args, {
+            detached: process.platform !== 'win32',
             cwd: HELIX_ROOT,
             env: environment,
             stdio: ['ignore', 'pipe', 'pipe']
@@ -242,6 +243,15 @@ async function runCargo(filter, exact, environment, logPath) {
                 timeoutMs: cargoTimeoutMs()
             });
         };
+        // Unix 独立进程组只包含本批 Cargo 及后代，避免孤儿测试占住输出管道。
+        const terminate = signal => {
+            try {
+                if (process.platform === 'win32') child.kill(signal);
+                else process.kill(-child.pid, signal);
+            } catch (error) {
+                if (error.code !== 'ESRCH') logProgress(stage, `终止失败 code=${error.code}`);
+            }
+        };
         child.stdout.on('data', append);
         child.stderr.on('data', append);
         // 启动失败时同步暴露阶段位置，沿用原有错误传播。
@@ -259,12 +269,15 @@ async function runCargo(filter, exact, environment, logPath) {
             timedOut = true;
             output += `\nMESSAGEV3_CARGO_TIMEOUT_MS=${cargoTimeoutMs()} exceeded; terminating cargo.\n`;
             logProgress(stage, `超时，发送 SIGTERM elapsed_ms=${Date.now() - startedAt}`);
-            child.kill('SIGTERM');
+            terminate('SIGTERM');
             // cargo may leave the libtest child alive after SIGTERM; force the bounded fallback.
             forceKillTimer = setTimeout(() => {
                 if (!settled) {
                     logProgress(stage, '尚未关闭，发送 SIGKILL');
-                    child.kill('SIGKILL');
+                    terminate('SIGKILL');
+                    child.stdout.destroy();
+                    child.stderr.destroy();
+                    void finish(124);
                 }
             }, 5_000);
         }, cargoTimeoutMs());

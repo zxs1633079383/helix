@@ -24,6 +24,7 @@ top-level scripts.
 - `host-cli-dual-account-e2e.sh` - dual-account/broadcast e2e scenarios.
 - `messagev3/phase1-real-chain.mjs` - Phase1 `Domain → Gate` three-repo runner; internally targets Go `127.0.0.1:8066`, invokes Angular real WDIO classes, and fails closed when HTTP/WS/Native/DOM/storage evidence is incomplete.
 - `messagev3/phase1-5-real-chain.mjs` - Helix Phase1-5 的 83 个可执行 Gate 串行真链入口；支持 `--env`、`--phase`、`--domain`、`--gate`，并要求同轮 HTTP/WS、SQLite、EventSink 与清理证据才记 PASS。`NOT_APPLICABLE` 与 `NOT_IMPLEMENTED` 的 9 个 Gate 不进入执行分母。
+- `messagev3/ci-diagnose.mjs` - PRE 的 DNS/TCP、Go health 与首账号 Java 登录限时诊断；任一探针失败即非零退出，不能代替业务 Gate 验收。
 - `messagev3/real-chain-environment.mjs` - real-chain 环境 profile；默认 `pre`，内置 `local`，可用 `MESSAGEV3_GO_HTTP_BASE`、`MESSAGEV3_GO_WS_URL`、`MESSAGEV3_JAVA_API_BASE` 覆盖端点，未来环境可在变量齐全时直接扩展。
 - `ffi-verify.sh` - Flutter/FFI export and boundary validation.
 - `cpp-smoke.sh` - C++ FFI smoke check.
@@ -45,6 +46,25 @@ MESSAGEV3_GO_WS_URL=wss://ws-im-dev.example/api/v4/websocket \
 MESSAGEV3_JAVA_API_BASE=https://api-dev.example \
 node scripts/messagev3/phase1-5-real-chain.mjs --all
 ```
+
+### MessageV3 CI 诊断与限时
+
+当前 [`.gitlab-ci.yml`](../.gitlab-ci.yml) 默认运行完整 83 Gate；设置 `MESSAGEV3_DIAGNOSE=1`
+时排除完整作业，改为 `messagev3-diagnose`：先执行 `ci-diagnose.mjs`，成功后仅运行
+`phase1-5-real-chain.mjs --gate MV3-G07B --env pre`。前置探针失败会停止该作业，不执行后续 Gate。
+
+- 两个 job 均为 `timeout: 6m`，`RUNNER_SCRIPT_TIMEOUT=5m`；这是仓库声明，Runner/项目运行态须另查。
+- runner 的每个 Cargo 批次默认限时 `180000` ms；`MESSAGEV3_CARGO_TIMEOUT_MS` 可覆盖，解析值
+  小于 `30000` ms 时回退默认。Unix 超时向本批进程组发 SIGTERM，5 秒后仍未关闭则发 SIGKILL，
+  收口退出码为 124；Windows 使用子进程 kill。
+- runner 实时透传 Cargo stdout/stderr，并输出前置检查、Phase/Gate 起止、证据校验和汇总进度；
+  Cargo 日志保留在本轮 artifact。阶段日志或编译成功不代表业务 Gate PASS。
+- 诊断逐项记录到 `artifacts/messagev3-diagnose/probes.jsonl`；单项探针限时 8 秒、TCP 5 秒、
+  HTTP 7 秒，只记录状态/错误与 DNS/TCP 信息，不保存认证响应。诊断 job 的 artifact 保留 7 天，
+  完整 job 的 artifact 保留 14 天。
+- PRE 默认由 `real-chain-environment.mjs` 注入内置测试账号池；完整 runner 支持
+  `CSES_WDIO_CREDENTIALS_JSON` 优先、File 覆盖其次，非 PRE 不注入默认池。
+  `ci-diagnose.mjs` 的登录探针固定使用内置首账号，不读取该 JSON/File 覆盖。
 
 ## Setup And Shared Config
 

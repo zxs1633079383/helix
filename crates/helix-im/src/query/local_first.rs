@@ -240,7 +240,7 @@ mod authoritative_readback_tests {
             .any(|effect| matches!(effect, Effect::Emit { .. })));
     }
 
-    /// 旧代际收到已落库的 authority post 时，必须把 sent/postId 投影回当前窗口。
+    /// 旧代际authority也须等待窄写集成功，才能把sent/postId投影回当前窗口。
     #[test]
     fn stale_timeline_generation_projects_settled_authority_post() {
         let mut module = ImModule::new(crate::module::ImConfig::default());
@@ -294,6 +294,33 @@ mod authoritative_readback_tests {
             .as_slice()
             .iter()
             .any(|effect| matches!(effect, Effect::Persist { .. })));
+        assert!(!out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Emit { .. })));
+        let corr = out
+            .as_slice()
+            .iter()
+            .find_map(|effect| {
+                if let Effect::Persist { corr, .. } = effect {
+                    Some(*corr)
+                } else {
+                    None
+                }
+            })
+            .expect("authority persist correlation");
+        out.clear();
+        use helix_core::module_host::Module;
+        module
+            .handle(
+                &helix_core::Tick::PortReply {
+                    corr,
+                    outcome: PortOutcome::Ok(ReplyBytes(Bytes::new())),
+                },
+                1001,
+                &mut out,
+            )
+            .expect("authority persist reply");
         let has_post_received_emit = out.as_slice().iter().any(|effect| {
             let Effect::Emit { event } = effect else {
                 return false;
@@ -851,15 +878,6 @@ impl ImModule {
             }
         };
         let received_count = remote_posts.len();
-        let authoritative_post = authoritative_send_readback
-            .as_ref()
-            .and_then(|temporary_id| {
-                remote_posts.iter().find(|post| {
-                    let fields = crate::ws::parser::extract_post_fields(post);
-                    fields.temporary_id == temporary_id.0
-                        && crate::state::ServerId::from_str(fields.id.as_str()).is_some()
-                })
-            });
         if let Some(temporary_id) = authoritative_send_readback {
             let settled = self.reconcile_authoritative_send_readback(
                 request.channel_id,
@@ -877,20 +895,6 @@ impl ImModule {
                 authoritative_settled = settled,
                 "authoritative send readback consumed"
             );
-            if settled {
-                // 权威回读一旦证明同一 temporaryId 已有真实 server id，统一走
-                // 已知 post:received 合同；current/stale 两种 query 代际都可幂等合并。
-                if let Some(post) = authoritative_post {
-                    let fields = crate::ws::parser::extract_post_fields(post);
-                    out.push(crate::acl::to_effect::emit_post_received_for_viewer(
-                        request.channel_id,
-                        0,
-                        fields.id.as_str(),
-                        &fields,
-                        self.config.auth_user_id.as_str(),
-                    ));
-                }
-            }
         }
         if !current_query {
             return Ok(());
@@ -1170,7 +1174,7 @@ impl ImModule {
         );
     }
 
-    /// 用 Go 历史中的同 temporaryId + 合法 server id 结算发送，并撤销其超时令牌。
+    /// 以同temporaryId权威消息登记窄写集与canonical终态，交由Persist回报释放事件。
     fn reconcile_authoritative_send_readback(
         &mut self,
         channel_id: ChannelId,
@@ -1178,17 +1182,32 @@ impl ImModule {
         posts: &[Value],
         out: &mut EffectSink,
     ) -> bool {
-        let server_id = posts.iter().find_map(|post| {
+        let authority = posts.iter().find_map(|post| {
             let fields = crate::ws::parser::extract_post_fields(post);
-            (fields.temporary_id == temporary_id.0)
-                .then(|| crate::state::ServerId::from_str(fields.id.as_str()))
-                .flatten()
+            if fields.temporary_id != temporary_id.0 {
+                return None;
+            }
+            crate::state::ServerId::from_str(fields.id.as_str())
+                .map(|server_id| (server_id, fields))
         });
-        let Some(server_id) = server_id else {
+        let Some((server_id, fields)) = authority else {
             return false;
         };
-        let context = CorrelationContext::AuthoritativeSendReconcilePersist {
+        let helix_core::Effect::Emit {
+            event: terminal_event,
+        } = crate::acl::to_effect::emit_post_received_for_canonical_viewer(
+            channel_id,
+            0,
+            fields.id.as_str(),
+            &fields,
+            self.config.auth_user_id.as_str(),
+        )
+        else {
+            return false;
+        };
+        let context = CorrelationContext::AuthoritativeSendTerminalPersist {
             temporary_id: temporary_id.clone(),
+            terminal_event: terminal_event.0,
         };
         if !self.settle_authoritative_send(temporary_id, server_id, context, out) {
             return false;

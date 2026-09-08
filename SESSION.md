@@ -10,7 +10,16 @@
 
 ✅ DONE 本轮文档/看板artifact已完成：docs/Metrics沉淀71族实测快照、登录/用户/群聊/Gap/seq设计与验证记录；独立评审APPROVED_ARTIFACT_ONLY，独立UID看板含98个面板/分组及164条查询。静态生成一致性、42个文档链接、Node语法、diff检查与PRE顺序只读332/332查询通过；71族对应151条查询有数据，4个Span派生族因缺环境维度保留隔离为空。业务诊断producer/OTLP Logs pipeline/latest-state服务未实施，Grafana未发布、未做真实业务或UI验收，未改Rust/Angular/Go及用户既有未跟踪产物 | @2026-09-07T15:42:43.669094+08:00
 
+⚠️ 发布BLOCKED：本轮G02C修复后PRE83/83，完整门禁Native113/113；旧Phase1 localhost:8066前置失败，改PRE诊断另有G01K/G02B两项独立失败。遵守无关失败停止扩张规则，诊断改动已撤销，未绕过hook；push失败、MR未创建。详见0907-PRE四项验收复核与修复报告。
+✅ DONE G02C后续根因修复：HTTPauthority原先提前发sent，晚WS已被cursor去重；改为窄写集PersistOk后received。403个lib、6个G02C focused、满队列observer关闭回归和最终PRE83/83（53.195秒）通过。正常pre-push结果另记MR，不绕过hook、不自动合并。
+✅ DONE PRE验收设施独立批次：统一有界观察预算，失败分类/关联/清理证据及pin原始WS断言；聚焦3/3、固定远端基线PRE82/83，G10E/G05F/G05G通过。G02C已落库sent却无匹配received，当时业务修复仍PARTIAL，未创建MR。
+⚡ DRIFT-PRED 起始本地基线83/83未在远端基线上保持；G02C重复超时，提前独立订阅终态仍失败，撤销该假设改动。禁止把观察设施修复称为生产根因闭环。
+🎯 EXPECT 修复PRE四Gate失败：定位重试/置顶seed终态和notify重开回读；保持现有业务断言，聚焦红绿与PRE --all验证；仅在独立worktree提交并提MR，不纳入主仓脏文件 | 赌注 中 | 可逆 是 | @2026-09-07T17:32:36.969089
+分支：codex/0907-pre-four-gates；基线 a288f7ae；目标 reactor/MessageV3-helix；无自动删除
+
 🎯 EXPECT 将用户明确授权的 PRE 测试账号池内置到 real-chain 配置；可证伪断言：① `--env pre` 在无凭据变量时自动注入 16 个测试账号且不打印密码，已有 JSON/File 仍可覆盖；② local/未来其他 profile 不误用 PRE 账号；③ CI 不再要求运维配置凭据，只要求 Node.js 20+ 与现有 Rust/Cargo；④ Node 凭据选择断言、83 Gate dry-run、GitLab CI lint 与 `git diff --check` 通过；⑤ 只提交脚本/CI/SESSION，不纳入当前 helix-im 用户改动与未跟踪产物 | 赌注 中 | 可逆 是 | @2026-09-04T10:01:00+0800
+
+🎯 EXPECT 本轮只修改 CI 与诊断脚本；所有作业 timeout=6m，诊断前置逐项限时且失败退出，Cargo 超时后终止进程组；不修改 Rust 业务代码 | 赌注 中 | 可逆 是 | @2026-09-07
 
 ✅ DONE PRE real-chain 已内置 16 个用户明确授权的测试账号，无凭据变量时自动向 Native Gate 注入且不输出密码；显式 JSON/File 可覆盖，local profile 保持隔离。CI 已删除凭据变量前置，只保留现有 Rust/Cargo 与 Node.js 20+ 要求；账号池/覆盖/隔离断言、83 Gate dry-run、Node 语法、GitLab CI lint 和 `git diff --check` 通过。未运行远端 PRE 写入回归，当前 helix-im 并行改动及未跟踪产物均未纳入 | @2026-09-04T10:04:00+0800
 
@@ -77,6 +86,33 @@
 - 生成器语法、Python 编译、19 UC/25 Gate 索引与本地链接、生成幂等、10 个 Mobile 现有 GTest 路径、70 份 selected-GN Mermaid 渲染和 `git diff --check` 通过；本轮是文档合同沉淀，未运行 Cargo、WDIO 或 Mobile runtime 测试。
 
 ## 0. 当前任务
+
+🎯 EXPECT 本轮 Markdown 日检仅对齐已有 CI/脚本事实；可证伪断言：只修改 README、scripts/README、Harness OPERATING/decisions 与 SESSION，诊断入口、6m/5m/180000ms 超时层级及 PRE 凭据覆盖顺序均能在当前配置找到；923 份 Markdown 的相对路径链接与聚焦 checker 通过，不修改代码/配置/生成物 | 赌注 低 | 可逆 是 | @2026-09-08T08:04:17+0800
+
+本轮隔离：`codex/helix-markdown-20260908-0801`，upstream `origin/reactor/MessageV3-helix`，基线 `68dbf21c`；worktree `/System/Volumes/Data/workspace/angular/visual/helix-markdown-20260908-0801`，初始 clean，保留供追溯、不自动删除。源 checkout `3d421dbb` 的四组未跟踪资产不纳入。
+
+清单/真源映射：923 份 tracked Markdown；根 README/AGENTS/GOAL/ROADMAP → Cargo workspace、Spec047 manifest 与当前 CI；crate 文档 → 各 crate manifest/src/tests；API/脚本说明 → contracts/schema 与 scripts；Harness → HX-C 文件/索引/checker；历史 Spec/Frame 报告仅核对定位与链接。上轮 `9bcba4dc` 后非 Markdown 变化只有 `.gitlab-ci.yml` 和两个 MessageV3 runner/诊断脚本，本轮语义核对重点为这些变化，未逐条重证全部既有 API/运行态声明。
+
+✅ DONE 本轮 5 份 Markdown 已对齐 CI 诊断分支、6m/5m/180000ms 限时、实时日志与 PRE 凭据顺序；删除强制 File/WASM 前置的失效描述。923 份 Markdown 的 1599 条相对路径链接、HX-C 18/18/18、8 个 workspace member/四公共 README 0.1.9、83 Gate 只读测试 3/3、Spec047 默认 checker、Strict Matrix、InteractionFrame 历史索引、CI/凭据源码断言与 gate-fast 均退出 0。Spec047 当前产物仍为 NOT_GENERATED；未重跑既有生成物/跨仓 agent 检查，未执行 Cargo、PRE 登录或真实业务链。已具备本轮文档提交条件，push 结果由自动化报告记录 | @2026-09-08T08:05:24+0800
+
+
+🎯 EXPECT 每日 Markdown 熵管理只修改能由当前 `1355772d` 代码、Cargo manifest、配置、测试或脚本证明漂移的 Markdown 与必要 SESSION 记录；可证伪断言：① 不修改 Rust、JSON、TOML、脚本、生成产物或共享 checkout 未跟踪资产；② README/AGENTS/GOAL/ROADMAP/Spec/contract/harness/链接与路径结论均可回溯到当前真源；③ 直接相关链接、索引、checker 与 `git diff --check` 通过；④ 既有生成 hash、Tag 或代码问题只报告不越界修复；⑤ 有真实 Drift 才创建结构化中文 commit 并普通推送，否则报告 `NO_CHANGES` | 赌注 中 | 可逆 是 | @2026-09-06T08:02:30+0800
+
+✅ DONE 本轮在独立 worktree 仅更新 Markdown/Mermaid 与本条 SESSION：对齐 core 7 Tick/11 Effect/9 StorageOp/9 ports、host scoped storage 与 UploadFile/3 秒 drain、native host-pump 路由、host-cli 8066 YAML 配置；修正 MessageV3 `Effect::Emit { event: DomainEventBytes }`（bytes `{event,data}`）及 PersistOk 后 sending 语义；为旧 InteractionFrame/Frame projection、UC automation、Phase1-4/Phase5 交接补 `RETIRED_HISTORICAL` 边界；补 HX-C016 YAML 元数据。验证：`git diff --check` PASS；相对 Markdown 链接 1596 条、broken=0（另有 10 条绝对路径引用）；cutover checker default/self-test PASS；strict-matrix default PASS；18/18 harness metadata PASS；Cargo metadata 四包均 0.1.9；未修改 Rust/JSON/TOML/脚本/生成物或共享 checkout 资产 | @2026-09-06T08:50:51+0800
+
+⚡ DRIFT-PRED 当前 checkout 的 `specs/047-im-event-gate-inventory/.v1/gates` 未生成，`--require-generated` 仍失败；`scripts/strict-matrix/check.mjs --check-generated` 仍报告既有生成矩阵漂移；跨仓 docs/mmd 与旧 InteractionFrame 目录仍保留未逐文件清理。它们均属本轮明确不生成/不扩张的边界，后续需绑定当前 revision 的独立收敛任务 | @2026-09-06T08:50:51+0800
+
+🎯 EXPECT 每日 Markdown 熵管理只修改有当前代码、manifest、配置、测试或脚本证据的现行文档；可证伪断言：① 仅更新 core/host/native 当前设计图与说明及必要 SESSION，不修改 Rust、JSON、TOML、脚本、生成产物或共享 checkout 未跟踪资产；② Tick、Storage、engine route、worker 并发、FFI query 与 reconnect 文档与 `b8868f4f` 基线源码一致；③ 现行 Markdown 相对链接、Gate/Spec/harness 索引和 `git diff --check` 通过；④ `.v1`、generated hash、历史 allowlist 等非 Markdown owner Drift 只报告；⑤ 有真实 Drift 才创建结构化中文 commit 并普通非强制推送，否则报告 `NO_CHANGES` | 赌注 中 | 可逆 是 | @2026-09-07T08:02:26+0800
+
+✅ DONE 本轮在独立 worktree 仅更新 17 份 Markdown/Mermaid/SESSION（90 行新增、62 行删除）：对齐 7 Tick、10 Storage 方法、PortProgress/one-shot timer、PersistAtomic/UploadFile correlation、EngineDeps/transport registration/fairness、HostStorage 单 writer + 可选 ReadPool、`max_http_inflight` worker、`helix_query` 元信息边界与 ReconnectPolicy。验证：10/10 Mermaid PASS；Markdown 本地链接 1596 条、broken=0；InteractionFrame index PASS；Spec047 30 Gate default/self-test PASS；Strict Matrix 50/54/epoch13 PASS；harness 索引 18/18；Cargo metadata 四包 0.1.9；source assertions PASS；`git diff --check` PASS。未修改 Rust、JSON、TOML、脚本、生成产物或共享 checkout 未跟踪资产 | @2026-09-07T08:02:26+0800
+
+⚡ DRIFT-PRED 初始审计范围为当前 design/ 文档，复核后发现同一运行时事实也落在 native AGENTS 与 host 并发规范，故扩展到两个现行规则/规范 Markdown；候选教训：文档真源审计必须按同一运行时事实的所有现行入口收敛，而不能只按 design/ 目录筛选 | @2026-09-07T08:02:26+0800
+
+🎯 EXPECT 每日 Markdown 熵管理只修改有当前代码、manifest、配置、测试或脚本证据的文档；可证伪断言：① 只在本轮独立 worktree 产生 Markdown/必要 SESSION 改动，不触碰 Rust、JSON、TOML、脚本、生成产物或共享 checkout 未跟踪资产；② 远端 `origin/reactor/MessageV3-helix` 基线固定为 `0ef1692890670e3e3e8f14f455c771d377cbef3a`，所有版本、路径、Gate/Spec/索引结论均可回溯到该 tip 或当前真源；③ 直接相关链接、路径、索引、checker 与 `git diff --check` 通过；④ 若发现既有 checker/Tag/生成物 Drift，仅报告不越界修复；⑤ 有真实 Drift 才提交并普通非强制推送，否则报告 `NO_CHANGES` | 赌注 中 | 可逆 是 | @2026-09-05T08:01:00+0800
+
+✅ DONE 本轮仅更新 Markdown：四个公共 crate README、docs/README 与 ROADMAP 对齐 `0.1.9` 和 `0ef16928`；根索引、Spec 047、历史 Strict Matrix/Frame/full-map/fixture/curl 文档已明确 `RETIRED_HISTORICAL`、30 Gate 当前 manifest、epoch 13 历史分母和真实 producer 路径。验证：Markdown 链接 1605/1605、cutover checker 30 Gate PASS、manifest test path 30/30、Strict Matrix retired epoch 13 为 50（47 active/3 excluded）、Cargo metadata 四包均 0.1.9、`git diff --check` PASS；未改 Rust/JSON/TOML/脚本/生成物或共享 checkout | @2026-09-05T08:55:14+0800
+
+⚡ DRIFT-PRED 严格 Matrix `--check-generated` 仍因既有 generated hash 漂移失败，`helix-v-0.1.9` 本地与远端均缺失；两项均按预期保留为发布/生成流程债务，未用文档改动掩盖 | @2026-09-05T08:55:14+0800
 
 🎯 EXPECT 每日 Markdown 熵管理只修改有当前代码、Cargo manifest、脚本或测试证据的文档；可证伪断言：① 四个公开 crate README、docs 索引与 ROADMAP 都精确对齐 `0.1.7`；② `docs/README.md` 与 `docs/ROADMAP.md` 的代码快照更新至本轮独立 worktree 基线 `088184df`；③ 不修改 Rust、JSON、TOML、脚本或生成产物；④ 直接相关链接、版本、索引与 `git diff --check` 均通过；⑤ 缺失 `helix-v-0.1.7` 注释 Tag 只报告为发布流程 Drift，不以文档掩盖 | 赌注 低 | 可逆 是 | @2026-09-04T08:00:55+0800
 
@@ -656,3 +692,5 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 - RICH 摘要从正文提取可见文字，原始格式和布局保留到 props；没有新增 SQLite schema。
 - TDD：非法引用用例红绿通过；发送构建 38 项、搜索 relay 16 项通过。SQLite 集成 2 项覆盖 TEXT 与 RICH 的 Command、持久化、关闭重开和原文/布局/附件 ID 读回。
 - 实际登录态 Native 发送、远端 Go/ES 索引未验收；跨重启未发送图片草稿仍不支持，不能用本地测试替代这些证据。未提交、推送或发布。
+
+✅ DONE 限时诊断探针本地 DNS/TCP/Go health/Java login 全部通过；Cargo 进程组超时模拟返回 124 并写证据，现有合同测试 3/3 通过。CI 两个作业均为 6m，脚本预算 5m，项目默认 360s 被 GitLab 最低 10 分钟限制拒绝、保持原值，两个作业显式 6m 生效；Runner 实证由本次诊断 pipeline 产物给出。

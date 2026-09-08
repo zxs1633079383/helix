@@ -12,15 +12,15 @@
 | [`消息发送全流程/在线与离线发送消息全流程.md`](./消息发送全流程/在线与离线发送消息全流程.md) | 结合 Helix 与现役 Go server 源码，说明 `im_send_message`、Persist/HTTP/timer/PortReply、WS authority、sender/receiver 未读、离线补偿与手动 retry。 |
 | [`消息发送全流程/在线与离线发送消息全流程.mmd`](./消息发送全流程/在线与离线发送消息全流程.mmd) | 同一链路的 Mermaid 图源。 |
 
-下面的 V2 内容是硬切前历史索引，只用于追溯设计决策。
+下面的 V2 内容是硬切前历史索引，只用于追溯设计决策，不参与当前 MessageV3 实施或 Green 判定。
 
 ## 历史 InteractionFrame v2 入口
 
-> 这是 V2 Agent 的最小上下文入口。先读 [`AGENTS.md`](./AGENTS.md)，再从本页按 Gate
-> 取用合同；不要以旧 V1 文档、raw emit 或端侧 ProjectionStore 建立 V2 运行时上下文。
-> V2 文档当前是实施合同，不是 runtime green 声明。
+> `RETIRED_HISTORICAL`：这是 V2 Agent 的历史上下文入口。先读 [`AGENTS.md`](./AGENTS.md)，
+> 再按 Gate 追溯合同；不要以旧 V1 文档、raw emit 或端侧 ProjectionStore 建立当前运行时上下文。
+> 当前实施合同与 Gate 分母请改读 Spec 047。
 
-## 只读这四类来源
+## 历史索引中的四类来源
 
 | 优先级 | 文档 | 用途 |
 |---|---|---|
@@ -31,7 +31,7 @@
 
 当前代码、回放、测试和真实链路仍负责验证实现事实；它们不能被文档的“已覆盖”措辞替代。
 
-## Gate 路由
+## 历史 Gate 路由
 
 | Gate | V2 分册 | 先解决的问题 |
 |---|---|---|
@@ -54,7 +54,7 @@ G04-G16c 的 Go HTTP/WS、Persist 屏障与完整 Frame 数据展开见
 raw emit 时加读 `09`。`flows/` 只服务 GS01-GS04 和 G01 的运行、证据与人工介入，不替代
 其实现合同。
 
-## V2 共同模型
+## 历史 V2 共同模型
 
 V2 的唯一业务 UI 下行是版本化 `InteractionFrame v2`：`runtime`、typed surface
 mutations 与一次性 `UiDirective` 在同一批次中交付。业务事实先经 Helix 持久化；只有

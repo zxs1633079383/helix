@@ -27,7 +27,7 @@
 ```
 core (helix-im)                        host pump (helix-driver-host::engine)
   ImDomainEvent --ACL-1 序列化-->        每 step:
-  Effect::Emit(DomainEventBytes)  ──►   dispatch_effects(...) {
+  Effect::Emit { event: DomainEventBytes }  ──►   dispatch_effects(...) {
                                           for Emit(ev) => event_sink.emit(ev)   ← 逐条 EventSink::emit
                                         }
                                         event_sink.flush()                       ← step 末一次 BatchSink::flush

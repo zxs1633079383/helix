@@ -1,7 +1,7 @@
 %% helix-core — sans-IO 边界因果链（core 吐意图 → driver 兑现 → PortReply 回灌）
-%% 真源：src/engine.rs (step 同步) + 6 ports (async 在 driver 侧) + src/effect.rs(Effect/corr)
+%% 真源：src/engine.rs (step 同步) + 9 ports (async 在 driver 侧) + src/effect/operation.rs(Effect/corr)
 %% 关联：HX-C001(core 零运行时) · HX-C002(async port Send 边界) · AGENTS.md §1 sans-IO/确定性
-%% 6 ports：FrameSender / Storage / Clock / EventSink / IdSource(+Random) / HttpRequester
+%% 9 ports：FrameSender / Storage / Clock / EventSink / IdSource / Random / HttpRequester / FileUploader / FileUploadProgressReporter
 sequenceDiagram
     autonumber
     participant H as Host / UI<br/>(Tauri / Flutter FFI)

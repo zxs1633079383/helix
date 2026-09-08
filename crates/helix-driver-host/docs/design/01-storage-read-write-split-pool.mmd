@@ -29,11 +29,13 @@ flowchart TD
     W --> MIGRATE
 
     subgraph ROUTE["StorageOp 按读/写分流路由"]
-        WRITE_OPS["写 op：batch_upsert / batch_update / batch_delete\nmonotonic_upsert / guarded_bump"]
-        READ_OPS["读 op：get / scan（with_reader）"]
+        WRITE_OPS["写 op：batch_upsert / batch_update / batch_delete\nmonotonic_upsert / guarded_bump / scoped_guarded_bump"]
+        READ_OPS["读 op：get / scoped_get / scan（with_reader）"]
+        ATOMIC_OPS["原子写：Effect::PersistAtomic\n→ Storage::atomic_write（整批事务）"]
     end
 
     WRITE_OPS -->|"writer.lock() 串行"| W
+    ATOMIC_OPS -->|"writer.lock() 单事务"| W
     READ_OPS -->|"先 acquire permit → pop 借连接"| SEM
 
     subgraph BLOCKING["spawn_blocking 隔离 ✅ HX-C006 / ADR-005"]

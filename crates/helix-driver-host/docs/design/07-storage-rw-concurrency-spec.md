@@ -11,13 +11,14 @@
 ```
 HostStorage
 ├── writer: Arc<Mutex<Connection>>  (READ_WRITE | CREATE | NO_MUTEX)
-│   └── 所有写 op：batch_upsert / batch_update / monotonic_upsert
+│   └── 所有写 op：batch_upsert / batch_update / batch_delete /
+│       monotonic_upsert / guarded_bump / scoped_guarded_bump / atomic_write
 │       经 BoundedSpawner N=1 → spawn_blocking → writer.lock()
 │
 └── readers: Option<Arc<ReadPool>>  (文件库启用，内存库不共享则 None)
     ├── permits: Arc<Semaphore(4)>   — 限并发 = 连接数
     ├── idle: Mutex<Vec<Connection>> (READ_ONLY | NO_MUTEX)
-    └── get / scan 经 spawn_blocking → acquire → pop → 用完 push 归还
+    └── get / scoped_get / scan 经 spawn_blocking → acquire → pop → 用完 push 归还
 
 WAL 模式：journal_mode=WAL + synchronous=NORMAL + busy_timeout=5000
 NO_MUTEX：连接已被 Rust Mutex/只读池独占，消除 SQLite 内部串行锁双重开销（B2）
@@ -104,16 +105,19 @@ pump loop (biased select)
 
 ### 4.2 读路径 BoundedSpawner 覆盖缺口
 
-**⚠️ 覆盖缺口**：BoundedSpawner N=1 是**写路径**（Effect::Persist）的串行化原语。读路径（Get/Scan）**不经 BoundedSpawner**，直接走 `with_reader()` → ReadPool Semaphore。
+**⚠️ 覆盖缺口**：BoundedSpawner N=1 是**写路径**（Effect::Persist/PersistAtomic）的串行化原语。读路径（Get/ScopedGet/Scan）**不经 BoundedSpawner**，直接走 `with_reader()` → ReadPool Semaphore。
 
 - 这意味着：并发读**不受 BoundedSpawner 的五不变量约束**（特别是「队满 Block 传导背压」）。
 - 读的背压机制是 Semaphore(4)：超过 4 个并发读时 `acquire().await` 挂起，靠异步任务调度器自然排队。
 - **当前无死锁风险**：读不回写，读路径不存在回灌循环。
 - **潜在饥饿风险**：若大量并发读（>4）积压在 Semaphore 上，且读路径的 spawn_blocking 任务耗时较长（慢查询），可能导致读饥饿（但不影响写路径）。当前 helix-im 的读量相对写量小，此风险低。
 
-### 4.3 helix_query（FFI 读路径）
+### 4.3 helix_query 与业务查询边界
 
-当前 `helix_query` 是 stub（`FFI_UNIMPLEMENTED`），不走 ReadPool，无并发问题。一旦实装，需注意：FFI 同步调用须经 `spawn_blocking`（HX-C006 MAJ-4），否则阻塞 C++ 调用线程。
+当前 `helix_query` 只提供 `helix_capabilities` / `helix_version` 元信息，返回未知业务查询
+`FFI_UNIMPLEMENTED`，不走 ReadPool。业务查询必须通过 `helix_command` 进入 Helix，按
+Command 产生 Get/ScopedGet/Scan Effect，再由 PortReply 与事件批次返回；未来扩展也必须保留
+该异步边界，不能在 FFI 侧按名称拼装 `ScanSpec`。
 
 ---
 
@@ -253,7 +257,7 @@ pump loop (biased select)
 
 6. **场景 D（increment 并发）**：在 path3 形态确认后实现。
 
-7. **场景 F（FFI vs native 对照）**：与 FFI driver 实装（helix_query stub 填充）一起做。
+7. **场景 F（FFI vs native 对照）**：与业务 QueryRouter/Command 合同实装一起做；`helix_query` 元信息 API 不纳入 Storage 并发对照。
 
 ### 复用现有 harness
 

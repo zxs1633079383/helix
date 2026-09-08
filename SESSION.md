@@ -1,3 +1,5 @@
+🎯 EXPECT 发布四个公共 crate 0.1.11，同步八个 workspace manifest 与 Cargo.lock；四包可从 crates.io 解析、发布提交与注释 Tag 同源；客户端精确 pin 升级且保留既有配置改动，三仓当前开发分支同步远端 | 赌注 中 | 可逆 首包上传前是 | @2026-09-08T14:29:10+08:00
+
 ✅ DONE 本轮 Go PRE/Helix Native 指标修复与证据 @2026-09-08 | Go CI35/CD16 已部署；Helix provider身份+Cumulative+selfcursor修复，19定向测试、最终Native在线/离线/OTLP故障发送双端SQLite与155双MCP对拍。现役Tauri crates发布及Angular终态仍PARTIAL；见 [验收说明](docs/Metrics/0908-PRE面板证据/验收说明.md)。
 
 

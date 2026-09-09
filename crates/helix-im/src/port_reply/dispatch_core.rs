@@ -13,6 +13,7 @@ impl ImModule {
         terminal_seq: crate::state::Seq,
         trigger: SyncTrigger,
         pending_domain_events: Vec<Vec<u8>>,
+        has_category_posts: bool,
         pending_chain_event_ids: Vec<String>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
@@ -94,11 +95,7 @@ impl ImModule {
                     "terminal sync atomic write committed"
                 );
 
-                for bytes in pending_domain_events {
-                    out.push(Effect::Emit {
-                        event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
-                    });
-                }
+                self.release_post_events(pending_domain_events, has_category_posts, out)?;
                 if trigger == SyncTrigger::Routine {
                     out.push(
                         crate::event::sync::recovered(serde_json::json!({
@@ -157,6 +154,7 @@ impl ImModule {
         wants_continuation: bool,
         channel_updates: Vec<PendingChannelUpdate>,
         pending_domain_events: Vec<Vec<u8>>,
+        has_category_posts: bool,
         pending_chain_event_ids: Vec<String>,
         pending_send_reconciliations: Vec<PendingSendReconciliation>,
         outcome: &PortOutcome,
@@ -219,11 +217,7 @@ impl ImModule {
                     for reconciliation in pending_send_reconciliations {
                         self.reconcile_pending_send_after_sync(reconciliation, out);
                     }
-                    for bytes in pending_domain_events {
-                        out.push(Effect::Emit {
-                            event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
-                        });
-                    }
+                    self.release_post_events(pending_domain_events, has_category_posts, out)?;
                 }
                 // PersistAtomic 是写屏障；仅读回受影响频道行，避免恢复批次退化为全表扫描。
                 if committed
@@ -899,6 +893,8 @@ impl ImModule {
             corr,
             ops: vec![helix_core::effect::StorageOp::BatchUpsert(
                 helix_core::effect::UpsertSpec {
+                    version_column: None,
+                    update_guard: None,
                     table: "channel_member",
                     rows: upsert_rows,
                     conflict_key: Some("channel_id,user_id"),

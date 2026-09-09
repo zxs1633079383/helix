@@ -251,6 +251,8 @@ pub fn message_v3_commit_ops(
             ),
         ];
         ops.push(StorageOp::BatchUpsert(UpsertSpec {
+            version_column: None,
+            update_guard: None,
             table: "channel_member",
             rows: vec![member_row],
             conflict_key: Some("channel_id,user_id"),
@@ -264,6 +266,8 @@ pub fn message_v3_commit_ops(
             ("last_root_post_at".to_string(), SqlValue::Integer(0)),
         ];
         ops.push(StorageOp::BatchUpsert(UpsertSpec {
+            version_column: None,
+            update_guard: None,
             table: "channel_member",
             rows: vec![member_row],
             conflict_key: Some("channel_id,user_id"),

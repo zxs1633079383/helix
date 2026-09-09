@@ -86,6 +86,8 @@ async fn stress_batch_upsert_39x100() {
                 rows,
                 conflict_key: Some("seq"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .await
             .expect("batch_upsert 39 rows");
@@ -144,6 +146,8 @@ async fn stress_batch_upsert_5000_single_batch() {
             rows,
             conflict_key: Some("seq"),
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         })
         .await
         .expect("batch_upsert 5000 rows");
@@ -207,6 +211,8 @@ async fn stress_10k_flood_no_deadlock_all_landed() {
                 rows,
                 conflict_key: Some("seq"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .await
             .expect("flood batch_upsert");

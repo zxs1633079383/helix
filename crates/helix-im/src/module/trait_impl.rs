@@ -55,6 +55,7 @@ impl Module for ImModule {
                     if auth_user_id != self.config.auth_user_id
                         || company_id != self.config.company_id
                     {
+                        self.cancel_category(out);
                         self.state.reset_message_v3_identity();
                     }
                     self.config.auth_user_id = auth_user_id;
@@ -129,6 +130,14 @@ impl Module for ImModule {
                 // 也不在 query 闭集内，落到 `_` 分支就会退回「unhandled command」死代码态。
                 name if crate::draft::is_draft_command(name) => {
                     crate::draft::handle_command(self, name, cmd.payload.as_ref(), now_ms, out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
+                }
+                // 分类接龙独立authority，不复用文字接龙字段或确认规则。
+                name if crate::category_chain::is_command(name) => {
+                    self.handle_category_command(name, cmd.payload.as_ref(), now_ms, out)
                         .map_err(|e| CoreError::ModuleError {
                             module: self.name(),
                             source: Box::new(e),
@@ -513,6 +522,14 @@ impl Module for ImModule {
             }
 
             Tick::Timer(id) => {
+                if self.handle_category_timeout(*id, out).map_err(|e| {
+                    CoreError::ModuleError {
+                        module: self.name(),
+                        source: Box::new(e),
+                    }
+                })? {
+                    return Ok(());
+                }
                 self.handle_timer(*id, now_ms, out)
                     .map_err(|e| CoreError::ModuleError {
                         module: self.name(),
@@ -601,6 +618,7 @@ impl Module for ImModule {
 
     /// 停止：取消所有 timer + 关闭连接
     fn on_stop(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
+        self.cancel_category(out);
         self.stop_lifecycle(out)
             .map_err(|e| CoreError::ModuleError {
                 module: self.name(),

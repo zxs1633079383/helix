@@ -1,0 +1,117 @@
+{
+  "data": {
+    "card": {
+      "audienceCount": 5,
+      "categories": [
+        {
+          "categoryId": "a",
+          "entries": [],
+          "hasMore": true,
+          "name": "室内",
+          "ordinal": 0,
+          "participantCount": 1,
+          "revision": "2",
+          "tone": "purple"
+        },
+        {
+          "categoryId": "b",
+          "entries": [],
+          "hasMore": true,
+          "name": "户外",
+          "ordinal": 1,
+          "participantCount": 1,
+          "revision": "2",
+          "tone": "blue"
+        }
+      ],
+      "categoryCount": 2,
+      "chainId": "chain-a",
+      "deadlineAt": 1789113600000,
+      "description": "",
+      "example": "",
+      "maxCategories": 2,
+      "participantCount": 1,
+      "revision": "2",
+      "schemaVersion": 1,
+      "status": "OPEN",
+      "title": "活动"
+    },
+    "chainId": "chain-a",
+    "channelId": "chfixx00000000000000000001",
+    "clientMutationId": "reconcile-a",
+    "command": "category_chain_reconcile",
+    "commandKind": "set-participation",
+    "draft": null,
+    "eventId": null,
+    "eventSeq": null,
+    "myParticipation": {
+      "canCancel": true,
+      "canEdit": true,
+      "canParticipate": true,
+      "chainId": "chain-a",
+      "denialReason": null,
+      "entries": [],
+      "maxCategories": 2,
+      "participationRevision": "1"
+    },
+    "operationId": "op-reconcile-a",
+    "outcome": "CONFIRMED",
+    "post": {
+      "channelId": "chfixx00000000000000000001",
+      "createAt": 1788770000000,
+      "id": "srvfix00000000000000000001",
+      "message": "分类接龙：活动",
+      "props": {
+        "categoryChain": {
+          "audienceCount": 5,
+          "categories": [
+            {
+              "categoryId": "a",
+              "entries": [],
+              "hasMore": true,
+              "name": "室内",
+              "ordinal": 0,
+              "participantCount": 1,
+              "revision": "2",
+              "tone": "purple"
+            },
+            {
+              "categoryId": "b",
+              "entries": [],
+              "hasMore": true,
+              "name": "户外",
+              "ordinal": 1,
+              "participantCount": 1,
+              "revision": "2",
+              "tone": "blue"
+            }
+          ],
+          "categoryCount": 2,
+          "chainId": "chain-a",
+          "deadlineAt": 1789113600000,
+          "description": "",
+          "example": "",
+          "maxCategories": 2,
+          "participantCount": 1,
+          "revision": "2",
+          "schemaVersion": 1,
+          "status": "OPEN",
+          "title": "活动"
+        }
+      },
+      "simpleMessage": "[分类接龙] 活动",
+      "temporaryId": "category-anchor-1",
+      "type": "CATEGORY_CHAIN",
+      "updateAt": 1788770000000,
+      "userId": "user-a",
+      "viewers": [
+        "all"
+      ]
+    },
+    "req_id": "rec",
+    "revision": "2",
+    "state": "CONFIRMED",
+    "viewerId": "user-a"
+  },
+  "event": "im:category_chain:operation"
+}

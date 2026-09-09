@@ -260,6 +260,8 @@ async fn ws_event_conflict_preserves_local_send_status_until_reconcile() {
             ]],
             conflict_key: Some("temporary_id"),
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         })
         .await
         .expect("seed optimistic row");
@@ -837,6 +839,8 @@ async fn durable_failed_message_rehydrates_retry_after_module_restart() {
             ]],
             conflict_key: Some("temporary_id"),
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         })
         .await
         .expect("seed durable failed message");
@@ -1028,6 +1032,8 @@ async fn recovery_ledger_and_coverage_migrate_idempotently_and_roll_back_togethe
         ]],
         conflict_key: Some("tenant_id,channel_id,event_seq"),
         exclude_from_update: Vec::new(),
+        version_column: None,
+        update_guard: None,
     });
     let coverage_op = StorageOp::BatchUpsert(UpsertSpec {
         table: "channel_sync_coverage",
@@ -1060,6 +1066,8 @@ async fn recovery_ledger_and_coverage_migrate_idempotently_and_roll_back_togethe
         ]],
         conflict_key: Some("coverage_id"),
         exclude_from_update: Vec::new(),
+        version_column: None,
+        update_guard: None,
     });
 
     let failed = execute_storage_ops_atomic(

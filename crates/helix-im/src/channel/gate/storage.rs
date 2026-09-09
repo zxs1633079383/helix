@@ -213,7 +213,9 @@ fn event_to_upsert_op_with_policy(
         );
     }
 
-    StorageOp::BatchUpsert(UpsertSpec {
+    let mut spec = UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "message",
         rows: vec![vec![
             ("temporary_id".to_string(), SqlValue::Text(pk)),
@@ -280,7 +282,9 @@ fn event_to_upsert_op_with_policy(
         // 乐观行，则保留本地发送态，由 PendingSend::reconcile 在同一处理链显式落定 sent
         // 并撤销超时 timer，避免普通回放/重放越权覆盖 failed/unsend。
         exclude_from_update,
-    })
+    };
+    crate::category_chain::post::guard_upsert(&mut spec, f);
+    StorageOp::BatchUpsert(spec)
 }
 
 /// 将在线 JSON 富字段的空对象/数组视为缺省，避免稀疏 echo 覆盖已同步的绝对态。
@@ -357,6 +361,9 @@ pub fn edit_content_op(msg_id: &str, fields: &crate::sync_session::PostFields) -
             "reply_count".to_string(),
             SqlValue::Integer(fields.reply_count),
         ));
+    }
+    if fields.msg_type == "CATEGORY_CHAIN" {
+        return crate::category_chain::post::guarded_edit(fields, patch);
     }
     StorageOp::BatchUpdate(BatchUpdateSpec {
         table: "message",
@@ -499,6 +506,9 @@ fn posts_update_mutation_op(
     patch.push(("event_seq".to_string(), SqlValue::Integer(event_seq as i64)));
     if revoke {
         patch.push(("revoke".to_string(), SqlValue::Integer(1)));
+    }
+    if fields.msg_type == "CATEGORY_CHAIN" {
+        return crate::category_chain::post::guarded_edit(fields, patch);
     }
     StorageOp::BatchUpdate(BatchUpdateSpec {
         table: "message",

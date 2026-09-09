@@ -93,6 +93,8 @@ async fn host_storage_blob_roundtrip_lossless() {
             ]],
             conflict_key: Some("id"),
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         })
         .await
         .expect("insert blob");
@@ -122,6 +124,7 @@ async fn host_storage_blob_roundtrip_lossless() {
 }
 
 #[tokio::test]
+/// Verify the shared host preserves native storage port semantics.
 async fn host_storage_matches_native_upsert_update_get_scan_semantics() {
     let storage = storage().await;
 
@@ -131,6 +134,8 @@ async fn host_storage_matches_native_upsert_update_get_scan_semantics() {
             rows: vec![message_row(1, "hello", 1)],
             conflict_key: Some("id"),
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         })
         .await
         .expect("insert");
@@ -141,6 +146,8 @@ async fn host_storage_matches_native_upsert_update_get_scan_semantics() {
             rows: vec![message_row(1, "world", 2)],
             conflict_key: Some("id"),
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         })
         .await
         .expect("conflict update");
@@ -307,6 +314,8 @@ async fn execute_storage_ops_returns_rows_bytes_and_short_circuits_on_error() {
             rows: vec![message_row(7, "seven", 7)],
             conflict_key: Some("id"),
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         })
         .await
         .expect("insert");
@@ -408,6 +417,8 @@ async fn concurrent_writes_and_reads_do_not_deadlock_and_stay_correct() {
                 rows: vec![message_row(i, &format!("msg-{i}"), i)],
                 conflict_key: Some("id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .await
             .expect("concurrent message upsert");
@@ -425,6 +436,8 @@ async fn concurrent_writes_and_reads_do_not_deadlock_and_stay_correct() {
                 ]],
                 conflict_key: Some("id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .await
             .expect("concurrent note upsert");
@@ -518,6 +531,8 @@ async fn reads_proceed_while_write_holds_connection() {
                 rows: vec![message_row(i, &format!("seed-{i}"), i)],
                 conflict_key: Some("id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .await
             .expect("seed");
@@ -692,6 +707,8 @@ async fn batch_upsert_rolls_back_entire_batch_on_midway_failure() {
             ],
             conflict_key: Some("id"),
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         })
         .await;
     assert!(err.is_err(), "batch with NOT NULL violation must fail");
@@ -742,6 +759,8 @@ async fn read_read_concurrency_n_gt_pool_semaphore_backpressure() {
                 rows: vec![message_row(i, &format!("p1a-{i}"), i)],
                 conflict_key: Some("id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .await
             .expect("seed");
@@ -845,6 +864,8 @@ async fn wal_snapshot_isolation_no_dirty_read() {
             ]],
             conflict_key: Some("id"),
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         })
         .await
         .expect("seed notes");
@@ -943,6 +964,7 @@ async fn wal_snapshot_isolation_no_dirty_read() {
 }
 
 #[test]
+/// Verify batched table labels remain deterministic and deduplicated.
 fn table_set_key_is_sorted_and_deduplicated() {
     use helix_core::effect::{MonotonicUpsertSpec, StorageOp};
 
@@ -952,6 +974,8 @@ fn table_set_key_is_sorted_and_deduplicated() {
             rows: vec![],
             conflict_key: None,
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         }),
         StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
             table: "_helix_monotonic",
@@ -966,6 +990,8 @@ fn table_set_key_is_sorted_and_deduplicated() {
             rows: vec![],
             conflict_key: None,
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         }),
     ]);
 
@@ -1037,6 +1063,8 @@ async fn scoped_guarded_bump_and_get_isolate_channel_member_row(
             ],
             conflict_key: Some("channel_id,user_id"),
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         })
         .await?;
 
@@ -1107,6 +1135,8 @@ async fn guarded_bump_increments_when_guard_passes_s3() {
         ]],
         conflict_key: Some("id"),
         exclude_from_update: Vec::new(),
+        version_column: None,
+        update_guard: None,
     })
     .await
     .expect("seed channel");
@@ -1177,6 +1207,8 @@ async fn guarded_bump_noop_when_guard_fails_s3() {
         ]],
         conflict_key: Some("id"),
         exclude_from_update: Vec::new(),
+        version_column: None,
+        update_guard: None,
     })
     .await
     .expect("seed");
@@ -1234,6 +1266,8 @@ async fn guarded_bump_extra_counts_and_singleton_lists_share_the_same_guard_s3()
         ]],
         conflict_key: Some("id"),
         exclude_from_update: Vec::new(),
+        version_column: None,
+        update_guard: None,
     })
     .await
     .expect("seed");
@@ -1329,6 +1363,8 @@ async fn upsert_exclude_from_update_preserves_guard_cols_s3() {
         ]],
         conflict_key: Some("id"),
         exclude_from_update: Vec::new(),
+        version_column: None,
+        update_guard: None,
     })
     .await
     .expect("seed");
@@ -1345,6 +1381,8 @@ async fn upsert_exclude_from_update_preserves_guard_cols_s3() {
         ]],
         conflict_key: Some("id"),
         exclude_from_update: vec!["unread_count", "purpose"],
+        version_column: None,
+        update_guard: None,
     })
     .await
     .expect("upsert full");
@@ -1406,6 +1444,8 @@ async fn host_storage_batch_delete_scoped_no_cross_channel_delete() {
         ],
         conflict_key: Some("channel_id,user_id"),
         exclude_from_update: Vec::new(),
+        version_column: None,
+        update_guard: None,
     })
     .await
     .expect("seed");
@@ -1483,6 +1523,8 @@ async fn execute_storage_ops_dispatches_batch_delete() {
         rows: vec![mk("c1", "u1"), mk("c1", "u2")],
         conflict_key: Some("channel_id,user_id"),
         exclude_from_update: Vec::new(),
+        version_column: None,
+        update_guard: None,
     })
     .await
     .expect("seed");
@@ -1547,6 +1589,8 @@ async fn guarded_bump_does_not_increment_when_guard_fails_historical_s3() {
         ]],
         conflict_key: Some("id"),
         exclude_from_update: Vec::new(),
+        version_column: None,
+        update_guard: None,
     })
     .await
     .expect("seed channel");

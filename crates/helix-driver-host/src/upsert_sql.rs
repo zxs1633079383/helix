@@ -1,7 +1,7 @@
 //! E9b：batch_upsert SQL 形状缓存（HX-C005 去 per-call 分配尾巴）。
 //!
 //! batch_upsert 的 SQL 文本只由「形状」决定：表名 + 有序列名集 + conflict_key +
-//! exclude_from_update。同形状的两次调用产出**逐字相同**的 SQL 串（值绑定走 `?` 参数，
+//! exclude_from_update + update_guard 列。同形状的两次调用产出**逐字相同**的 SQL 串（值绑定走 `?` 参数，
 //! 不进文本）。把已建 SQL 按形状 key 缓存，命中即免去 `format!`/`join`/中间 `Vec` 分配。
 //! 行为零变更——缓存的是 SQL 文本本身，与原 storage.rs 内联实现逐字等价。
 
@@ -21,6 +21,9 @@ struct UpsertShapeKey {
     col_names: Vec<String>,
     /// 冲突排除列（影响 DO UPDATE SET 集，须纳入键）。
     exclude_from_update: Vec<&'static str>,
+    /// 更新守卫列（影响 ON CONFLICT 的 WHERE 形状，须纳入键）。
+    update_guard_column: Option<&'static str>,
+    version_column: Option<&'static str>,
 }
 
 thread_local! {
@@ -40,6 +43,8 @@ pub fn upsert_sql_for_shape(spec: &UpsertSpec) -> String {
         conflict_key: spec.conflict_key,
         col_names,
         exclude_from_update: spec.exclude_from_update.clone(),
+        update_guard_column: spec.update_guard.as_ref().map(|guard| guard.column),
+        version_column: spec.version_column,
     };
     UPSERT_SQL_CACHE.with(|cache| {
         if let Some(sql) = cache.borrow().get(&key) {
@@ -72,18 +77,44 @@ fn build_upsert_sql(key: &UpsertShapeKey) -> String {
                 })
                 .map(|c| format!("{c} = excluded.{c}"))
                 .collect();
-            if update_cols.is_empty() {
+            if update_cols.is_empty()
+                && key.update_guard_column.is_none()
+                && key.version_column.is_none()
+            {
                 format!(
                     "INSERT INTO {table} ({cols}) VALUES ({placeholders}) ON CONFLICT({conflict_key}) DO NOTHING",
                     table = key.table,
                     cols = cols_sql,
                 )
             } else {
+                // Guarded single-column upserts still need a DO UPDATE arm so SQLite can
+                // evaluate the original-row predicate and report a guard miss as zero rows.
+                let updates = if update_cols.is_empty() {
+                    format!("{conflict_key} = excluded.{conflict_key}")
+                } else {
+                    update_cols.join(", ")
+                };
+                let mut predicates = Vec::new();
+                if let Some(column) = key.update_guard_column {
+                    predicates.push(format!("{table}.{column} IS ?", table = key.table));
+                }
+                if let Some(column) = key.version_column {
+                    predicates.push(format!(
+                        "({table}.{column} IS NULL OR excluded.{column} >= {table}.{column})",
+                        table = key.table
+                    ));
+                }
+                let guard = if predicates.is_empty() {
+                    String::new()
+                } else {
+                    format!(" WHERE {}", predicates.join(" AND "))
+                };
                 format!(
-                    "INSERT INTO {table} ({cols}) VALUES ({placeholders}) ON CONFLICT({conflict_key}) DO UPDATE SET {updates}",
+                    "INSERT INTO {table} ({cols}) VALUES ({placeholders}) ON CONFLICT({conflict_key}) DO UPDATE SET {updates}{guard}",
                     table = key.table,
                     cols = cols_sql,
-                    updates = update_cols.join(", "),
+                    updates = updates,
+                    guard = guard,
                 )
             }
         }
@@ -98,7 +129,7 @@ fn build_upsert_sql(key: &UpsertShapeKey) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use helix_core::effect::{Row, SqlValue};
+    use helix_core::effect::{Row, SqlValue, UpsertGuard};
 
     fn row(cols: &[(&str, i64)]) -> Row {
         cols.iter()
@@ -106,6 +137,7 @@ mod tests {
             .collect()
     }
 
+    /// Construct a SQL-shape fixture with the legacy unguarded default.
     fn spec(
         table: &'static str,
         cols: &[(&str, i64)],
@@ -117,6 +149,8 @@ mod tests {
             rows: vec![row(cols)],
             conflict_key,
             exclude_from_update: exclude,
+            version_column: None,
+            update_guard: None,
         }
     }
 
@@ -165,6 +199,17 @@ mod tests {
             with_exclude,
             "INSERT INTO ch (id, name, local_flag) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name",
             "exclude 列出现在 INSERT 列集，但被 DO UPDATE SET 排除"
+        );
+
+        let mut guarded = spec("facts", &[("id", 1), ("props", 2)], Some("id"), vec![]);
+        guarded.update_guard = Some(UpsertGuard {
+            column: "props",
+            expected: SqlValue::Integer(1),
+        });
+        assert_eq!(
+            upsert_sql_for_shape(&guarded),
+            "INSERT INTO facts (id, props) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET props = excluded.props WHERE facts.props IS ?",
+            "guard 只影响冲突更新的原行 WHERE，值仍由绑定参数提供"
         );
     }
 }

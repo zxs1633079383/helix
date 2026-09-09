@@ -84,6 +84,10 @@ pub struct PendingSendReconciliation {
 // （非 key），`PartialEq` 供 ws/registry 测试 `assert_eq!`，`Eq` 无用处（grep 实证）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum CorrelationContext {
+    /// 分类接龙HTTP/持久化/读回的独立 continuation。
+    CategoryChain {
+        pending: Box<crate::category_chain::Pending>,
+    },
     /// 文字接龙 HTTP transport 回报；只在 response authority 解析后进入 PersistAtomic。
     ChainHttp {
         request: Box<crate::chain::ChainRequest>,
@@ -109,6 +113,11 @@ pub enum CorrelationContext {
 
     /// MessageV3 业务写提交屏障；只有 matching PersistOk 才按原顺序释放事件。
     MessageV3Commit { terminal_events: Vec<Vec<u8>> },
+
+    /// Category-only durable message refresh; dropped with the account correlation map.
+    CategoryPostReadback {
+        pending: Box<crate::category_chain::post_events::Readback>,
+    },
 
     /// G-01/G-02 原子提交后的读回路由，并保留一次生成的 post 投影。
     MessageV3PostPersist {
@@ -183,6 +192,7 @@ pub enum CorrelationContext {
         channel_updates: Vec<crate::channel_update::PendingChannelUpdate>,
         /// sync HTTP 解析出的 mutation 投影；事务 ack 前不得发布。
         pending_domain_events: Vec<Vec<u8>>,
+        has_category_posts: bool,
         /// 已预留的 chain eventId；与 WS authority 共用 in-flight 去重集合。
         pending_chain_event_ids: Vec<String>,
         /// sync 事务成功后才能结算的本端 temporaryId → 服务端 id 对账事实。
@@ -197,6 +207,7 @@ pub enum CorrelationContext {
         trigger: SyncTrigger,
         /// 同一权威批次中 terminal 前的可见消息投影；与 tombstone 共用原子回执。
         pending_domain_events: Vec<Vec<u8>>,
+        has_category_posts: bool,
         /// 已预留的 chain eventId；PersistOk 后转入 durable seen 集合。
         pending_chain_event_ids: Vec<String>,
     },
@@ -682,6 +693,7 @@ pub enum CorrelationContext {
         channel_id: ChannelId,
         target_seq: crate::state::Seq,
         pending_domain_events: Vec<Vec<u8>>,
+        has_category_posts: bool,
         refresh_timeline: bool,
     },
 
@@ -691,6 +703,7 @@ pub enum CorrelationContext {
         channel_id: ChannelId,
         target_seq: crate::state::Seq,
         pending_domain_event: Vec<u8>,
+        has_category_posts: bool,
     },
 
     /// UC-10 `posts/queryTodoList` HTTP 回报 → emit `im:todo:updated{items}`（内核自驱、无 req_id）。

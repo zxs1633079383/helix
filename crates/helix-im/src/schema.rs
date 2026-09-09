@@ -105,6 +105,18 @@ pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
         identity_cols: &["viewer_key"],
         scope_col: Some("chain_id"),
     },
+    // CATEGORY_CHAIN 的 authority/read-back 只使用 head + normalized fact；文字接龙的
+    // chain_* identity/语义保持不变，卡片结构不在 storage 层预建重复模型。
+    SparseTableSpec {
+        table: "category_chain_head",
+        identity_cols: &["scope"],
+        scope_col: Some("scope"),
+    },
+    SparseTableSpec {
+        table: "category_chain_fact",
+        identity_cols: &["snapshot_key", "path"],
+        scope_col: Some("snapshot_key"),
+    },
 ];
 
 /// IM 业务 schema（DDL 当数据）。host-cli 启动 migrate 后 loop execute_raw 叠加。
@@ -121,6 +133,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
     // ── message（发送路径权威表；PK = temporary_id，对齐 678，除 segment_id 见上注）──
     "CREATE TABLE IF NOT EXISTS message (\
         temporary_id TEXT PRIMARY KEY,\
+        category_revision TEXT NOT NULL DEFAULT '',\
         id TEXT NOT NULL DEFAULT '',\
         channel_id TEXT NOT NULL DEFAULT '',\
         user_id TEXT NOT NULL DEFAULT '',\
@@ -449,6 +462,23 @@ END",
         last_read_at INTEGER NOT NULL DEFAULT 0\
     )",
     "CREATE INDEX IF NOT EXISTS idx_chain_viewer_chain_device ON chain_viewer(chain_id, device_id)",
+    // CATEGORY_CHAIN authority/read-back：revision 使用 TEXT 保存服务端十进制版本。
+    "CREATE TABLE IF NOT EXISTS category_chain_head (\
+        scope TEXT PRIMARY KEY,\
+        revision TEXT NOT NULL DEFAULT '0',\
+        snapshot_key TEXT NOT NULL DEFAULT ''\
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_category_chain_head_snapshot ON category_chain_head(snapshot_key)",
+    // 非卡片的私有/分页/操作结果只存 bounded canonical leaf；完整快照以 revision 指针选择。
+    "CREATE TABLE IF NOT EXISTS category_chain_fact (\
+        snapshot_key TEXT NOT NULL,\
+        path TEXT NOT NULL,\
+        revision TEXT NOT NULL DEFAULT '0',\
+        value_json TEXT NOT NULL DEFAULT '',\
+        version_key TEXT NOT NULL DEFAULT '',\
+        PRIMARY KEY (snapshot_key, path)\
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_category_chain_fact_revision ON category_chain_fact(snapshot_key, revision)",
 ];
 
 /// 旧库 additive migration：`CREATE TABLE IF NOT EXISTS` 不会给既有 `message` /
@@ -524,4 +554,13 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "CREATE TABLE IF NOT EXISTS chain_mutation (client_mutation_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'PENDING', entry_id TEXT NOT NULL DEFAULT '', error_code TEXT NOT NULL DEFAULT '')",
     "CREATE TABLE IF NOT EXISTS chain_viewer (viewer_key TEXT PRIMARY KEY, chain_id TEXT NOT NULL DEFAULT '', device_id TEXT NOT NULL DEFAULT '', last_event_seq INTEGER NOT NULL DEFAULT 0, last_read_at INTEGER NOT NULL DEFAULT 0)",
     "CREATE INDEX IF NOT EXISTS idx_chain_viewer_chain_device ON chain_viewer(chain_id, device_id)",
+    "CREATE TABLE IF NOT EXISTS category_chain_head (scope TEXT PRIMARY KEY, revision TEXT NOT NULL DEFAULT '0', snapshot_key TEXT NOT NULL DEFAULT '')",
+    "CREATE INDEX IF NOT EXISTS idx_category_chain_head_snapshot ON category_chain_head(snapshot_key)",
+    "CREATE TABLE IF NOT EXISTS category_chain_fact (snapshot_key TEXT NOT NULL, path TEXT NOT NULL, revision TEXT NOT NULL DEFAULT '0', value_json TEXT NOT NULL DEFAULT '', PRIMARY KEY (snapshot_key, path))",
+    "CREATE INDEX IF NOT EXISTS idx_category_chain_fact_revision ON category_chain_fact(snapshot_key, revision)",
+    "ALTER TABLE category_chain_fact ADD COLUMN version_key TEXT NOT NULL DEFAULT ''",
+    "UPDATE category_chain_fact SET version_key = snapshot_key || ':' || revision WHERE version_key = ''",
+    "CREATE INDEX IF NOT EXISTS idx_category_chain_fact_version_path ON category_chain_fact(version_key, path)",
+    "ALTER TABLE message ADD COLUMN category_revision TEXT NOT NULL DEFAULT ''",
+    "UPDATE message SET category_revision = substr('00000000000000000000' || json_extract(props, '$.categoryChain.revision'), -20) WHERE type = 'CATEGORY_CHAIN' AND category_revision = '' AND CASE WHEN json_valid(props) THEN json_type(props, '$.categoryChain.revision') = 'text' ELSE 0 END",
 ];

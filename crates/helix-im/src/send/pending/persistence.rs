@@ -3,6 +3,7 @@ use serde_json::Value;
 
 use crate::state::TemporaryId;
 
+/// Build the local optimistic message write before transport begins.
 pub fn optimistic_message_persist_op(
     temporary_id: &str,
     channel_id: &str,
@@ -26,6 +27,8 @@ pub fn optimistic_message_persist_op(
         .and_then(|props| serde_json::to_string(&props).ok())
         .unwrap_or_else(|| "{}".to_string());
     StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "message",
         rows: vec![vec![
             (
@@ -114,8 +117,11 @@ pub fn upload_progress_persist_op(temporary_id: &TemporaryId, progress_percent: 
     })
 }
 
+/// Persist only the send status for the stable temporary identity.
 pub fn send_status_persist_op(temporary_id: &TemporaryId, status: &str) -> StorageOp {
     StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "message",
         rows: vec![vec![
             (

@@ -18,6 +18,7 @@ impl AsyncMetricSink for RecordingMetricSink {
 }
 
 #[tokio::test]
+/// Verify metrics are recorded by the real storage boundary.
 async fn host_storage_records_duration_and_rows_at_real_port_boundary() {
     let storage = HostStorage::open_sqlite_url("sqlite::memory:")
         .await
@@ -38,6 +39,8 @@ async fn host_storage_records_duration_and_rows_at_real_port_boundary() {
             ]],
             conflict_key: Some("id"),
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         })
         .await
         .expect("upsert");
@@ -56,6 +59,7 @@ async fn host_storage_records_duration_and_rows_at_real_port_boundary() {
 }
 
 #[tokio::test]
+/// Verify one failed storage operation increments the error counter once.
 async fn storage_failure_records_one_error_operation_and_error_counter() {
     let storage = HostStorage::open_sqlite_url("sqlite::memory:")
         .await
@@ -69,6 +73,8 @@ async fn storage_failure_records_one_error_operation_and_error_counter() {
             rows: vec![vec![("id".to_string(), SqlValue::Integer(1))]],
             conflict_key: Some("id"),
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         })
         .await;
     assert!(result.is_err(), "破坏表名必须令 storage 失败");

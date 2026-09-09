@@ -81,6 +81,12 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let corr = self.alloc_corr_internal();
+        if event.fields.msg_type == "CATEGORY_CHAIN"
+            && matches!(event.kind, crate::sync_session::EventKind::PostEdit)
+        {
+            crate::category_chain::post::queue_edit(&mut self.state, corr, event, out);
+            return Ok(());
+        }
         if matches!(event.kind, crate::sync_session::EventKind::PostEdit)
             && !event.fields.quick_reply.is_empty()
         {
@@ -121,9 +127,17 @@ impl ImModule {
             return Ok(());
         };
         self.queue_message_v3_client_ack(&received_data, out)?;
+        let category = received_data
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            == Some("CATEGORY_CHAIN");
         let received = crate::event::post::received(received_data)?;
-        out.push(received.into_effect());
-        out.push(channel.into_effect());
+        if category {
+            self.release_post_events(vec![received.into_bytes(), channel.into_bytes()], true, out)?;
+        } else {
+            out.push(received.into_effect());
+            out.push(channel.into_effect());
+        }
         if let Some(causation_id) = causation_id {
             self.state
                 .pending_forward_deliveries

@@ -122,6 +122,8 @@ impl PendingSend {
         fx.push(Effect::Persist {
             corr,
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
+                version_column: None,
+                update_guard: None,
                 table: "message",
                 rows: vec![vec![
                     (
@@ -161,6 +163,8 @@ impl PendingSend {
         fx.push(Effect::Persist {
             corr,
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
+                version_column: None,
+                update_guard: None,
                 table: "message",
                 rows: vec![vec![
                     (
@@ -198,6 +202,8 @@ impl PendingSend {
         fx.push(Effect::Persist {
             corr,
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
+                version_column: None,
+                update_guard: None,
                 table: "message",
                 rows: vec![vec![
                     (
@@ -234,12 +240,15 @@ impl PendingSend {
         self.persist_unsend(fx);
     }
 
+    /// Persist retryable unsent state before releasing this send attempt.
     fn persist_unsend(&mut self, fx: &mut EffectSink) {
         self.status = SendStatus::UnSend;
 
         // PersistFire：batch_update send_status = unsend（幂等）
         fx.push(Effect::PersistFire {
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
+                version_column: None,
+                update_guard: None,
                 table: "message",
                 rows: vec![vec![
                     (

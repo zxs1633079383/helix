@@ -455,6 +455,8 @@ pub fn build_message_object(input: &BuildInput<'_>) -> Option<Value> {
 /// base32 → Text（ADR-009）。`text` 已是 2000 截断后的纯文本（与 body.message 同源）。
 pub fn optimistic_persist_op(temporary_id: &str, channel_id: &str, text: String) -> StorageOp {
     StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "message",
         rows: vec![vec![
             (

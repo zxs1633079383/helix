@@ -218,6 +218,9 @@ impl ImModule {
         };
 
         match ctx {
+            CorrelationContext::CategoryChain { pending } => {
+                self.handle_category_reply(*pending, outcome, out)?
+            }
             CorrelationContext::ChainHttp { request } => {
                 self.handle_chain_http_reply(*request, outcome, out)?;
             }
@@ -260,6 +263,9 @@ impl ImModule {
                         });
                     }
                 }
+            }
+            CorrelationContext::CategoryPostReadback { pending } => {
+                self.handle_category_post_readback(*pending, outcome, out)?
             }
             CorrelationContext::MessageV3PostPersist {
                 event,
@@ -354,6 +360,7 @@ impl ImModule {
                 wants_continuation,
                 channel_updates,
                 pending_domain_events,
+                has_category_posts,
                 pending_chain_event_ids,
                 pending_send_reconciliations,
             } => self.handle_channel_persist_reply(
@@ -363,6 +370,7 @@ impl ImModule {
                 wants_continuation,
                 channel_updates,
                 pending_domain_events,
+                has_category_posts,
                 pending_chain_event_ids,
                 pending_send_reconciliations,
                 outcome,
@@ -374,6 +382,7 @@ impl ImModule {
                 terminal_seq,
                 trigger,
                 pending_domain_events,
+                has_category_posts,
                 pending_chain_event_ids,
             } => self.handle_channel_terminal_persist_reply(
                 corr,
@@ -381,6 +390,7 @@ impl ImModule {
                 terminal_seq,
                 trigger,
                 pending_domain_events,
+                has_category_posts,
                 pending_chain_event_ids,
                 outcome,
                 out,
@@ -1455,6 +1465,7 @@ impl ImModule {
                 channel_id,
                 target_seq,
                 pending_domain_events,
+                has_category_posts,
                 refresh_timeline,
             } => match outcome {
                 PortOutcome::Ok(_) => {
@@ -1475,13 +1486,7 @@ impl ImModule {
                         );
                     } else {
                         self.state.invalidate_recent_message_coverage(channel_id);
-                        for bytes in pending_domain_events {
-                            out.push(helix_core::Effect::Emit {
-                                event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(
-                                    bytes,
-                                )),
-                            });
-                        }
+                        self.release_post_events(pending_domain_events, has_category_posts, out)?;
                         if refresh_timeline {
                             self.refresh_attached_latest_timeline(channel_id, None, out)?;
                         }
@@ -1501,8 +1506,25 @@ impl ImModule {
                 channel_id,
                 target_seq,
                 pending_domain_event,
+                has_category_posts,
             } => match outcome {
                 PortOutcome::Ok(_) => {
+                    if has_category_posts {
+                        let Some(channel) = self.state.channels.get_mut(&channel_id) else {
+                            return Ok(());
+                        };
+                        if channel.is_terminal()
+                            || target_seq.0 != channel.cursor.value().0.saturating_add(1)
+                        {
+                            return Ok(());
+                        }
+                        let next = channel.commit_message_v3_post(target_seq);
+                        self.release_post_events(vec![pending_domain_event], true, out)?;
+                        if let Some(event) = next {
+                            self.queue_next_message_v3_event(event, out)?;
+                        }
+                        return Ok(());
+                    }
                     let committed = self
                         .state
                         .channels

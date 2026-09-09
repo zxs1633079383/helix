@@ -119,6 +119,8 @@ impl DraftProjection {
     /// 上天然收敛为 last-write-wins，且写复杂度 O(1)（无 read-modify-write）。
     pub fn upsert_op(&self) -> StorageOp {
         StorageOp::BatchUpsert(UpsertSpec {
+            version_column: None,
+            update_guard: None,
             table: DRAFT_TABLE,
             rows: vec![self.to_row()],
             conflict_key: None,

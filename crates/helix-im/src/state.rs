@@ -126,6 +126,7 @@ pub struct ImState {
     pub corr_map: HashMap<helix_core::Correlation, CorrelationContext>,
 
     /// 文字接龙 mutation 的内存状态；终态只在 matching PersistOk 后更新。
+    pub(crate) category_chain: crate::category_chain::State,
     pub(crate) chain_mutations: HashMap<String, crate::chain::ChainMutation>,
 
     /// 已通过 durable projection 的 chain eventId；重复 WS authority 不再重放。
@@ -340,6 +341,7 @@ impl ImState {
             media_recovery_ready: false,
             media_retry_inflight: HashSet::new(),
             corr_map: HashMap::new(),
+            category_chain: crate::category_chain::State::default(),
             chain_mutations: HashMap::new(),
             seen_chain_event_ids: HashSet::new(),
             pending_chain_event_ids: HashSet::new(),

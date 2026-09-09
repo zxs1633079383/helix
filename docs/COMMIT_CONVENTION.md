@@ -184,4 +184,4 @@ v<base>-final                       最后一个 phase 完成
 
 ---
 
-> 本仓配套：`scripts/gate.sh`（提交闸门链）+ 已安装的 `.git/hooks/pre-push`（push 前自动跑 gate）。hook 不进版本库；新 clone / 当前 checkout 先跑 `test -f .git/hooks/pre-push || scripts/install-hooks.sh`。提交前结构闸门见 [`ROADMAP.md` §三](./ROADMAP.md)。
+> 本地不安装或自动恢复 `.git/hooks/pre-push`，push 按用户授权直接执行。`scripts/gate-fast.sh` 保留为按需人工检查入口，`scripts/gate.sh` 由 GitLab CI / 合并前验收执行。不得因本地 hook 缺失而补装，也不得将完整 gate 自动升级为每次 push 的前置条件。

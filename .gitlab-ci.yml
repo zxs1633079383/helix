@@ -1,4 +1,4 @@
-# Helix CI（Bun 对齐 3.5）—— 远端跑同一条 scripts/gate.sh，与本地 pre-push 闸门单一事实源。
+# Helix CI（Bun 对齐 3.5）—— 远端执行 scripts/gate.sh，本地 push 不挂检查 hook。
 # 前提（runner 侧，详见 docs/ops/gitlab-ci-runner-交接说明.md + 本文件尾注）：
 #   1. 已注册 GitLab Runner（docker executor 推荐）；
 #   2. runner 能拉 harbor 私仓 rust:1.95.0_with_tools（已烤入 rustfmt/clippy/wasm32 + cargo-public-api 等）；

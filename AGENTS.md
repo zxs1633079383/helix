@@ -88,7 +88,7 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 - `publish-only`（整理现有改动、分类提交、同步远端、push）只负责安全分类与发布，不承担仓库全量绿色化；默认执行 `git diff --check`、已有证据核验和批次直接相关的聚焦验证。
 - 非 `release` 任务不得因无关历史失败扩大修复范围。聚焦验证失败时，只修复本次 diff 或合并直接引入的问题；连续发现第二个无关失败后立即停止扩张，将对应批次标记为 `blocked` / `partial`，继续处理其他可独立验收批次。
 - `cargo test -p helix-im` 全量测试与三端 Rust 验收只在改动触及共享协议、core、port、driver，或任务明确属于 phase/release 时执行；不得把它们升级为每个小批次的默认提交前置。
-- 一个独立批次满足「文件归属明确、未混入 partial、聚焦验证通过、`git diff --check` 通过」后立即 commit，不等待其他仓库或无关全量验证；push 仍服从本次任务授权与 pre-push gate。
+- 一个独立批次满足「文件归属明确、未混入 partial、聚焦验证通过、`git diff --check` 通过」后立即 commit，不等待其他仓库或无关全量验证；push 按本次任务授权直接执行，本地不安装或自动恢复 pre-push hook。
 
 ### 3.1 派 helix Rust agent / workflow 必注入的 Cargo 纪律（🔴 硬性 · 防反复编译空耗）
 
@@ -269,7 +269,7 @@ manifest/README/Mermaid 验证合同。
 
 ## 6. 提交规范（commit / PR / tag）
 
-**提交代码前必读 → [`docs/COMMIT_CONVENTION.md`](docs/COMMIT_CONVENTION.md)**：Conventional Commits（中文 description/body）+ 触发条件命中时的 5 段结构化 body（影响范围 / 改动影响面 / 功能改进 / Harness 更新 / 验证）+ PR / Tag 策略。本仓有 `docs/harness/` → Harness 一节必填。配套 `scripts/gate.sh` + pre-push hook。
+**提交代码前必读 → [`docs/COMMIT_CONVENTION.md`](docs/COMMIT_CONVENTION.md)**：Conventional Commits（中文 description/body）+ 触发条件命中时的 5 段结构化 body（影响范围 / 改动影响面 / 功能改进 / Harness 更新 / 验证）+ PR / Tag 策略。本仓有 `docs/harness/` → Harness 一节必填。`scripts/gate.sh` 由 GitLab CI / 合并前验收执行，不作为本地 push hook。
 
 ## Agent skills
 

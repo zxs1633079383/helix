@@ -6,7 +6,7 @@ top-level scripts.
 
 ## Core Gates
 
-- `gate-fast.sh` - scope-aware local/pre-push gate; scripts and low-risk crates run only relevant checks.
+- `gate-fast.sh` - optional manual scope-aware checks; not installed as a pre-push hook.
 - `gate.sh` - full CI/merge delivery gate for native + FFI.
 - `branch-identity.sh` - branch identity report for SESSION handoff.
 - `branch-sync-gate.sh` - branch/upstream drift guard.
@@ -27,7 +27,6 @@ top-level scripts.
 
 ## Setup And Shared Config
 
-- `install-hooks.sh` - install repository hooks.
 - `lib-config.sh` - shared shell config loader for scripts.
 
 ## Crates.io 发布

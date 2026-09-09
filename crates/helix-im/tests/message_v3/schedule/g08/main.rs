@@ -166,7 +166,10 @@ fn run_creator() -> TestResult<PersonaTrace> {
     );
     let http_corr = correlation(harness.sink.as_slice(), "http")
         .ok_or_else(|| "missing createSchedule HTTP".to_string())?;
-    harness.step(port_reply_ok(http_corr.raw()), SEND_AT as u64 - 99);
+    harness.step(
+        port_reply_with_body(http_corr.raw(), common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))),
+        SEND_AT as u64 - 99,
+    );
     assert!(emitted_events(harness.sink.as_slice()).is_empty());
 
     let authority = created_authority();
@@ -182,7 +185,9 @@ fn run_creator() -> TestResult<PersonaTrace> {
     harness.step(port_reply_ok(persist_corr.raw()), SEND_AT as u64 - 97);
     let readback_corr = correlation(harness.sink.as_slice(), "persist")
         .ok_or_else(|| "schedule PersistOk must request durable row".to_string())?;
-    assert!(emitted_events(harness.sink.as_slice()).is_empty());
+    assert_eq!(emitted_events(harness.sink.as_slice()), vec![json!({
+        "event": "im:read:result", "data": {"req_id": "g08-request", "body": {"ok": true}}
+    })]);
     let row = durable_row();
     harness.step(
         port_reply_with_body(
@@ -335,7 +340,9 @@ fn g08_http_failure_keeps_empty_schedule_state() -> TestResult<()> {
     let http_corr = correlation(harness.sink.as_slice(), "http")
         .ok_or_else(|| "missing createSchedule HTTP".to_string())?;
     harness.step(port_reply_err(http_corr.raw()), SEND_AT as u64 + 1);
-    assert!(emitted_events(harness.sink.as_slice()).is_empty());
+    assert_eq!(emitted_events(harness.sink.as_slice()), vec![json!({
+        "event": "im:read:result", "data": {"req_id": "g08-failed-request", "error": "SCHEDULE_REQUEST_FAILED"}
+    })]);
     Ok(())
 }
 

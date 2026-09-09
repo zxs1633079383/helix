@@ -50,6 +50,12 @@ impl ImModule {
             self.state.inflight_schedule_revisions.remove(&channel_id);
         }
         let PortOutcome::Ok(_) = outcome else {
+            if let Some(req_id) = causation_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "SCHEDULE_PERSIST_FAILED",
+                ));
+            }
             tracing::warn!(
                 channel_id = channel_id.as_str(),
                 revision,
@@ -60,6 +66,12 @@ impl ImModule {
         self.state
             .committed_schedule_revisions
             .insert(channel_id, revision);
+        if let Some(req_id) = causation_id.as_deref() {
+            out.push(crate::read_relay::emit_read_body(
+                req_id,
+                serde_json::json!({"ok": true}),
+            ));
+        }
         if causation_id.as_ref().is_some_and(|request_id| {
             self.state.pending_schedule_requests.get(&channel_id) == Some(request_id)
         }) {
@@ -129,6 +141,12 @@ impl ImModule {
             self.state.inflight_schedule_revisions.remove(&channel_id);
         }
         let PortOutcome::Ok(_) = outcome else {
+            if let Some(req_id) = causation_id.as_deref() {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "SCHEDULE_PERSIST_FAILED",
+                ));
+            }
             tracing::warn!(
                 channel_id = channel_id.as_str(),
                 revision,
@@ -139,6 +157,12 @@ impl ImModule {
         self.state
             .committed_schedule_revisions
             .insert(channel_id, revision);
+        if let Some(req_id) = causation_id.as_deref() {
+            out.push(crate::read_relay::emit_read_body(
+                req_id,
+                serde_json::json!({"ok": true}),
+            ));
+        }
         if causation_id.as_ref().is_some_and(|request_id| {
             self.state.pending_schedule_cancel_requests.get(&channel_id) == Some(request_id)
         }) {

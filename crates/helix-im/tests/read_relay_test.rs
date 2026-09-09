@@ -830,3 +830,148 @@ fn markdown_search_preserves_literal_query_and_authority() {
     assert_eq!(result["data"]["req_id"], "search-do-1");
     assert_eq!(result["data"]["body"], authority);
 }
+
+/// 纯媒体和结构化卡片有 props 时允许空正文，不再按 TEXT 校验吞掉命令。
+#[test]
+fn schedule_accepts_empty_text_with_structured_content() {
+    for kind in [
+        "RICH",
+        "IMAGE",
+        "VIDEO",
+        "FILE",
+        "AUDIO",
+        "TEMPLATE",
+        "CUSTOM_CARD",
+    ] {
+        let result = commands::handle_outbound(
+            "im_create_schedule",
+            serde_json::to_vec(&serde_json::json!({
+                "channel_id": "ch00000000000000000000000a", "message": "", "type": kind,
+                "props": {"card": {"id": "c1"}}, "schedule_post_at": 1900000000000i64
+            }))
+            .unwrap()
+            .as_slice(),
+            "http://test/api/cses",
+            "http://java",
+            None,
+            helix_core::Correlation::from_raw(1),
+        );
+        assert!(result.is_ok(), "{kind} has structured content: {result:?}");
+    }
+}
+
+/// 完全空消息仍失败关闭，不能以放宽正文限制发送空 post。
+#[test]
+fn schedule_rejects_empty_content() {
+    let result = commands::handle_outbound("im_create_schedule", br#"{"channel_id":"ch00000000000000000000000a","message":"","type":"TEXT","props":{},"schedule_post_at":1900000000000}"#, "http://test", "http://java", None, helix_core::Correlation::from_raw(1));
+    assert!(result.is_err());
+}
+
+/// 定时附件必须先取得上传票据，上传完成后创建一次，重复回包不得重建。
+#[test]
+fn schedule_media_upload_precedes_create_and_ignores_duplicate() {
+    let mut h = Harness::new(&[1]);
+    h.step(outbound_cmd("im_create_schedule", serde_json::json!({
+        "channel_id": cid(1), "message": "", "type": "FILE", "req_id": "schedule-media",
+        "schedule_post_at": 1900000000000i64,
+        "props": {"file": {"mediaInput": {"localPath": "/tmp/test.pdf", "fileName": "test.pdf", "contentType": "application/pdf", "size": 9, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}
+    })), 1);
+    let prepare = http_corr(&h.sink).unwrap();
+    assert!(h.sink.as_slice().iter().any(|effect| matches!(effect, Effect::Http { req, .. } if req.url.ends_with("/oss/getPresignedUrl"))));
+    h.step(port_reply_with_body(prepare, enveloped(bytes::Bytes::from(serde_json::to_vec(&serde_json::json!({
+        "isSuccess": true, "fileId": "file-1", "bucket": "attachment", "method": "PUT",
+        "url": "https://oss.test/test.pdf", "uri": "media/file-1", "objectKey": "media/file-1",
+        "headers": {"Content-Type": "application/pdf", "x-oss-forbid-overwrite": "true"}
+    })).unwrap()))), 2);
+    let upload = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::UploadFile { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(http_corr(&h.sink).is_none());
+    h.step(port_reply_ok(upload), 3);
+    let body: serde_json::Value = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { req, .. } if req.url.ends_with("/posts/createSchedule") => {
+                Some(serde_json::from_slice(req.body.as_ref().unwrap()).unwrap())
+            }
+            _ => None,
+        })
+        .expect("upload must complete before schedule create");
+    assert_eq!(body["post"]["props"]["file"]["uri"], "media/file-1");
+    assert!(body["post"]["props"]["file"].get("mediaInput").is_none());
+    h.step(port_reply_ok(upload), 4);
+    assert!(http_corr(&h.sink).is_none());
+}
+
+/// 票据失败与超时都返回关联错误，迟到响应不得产生创建请求。
+#[test]
+fn schedule_media_failure_and_timeout_release_intent() {
+    for timeout in [false, true] {
+        let mut h = Harness::new(&[1]);
+        h.step(outbound_cmd("im_create_schedule", serde_json::json!({
+            "channel_id": cid(1), "message": "", "type": "FILE", "req_id": "schedule-media-failure",
+            "schedule_post_at": 1900000000000i64,
+            "props": {"file": {"mediaInput": {"localPath": "/tmp/test.pdf", "fileName": "test.pdf", "contentType": "application/pdf", "size": 9, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}
+        })), 1);
+        let corr = http_corr(&h.sink).unwrap();
+        if timeout {
+            let timer = h
+                .sink
+                .as_slice()
+                .iter()
+                .find_map(|effect| match effect {
+                    Effect::ScheduleTimer { id, .. } => Some(*id),
+                    _ => None,
+                })
+                .unwrap();
+            h.step(Tick::Timer(timer), 120001);
+        } else {
+            h.step(port_reply_err(corr), 2);
+        }
+        let event = emit_json(&h.sink).unwrap();
+        assert_eq!(event["data"]["req_id"], "schedule-media-failure");
+        assert!(event["data"].get("error").is_some());
+        h.step(port_reply_ok(corr), 120002);
+        assert!(http_corr(&h.sink).is_none());
+    }
+}
+
+/// 无正文且无结构内容时立即回传错误，不能让宿主等到请求超时。
+#[test]
+fn schedule_invalid_content_completes_request_without_io() {
+    let mut h = Harness::new(&[1]);
+    h.step(outbound_cmd("im_create_schedule", serde_json::json!({
+        "channel_id": cid(1), "message": "", "type": "TEXT", "props": {},
+        "req_id": "schedule-invalid", "schedule_post_at": 1900000000000i64
+    })), 1);
+    assert!(http_corr(&h.sink).is_none());
+    let event = emit_json(&h.sink).unwrap();
+    assert_eq!(event["data"]["req_id"], "schedule-invalid");
+    assert_eq!(event["data"]["error"], "SCHEDULE_CONTENT_INVALID");
+}
+
+/// Runtime 停止后释放上传等待者，旧 corr 的迟到回包不能恢复未提交意图。
+#[test]
+fn schedule_stop_releases_upload_and_rejects_late_reply() {
+    use helix_core::Module;
+    let mut h = Harness::new(&[1]);
+    h.step(outbound_cmd("im_create_schedule", serde_json::json!({
+        "channel_id": cid(1), "message": "", "type": "FILE", "req_id": "schedule-stop",
+        "schedule_post_at": 1900000000000i64,
+        "props": {"file": {"mediaInput": {"localPath": "/tmp/test.pdf", "fileName": "test.pdf", "contentType": "application/pdf", "size": 9, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}
+    })), 1);
+    let corr = http_corr(&h.sink).unwrap();
+    h.sink.clear();
+    h.module.on_stop(&mut h.sink).unwrap();
+    assert!(emit_jsons(&h.sink).iter().any(|event| event["data"]["error"] == "SCHEDULE_MEDIA_INTERRUPTED"));
+    h.step(port_reply_ok(corr), 2);
+    assert!(http_corr(&h.sink).is_none());
+}

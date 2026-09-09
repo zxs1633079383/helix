@@ -66,6 +66,9 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         use helix_core::tick::PortOutcome;
+        if let Some(pending) = self.state.pending_schedule_media.remove(&corr) {
+            return self.schedule_media_reply(pending, outcome, now_ms, out);
+        }
 
         if self.state.pending_media_rehydrate_corr == Some(corr) {
             self.state.pending_media_rehydrate_corr = None;
@@ -775,7 +778,27 @@ impl ImModule {
                 channel_id,
                 request_id,
             } => {
-                if matches!(outcome, PortOutcome::Err(_))
+                let succeeded = match outcome {
+                    PortOutcome::Ok(reply) => {
+                        crate::http_envelope::unwrap_success_envelope(reply.0.as_ref(), "schedule")
+                            .ok()
+                            .and_then(|body| {
+                                serde_json::from_slice::<serde_json::Value>(&body).ok()
+                            })
+                            .is_some_and(|body| body["status"] == "SUCCESS")
+                    }
+                    PortOutcome::Err(_) => false,
+                };
+                if let Some(req_id) = request_id.as_deref() {
+                    if !succeeded {
+                        out.push(crate::read_relay::emit_read_error(
+                            req_id,
+                            "SCHEDULE_REQUEST_FAILED",
+                        ));
+                    }
+                }
+
+                if !succeeded
                     && request_id.as_ref().is_some_and(|request_id| {
                         self.state.pending_schedule_requests.get(&channel_id) == Some(request_id)
                     })
@@ -787,7 +810,27 @@ impl ImModule {
                 channel_id,
                 request_id,
             } => {
-                if matches!(outcome, PortOutcome::Err(_))
+                let succeeded = match outcome {
+                    PortOutcome::Ok(reply) => {
+                        crate::http_envelope::unwrap_success_envelope(reply.0.as_ref(), "schedule")
+                            .ok()
+                            .and_then(|body| {
+                                serde_json::from_slice::<serde_json::Value>(&body).ok()
+                            })
+                            .is_some_and(|body| body["status"] == "SUCCESS")
+                    }
+                    PortOutcome::Err(_) => false,
+                };
+                if let Some(req_id) = request_id.as_deref() {
+                    if !succeeded {
+                        out.push(crate::read_relay::emit_read_error(
+                            req_id,
+                            "SCHEDULE_REQUEST_FAILED",
+                        ));
+                    }
+                }
+
+                if !succeeded
                     && request_id.as_ref().is_some_and(|request_id| {
                         self.state.pending_schedule_cancel_requests.get(&channel_id)
                             == Some(request_id)

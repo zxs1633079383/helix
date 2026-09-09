@@ -136,13 +136,15 @@ fn effect_tag(effect: &Effect) -> &'static str {
     }
 }
 
+/// 领域事件独立计数；关联请求结果另由 read_relay 回归核对。
 fn emitted(effects: &[Effect]) -> Vec<Value> {
     effects
         .iter()
         .filter_map(|effect| match effect {
-            Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).ok(),
+            Effect::Emit { event } => serde_json::from_slice::<Value>(event.0.as_ref()).ok(),
             _ => None,
         })
+        .filter(|event| event["event"] != "im:read:result")
         .collect()
 }
 
@@ -184,7 +186,7 @@ fn replay_create(harness: &mut Harness, readback_rows: &[Row]) -> CreateTrace {
     let http_corr =
         corr_of(harness.sink.as_slice(), "http").expect("创建必须发出 posts/createSchedule");
 
-    harness.step(port_reply_ok(http_corr), NOW_MS + 1);
+    harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), NOW_MS + 1);
     trace.absorb(harness);
 
     harness.step(inbound(&created_authority()), NOW_MS + 2);
@@ -401,7 +403,7 @@ fn http_2xx_alone_never_settles_the_create() {
     harness.step(command_json("im_create_schedule", core_payload()), NOW_MS);
     let http_corr = corr_of(harness.sink.as_slice(), "http").expect("必须发出创建 Http");
 
-    harness.step(port_reply_ok(http_corr), NOW_MS + 1);
+    harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), NOW_MS + 1);
     assert!(
         harness.sink.as_slice().is_empty(),
         "HTTP 成功不得产生任何 Effect / 事件"
@@ -444,15 +446,19 @@ fn persist_failure_suppresses_the_created_projection() {
     let mut harness = creator_harness();
     harness.step(command_json("im_create_schedule", core_payload()), NOW_MS);
     let http_corr = corr_of(harness.sink.as_slice(), "http").expect("必须发出创建 Http");
-    harness.step(port_reply_ok(http_corr), NOW_MS + 1);
+    harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), NOW_MS + 1);
     harness.step(inbound(&created_authority()), NOW_MS + 2);
     let atomic_corr = corr_of(harness.sink.as_slice(), "atomic").expect("必须落 PersistAtomic");
 
     harness.step(port_reply_err(atomic_corr), NOW_MS + 3);
-    assert!(
-        harness.sink.as_slice().is_empty(),
-        "提交失败必须零 Effect：既不读回也不发事件"
-    );
+    assert!(emitted(harness.sink.as_slice()).is_empty(), "提交失败不得发布业务终态");
+    assert!(corr_of(harness.sink.as_slice(), "persist").is_none(), "提交失败不得读回");
+    let failures: Vec<Value> = harness.sink.as_slice().iter().filter_map(|effect| match effect {
+        Effect::Emit {event} => serde_json::from_slice(event.0.as_ref()).ok(), _ => None
+    }).collect();
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0]["event"], "im:read:result");
+    assert_eq!(failures[0]["data"]["error"], "SCHEDULE_PERSIST_FAILED");
 }
 
 /// 读回缺行 → 抑制终态（宁可提示条不亮，也不发假 created）。

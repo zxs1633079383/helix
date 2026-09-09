@@ -54,6 +54,7 @@ pub use query::render_ready::members as render_ready_members;
 pub use query::render_ready::replies as render_ready_replies;
 pub mod schema;
 pub mod send;
+mod schedule_media;
 pub mod timeline_navigation;
 pub mod timeline_state;
 pub use send::pending as pending_send;

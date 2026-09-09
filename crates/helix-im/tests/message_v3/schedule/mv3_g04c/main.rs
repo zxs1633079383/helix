@@ -149,14 +149,25 @@ fn canceled_row(revision: u64) -> Row {
     ]
 }
 
+/// 领域事件独立计数；关联请求结果另由 read_relay 回归核对。
 fn emitted(effects: &[Effect]) -> Vec<Value> {
     effects
         .iter()
         .filter_map(|effect| match effect {
-            Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).ok(),
+            Effect::Emit { event } => serde_json::from_slice::<Value>(event.0.as_ref()).ok(),
             _ => None,
         })
+        .filter(|event| event["event"] != "im:read:result")
         .collect()
+}
+
+/// 失败只能结束关联请求，不能产生业务终态或后续 I/O。
+fn assert_request_failed(effects: &[Effect], code: &str) {
+    assert_eq!(effects.len(), 1);
+    let Effect::Emit {event} = &effects[0] else { panic!("expected correlated failure"); };
+    let payload: Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(payload["event"], "im:read:result");
+    assert_eq!(payload["data"]["error"], code);
 }
 
 fn corr_of(effects: &[Effect], kind: &str) -> Option<u64> {
@@ -184,7 +195,7 @@ fn drive_step(
     let http_corr = corr_of(harness.sink.as_slice(), "http")
         .unwrap_or_else(|| panic!("{command} 必须发出权威 Http"));
 
-    harness.step(port_reply_ok(http_corr), base_ms + 1);
+    harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), base_ms + 1);
     events.extend(emitted(harness.sink.as_slice()));
 
     harness.step(inbound(authority), base_ms + 2);
@@ -492,10 +503,7 @@ fn create_failure_after_cancel_leaves_a_clean_recoverable_canceled_state() {
     );
     let http_corr = corr_of(harness.sink.as_slice(), "http").expect("必须发出创建 Http");
     harness.step(port_reply_err(http_corr), NOW_MS + 201);
-    assert!(
-        harness.sink.as_slice().is_empty(),
-        "创建失败不得产生任何 Effect，尤其不得发假的 created"
-    );
+    assert_request_failed(harness.sink.as_slice(), "SCHEDULE_REQUEST_FAILED");
 
     // 失败后立即重试：必须重新发出真实 HTTP（pending 已释放，不是不可恢复中间态）。
     let retried = drive_step(
@@ -530,10 +538,7 @@ fn cancel_failure_never_publishes_a_canceled_projection() {
     );
     let http_corr = corr_of(harness.sink.as_slice(), "http").expect("必须发出取消 Http");
     harness.step(port_reply_err(http_corr), NOW_MS + 101);
-    assert!(
-        harness.sink.as_slice().is_empty(),
-        "取消失败不得发布 canceled 终态（旧定时仍在服务端）"
-    );
+    assert_request_failed(harness.sink.as_slice(), "SCHEDULE_REQUEST_FAILED");
 
     // 取消失败后重试必须仍能发出真实 HTTP。
     let retried = drive_step(
@@ -558,7 +563,7 @@ fn cancel_persist_failure_suppresses_the_terminal_and_stays_retryable() {
         NOW_MS + 100,
     );
     let http_corr = corr_of(harness.sink.as_slice(), "http").expect("必须发出取消 Http");
-    harness.step(port_reply_ok(http_corr), NOW_MS + 101);
+    harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), NOW_MS + 101);
     harness.step(
         inbound(&canceled_authority(CANCELED_REVISION)),
         NOW_MS + 102,
@@ -566,10 +571,7 @@ fn cancel_persist_failure_suppresses_the_terminal_and_stays_retryable() {
     let atomic_corr = corr_of(harness.sink.as_slice(), "atomic").expect("必须落 PersistAtomic");
 
     harness.step(port_reply_err(atomic_corr), NOW_MS + 103);
-    assert!(
-        harness.sink.as_slice().is_empty(),
-        "提交失败必须零 Effect：既不读回也不发事件"
-    );
+    assert_request_failed(harness.sink.as_slice(), "SCHEDULE_PERSIST_FAILED");
 
     // inflight revision 已释放：更高 revision 的 authority 重放仍能重新入屏障。
     harness.step(

@@ -406,3 +406,16 @@ im:sync:too_long        → onRustTooLong（按 channelId drop local messages + 
   本文档冻结表 + 测试断言；测试红 = 漂移未同步，**禁直接改测试迁就代码**（先确认是有意契约变更）。
 - **新增投影 emit 工厂** → 本文档 §1 加一行 + 测试加一个 case（覆盖新 channel 的键集断言）。
 - 冻结表行数不变量：§1 表行数 == helix-im `pub fn emit_` 工厂数（`grep -c 'pub fn emit_'` 三文件求和）。
+
+
+## 定时消息媒体与完成语义（2026-09-09）
+
+`im_create_schedule` 与普通发送复用稳定附件引用和上传计划。新附件通过独立、有界的
+`pending_schedule_media`（最多 32 个请求）依次完成 Java 上传票据、上传和稳定引用回写，
+然后回到唯一的定时创建命令；该过程不产生普通消息的乐观投影，也不由本地定时器代替服务端投递。
+上传失败、120 秒超时和 runtime 停止均完成关联错误并释放 pending，重复或迟到回灌不再生效。
+
+无正文的消息以结构化 `props` 保留内容，`type`、`props`、`viewers`、`mentions` 在创建和查询间保持。
+既有附件允许旧绝对 URI 或当前上传产生的 `media/{id}`，不重新上传编辑器的展示占位文件。
+创建与取消的 Host 请求在 `PersistOk` 后完成；HTTP 业务失败、`PersistErr` 和上传错误均返回关联失败。
+领域终态仍从持久化读回产生，并经唯一 EventSink 发布，不把 command accepted 当作保存完成。

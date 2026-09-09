@@ -247,6 +247,7 @@ fn schedule_projection(channel_id: &str, item: &Value) -> Option<(i64, String, V
             .filter(|viewers| viewers.is_array())
             .cloned()
             .unwrap_or_else(|| json!(["all"])),
+        "mentions": item.get("mentions").filter(|value| value.is_array()).cloned().unwrap_or_else(|| json!([])),
         "props": item
             .get("props")
             .filter(|props| props.is_object())

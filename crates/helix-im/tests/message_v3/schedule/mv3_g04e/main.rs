@@ -169,13 +169,15 @@ fn member_reply(user_id: &str, unread_count: i64) -> ReplyBytes {
     ReplyBytes(rows_to_reply_bytes(&[row]))
 }
 
+/// 领域事件独立计数；关联请求结果另由 read_relay 回归核对。
 fn emitted(effects: &[Effect]) -> Vec<Value> {
     effects
         .iter()
         .filter_map(|effect| match effect {
-            Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).ok(),
+            Effect::Emit { event } => serde_json::from_slice::<Value>(event.0.as_ref()).ok(),
             _ => None,
         })
+        .filter(|event| event["event"] != "im:read:result")
         .collect()
 }
 
@@ -263,7 +265,7 @@ fn run_sender_cancel(harness: &mut Harness, base_ms: u64) -> Vec<Value> {
     events.extend(emitted(harness.sink.as_slice()));
     let http_corr = corr_of(harness.sink.as_slice(), "http").expect("取消必须发出 Http");
 
-    harness.step(port_reply_ok(http_corr), base_ms + 1);
+    harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), base_ms + 1);
     events.extend(emitted(harness.sink.as_slice()));
 
     harness.step(inbound(&canceled_authority()), base_ms + 2);
@@ -601,7 +603,7 @@ fn cancel_half_follows_the_contract_sequence_without_timers() {
         "取消首批只允许一条 Http，实际 {kinds:?}"
     );
     let http_corr = corr_of(harness.sink.as_slice(), "http").expect("必须发出取消 Http");
-    kinds.extend(harness.step(port_reply_ok(http_corr), NOW_MS + 1));
+    kinds.extend(harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), NOW_MS + 1));
     kinds.extend(harness.step(inbound(&canceled_authority()), NOW_MS + 2));
     let atomic_corr = corr_of(harness.sink.as_slice(), "atomic").expect("必须落 PersistAtomic");
     kinds.extend(harness.step(port_reply_ok(atomic_corr), NOW_MS + 3));

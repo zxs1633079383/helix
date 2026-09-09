@@ -146,6 +146,30 @@ impl Module for ImModule {
                 // Tier 1 outbound 自驱动命令（read/revoke/leave/schedule/cancel/create/makeTopic）：
                 // 纯 HTTP-fire，业务契约在 crate::commands（endpoint 锚现网真源）。
                 name if crate::commands::is_outbound(name) => {
+                    if name == "im_create_schedule" {
+                        match self.begin_schedule_media(cmd.payload.as_ref(), now_ms, out) {
+                            Ok(true) => return Ok(()),
+                            Ok(false) => {}
+                            Err(source) => {
+                                // 校验失败也必须结束关联等待，不能让界面等到 Host 超时。
+                                if let Ok(payload) = serde_json::from_slice::<serde_json::Value>(
+                                    cmd.payload.as_ref(),
+                                ) {
+                                    if let Some(req_id) = payload["req_id"].as_str() {
+                                        out.push(crate::read_relay::emit_read_error(
+                                            req_id,
+                                            "SCHEDULE_CONTENT_INVALID",
+                                        ));
+                                        return Ok(());
+                                    }
+                                }
+                                return Err(CoreError::ModuleError {
+                                    module: self.name(),
+                                    source: Box::new(source),
+                                });
+                            }
+                        }
+                    }
                     let corr = self.alloc_corr_internal();
                     let topic_request = (name == "im_make_topic")
                         .then(|| make_topic_request_context(cmd.payload.as_ref()))
@@ -547,6 +571,9 @@ impl Module for ImModule {
             }
 
             Tick::Timer(id) => {
+                if self.schedule_media_timeout(*id, out) {
+                    return Ok(());
+                }
                 self.handle_timer(*id, now_ms, out)
                     .map_err(|e| CoreError::ModuleError {
                         module: self.name(),
@@ -649,6 +676,7 @@ impl Module for ImModule {
 
     /// 停止：取消所有 timer + 关闭连接
     fn on_stop(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
+        self.stop_schedule_media(out);
         self.diagnose(crate::diagnostics::Observation {
             event: "runtime_stopped",
             result: "interrupted",

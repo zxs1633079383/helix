@@ -226,7 +226,7 @@ fn build_template_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> 
     }])
 }
 
-/// 识别不可伪造临时凭据的稳定对象描述符，并拒绝半完整引用。
+/// 接受旧绝对路径及当前 Java 签发的 media/{id} 对象键，拒绝临时凭据和半完整引用。
 fn is_stable_object_reference(node: &Value, label: &str) -> Result<bool, ImError> {
     let object = node
         .as_object()
@@ -253,7 +253,7 @@ fn is_stable_object_reference(node: &Value, label: &str) -> Result<bool, ImError
     let uri = stable_reference_string(object, "uri", label)?;
     if bucket.len() > 64
         || id.len() > 255
-        || !uri.starts_with('/')
+        || !(uri.starts_with('/') || uri == format!("media/{id}"))
         || uri.starts_with("//")
         || uri.contains("..")
         || uri.contains(['?', '#', '\\'])

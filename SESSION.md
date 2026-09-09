@@ -733,3 +733,6 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 - 实际登录态 Native 发送、远端 Go/ES 索引未验收；跨重启未发送图片草稿仍不支持，不能用本地测试替代这些证据。未提交、推送或发布。
 
 ✅ DONE 限时诊断探针本地 DNS/TCP/Go health/Java login 全部通过；Cargo 进程组超时模拟返回 124 并写证据，现有合同测试 3/3 通过。CI 两个作业均为 6m，脚本预算 5m，项目默认 360s 被 GitLab 最低 10 分钟限制拒绝、保持原值，两个作业显式 6m 生效；Runner 实证由本次诊断 pipeline 产物给出。
+
+🎯 EXPECT 发布定时消息修复 Helix 0.1.14，四个 crates registry 可解析；客户端锁定 0.1.14、PRE 版本 1.2.68；不执行客户端打包。 | 赌注 中 | 可逆 否 | @2026-09-09T16:03:12.488658
+✅ DONE 发布前验证：1476 tests 通过、12 ignored，三端 cargo check 与 Web wasm 构建通过；等待 registry 发布和客户端依赖验证。

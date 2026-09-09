@@ -109,12 +109,25 @@ impl OutboundCommand for CreateScheduleCommand {
                 "schedule_post_at",
                 "type",
                 "props",
+                "viewers",
+                "mentions",
                 "req_id",
             ],
             self.name(),
         )?;
         let channel_id = require_str(args, "channel_id", self.name())?;
-        let message = require_str(args, "message", self.name())?;
+        let message = args
+            .get("message")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ImError::Parse("im_create_schedule: message must be string".into()))?;
+        if message.trim().is_empty()
+            && !args
+                .get("props")
+                .and_then(Value::as_object)
+                .is_some_and(|props| !props.is_empty())
+        {
+            return Err(ImError::Parse("im_create_schedule: empty content".into()));
+        }
         let schedule_post_at = args
             .get("schedule_post_at")
             .and_then(Value::as_i64)
@@ -141,6 +154,20 @@ impl OutboundCommand for CreateScheduleCommand {
                 )));
             }
             post["props"] = props.clone();
+        }
+        // 可见范围和提及属于原消息内容，不能在定时转换中扩大为 all 或丢弃。
+        for field in ["viewers", "mentions"] {
+            if let Some(values) = args.get(field) {
+                if !values
+                    .as_array()
+                    .is_some_and(|values| values.iter().all(Value::is_string))
+                {
+                    return Err(ImError::Parse(format!(
+                        "im_create_schedule: {field} must be string array"
+                    )));
+                }
+                post[field] = values.clone();
+            }
         }
         Ok((
             "posts/createSchedule",

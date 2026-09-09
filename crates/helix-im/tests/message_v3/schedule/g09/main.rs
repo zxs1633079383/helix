@@ -230,7 +230,10 @@ fn run_creator() -> TestResult<PersonaTrace> {
     );
     let http_corr = correlation(harness.sink.as_slice(), "http")
         .ok_or_else(|| "missing cancelSchedule HTTP".to_string())?;
-    harness.step(port_reply_ok(http_corr.raw()), SEND_AT as u64 + 1);
+    harness.step(
+        port_reply_with_body(http_corr.raw(), common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))),
+        SEND_AT as u64 + 1,
+    );
     assert!(emitted_events(harness.sink.as_slice()).is_empty());
 
     let authority = canceled_authority();
@@ -246,7 +249,9 @@ fn run_creator() -> TestResult<PersonaTrace> {
     harness.step(port_reply_ok(persist_corr.raw()), SEND_AT as u64 + 3);
     let readback_corr = correlation(harness.sink.as_slice(), "persist")
         .ok_or_else(|| "G-09 PersistOk must request durable row".to_string())?;
-    assert!(emitted_events(harness.sink.as_slice()).is_empty());
+    assert_eq!(emitted_events(harness.sink.as_slice()), vec![json!({
+        "event": "im:read:result", "data": {"req_id": "g09-cancel-request", "body": {"ok": true}}
+    })]);
     let row = canceled_row();
     harness.step(
         port_reply_with_body(
@@ -377,7 +382,9 @@ fn g09_persist_failure_emits_no_terminal_event() -> TestResult<()> {
     let persist_corr = correlation(harness.sink.as_slice(), "atomic")
         .ok_or_else(|| "missing G-09 PersistAtomic".to_string())?;
     harness.step(port_reply_err(persist_corr.raw()), SEND_AT as u64 + 2);
-    assert!(emitted_events(harness.sink.as_slice()).is_empty());
+    assert_eq!(emitted_events(harness.sink.as_slice()), vec![json!({
+        "event": "im:read:result", "data": {"req_id": "g09-failed-request", "error": "SCHEDULE_PERSIST_FAILED"}
+    })]);
     Ok(())
 }
 

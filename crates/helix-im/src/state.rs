@@ -63,6 +63,7 @@ pub struct ImState {
     pub pending_uploads: HashMap<helix_core::Correlation, PendingUpload>,
 
     /// 媒体 Prepare/PUT/Complete 回包路由；corr 单次 O(1) remove 后按阶段分发。
+    pub(crate) pending_schedule_media: HashMap<helix_core::Correlation, crate::schedule_media::PendingScheduleMedia>,
     pub pending_media_ops: HashMap<helix_core::Correlation, PendingMediaOp>,
 
     /// 文件 PUT 的 5% 进度合并器；图片不注册。每个 upload corr 至多一条落库在途。
@@ -342,6 +343,7 @@ impl ImState {
             channels: HashMap::new(),
             pending_sends: HashMap::new(),
             pending_uploads: HashMap::new(),
+            pending_schedule_media: HashMap::new(),
             pending_media_ops: HashMap::new(),
             file_upload_progress: HashMap::new(),
             media_put_after_progress: HashMap::new(),
@@ -510,6 +512,7 @@ impl ImState {
     fn clear_pending_action_state(&mut self) {
         self.pending_forward_deliveries = crate::forward::PendingForwardDeliveryLedger::default();
         self.pending_schedule_requests.clear();
+        self.pending_schedule_media.clear();
         self.pending_schedule_cancel_requests.clear();
         self.inflight_schedule_revisions.clear();
         self.inflight_channel_creates.clear();

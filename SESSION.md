@@ -1,3 +1,5 @@
+🎯 EXPECT 发布 Helix 0.1.14：四个公开 crate 统一 patch 版本并可从 crates.io 解析；发布后立即提交版本事务、创建注释 Tag 并正常 push。保留现有 artifacts；客户端原地 rebase、依赖升级和推送独立核验，不把编译当作实际版本 UI 验收。 | @2026-09-09T15:42:56.704536+08:00
+
 ✅ DONE 合并转发媒体源码修复：实时/历史/ACL共用投影；lib407+G05回放3通过，客户端6项及静态检查通过，源码测试包WDIO打开原有3图记录成功（20.9秒）。全量artifact_schema因旧机器路径缺少合同文件5项失败；正式客户端仍registry0.1.13，未发布、未push。 | @2026-09-09T14:37:33.737324+08:00
 
 🎯 EXPECT 合并转发媒体修复：实时 authority 与历史 render-ready 共用同一 forward detail；RICH/IMAGE/VIDEO/FILE/AUDIO/VOICE 保留 durable props 与媒体顺序，fileName 收敛为 name；100项边界与脏JSON保持失败终态。聚焦producer回归和客户端消费验证，不发布、不push，不改既有 artifacts。分支 reactor/MessageV3-helix，保留当前分支。 | @2026-09-09T14:22:48.948637+08:00

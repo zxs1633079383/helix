@@ -227,6 +227,12 @@ fn parse_posts_update_batch(data: &Value) -> Result<PostsUpdateBatch, &'static s
         {
             return Err("malformed");
         }
+        // Validate every post before gate admission so one malformed category event cannot
+        // partially commit an ordinary mixed batch or consume its cursor prefix.
+        let fields = extract_post_fields(post);
+        if crate::category_chain::post::validate_fields(&fields).is_err() {
+            return Err("invalid_category_revision");
+        }
         let seq = Seq(seq);
         if previous.is_some_and(|last| seq <= last) {
             return Err("non_monotonic");

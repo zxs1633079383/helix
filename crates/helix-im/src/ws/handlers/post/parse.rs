@@ -31,6 +31,7 @@ pub(super) fn parse_post_frame(frame: &WsFrame) -> Option<EventEnvelope> {
                 .and_then(serde_json::Value::as_u64)
         })?);
     let fields = crate::ws::parser::extract_post_fields_with_event_seq(data, Some(seq.0));
+    crate::category_chain::post::validate_fields(&fields).ok()?;
     let msg_id = post
         .get("id")
         .and_then(serde_json::Value::as_str)
@@ -64,6 +65,7 @@ pub(super) fn emit_unsequenced_post(
         return None;
     };
     let fields = crate::ws::parser::extract_post_fields(post);
+    crate::category_chain::post::validate_fields(&fields).ok()?;
     let msg_id = post
         .get("id")
         .or_else(|| post.get("postId"))

@@ -103,6 +103,9 @@
 
 🚧 IN-PROGRESS WS 根 `seq` 已与 `streamSeq` 分离；`channel_stream_event` 与 HTTP `streamEvents` 共用 `EventEnvelope`/storage 语义，redacted marker 只推进 cursor，full 正文缺失 fail-close；`memberProjection` 与 message/cursor 同一 PersistAtomic，`channel_member` 持久化 revision/effect/membership epoch；canonical 在线、buffer flush、sync 与 terminal prefix 已禁止本地 unread delta。合入 Helix 0.1.2 基线后，`cargo fmt --all -- --check`、`cargo test -p helix-im`、五 crate check、core tests 与 Web/WASM 构建通过；真实 Go+WS+SQLite+重启/乱序链尚未执行，任务不得标 DONE | @2026-09-01T
 
+## 2026-09-10 分类 revision 非法输入关闭
+
+CATEGORY_CHAIN 的 live post、post_update、posts_update 与 sync 快照在 gate/cursor/storage 前统一校验 revision，拒绝缺失、null、数值及非 canonical 值；合法同 seq 可恢复，普通消息不受影响。公开 Tick/PortReply 回归 7 项通过，原实现 5 项红测；未作 Native/UI 验收。
 
 🎯 EXPECT 为 CATEGORY 接龙加入可选 `maxCategories` 协议字段；可证伪断言：① 新草稿 `max_categories` 仅在存在时映射为 Go HTTP `maxCategories`，且只能是 `1..=categories.len()` 的 JSON 整数；② Card、CategoryChain 与 myParticipation 只接受该一个可选字段，旧 NULL 投影省略它，RETRACTED 卡不得携带它，其余未知字段仍 fail-closed；③ HTTP、WS、draft、mine、CanonicalPost/read-back 均复用同一个 Card 值，空 `selections` 和 `PARTICIPATION_LIMIT_EXCEEDED` 原样透传；④ capabilities 仅新增 `postChainCategoryMaxCategories=true`，wire v3/schema 1 不变；⑤ focused red→green、`cargo check -p helix-im`、`cargo test -p helix-im` 和 diff check 留证，真实 Go/WS/SQLite 链标 UNVERIFIED。run_id=helix-category-max-20260909; corr=req_id/category chain command; channel_id=1; expected_event=im:category_chain:{operation,projection}; expected_fields=maxCategories optional absolute projection | 赌注 高 | 可逆 是 | @2026-09-09T00:00:00+08:00
 

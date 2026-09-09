@@ -1,4 +1,5 @@
 //! Category Post revisions protect the shared message row; other post types retain their write policy.
+use crate::error::ImError;
 use crate::sync_session::{EventEnvelope, PostFields};
 use helix_core::effect::{Row, SqlValue, StorageOp, UpsertSpec};
 
@@ -8,6 +9,16 @@ pub(crate) fn revision_key(fields: &PostFields) -> Option<String> {
     let revision = props.pointer("/categoryChain/revision")?.as_str()?;
     super::facts::validate_revision(revision).ok()?;
     Some(format!("{:020}", revision.parse::<u64>().ok()?))
+}
+
+/// Reject a CATEGORY_CHAIN authority whose canonical decimal revision is absent or malformed.
+pub(crate) fn validate_fields(fields: &PostFields) -> Result<(), ImError> {
+    if fields.msg_type == "CATEGORY_CHAIN" && revision_key(fields).is_none() {
+        return Err(ImError::Parse(
+            "CATEGORY_CHAIN post has invalid categoryChain.revision".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Only CATEGORY_CHAIN opts into monotonic writes; malformed authority cannot overwrite a durable row.
@@ -79,6 +90,9 @@ pub(crate) fn queue_edit(
     event: EventEnvelope,
     out: &mut helix_core::EffectSink,
 ) {
+    if validate_fields(&event.fields).is_err() {
+        return;
+    }
     let effect = crate::acl::to_effect::emit_post_updated_for_viewer(
         event.channel_id,
         event.seq.0,

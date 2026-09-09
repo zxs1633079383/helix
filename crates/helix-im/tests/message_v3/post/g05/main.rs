@@ -641,3 +641,87 @@ fn g05_writes_reviewable_dual_persona_artifacts() -> TestResult<()> {
         .map_err(|error| error.to_string())?;
     Ok(())
 }
+
+/// 图文/视频合并从真实 relay 命令到双方 PersistOk 终态，媒体字段不能在投影时丢失。
+#[test]
+fn g05_merged_media_survives_sender_and_receiver_projection() -> TestResult<()> {
+    let image_props = json!({"files":[
+        {"url":"https://media.test/a.png", "name":"a.png", "width":640, "height":480},
+        {"url":"https://media.test/b.png", "name":"b.png", "width":480, "height":640}
+    ], "imagePosition":"bottom"});
+    let video_props = json!({"file":{"url":"https://media.test/c.mp4", "name":"c.mp4", "contentType":"video/mp4", "duration":3}});
+    let mut row_a = source_row(
+        SOURCE_A,
+        "source-user-a",
+        "Actor",
+        "Forwarded message A",
+        CREATE_AT - 20,
+    );
+    let mut row_b = source_row(
+        SOURCE_B,
+        "source-user-b",
+        "Observer",
+        "Forwarded message B",
+        CREATE_AT - 10,
+    );
+    row_a["type"] = json!("RICH");
+    row_a["props"] = json!(image_props.to_string());
+    row_b["type"] = json!("VIDEO");
+    row_b["props"] = json!(video_props.to_string());
+    let mut sender = Harness::new_with_identity(&[5], SENDER_ID, "g05-company", "Sender", "", "");
+    let mut receiver =
+        Harness::new_with_identity(&[5], RECEIVER_ID, "g05-company", "Receiver", "", "");
+    let (post, _) = run_command(
+        &mut sender,
+        "merged",
+        &[row_a, row_b],
+        MERGED_REQ,
+        CREATE_AT as u64,
+        &mut Vec::new(),
+    )?;
+    let authority = target_authority(post, MERGED_REQ, TARGET_MERGED, 1, CREATE_AT + 2);
+    let mut expected = expected_forward_detail();
+    expected["items"][0]["type"] = json!("RICH");
+    expected["items"][0]["props"] = image_props;
+    expected["items"][1]["type"] = json!("VIDEO");
+    expected["items"][1]["props"] = video_props;
+    let mut last_post = expected_last_post(&authority)?;
+    last_post["forwardDetail"] = expected.clone();
+    for (harness, viewer, unread) in [(&mut sender, SENDER_ID, 0), (&mut receiver, RECEIVER_ID, 1)]
+    {
+        let now = CREATE_AT as u64 + 10;
+        harness.step(
+            Tick::Inbound(InboundBytes(Bytes::from(
+                serde_json::to_vec(&authority).map_err(|e| e.to_string())?,
+            ))),
+            now,
+        );
+        assert!(emitted_events(harness.sink.as_slice()).is_empty());
+        let corr = assert_target_commit(harness.sink.as_slice(), &authority, &last_post)?;
+        harness.step(
+            Tick::PortReply {
+                corr,
+                outcome: PortOutcome::Ok(ReplyBytes::default()),
+            },
+            now + 1,
+        );
+        assert!(emitted_events(harness.sink.as_slice()).is_empty());
+        let corr =
+            correlation(harness.sink.as_slice(), "persist").ok_or("missing member readback")?;
+        harness.step(
+            Tick::PortReply {
+                corr,
+                outcome: PortOutcome::Ok(member_reply(viewer, unread, &last_post)),
+            },
+            now + 2,
+        );
+        let events = emitted_events(harness.sink.as_slice());
+        let received = events
+            .iter()
+            .find(|e| e["event"] == "im:post:received")
+            .ok_or("missing received")?;
+        assert_eq!(received["data"]["forwardDetail"], expected);
+        assert!(received["data"].get("props").is_none());
+    }
+    Ok(())
+}

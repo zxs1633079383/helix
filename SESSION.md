@@ -1,3 +1,7 @@
+✅ DONE 合并转发媒体源码修复：实时/历史/ACL共用投影；lib407+G05回放3通过，客户端6项及静态检查通过，源码测试包WDIO打开原有3图记录成功（20.9秒）。全量artifact_schema因旧机器路径缺少合同文件5项失败；正式客户端仍registry0.1.13，未发布、未push。 | @2026-09-09T14:37:33.737324+08:00
+
+🎯 EXPECT 合并转发媒体修复：实时 authority 与历史 render-ready 共用同一 forward detail；RICH/IMAGE/VIDEO/FILE/AUDIO/VOICE 保留 durable props 与媒体顺序，fileName 收敛为 name；100项边界与脏JSON保持失败终态。聚焦producer回归和客户端消费验证，不发布、不push，不改既有 artifacts。分支 reactor/MessageV3-helix，保留当前分支。 | @2026-09-09T14:22:48.948637+08:00
+
 ✅ DONE 按用户明确授权分类提交并准备合并推送：Go 613a744/33037c6，Helix 4d1f1449 与既有同步/指标批次，客户端 a876d6e485；保留原覆盖率及未部署边界。 | @2026-09-08T18:47:33.376189+08:00
 
 ✅ DONE 同步广播与背压行为实现：Go 发起连接范围与64投影HTTP分页；Helix重复hello去重、单页PersistOk放行、断线关联清理。真Go→Native→SQLite2436行→EventSink ready、39页零增量广播通过；IM1444/core23/五crate/WASM/WSrace通过。Go完成态提交仍受C019 app98.1%门禁限制；未push/deploy。 | @2026-09-08T18:41:34.252140+08:00

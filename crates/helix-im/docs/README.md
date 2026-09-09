@@ -12,6 +12,20 @@
 | [`消息发送全流程/在线与离线发送消息全流程.md`](./消息发送全流程/在线与离线发送消息全流程.md) | 结合 Helix 与现役 Go server 源码，说明 `im_send_message`、Persist/HTTP/timer/PortReply、WS authority、sender/receiver 未读、离线补偿与手动 retry。 |
 | [`消息发送全流程/在线与离线发送消息全流程.mmd`](./消息发送全流程/在线与离线发送消息全流程.mmd) | 同一链路的 Mermaid 图源。 |
 
+## 合并转发媒体投影
+
+`forward_shape::merged_post` 将来源行的媒体 props 保存在合并消息中；实时
+`event::post::authority_projection`、历史 `query::render_ready::core` 和旧同步 ACL
+统一调用 `query::render_ready::forward::detail`，避免查询与事件各维护一份详情转换。
+最多 100 条，非法媒体 props 或超量记录返回明确 unavailable。
+
+RICH/IMAGE 的 files、图文 imagePosition，以及 VIDEO/FILE/AUDIO/VOICE 的 file
+通过条目 props 交付；fileName 在 Helix 归一为 name。原始 mergeMessage 不从媒体
+props 透传。UI 沿用普通媒体 Renderer，不从文字摘要补造媒体数据。
+
+此合同由 lib 投影测试与 G-05 sender/receiver PersistOk 回放覆盖；真实宿主、发布版本
+和 UI 显示结果必须另行取证，不能由这些回放结果推断。
+
 下面的 V2 内容是硬切前历史索引，只用于追溯设计决策，不参与当前 MessageV3 实施或 Green 判定。
 
 ## 历史 InteractionFrame v2 入口

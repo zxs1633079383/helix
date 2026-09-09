@@ -2,6 +2,8 @@
 
 use serde_json::{json, Value};
 
+const MAX_FORWARD_ITEMS: usize = 100;
+
 /// 将 durable MULTIPLY props 转成 bounded render-ready detail，非法记录整体 fail closed。
 pub(crate) fn detail(msg_type: &str, props: &Value) -> Value {
     if !msg_type.eq_ignore_ascii_case("MULTIPLY") {
@@ -11,6 +13,9 @@ pub(crate) fn detail(msg_type: &str, props: &Value) -> Value {
     let Some(items) = decode_items(props) else {
         return unavailable("invalid_merge_message");
     };
+    if items.len() > MAX_FORWARD_ITEMS {
+        return unavailable("too_many_merge_items");
+    }
     let Some(items) = normalize_items(items) else {
         return unavailable("invalid_merge_item");
     };
@@ -70,7 +75,7 @@ fn normalize_item(item: Value) -> Option<Value> {
         .or_else(|| item.get("create_at"))
         .and_then(Value::as_i64)
         .unwrap_or_default();
-    Some(json!({
+    let mut result = json!({
         "id": id,
         "userId": user_id,
         "author": author.unwrap_or_default(),
@@ -78,7 +83,27 @@ fn normalize_item(item: Value) -> Option<Value> {
         "type": msg_type,
         "createAt": create_at,
         "userSnapshot": snapshot,
-    }))
+    });
+    // 媒体详情沿用普通消息的 props；不把原始嵌套 mergeMessage 扩散到投影边界。
+    if matches!(
+        msg_type.as_str(),
+        "RICH" | "IMAGE" | "VIDEO" | "FILE" | "AUDIO" | "VOICE"
+    ) {
+        let mut props = match item.get("props") {
+            Some(Value::String(raw)) if !raw.trim().is_empty() => serde_json::from_str(raw).ok()?,
+            Some(Value::Object(object)) => Value::Object(object.clone()),
+            None | Some(Value::Null) => json!({}),
+            Some(Value::String(_)) => json!({}),
+            _ => return None,
+        };
+        let object = props.as_object_mut()?;
+        object.remove("channel_event_seq");
+        object.remove("mergeMessage");
+        object.remove("merge_message");
+        crate::event::post::canonicalize_media_file_names(&mut props);
+        result["props"] = props;
+    }
+    Some(result)
 }
 
 fn string_at(value: &Value, keys: &[&str]) -> Option<String> {
@@ -95,6 +120,7 @@ fn unavailable(reason: &'static str) -> Value {
         "title": "聊天记录",
         "summary": "聊天记录暂不可用",
         "itemCount": 0,
+        "sourceChannelId": Value::Null,
         "sourceChannelName": Value::Null,
         "items": [],
         "failureReason": reason,
@@ -130,5 +156,77 @@ mod tests {
         assert_eq!(result["state"], "unavailable");
         assert_eq!(result["items"], json!([]));
         assert_eq!(result["failureReason"], "invalid_merge_message");
+    }
+
+    /// 历史查询与实时 authority 使用同一媒体归一化，保留图文顺序和视频属性。
+    #[test]
+    fn media_forward_detail_preserves_props_in_both_projection_paths() {
+        use crate::state::{ChannelId, Seq};
+        use crate::sync_session::{EventEnvelope, EventKind, PostFields};
+        use std::str::FromStr;
+
+        for kind in ["RICH", "IMAGE", "VIDEO", "FILE", "AUDIO", "VOICE"] {
+            let media = json!({"url":"https://media.test/a", "fileName":"a.mp4", "contentType":"video/mp4", "width":640, "height":480});
+            let props = if matches!(kind, "RICH" | "IMAGE") {
+                json!({"files":[media], "imagePosition":"bottom"})
+            } else {
+                json!({"file":media})
+            };
+            for encoded in [props.clone(), Value::String(props.to_string())] {
+                let merged = json!({"mergeMessage":[{"id":"m1", "type":kind, "message":"caption", "props":encoded}]});
+                let history = super::super::core::shape_row(
+                    &json!({"type":"MULTIPLY", "props":merged.to_string()}),
+                    "",
+                );
+                let event = EventEnvelope::new(
+                    ChannelId::from_str("a9h5hrdsy3873dmg375a6ntqiw").unwrap(),
+                    Seq(8),
+                    EventKind::PostUpsert,
+                    PostFields {
+                        msg_type: "MULTIPLY".to_string(),
+                        props: merged.to_string(),
+                        ..PostFields::default()
+                    },
+                );
+                let live = crate::event::post::authority_projection(&event).unwrap();
+                let detail = &live.received_data["forwardDetail"];
+                assert_eq!(detail, &history["forwardDetail"]);
+                assert_eq!(detail, &live.last_post["forwardDetail"]);
+                let item = &detail["items"][0];
+                assert_eq!(item["text"], "caption");
+                let file = if matches!(kind, "RICH" | "IMAGE") {
+                    assert_eq!(item["props"]["imagePosition"], "bottom");
+                    &item["props"]["files"][0]
+                } else {
+                    &item["props"]["file"]
+                };
+                assert_eq!(file["url"], "https://media.test/a");
+                assert_eq!(file["name"], "a.mp4");
+                assert_eq!(file["width"], 640);
+                assert!(file.get("fileName").is_none());
+            }
+        }
+    }
+
+    /// 非法媒体 props 与过量条目不能变成看似成功的详情。
+    #[test]
+    fn media_forward_detail_rejects_invalid_props_and_overflow() {
+        for props in [json!("bad-json"), json!("[]"), json!([]), json!(42)] {
+            let result = detail(
+                "MULTIPLY",
+                &json!({"mergeMessage":[{"type":"RICH", "props":props}]}),
+            );
+            assert_eq!(result["failureReason"], "invalid_merge_item");
+        }
+        let items = vec![json!({"type":"TEXT"}); 100];
+        assert_eq!(
+            detail("MULTIPLY", &json!({"mergeMessage":items}))["itemCount"],
+            100
+        );
+        let overflow = vec![json!({"type":"TEXT"}); 101];
+        assert_eq!(
+            detail("MULTIPLY", &json!({"mergeMessage":overflow}))["failureReason"],
+            "too_many_merge_items"
+        );
     }
 }

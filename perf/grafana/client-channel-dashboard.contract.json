@@ -617,5 +617,56 @@
       "type": "histogram",
       "job": "jaeger-v2"
     }
+  ],
+  "syncObservationStatus": "IMPLEMENTED_PENDING_RUNTIME_VERIFICATION",
+  "syncMetrics": [
+    {
+      "name": "helix_recovery_started_timestamp_seconds",
+      "kind": "gauge",
+      "owner": "helix",
+      "title": "最近一次同步开始时间"
+    },
+    {
+      "name": "helix_recovery_completed_timestamp_seconds",
+      "kind": "gauge",
+      "owner": "helix",
+      "title": "最近一次同步成功完成时间"
+    },
+    {
+      "name": "helix_recovery_duration_seconds",
+      "kind": "histogram",
+      "owner": "helix",
+      "title": "整轮同步耗时分位"
+    },
+    {
+      "name": "helix_increment_page_duration_seconds",
+      "kind": "histogram",
+      "owner": "helix",
+      "title": "清单单页到落库耗时分位"
+    },
+    {
+      "name": "helix_recovery_terminal_total",
+      "kind": "counter",
+      "owner": "helix",
+      "title": "整轮同步终态速率"
+    },
+    {
+      "name": "helix_increment_page_terminal_total",
+      "kind": "counter",
+      "owner": "helix",
+      "title": "清单页落库终态速率"
+    },
+    {
+      "name": "im_sync_page_duration_seconds",
+      "kind": "histogram",
+      "owner": "go",
+      "title": "服务端分页处理耗时分位"
+    },
+    {
+      "name": "im_sync_page_requests_total",
+      "kind": "counter",
+      "owner": "go",
+      "title": "服务端分页处理终态速率"
+    }
   ]
 }

@@ -28,6 +28,7 @@ pub mod client_api;
 pub mod commands;
 /// MessageV3 Gate MV3-G02e 草稿域（`im_save_draft` / `im_query_draft`）。
 mod diagnostics;
+pub mod sync_observation;
 pub mod draft;
 pub mod error;
 pub mod event;

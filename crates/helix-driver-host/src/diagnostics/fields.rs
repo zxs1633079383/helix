@@ -33,6 +33,10 @@ const NAMES: &[&str] = &[
     "evidence_complete",
     "expected_known",
     "sync_session_id",
+    "page_index",
+    "total_pages",
+    "started_at_ms",
+    "completed_at_ms",
     "has_more",
     "source",
     "gap_id",
@@ -105,7 +109,8 @@ impl Fields {
                 "evidence_complete" | "expected_known" | "has_more" => {
                     serde_json::Value::Bool(text == "true")
                 }
-                "count" | "returned_channels" | "persisted_channels" | "applied_channels" => text
+                "page_index" | "total_pages" | "started_at_ms" | "completed_at_ms" | "count"
+                | "returned_channels" | "persisted_channels" | "applied_channels" => text
                     .parse::<u64>()
                     .map(serde_json::Value::from)
                     .unwrap_or(serde_json::Value::Null),

@@ -42,6 +42,9 @@ pub fn sync_notify(
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
     headers.extend(session_auth_headers(connection_id));
     headers.push((CSES_TRACK_ID_HEADER.to_string(), sync_track_id(corr)));
+    if let Some(id) = connection_id {
+        headers.push(("X-CSES-Sync-Session-Id".into(), id.to_string()));
+    }
     Effect::Http {
         corr,
         req: HttpRequest {

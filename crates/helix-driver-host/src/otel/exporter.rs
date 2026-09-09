@@ -352,6 +352,7 @@ fn exporter_labels() -> MetricLabels {
     MetricLabels::one(LabelKey::Stage, "telemetry").with(LabelKey::Operation, "trace_export")
 }
 
+/// 显式错误属性映射为 OTLP Error，未标记的既有 span 保持兼容状态。
 fn span_data_from_snapshot(
     snapshot: &HostSpanSnapshot,
     baggage: Option<String>,
@@ -398,7 +399,11 @@ fn span_data_from_snapshot(
         dropped_attributes_count: 0,
         events: SpanEvents::default(),
         links: SpanLinks::default(),
-        status: Status::Ok,
+        status: snapshot
+            .attributes
+            .iter()
+            .find(|(key, value)| key == "error.type" && !value.is_empty())
+            .map_or(Status::Ok, |(_, value)| Status::error(value.clone())),
         instrumentation_scope: scope,
     })
 }
@@ -408,5 +413,37 @@ fn span_kind_for_direction(direction: TraceDirection) -> SpanKind {
         TraceDirection::Inbound => SpanKind::Consumer,
         TraceDirection::Outbound => SpanKind::Producer,
         TraceDirection::Internal => SpanKind::Internal,
+    }
+}
+
+#[cfg(test)]
+mod query_status_tests {
+    use super::*;
+
+    /// OTLP 必须保留显式失败，同时不改变未标记 span 的兼容状态。
+    #[test]
+    fn query_error_attribute_sets_otlp_status() {
+        for error in [None, Some("timeout")] {
+            let snapshot = HostSpanSnapshot {
+                name: "helix.host.query".into(),
+                direction: TraceDirection::Internal,
+                trace_id: Some("0123456789abcdef0123456789abcdef".into()),
+                span_id: "0123456789abcdef".into(),
+                parent_span_id: None,
+                attributes: error
+                    .map(|e| vec![("error.type".into(), e.into())])
+                    .unwrap_or_default(),
+                exported: false,
+            };
+            let data = span_data_from_snapshot(
+                &snapshot,
+                None,
+                SystemTime::now(),
+                SystemTime::now(),
+                InstrumentationScope::builder("test").build(),
+            )
+            .unwrap();
+            assert_eq!(matches!(data.status, Status::Error { .. }), error.is_some());
+        }
     }
 }

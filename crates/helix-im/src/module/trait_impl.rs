@@ -29,6 +29,9 @@ impl Module for ImModule {
     /// 处理一个 Tick，零 I/O，零 await。
     fn handle(&mut self, tick: &Tick, now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError> {
         self.diagnostics.now_ms = now_ms;
+        let effect_start = out.as_slice().len();
+        let corr_floor = self.next_corr;
+        let recovery_reply = self.observe_sync_reply(tick);
         match tick {
             Tick::Inbound(bytes) => {
                 // 入口保留旧容错：坏 JSON inbound 是可丢 WS 噪音，不升级为 CoreError。
@@ -56,6 +59,9 @@ impl Module for ImModule {
                     if auth_user_id != self.config.auth_user_id
                         || company_id != self.config.company_id
                     {
+                        self.finish_sync_observation(
+                            crate::sync_observation::SyncResult::Cancelled,
+                        );
                         self.state.reset_message_v3_identity();
                     }
                     self.config.auth_user_id = auth_user_id;
@@ -555,11 +561,14 @@ impl Module for ImModule {
             },
 
             Tick::PortReply { corr, outcome } => {
-                self.handle_port_reply(*corr, outcome, now_ms, out)
-                    .map_err(|e| CoreError::ModuleError {
-                        module: self.name(),
-                        source: Box::new(e),
-                    })?;
+                let result = self.handle_port_reply(*corr, outcome, now_ms, out);
+                if recovery_reply && result.is_err() {
+                    self.finish_sync_observation(crate::sync_observation::SyncResult::Failed);
+                }
+                result.map_err(|e| CoreError::ModuleError {
+                    module: self.name(),
+                    source: Box::new(e),
+                })?;
             }
 
             Tick::PortProgress { corr, progress } => {
@@ -600,6 +609,7 @@ impl Module for ImModule {
             }
 
             Tick::Disconnected(_transport) => {
+                self.finish_sync_observation(crate::sync_observation::SyncResult::Cancelled);
                 self.state.increment_pull = None;
                 self.state.corr_map.retain(|_, context| {
                     !matches!(
@@ -640,6 +650,7 @@ impl Module for ImModule {
                 tracing::debug!("helix-im: disconnected, cleared inflight sync state");
             }
         }
+        self.observe_sync_tick(&out.as_slice()[effect_start..], corr_floor);
         Ok(())
     }
 
@@ -676,6 +687,7 @@ impl Module for ImModule {
 
     /// 停止：取消所有 timer + 关闭连接
     fn on_stop(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
+        self.finish_sync_observation(crate::sync_observation::SyncResult::Cancelled);
         self.stop_schedule_media(out);
         self.diagnose(crate::diagnostics::Observation {
             event: "runtime_stopped",

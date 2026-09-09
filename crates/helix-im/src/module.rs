@@ -106,6 +106,7 @@ impl Default for ImConfig {
 /// IM 业务模块（实现 helix_core::Module trait）
 pub struct ImModule {
     pub(crate) config: ImConfig,
+    pub(crate) sync_timing: crate::sync_observation::Timing,
     pub(crate) diagnostics: crate::diagnostics::Session,
     pub(crate) state: ImState,
     /// 平台注入的本地存储能力；coverage 仍由 query 状态机逐次证明。
@@ -158,6 +159,7 @@ impl ImModule {
         Self {
             config,
             diagnostics: crate::diagnostics::Session::default(),
+            sync_timing: Default::default(),
             state: ImState::new(),
             local_store_mode,
             next_corr: 1,

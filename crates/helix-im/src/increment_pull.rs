@@ -50,6 +50,7 @@ impl ImModule {
 
     /// 只携带当前页涉及的 cursor，避免每页重复发送全量 cursor 形成二次方负载。
     fn send_increment_pull_page(&mut self, corr: Correlation, out: &mut EffectSink) {
+        self.start_page_observation();
         let Some(pull) = self.state.increment_pull.as_ref() else {
             return;
         };
@@ -77,6 +78,11 @@ impl ImModule {
         headers.extend(crate::acl::sync_http_effects::session_auth_headers(Some(
             &pull.connection_id,
         )));
+        headers.push(("X-CSES-Sync-Session-Id".into(), pull.connection_id.clone()));
+        headers.push((
+            "X-CSES-Sync-Page-Index".into(),
+            self.sync_timing.page_index.to_string(),
+        ));
         out.push(Effect::Http {
             corr,
             req: HttpRequest {
@@ -163,6 +169,7 @@ impl ImModule {
             return;
         };
         if let Some(manifest) = manifest {
+            self.sync_timing.total_pages = Some(manifest.len().div_ceil(PAGE_SIZE).max(1) as u64);
             if let Some(pull) = self.state.increment_pull.as_mut() {
                 pull.remaining = manifest.into_iter().skip(PAGE_SIZE).collect();
             }
@@ -243,6 +250,7 @@ impl ImModule {
 
     /// 消费冻结清单的一页；清单耗尽后复用原 global-end 的 sync 与最终持久化门槛。
     fn advance_increment_pull(&mut self, out: &mut EffectSink) {
+        self.finish_page_observation(crate::sync_observation::SyncResult::Success);
         let pending = match self.state.increment_pull.as_mut() {
             Some(pull) => std::mem::take(&mut pull.pending),
             None => return,
@@ -306,6 +314,7 @@ impl ImModule {
 
     /// 恢复失败关闭本轮完成门槛，下一次连接恢复可从已持久化页重新校验。
     fn fail_increment_pull(&mut self, reason: &'static str) {
+        self.finish_sync_observation(crate::sync_observation::SyncResult::Failed);
         self.state.increment_pull = None;
         self.state.channel_sync_batch_pending = false;
         self.state.recovery_session.phase = crate::sync_session::RecoveryPhase::Failed;

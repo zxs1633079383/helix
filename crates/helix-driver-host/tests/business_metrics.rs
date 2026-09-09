@@ -164,7 +164,12 @@ fn sync_events_record_one_session_terminal_and_bounded_anomaly_kind() {
 #[test]
 fn recovery_event_records_real_terminal() {
     let sink = RecordingMetrics::default();
-    record_im_business_event(&sink, &event_bytes("im:sync:recovered"));
+    record_im_business_event(
+        &sink,
+        &DomainEventBytes(Bytes::from_static(
+            br#"{"event":"im:sync:recovered","data":{"state":"recovered"}}"#,
+        )),
+    );
 
     assert!(has_event(
         &sink,
@@ -229,4 +234,72 @@ fn unread_reconcile_records_only_explicit_authority_comparison() {
         MetricId::ImUnreadReconcileTotal,
         &[(LabelKey::Status, "match")],
     ));
+}
+
+/// 失败恢复必须使用error分类；缺状态不能默认为success。
+#[test]
+fn recovery_failed_is_not_success() {
+    let sink = RecordingMetrics::default();
+    record_im_business_event(
+        &sink,
+        &DomainEventBytes(Bytes::from_static(
+            br#"{"event":"im:sync:recovered","data":{"state":"failed"}}"#,
+        )),
+    );
+    record_im_business_event(&sink, &event_bytes("im:sync:recovered"));
+    assert!(has_event(
+        &sink,
+        MetricId::ImRecoverySessionTotal,
+        &[(LabelKey::Status, "error")]
+    ));
+    assert!(!has_event(
+        &sink,
+        MetricId::ImRecoverySessionTotal,
+        &[(LabelKey::Status, "success")]
+    ));
+}
+
+/// 生产适配器把真实标量写入配置出口，完成时间与页号不能成为标签。
+#[test]
+fn sync_observer_records_terminal_duration_and_timestamp() {
+    use helix_im::sync_observation::{SyncObserver, SyncRecord, SyncResult, SyncStage};
+    let sink = std::sync::Arc::new(RecordingMetrics::default());
+    let sync_sink = sink.clone();
+    let observer = move |record: SyncRecord| {
+        helix_driver_host::metrics::record_sync_timing(
+            sync_sink.as_ref(),
+            record.stage == SyncStage::Recovery,
+            record.result.as_str(),
+            record.started_at_ms,
+            record.completed_at_ms,
+            record.total_pages,
+        )
+    };
+    observer.record(SyncRecord {
+        stage: SyncStage::Recovery,
+        result: SyncResult::Started,
+        started_at_ms: 1000,
+        completed_at_ms: 1000,
+        total_pages: None,
+    });
+    observer.record(SyncRecord {
+        stage: SyncStage::Recovery,
+        result: SyncResult::Success,
+        started_at_ms: 1000,
+        completed_at_ms: 6500,
+        total_pages: Some(39),
+    });
+    let events = sink.events.lock().unwrap();
+    assert!(events
+        .iter()
+        .any(|e| e.id == MetricId::RecoveryDurationSeconds && e.value == 5.5));
+    assert!(events
+        .iter()
+        .any(|e| e.id == MetricId::RecoveryCompletedTimestampSeconds && e.value == 6.5));
+    assert!(events
+        .iter()
+        .any(|e| e.id == MetricId::RecoveryInventoryPages && e.value == 39.0));
+    assert!(events
+        .iter()
+        .all(|e| e.labels.iter().all(|l| l.key == LabelKey::Result)));
 }

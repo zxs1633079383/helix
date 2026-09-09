@@ -108,6 +108,7 @@ impl ImModule {
                     prev_from_seq = prev_from.0,
                     "continuation aborted: cursor did not advance past prev sync fromSeq (all events were dup-drops)"
                 );
+                self.finish_sync_observation(crate::sync_observation::SyncResult::Failed);
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.last_sync_from_seq = None;
                 }
@@ -458,6 +459,7 @@ impl ImModule {
                 }
                 if events.is_empty() {
                     if needs_continuation {
+                        self.finish_sync_observation(crate::sync_observation::SyncResult::Failed);
                         crate::offline_sync_warn!(trace_enabled,
                             channel_id = channel_id.as_str(),
                             "needs_continuation=true but events is empty, stopping continuation to prevent infinite loop"

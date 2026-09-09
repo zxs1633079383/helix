@@ -40,6 +40,11 @@ pub(crate) struct Observation<'a> {
     pub has_more: bool,
     pub gap: Option<u64>,
     pub elapsed: f64,
+    pub sync_session_id: &'a str,
+    pub page_index: Option<u64>,
+    pub total_pages: Option<u64>,
+    pub started_at_ms: Option<u64>,
+    pub completed_at_ms: Option<u64>,
 }
 struct OptionalNumber(Option<u64>);
 impl std::fmt::Display for OptionalNumber {
@@ -67,6 +72,8 @@ impl ImModule {
             return;
         }
         tracing::info!(target:"helix::diagnostics",
+            sync_session_id=record.sync_session_id,page_index=%OptionalNumber(record.page_index),total_pages=%OptionalNumber(record.total_pages),
+            started_at_ms=%OptionalNumber(record.started_at_ms),completed_at_ms=%OptionalNumber(record.completed_at_ms),
             event=record.event,tenant_id=self.config.company_id.as_str(),user_id=self.config.auth_user_id.as_str(),
             login_attempt_id=self.diagnostics.login.as_str(),device_session_id=self.diagnostics.device.as_str(),
             batch_id=record.batch_id,business_event_id=record.business_event_id,traceparent=record.traceparent,channel_id=record.channel,stage=record.stage,path=record.path,result=record.result,reason=record.reason,

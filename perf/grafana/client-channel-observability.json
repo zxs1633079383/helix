@@ -318,6 +318,12 @@
                   {
                     "type": "value",
                     "options": {
+                      "client": {
+                        "text": "客户端内核"
+                      },
+                      "server": {
+                        "text": "服务端"
+                      },
                       "server_committed": {
                         "text": "服务端已提交"
                       },
@@ -1812,6 +1818,102 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "sync_recovery_started"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "整轮同步开始"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync_recovery_terminal"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "整轮同步结束"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync_inventory_page_started"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "清单页开始"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync_inventory_page_terminal"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "清单页落库结束"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync_server_page_started"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端分页开始"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync_server_page_terminal"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端分页结束"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "client"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "客户端内核"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "server"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "server_committed"
             },
             "properties": [
@@ -2680,6 +2782,12 @@
                   {
                     "type": "value",
                     "options": {
+                      "client": {
+                        "text": "客户端内核"
+                      },
+                      "server": {
+                        "text": "服务端"
+                      },
                       "server_committed": {
                         "text": "服务端已提交"
                       },
@@ -3508,6 +3616,102 @@
           "unit": "ops"
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync_recovery_started"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "整轮同步开始"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync_recovery_terminal"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "整轮同步结束"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync_inventory_page_started"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "清单页开始"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync_inventory_page_terminal"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "清单页落库结束"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync_server_page_started"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端分页开始"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync_server_page_terminal"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端分页结束"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "client"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "客户端内核"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "server"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端"
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -9861,6 +10065,1208 @@
         "uid": "${DS_PROMETHEUS}"
       },
       "description": "Span派生，非业务送达。当前4个族缺deployment_environment；严格环境筛选下为空，不能撤掉过滤后把跨环境Span当本环境。选择身份时也不回退全局。"
+    },
+    {
+      "id": 101,
+      "title": "同步开始、完成与分页耗时",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 724,
+        "w": 24,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "当前筛选时段没有记录",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "targets": [],
+      "options": {
+        "mode": "markdown",
+        "content": "整轮时间来自客户端内核：连接握手开始，到频道清单最终持久化与消息补齐提交全部排空。服务端返回不等于客户端完成。清单分页每页最多64个频道，总页数首响应后确定；消息补拉另列服务端处理耗时。开始/完成时间按各端本机时钟展示，不跨机器相减。日志最多1000行；未部署新产出代码或无近期业务时保持无数据。技术指标没有用户/群聊标签，选择身份后查看下方日志明细。"
+      }
+    },
+    {
+      "id": 102,
+      "title": "整轮同步开始和真正完成",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 730,
+        "w": 24,
+        "h": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "未提供",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "记录时间"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "tenant_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "租户"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "user_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "用户"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "channel_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "群聊"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "login_attempt_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "本次登录"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "device_session_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "设备会话"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "producer_service"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "产出服务"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "event"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "发生的事情"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "sync_recovery_started": {
+                        "text": "整轮同步开始"
+                      },
+                      "sync_recovery_terminal": {
+                        "text": "整轮同步结束"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync_session_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "本轮同步"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "stage"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "进行到哪一步"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "client": {
+                        "text": "客户端内核"
+                      },
+                      "server": {
+                        "text": "服务端"
+                      },
+                      "server_committed": {
+                        "text": "服务端已提交"
+                      },
+                      "audience_resolved": {
+                        "text": "服务端已确定接收范围"
+                      },
+                      "server_enqueued": {
+                        "text": "服务端已入发送队列"
+                      },
+                      "socket_written": {
+                        "text": "服务端已写入连接"
+                      },
+                      "ws_received": {
+                        "text": "已从连接收到"
+                      },
+                      "persist_terminal": {
+                        "text": "本机保存返回结果"
+                      },
+                      "client_received": {
+                        "text": "页面收到事件"
+                      },
+                      "client_applied": {
+                        "text": "页面已处理事件"
+                      },
+                      "store": {
+                        "text": "读取本机缓存"
+                      },
+                      "persist": {
+                        "text": "保存到本机"
+                      },
+                      "publish_submitted": {
+                        "text": "已提交推送"
+                      },
+                      "connect": {
+                        "text": "建立连接"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "result"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "处理结果"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "success": {
+                        "text": "成功"
+                      },
+                      "failed": {
+                        "text": "失败"
+                      },
+                      "received": {
+                        "text": "收到"
+                      },
+                      "already_committed": {
+                        "text": "此前已保存"
+                      },
+                      "started": {
+                        "text": "开始"
+                      },
+                      "timeout": {
+                        "text": "超过确认期限"
+                      },
+                      "cancelled": {
+                        "text": "已取消"
+                      },
+                      "completed": {
+                        "text": "已完成"
+                      },
+                      "stopped": {
+                        "text": "已停止"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "total_pages"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "清单总页数"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "started_at_ms"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "开始时间"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "completed_at_ms"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "完成时间"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "elapsed_seconds"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "耗时（秒）"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*(seq|ranges|checkpoint_version).*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "{service_name=\"helix-im-diagnostics\",deployment_environment=${environment:doublequote}} | json | __error__=\"\" | label_format selected_tenant_id=${tenant_id:doublequote} | selected_tenant_id=\"\" or tenant_id=${tenant_id:doublequote} | label_format selected_user_id=${user_id:doublequote} | selected_user_id=\"\" or user_id=${user_id:doublequote} | label_format selected_login_attempt_id=${login_attempt_id:doublequote} | selected_login_attempt_id=\"\" or login_attempt_id=${login_attempt_id:doublequote} | label_format selected_device_session_id=${device_session_id:doublequote} | selected_device_session_id=\"\" or device_session_id=${device_session_id:doublequote} | event=~\"sync_recovery_started|sync_recovery_terminal\"",
+          "queryType": "range",
+          "maxLines": 1000
+        }
+      ],
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "description": "每条终态携带本轮开始/结束及耗时；失败和取消独立展示。忽略单群筛选以保留整轮记录。 来源为专用业务诊断JSON；最多1000行，空数据不表示零故障。",
+      "transformations": [
+        {
+          "id": "extractFields",
+          "options": {
+            "source": "Line",
+            "format": "json",
+            "replace": true,
+            "keepTime": true
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "tenant_id",
+                "user_id",
+                "channel_id",
+                "login_attempt_id",
+                "device_session_id",
+                "producer_service",
+                "event",
+                "sync_session_id",
+                "stage",
+                "result",
+                "total_pages",
+                "started_at_ms",
+                "completed_at_ms",
+                "elapsed_seconds"
+              ]
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 103,
+      "title": "清单各页开始和落库完成",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 740,
+        "w": 24,
+        "h": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "未提供",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "记录时间"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "tenant_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "租户"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "user_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "用户"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "channel_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "群聊"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "login_attempt_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "本次登录"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "device_session_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "设备会话"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "producer_service"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "产出服务"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "event"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "发生的事情"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "sync_inventory_page_started": {
+                        "text": "清单页开始"
+                      },
+                      "sync_inventory_page_terminal": {
+                        "text": "清单页落库结束"
+                      },
+                      "sync_server_page_started": {
+                        "text": "服务端分页开始"
+                      },
+                      "sync_server_page_terminal": {
+                        "text": "服务端分页结束"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sync_session_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "本轮同步"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "page_index"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "页号"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "total_pages"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "清单总页数"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "stage"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "进行到哪一步"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "client": {
+                        "text": "客户端内核"
+                      },
+                      "server": {
+                        "text": "服务端"
+                      },
+                      "server_committed": {
+                        "text": "服务端已提交"
+                      },
+                      "audience_resolved": {
+                        "text": "服务端已确定接收范围"
+                      },
+                      "server_enqueued": {
+                        "text": "服务端已入发送队列"
+                      },
+                      "socket_written": {
+                        "text": "服务端已写入连接"
+                      },
+                      "ws_received": {
+                        "text": "已从连接收到"
+                      },
+                      "persist_terminal": {
+                        "text": "本机保存返回结果"
+                      },
+                      "client_received": {
+                        "text": "页面收到事件"
+                      },
+                      "client_applied": {
+                        "text": "页面已处理事件"
+                      },
+                      "store": {
+                        "text": "读取本机缓存"
+                      },
+                      "persist": {
+                        "text": "保存到本机"
+                      },
+                      "publish_submitted": {
+                        "text": "已提交推送"
+                      },
+                      "connect": {
+                        "text": "建立连接"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "path"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "到达方式"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "live_ws": {
+                        "text": "在线推送"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "result"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "处理结果"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "success": {
+                        "text": "成功"
+                      },
+                      "failed": {
+                        "text": "失败"
+                      },
+                      "received": {
+                        "text": "收到"
+                      },
+                      "already_committed": {
+                        "text": "此前已保存"
+                      },
+                      "started": {
+                        "text": "开始"
+                      },
+                      "timeout": {
+                        "text": "超过确认期限"
+                      },
+                      "cancelled": {
+                        "text": "已取消"
+                      },
+                      "completed": {
+                        "text": "已完成"
+                      },
+                      "stopped": {
+                        "text": "已停止"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "started_at_ms"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "开始时间"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "completed_at_ms"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "完成时间"
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "elapsed_seconds"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "耗时（秒）"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "returned_channels"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "服务端返回群数"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trace_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "调用追踪标识"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*(seq|ranges|checkpoint_version).*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "string"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "{service_name=\"helix-im-diagnostics\",deployment_environment=${environment:doublequote}} | json | __error__=\"\" | label_format selected_tenant_id=${tenant_id:doublequote} | selected_tenant_id=\"\" or tenant_id=${tenant_id:doublequote} | label_format selected_user_id=${user_id:doublequote} | selected_user_id=\"\" or user_id=${user_id:doublequote} | label_format selected_login_attempt_id=${login_attempt_id:doublequote} | selected_login_attempt_id=\"\" or login_attempt_id=${login_attempt_id:doublequote} | label_format selected_device_session_id=${device_session_id:doublequote} | selected_device_session_id=\"\" or device_session_id=${device_session_id:doublequote} | event=~\"sync_inventory_page_started|sync_inventory_page_terminal|sync_server_page_started|sync_server_page_terminal\"",
+          "queryType": "range",
+          "maxLines": 1000
+        }
+      ],
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "description": "同一同步标识和清单页号对照客户端落库与服务端处理；消息补拉只有同步标识，不能冒充清单页号。忽略单群筛选。 来源为专用业务诊断JSON；最多1000行，空数据不表示零故障。",
+      "transformations": [
+        {
+          "id": "extractFields",
+          "options": {
+            "source": "Line",
+            "format": "json",
+            "replace": true,
+            "keepTime": true
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "tenant_id",
+                "user_id",
+                "channel_id",
+                "login_attempt_id",
+                "device_session_id",
+                "producer_service",
+                "event",
+                "sync_session_id",
+                "page_index",
+                "total_pages",
+                "stage",
+                "path",
+                "result",
+                "started_at_ms",
+                "completed_at_ms",
+                "elapsed_seconds",
+                "returned_channels",
+                "trace_id"
+              ]
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Time",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 104,
+      "title": "最近一次同步开始时间",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 750,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "当前筛选时段没有记录",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "dateTimeAsIso"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "helix_recovery_started_timestamp_seconds{service_name=${service:doublequote},deployment_environment=${environment:doublequote},job=\"opentelemetry-collector\",tenant_id=${tenant_id:doublequote},user_id=${user_id:doublequote},channel_id=${channel_id:doublequote},login_attempt_id=${login_attempt_id:doublequote},device_session_id=${device_session_id:doublequote}} * 1000",
+          "instant": true
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "客户端内核真实恢复产出；与当前服务资源匹配。最近开始和最近成功完成为独立观测，不保证属于同一轮；用整轮明细确认。",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 105,
+      "title": "最近一次同步成功完成时间",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 758,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "当前筛选时段没有记录",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "dateTimeAsIso"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "helix_recovery_completed_timestamp_seconds{service_name=${service:doublequote},deployment_environment=${environment:doublequote},job=\"opentelemetry-collector\",tenant_id=${tenant_id:doublequote},user_id=${user_id:doublequote},channel_id=${channel_id:doublequote},login_attempt_id=${login_attempt_id:doublequote},device_session_id=${device_session_id:doublequote}} * 1000",
+          "instant": true
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "客户端内核真实恢复产出；与当前服务资源匹配。最近开始和最近成功完成为独立观测，不保证属于同一轮；用整轮明细确认。",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 106,
+      "title": "整轮同步耗时分位",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 766,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "当前筛选时段没有记录",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le,result) (rate(helix_recovery_duration_seconds_bucket{service_name=${service:doublequote},deployment_environment=${environment:doublequote},job=\"opentelemetry-collector\",tenant_id=${tenant_id:doublequote},user_id=${user_id:doublequote},channel_id=${channel_id:doublequote},login_attempt_id=${login_attempt_id:doublequote},device_session_id=${device_session_id:doublequote}}[$__rate_interval])))",
+          "legendFormat": "{{result}}"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "客户端内核真实恢复产出；与当前服务资源匹配。最近开始和最近成功完成为独立观测，不保证属于同一轮；用整轮明细确认。"
+    },
+    {
+      "id": 107,
+      "title": "清单单页到落库耗时分位",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 774,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "当前筛选时段没有记录",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le,result) (rate(helix_increment_page_duration_seconds_bucket{service_name=${service:doublequote},deployment_environment=${environment:doublequote},job=\"opentelemetry-collector\",tenant_id=${tenant_id:doublequote},user_id=${user_id:doublequote},channel_id=${channel_id:doublequote},login_attempt_id=${login_attempt_id:doublequote},device_session_id=${device_session_id:doublequote}}[$__rate_interval])))",
+          "legendFormat": "{{result}}"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "客户端内核真实恢复产出；与当前服务资源匹配。最近开始和最近成功完成为独立观测，不保证属于同一轮；用整轮明细确认。"
+    },
+    {
+      "id": 108,
+      "title": "整轮同步终态速率",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 782,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "当前筛选时段没有记录",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (result) (rate(helix_recovery_terminal_total{service_name=${service:doublequote},deployment_environment=${environment:doublequote},job=\"opentelemetry-collector\",tenant_id=${tenant_id:doublequote},user_id=${user_id:doublequote},channel_id=${channel_id:doublequote},login_attempt_id=${login_attempt_id:doublequote},device_session_id=${device_session_id:doublequote}}[$__rate_interval]))",
+          "legendFormat": "{{result}}"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "客户端内核真实恢复产出；与当前服务资源匹配。最近开始和最近成功完成为独立观测，不保证属于同一轮；用整轮明细确认。"
+    },
+    {
+      "id": 109,
+      "title": "清单页落库终态速率",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 790,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "当前筛选时段没有记录",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (result) (rate(helix_increment_page_terminal_total{service_name=${service:doublequote},deployment_environment=${environment:doublequote},job=\"opentelemetry-collector\",tenant_id=${tenant_id:doublequote},user_id=${user_id:doublequote},channel_id=${channel_id:doublequote},login_attempt_id=${login_attempt_id:doublequote},device_session_id=${device_session_id:doublequote}}[$__rate_interval]))",
+          "legendFormat": "{{result}}"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "客户端内核真实恢复产出；与当前服务资源匹配。最近开始和最近成功完成为独立观测，不保证属于同一轮；用整轮明细确认。"
+    },
+    {
+      "id": 110,
+      "title": "服务端分页处理耗时分位",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 798,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "当前筛选时段没有记录",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le,operation,result) (rate(im_sync_page_duration_seconds_bucket{job=\"cses-im-server\",service=\"cses-im-server\",environment=${environment:doublequote},tenant_id=${tenant_id:doublequote},user_id=${user_id:doublequote},channel_id=${channel_id:doublequote},login_attempt_id=${login_attempt_id:doublequote},device_session_id=${device_session_id:doublequote}}[$__rate_interval])))",
+          "legendFormat": "{{operation}} {{result}}"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "服务端真实分页handler结果；environment/service来自现有服务发现标签，不使用客户端资源标签。成功仅代表服务端处理完成。"
+    },
+    {
+      "id": 111,
+      "title": "服务端分页处理终态速率",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 806,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "当前筛选时段没有记录",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (operation,result) (rate(im_sync_page_requests_total{job=\"cses-im-server\",service=\"cses-im-server\",environment=${environment:doublequote},tenant_id=${tenant_id:doublequote},user_id=${user_id:doublequote},channel_id=${channel_id:doublequote},login_attempt_id=${login_attempt_id:doublequote},device_session_id=${device_session_id:doublequote}}[$__rate_interval]))",
+          "legendFormat": "{{operation}} {{result}}"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "服务端真实分页handler结果；environment/service来自现有服务发现标签，不使用客户端资源标签。成功仅代表服务端处理完成。"
     }
   ]
 }

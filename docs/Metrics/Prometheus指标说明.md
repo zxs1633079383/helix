@@ -409,3 +409,16 @@ Counter/Histogram 使用 Cumulative snapshot，一次网络导出失败后 SDK �
 仍留在累计值中。worker 根据 exporter 是否已保留失败 batch 推进自观测 cursor，避免
 重复计算错误/丢弃增量；export 成功状态不提前。队列满/熔断时的保护性丢弃不能由累计值
 恢复，不能把这段窗口称为完整观测。详见 [PRE 面板证据](0908-PRE面板证据/验收说明.md)。
+
+
+## 同步整轮与清单分页（2026-09-09新增，待部署验收）
+
+Helix 新增 `helix_recovery_started_total`、`helix_recovery_terminal_total`、`helix_recovery_duration_seconds`、`helix_recovery_started_timestamp_seconds`、`helix_recovery_completed_timestamp_seconds`、`helix_recovery_inventory_pages`、`helix_increment_page_terminal_total`、`helix_increment_page_duration_seconds`。
+
+终态/耗时/页数仅用 `result=success|failed|cancelled`；开始计数和时间Gauge无业务标签。总页数是频道清单HTTP分页，不是消息分页；首响应前未知，未知不写0。成功时间Gauge仅在真正排空恢复请求和持久化后更新；开始与成功Gauge未必属于同一轮，单轮对账使用日志。
+
+Go `/channels/load/increment/page` 与 `/channel/sync/notify` 的真实handler产生 `im_sync_page_requests_total`、`im_sync_page_duration_seconds`，标签仅 `operation=channel_inventory|message_sync` 与 `result=success|failed|cancelled`。由已有 `/metrics` 的 DefaultGatherer 出口抓取；业务failed即便HTTP200也不计成功。Go完成只表示服务端处理完成。
+
+日志字段：`sync_session_id`、`page_index`、`total_pages`、`started_at_ms`、`completed_at_ms`、`elapsed_seconds`；通过可选受限诊断头关联两端，身份、页号不成为Prom时序标签。Go为每次分页建立真实OTel子Span；诊断开关关闭不影响Prom生产。
+
+看板 `helix-client-channel-v1` 新增“同步开始、完成与分页耗时”。Helix按 `service_name/deployment_environment`，Go按既有 `service/environment` 过滤。详情Loki忽略单群过滤以保留整轮；所有身份字段仍在JSON中精确过滤。最大1000行，无数据不填零。当前新增producer未部署：看板配置通过不代表有线上业务样本。

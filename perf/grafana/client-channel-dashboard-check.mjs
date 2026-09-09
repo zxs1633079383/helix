@@ -64,7 +64,7 @@ for (const { panel, target } of targets) {
     assert.ok(query.includes(`service_name="${contract.diagnosticService}"`));
     assert.ok(!query.includes('$__rate_interval'), 'Loki不能使用Prometheus专有rate_interval');
     for (const field of contract.scopeFields) {
-      if (panel.title === '登录后群聊是否完整' && field === 'channel_id') {
+      if (['登录后群聊是否完整','整轮同步开始和真正完成','清单各页开始和落库完成'].includes(panel.title) && field === 'channel_id') {
         assert.ok(!query.includes('selected_channel_id'), '登录总览不受单群筛选误伤');
         continue;
       }
@@ -75,6 +75,17 @@ for (const { panel, target } of targets) {
     const selected = interpolate(query, { user_id: 'user"A' });
     assert.ok(selected.includes('user_id="user\\"A"'), 'ID按字符串安全转义');
   }
+}
+// 双端指标必须分别使用各自真实资源标签；详情时间不成为Prom标签。
+for (const metric of contract.syncMetrics) {
+  const entry=targets.find(({target})=>target.expr.includes(metric.name));
+  assert.ok(entry,`缺少同步指标 ${metric.name}`);
+  if(metric.owner==='go') {
+    assert.ok(entry.target.expr.includes('environment=${environment:doublequote}'));
+    assert.ok(entry.target.expr.includes('job="cses-im-server"'));
+    assert.ok(!entry.target.expr.includes('service_name='));
+  }
+  assert.ok(!/page_index=|sync_session_id=/.test(entry.target.expr));
 }
 const ratio = targets.find(({ target }) => target.expr.includes('unwrap committed')).target.expr;
 assert.ok(ratio.includes('evidence_complete="true"'));

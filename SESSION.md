@@ -752,3 +752,10 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 
 🎯 EXPECT 发布定时消息修复 Helix 0.1.14，四个 crates registry 可解析；客户端锁定 0.1.14、PRE 版本 1.2.68；不执行客户端打包。 | 赌注 中 | 可逆 否 | @2026-09-09T16:03:12.488658
 ✅ DONE 发布前验证：1476 tests 通过、12 ignored，三端 cargo check 与 Web wasm 构建通过；等待 registry 发布和客户端依赖验证。
+
+## 0909 查询观测修复
+🎯 EXPECT driver-host 新增独立 Host 查询 started/terminal/duration 指标及显式 Span error 状态；不改 IM/core/Go 状态机和版本。仅聚焦本地无网络测试；新指标使用本地 patch 验证。
+
+🎯 EXPECT 0909 同步耗时：Helix hello至清单最终屏障与消息提交排空；Go 两个分页handler开始/终态；同轮session/page仅日志，Prom固定result/operation。修改IM观测旁路、Host出口、Go观测和Grafana生成器；保留原脏文件、不发布、不制造共享群样本。
+
+🎯 EXPECT 发布 Helix 0.1.16 四包可从 registry 解析，客户端四包统一 repin；Jenkins PRE 部署与业务采集分层记录。 | 赌注 中 | 可逆 否 | @2026-09-10

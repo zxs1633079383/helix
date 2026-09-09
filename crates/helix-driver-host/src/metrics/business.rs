@@ -182,19 +182,30 @@ pub fn record_im_business_event(metrics: &dyn AsyncMetricSink, event: &DomainEve
             "none",
         ),
         b"im:sync:recovered" => {
+            let payload = serde_json::from_slice::<serde_json::Value>(event.0.as_ref()).ok();
+            let state = payload
+                .as_ref()
+                .and_then(|v| v.get("data"))
+                .and_then(|v| v.get("state"))
+                .and_then(serde_json::Value::as_str);
+            let (status, error) = match state {
+                Some("recovered") => ("success", "none"),
+                Some("failed") => ("error", "recovery_failed"),
+                _ => return,
+            };
             record_terminal(
                 metrics,
                 MetricId::ImSyncSessionTotal,
                 "offline_recovery",
-                "success",
-                "none",
+                status,
+                error,
             );
             record_terminal(
                 metrics,
                 MetricId::ImRecoverySessionTotal,
                 "offline_recovery",
-                "success",
-                "none",
+                status,
+                error,
             );
         }
         b"im:sync:gap-repaired" => {

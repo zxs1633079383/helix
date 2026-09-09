@@ -222,6 +222,7 @@ async fn main() {
             "identity.cookie_id 为空 → ImConfig.auth_user_id 为空，post_updates 将退化为「自己消息也计未读」（离线未读偏高）"
         );
     }
+    let sync_metrics = Arc::clone(&metrics);
     shell.register(
         ImModule::new(ImConfig {
             ws_url: ws_url.clone(),
@@ -237,6 +238,9 @@ async fn main() {
             dept_name: dept_name.clone(),
             ..Default::default()
         })
+        .with_sync_observer(Arc::new(move |record: helix_im::sync_observation::SyncRecord| {
+            helix_driver_host::metrics::record_sync_timing(sync_metrics.as_ref(),record.stage == helix_im::sync_observation::SyncStage::Recovery,record.result.as_str(),record.started_at_ms,record.completed_at_ms,record.total_pages);
+        }))
         .with_diagnostic_session(
             if diagnostic_enabled {
                 login_attempt.clone()

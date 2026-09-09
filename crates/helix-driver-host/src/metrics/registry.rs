@@ -109,6 +109,14 @@ macro_rules! metric_registry {
 }
 
 metric_registry! {
+    RecoveryStartedTotal => ("helix_recovery_started_total", Counter, "1"),
+    RecoveryTerminalTotal => ("helix_recovery_terminal_total", Counter, "1"),
+    RecoveryDurationSeconds => ("helix_recovery_duration_seconds", Histogram, "s"),
+    RecoveryStartedTimestampSeconds => ("helix_recovery_started_timestamp_seconds", Gauge, "s"),
+    RecoveryCompletedTimestampSeconds => ("helix_recovery_completed_timestamp_seconds", Gauge, "s"),
+    RecoveryInventoryPages => ("helix_recovery_inventory_pages", Histogram, "1"),
+    IncrementPageTerminalTotal => ("helix_increment_page_terminal_total", Counter, "1"),
+    IncrementPageDurationSeconds => ("helix_increment_page_duration_seconds", Histogram, "s"),
     DiagnosticRecordsTotal => ("helix_diagnostic_records_total", Counter, "1"),
     DiagnosticQueueDepth => ("helix_diagnostic_queue_depth", Gauge, ""),
     DiagnosticExportErrorsTotal => ("helix_diagnostic_export_errors_total", Counter, "1"),
@@ -294,6 +302,9 @@ metric_registry! {
     OptimisticProjectionStuckTotal => ("helix_optimistic_projection_stuck_total", Counter, "1"),
     TelemetryCanaryTotal => ("helix_telemetry_canary_total", Counter, "1"),
     RunThroughputPerSecond => ("helix_run_throughput_per_second", Gauge, ""),
+    HostQueryStartedTotal => ("helix_host_query_started_total", Counter, "1"),
+    HostQueryTerminalTotal => ("helix_host_query_terminal_total", Counter, "1"),
+    HostQueryDurationSeconds => ("helix_host_query_duration_seconds", Histogram, "s"),
 }
 
 /// 所有注册指标都是 schema 合同的一部分；availability 决定常驻、profile 或 harness 出口。

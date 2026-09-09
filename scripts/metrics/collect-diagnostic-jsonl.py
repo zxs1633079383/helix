@@ -7,7 +7,7 @@ import sys
 import time
 import urllib.request
 
-FIELDS = frozenset('schema_version event event_id observed_at producer_service source_revision service_name deployment_environment platform stage result reason tenant_id user_id channel_id login_attempt_id device_session_id connection_id track_id event_key business_event_id attempt_id seq_domain event_seq stream_seq stream_epoch requested_from_seq response_next_seq reset_to path recipient_scope returned_channels sync_kind membership_state epoch_start_seq epoch_end_seq projection_revision membership_rows membership_rows_known redacted events_returned recipients omitted_records expected_known evidence_complete dropped_records'.split())
+FIELDS = frozenset('sync_session_id page_index total_pages started_at_ms completed_at_ms elapsed_seconds schema_version event event_id observed_at producer_service source_revision service_name deployment_environment platform stage result reason tenant_id user_id channel_id login_attempt_id device_session_id connection_id track_id event_key business_event_id attempt_id seq_domain event_seq stream_seq stream_epoch requested_from_seq response_next_seq reset_to path recipient_scope returned_channels sync_kind membership_state epoch_start_seq epoch_end_seq projection_revision membership_rows membership_rows_known redacted events_returned recipients omitted_records expected_known evidence_complete dropped_records'.split())
 
 # 按白名单拒绝扩张，避免普通应用日志或消息正文混入业务诊断。
 def validate(line):

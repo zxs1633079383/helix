@@ -355,6 +355,26 @@ pub struct HostSpanScope {
 }
 
 impl HostSpanScope {
+    /// 为终态失败写入固定错误分类，exporter 将其映射为 OTLP Error 状态。
+    pub fn set_error(&mut self, error_kind: &'static str) {
+        if error_kind.is_empty() {
+            return;
+        }
+        if let Some(snapshot) = self.snapshot.as_mut() {
+            if let Some((_, value)) = snapshot
+                .attributes
+                .iter_mut()
+                .find(|(key, _)| key == "error.type")
+            {
+                *value = error_kind.into();
+            } else {
+                snapshot
+                    .attributes
+                    .push(("error.type".into(), error_kind.into()));
+            }
+        }
+    }
+
     /// 为同一 Trace 创建显式 child parent；调用方必须把返回值放入本地上下文。
     pub fn child_carrier(&self) -> Option<TraceCarrier> {
         let snapshot = self.snapshot.as_ref()?;

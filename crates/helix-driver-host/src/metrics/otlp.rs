@@ -234,7 +234,24 @@ fn build_resource(config: &MetricRuntimeConfig, instance_id: String) -> Resource
         .build()
 }
 
+/// 为查询与整轮同步提供长耗时桶，清单页数使用独立数量桶。
 fn histogram_boundaries(name: &str) -> Option<Vec<f64>> {
+    if matches!(
+        name,
+        "helix_host_query_duration_seconds"
+            | "helix_recovery_duration_seconds"
+            | "helix_increment_page_duration_seconds"
+    ) {
+        return Some(vec![
+            0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0,
+            600.0,
+        ]);
+    }
+    if name == "helix_recovery_inventory_pages" {
+        return Some(vec![
+            1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 512.0,
+        ]);
+    }
     if name.ends_with("_seconds") {
         return Some(vec![
             0.000_001, 0.000_005, 0.000_01, 0.000_025, 0.000_05, 0.000_1, 0.000_25, 0.000_5, 0.001,
@@ -348,6 +365,15 @@ mod tests {
             histogram_boundaries("helix_core_step_duration_seconds").expect("duration buckets");
         assert!(boundaries.contains(&0.000_25));
         assert!(boundaries.contains(&0.001));
+        assert!(boundaries.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+    /// 30s hydration 和 300s 长查询不能全部落入 +Inf 而丢失耗时分布。
+    #[test]
+    fn host_query_buckets_cover_existing_deadlines() {
+        let boundaries = histogram_boundaries("helix_host_query_duration_seconds").unwrap();
+        assert!(boundaries.contains(&15.0));
+        assert!(boundaries.contains(&30.0));
+        assert!(boundaries.contains(&300.0));
         assert!(boundaries.windows(2).all(|pair| pair[0] < pair[1]));
     }
 }

@@ -10,6 +10,8 @@ mod otlp;
 mod registry;
 mod runtime;
 mod sink;
+mod sync;
+pub use sync::record_sync_timing;
 mod worker;
 
 pub(crate) use business::record_im_command_terminal_event;

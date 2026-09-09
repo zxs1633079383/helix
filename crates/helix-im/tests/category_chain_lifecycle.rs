@@ -696,9 +696,120 @@ fn category_reconcile_advances_from_pending_to_terminal() {
                     reply["data"]["body"]["data"]["result"]["card"]["revision"],
                     "2"
                 );
+                assert!(
+                    events
+                        .iter()
+                        .any(|event| event["event"] == "im:post:updated"),
+                    "normal reconcile must retain the current public Post projection: {events:?}"
+                );
+                let message = store["message"].values().next().expect("public Post");
+                let props: Value =
+                    serde_json::from_str(message["props"].as_str().unwrap()).unwrap();
+                assert_eq!(props["categoryChain"]["revision"], "2");
             }
         }
     }
+}
+
+/// 历史 CONFIRMED receipt 只能完成私有 operation，不能倒退更高的公共 head 或消息。
+#[test]
+fn category_historical_confirmed_reconcile_keeps_newer_public_head() {
+    let mut h = Harness::new_with_identity(&[1], "user-a", "tenant-a", "", "", "");
+    let mut store = Store::new();
+
+    query(
+        &mut h,
+        "im_category_chain_set_participation",
+        json!({
+            "channelId": cid(1),
+            "chainId": "chain-a",
+            "expectedParticipationRevision": "0",
+            "selections": [],
+            "clientMutationId": "mutation-b"
+        }),
+        mutation("10", "mutation-b"),
+        &mut store,
+    );
+    let durable_message_before = store["message"].values().next().unwrap()["props"].clone();
+
+    let receipt = mutation("9", "mutation-a");
+    let reconcile = json!({
+        "state": "CONFIRMED",
+        "clientMutationId": "mutation-a",
+        "operationId": "op-mutation-a",
+        "result": receipt,
+        "error": null
+    });
+    let events = query(
+        &mut h,
+        "im_category_chain_reconcile",
+        json!({
+            "channelId": cid(1),
+            "chainId": "chain-a",
+            "clientMutationId": "mutation-a",
+            "req_id": "reconcile-a"
+        }),
+        reconcile.clone(),
+        &mut store,
+    );
+
+    let operation_events: Vec<_> = events
+        .iter()
+        .filter(|event| event["event"] == "im:category_chain:operation")
+        .collect();
+    assert_eq!(operation_events.len(), 1, "{events:?}");
+    assert_private_operation(operation_events[0], Some(&reconcile["result"]));
+    assert_eq!(operation_events[0]["data"]["state"], "CONFIRMED");
+    assert_eq!(operation_events[0]["data"]["card"]["revision"], "9");
+
+    let read = events
+        .iter()
+        .find(|event| event["event"] == "im:read:result")
+        .expect("reconcile read result");
+    assert_eq!(read["data"]["body"]["data"]["state"], "CONFIRMED");
+    assert_eq!(
+        read["data"]["body"]["data"]["result"]["card"]["revision"],
+        "9"
+    );
+    assert_eq!(read["data"]["req_id"], "reconcile-a");
+    assert!(!events
+        .iter()
+        .any(|event| event["event"] == "im:post:updated" || event["event"] == "im:post:received"));
+
+    assert_eq!(
+        store["message"].values().next().unwrap()["props"],
+        durable_message_before,
+        "historical receipt must not overwrite the durable message"
+    );
+    let public_head = store["category_chain_head"]
+        .values()
+        .find(|row| {
+            row["scope"]
+                .as_str()
+                .is_some_and(|scope| scope.contains("\"card\""))
+        })
+        .expect("durable public card head");
+    assert_eq!(public_head["revision"], "10");
+
+    let duplicate_events = query(
+        &mut h,
+        "im_category_chain_reconcile",
+        json!({
+            "channelId": cid(1),
+            "chainId": "chain-a",
+            "clientMutationId": "mutation-a",
+            "req_id": "reconcile-a"
+        }),
+        reconcile,
+        &mut store,
+    );
+    assert!(!duplicate_events
+        .iter()
+        .any(|event| event["event"] == "im:category_chain:operation"));
+    assert_eq!(
+        store["message"].values().next().unwrap()["props"],
+        durable_message_before
+    );
 }
 
 /// 公共卡片按revision幂等，但单独不能提交paired Post的频道cursor或产生未读。

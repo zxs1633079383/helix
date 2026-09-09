@@ -106,6 +106,14 @@
 
 🎯 EXPECT 为 CATEGORY 接龙加入可选 `maxCategories` 协议字段；可证伪断言：① 新草稿 `max_categories` 仅在存在时映射为 Go HTTP `maxCategories`，且只能是 `1..=categories.len()` 的 JSON 整数；② Card、CategoryChain 与 myParticipation 只接受该一个可选字段，旧 NULL 投影省略它，RETRACTED 卡不得携带它，其余未知字段仍 fail-closed；③ HTTP、WS、draft、mine、CanonicalPost/read-back 均复用同一个 Card 值，空 `selections` 和 `PARTICIPATION_LIMIT_EXCEEDED` 原样透传；④ capabilities 仅新增 `postChainCategoryMaxCategories=true`，wire v3/schema 1 不变；⑤ focused red→green、`cargo check -p helix-im`、`cargo test -p helix-im` 和 diff check 留证，真实 Go/WS/SQLite 链标 UNVERIFIED。run_id=helix-category-max-20260909; corr=req_id/category chain command; channel_id=1; expected_event=im:category_chain:{operation,projection}; expected_fields=maxCategories optional absolute projection | 赌注 高 | 可逆 是 | @2026-09-09T00:00:00+08:00
 
+## 0. 本轮分类合并修复
+
+✅ DONE H3 本地修复：历史 CONFIRMED receipt 独立持久化并读回后结束操作，较新公共 head/message 不倒退；正常 reconcile 继续更新公共投影。category_chain_lifecycle 40/40、helix-im check、两文件 rustfmt 和 diff check 通过。Native 真实链与开发分支合并待完成。
+
+分支：codex/0909-category-merge-fix；基线origin/helix-message-test@32eec39c；目标reactor/MessageV3-helix。独立worktree，保留主工作区修改。
+
+🎯 EXPECT 历史CONFIRMED receipt低于公共head仍结束操作且不回退持久head；新增driver-native/tests/messagev3分类回归并实际通过；不修改core/ABI/schema | 赌注 中 | 可逆 是 | @2026-09-09T18:23:06.546548+08:00
+
 ✅ DONE 分类接龙上限协议已完成：`max_categories` 缺省不进入 HTTP，显式整数仅允许 1..当前分类数并映射为 `maxCategories`；Card、Chain、myParticipation 只新增这个可选字段，历史 NULL 保持省略，RETRACTED Card 禁带字段，Card/Chain 与 Card/mine 不一致均 fail-closed。公开 Command→HTTP、HTTP 回包→Persist/read-back、WS 均由同一真实回放覆盖，超限业务码保留。index 前 wire 的公开红测以 `unknown or authority field 'max_categories'` 失败后恢复当前 hash；分类 target 39/39、`cargo check -p helix-im`、diff check 通过。全量 helix-im test 仍由既有 `stress_test.rs` 缺 `ImConfig.client_platform` 阻断；未运行真实 Go/WS/SQLite/Native，且未同步客户端 0.1.9 runtime。| @2026-09-09T00:00:00+08:00
 
 🎯 EXPECT 分类set_participation/publish只新增可选user_snapshot→HTTP userSnapshot展示字段；Go保持身份权威；正式wire和公开seam测试先红后绿，再对客户端0.1.9候选仅同步这两个文件的本轮增量。TEXT五文件、runtime/facts、版本/锁/其他并发改动不变，不提交/重启；记录候选前后SHA与验证 | 赌注 低 | 可逆 是 | @2026-09-08

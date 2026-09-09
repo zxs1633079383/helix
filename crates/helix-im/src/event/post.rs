@@ -3,7 +3,6 @@
 use super::MessageV3Event;
 use serde_json::Value;
 
-mod forward;
 mod reaction;
 mod template;
 mod urgent;
@@ -210,7 +209,7 @@ pub fn authority_projection(
             &mut received_data,
             &mut last_post,
             "forwardDetail",
-            forward::detail(&props),
+            crate::query::render_ready::forward::detail(&event.fields.msg_type, &props),
         );
     } else if !props.as_object().is_some_and(serde_json::Map::is_empty) && !props.is_null() {
         attach_shared_field(&mut received_data, &mut last_post, "props", props);
@@ -222,7 +221,7 @@ pub fn authority_projection(
 }
 
 /// 把 Go 回声中的媒体 `fileName` 兼容键收敛为 MessageV3 唯一 `name` 字段。
-fn canonicalize_media_file_names(props: &mut Value) {
+pub(crate) fn canonicalize_media_file_names(props: &mut Value) {
     let Some(object) = props.as_object_mut() else {
         return;
     };

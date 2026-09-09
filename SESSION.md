@@ -5,6 +5,13 @@
 
 🎯 EXPECT 本轮 Markdown 日检基于 6a76cc4a，仅修改证据明确的 Markdown 与 SESSION；Cargo 版本说明对齐 manifest，全库本地链接及相关 checker 通过，不改代码/配置/生成物，不将历史验收升级为当前 Green。 | 赌注 中 | 可逆 是 | @2026-09-09T08:04:00+08:00
 分支：codex/helix-markdown-20260909-0802；upstream：origin/reactor/MessageV3-helix；独立 worktree：helix-markdown-20260909-0802；本轮保留不删除。
+✅ DONE Helix 0.1.14 四个公开 crate 已通过发布脚本的八包 check、逐包 dry-run、上传和 crates.io 解析；合并详情修复及摘要测试校正已提交。完整门禁未通过：PRE G10e 失败后终止剩余扩展验收，不宣称全量通过；客户端依赖升级和 Git push 待完成。 | @2026-09-09T15:57:41.206066+08:00
+
+🎯 EXPECT 发布 Helix 0.1.14：四个公开 crate 统一 patch 版本并可从 crates.io 解析；发布后立即提交版本事务、创建注释 Tag 并正常 push。保留现有 artifacts；客户端原地 rebase、依赖升级和推送独立核验，不把编译当作实际版本 UI 验收。 | @2026-09-09T15:42:56.704536+08:00
+
+✅ DONE 合并转发媒体源码修复：实时/历史/ACL共用投影；lib407+G05回放3通过，客户端6项及静态检查通过，源码测试包WDIO打开原有3图记录成功（20.9秒）。全量artifact_schema因旧机器路径缺少合同文件5项失败；正式客户端仍registry0.1.13，未发布、未push。 | @2026-09-09T14:37:33.737324+08:00
+
+🎯 EXPECT 合并转发媒体修复：实时 authority 与历史 render-ready 共用同一 forward detail；RICH/IMAGE/VIDEO/FILE/AUDIO/VOICE 保留 durable props 与媒体顺序，fileName 收敛为 name；100项边界与脏JSON保持失败终态。聚焦producer回归和客户端消费验证，不发布、不push，不改既有 artifacts。分支 reactor/MessageV3-helix，保留当前分支。 | @2026-09-09T14:22:48.948637+08:00
 
 ✅ DONE 按用户明确授权分类提交并准备合并推送：Go 613a744/33037c6，Helix 4d1f1449 与既有同步/指标批次，客户端 a876d6e485；保留原覆盖率及未部署边界。 | @2026-09-08T18:47:33.376189+08:00
 

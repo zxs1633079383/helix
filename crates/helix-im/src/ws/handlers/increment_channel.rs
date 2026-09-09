@@ -164,6 +164,8 @@ pub(crate) fn compile_increment_effects(
                 ));
                 let seed =
                     helix_core::effect::StorageOp::BatchUpsert(helix_core::effect::UpsertSpec {
+                        version_column: None,
+                        update_guard: None,
                         table: "channel_member",
                         rows: vec![row],
                         conflict_key: Some("channel_id,user_id"),

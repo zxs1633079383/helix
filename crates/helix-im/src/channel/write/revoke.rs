@@ -52,6 +52,8 @@ pub fn message_v3_revoke_channel_ops(
             patch,
         }),
         StorageOp::BatchUpsert(UpsertSpec {
+            version_column: None,
+            update_guard: None,
             table: "channel_member",
             rows: vec![member_row],
             conflict_key: Some("channel_id,user_id"),

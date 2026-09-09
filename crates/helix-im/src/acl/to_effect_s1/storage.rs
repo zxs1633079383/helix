@@ -69,6 +69,8 @@ pub fn upsert_channel_members_op(
         })
         .collect();
     Some(StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "channel_member",
         rows,
         conflict_key: Some("channel_id,user_id"),
@@ -134,6 +136,8 @@ pub fn update_member_nickname_op(
         ),
     ];
     StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "channel_member",
         rows: vec![row],
         conflict_key: Some("channel_id,user_id"),

@@ -49,6 +49,10 @@ pub enum CoreError {
 /// ```
 #[derive(Debug, Error)]
 pub enum PortError {
+    /// An optimistic write lost a race; its transaction rolled back and the store remains usable.
+    #[error("storage conflict")]
+    StorageConflict,
+
     #[error("storage error: {0}")]
     Storage(String),
 

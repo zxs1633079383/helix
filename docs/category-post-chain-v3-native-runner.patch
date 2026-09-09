@@ -1,0 +1,300 @@
+--- a/category-native-smoke/src/evidence.rs
++++ b/category-native-smoke/src/evidence.rs
+@@ -160,24 +160,81 @@
+     json!(shapes)
+ }
+ 
+-/// Classify actual outbound v2 path/mode/view into eleven semantic actions without retaining payloads.
++/// Serde rejects duplicate top-level mode fields, including escaped spellings; other DTO fields stay opaque.
++#[derive(serde::Deserialize)]
++struct BodyDiscriminator {
++    mode: Value,
++}
++
++/// Match Go query parsing's malformed escapes/semicolon rejection without logging query values.
++fn valid_query_syntax(raw: &str) -> bool {
++    let bytes = raw.as_bytes();
++    let mut i = 0;
++    while i < bytes.len() {
++        if bytes[i] == b';' {
++            return false;
++        }
++        if bytes[i] == b'%' {
++            if i + 2 >= bytes.len()
++                || !bytes[i + 1].is_ascii_hexdigit()
++                || !bytes[i + 2].is_ascii_hexdigit()
++            {
++                return false;
++            }
++            i += 3;
++        } else {
++            i += 1;
++        }
++    }
++    true
++}
++
++/// Require exactly one decoded mode=CATEGORY; retain only safe classification and count.
++fn query_discriminator(url: Option<&url::Url>) -> (&'static str, usize, bool) {
++    let Some(url) = url else {
++        return ("INVALID", 0, false);
++    };
++    let Some(raw) = url.query() else {
++        return ("MISSING", 0, true);
++    };
++    let syntax_valid = valid_query_syntax(raw);
++    let mut count = 0;
++    let mut category = false;
++    for (key, value) in url.query_pairs() {
++        if key == "mode" {
++            count += 1;
++            category = value == "CATEGORY";
++        }
++    }
++    let mode = if !syntax_valid || count > 1 || (count == 1 && !category) {
++        "INVALID"
++    } else if count == 0 {
++        "MISSING"
++    } else {
++        "CATEGORY"
++    };
++    (mode, count, syntax_valid)
++}
++
++/// Classify v3 query/body mode and unchanged path/view into eleven semantic actions without retaining payloads.
+ fn category_transport(req: &HttpRequest) -> Value {
+     let url = url::Url::parse(&req.url).ok();
+     let path = url.as_ref().map(|u| u.path()).unwrap_or("");
+     let old = path.contains("/category-chain/");
+     let shared = path.contains("/post-chain/");
+-    let body = req
+-        .body
+-        .as_ref()
+-        .filter(|b| b.len() <= 256 * 1024)
++    let raw_body = req.body.as_ref().filter(|b| b.len() <= 256 * 1024);
++    let body = raw_body
+         .and_then(|b| serde_json::from_slice::<Value>(b).ok())
+         .unwrap_or(Value::Null);
+-    let mode = match body.get("mode") {
++    let discriminator = raw_body.and_then(|b| serde_json::from_slice::<BodyDiscriminator>(b).ok());
++    let body_mode_single = discriminator.is_some();
++    let mode = match discriminator.as_ref().map(|d| &d.mode) {
+         Some(Value::String(v)) if v == "CATEGORY" => "CATEGORY",
+         Some(Value::String(v)) if v == "TEXT" => "TEXT",
+-        None => "MISSING",
++        None if body.get("mode").is_none() => "MISSING",
+         _ => "INVALID",
+     };
++    let (query_mode, query_mode_count, query_syntax_valid) = query_discriminator(url.as_ref());
+     let view = match body.get("view") {
+         Some(Value::String(v)) if v == "card" => Some("card"),
+         Some(Value::String(v)) if v == "mine" => Some("mine"),
+@@ -197,7 +254,7 @@
+         "/api/cses/post-chain/reconcile" => "reconcile",
+         _ => "other",
+     };
+-    let action = if req.method == "POST" && mode == "CATEGORY" {
++    let action = if req.method == "POST" && mode == "CATEGORY" && query_mode == "CATEGORY" {
+         match (safe_path, view) {
+             ("capabilities", None) => "capabilities",
+             ("create", None) => "create-draft",
+@@ -217,6 +274,7 @@
+     };
+     json!({"action":action,"path":if safe_path=="other" { "other".to_owned() } else { format!("/api/cses/post-chain/{safe_path}") },
+         "mode":mode,"view":view,"legacyCategoryUrl":old,
++        "queryMode":query_mode,"queryModeCount":query_mode_count,"querySyntaxValid":query_syntax_valid,"bodyModeSingle":body_mode_single,
+         "categoryTransportViolation": old || ((shared || mode=="CATEGORY") && action=="other")})
+ }
+ 
+@@ -251,12 +309,16 @@
+             .iter()
+             .filter_map(|r| r["path"].as_str())
+             .collect();
++        let query_modes: std::collections::BTreeSet<_> = successful
++            .iter()
++            .filter_map(|r| r["queryMode"].as_str())
++            .collect();
+         let views: std::collections::BTreeSet<_> = successful
+             .iter()
+             .filter_map(|r| r["view"].as_str())
+             .collect();
+         json!({"overflow":s.overflow,"hops":s.rows,"categoryTransportValid":!s.invalid_category_transport,
+-            "successfulHttpPaths":paths,"successfulGetViews":views})
++            "successfulHttpPaths":paths,"successfulGetViews":views,"successfulQueryModes":query_modes})
+     }
+     /// All eleven business HTTP completions must be observed, not inferred from a health check.
+     pub fn missing_routes(&self) -> Vec<&'static str> {
+@@ -315,6 +377,10 @@
+                         "action",
+                         "path",
+                         "mode",
++                        "queryMode",
++                        "queryModeCount",
++                        "querySyntaxValid",
++                        "bodyModeSingle",
+                         "view",
+                         "legacyCategoryUrl",
+                         "categoryTransportViolation",
+@@ -460,7 +526,7 @@
+     }
+     /// Nine successful paths are insufficient without all eleven semantic actions and all three get views.
+     #[test]
+-    fn v2_requires_eleven_semantics_nine_paths_and_three_views() {
++    fn v3_requires_eleven_semantics_nine_paths_and_three_views() {
+         let evidence = Evidence::default();
+         for (i, path) in [
+             "capabilities",
+@@ -478,14 +544,14 @@
+             observe(
+                 &evidence,
+                 i as u64,
+-                &format!("post-chain/{path}"),
++                &format!("post-chain/{path}?mode=CATEGORY"),
+                 json!({"mode":"CATEGORY"}),
+             );
+         }
+         observe(
+             &evidence,
+             9,
+-            "post-chain/get",
++            "post-chain/get?mode=CATEGORY",
+             json!({"mode":"CATEGORY","view":"card"}),
+         );
+         assert_eq!(
+@@ -495,13 +561,13 @@
+         observe(
+             &evidence,
+             10,
+-            "post-chain/get",
++            "post-chain/get?mode=CATEGORY",
+             json!({"mode":"CATEGORY","view":"mine"}),
+         );
+         observe(
+             &evidence,
+             11,
+-            "post-chain/get",
++            "post-chain/get?mode=CATEGORY",
+             json!({"mode":"CATEGORY","view":"entries"}),
+         );
+         assert!(evidence.missing_routes().is_empty());
+@@ -512,29 +578,36 @@
+             json!(["card", "entries", "mine"])
+         );
+         assert_eq!(trace["categoryTransportValid"], true);
++        assert_eq!(trace["successfulQueryModes"], json!(["CATEGORY"]));
+         // A later legacy request invalidates the run even after all successful semantics exist.
+         observe(
+             &evidence,
+             12,
+-            "category-chain/get",
++            "category-chain/get?mode=CATEGORY",
+             json!({"mode":"CATEGORY"}),
+         );
+         assert_eq!(evidence.snapshot()["categoryTransportValid"], false);
+     }
+     /// HTTP SUCCESS cannot hide an absent/wrong mode, absent/wrong get view, or a legacy URL.
+     #[test]
+-    fn v2_rejects_wrong_modes_views_and_legacy_urls() {
++    fn v3_rejects_wrong_modes_views_and_legacy_urls() {
+         for (path, body) in [
+-            ("post-chain/get", json!({"view":"mine"})),
+-            ("post-chain/get", json!({"mode":"TEXT","view":"mine"})),
+-            ("post-chain/get", json!({"mode":null,"view":"mine"})),
+-            ("post-chain/get", json!({"mode":"CATEGORY"})),
++            ("post-chain/get?mode=CATEGORY", json!({"view":"mine"})),
+             (
+-                "post-chain/get",
++                "post-chain/get?mode=CATEGORY",
++                json!({"mode":"TEXT","view":"mine"}),
++            ),
++            (
++                "post-chain/get?mode=CATEGORY",
++                json!({"mode":null,"view":"mine"}),
++            ),
++            ("post-chain/get?mode=CATEGORY", json!({"mode":"CATEGORY"})),
++            (
++                "post-chain/get?mode=CATEGORY",
+                 json!({"mode":"CATEGORY","view":"unknown"}),
+             ),
+             (
+-                "category-chain/my-participation",
++                "category-chain/my-participation?mode=CATEGORY",
+                 json!({"mode":"CATEGORY"}),
+             ),
+         ] {
+@@ -545,3 +618,64 @@
+         }
+     }
+ }
++
++#[cfg(test)]
++mod query_tests {
++    use super::*;
++    /// Probe query/body disagreements without invoking any transport or publishing raw request bodies.
++    fn classify(query: &str, body: &str) -> Value {
++        category_transport(&HttpRequest {
++            method: "POST".into(),
++            url: format!("http://127.0.0.1:12345/api/cses/post-chain/get{query}"),
++            headers: vec![],
++            body: Some(Bytes::copy_from_slice(body.as_bytes())),
++        })
++    }
++    /// Duplicate/invalid/missing/escaped query and duplicate body modes cannot satisfy v3 evidence.
++    #[test]
++    fn v3_query_and_body_discriminators_are_strict() {
++        let valid = r#"{"mode":"CATEGORY","view":"mine"}"#;
++        for query in [
++            "",
++            "?mode=",
++            "?mode=TEXT",
++            "?mode=OTHER",
++            "?mode=CATEGORY&mode=CATEGORY",
++            "?mode=CATEGORY&%6dode=CATEGORY",
++            "?mode=%",
++            "?mode=%GG",
++            "?mode=CATEGORY;extra=1",
++        ] {
++            let row = classify(query, valid);
++            assert_eq!(row["action"], "other", "{query}");
++            assert_eq!(row["categoryTransportViolation"], true, "{query}");
++        }
++        for body in [
++            r#"{"view":"mine"}"#,
++            r#"{"mode":null,"view":"mine"}"#,
++            r#"{"mode":1,"view":"mine"}"#,
++            r#"{"mode":"TEXT","view":"mine"}"#,
++            r#"{"mode":"CATEGORY","mode":"CATEGORY","view":"mine"}"#,
++            r#"{"mode":"CATEGORY","\u006dode":"CATEGORY","view":"mine"}"#,
++        ] {
++            let row = classify("?mode=CATEGORY", body);
++            assert_eq!(row["action"], "other");
++            assert_eq!(row["categoryTransportViolation"], true);
++        }
++        for query in [
++            "?mode=CATEGORY",
++            "?%6dode=%43ATEGORY",
++            "?trace=private-value&mode=CATEGORY",
++        ] {
++            let row = classify(query, valid);
++            assert_eq!(row["action"], "my-participation");
++            assert_eq!(row["queryMode"], "CATEGORY");
++            assert_eq!(row["queryModeCount"], 1);
++            assert_eq!(row["querySyntaxValid"], true);
++            assert_eq!(row["categoryTransportViolation"], false);
++        }
++        let row = classify("?mode=CATEGORY&secret-token=%GG", valid);
++        assert!(!row.to_string().contains("secret-token"));
++        assert_eq!(row["querySyntaxValid"], false);
++    }
++}
+--- a/category-native-smoke/src/main.rs
++++ b/category-native-smoke/src/main.rs
+@@ -74,7 +74,7 @@
+     write_json(&directory.join("private-resources.json"), &resources)?;
+     write_json(
+         &directory.join("evidence.json"),
+-        &json!({"status":if complete {"PASS"}else{"INCOMPLETE"},"evidenceLevel":"LIVE_NATIVE_SMOKE","wireContract":"CATEGORY_POST_CHAIN_WIRE/v2","result":result.as_ref().err(),"cleanup":cleanup.as_ref().err(),"trace":trace,"missingSuccessfulHttpRoutes":missing_routes,"notProven":["Go SQL/outbox inspection","UI/DOM","fault-injection recovery","Web/FFI"],"databaseBinding":"operator declaration only; runner does not inspect Go database"}),
++        &json!({"status":if complete {"PASS"}else{"INCOMPLETE"},"evidenceLevel":"LIVE_NATIVE_SMOKE","wireContract":"CATEGORY_POST_CHAIN_WIRE/v3","evidenceSchema":"v2-path-mode-view-plus-v3-query","result":result.as_ref().err(),"cleanup":cleanup.as_ref().err(),"trace":trace,"missingSuccessfulHttpRoutes":missing_routes,"notProven":["Go SQL/outbox inspection","UI/DOM","fault-injection recovery","Web/FFI"],"databaseBinding":"operator declaration only; runner does not inspect Go database"}),
+     )?;
+     println!("evidence: {}", directory.join("evidence.json").display());
+     if complete {

@@ -1,0 +1,99 @@
+{
+  "status": "NATIVE_CANDIDATE_READY_WEB_BASELINE_MISSING",
+  "candidate": "/tmp/helix-category-0.1.9-candidate-kortuqqf",
+  "publishable": false,
+  "versions": "four public crates all 0.1.9; publish=false",
+  "archives": {
+    "cses-helix-core": {
+      "sha256": "affa195e1f3df0524f3feefce4120eeac3d8e7c52fcd46caf5fb9f3d0fcc618b",
+      "vcs": {
+        "git": {
+          "sha1": "537170620ae237e935277017bfc36ee4824f4605",
+          "dirty": true
+        },
+        "path_in_vcs": "crates/helix-core"
+      }
+    },
+    "helix-im": {
+      "sha256": "3652d9debe747d183ac1ba51d4fc004debedf999f6da1598d7c70ff74d767f8f",
+      "vcs": {
+        "git": {
+          "sha1": "537170620ae237e935277017bfc36ee4824f4605",
+          "dirty": true
+        },
+        "path_in_vcs": "crates/helix-im"
+      }
+    },
+    "helix-driver-host": {
+      "sha256": "9037aec1143d86b4b989a554304c6002fad4ba421d1e60df3033bfa8f9b7c439",
+      "vcs": {
+        "git": {
+          "sha1": "537170620ae237e935277017bfc36ee4824f4605",
+          "dirty": true
+        },
+        "path_in_vcs": "crates/helix-driver-host"
+      }
+    },
+    "helix-driver-native": {
+      "sha256": "57cea13e77f29f873b06a275a14816371118f899985c37c2f8f3420fdc12b318",
+      "vcs": {
+        "git": {
+          "sha1": "537170620ae237e935277017bfc36ee4824f4605",
+          "dirty": true
+        },
+        "path_in_vcs": "crates/helix-driver-native"
+      }
+    }
+  },
+  "checks": {
+    "workspaceCargoCheck": "PASS",
+    "categoryLifecycle": {
+      "passed": 22,
+      "failed": 0
+    },
+    "sqliteCategory": {
+      "passed": 4,
+      "failed": 0
+    },
+    "sqliteUpsertGuard": {
+      "passed": 2,
+      "failed": 0
+    },
+    "publishedObservationApis": {
+      "passed": 1,
+      "failed": 0
+    },
+    "singleVersionLocalGraph": "PASS",
+    "coreRuntimeBoundary": "PASS",
+    "categoryHotPathAudit": "PASS"
+  },
+  "notRun": [
+    "client native compile (main task owner)",
+    "real Go/WS",
+    "UI/DOM",
+    "Web/FFI/wasm candidate validation (release sources unavailable)"
+  ],
+  "baselineAdaptations": {
+    "channel/write/post.rs": "Preserve complete published 0.1.9 implementation; only add default None to UpsertSpec literals",
+    "ws/registry.rs": "31 published handlers + 1 category handler = 32"
+  },
+  "publishEvent": "unchanged 0.1.9 self Post emits im:post:sent; private operation fixtures unchanged",
+  "fixtures": {
+    "create-draft.json": "c96c26039c94b4bd75371d3bfd0cc251879df2e8e7043f8e65cd9a91cf57f414",
+    "publish.json": "4efb96a1371d43fb645c3c9bd6864e2a847157817241dc7230b7ffe35d7c3850",
+    "reconcile-confirmed.json": "d74a88419ff5bde6dab7994c617fa86d108eccfba6a08c93169666c1cdc9b843",
+    "reconciling.json": "e8e3834e41f9492ba099551830f20726115444e8c1f2350d8ee85beecf278515",
+    "rejected.json": "93df612fd07356119ac86d01f983144937e3f012ee433afec2f45560b6b6225e"
+  },
+  "logs": [
+    "check.log",
+    "category-precompat.log",
+    "category-tests.log",
+    "host-tests.log",
+    "metadata.json",
+    "dependency-verification.json"
+  ],
+  "clientPatchConfig": "/tmp/helix-category-0.1.9-candidate-kortuqqf/client-patch.toml",
+  "pendingWebPatch": "/tmp/helix-category-0.1.9-candidate-kortuqqf/pending-web-upsert-guard.patch",
+  "sourceManifestSha256": "09bea5f7a72308a86105c693825b48a5c7b8fea3d4aadea07d7ddaed1a9df994"
+}

@@ -1,0 +1,141 @@
+{
+  "status": "BACKPORTED_FOCUSED_PASS",
+  "branch": "reactor/MessageV3-helix",
+  "head": "caf20f3bac9cf72bf2cc7509d2db8571c5055e4c",
+  "version": "0.1.1 unchanged",
+  "productionScope": "crates/helix-im/src/category_chain/wire.rs",
+  "testScope": "crates/helix-im/tests/category_chain_lifecycle.rs",
+  "sourceImpact": "Only EntryPreview displayName lower bound 1→0 and adjacent explanation; required string/upper bound/nonempty identity/content/canonical versions/card-post equality/persistence remain unchanged",
+  "impactCheck": "Formal wire equals pre-fix candidate wire byte-for-byte; existing formal tests differ only at 0.1.1 publish event received vs candidate 0.1.9 sent, preserved original test prefix byte-for-byte",
+  "red": "2 expected failures + 1 rejection test pass",
+  "green": "25 category lifecycle tests pass",
+  "cargoCheck": "helix-im PASS (existing 9 dead-code warnings)",
+  "audit": "hot-path audit PASS; git diff --check PASS",
+  "changedSourceFiles": [
+    "crates/helix-im/tests/category_chain_lifecycle.rs",
+    "crates/helix-im/src/category_chain/wire.rs"
+  ],
+  "formalSourceAndManifestBaselineFiles": 669,
+  "otherBaselineFilesUnchanged": true,
+  "candidateBaselineFilesChecked": 344,
+  "candidateUnchanged": true,
+  "candidateBinarySHA256": "b651e69f204dd523accfce72a2c89255ab6894e945ade090047224a1e9f8f766",
+  "beforeHashes": {
+    "crates/helix-im/src/category_chain/wire.rs": "546083d24e26702d6c918e68b8dc83ff0b26a3f753d760aab03cc926295890e7",
+    "crates/helix-im/tests/category_chain_lifecycle.rs": "b1b908715c53f3f5ef0d680cb79fa2b62f892f4270d7359d5f9f6cec3dc9b8cc"
+  },
+  "afterHashes": {
+    "crates/helix-im/src/category_chain/wire.rs": "a2ba2d8b166b390cee433c2f8d427c748b6066336afe3b185c5e5a6382f4e776",
+    "crates/helix-im/tests/category_chain_lifecycle.rs": "b7e5c6cd9940f5f18b79ebadf7e400026bf38c43b0cb70dbadd568894a9bc236"
+  },
+  "formalRootManifestAndLock": {
+    "Cargo.toml": "c725d3a266f22b72231fd09c1e8fccd48d7b7554cbf0f022a5b1957211b4bc3d",
+    "Cargo.lock": "31d770147b6e376177ed1e4c32f2544b897a087db1a6d9d30e9055cc7a355f4e"
+  },
+  "patch": "/Users/cses-11/Desktop/helix/docs/category-profile-compat-0.1.1.patch",
+  "logs": [
+    "/tmp/helix-profile-compat-backport/red.log",
+    "/tmp/helix-profile-compat-backport/green.log",
+    "/tmp/helix-profile-compat-backport/check.log"
+  ],
+  "commands": [
+    "CARGO_HOME=/tmp/helix-category-cargo-home cargo test --offline --locked -j2 -p helix-im --test category_chain_lifecycle category_go_profile",
+    "CARGO_HOME=/tmp/helix-category-cargo-home cargo test --offline --locked -j2 -p helix-im --test category_chain_lifecycle",
+    "CARGO_HOME=/tmp/helix-category-cargo-home cargo check --offline --locked -j2 -p helix-im"
+  ],
+  "notRun": [
+    "live Go/Native rerun (owned by main/Go task)",
+    "UI/Web/FFI or full release suite"
+  ],
+  "notPerformed": [
+    "candidate file/binary writes",
+    "Go messages or DB operations",
+    "commit/publish/version/lock changes"
+  ],
+  "relatedCandidateNativeAcceptance": {
+    "status": "LIVE_NATIVE_SMOKE_PASS",
+    "runId": "category-native-1788793161209345000",
+    "binarySHA256": "b651e69f204dd523accfce72a2c89255ab6894e945ade090047224a1e9f8f766",
+    "executionOwner": "Go owner coordinated by main; independently Quality accepted per Go report/main handoff",
+    "goTaggedTest": "TestCategoryChainNativeSmoke PASS; package 7.214s",
+    "native": {
+      "status": "PASS",
+      "result": null,
+      "cleanup": null,
+      "hops": 550,
+      "overflow": false,
+      "missingSuccessfulHttpRoutes": [],
+      "sqliteReadbacks": 7,
+      "projectionRevisions": {
+        "3": {
+          "eventSeq": "3",
+          "wsIngressOrdinal": 125,
+          "eventSinkOrdinal": 158,
+          "identitiesMatch": true
+        },
+        "4": {
+          "eventSeq": "4",
+          "wsIngressOrdinal": 239,
+          "eventSinkOrdinal": 265,
+          "identitiesMatch": true
+        },
+        "5": {
+          "eventSeq": "5",
+          "wsIngressOrdinal": 369,
+          "eventSinkOrdinal": 396,
+          "identitiesMatch": true
+        },
+        "6": {
+          "eventSeq": "6",
+          "wsIngressOrdinal": 454,
+          "eventSinkOrdinal": 481,
+          "identitiesMatch": true
+        },
+        "7": {
+          "eventSeq": "7",
+          "wsIngressOrdinal": 519,
+          "eventSinkOrdinal": 548,
+          "identitiesMatch": true
+        }
+      }
+    },
+    "goFacts": {
+      "chainCount": 1,
+      "postCount": 1,
+      "runOwnedMutationCount": 7,
+      "activeEntries": 0,
+      "activeParticipants": 0,
+      "cancelledEntries": 2,
+      "publicEventCount": 5,
+      "outboxCount": 5,
+      "deliveredOutboxCount": 5,
+      "outboxEventIdentityMatches": 5,
+      "status": "RETRACTED",
+      "revision": "7",
+      "safeCardMatchesCurrentChain": true,
+      "privateResourceIdentityMatches": true,
+      "terminalContractSatisfied": true
+    },
+    "cleanupPostAudit": {
+      "source": "Go owner independent read-only posterior audit reported in Go report; not queried by Helix task",
+      "categorySchemas": 0,
+      "coreTables": {
+        "post": 0,
+        "channel": 0,
+        "channel_member": 0,
+        "channel_event": 0,
+        "channel_event_head": 0,
+        "delivery_outbox": 0
+      }
+    },
+    "evidence": {
+      "native": "/tmp/helix-category-0.1.9-candidate-kortuqqf/runs/category-native-1788793161209345000/evidence.json",
+      "nativeSHA256": "4f8300091fa2d5d2b105f5f634ed90fe4b8278b5c6a1cba205e65726dcfc204c",
+      "go": "/var/folders/xp/tcg1zrbd3tz557b6qvw977sr0000gn/T/category-native-1788793161209345000-go-evidence.json",
+      "goSHA256": "3e7472e22a095473ecef72ff35c15868137609f86c081ee47fbec3628e729650",
+      "goReport": "/Users/cses-11/Desktop/cses-im-server/docs/reports/0907-分类接龙Native跨仓Smoke.md"
+    },
+    "boundary": "One local Native client + dedicated Go instance; real Engine/HTTP/WS/SQLite/EventSink, Go Store/outbox. Web/FFI/UI/deployed and multi-Pod not inferred. Go SQL proof supplied by separate Go audit, not Native runner alone."
+  },
+  "evidenceBoundary": "Formal 0.1.1 backport has focused/check proof; separate real Native proof is exact 0.1.9 candidate binary. This documentation update ran no tests."
+}

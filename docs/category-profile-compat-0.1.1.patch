@@ -1,0 +1,211 @@
+--- a/crates/helix-im/src/category_chain/wire.rs
++++ b/crates/helix-im/src/category_chain/wire.rs
+@@ -1439,7 +1439,7 @@
+     Ok(())
+ }
+ 
+-/// 校验分类分页使用的服务端 EntryPreview。
++/// 校验服务端 EntryPreview；缺少用户资料时 Go 保留空 displayName，身份仍由非空 userId 校验。
+ fn validate_entry_preview(entry: &Map<String, Value>) -> Result<(), ImError> {
+     require_exact_keys(
+         entry,
+@@ -1457,7 +1457,7 @@
+     )?;
+     required_nonempty_str(entry, "entryId", "CategoryEntryPreview")?;
+     required_nonempty_str(entry, "userId", "CategoryEntryPreview")?;
+-    validate_text_field(entry, "displayName", 1, 2_000, "CategoryEntryPreview")?;
++    validate_text_field(entry, "displayName", 0, 2_000, "CategoryEntryPreview")?;
+     validate_text_field(entry, "departmentName", 0, 2_000, "CategoryEntryPreview")?;
+     validate_text_field(entry, "content", 1, 200, "CategoryEntryPreview")?;
+     require_nonnegative_i64(entry, "createdAt", "CategoryEntryPreview")?;
+--- a/crates/helix-im/tests/category_chain_lifecycle.rs
++++ b/crates/helix-im/tests/category_chain_lifecycle.rs
+@@ -1073,3 +1073,188 @@
+     assert_private_operation(operation, None);
+     assert_eq!(operation["data"]["state"], "RECONCILING");
+ }
++
++/// Go snapshots missing user profiles as two empty strings; populated previews expose that contract.
++fn go_profile_receipt(id: &str) -> Value {
++    let mut data = mutation("4", id);
++    data["eventId"] = json!("go-event-4");
++    data["eventSeq"] = json!("4");
++    data["myParticipation"]["participationRevision"] = json!("1");
++    let entries: Vec<Value> = ["a", "b"]
++        .into_iter()
++        .map(|category| {
++            json!({"id":format!("entry-{category}"),"chainId":"chain-a","categoryId":category,
++            "userId":"user-a","content":"fixture participation","position":"1","revision":"1",
++            "status":"ACTIVE","createdAt":1788770000000_i64,"updatedAt":1788770000000_i64})
++        })
++        .collect();
++    for (index, entry) in entries.iter().enumerate() {
++        data["card"]["categories"][index]["hasMore"] = json!(false);
++        data["card"]["categories"][index]["entries"] = json!([{
++            "entryId":entry["id"],"userId":entry["userId"],"displayName":"","departmentName":"",
++            "content":entry["content"],"createdAt":entry["createdAt"],"updatedAt":entry["updatedAt"],"displayNumber":1
++        }]);
++    }
++    data["myParticipation"]["entries"] = json!(entries);
++    data["post"]["props"]["categoryChain"] = data["card"].clone();
++    data
++}
++
++/// Replay the real same-user/two-category response: no ACK until storage readback, no duplicate ACK.
++#[test]
++fn category_go_profile_empty_snapshot_commits_full_participation() {
++    let mut h = Harness::new_with_identity(&[1], "user-a", "tenant-a", "", "", "");
++    let command = helix_im::client_api::build_command("im_category_chain_set_participation",
++        &serde_json::to_vec(&json!({"channelId":cid(1),"chainId":"chain-a",
++            "expectedParticipationRevision":"0","selections":[{"categoryId":"a","content":"fixture participation"},
++                {"categoryId":"b","content":"fixture participation"}],"clientMutationId":"go-profile"})).unwrap()).unwrap();
++    h.step(Tick::Command(command), 1000);
++    let corr = h
++        .sink
++        .as_slice()
++        .iter()
++        .find_map(|e| match e {
++            Effect::Http { corr, .. } => Some(*corr),
++            _ => None,
++        })
++        .unwrap();
++    let data = go_profile_receipt("go-profile");
++    let response =
++        http_bytes(serde_json::to_vec(&json!({"status":"SUCCESS","data":data})).unwrap());
++    h.step(
++        Tick::PortReply {
++            corr,
++            outcome: PortOutcome::Ok(ReplyBytes(response.clone())),
++        },
++        1001,
++    );
++    let mut store = Store::new();
++    assert!(
++        !h.sink
++            .as_slice()
++            .iter()
++            .any(|e| matches!(e, Effect::Emit { .. })),
++        "HTTP must wait for durable facts: {:?}",
++        h.sink.as_slice()
++    );
++    let events = drain(&mut h, &mut store);
++    let operations: Vec<_> = events
++        .iter()
++        .filter(|e| e["event"] == "im:category_chain:operation")
++        .collect();
++    assert_eq!(operations.len(), 1);
++    let operation = &operations[0]["data"];
++    assert_eq!(operation["state"], "CONFIRMED");
++    assert_eq!(operation["card"], data["card"]);
++    assert_eq!(operation["myParticipation"], data["myParticipation"]);
++    assert_eq!(operation["viewerId"], "user-a");
++    assert_eq!(store["message"].len(), 1);
++    let row = store["message"].values().next().unwrap();
++    assert_eq!(
++        serde_json::from_str::<Value>(row["props"].as_str().unwrap()).unwrap()["categoryChain"],
++        data["card"]
++    );
++    h.step(
++        Tick::PortReply {
++            corr,
++            outcome: PortOutcome::Ok(ReplyBytes(response)),
++        },
++        1200,
++    );
++    assert!(drain(&mut h, &mut store).is_empty());
++}
++
++/// The same Go preview crosses private HTTP pages and public WS without synthesized author names.
++#[test]
++fn category_go_profile_empty_snapshot_survives_page_and_ws() {
++    let mut h = Harness::new_with_identity(&[1], "user-a", "tenant-a", "", "", "");
++    let mut store = Store::new();
++    let data = go_profile_receipt("page-ws");
++    let page = json!({"chainId":"chain-a","categoryId":"a","categoryRevision":"4",
++        "entries":data["card"]["categories"][0]["entries"],"nextCursor":null,"hasMore":false});
++    let events = query(
++        &mut h,
++        "im_category_chain_entries",
++        json!({"channelId":cid(1),"chainId":"chain-a","categoryId":"a","req_id":"page"}),
++        page.clone(),
++        &mut store,
++    );
++    assert_eq!(events[0]["data"]["body"]["data"], page);
++    // Channel cursor starts at zero; category revision and channel event sequence are independent.
++    let frame = json!({"action":"im:category_chain:projection","data":{"schemaVersion":1,"channelId":cid(1),
++        "chainId":"chain-a","revision":"4","eventId":"go-event-4","eventSeq":"1",
++        "anchorPostId":common::sid(1),"temporaryId":"category-anchor-1","card":data["card"]}});
++    h.step(
++        Tick::Inbound(InboundBytes(Bytes::from(
++            serde_json::to_vec(&frame).unwrap(),
++        ))),
++        1200,
++    );
++    let events = drain(&mut h, &mut store);
++    assert_eq!(
++        events
++            .iter()
++            .filter(|e| e["event"] == "im:category_chain:projection")
++            .count(),
++        1
++    );
++    assert_eq!(events[0]["data"]["card"], data["card"]);
++}
++
++/// Accepting empty profile strings never admits malformed fields, forged viewers, or divergent cards.
++#[test]
++fn category_go_profile_invalid_canonical_still_fails_closed() {
++    for case in [
++        "missing",
++        "null",
++        "number",
++        "overlong",
++        "empty-content",
++        "viewer",
++        "revision",
++        "card-post",
++    ] {
++        let mut h = Harness::new_with_identity(&[1], "user-a", "tenant-a", "", "", "");
++        let corr = set(&mut h, "invalid-profile");
++        let mut data = go_profile_receipt("invalid-profile");
++        let entry = &mut data["card"]["categories"][0]["entries"][0];
++        match case {
++            "missing" => {
++                entry.as_object_mut().unwrap().remove("displayName");
++            }
++            "null" => entry["displayName"] = Value::Null,
++            "number" => entry["displayName"] = json!(7),
++            "overlong" => entry["displayName"] = json!("x".repeat(2001)),
++            "empty-content" => entry["content"] = json!(""),
++            "viewer" => data["myParticipation"]["entries"][0]["userId"] = json!("another-viewer"),
++            "revision" => data["card"]["revision"] = json!("04"),
++            "card-post" => data["post"]["props"]["categoryChain"]["title"] = json!("divergent"),
++            _ => unreachable!(),
++        }
++        if case != "card-post" {
++            data["post"]["props"]["categoryChain"] = data["card"].clone();
++        }
++        h.step(
++            Tick::PortReply {
++                corr,
++                outcome: PortOutcome::Ok(ReplyBytes(http_bytes(
++                    serde_json::to_vec(&json!({"status":"SUCCESS","data":data})).unwrap(),
++                ))),
++            },
++            1001,
++        );
++        assert!(
++            !h.sink
++                .as_slice()
++                .iter()
++                .any(|e| matches!(e, Effect::Persist { .. } | Effect::PersistAtomic { .. })),
++            "{case}"
++        );
++        let events = drain(&mut h, &mut Store::new());
++        assert_eq!(events.len(), 1, "{case}");
++        assert_eq!(events[0]["data"]["state"], "RECONCILING", "{case}");
++        assert!(events[0]["data"]["errorCode"]
++            .as_str()
++            .is_some_and(|s| !s.is_empty()));
++    }
++}

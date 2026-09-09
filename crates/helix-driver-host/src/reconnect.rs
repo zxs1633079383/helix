@@ -233,6 +233,7 @@ fn classify_port_error(error: &PortError) -> String {
         PortError::Transport(_) => "transport",
         PortError::Http(_) => "http",
         PortError::Storage(_) => "storage",
+        PortError::StorageConflict => "storage_conflict",
         PortError::Clock(_) => "clock",
         PortError::IdSource(_) => "id_source",
         PortError::Other(_) => "other",

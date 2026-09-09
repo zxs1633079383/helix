@@ -103,6 +103,8 @@ impl ImModule {
             corr: persist_corr,
             ops: vec![
                 StorageOp::BatchUpsert(UpsertSpec {
+                    version_column: None,
+                    update_guard: None,
                     table: "channel",
                     rows: vec![channel_row],
                     conflict_key: Some("id"),
@@ -346,6 +348,8 @@ impl ImModule {
         out.push(Effect::Persist {
             corr: persist_corr,
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
+                version_column: None,
+                update_guard: None,
                 table: "channel",
                 rows: vec![row],
                 conflict_key: Some("id"),

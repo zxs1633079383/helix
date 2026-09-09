@@ -65,6 +65,7 @@ pub(crate) fn queue_post_update_commit(
     state.corr_map.insert(
         corr,
         CorrelationContext::PostUpdateAtomic {
+            has_category_posts: event.fields.msg_type == "CATEGORY_CHAIN",
             event: Box::new(event),
             pending_domain_event,
         },
@@ -165,6 +166,12 @@ impl ImModule {
             );
             return Ok(());
         }
+        if event.fields.msg_type == "CATEGORY_CHAIN"
+            && matches!(event.kind, crate::sync_session::EventKind::PostEdit)
+        {
+            crate::category_chain::post::queue_edit(&mut self.state, corr, event, out);
+            return Ok(());
+        }
         if matches!(event.kind, crate::sync_session::EventKind::PostEdit)
             && crate::ws::handlers::post_update::has_quick_reply_items(
                 event.fields.quick_reply.as_str(),
@@ -226,9 +233,17 @@ impl ImModule {
             ..Default::default()
         });
         self.queue_message_v3_client_ack(&received_data, out)?;
+        let category = received_data
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            == Some("CATEGORY_CHAIN");
         let received = crate::event::post::received(received_data)?;
-        out.push(received.into_effect());
-        out.push(channel.into_effect());
+        if category {
+            self.release_post_events(vec![received.into_bytes(), channel.into_bytes()], true, out)?;
+        } else {
+            out.push(received.into_effect());
+            out.push(channel.into_effect());
+        }
         if let Some(causation_id) = causation_id {
             self.state
                 .pending_forward_deliveries

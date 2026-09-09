@@ -267,6 +267,8 @@ pub(crate) fn message_v3_post_mutation_ops(
         ("last_unread_event_seq".to_string(), SqlValue::Integer(0)),
     ];
     ops.push(StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "channel_member",
         rows: vec![member_row],
         conflict_key: Some("channel_id,user_id"),

@@ -723,6 +723,9 @@ impl ImModule {
                         wants_continuation: needs_continuation,
                         channel_updates: Vec::new(),
                         pending_domain_events,
+                        has_category_posts: messages
+                            .values()
+                            .any(|post| post.msg_type == "CATEGORY_CHAIN"),
                         pending_chain_event_ids,
                         pending_send_reconciliations: if trigger == SyncTrigger::Hydration {
                             Vec::new()
@@ -823,6 +826,7 @@ impl ImModule {
                         wants_continuation: false,
                         channel_updates: Vec::new(),
                         pending_domain_events: Vec::new(),
+                        has_category_posts: false,
                         pending_chain_event_ids: Vec::new(),
                         pending_send_reconciliations: Vec::new(),
                         member_projection: None,
@@ -1047,6 +1051,9 @@ impl ImModule {
                 terminal_seq,
                 trigger,
                 pending_domain_events,
+                has_category_posts: messages
+                    .values()
+                    .any(|post| post.msg_type == "CATEGORY_CHAIN"),
                 pending_chain_event_ids,
                 member_projection: member_projection
                     .map(|(_, projection, _, _)| Box::new(projection)),

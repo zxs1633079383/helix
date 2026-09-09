@@ -6,8 +6,8 @@ top-level scripts.
 
 ## Core Gates
 
-- `gate-fast.sh` - scope-aware local/pre-push gate; scripts and low-risk crates run only relevant checks.
-- `gate.sh` - full local/pre-push delivery gate for native + FFI；GitLab CI 主入口改为 MessageV3 real-chain。
+- `gate-fast.sh` - 按改动范围人工检查，不安装 pre-push hook。
+- `gate.sh` - native + FFI 人工完整检查；GitLab CI 主入口为 MessageV3 real-chain。
 - `branch-identity.sh` - branch identity report for SESSION handoff.
 - `branch-sync-gate.sh` - branch/upstream drift guard.
 - `ddd-structure-gate.sh` - DDD/package boundary structure gate.
@@ -68,7 +68,6 @@ node scripts/messagev3/phase1-5-real-chain.mjs --all
 
 ## Setup And Shared Config
 
-- `install-hooks.sh` - install repository hooks.
 - `lib-config.sh` - shared shell config loader for scripts.
 
 ## Crates.io 发布

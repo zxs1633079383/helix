@@ -172,6 +172,9 @@ impl WsMessageHandler for PostsUpdateHandler {
                 channel_id: batch.channel_id,
                 target_seq: working_cursor,
                 pending_domain_events,
+                has_category_posts: accepted.iter().any(|event| {
+                    event.post.get("type").and_then(Value::as_str) == Some("CATEGORY_CHAIN")
+                }),
                 refresh_timeline: saw_edit,
             },
         );

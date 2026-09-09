@@ -133,6 +133,7 @@ impl ImModule {
         terminal_seq: crate::state::Seq,
         trigger: SyncTrigger,
         pending_domain_events: Vec<Vec<u8>>,
+        has_category_posts: bool,
         pending_chain_event_ids: Vec<String>,
         member_projection: Option<Box<crate::channel_update::MemberChannelUpdate>>,
         outcome: &PortOutcome,
@@ -222,11 +223,7 @@ impl ImModule {
                     self.queue_member_projection_readback(channel_id, expected, out)?;
                 }
 
-                for bytes in pending_domain_events {
-                    out.push(Effect::Emit {
-                        event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
-                    });
-                }
+                self.release_post_events(pending_domain_events, has_category_posts, out)?;
                 if trigger == SyncTrigger::Routine {
                     out.push(
                         crate::event::sync::recovered(serde_json::json!({
@@ -286,6 +283,7 @@ impl ImModule {
         wants_continuation: bool,
         channel_updates: Vec<PendingChannelUpdate>,
         pending_domain_events: Vec<Vec<u8>>,
+        has_category_posts: bool,
         pending_chain_event_ids: Vec<String>,
         pending_send_reconciliations: Vec<PendingSendReconciliation>,
         member_projection: Option<Box<crate::channel_update::MemberChannelUpdate>>,
@@ -366,11 +364,7 @@ impl ImModule {
                     for reconciliation in pending_send_reconciliations {
                         self.reconcile_pending_send_after_sync(reconciliation, out);
                     }
-                    for bytes in pending_domain_events {
-                        out.push(Effect::Emit {
-                            event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
-                        });
-                    }
+                    self.release_post_events(pending_domain_events, has_category_posts, out)?;
                 }
                 // PersistAtomic 是写屏障；viewer dialog 读回不依赖时间线 attach，且只按复合键读取一行。
                 if committed && !pong_batch_active {
@@ -583,17 +577,28 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         self.diagnose(crate::diagnostics::Observation {
-            event: "channel_inventory_persisted", stage: "persist",
-            channel: parent_channel_id.as_str(), batch_id: batch_id.as_deref().unwrap_or(""),
-            result: if matches!(outcome, PortOutcome::Ok(_)) { "success" } else { "failed" },
-            count: _projections.len(), ..Default::default()
+            event: "channel_inventory_persisted",
+            stage: "persist",
+            channel: parent_channel_id.as_str(),
+            batch_id: batch_id.as_deref().unwrap_or(""),
+            result: if matches!(outcome, PortOutcome::Ok(_)) {
+                "success"
+            } else {
+                "failed"
+            },
+            count: _projections.len(),
+            ..Default::default()
         });
         if matches!(outcome, PortOutcome::Ok(_)) {
             for (channel, _) in &_projections {
                 self.diagnose(crate::diagnostics::Observation {
-                    event: "channel_inventory_item_committed", stage: "persist", result: "success",
-                    channel: channel.as_str(), batch_id: batch_id.as_deref().unwrap_or(""),
-                    count: 1, ..Default::default()
+                    event: "channel_inventory_item_committed",
+                    stage: "persist",
+                    result: "success",
+                    channel: channel.as_str(),
+                    batch_id: batch_id.as_deref().unwrap_or(""),
+                    count: 1,
+                    ..Default::default()
                 });
                 self.diagnose_checkpoint(*channel, "inventory_committed");
             }
@@ -1086,6 +1091,8 @@ impl ImModule {
             corr,
             ops: vec![helix_core::effect::StorageOp::BatchUpsert(
                 helix_core::effect::UpsertSpec {
+                    version_column: None,
+                    update_guard: None,
                     table: "channel_member",
                     rows: upsert_rows,
                     conflict_key: Some("channel_id,user_id"),

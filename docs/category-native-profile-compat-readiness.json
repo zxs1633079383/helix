@@ -1,0 +1,173 @@
+{
+  "status": "LIVE_NATIVE_SMOKE_PASS",
+  "candidate": "/tmp/helix-category-0.1.9-candidate-kortuqqf",
+  "binary": "/tmp/helix-category-0.1.9-candidate-kortuqqf/target/debug/category-native-smoke",
+  "binarySHA256": "b651e69f204dd523accfce72a2c89255ab6894e945ade090047224a1e9f8f766",
+  "originalRunnerSHA256": "c8e776a66eb0c60e36d343390946e93e1983251eb6b99c19612ac090a6a2ac97",
+  "currentBinaryLiveExecuted": true,
+  "firstRealRun": {
+    "runId": "category-native-1788792407693178000",
+    "status": "REAL_CHAIN_FAILED",
+    "action": "set-participation",
+    "corr": 79,
+    "httpStatus": 200,
+    "businessStatus": "SUCCESS",
+    "operationState": "RECONCILING",
+    "categoryPersistDispatched": false,
+    "localMessageRevision": "3",
+    "goChainRevision": "4",
+    "goActiveEntries": 2,
+    "goActiveParticipants": 1,
+    "cleanup": "main reports Native WS/engine closed and Go owned schema removed"
+  },
+  "diagnosis": {
+    "classification": "CONTRACT_ERROR",
+    "layer": "helix-im category authority wire validation",
+    "field": "CategoryEntryPreview.displayName",
+    "goContract": "Go permits empty author profile snapshots when User.Get is not found; explicit domain test covers empty Profile",
+    "priorHelixContract": "required string, trimmed length 1..2000",
+    "fixedHelixContract": "required string, trimmed length 0..2000; empty value retained unchanged",
+    "replayedErrorCode": "parse error: CATEGORY_CHAIN_AUTHORITY: CategoryEntryPreview.displayName length out of bounds",
+    "evidenceLimit": "Original response body/errorCode were not retained. Exact error is proven by public-seam reconstruction from the actual Go fixture/domain code, not claimed as a recovered live trace."
+  },
+  "productionDelta": [
+    "crates/helix-im/src/category_chain/wire.rs: entry preview displayName lower bound and explanatory comment"
+  ],
+  "invariantsPreserved": [
+    "required profile field and string type",
+    "profile upper bound",
+    "nonempty userId/entryId/content",
+    "canonical decimal revisions",
+    "request viewer/channel/chain/mutation binding",
+    "card/Post exact equality",
+    "stable anchor",
+    "PersistOk/readback before operation CONFIRMED",
+    "duplicate and late reply cleanup"
+  ],
+  "tests": {
+    "red": "1 passed, 2 failed; mutation and page reject empty displayName",
+    "green": "25 category lifecycle tests passed",
+    "harness": "4 offline tests passed",
+    "nativeRunnerBuild": "PASS",
+    "hotPathAudit": "PASS",
+    "intermediateTestCorrection": "Initial WS test used eventSeq=4 with channel cursor=0 and was queued by the correct gap guard; fixture corrected to first eventSeq=1 independently of category revision=4. Production sequence guard unchanged."
+  },
+  "sourceHashes": {
+    "crates/helix-im/src/category_chain/wire.rs": "a2ba2d8b166b390cee433c2f8d427c748b6066336afe3b185c5e5a6382f4e776",
+    "crates/helix-im/tests/category_chain_lifecycle.rs": "dc78aa013fda8649701b9003701a951068559af80477cacf21f9604397ead0d0",
+    "harness/category-native-smoke/src/evidence.rs": "3d2fa6d1c3a257f63ea94f03db82fdafdb9912dd4bd546d5e351761f32da9ad2"
+  },
+  "unchanged": "All other candidate source (.rs) and manifest files recorded in profile-compat-baseline.json unchanged. README separately updated with current report link. No formal production source/version/lock edits. Core/host/native and ordinary-message/observation sources unchanged.",
+  "patch": "/tmp/helix-category-0.1.9-candidate-kortuqqf/profile-compat.patch",
+  "logs": [
+    "/tmp/helix-category-0.1.9-candidate-kortuqqf/profile-compat-red.log",
+    "/tmp/helix-category-0.1.9-candidate-kortuqqf/profile-compat-green.log",
+    "/tmp/helix-category-0.1.9-candidate-kortuqqf/profile-compat-green-final.log",
+    "/tmp/helix-category-0.1.9-candidate-kortuqqf/profile-compat-harness-tests.log",
+    "/tmp/helix-category-0.1.9-candidate-kortuqqf/profile-compat-build.log"
+  ],
+  "notProven": [
+    "UI/DOM",
+    "Web/FFI",
+    "cross-Pod/Pulsar",
+    "fault injection/recovery",
+    "daily deployed service",
+    "all non-category background HTTP paths",
+    "all Go release gates (Store whole-scope coverage 95.511% remains partial)"
+  ],
+  "previousPreparationStatus": "FIXED_FOCUSED_REAL_RERUN_PENDING",
+  "successfulRealRun": {
+    "status": "LIVE_NATIVE_SMOKE_PASS",
+    "runId": "category-native-1788793161209345000",
+    "binarySHA256": "b651e69f204dd523accfce72a2c89255ab6894e945ade090047224a1e9f8f766",
+    "executionOwner": "Go owner coordinated by main; independently Quality accepted per Go report/main handoff",
+    "goTaggedTest": "TestCategoryChainNativeSmoke PASS; package 7.214s",
+    "native": {
+      "status": "PASS",
+      "result": null,
+      "cleanup": null,
+      "hops": 550,
+      "overflow": false,
+      "missingSuccessfulHttpRoutes": [],
+      "sqliteReadbacks": 7,
+      "projectionRevisions": {
+        "3": {
+          "eventSeq": "3",
+          "wsIngressOrdinal": 125,
+          "eventSinkOrdinal": 158,
+          "identitiesMatch": true
+        },
+        "4": {
+          "eventSeq": "4",
+          "wsIngressOrdinal": 239,
+          "eventSinkOrdinal": 265,
+          "identitiesMatch": true
+        },
+        "5": {
+          "eventSeq": "5",
+          "wsIngressOrdinal": 369,
+          "eventSinkOrdinal": 396,
+          "identitiesMatch": true
+        },
+        "6": {
+          "eventSeq": "6",
+          "wsIngressOrdinal": 454,
+          "eventSinkOrdinal": 481,
+          "identitiesMatch": true
+        },
+        "7": {
+          "eventSeq": "7",
+          "wsIngressOrdinal": 519,
+          "eventSinkOrdinal": 548,
+          "identitiesMatch": true
+        }
+      }
+    },
+    "goFacts": {
+      "chainCount": 1,
+      "postCount": 1,
+      "runOwnedMutationCount": 7,
+      "activeEntries": 0,
+      "activeParticipants": 0,
+      "cancelledEntries": 2,
+      "publicEventCount": 5,
+      "outboxCount": 5,
+      "deliveredOutboxCount": 5,
+      "outboxEventIdentityMatches": 5,
+      "status": "RETRACTED",
+      "revision": "7",
+      "safeCardMatchesCurrentChain": true,
+      "privateResourceIdentityMatches": true,
+      "terminalContractSatisfied": true
+    },
+    "cleanupPostAudit": {
+      "source": "Go owner independent read-only posterior audit reported in Go report; not queried by Helix task",
+      "categorySchemas": 0,
+      "coreTables": {
+        "post": 0,
+        "channel": 0,
+        "channel_member": 0,
+        "channel_event": 0,
+        "channel_event_head": 0,
+        "delivery_outbox": 0
+      }
+    },
+    "evidence": {
+      "native": "/tmp/helix-category-0.1.9-candidate-kortuqqf/runs/category-native-1788793161209345000/evidence.json",
+      "nativeSHA256": "4f8300091fa2d5d2b105f5f634ed90fe4b8278b5c6a1cba205e65726dcfc204c",
+      "go": "/var/folders/xp/tcg1zrbd3tz557b6qvw977sr0000gn/T/category-native-1788793161209345000-go-evidence.json",
+      "goSHA256": "3e7472e22a095473ecef72ff35c15868137609f86c081ee47fbec3628e729650",
+      "goReport": "/Users/cses-11/Desktop/cses-im-server/docs/reports/0907-分类接龙Native跨仓Smoke.md"
+    },
+    "boundary": "One local Native client + dedicated Go instance; real Engine/HTTP/WS/SQLite/EventSink, Go Store/outbox. Web/FFI/UI/deployed and multi-Pod not inferred. Go SQL proof supplied by separate Go audit, not Native runner alone."
+  },
+  "previousPendingInputs": [
+    "Main waits for Go idle and coordinates one new exclusive fixture; no message sent by this task",
+    "Go owner updates categoryNativeBinarySHA256 in its opt-in fixture to this report hash",
+    "Fresh run ID and owned schema; provide actual loopback HTTP/WS URLs, matching isolated actor/company/channel and auth headers",
+    "Keep fixture/WS/outbox and dedicated database binding alive through workflow and graceful cleanup",
+    "Retain Go DB/outbox facts and new runner HTTP profile shapes plus operation error diagnostics on failure"
+  ],
+  "nextAction": "None for this bounded Native smoke; no new run requested",
+  "formalBackport": "displayName compatibility and public-seam tests backported to formal 0.1.1, 25 focused tests + helix-im check PASS; see category-profile-compat-0.1.1-evidence.json. Live proof belongs to exact 0.1.9 candidate binary."
+}

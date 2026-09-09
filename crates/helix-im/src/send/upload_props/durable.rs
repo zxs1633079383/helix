@@ -43,6 +43,8 @@ pub fn upsert_op(operation: &PendingMediaOp) -> Result<StorageOp, ImError> {
     let size = i64::try_from(input.size)
         .map_err(|_| ImError::Parse("pending_media size exceeds SQLite INTEGER".to_string()))?;
     Ok(StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: TABLE,
         rows: vec![vec![
             (
@@ -107,6 +109,7 @@ pub fn upsert_op(operation: &PendingMediaOp) -> Result<StorageOp, ImError> {
     }))
 }
 
+/// Persist the bounded media-operation batch under existing sparse identities.
 pub fn upsert_many(operations: &[PendingMediaOp]) -> Result<StorageOp, ImError> {
     let mut rows = Vec::with_capacity(operations.len());
     for operation in operations {
@@ -116,6 +119,8 @@ pub fn upsert_many(operations: &[PendingMediaOp]) -> Result<StorageOp, ImError> 
         rows.extend(spec.rows);
     }
     Ok(StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: TABLE,
         rows,
         conflict_key: None,

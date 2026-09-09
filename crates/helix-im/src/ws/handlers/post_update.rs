@@ -112,6 +112,25 @@ pub(super) fn apply_post_update(
     if ctx.auth_user_id.is_empty() || i64::try_from(target_seq.0).is_err() {
         return;
     }
+    if fields.msg_type == "CATEGORY_CHAIN" {
+        let event = crate::sync_session::EventEnvelope::new(
+            channel_id,
+            target_seq,
+            EventKind::PostEdit,
+            fields,
+        )
+        .with_msg_id(msg_id)
+        .with_viewer_user_id(ctx.auth_user_id);
+        let Some(channel) = ctx.state.channels.get_mut(&channel_id) else {
+            return;
+        };
+        if let Ok(Some(event)) = channel.admit_message_v3_post(event, out) {
+            let corr = ctx.alloc_corr();
+            crate::category_chain::post::queue_edit(ctx.state, corr, event, out);
+        }
+        super::gate::trigger_backfill_if_large_gap(ctx, channel_id, target_seq, out);
+        return;
+    }
     let has_template_confirmation =
         crate::event::post::has_template_confirmation(fields.props.as_str());
     if should_use_message_v3_compact_update(&fields, has_template_confirmation) {

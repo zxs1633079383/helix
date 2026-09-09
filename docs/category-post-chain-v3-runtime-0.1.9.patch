@@ -1,0 +1,116 @@
+--- a/crates/helix-im/src/category_chain/wire.rs
++++ b/crates/helix-im/src/category_chain/wire.rs
+@@ -30,7 +30,7 @@
+ const MIN_CATEGORIES: usize = 2;
+ const MAX_ENTRIES_PAGE: usize = 100;
+ 
+-/// 分类语义保持原样，仅在 HTTP 边界统一注入 post-chain v2 的 mode/view。
++/// 分类语义保持原样，仅在 HTTP 边界统一注入 post-chain v3 的 query/body mode 与 view。
+ ///
+ /// req_id 只用于 Helix 本地 read correlation，永远不进入 Go body；嵌套 audience、
+ /// categories 和 selections 已经是 camelCase 合同，校验后原样保留。未知字段和服务端
+@@ -40,7 +40,7 @@
+         let object = object(args, command)?;
+         reject_unknown(object, &["req_id"], command)?;
+         check_req_id(object, command)?;
+-        return Ok(("post-chain/capabilities", serde_json::json!({"mode":"CATEGORY"})));
++        return Ok(("post-chain/capabilities?mode=CATEGORY", serde_json::json!({"mode":"CATEGORY"})));
+     }
+ 
+     if !COMMANDS.contains(&command) {
+@@ -64,16 +64,16 @@
+     };
+ 
+     let path = match command {
+-        "category_chain_create_draft" => "post-chain/create",
+-        "category_chain_update_draft" => "post-chain/update-draft",
+-        "category_chain_publish" => "post-chain/publish",
+-        "category_chain_get" => "post-chain/get",
+-        "category_chain_get_mine" => "post-chain/get",
+-        "category_chain_set_participation" => "post-chain/append",
+-        "category_chain_entries" => "post-chain/get",
+-        "category_chain_reconcile" => "post-chain/reconcile",
+-        "category_chain_close" => "post-chain/close",
+-        "category_chain_retract" => "post-chain/retract",
++        "category_chain_create_draft" => "post-chain/create?mode=CATEGORY",
++        "category_chain_update_draft" => "post-chain/update-draft?mode=CATEGORY",
++        "category_chain_publish" => "post-chain/publish?mode=CATEGORY",
++        "category_chain_get" => "post-chain/get?mode=CATEGORY",
++        "category_chain_get_mine" => "post-chain/get?mode=CATEGORY",
++        "category_chain_set_participation" => "post-chain/append?mode=CATEGORY",
++        "category_chain_entries" => "post-chain/get?mode=CATEGORY",
++        "category_chain_reconcile" => "post-chain/reconcile?mode=CATEGORY",
++        "category_chain_close" => "post-chain/close?mode=CATEGORY",
++        "category_chain_retract" => "post-chain/retract?mode=CATEGORY",
+         _ => return Err(parse_error(command, "unknown command")),
+     };
+ 
+--- a/crates/helix-im/src/client_api/capabilities.rs
++++ b/crates/helix-im/src/client_api/capabilities.rs
+@@ -65,7 +65,7 @@
+ 
+ pub const META_QUERIES: &[&str] = &["helix_capabilities", "helix_version"];
+ 
+-/// Describe the loaded module; postChainCategoryMode identifies the shared HTTP v2 transport.
++/// Describe the loaded module; category feature version identifies the shared HTTP v3 query discriminator.
+ pub fn capabilities_json() -> Vec<u8> {
+     let mut commands = crate::outbound::outbound_command_names();
+     commands.push("im_send_message");
+@@ -85,6 +85,7 @@
+         "events": PUBLIC_EVENTS,
+         "features": {
+             "postChainCategoryMode": true,
++            "postChainCategoryWireVersion": 3,
+             "pendingSendTimeoutUnsend": true,
+             "sendFailedProjection": true,
+             "helixOwnedTemporaryId": true,
+--- a/crates/helix-im/tests/category_chain_lifecycle.rs
++++ b/crates/helix-im/tests/category_chain_lifecycle.rs
+@@ -1283,7 +1283,7 @@
+ 
+ /// All eleven semantic commands share post-chain transport; get views and string CAS stay distinct.
+ #[test]
+-fn post_chain_mode_v2_maps_all_category_commands() {
++fn post_chain_mode_v3_maps_all_category_commands() {
+     let scope = json!({"channelId":cid(1),"chainId":"chain-a","req_id":"read-mode"});
+     let draft = json!({"channelId":cid(1),"title":"活动","description":"","example":"",
+         "deadlineAt":1789113600000_i64,"audience":{"mode":"CHANNEL_SNAPSHOT"},
+@@ -1306,7 +1306,7 @@
+     ];
+     for (suffix, args, route, view) in cases {
+         let (url, body) = category_mode_http(&format!("im_category_chain_{suffix}"), args);
+-        assert!(url.ends_with(&format!("/post-chain/{route}")), "{suffix}: {url}");
++        assert!(url.ends_with(&format!("/post-chain/{route}?mode=CATEGORY")), "{suffix}: {url}");
+         assert_eq!(body["mode"], "CATEGORY", "{suffix}");
+         assert_eq!(body.get("view").and_then(Value::as_str), view, "{suffix}");
+         assert!(body.get("req_id").is_none() && body.get("reqId").is_none());
+@@ -1332,7 +1332,7 @@
+ 
+ /// Caller fields cannot override the transport-owned mode/view or turn anchor retraction into entry removal.
+ #[test]
+-fn post_chain_mode_v2_rejects_category_transport_overrides() {
++fn post_chain_mode_v3_rejects_category_transport_overrides() {
+     use helix_core::Module;
+     for (alias, extra) in [
+         ("im_category_chain_get", json!({"mode":"TEXT"})),
+@@ -1355,7 +1355,7 @@
+ 
+ /// Legacy TEXT payloads omit mode outside create; all nine endpoints and numeric revisions are unchanged.
+ #[test]
+-fn post_chain_mode_v2_preserves_text_nine_actions_without_mode() {
++fn post_chain_mode_v3_preserves_text_nine_actions_without_mode() {
+     for (suffix, extra, expected_extra) in [
+         ("create", json!({"title":"TEXT"}), json!({"title":"TEXT","mode":"TEXT"})),
+         ("update_draft", json!({"expectedRevision":3}), json!({"expectedRevision":3})),
+@@ -1383,9 +1383,10 @@
+ 
+ /// Loaded-module feature identifies the new transport; canonical registry names are not public aliases.
+ #[test]
+-fn post_chain_mode_v2_feature_and_canonical_registration() {
++fn post_chain_mode_v3_feature_and_canonical_registration() {
+     let caps: Value=serde_json::from_slice(&helix_im::client_api::capabilities_json()).unwrap();
+     assert_eq!(caps["features"]["postChainCategoryMode"],true);
++    assert_eq!(caps["features"]["postChainCategoryWireVersion"],3);
+     let commands=caps["commands"].as_array().unwrap();
+     assert!(commands.iter().any(|c|c=="category_chain_capabilities"));
+     assert!(!commands.iter().any(|c|c=="im_category_chain_capabilities"));

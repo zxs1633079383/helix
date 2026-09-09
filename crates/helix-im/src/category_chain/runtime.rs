@@ -6,6 +6,8 @@ use helix_core::tick::{PortError, PortOutcome};
 use helix_core::{Correlation, Effect, EffectSink, TimerId};
 use serde_json::{json, Value};
 
+const HISTORICAL_RECONCILE_GUARD: &str = "__category_chain_historical_reconcile__";
+
 impl ImModule {
     /// 校验最小意图后注册 HTTP 和超时；失败不残留 correlation。
     pub(crate) fn handle_category_command(
@@ -360,15 +362,25 @@ impl ImModule {
                 });
             }
             Pending::Head(mut work) => {
-                let doc = &mut work.documents[work.index];
+                let mut historical = false;
                 if let Some(previous) = facts::head_revision(bytes.0.as_ref())? {
-                    match facts::revision_cmp(&previous, &doc.revision)? {
+                    let revision = work.documents[work.index].revision.clone();
+                    match facts::revision_cmp(&previous, &revision)? {
                         std::cmp::Ordering::Greater => {
-                            return Err(invalid("STALE_AUTHORITY_RECONCILE"))
+                            if work.reconcile {
+                                // Reconcile may persist its private receipt while public facts stay newer.
+                                work.documents[work.index].write = false;
+                                historical = true;
+                            } else {
+                                return Err(invalid("STALE_AUTHORITY_RECONCILE"));
+                            }
                         }
-                        std::cmp::Ordering::Equal => doc.write = false,
+                        std::cmp::Ordering::Equal => work.documents[work.index].write = false,
                         std::cmp::Ordering::Less => {}
                     }
+                }
+                if historical {
+                    work.post_guard = Some(HISTORICAL_RECONCILE_GUARD.to_owned());
                 }
                 work.index += 1;
                 if work.index < work.documents.len() {
@@ -385,7 +397,10 @@ impl ImModule {
                         ops: vec![op],
                     });
                 } else {
-                    if let Some((_, temporary_id, _)) = message_snapshot(&work) {
+                    if historical_reconcile(&work) {
+                        // A confirmed reconciliation is a private receipt; its old Post is never rewritten.
+                        self.persist_category(work, out)?;
+                    } else if let Some((_, temporary_id, _)) = message_snapshot(&work) {
                         let id = temporary_id.to_owned();
                         let corr = self.alloc_corr_internal();
                         self.state.corr_map.insert(
@@ -459,6 +474,22 @@ impl ImModule {
                     .as_object_mut()
                     .ok_or_else(|| invalid("result object"))?;
                 target.extend(map);
+                if historical_reconcile(&work) {
+                    if work.permissions.is_some() && work.data.get("myParticipation").is_none() {
+                        let index = work
+                            .documents
+                            .iter()
+                            .position(|document| document.value.get("myParticipation").is_some())
+                            .ok_or_else(|| invalid("participation readback"))?;
+                        // Permission metadata is request-local; read its independent durable snapshot before success.
+                        work.index = index;
+                        self.read_category(work, out);
+                    } else {
+                        // The receipt and optional private snapshot are the durable barriers for success.
+                        self.complete_category(work, out)?;
+                    }
+                    return Ok(());
+                }
                 work.index += 1;
                 if work.index < work.documents.len() {
                     self.read_category(work, out);
@@ -530,21 +561,23 @@ impl ImModule {
             || work.ws
         {
             let fresh = work.documents.iter().any(|doc| doc.write);
-            if fresh || work.request.req_id.is_some() {
-                if let Some(post) = work.data.get("post").filter(|p| p.is_object()) {
-                    let event = post_event(post, &work.request)?;
-                    let emit = if work.request.command == "category_chain_publish" {
-                        crate::acl::to_effect::emit_post_received_for_viewer
-                    } else {
-                        crate::acl::to_effect::emit_post_updated_for_viewer
-                    };
-                    out.push(emit(
-                        event.channel_id,
-                        0,
-                        &event.fields.id,
-                        &event.fields,
-                        &work.request.viewer,
-                    ));
+            if fresh || (work.request.req_id.is_some() && !work.reconcile) {
+                if !historical_reconcile(&work) {
+                    if let Some(post) = work.data.get("post").filter(|p| p.is_object()) {
+                        let event = post_event(post, &work.request)?;
+                        let emit = if work.request.command == "category_chain_publish" {
+                            crate::acl::to_effect::emit_post_received_for_viewer
+                        } else {
+                            crate::acl::to_effect::emit_post_updated_for_viewer
+                        };
+                        out.push(emit(
+                            event.channel_id,
+                            0,
+                            &event.fields.id,
+                            &event.fields,
+                            &work.request.viewer,
+                        ));
+                    }
                 }
                 let mut data = work.data.take();
                 data["command"] = json!(work.request.command);
@@ -576,25 +609,27 @@ impl ImModule {
     /// message props CAS与category事实同事务；普通消息流抢先提交时整笔回滚。
     fn persist_category(&mut self, mut work: Work, out: &mut EffectSink) -> Result<(), ImError> {
         let mut ops = Vec::new();
-        for doc in &work.documents {
+        for (index, doc) in work.documents.iter().enumerate() {
             if doc.write {
                 ops.extend(facts::persist(&doc.scope, &doc.revision, &doc.value)?);
-                if let Some(post) = doc.value.get("post").filter(|p| p.is_object()) {
-                    let event = post_event(post, &work.request)?;
-                    let helix_core::effect::StorageOp::BatchUpsert(mut spec) =
-                        crate::channel::event_to_readback_upsert_op(&event)
-                    else {
-                        return Err(invalid("canonical message upsert"));
-                    };
-                    spec.update_guard = Some(helix_core::effect::UpsertGuard {
-                        column: "props",
-                        expected: work
-                            .post_guard
-                            .take()
-                            .map(helix_core::effect::SqlValue::Text)
-                            .unwrap_or(helix_core::effect::SqlValue::Null),
-                    });
-                    ops.push(helix_core::effect::StorageOp::BatchUpsert(spec));
+                if !historical_reconcile(&work) && !(work.reconcile && index == 0) {
+                    if let Some(post) = doc.value.get("post").filter(|p| p.is_object()) {
+                        let event = post_event(post, &work.request)?;
+                        let helix_core::effect::StorageOp::BatchUpsert(mut spec) =
+                            crate::channel::event_to_readback_upsert_op(&event)
+                        else {
+                            return Err(invalid("canonical message upsert"));
+                        };
+                        spec.update_guard = Some(helix_core::effect::UpsertGuard {
+                            column: "props",
+                            expected: work
+                                .post_guard
+                                .take()
+                                .map(helix_core::effect::SqlValue::Text)
+                                .unwrap_or(helix_core::effect::SqlValue::Null),
+                        });
+                        ops.push(helix_core::effect::StorageOp::BatchUpsert(spec));
+                    }
                 }
             }
         }
@@ -733,6 +768,7 @@ pub(crate) fn make_work(
             .map(Value::take)
             .ok_or_else(|| invalid("reconcile result"))?;
     }
+    let receipt_data = reconcile.then(|| data.clone());
     let chain = string(&data, "chainId")
         .or_else(|| data.get("chain").and_then(|c| string(c, "id")))
         .or_else(|| data.get("card").and_then(|c| string(c, "chainId")))
@@ -862,7 +898,7 @@ pub(crate) fn make_work(
         Document {
             scope,
             revision,
-            value: data,
+            value: receipt_data.unwrap_or(data),
             write: true,
         },
     );
@@ -968,6 +1004,11 @@ fn start_next(
 /// 转为可追踪的业务边界错误，不暴露凭据或原始payload。
 fn invalid(field: &str) -> ImError {
     ImError::Parse(format!("CATEGORY_CHAIN_INVALID: {field}"))
+}
+
+/// 只在公共 authority 明确高于 receipt 时关闭旧的 Post 写入与事件。
+fn historical_reconcile(work: &Work) -> bool {
+    work.reconcile && work.post_guard.as_deref() == Some(HISTORICAL_RECONCILE_GUARD)
 }
 
 /// 将完整canonical Post复用现有presence-aware message落库与EventSink工厂。

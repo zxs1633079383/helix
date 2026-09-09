@@ -76,6 +76,11 @@ pub(super) fn apply_post_update(
 
     // type=2 fields 取自该 post 子树；经 gate ingest（落库 patch + emit + cursor 一并 kind-aware）。
     let fields = extract_post_fields(post);
+    // CATEGORY_CHAIN authority must be rejected before gate admission, otherwise a malformed
+    // edit can become an admitted event without a correlated durable commit.
+    if crate::category_chain::post::validate_fields(&fields).is_err() {
+        return;
+    }
     // 投票/平均分只记录结构形状，验证完整帧是否在 Helix parser 前仍保留；不输出正文、成员姓名或凭证。
     if matches!(fields.msg_type.as_str(), "VOTE" | "AVERAGE_SCORE") {
         let props = serde_json::from_str::<serde_json::Value>(&fields.props).unwrap_or_default();

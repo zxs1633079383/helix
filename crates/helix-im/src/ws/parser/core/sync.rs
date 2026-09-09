@@ -82,7 +82,7 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
         "events" => {
             let mut events = parse_channel_events(entry, channel_id)?;
             // C2：消息内容快照（key=msgId）。phantom = event.msg_id ∉ messages（真源 post.rs:1069）。
-            let messages = parse_messages_map(entry);
+            let messages = parse_messages_map(entry)?;
             // 真 wire 无续拉标志：满批（命中上限）即认为还有更多 → 续拉；不足 → 已追平。
             let needs_continuation = events.len() >= SYNC_EVENTS_PER_ENTRY;
             // cursor 锚服务端权威 nextSeq（Go `next = events[末].EventSeq`）；缺省/异常
@@ -182,6 +182,7 @@ fn parse_channel_events(
         // HX-C005：`ev`（ChannelEvent Value）已在手，直接提取落库字段——
         // 消除原 `serde_json::to_vec(ev)` 回序列化 + 落库时 `from_slice(raw)` 再解析的三趟开销。
         let fields = extract_post_fields(ev);
+        crate::category_chain::post::validate_fields(&fields)?;
         // C2：wire 权威 `msgId`（phantom 判定真源）。兼容 msgId（Go camelCase）/ msg_id（snake 测试帧）。
         // 零信任：缺省 / 空串 → None（with_msg_id 内部再过滤空串）。
         let msg_id = ev
@@ -287,17 +288,22 @@ fn parse_terminal_event(
 /// 真源 post.rs:1047 `messages: &HashMap<String, serde_json::Value>`——服务端按可见性过滤后
 /// 下发的消息内容快照。helix 在 parser 阶段一次解析为 owned `PostFields`（复用 `extract_post_fields`，
 /// HX-C005 热路径零再解析）。`event.msg_id ∈ map` → 落内容行；`∉` → phantom。
-/// `messages` 缺失 / 非对象 → 空 map（= 全 phantom，仅推 cursor）。边界零信任不 panic。
-fn parse_messages_map(entry: &serde_json::Value) -> std::collections::HashMap<String, PostFields> {
+/// `messages` 缺失 / 非对象 → 空 map（= 全 phantom，仅推 cursor）；其中 CATEGORY_CHAIN
+/// 的 authority revision 非法时直接 Err，避免 phantom/cursor 路径绕过消息校验。
+fn parse_messages_map(
+    entry: &serde_json::Value,
+) -> Result<std::collections::HashMap<String, PostFields>, ImError> {
     let mut map = std::collections::HashMap::new();
     let Some(obj) = entry.get("messages").and_then(|m| m.as_object()) else {
-        return map;
+        return Ok(map);
     };
     map.reserve(obj.len());
     for (msg_id, post) in obj {
-        map.insert(msg_id.clone(), extract_post_fields(post));
+        let fields = extract_post_fields(post);
+        crate::category_chain::post::validate_fields(&fields)?;
+        map.insert(msg_id.clone(), fields);
     }
-    map
+    Ok(map)
 }
 
 /// 分桶顺序（铁律，来自源码事实 2026-06-08）

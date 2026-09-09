@@ -12,7 +12,7 @@
 //!
 //! ## 测试方法
 //!
-//! 1. 用 F5 golden 剧本（与 helix-im/tests/f5_golden_replay.rs 同参数）在 ExecutionShell
+//! 1. 用公开 send/post 剧本及真实 SQLite Persist/PortReply 在 ExecutionShell
 //!    下跑，收集所有 Effect::Emit 的 DomainEventBytes 作 source-of-truth 序列。
 //! 2. **FfiEventSink 路径**：逐事件 emit → 按 step 边界 flush → 录 vtable 回调 buffer
 //!    → batch.rs decode → Vec<DomainEventBytes>。
@@ -48,14 +48,14 @@
 //!    M2 Tauri 接 `EventReceiver` 时验收，避免 native 升级后 parity 静默失效。
 
 use bytes::Bytes;
-use helix_core::effect::{DomainEventBytes, TransportId};
+use helix_core::effect::{DomainEventBytes, StorageOp, TransportId};
 use helix_core::ports::EventSink;
-use helix_core::tick::{AppCommand, InboundBytes};
+use helix_core::tick::{AppCommand, InboundBytes, PortOutcome, ReplyBytes};
 use helix_core::{Effect, ExecutionShell, Tick};
 use helix_driver_ffi::batch::decode_batch;
 use helix_driver_ffi::event_sink::FfiEventSink;
 use helix_driver_ffi::vtable::CppHostVtable;
-use helix_driver_host::BatchSink;
+use helix_driver_host::{execute_storage_ops, execute_storage_ops_atomic, BatchSink, HostStorage};
 use helix_driver_native::event_sink::NativeEventSink;
 use helix_driver_web::{WebExecutor, WebOwnedEffect};
 use helix_im::event::MessageV3Event;
@@ -64,10 +64,11 @@ use helix_im::query::LocalStoreMode;
 use helix_im::state::ChannelId;
 use helix_im::ImModule;
 use parking_lot::Mutex;
+use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::sync::Arc;
 
-// ─── 真 Go post 帧（同 golden 测试）──────────────────────────────────────────────
+// ─── 真 Go post 历史抓帧（本测试仅本地回放）──────────────────────────────────────────────
 const POST_JSON: &str = include_str!("../../helix-im/tests/fixtures/real_go_frames/post.json");
 
 fn fixture_body(raw: &str) -> Vec<u8> {
@@ -91,6 +92,7 @@ fn build_shell() -> ExecutionShell {
     build_shell_with_mode(LocalStoreMode::Durable)
 }
 
+/// 用相同 Native 业务配置比较不同 egress 与本地存储模式的交付结果。
 fn build_shell_with_mode(local_store_mode: LocalStoreMode) -> ExecutionShell {
     let config = ImConfig {
         ws_url: "ws://test".to_string(),
@@ -103,6 +105,7 @@ fn build_shell_with_mode(local_store_mode: LocalStoreMode) -> ExecutionShell {
         user_name: String::new(),
         org_name: String::new(),
         dept_name: String::new(),
+        client_platform: helix_im::ClientPlatform::Native,
         offline_sync_diagnostics: Default::default(),
     };
     let mut module = ImModule::new_with_local_store(config, local_store_mode);
@@ -116,38 +119,116 @@ fn build_shell_with_mode(local_store_mode: LocalStoreMode) -> ExecutionShell {
     shell
 }
 
-/// 跑剧本，收集原始 Emit 序列（source-of-truth）。
-fn collect_source_emits(shell: &mut ExecutionShell) -> Vec<DomainEventBytes> {
-    let mut out = Vec::new();
+/// 兑现本轮 SQLite Effect 并按原 corr 回灌；不伪造 HTTP 成功或业务 Emit。
+async fn drain_storage(
+    shell: &mut ExecutionShell,
+    storage: &HostStorage,
+    initial: Vec<WebOwnedEffect>,
+    now_ms: u64,
+) -> Vec<DomainEventBytes> {
+    let mut queue = VecDeque::from(initial);
+    let mut events = Vec::new();
+    let mut steps = 0;
+    while let Some(effect) = queue.pop_front() {
+        steps += 1;
+        assert!(steps < 128, "storage replay must converge");
+        let reply = match effect {
+            WebOwnedEffect::Persist { corr, ops } => {
+                Some((corr, execute_storage_ops(storage, &ops).await))
+            }
+            WebOwnedEffect::PersistAtomic { corr, ops } => {
+                Some((corr, execute_storage_ops_atomic(storage, &ops).await))
+            }
+            WebOwnedEffect::PersistFire { ops } => {
+                assert!(matches!(
+                    execute_storage_ops(storage, &ops).await,
+                    PortOutcome::Ok(_)
+                ));
+                None
+            }
+            WebOwnedEffect::Emit { event } => {
+                events.push(event);
+                None
+            }
+            _ => None,
+        };
+        if let Some((corr, outcome)) = reply {
+            assert!(
+                matches!(&outcome, PortOutcome::Ok(_)),
+                "SQLite reply: {outcome:?}"
+            );
+            let next = shell
+                .step(Tick::PortReply { corr, outcome }, now_ms + steps)
+                .expect("storage PortReply");
+            queue.extend(next.iter().map(WebOwnedEffect::from));
+        }
+    }
+    events
+}
 
-    let start_effects = shell.start().expect("start should not fail");
-    collect_emits_from_slice(start_effects, &mut out);
-
-    let cmd_payload = serde_json::json!({
-        "channel_id": "00000000000000000000000001",
-        "temporary_id": "f5_tmp_1",
+/// 用真实 SQLite 回灌启动、乐观写、post 原子提交与成员读回，收集生产 Emit。
+async fn collect_source_emits(shell: &mut ExecutionShell) -> Vec<DomainEventBytes> {
+    let storage = HostStorage::open_sqlite_url("sqlite::memory:")
+        .await
+        .expect("isolated SQLite");
+    for sql in helix_im::IM_SCHEMA
+        .iter()
+        .chain(helix_im::IM_SCHEMA_MIGRATIONS)
+    {
+        if let Err(error) = storage.execute_raw(sql).await {
+            assert!(
+                error.to_string().contains("duplicate column name"),
+                "schema: {error:?}"
+            );
+        }
+    }
+    let start = shell
+        .start()
+        .expect("start")
+        .iter()
+        .map(WebOwnedEffect::from)
+        .collect();
+    let mut out = drain_storage(shell, &storage, start, FIXED_NOW_MS).await;
+    let payload = serde_json::json!({
+        "channel_id": "rmibkwkjwidhdx5xy8pyse6a3r",
+        "allocated_temporary_id": "helixverify1781671289",
         "text": "hello-f5"
     });
     let cmd = Tick::Command(AppCommand::new(
         "im_send_message",
-        serde_json::to_vec(&cmd_payload).expect("static JSON"),
+        serde_json::to_vec(&payload).unwrap(),
     ));
-    let effects = shell.step(cmd, FIXED_NOW_MS).expect("step cmd");
-    collect_emits_from_slice(effects, &mut out);
-
+    let effects = shell.step(cmd, FIXED_NOW_MS + 200).expect("send command");
+    assert!(
+        !contains_event(effects, "im:post:sending"),
+        "sending requires PersistOk"
+    );
+    let pending = effects.iter().map(WebOwnedEffect::from).collect();
+    out.extend(drain_storage(shell, &storage, pending, FIXED_NOW_MS + 200).await);
     let post_tick = Tick::Inbound(InboundBytes(fixture_body(POST_JSON).into()));
-    let effects = shell.step(post_tick, FIXED_NOW_MS).expect("step inbound");
-    collect_emits_from_slice(effects, &mut out);
-
-    out
-}
-
-fn collect_emits_from_slice(effects: &[Effect], out: &mut Vec<DomainEventBytes>) {
-    for e in effects {
-        if let Effect::Emit { event } = e {
-            out.push(event.clone());
-        }
+    let effects = shell
+        .step(post_tick, FIXED_NOW_MS + 400)
+        .expect("post inbound");
+    assert!(
+        !contains_event(effects, "im:post:received"),
+        "received requires atomic commit/readback"
+    );
+    let pending = effects.iter().map(WebOwnedEffect::from).collect();
+    out.extend(drain_storage(shell, &storage, pending, FIXED_NOW_MS + 400).await);
+    for expected in ["im:post:sending", "im:post:received"] {
+        assert_eq!(
+            out.iter()
+                .filter(|event| {
+                    serde_json::from_slice::<serde_json::Value>(&event.0).unwrap()["event"]
+                        == expected
+                })
+                .count(),
+            1,
+            "exactly one {expected} must be produced"
+        );
     }
+    shell.stop().expect("stop replay shell");
+    out
 }
 
 // ─── FfiEventSink 路径 ───────────────────────────────────────────────────────
@@ -251,11 +332,11 @@ fn collect_native_emits(source_emits: &[DomainEventBytes]) -> Vec<DomainEventByt
 /// 主测试：native↔FFI egress byte-level parity。
 ///
 /// HX-C011 可证伪：若 break FfiEventSink flush 或 batch decode → parity FAIL。
-#[test]
-fn f5_egress_parity_native_ffi_byte_identical() {
+#[tokio::test]
+async fn f5_egress_parity_native_ffi_byte_identical() {
     // 跑剧本，收集 source-of-truth Emit 序列
     let mut shell = build_shell();
-    let source = collect_source_emits(&mut shell);
+    let source = collect_source_emits(&mut shell).await;
     assert!(
         !source.is_empty(),
         "剧本必须产出至少一条 Emit（否则 parity 测试无意义）"
@@ -440,13 +521,23 @@ fn a4_identical_injected_lifecycle_script_is_three_platform_equivalent() {
             .step(lifecycle_tick(step), now_ms)
             .expect("native lifecycle step");
         let native_fingerprint = effect_fingerprints(native);
+        let watermark_corr = native.iter().find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(|op| {
+                    matches!(op,
+                StorageOp::Scan(spec) if spec.table == "message")
+                }) =>
+            {
+                Some(*corr)
+            }
+            _ => None,
+        });
         if matches!(step, LifecycleStep::Hello(_)) {
             assert!(
-                native
+                !native
                     .iter()
-                    .any(|effect| matches!(effect, Effect::Http { req, .. }
-                    if req.url.ends_with("/channels/load/increment"))),
-                "hello step 必须有 increment HTTP，防两边都空的假绿"
+                    .any(|effect| matches!(effect, Effect::Http { .. })),
+                "hello must read the local watermark before increment HTTP"
             );
             assert!(
                 contains_event(native, "im:connection:established"),
@@ -470,5 +561,44 @@ fn a4_identical_injected_lifecycle_script_is_three_platform_equivalent() {
             web_effect_fingerprints(&web),
             "生命周期剧本第 {index} 步 Web 业务 Effect 漂移"
         );
+        if matches!(step, LifecycleStep::Hello(_)) {
+            let corr = watermark_corr.expect("hello must request a message watermark scan");
+            let reply = || Tick::PortReply {
+                corr,
+                outcome: PortOutcome::Ok(ReplyBytes(Bytes::from_static(b"[{\"update_at\":1234}]"))),
+            };
+            let native = native_shell
+                .step(reply(), now_ms)
+                .expect("native watermark reply");
+            let requests: Vec<_> = native
+                .iter()
+                .filter_map(|effect| match effect {
+                    Effect::Http { req, .. } if req.url.ends_with("/channels/load/increment") => {
+                        Some(req)
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                requests.len(),
+                1,
+                "one increment follows the matching scan reply"
+            );
+            let body: serde_json::Value =
+                serde_json::from_slice(requests[0].body.as_ref().unwrap()).unwrap();
+            assert_eq!(
+                body["timestamp"], 1234,
+                "increment uses persisted watermark"
+            );
+            let expected = effect_fingerprints(native);
+            assert_eq!(
+                expected,
+                effect_fingerprints(ffi_shell.step(reply(), now_ms).unwrap())
+            );
+            assert_eq!(
+                expected,
+                web_effect_fingerprints(&web_executor.step(reply(), now_ms).unwrap())
+            );
+        }
     }
 }

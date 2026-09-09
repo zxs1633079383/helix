@@ -267,6 +267,9 @@ impl RealHelixSession {
             }
         }
         remove_test_storage(&self.db_path);
+        if self.db_path.exists() {
+            return Err("owned SQLite remains after Native session cleanup".to_owned());
+        }
         Ok(())
     }
 
@@ -333,7 +336,7 @@ pub(crate) async fn start_chain_helix_session_as(
 }
 
 /// 按给定 Go HTTP/WS 端点装配完整 Native 生命周期；业务仍只在 helix-im 内执行。
-async fn start_real_helix_session_as_at(
+pub(crate) async fn start_real_helix_session_as_at(
     _context: &AuthContext,
     persona: &Persona,
     channel_ids: &[&str],

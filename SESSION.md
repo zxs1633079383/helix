@@ -1,3 +1,7 @@
+## 2026-09-10 Native 分类真实链通过
+
+message_v3_domain::category_chain_native 使用隔离 Go HTTP/WS + 三个 Native engine + SQLite + EventSink，覆盖能力、创建(maxCategories=2)、发布、成员接收、参与/取消、历史receipt revision3与公共revision4、重复对账、真实SQLite故障无成功终态；三个会话关闭且SQLite删除后证据才标PASS。日志 /tmp/category-gfix-evidence/native-category-final3.log。此为源码候选，不代表Angular或远端部署。
+
 ## 2026-09-10 分类 revision 非法输入关闭
 
 CATEGORY_CHAIN 的 live post、post_update、posts_update 与 sync 快照在 gate/cursor/storage 前统一校验 revision，拒绝缺失、null、数值及非 canonical 值；合法同 seq 可恢复，普通消息不受影响。公开 Tick/PortReply 回归 7 项通过，原实现 5 项红测；未作 Native/UI 验收。

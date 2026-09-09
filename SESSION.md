@@ -77,6 +77,11 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 修复推送门同根因的 ImConfig 测试配置遗漏：只在 FFI egress、Host media、IM reconnect 三个测试补齐 Native 平台配置与邻近职责注释，不改生产逻辑/断言；三个聚焦 target 编译通过，运行结果如实记录，任何其他根因失败不扩修；随后继续正常 hook 推送。 | 赌注 低 | 可逆 是 | @2026-09-09
+
+✅ DONE 原 stress_test 配置修复已在 `59ca6ab0` 提交，check及3/3通过；剩余三个同根因配置已补齐，聚焦target cargo check通过（25.88s），IM reconnect 6/6通过并独立提交。FFI parity 2/4（事件/生命周期断言失败）、Host media 0/1（SQLite sent等待10秒超时）属于不同于缺字段编译错误的后续阻塞；两文件保留工作区、不提交、不扩修生产逻辑。推送仍未成功。日志 `/tmp/helix-platform-fixtures-{check,test}.log`。 | @2026-09-09
+⚡ DRIFT-PRED 全部目标通过编译后，FFI事件断言与Host媒体终态仍失败 → 候选教训：配置编译修复只能证明target恢复可执行，不能替代测试行为验收；按publish-only边界停止扩张。
+
 🎯 EXPECT 按用户授权提交工作区与暂存区的分类接龙改动；仅补齐当前必填 maxCategories 的库/Host 测试输入，聚焦 IM 分类与 SQLite 守卫测试及五 crate check 通过；生产业务语义、历史 patch 字节和 tmp 备份不变，按功能与证据分类提交，不 push，不扩修客户端或无关历史失败。分支 helix-message-test，开局 HEAD caf20f3b，无 upstream，保留分支。 | 赌注 中 | 可逆 是 | @2026-09-09
 
 ✅ DONE 代码批次 `1ed15f08` 已提交：IM lib 371/371、分类39/39、Host分类SQLite6/6、存储一致性21/21、守卫3/3及五crate check通过。只补当前合同的旧测试输入并刷新canonical来源哈希；生产语义不变。合同/审查资料单独归档，明确实际客户端准入BLOCKED、真实恢复未验；历史patch原字节和tmp备份保留，补丁数据的空白上下文由docs/.gitattributes精确豁免行尾空格，diff check与JSON/patch解析通过。未push。 | @2026-09-09

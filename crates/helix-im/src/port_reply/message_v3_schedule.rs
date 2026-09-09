@@ -49,6 +49,13 @@ impl ImModule {
         {
             self.state.inflight_schedule_revisions.remove(&channel_id);
         }
+        // 请求关联只消费一次；失败同样释放，重放 authority 仍可独立恢复持久事实。
+        let causation_id = causation_id.filter(|request_id| {
+            self.state.pending_schedule_requests.get(&channel_id) == Some(request_id)
+        });
+        if causation_id.is_some() {
+            self.state.pending_schedule_requests.remove(&channel_id);
+        }
         let PortOutcome::Ok(_) = outcome else {
             if let Some(req_id) = causation_id.as_deref() {
                 out.push(crate::read_relay::emit_read_error(
@@ -71,11 +78,6 @@ impl ImModule {
                 req_id,
                 serde_json::json!({"ok": true}),
             ));
-        }
-        if causation_id.as_ref().is_some_and(|request_id| {
-            self.state.pending_schedule_requests.get(&channel_id) == Some(request_id)
-        }) {
-            self.state.pending_schedule_requests.remove(&channel_id);
         }
         let corr = self.alloc_corr_internal();
         self.state.corr_map.insert(
@@ -140,6 +142,15 @@ impl ImModule {
         {
             self.state.inflight_schedule_revisions.remove(&channel_id);
         }
+        // 请求关联只消费一次；失败同样释放，重放 authority 仍可独立恢复持久事实。
+        let causation_id = causation_id.filter(|request_id| {
+            self.state.pending_schedule_cancel_requests.get(&channel_id) == Some(request_id)
+        });
+        if causation_id.is_some() {
+            self.state
+                .pending_schedule_cancel_requests
+                .remove(&channel_id);
+        }
         let PortOutcome::Ok(_) = outcome else {
             if let Some(req_id) = causation_id.as_deref() {
                 out.push(crate::read_relay::emit_read_error(
@@ -162,13 +173,6 @@ impl ImModule {
                 req_id,
                 serde_json::json!({"ok": true}),
             ));
-        }
-        if causation_id.as_ref().is_some_and(|request_id| {
-            self.state.pending_schedule_cancel_requests.get(&channel_id) == Some(request_id)
-        }) {
-            self.state
-                .pending_schedule_cancel_requests
-                .remove(&channel_id);
         }
         let corr = self.alloc_corr_internal();
         self.state.corr_map.insert(

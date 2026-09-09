@@ -948,10 +948,16 @@ fn schedule_media_failure_and_timeout_release_intent() {
 #[test]
 fn schedule_invalid_content_completes_request_without_io() {
     let mut h = Harness::new(&[1]);
-    h.step(outbound_cmd("im_create_schedule", serde_json::json!({
-        "channel_id": cid(1), "message": "", "type": "TEXT", "props": {},
-        "req_id": "schedule-invalid", "schedule_post_at": 1900000000000i64
-    })), 1);
+    h.step(
+        outbound_cmd(
+            "im_create_schedule",
+            serde_json::json!({
+                "channel_id": cid(1), "message": "", "type": "TEXT", "props": {},
+                "req_id": "schedule-invalid", "schedule_post_at": 1900000000000i64
+            }),
+        ),
+        1,
+    );
     assert!(http_corr(&h.sink).is_none());
     let event = emit_json(&h.sink).unwrap();
     assert_eq!(event["data"]["req_id"], "schedule-invalid");
@@ -971,7 +977,203 @@ fn schedule_stop_releases_upload_and_rejects_late_reply() {
     let corr = http_corr(&h.sink).unwrap();
     h.sink.clear();
     h.module.on_stop(&mut h.sink).unwrap();
-    assert!(emit_jsons(&h.sink).iter().any(|event| event["data"]["error"] == "SCHEDULE_MEDIA_INTERRUPTED"));
+    assert!(emit_jsons(&h.sink)
+        .iter()
+        .any(|event| event["data"]["error"] == "SCHEDULE_MEDIA_INTERRUPTED"));
     h.step(port_reply_ok(corr), 2);
     assert!(http_corr(&h.sink).is_none());
+}
+
+/// 定时读回回执覆盖创建和取消；HTTP 仅 admission，WS 提交决定请求结果。
+fn schedule_request(h: &mut Harness, cancel: bool) -> u64 {
+    let payload = if cancel {
+        serde_json::json!({"channel_id": cid(1), "req_id": "schedule-once"})
+    } else {
+        serde_json::json!({"channel_id": cid(1), "message": "scheduled", "type": "TEXT",
+            "schedule_post_at": 1900000000000i64, "req_id": "schedule-once"})
+    };
+    h.step(
+        outbound_cmd(
+            if cancel {
+                "im_cancel_schedule"
+            } else {
+                "im_create_schedule"
+            },
+            payload,
+        ),
+        1,
+    );
+    http_corr(&h.sink).expect("schedule must dispatch HTTP")
+}
+
+/// 从公开 WS 入口送入当前 viewer 的权威版本，禁止直接调用持久化 handler。
+fn schedule_authority(h: &mut Harness, cancel: bool, revision: u64) -> u64 {
+    h.step(
+        Tick::Inbound(helix_core::tick::InboundBytes(bytes::Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "action": if cancel { "post_schedule_canceled" } else { "post_schedule_created" },
+                "data": { "channelId": cid(1), "scheduleId": "s1", "scheduleOwnerUserId": "actor",
+                    "message": "scheduled", "sendAt": 1900000000000i64, "revision": revision }
+            }))
+            .unwrap(),
+        ))),
+        2 + revision,
+    );
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("authority must persist atomically")
+}
+
+/// PersistErr 只结束请求一次；后续 WS 重放仍能恢复持久事实但不能再次 resolve。
+#[test]
+fn schedule_relay_persist_failure_then_replay_never_completes_twice() {
+    for cancel in [false, true] {
+        let mut h = Harness::new_with_identity(&[1], "actor", "company", "", "", "");
+        let http = schedule_request(&mut h, cancel);
+        h.step(
+            port_reply_with_body(
+                http,
+                enveloped(bytes::Bytes::from_static(br#"{"status":"SUCCESS"}"#)),
+            ),
+            2,
+        );
+        assert!(h.sink.as_slice().is_empty(), "admission cannot resolve");
+        let persist = schedule_authority(&mut h, cancel, 8);
+        h.step(port_reply_err(persist), 11);
+        let events = emit_jsons(&h.sink);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["data"]["error"], "SCHEDULE_PERSIST_FAILED");
+        assert_eq!(events[0]["data"]["req_id"], "schedule-once");
+        let replay = schedule_authority(&mut h, cancel, 8);
+        h.step(port_reply_ok(replay), 12);
+        assert!(
+            emit_jsons(&h.sink).is_empty(),
+            "failed request cannot later succeed"
+        );
+        assert!(
+            h.sink
+                .as_slice()
+                .iter()
+                .any(|e| matches!(e, Effect::Persist { .. })),
+            "authority recovery still reads durable facts"
+        );
+    }
+}
+
+/// WS 可能先于 HTTP 回包；已持久成功的请求不得被迟到的网络失败再次 reject。
+#[test]
+fn schedule_relay_late_http_failure_after_persist_is_ignored() {
+    for cancel in [false, true] {
+        let mut h = Harness::new_with_identity(&[1], "actor", "company", "", "", "");
+        let http = schedule_request(&mut h, cancel);
+        let persist = schedule_authority(&mut h, cancel, 8);
+        h.step(port_reply_ok(persist), 11);
+        assert_eq!(emit_jsons(&h.sink)[0]["data"]["body"]["ok"], true);
+        h.step(port_reply_err(http), 12);
+        assert!(
+            emit_jsons(&h.sink).is_empty(),
+            "durable success cannot later fail"
+        );
+    }
+}
+
+/// HTTP 失败发生在已入队 WS 的持久化回包前，也只能向调用方返回一次终态。
+#[test]
+fn schedule_relay_http_failure_during_persist_is_terminal() {
+    for cancel in [false, true] {
+        let mut h = Harness::new_with_identity(&[1], "actor", "company", "", "", "");
+        let http = schedule_request(&mut h, cancel);
+        let persist = schedule_authority(&mut h, cancel, 8);
+        h.step(port_reply_err(http), 11);
+        assert_eq!(
+            emit_jsons(&h.sink)[0]["data"]["error"],
+            "SCHEDULE_REQUEST_FAILED"
+        );
+        h.step(port_reply_ok(persist), 12);
+        assert!(
+            emit_jsons(&h.sink).is_empty(),
+            "pending persist must not resolve rejected request"
+        );
+    }
+}
+
+/// 连续权威版本可各自提交，但共享的前端请求只能被第一个完成的持久屏障消费。
+#[test]
+fn schedule_relay_multiple_authorities_complete_request_once() {
+    for cancel in [false, true] {
+        let mut h = Harness::new_with_identity(&[1], "actor", "company", "", "", "");
+        schedule_request(&mut h, cancel);
+        let first = schedule_authority(&mut h, cancel, 8);
+        let second = schedule_authority(&mut h, cancel, 9);
+        h.step(port_reply_ok(first), 12);
+        assert_eq!(emit_jsons(&h.sink).len(), 1);
+        h.step(port_reply_ok(second), 13);
+        assert!(
+            emit_jsons(&h.sink).is_empty(),
+            "same req_id must resolve once"
+        );
+        h.step(port_reply_ok(first), 14);
+        assert!(
+            h.sink.as_slice().is_empty(),
+            "duplicate corr must be consumed"
+        );
+    }
+}
+
+/// HTTP 非 2xx、业务失败与畸形信封均拒绝请求，不能把 SUCCESS 字样当成持久成功。
+#[test]
+fn schedule_relay_http_failure_matrix_is_correlated_and_once() {
+    for cancel in [false, true] {
+        for response in [
+            enveloped(bytes::Bytes::from_static(br#"{"status":"FAILED"}"#)),
+            bytes::Bytes::from_static(br#"{"status":503,"body":"eyJzdGF0dXMiOiJTVUNDRVNTIn0="}"#),
+            bytes::Bytes::from_static(br#"{"status":200,"body":"!"}"#),
+        ] {
+            let mut h = Harness::new_with_identity(&[1], "actor", "company", "", "", "");
+            let http = schedule_request(&mut h, cancel);
+            h.step(port_reply_with_body(http, response.clone()), 2);
+            let events = emit_jsons(&h.sink);
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0]["data"]["req_id"], "schedule-once");
+            assert_eq!(events[0]["data"]["error"], "SCHEDULE_REQUEST_FAILED");
+            h.step(port_reply_with_body(http, response), 3);
+            assert!(h.sink.as_slice().is_empty());
+        }
+    }
+}
+
+/// G04d 业务失败和非法 JSON 不得被包装成成功的空定时列表。
+#[test]
+fn schedule_relay_get_failure_never_becomes_empty_success() {
+    for body in [
+        br#"{"status":"FAILED","message":"denied"}"#.as_slice(),
+        b"invalid-json".as_slice(),
+    ] {
+        let mut h = Harness::new(&[1]);
+        h.step(
+            outbound_cmd(
+                "im_get_schedule",
+                serde_json::json!({"channel_id":cid(1), "req_id":"get-failed"}),
+            ),
+            1,
+        );
+        let corr = http_corr(&h.sink).unwrap();
+        h.step(
+            port_reply_with_body(corr, enveloped(bytes::Bytes::copy_from_slice(body))),
+            2,
+        );
+        let events = emit_jsons(&h.sink);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["data"]["req_id"], "get-failed");
+        assert!(
+            events[0]["data"].get("error").is_some(),
+            "failed getSchedule cannot clear UI as empty success"
+        );
+        assert!(events[0]["data"].get("body").is_none());
+    }
 }

@@ -841,8 +841,21 @@ impl ImModule {
             PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
                 Ok(raw_body) => {
                     if command == "im_get_schedule" {
-                        let body = serde_json::from_slice::<serde_json::Value>(&raw_body)
-                            .unwrap_or(serde_json::Value::Null);
+                        // 允许既有裸数据响应；显式业务失败或坏 JSON 不能伪装成空列表成功。
+                        let body = match serde_json::from_slice::<serde_json::Value>(&raw_body) {
+                            Ok(body)
+                                if body.get("status").is_none_or(|status| status == "SUCCESS") =>
+                            {
+                                body
+                            }
+                            _ => {
+                                out.push(crate::read_relay::emit_read_error(
+                                    req_id,
+                                    "SCHEDULE_READ_FAILED",
+                                ));
+                                return Ok(());
+                            }
+                        };
                         let schedules = crate::outbound::posts::read::schedule_projections(
                             channel_id.unwrap_or_default(),
                             &body,

@@ -789,21 +789,17 @@ impl ImModule {
                     }
                     PortOutcome::Err(_) => false,
                 };
-                if let Some(req_id) = request_id.as_deref() {
-                    if !succeeded {
+                // 已由 WS 持久屏障结束的请求，不再接受迟到 HTTP 错误。
+                if !succeeded {
+                    if let Some(req_id) = request_id.filter(|request_id| {
+                        self.state.pending_schedule_requests.get(&channel_id) == Some(request_id)
+                    }) {
+                        self.state.pending_schedule_requests.remove(&channel_id);
                         out.push(crate::read_relay::emit_read_error(
-                            req_id,
+                            &req_id,
                             "SCHEDULE_REQUEST_FAILED",
                         ));
                     }
-                }
-
-                if !succeeded
-                    && request_id.as_ref().is_some_and(|request_id| {
-                        self.state.pending_schedule_requests.get(&channel_id) == Some(request_id)
-                    })
-                {
-                    self.state.pending_schedule_requests.remove(&channel_id);
                 }
             }
             CorrelationContext::OutboundScheduleCancel {
@@ -821,24 +817,20 @@ impl ImModule {
                     }
                     PortOutcome::Err(_) => false,
                 };
-                if let Some(req_id) = request_id.as_deref() {
-                    if !succeeded {
+                // 已由 WS 持久屏障结束的请求，不再接受迟到 HTTP 错误。
+                if !succeeded {
+                    if let Some(req_id) = request_id.filter(|request_id| {
+                        self.state.pending_schedule_cancel_requests.get(&channel_id)
+                            == Some(request_id)
+                    }) {
+                        self.state
+                            .pending_schedule_cancel_requests
+                            .remove(&channel_id);
                         out.push(crate::read_relay::emit_read_error(
-                            req_id,
+                            &req_id,
                             "SCHEDULE_REQUEST_FAILED",
                         ));
                     }
-                }
-
-                if !succeeded
-                    && request_id.as_ref().is_some_and(|request_id| {
-                        self.state.pending_schedule_cancel_requests.get(&channel_id)
-                            == Some(request_id)
-                    })
-                {
-                    self.state
-                        .pending_schedule_cancel_requests
-                        .remove(&channel_id);
                 }
             }
             CorrelationContext::ScheduleCreatedPersist {

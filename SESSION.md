@@ -133,6 +133,15 @@
 
 ## 0. 当前任务
 
+✅ DONE G04a-e 本批回执修复：创建/取消以 pending request 匹配并单次消费；PersistAtomic 成败均释放关联，WS 重放恢复与迟到 HTTP 不重复结束请求；getSchedule 显式业务失败和坏 JSON 返回关联错误。聚焦 105/105、helix-im check（8.56s）、diff check 通过；新增 6 项回归先红后绿（5 项复现，HTTP 失败矩阵原已通过）。 | @2026-09-09T16:52:31+08:00
+
+生命周期核对：创建/取消 HTTP 2xx + SUCCESS 只 admission；当前 viewer 的 WS authority 进入 PersistAtomic；失败只返回 SCHEDULE_PERSIST_FAILED，无 readback/领域成功；成功返回单次 read relay，随后 Get durable row 才发 schedule-created/canceled。G04c 仍由取消/创建两命令组成；G04e 仍由普通发送/取消组成；G04d 无 WS/Persist 阶段，HTTP 读回保留 req_id。上传失败、120 秒上传超时与 stop/迟到回包由既有聚焦测试覆盖。
+本轮证据只到 sans-IO public seam；未重跑真实 Go/WS、Native SQLite、UI 或全量 Gate。热路径 schedule handler 脚本通过；通用 dispatch 的 1 项、dispatch_read 的 5 项 clone 告警在 HEAD 原文复测一致，本批未新增。原 artifacts/output 不纳入提交，不 push。
+既有并发风险（不计本批已修）：schedule committed revision 直接 insert 及无版本 readback context 均早于 79aa3476（1124664e 等历史实现）；反序 PersistOk 可能回退内存水位，多个 Get 可能重复 Emit 同版本。独立静态审查发现，未运行破坏性回放或验证 driver FIFO，按本批范围保留后续核验。
+
+
+🎯 EXPECT 收口 G04a-e：仅修定时请求回执生命周期；HTTP admission 不提前成功，PersistAtomic 失败清理关联，WS 重放与迟到 HTTP 不重复结束请求；G04a-e、G08/G09、read_relay 聚焦测试与 helix-im check、diff check 通过。基线 44914c4a，分支 reactor/MessageV3-helix，保留既有 artifacts/output，不 push。 | 赌注 中 | 可逆 是 | @2026-09-09T16:49:46+08:00
+
 🎯 EXPECT 本轮 Markdown 日检仅对齐已有 CI/脚本事实；可证伪断言：只修改 README、scripts/README、Harness OPERATING/decisions 与 SESSION，诊断入口、6m/5m/180000ms 超时层级及 PRE 凭据覆盖顺序均能在当前配置找到；923 份 Markdown 的相对路径链接与聚焦 checker 通过，不修改代码/配置/生成物 | 赌注 低 | 可逆 是 | @2026-09-08T08:04:17+0800
 
 本轮隔离：`codex/helix-markdown-20260908-0801`，upstream `origin/reactor/MessageV3-helix`，基线 `68dbf21c`；worktree `/System/Volumes/Data/workspace/angular/visual/helix-markdown-20260908-0801`，初始 clean，保留供追溯、不自动删除。源 checkout `3d421dbb` 的四组未跟踪资产不纳入。

@@ -27,7 +27,7 @@
 - 后台 agent 完成依赖任务通知，不做固定周期空轮询；外部 CI、部署队列等不可追踪状态才使用监控机制。
 
 GitLab CI 默认执行完整 MessageV3 real-chain；诊断变量为 `1` 时仅执行限时前置探针与 G07B。
-两个 job 均声明 6 分钟 timeout、脚本预算 5 分钟；详见 [CI 诊断与限时](../../scripts/README.md#messagev3-ci-诊断与限时)。`scripts/gate.sh` 仍保留给本地/pre-push 或人工完整 Rust/FFI
+两个 job 均声明 6 分钟 timeout、脚本预算 5 分钟；详见 [CI 诊断与限时](../../scripts/README.md#messagev3-ci-诊断与限时)。`scripts/gate.sh` 仅保留给人工完整 Rust/FFI
 检查，不再与 real-chain 争用 CI 主入口；客户端 92 Gate 合同与 real-chain 的 83 个可执行分母也不互相替代。
 
 ## 索引

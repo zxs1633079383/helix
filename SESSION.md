@@ -1,3 +1,7 @@
+## 2026-09-10 清理本地 pre-push 并继续分类推送
+
+用户明确要求关闭 pre-push。来源提交32eec39c已删除初始化脚本；本轮删除共享Git目录残留hook，清理README、操作手册、ADR及交接文档中的安装建议，保留人工检查与CI入口。分类生产及Native实现保持b8757f7c，既有114项领域测试和最终跨仓分类复跑通过；旧发送套件11通过/3失败/7忽略保留为未关闭问题，不宣称全仓绿色。推送结果以本轮远端SHA回读为准。
+
 ## 2026-09-10 Native 分类开发候选通过
 
 已合入be7c6f68并在开发0.1.15实际Go候选上运行Native分类全场景，1/1 PASS（8场景，3会话cleanup成功）。证据 artifacts/messagev3-phase1-4-real-chain/hx-p1-category-native-33408-8/category.json；保留开发Phase池/raw pump及既有SQLite清理，不覆盖新版shared实现。

@@ -154,7 +154,7 @@
   `CSES_WDIO_CREDENTIALS_JSON`，其次允许 `CSES_WDIO_CREDENTIALS_FILE` 覆盖；非 PRE 不注入内置账号池。
 - **理由**：CI 需要执行与人工真实链一致的 HTTP/WS/Native/SQLite/EventSink 证据，而不是只运行静态
   Rust/FFI 检查；同时 profile 把 PRE、local 和后续环境的物理地址从测试逻辑中抽离，避免切换环境改源码。
-  `scripts/gate.sh` 仍是本地/pre-push 的完整 Rust/FFI 检查入口，不与 real-chain 互相宣称同一证据等级。
+  `scripts/gate.sh` 仅作为人工完整 Rust/FFI 检查入口，不安装或自动恢复本地 Git hook，不与 real-chain 互相宣称同一证据等级。
 - **当前实现**：`.gitlab-ci.yml` 已加入 `MESSAGEV3_DIAGNOSE=1` 分支：排除完整业务 job，先运行
   `ci-diagnose.mjs`，成功后仅运行 `MV3-G07B`；诊断通过不能替代 83 Gate 验收。两 job 的 timeout
   均为 6m，Runner 脚本预算声明为 5m；Cargo 批次默认 watchdog 为 180000ms，日志实时透传。

@@ -1,3 +1,7 @@
+## 2026-09-10 Native 分类开发候选通过
+
+已合入be7c6f68并在开发0.1.15实际Go候选上运行Native分类全场景，1/1 PASS（8场景，3会话cleanup成功）。证据 artifacts/messagev3-phase1-4-real-chain/hx-p1-category-native-33408-8/category.json；保留开发Phase池/raw pump及既有SQLite清理，不覆盖新版shared实现。
+
 ## 0909 分类开发合并候选
 
 本地隔离候选合并开发 11cbbaf8 与分类 32eec39c。五 crate check、IM lib 414、分类 39、重连 6、stress 3、Host 分类 6/guard 3、FFI parity 4 通过。保留开发发送终态、成员投影与事件序列守卫，保留分类版本守卫和事件读回。H3、新增非法 revision 回归与 Native 分类真实链仍须继续合入验收；未推送。
@@ -102,6 +106,9 @@
 🎯 EXPECT 按已批准 ADR 统一 WS 与 HTTP sync 的 CanonicalEvent/reducer；可证伪断言：① WS 根 `seq` 只保留为 delivery metadata，任何业务 cursor 只接受持久 `channel_event.event_seq`；② 在线与 sync 对同一事件集经过同一 reducer 后，`channel_member` 的绝对 unread/projection revision、message 与 cursor 在实时、断线回补和重启后完全一致；③ 重复、乱序、缺口及 PersistErr 不会双算未读或提前推进 cursor/revision；④ 31 个注册 WS action 与 Go 生产 action 的映射/明确忽略合同均有回放断言；⑤ 只修改 helix-im 与严格必要的 host/schema/测试/文档，不改版本、不 push、不把 Mock 或单侧 Emit 冒充三端真实通过 | 赌注 高 | 可逆 是 | @2026-08-28T
 
 🚧 IN-PROGRESS WS 根 `seq` 已与 `streamSeq` 分离；`channel_stream_event` 与 HTTP `streamEvents` 共用 `EventEnvelope`/storage 语义，redacted marker 只推进 cursor，full 正文缺失 fail-close；`memberProjection` 与 message/cursor 同一 PersistAtomic，`channel_member` 持久化 revision/effect/membership epoch；canonical 在线、buffer flush、sync 与 terminal prefix 已禁止本地 unread delta。合入 Helix 0.1.2 基线后，`cargo fmt --all -- --check`、`cargo test -p helix-im`、五 crate check、core tests 与 Web/WASM 构建通过；真实 Go+WS+SQLite+重启/乱序链尚未执行，任务不得标 DONE | @2026-09-01T
+## 2026-09-10 Native 分类真实链通过
+
+message_v3_domain::category_chain_native 使用隔离 Go HTTP/WS + 三个 Native engine + SQLite + EventSink，覆盖能力、创建(maxCategories=2)、发布、成员接收、参与/取消、历史receipt revision3与公共revision4、重复对账、真实SQLite故障无成功终态；三个会话关闭且SQLite删除后证据才标PASS。日志 /tmp/category-gfix-evidence/native-category-final3.log。此为源码候选，不代表Angular或远端部署。
 
 ## 2026-09-10 分类 revision 非法输入关闭
 

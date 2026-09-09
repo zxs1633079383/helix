@@ -18,7 +18,7 @@ async fn markdown_command_survives_sqlite_reopen() {
 /// 图文布局、提及和稳定附件索引经过生产发送链落库，关闭数据库后仍可恢复。
 #[tokio::test]
 async fn rich_markdown_command_survives_sqlite_reopen() {
-    verify_markdown_sqlite("rich", "RICH", "@张三 **前文** 后文", json!({"imagePosition":"bottom", "files":[{"bucket":"image", "id":"image-1", "uri":"/media/image-1.png", "contentType":"image/png"}], "richText":{"version":1,"markdown":"@张三 **前文** ![图片](cses-media:0) 后文"}}), "[媒体]@张三 前文 后文").await;
+    verify_markdown_sqlite("rich", "RICH", "@张三 **前文** 后文", json!({"imagePosition":"bottom", "files":[{"bucket":"image", "id":"image-1", "uri":"/media/image-1.png", "contentType":"image/png"}], "richText":{"version":1,"markdown":"@张三 **前文** ![图片](cses-media:0) 后文"}}), "[图片] @张三 前文 后文").await;
 }
 
 /// 共用真实 SQLite 屏障与重开验证，各测试使用独占数据库文件。

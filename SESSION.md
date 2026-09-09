@@ -1,3 +1,48 @@
+🎯 EXPECT 为 CATEGORY 接龙加入可选 `maxCategories` 协议字段；可证伪断言：① 新草稿 `max_categories` 仅在存在时映射为 Go HTTP `maxCategories`，且只能是 `1..=categories.len()` 的 JSON 整数；② Card、CategoryChain 与 myParticipation 只接受该一个可选字段，旧 NULL 投影省略它，RETRACTED 卡不得携带它，其余未知字段仍 fail-closed；③ HTTP、WS、draft、mine、CanonicalPost/read-back 均复用同一个 Card 值，空 `selections` 和 `PARTICIPATION_LIMIT_EXCEEDED` 原样透传；④ capabilities 仅新增 `postChainCategoryMaxCategories=true`，wire v3/schema 1 不变；⑤ focused red→green、`cargo check -p helix-im`、`cargo test -p helix-im` 和 diff check 留证，真实 Go/WS/SQLite 链标 UNVERIFIED。run_id=helix-category-max-20260909; corr=req_id/category chain command; channel_id=1; expected_event=im:category_chain:{operation,projection}; expected_fields=maxCategories optional absolute projection | 赌注 高 | 可逆 是 | @2026-09-09T00:00:00+08:00
+
+✅ DONE 分类接龙上限协议已完成：`max_categories` 缺省不进入 HTTP，显式整数仅允许 1..当前分类数并映射为 `maxCategories`；Card、Chain、myParticipation 只新增这个可选字段，历史 NULL 保持省略，RETRACTED Card 禁带字段，Card/Chain 与 Card/mine 不一致均 fail-closed。公开 Command→HTTP、HTTP 回包→Persist/read-back、WS 均由同一真实回放覆盖，超限业务码保留。index 前 wire 的公开红测以 `unknown or authority field 'max_categories'` 失败后恢复当前 hash；分类 target 39/39、`cargo check -p helix-im`、diff check 通过。全量 helix-im test 仍由既有 `stress_test.rs` 缺 `ImConfig.client_platform` 阻断；未运行真实 Go/WS/SQLite/Native，且未同步客户端 0.1.9 runtime。| @2026-09-09T00:00:00+08:00
+
+🎯 EXPECT 分类set_participation/publish只新增可选user_snapshot→HTTP userSnapshot展示字段；Go保持身份权威；正式wire和公开seam测试先红后绿，再对客户端0.1.9候选仅同步这两个文件的本轮增量。TEXT五文件、runtime/facts、版本/锁/其他并发改动不变，不提交/重启；记录候选前后SHA与验证 | 赌注 低 | 可逆 是 | @2026-09-08
+
+✅ DONE 分类参与/发布新增可选展示快照user_snapshot→userSnapshot，userName/deptName/orgName不改名、不替代Go身份；主仓RED3失败→GREEN35分类/371lib/三端check/wasm；候选仅wire与四项测试追加，临时副本33分类通过，实际候选SHA匹配，TEXT/runtime/facts/版本/锁未变，无提交或重启。报告 docs/reviews/2026-09-08-category-chain-user-snapshot.md；真实Go/UI由协同任务验证，本任务未运行。 | @2026-09-08
+⚡ DRIFT-PRED 客户端impact补跑在候选同步后，CLI先遇registry DNS失败、改用既有runner仍因目标未索引返回UNKNOWN；未记作低风险，以公开入口和调用点补充核验，保留图覆盖与时序偏差。候选初测缺既有fixture，只复制原fixture到临时目录后33通过，未改制品。
+
+🎯 EXPECT 修复分类审查五项：普通Post迟到不倒退、本人权限同参与版本可刷新、Web空Get与CAS冲突可恢复、fact读回不受旧路径截断；公开seam先红后绿，Host/Web存储及三端Rust检查通过；不修改Go/客户端/版本/锁文件，基线备份 /tmp/helix-category-review-baseline | 赌注 中 | 可逆 是 | @2026-09-08
+
+✅ DONE 本轮分类优化的本地实现与聚焦验证完成：旧Post/编辑/批量编辑及缓冲释放保持revision10；本人同参与版本权限刷新；Web空Get/CAS恢复；fact先按版本过滤再limit；Pending枚举去magic phase。TEXT五个领域/命令/WS/提交文件逐字不变，九路由兼容与混合批次失败隔离通过。IM lib371、分类31、Host6+3+21/89、Web40、core23、三端check/wasm及Native release7项通过；报告 docs/reviews/2026-09-08-category-chain-optimization.md。未提交/push，未改Go/客户端/版本/锁/旧制品，真实Go/UI本轮未重跑。 | @2026-09-08
+⚡ DRIFT-PRED 全量IM验证遇到未改动旧测试缺ImConfig.client_platform → 保持聚焦修复边界，单列历史阻塞，不把局部通过称为全仓绿色；旧/workspace/java日志路径不在当前可写环境，偏差记录保留于本报告。
+
+分支：reactor/MessageV3-helix @caf20f3b；upstream origin/reactor/MessageV3-helix；保留分支。
+
+🎯 EXPECT 本轮恢复当前 monorepo 分类命令桥接并在55441独立schema验证CATEGORY_POST_CHAIN_WIRE/v3五表真链；11语义/9路由/3视图有HTTP、WS、SQLite、Emit与清理证据，客户端UI既有文件保持逐字不变且分类按钮不启用；不提交发布，不操作日常18066/55432 | 赌注 中 | 可逆 是 | @2026-09-08
+
+✅ DONE 当前monorepo客户端补齐11个分类Gate/Tauri入口、能力版本门禁、nested DTO与canonical事件透传、捕获账号代次保护；原23个dirty UI文件hash不变，按钮禁用。Native五表真链category-native-1788838907898449000 PASS，550 hops/9路径/3视图/11语义、Go outbox与revision3–7匹配、schema remaining=0；客户端40测试/TypeScript/boundary/Tauri check/2Rust测试通过。包构建与广回归有既有无关失败，UI/DOM未验收；报告docs/category-post-chain-v3-current-integration.md，无提交发布 | @2026-09-08
+
+🎯 EXPECT 按CATEGORY_POST_CHAIN_WIRE/v3只增加分类query mode=CATEGORY与wire版本3及runner query/JSON重复mode取证；正式/0.1.9公开seam红绿、TEXT九动作不变；产出持久副本精确patch与新runner，旧v2制品/版本/锁文件不动、不live，等待Go五表 | 赌注 低 | 可逆 是 | @2026-09-08
+
+✅ DONE（V3_BUILD_READY_WAITING_GO_FIVE_TABLES）分类query/body mode、版本3feature与严格query/重复body mode取证完成；正式29分类/25chain/check，0.1.9 29分类/7runner/final build和audit/diffcheck通过。增量patch已只读apply-check交主任务，新runner路径/hash见docs/category-post-chain-v3-readiness.json；TEXT与旧v2制品/证据未动，未live/DDL/部署，等待Go五表。
+
+🎯 EXPECT 按CATEGORY_POST_CHAIN_WIRE/v2保留分类Native入口，仅wire复用post-chain+mode=CATEGORY及get view=card|mine|entries，新增postChainCategoryMode能力；公开seam红绿与TEXT九动作缺mode回归通过，产出client持久0.1.9源码精确patch，旧runtime/配置/版本/锁/普通TEXT源不动，无部署 | 赌注 中 | 可逆 是 | @2026-09-07
+
+✅ DONE（V2_BUILD_READY_WAITING_GO_FIVE_TABLES）v2统一mode/view wire+feature已实现；正式29分类/25chain/check、独立0.1.9 29分类/6runner/build通过。精确持久runtime补丁已只读apply-check并交主任务，新runner路径/hash见docs/category-post-chain-v2-readiness.json；旧binary/run保留，无live/DDL/部署，等待Go原五表实现，旧七表PASS仅历史。
+
+🎯 EXPECT 只核对修复后run脱敏证据并更新分类合同/报告状态为限定LIVE_NATIVE_SMOKE_PASS；保留首次失败历史与UI/Web/FFI/跨Pod/部署未验证边界，不改代码/版本/candidate binary，不运行测试或触发其它任务 | 赌注 低 | 可逆 是 | @2026-09-07
+
+✅ DONE 已核对category-native-1788793161209345000：Native PASS/550 hops/11路由齐全，revision3–7 WS+EventSink对应；Go独立Quality accepted与terminal DB/outbox/清理后验由Go报告佐证。Helix合同与机器证据已同步限定LIVE_NATIVE_SMOKE_PASS，原失败历史保留；无代码/测试/版本/binary变更 | @2026-09-07
+
+🎯 EXPECT 将已证实空displayName兼容窄补丁同步到正式0.1.1分类wire与公开seam测试；原函数逐字一致，先红后绿，25分类测试及helix-im check通过；除两处源/测试文件与文档外不改，版本/锁文件/普通消息/观测源和正在联调的0.1.9候选binary哈希保持不变，无提交发布 | 赌注 低 | 可逆 是 | @2026-09-07
+
+✅ DONE（BACKPORTED_FOCUSED_PASS）仅将空displayName下界与3公开seam回归同步正式0.1.1分类功能；先红2失败/1通过，绿25/25、helix-im check及热路径审计通过。原0.1.1测试前缀（含im:post:received）逐字保留；其他源/manifest/lock及联调中0.1.9候选源码/binary SHA未变。窄patch与前后hash见docs/category-profile-compat-0.1.1-evidence.json；无提交发布或Go消息 | @2026-09-07
+
+🎯 EXPECT 仅修复/tmp 0.1.9候选分类切片及smoke诊断；公开Command回放先复现set-participation真实成功响应进入RECONCILING，再通过严格canonical/持久屏障回归与runner编译；正式版本/锁文件、普通消息与观测生产源不变，不运行live或操作Go DB | 赌注 中 | 可逆 是 | @2026-09-07
+
+✅ DONE（FIXED_FOCUSED_REAL_RERUN_PENDING）Go 缺用户资料时保留空 displayName；公开Command红测重现该字段导致RECONCILING，候选wire仅修正资料下界并保留全部canonical/持久屏障。25分类生命周期+4runner离线测试与build通过，新增有界脱敏错误/输入形状诊断，准确新binary SHA与补丁见docs/category-native-profile-compat-report.md。新binary未实跑，无Go DB/忙消息/正式版本锁变更；原始失败保留 | @2026-09-07
+
+🎯 EXPECT 只在/tmp 0.1.9候选新增参数化Native smoke harness及本仓说明；复用生产engine/HTTP/WS/SQLite/EventSink，11路由可执行生命周期和脱敏证据，离线编译/配置测试通过；不运行live、不改四包生产源码、不操作Go库或客户端 | 赌注 中 | 可逆 是 | @2026-09-07
+
+✅ DONE（BUILD_READY_NOT_RUN）候选新增category-native-smoke：生产Native engine/HTTP/WS/SQLite/EventSink参数化装配、11路由工作流、关联HTTP+WS+持久读回脱敏证据、失败/cleanup记录。离线build与3个测试通过，仅执行--help；四包源码/manifest SHA未变、无live run目录、未连接服务或操作Go库。真实端点/隔离身份/WS保活由主任务协调Go owner提供，准确输入与命令见本地合同/harness README；未改客户端/正式Cargo/版本，无提交发布 | @2026-09-07
+
+
 ✅ DONE Helix 0.1.1 已发布：`cses-helix-core`、`helix-im`、`helix-driver-host`、`helix-driver-native` 四包均经 crates.io 实时查询确认可解析；8 个 workspace manifest 与 Cargo.lock 已同步到同批依赖图。版本事务等待本次发布提交承载，不自动 push，既有 artifacts 保持未跟踪 | @2026-08-27T
 
 🎯 EXPECT 修复 crates.io 一键发布的 workspace 版本事务；可证伪断言：① 四个公共 crate 仍是唯一上传集合；② Web、FFI、host-cli 与 helix-perf 只同步内部精确依赖，自身 package.version 保持不变；③ `--plan` 能在上传前发现任何未登记的 workspace path 精确依赖；④ 首次上传前失败按字节恢复 8 个 manifest 与 Cargo.lock；⑤ 单测、候选版本图复现、`--plan` 和 `git diff --check` 通过，不执行真实 publish、不修改既有 artifacts | 赌注 高 | 可逆 是 | @2026-08-27T
@@ -31,6 +76,32 @@
 - 生成器语法、Python 编译、19 UC/25 Gate 索引与本地链接、生成幂等、10 个 Mobile 现有 GTest 路径、70 份 selected-GN Mermaid 渲染和 `git diff --check` 通过；本轮是文档合同沉淀，未运行 Cargo、WDIO 或 Mobile runtime 测试。
 
 ## 0. 当前任务
+
+🎯 EXPECT 按用户授权提交工作区与暂存区的分类接龙改动；仅补齐当前必填 maxCategories 的库/Host 测试输入，聚焦 IM 分类与 SQLite 守卫测试及五 crate check 通过；生产业务语义、历史 patch 字节和 tmp 备份不变，按功能与证据分类提交，不 push，不扩修客户端或无关历史失败。分支 helix-message-test，开局 HEAD caf20f3b，无 upstream，保留分支。 | 赌注 中 | 可逆 是 | @2026-09-09
+
+✅ DONE 代码批次 `1ed15f08` 已提交：IM lib 371/371、分类39/39、Host分类SQLite6/6、存储一致性21/21、守卫3/3及五crate check通过。只补当前合同的旧测试输入并刷新canonical来源哈希；生产语义不变。合同/审查资料单独归档，明确实际客户端准入BLOCKED、真实恢复未验；历史patch原字节和tmp备份保留，补丁数据的空白上下文由docs/.gitattributes精确豁免行尾空格，diff check与JSON/patch解析通过。未push。 | @2026-09-09
+
+🎯 EXPECT 分类接龙独立 review 只追加 SESSION 与 docs/reviews/2026-09-09-category-chain-review.md 及测试证据；核对正式 0.1.1 与客户端实际 0.1.9 的 11 命令、持久屏障和恢复路径，执行现有专项与邻接测试；不改业务源码、不提交、不运行真实账号链，断线漏事件恢复未实测则不得报 PASS。run_id=category-review-20260909 | 赌注 中 | 可逆 是 | @2026-09-09
+
+✅ DONE 独立 review 完成，客户端准入 BLOCKED：实际 0.1.9 复现旧 Post 覆盖更高 revision、同参与版本返回旧权限、历史 CONFIRMED reconcile 降为 RECONCILING、旧 fact 路径截断；测试基线缺 required maxCategories/fixture。正式专项39/39、恢复与若干邻接通过，但库/Host旧样例及普通echo有失败；实际专项31/36（5缺fixture）。完整 SESSION_REPORT/v1 见 docs/reviews/2026-09-09-category-chain-review.md，原始测试和只读依赖probe在/tmp/category-review-20260909。701份生产Rust源SHA保持一致，无业务/仓内测试改动，无提交发布、真实账号链和漏事件恢复验收。 | @2026-09-09
+
+
+🎯 EXPECT 在/tmp从checksum匹配的0.1.9四个发布归档构建不可发布候选，迁入分类接龙delta并保留四个观测API；分类专项与Native兼容检查通过，正式源码/版本/锁文件不改；Web/FFI若缺归档则精确标明，不伪造同版来源 | 赌注 中 | 可逆 是 | @2026-09-07
+
+✅ DONE（Native候选可验证；Web基线缺失）/tmp/helix-category-0.1.9-candidate-kortuqqf由四个checksum匹配归档组装，保留0.1.9观测API与Post/WS新基线，只迁分类delta；workspace check、22分类+4SQLite+2回滚+1观测API测试通过，依赖图统一0.1.9、5份private fixture逐字一致。Web/FFI未上传源码不能由四包恢复，保留UNAPPLIED Web guard补丁并显式NOT_RUN。客户端patch配置/准确命令/来源哈希已交本地合同，正式生产代码/Cargo/版本未改，无提交发布 | @2026-09-07
+⚡ DRIFT-PRED 0.1.9本人Post终态为im:post:sent，旧分类publish测试的received预期在候选上失败 → 保留发布生产行为，仅按真实新基线修订候选测试；发布归档不包含Web/FFI源，不能把四包Native验收误报为三端完整验收。证据见候选category-precompat.log与assembly.json | @2026-09-07
+
+
+🎯 EXPECT 分类接龙私有operation补齐请求捕获的channelId/viewerId；只改runtime、现有生命周期测试、生成fixture及本地交接文档；create无chainId/publish/reconcile/fail实际Emit覆盖，WS和read CommonRes字段不变，聚焦测试与cargo check通过，不改客户端/版本/提交 | 赌注 低 | 可逆 是 | @2026-09-07
+
+✅ DONE 分类接龙私有operation仅在durable complete阶段增加Request.channel/viewer；fail私有错误也带viewerId，read CommonRes/WS字段不变。首次create红测因channelId为Null失败；22/22聚焦测试和cargo check -p helix-im通过，5个实际Emit JSON与SHA256 provenance已写docs/fixtures/category-chain-operation。完整Go receipt扁平保真、reconcile查询原形与WS原形均断言通过；临时0.1.1 path接入=0.1.9客户端的方法写入本地合同，未执行客户端构建或修改正式Cargo文件；未提交/推送/提版 | @2026-09-07
+
+
+🎯 EXPECT 分类接龙独立接入 helix-im Command→HTTP/WS→PersistAtomic/read-back→EventSink；版本十进制字符串不降精度，私有本人状态不进入共享卡片，TEXT_CHAIN/普通发送聚焦回归保持通过；只改本仓、不提交/推送/改版本；focused/SQLite/真实Go/UI证据分层记录 | 赌注 高 | 可逆 是 | @2026-09-07
+
+✅ DONE（Helix本地切片；整体PARTIAL）分类接龙11命令及HTTP/WS→PersistAtomic/read-back→EventSink已完成；focused 414 passed、SQLite相关43 passed（最终分类链+guard 6项复验通过）、core 23 passed/1 ignored、Web37 passed，五crate check/wasm build/git diff --check通过。Host全量受既有media_pipeline_e2e缺client_platform与上传测试sandbox bind限制；真Go/Native运行态/双用户/UI均NOT_RUN，服务端仍未部署/runtimeSupported=false。保持reactor/MessageV3-helix@caf20f3b，不提交/推送/改版本。合同与SESSION_REPORT/v1见docs/category-chain-client-contract.md | @2026-09-07
+⚡ DRIFT-PRED 普通CanonicalPost流与分类head可不同步，红测复现旧HTTP覆盖新message及旧Card-only WS倒退投影 → 新增通用UpsertSpec.update_guard并由Host/Web兑现原子回滚，同时在写前和最终读回核对message版本；外部字面量需补None。候选教训：独立投影的head不能替代共享消息事实的版本证据。约定的外部/workspace/java/logs路径在本机不存在，本轮证据保留于本仓交接文档与/tmp日志 | @2026-09-07
+
 
 🎯 EXPECT 将 hello 后 `channels/load/increment` 的 timestamp 改为 tenant-local `message.update_at` 最大值；可证伪断言：① hello 先产生 `Scan(message, limit=1, ORDER BY update_at DESC)`，scan 回包后 HTTP body 的 `timestamp` 等于首行 `update_at`，空/失败回包为 0；② 现有 `cursors[{channelId,fromSeq}]` 内容与顺序保持不变；③ 启动投影未完成时的既有 bootstrap retry 仍只在 `finish_startup_scan` 触发，且也重新读取 message watermark；④ 只改 Helix increment/相关 correlation 与 focused tests，不改 Go、客户端或既有 `artifacts/`；⑤ 聚焦 Rust 测试与 `git diff --check` 通过 | 赌注 高 | 可逆 是 | @2026-08-20T
 

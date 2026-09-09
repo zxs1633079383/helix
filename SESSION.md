@@ -1,3 +1,11 @@
+✅ DONE 用户追加授权修复摘要断言：15c58e98仅修改Host测试预期，Host check、SQLite关闭重开2/2、IM摘要38/38通过；文档链接1663条与Spec/Matrix检查通过。恢复本轮分类提交与目标分支发布，push仍需现有完整gate通过。 | @2026-09-09T09:39:18+08:00
+
+历史阻断记录（已由15c58e98修复该断言，完整发布门禁待复验）：8 份 Markdown 的证据修正保留于独立 worktree；链接/版本/Harness/Spec/Matrix/历史索引/dry-run 通过。完整 gate 第5阶段因既有 markdown_persist::rich_markdown_command_survives_sqlite_reopen 断言失败退出101（实际 [图片] @张三，期望 [媒体]@张三）；不修改Rust/测试，不commit/merge/push。 | @2026-09-09T08:08:48+08:00
+⚡ DRIFT-PRED 文档聚焦验证通过，但pre-push按crate目录升级全量gate并命中既有摘要断言；发布条件未满足，保留本轮修改待代码owner处理。
+
+🎯 EXPECT 本轮 Markdown 日检基于 6a76cc4a，仅修改证据明确的 Markdown 与 SESSION；Cargo 版本说明对齐 manifest，全库本地链接及相关 checker 通过，不改代码/配置/生成物，不将历史验收升级为当前 Green。 | 赌注 中 | 可逆 是 | @2026-09-09T08:04:00+08:00
+分支：codex/helix-markdown-20260909-0802；upstream：origin/reactor/MessageV3-helix；独立 worktree：helix-markdown-20260909-0802；本轮保留不删除。
+
 ✅ DONE 按用户明确授权分类提交并准备合并推送：Go 613a744/33037c6，Helix 4d1f1449 与既有同步/指标批次，客户端 a876d6e485；保留原覆盖率及未部署边界。 | @2026-09-08T18:47:33.376189+08:00
 
 ✅ DONE 同步广播与背压行为实现：Go 发起连接范围与64投影HTTP分页；Helix重复hello去重、单页PersistOk放行、断线关联清理。真Go→Native→SQLite2436行→EventSink ready、39页零增量广播通过；IM1444/core23/五crate/WASM/WSrace通过。Go完成态提交仍受C019 app98.1%门禁限制；未push/deploy。 | @2026-09-08T18:41:34.252140+08:00

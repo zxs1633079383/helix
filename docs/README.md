@@ -105,7 +105,7 @@ PC / Mobile / Web shell
 - host：`crates/helix-driver-host/`，提供共享 SQLite、HTTP、WS、timer、metrics 与执行驱动。
 - native/FFI/Web：`crates/helix-driver-{native,ffi,web}/`，只兑现平台边界并原样交付事件 bytes。
 - 当前四个 crates.io 公共包为 `cses-helix-core`、`helix-im`、`helix-driver-host`、
-  `helix-driver-native`，版本均为 `0.1.9`。
+  `helix-driver-native`，版本均为 `0.1.13`。
 
 ### PC / Mobile
 

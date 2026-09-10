@@ -1,14 +1,12 @@
 ## 2026-09-10 Grafana全量面板修复
 
-✅ DONE 恢复终态修复：单群hydration不再误开全局批次，保留真正WS输入开批；增加每秒最多1条恢复屏障旁路快照。新增回归先红后绿，IM库420、分页/生命周期28、字段2测试通过。真实只读UI第三候选46页全落库，recovery success耗时14.487s、mask0/pending0，UI success count2000，WDIO1/1通过。客户端双出口预算候选已使日志accepted/exported9503一致、日志/metrics丢弃0。Collector旧Histogram与新Gauge同名兼容仍独立验证；未发布crate/桌面包、未push。
+✅ DONE 恢复与出口：恢复屏障回归先红后绿，IM库420、相关集成28、host diagnostics11、客户端observability10通过。第三/第四真实只读UI各46页全落库；恢复耗时14.487s/8.336s，pending0/mask0，UI success count2000。第四轮诊断accepted/exported9380一致，日志与metrics丢弃0，WDIO1/1通过2m10.3s。
 
-✅ DONE 独立诊断队列修复：满批立即发送，稀疏批量共用一次截止时间；try_reserve后计数再发送，保持队列1024/批64、非阻塞producer及关闭排空。最新Cargo diagnostics_runtime 11/11通过，真实UI积压/丢记录改善待第二候选验证。
+✅ DONE PRE类型兼容：Collector 0.152.0仅将6个旧Histogram重命名为legacy_histogram，新Gauge保留原名；原生validate、dry-run、RV patch与gen10 rollout通过。6个新Gauge与6个旧Histogram桶同时真实暴露，Prometheus完成时间metadata为Gauge且有1789036006.023样本。Trace环境维度前序配置已验。
 
-✅ DONE 独立看板修复：Grafana v14保留原111面板并增加1个全窗计数面板；10张表格分页/固定高度，数量与耗时靠左，退出单面板全屏。修正端侧字段语义、6个指标前缀、空服务匹配、Collector双链重复计数及启动直方图累计口径。STATIC PASS（112面板/171查询）。真实UI后审计91有样本、4缺样本、2查询429、15结构；429单独重试有记录，未合并为全量通过。整轮恢复与日志积压继续独立验收。
+✅ DONE 看板v15：保留原111面板并追加1个全窗计数；10表分页/固定高度，回到最近3小时总览。STATIC PASS（112面板/171查询），最终全171查询API成功，96数据面板有有限真实样本、1缺完整实时WS cohort、15结构面板。比例空值明确采集不完整/窗口未完成，不把缺证据显示100%。
 
-✅ DONE 独立出口修复：196 registry SDK类型回归、host104/CLI35测试、Native/FFI check通过；PRE真实Tauri候选采集到4个此前缺失Gauge，Collector/Jaeger Trace均保留真实pre环境。客户端10项observability库测试通过。未发布新crate或桌面包；整轮恢复与诊断拥塞另继续修复。
-
-🎯 EXPECT 保留既有111个面板ID；修复Gauge聚合、真实指标名与空服务筛选；按端区分诊断字段和采集缺失。生成器与真实SDK回归通过，运行修复候选并逐面板记录新鲜样本及真实旅程边界；不合成遥测、不混设备、不自动push。 | 赌注 中 | 可逆 是 | @2026-09-10
+🎯 EXPECT 整体未全部验收：面板7仍需真实序号WS收到→落库→30秒窗口关闭证据；候选客户端用了local Cargo patch，Helix未发布新crate，Go PRE候选未push/deploy。交接与四轮证据位于Go docs/交接/Grafana面板缺失分析。用户已有CSES进程与其他任务脏改动保留。
 
 ## 2026-09-10 发布 Helix 0.1.17
 

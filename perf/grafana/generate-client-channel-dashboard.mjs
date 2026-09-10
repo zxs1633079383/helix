@@ -156,6 +156,7 @@ export function buildDashboard() {
   ratio.description = '只统计已关闭的本机观察窗口，每个事件去重。所选范围任一统计不完整、采集丢弃或覆盖缺口都会隐藏百分比。无法归属用户的实例级采集丢弃会保守隐藏同环境比例。超时只表示三十秒内未确认，不等于永久丢失；本值不代表服务端全部应收事件或页面展示成功率。';
   ratio.targets = [{ refId: 'A', datasource: loki, expr: `((${numerator} / ${denominator}) and (${denominator} > 0)) unless (${incomplete}) unless (${gaps}) unless (${dropped})`, queryType: 'instant' }];
   ratio.fieldConfig.defaults.unit = 'percentunit';
+  ratio.fieldConfig.defaults.noValue = '采集不完整或尚无完整统计窗口';
   ratio.options = { reduceOptions: { calcs: ['lastNotNull'], fields: '', values: false }, colorMode: 'none', graphMode: 'none' };
   panels.push(ratio);
   logTable('消息保存成功、失败和仍待确认的情况', ['delivery_cohort_closed'],

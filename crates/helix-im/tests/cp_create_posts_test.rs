@@ -186,7 +186,7 @@ fn create_posts_bad_json_payload_errs() {
     assert!(handle_outbound("im_create_posts", b"not-json", BASE, BASE, None, corr()).is_err());
 }
 
-/// registry 性质：is_outbound 命中 + 注册总数包含 fresh-account 候选目录。
+/// registry 闭集包含 fresh-account、文字接龙与全部十一项分类接龙命令。
 #[test]
 fn create_posts_registered_and_total_is_current() {
     assert!(
@@ -195,9 +195,24 @@ fn create_posts_registered_and_total_is_current() {
     );
     assert_eq!(
         outbound_command_count(),
-        137,
-        "outbound registry 总数应为 137（当前注册表闭集，含文字接龙命令）"
+        148,
+        "outbound registry 总数应为 148（含文字接龙及十一项分类接龙命令）"
     );
+    for command in [
+        "category_chain_create_draft",
+        "category_chain_update_draft",
+        "category_chain_publish",
+        "category_chain_get",
+        "category_chain_get_mine",
+        "category_chain_set_participation",
+        "category_chain_entries",
+        "category_chain_close",
+        "category_chain_retract",
+        "category_chain_reconcile",
+        "category_chain_capabilities",
+    ] {
+        assert!(is_outbound(command), "分类接龙命令缺失：{command}");
+    }
     // send 命令不在 outbound registry（走 module.rs send arm，带乐观落库/timer）。
     assert!(!is_outbound("im_send_message"));
 }

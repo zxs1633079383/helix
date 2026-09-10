@@ -1,3 +1,7 @@
+## 2026-09-10 发布 Helix 0.1.17
+
+🎯 EXPECT 四公共包0.1.17可从crates.io解析，完整版本事务提交并建注释Tag，客户端四包精确pin和锁解析升级且PRE cargo check通过；不自动push或发布桌面包。 | 赌注 中 | 可逆 首次上传前是 | @2026-09-10
+
 ## 2026-09-10 合并冲突解决
 
 ✅ DONE 两处清理冲突同时保留双方意图；五 crate check、55项IM聚焦、core测试、WASM build、rustfmt及diff check通过。仅本地合并，不push；真实链未重跑。交接见 docs/交接/0910-合并冲突/handoff.md。

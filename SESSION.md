@@ -1,5 +1,7 @@
 ## 2026-09-10 发布 Helix 0.1.17
 
+✅ DONE 客户端9c817d7abe四包精确pin/registry锁解析均0.1.17，PRE cargo check通过（49.25s）；Helix发布提交17921c21及注释Tag helix-v-0.1.17已完成。未push、未发布桌面包、未重跑真实业务链。
+
 ✅ DONE 四公共crate 0.1.17经八包check、逐包dry-run/上传及registry解析通过；本提交记录完整版本事务，注释Tag helix-v-0.1.17随即创建；客户端升级继续执行。未push、未发布桌面安装包。
 
 🎯 EXPECT 四公共包0.1.17可从crates.io解析，完整版本事务提交并建注释Tag，客户端四包精确pin和锁解析升级且PRE cargo check通过；不自动push或发布桌面包。 | 赌注 中 | 可逆 首次上传前是 | @2026-09-10

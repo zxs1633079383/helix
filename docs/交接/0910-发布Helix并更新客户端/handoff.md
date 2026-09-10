@@ -1,28 +1,31 @@
 # 发布 Helix 并更新客户端交接
 更新时间：2026-09-10 Asia/Shanghai
 
-## 目标与授权
-- 用户授权重新构建、发布公共 crates.io，并更新 cses-client 的 Helix 依赖；完成后通知。
-- 默认 patch：0.1.16 → 0.1.17，待 registry plan 核实。
-- 不部署、不发布桌面安装包、不自动 push；保留 artifacts/output。
+## 目标与状态
+- 用户授权重新构建、发布公共 crates.io，更新客户端依赖并通知；全部完成。
+- 四公共包0.1.16 → 0.1.17；不push、不部署、不发布桌面安装包。
 
-## 当前身份与阶段
-- Helix：reactor/MessageV3-helix，46f9cf6bb21c6fdefc9dd7f83a5abc4d7f367463。
-- 客户端：tracked clean，四包当前精确 pin =0.1.16。
-- 本阶段：plan通过；全量IM仅旧注册总数断言失败，已校正148并逐条断言11命令，定向7/7通过；其余全量target通过。四包0.1.17发布成功且可解析；八包check及dry-run通过。
+## 当前代码身份
+- Helix：reactor/MessageV3-helix；发布提交17921c2136b1b02f3759cfe3a0be7a9e292b1e93。
+- 注释Tag helix-v-0.1.17指向发布提交；其后仅本交接/SESSION收尾。
+- 客户端：monorepo-message；9c817d7abecaea65af5cc9546c320f04770ddcc7。
+- Helix原有artifacts/output未跟踪产物保留；客户端tracked clean。
 
-## 预期
-🎯 EXPECT 四包0.1.17可从crates.io解析；提交版本事务并建注释Tag；客户端四个精确pin及实际锁解析同为0.1.17且PRE cargo check通过。 | 赌注 中 | 可逆 首次上传前是
+## 已完成与验证
+- publish_crates.py --plan与--publish成功：八包check、四包dry-run/上传/registry解析通过，RELEASE PASS。
+- 八个workspace manifest与Cargo.lock形成完整版本事务；版本提交与Tag完成。
+- IM全量152组：1519通过、旧注册总数断言1失败、11忽略；68916c57将137改为148并逐条断言11项分类命令，定向7/7通过。生产源码未变，其余结果复用。
+- 合并阶段五crate check、core 22项+1 doc-test、WASM构建及55项聚焦结果复用同业务源码；1个core doc-test按原定义忽略。
+- 客户端四项精确pin =0.1.17；本地被忽略Cargo.lock四包均来自crates.io 0.1.17。
+- CSES_ENV=pre cargo check --manifest-path src-tauri/Cargo.toml通过（49.25s，388条warning）；git diff --check通过。
 
-## 证据与边界
-- 上阶段同源码五crate check、core测试、WASM构建、55项聚焦已通过，可复用；见上阶段交接。
-- 未重跑真实Go/PRE/UI；编译不等同桌面业务验收。
-- 发布前保持tracked clean，避免违反发布脚本事务白名单；SESSION在发布后同步。
+## 证据
+- /tmp/helix-release-0910-publish.log
+- /tmp/helix-release-0910-im-all-results.log
+- /tmp/helix-release-0910-registry-test.log
+- /tmp/helix-release-0910-client-check.log
+- 合并测试身份见docs/交接/0910-合并冲突/handoff.md。
 
-## 下一步
-- plan → 全量IM验证 → publish → release commit/tag → 客户端pin/check → 完成通知。
-
-- 预检发现并修复分类接龙合并后的注册闭集断言遗漏；证据 /tmp/helix-release-0910-im-all-results.log 与 /tmp/helix-release-0910-registry-test.log。
-
-- 发布证据：/tmp/helix-release-0910-publish.log（RELEASE PASS）。版本事务随本发布提交固化，注释Tag helix-v-0.1.17指向本提交。
-- 下一阶段：cses-client monorepo-message 基线587e26213fa961e885bf95d605595d6257218874，更新四项pin及本地忽略的Cargo.lock，PRE编译。
+## 未验证与下一步
+- 未重跑真实Go/PRE/UI链或桌面安装包验收，编译不替代业务验收。
+- 本次无剩余发布/客户端升级工作；Git push等待用户授权。

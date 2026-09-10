@@ -885,3 +885,5 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 🎯 EXPECT 0909 同步耗时：Helix hello至清单最终屏障与消息提交排空；Go 两个分页handler开始/终态；同轮session/page仅日志，Prom固定result/operation。修改IM观测旁路、Host出口、Go观测和Grafana生成器；保留原脏文件、不发布、不制造共享群样本。
 
 🎯 EXPECT 发布 Helix 0.1.16 四包可从 registry 解析，客户端四包统一 repin；Jenkins PRE 部署与业务采集分层记录。 | 赌注 中 | 可逆 否 | @2026-09-10
+
+✅ DONE 按用户授权 rebase 到远端 0.1.17 后推送 e97c6b5d，四公共包 0.1.18 已发布至 crates.io 且均可解析。发布脚本 7 项、整合后定向 13+38 项通过，8 包 check、四包 dry-run/上传通过；未跑全量测试。版本提交与注释 Tag 按发布规则生成并推送；本任务不升级客户端，超大嵌套性能继续暂缓。 | @2026-09-10

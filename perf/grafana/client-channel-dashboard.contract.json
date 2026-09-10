@@ -289,7 +289,7 @@
     },
     {
       "name": "otel_helix_metrics_last_success_age_seconds",
-      "type": "histogram",
+      "type": "gauge",
       "title": "多久没有成功上传指标",
       "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
@@ -394,7 +394,7 @@
     },
     {
       "name": "otel_helix_process_resident_memory_bytes",
-      "type": "histogram",
+      "type": "gauge",
       "title": "客户端占用多少内存",
       "group": "客户端运行是否占用过多资源",
       "evidence": "PROM_QUERY_SNAPSHOT"
@@ -541,7 +541,7 @@
     },
     {
       "name": "otel_helix_traces_last_success_age_seconds",
-      "type": "histogram",
+      "type": "gauge",
       "title": "多久没有成功上传操作记录",
       "group": "观测数据是否持续上传",
       "evidence": "PROM_QUERY_SNAPSHOT"
@@ -569,7 +569,7 @@
     },
     {
       "name": "otel_helix_ws_inbound_last_seen_age_seconds",
-      "type": "histogram",
+      "type": "gauge",
       "title": "多久没有收到服务器数据",
       "group": "客户端与服务器是否正常收发",
       "evidence": "PROM_QUERY_SNAPSHOT"
@@ -621,37 +621,37 @@
   "syncObservationStatus": "IMPLEMENTED_PENDING_RUNTIME_VERIFICATION",
   "syncMetrics": [
     {
-      "name": "helix_recovery_started_timestamp_seconds",
+      "name": "otel_helix_recovery_started_timestamp_seconds",
       "kind": "gauge",
       "owner": "helix",
       "title": "最近一次同步开始时间"
     },
     {
-      "name": "helix_recovery_completed_timestamp_seconds",
+      "name": "otel_helix_recovery_completed_timestamp_seconds",
       "kind": "gauge",
       "owner": "helix",
       "title": "最近一次同步成功完成时间"
     },
     {
-      "name": "helix_recovery_duration_seconds",
+      "name": "otel_helix_recovery_duration_seconds",
       "kind": "histogram",
       "owner": "helix",
       "title": "整轮同步耗时分位"
     },
     {
-      "name": "helix_increment_page_duration_seconds",
+      "name": "otel_helix_increment_page_duration_seconds",
       "kind": "histogram",
       "owner": "helix",
       "title": "清单单页到落库耗时分位"
     },
     {
-      "name": "helix_recovery_terminal_total",
+      "name": "otel_helix_recovery_terminal_total",
       "kind": "counter",
       "owner": "helix",
       "title": "整轮同步终态速率"
     },
     {
-      "name": "helix_increment_page_terminal_total",
+      "name": "otel_helix_increment_page_terminal_total",
       "kind": "counter",
       "owner": "helix",
       "title": "清单页落库终态速率"
@@ -668,5 +668,37 @@
       "owner": "go",
       "title": "服务端分页处理终态速率"
     }
-  ]
+  ],
+  "typeCorrections": [
+    {
+      "name": "otel_helix_metrics_last_success_age_seconds",
+      "from": "histogram",
+      "to": "gauge",
+      "reason": "registry Gauge 被名称后缀 view 错误聚合；保留历史快照，恢复实际类型"
+    },
+    {
+      "name": "otel_helix_process_resident_memory_bytes",
+      "from": "histogram",
+      "to": "gauge",
+      "reason": "registry Gauge 被名称后缀 view 错误聚合；保留历史快照，恢复实际类型"
+    },
+    {
+      "name": "otel_helix_traces_last_success_age_seconds",
+      "from": "histogram",
+      "to": "gauge",
+      "reason": "registry Gauge 被名称后缀 view 错误聚合；保留历史快照，恢复实际类型"
+    },
+    {
+      "name": "otel_helix_ws_inbound_last_seen_age_seconds",
+      "from": "histogram",
+      "to": "gauge",
+      "reason": "registry Gauge 被名称后缀 view 错误聚合；保留历史快照，恢复实际类型"
+    }
+  ],
+  "baselinePanels": {
+    "total": 111,
+    "data": 96,
+    "structural": 15,
+    "targets": 176
+  }
 }

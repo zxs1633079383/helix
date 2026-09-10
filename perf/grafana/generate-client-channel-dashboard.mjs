@@ -9,10 +9,10 @@ export const outputPath = path.join(dir, 'client-channel-observability.json');
 const prom = { type: 'prometheus', uid: '${DS_PROMETHEUS}' };
 const loki = { type: 'loki', uid: '${DS_LOKI}' };
 
-// 只对当前无身份标签的技术family开放全局查询；身份选择非空时不借全局值补齐。
+// 第二正则分支仅空服务能匹配；非空服务必须精确匹配，身份非空不回退全局。
 export function technicalSelector(job = 'opentelemetry-collector') {
   const identity = contract.scopeFields.map((field) => `${field}=\${${field}:doublequote}`).join(',');
-  return `service_name=\${service:doublequote},deployment_environment=\${environment:doublequote},job="${job}",${identity}`;
+  return `service_name=~"^\${service:regex}$|^\${service:regex}^.+$",deployment_environment=\${environment:doublequote},job="${job}",${identity}`;
 }
 
 // 在解析后的JSON字段上精确筛选；空字符串才代表该维度全部，ID不进入stream索引。
@@ -23,6 +23,20 @@ export function diagnosticPipeline(scopeFields = contract.scopeFields, includeRu
     if (includeRuntimeGaps) query += ' or coverage_scope="producer_runtime"';
   }
   return query;
+}
+
+// 只归一化有源码来源的字段；printf保留ID/序号字符串，历史缺字段绝不补零。
+export function syncDisplayProjection(fields) {
+  const values = {
+    count: '{{if eq .event "sync_page_returned"}}{{printf "%q" (.events_returned | default "未采集")}}{{else if or (eq .event "sync_page_received") (eq .event "sync_persist_terminal")}}{{printf "%q" (.count | default "未采集")}}{{else}}"不适用"{{end}}',
+    count_scope: '{{if eq .event "sync_page_returned"}}"服务端返回事件数"{{else if eq .event "sync_page_received"}}"本机收到事件数"{{else if eq .event "sync_persist_terminal"}}"持久化回执时待发布变更数"{{else}}"整轮或请求级记录"{{end}}',
+    elapsed_seconds: '{{if or (eq .event "sync_recovery_terminal") (eq .event "sync_server_page_terminal") (eq .event "sync_page_returned")}}{{printf "%q" (.elapsed_seconds | default "未采集")}}{{else if or (eq .event "sync_recovery_started") (eq .event "sync_server_page_started")}}"进行中"{{else}}"未采集"{{end}}',
+    duration_scope: '{{if eq .event "sync_recovery_terminal"}}"客户端整轮恢复"{{else if or (eq .event "sync_server_page_terminal") (eq .event "sync_page_returned")}}"服务端本次请求（多群共享）"{{else}}"此事件无独立计时"{{end}}',
+    from_seq: '{{printf "%q" (.requested_from_seq | default (.from_seq | default "未采集"))}}',
+    next_seq: '{{printf "%q" (.response_next_seq | default (.next_seq | default "未采集"))}}',
+    has_more: '{{if or (eq .event "sync_page_received") (eq .event "sync_persist_terminal")}}{{printf "%q" (.has_more | default "未采集")}}{{else}}"不适用"{{end}}',
+  };
+  return ' | line_format `' + '{' + fields.map(field => JSON.stringify(field) + ':' + (values[field] ?? `{{printf "%q" .${field}}}`)).join(',') + '}`';
 }
 
 // 每个ID单元格可选择该主体，保留其他scope与时间；对URL值显式编码。
@@ -41,8 +55,8 @@ export function buildDashboard() {
   let y = 0;
   const panels = [];
   const dq = diagnosticPipeline();
-  const fieldLabels = {page_index:"页号",total_pages:"清单总页数",started_at_ms:"开始时间",completed_at_ms:"完成时间",producer_service:'产出服务',batch_id:'服务端推送批次',inventory_snapshot_id:'服务端清单记录',inventory_scope:'清单范围',inventory_filter:'清单筛选方式',inventory_since:'查询起始时间',selected_channels:'本次查询选中群数',selected_set_hash:'查询群集合摘要',returned_set_hash:'返回群集合摘要',snapshot_complete:'清单记录是否完整',filter_reason:'筛除原因',omitted_records:'未逐条记录数量',Time:'记录时间',tenant_id:'租户',user_id:'用户',channel_id:'群聊',login_attempt_id:'本次登录',device_session_id:'设备会话',event:'发生的事情',stage:'进行到哪一步',result:'处理结果',reason:'原因',count:'本次数量',expected_known:'是否知道应有群数',membership_revision:'成员清单版本',expected_channels:'应有群数',returned_channels:'服务端返回群数',persisted_channels:'本机保存群数',projected_channels:'准备展示群数',applied_channels:'页面接收群数',filtered_channels:'被筛除群数',missing_count:'缺少群数',elapsed_seconds:'耗时（秒）',evidence_complete:'记录是否完整',dropped_records:'采集丢弃记录数',sync_session_id:'本轮同步',trigger:'同步原因',pages:'分页数',events_received:'收到事件数',events_committed:'保存事件数',events_returned:'返回事件数',sync_kind:'同步类型',requested_from_seq:'请求起始序号',response_next_seq:'响应下次序号',has_more:'是否还有下一页',deduplicated:'重复排除数',redacted:'不可见事件数',from_seq:'起始序号',next_seq:'下次序号',horizon_seq:'服务端最新序号',cohort_id:'本次统计窗口',path:'到达方式',matured:'已到确认期限',committed:'确认保存成功',failed:'保存失败',timeout:'超过确认期限',pending:'仍待确认',unknown:'结果未知',observed:'实际观察事件数',gap_id:'本次序号缺口',seq_domain:'序号类型',stream_epoch:'序号所属批次',expected_seq:'原本应收到的序号',received_seq:'实际收到的序号',declared_from_seq:'服务端声明缺口起点',declared_to_seq:'服务端声明缺口终点',missing_ranges:'缺少序号范围',local_contiguous_seq:'本机连续保存到',observed_high_seq:'本机观察到的最高序号',server_horizon_seq:'服务端最新序号',observed_at:'实际发生时间',checkpoint_version:'状态记录版本',local_persisted_high_seq:'本机已保存的最高序号',pending_ranges:'仍待补齐范围',evidence_scope:'统计范围',message_id:'消息标识',business_event_id:'业务事件标识',trace_id:'调用追踪标识',event_seq:'本次事件序号'};
-  const values = {sync_recovery_started:"整轮同步开始",sync_recovery_terminal:"整轮同步结束",sync_inventory_page_started:"清单页开始",sync_inventory_page_terminal:"清单页落库结束",sync_server_page_started:"服务端分页开始",sync_server_page_terminal:"服务端分页结束",client:"客户端内核",server:"服务端",server_committed:'服务端已提交',audience_resolved:'服务端已确定接收范围',server_enqueued:'服务端已入发送队列',socket_written:'服务端已写入连接',ws_received:'已从连接收到',persist_terminal:'本机保存返回结果',client_received:'页面收到事件',client_applied:'页面已处理事件',success:'成功',failed:'失败',received:'收到',already_committed:'此前已保存',live_ws:'在线推送',stream_seq:'群内事件序号',legacy_event_seq:'兼容事件序号',channel_cursor:'本机连续序号',client_persistence:'本机接收到保存',true:'是',false:'否',login_started:'开始登录',login_sync_started:'开始恢复群聊',login_sync_terminal:'本次登录同步结束',runtime_stopped:'结束本次运行',delivery_cohort_closed:'本次保存统计已结束',diagnostic_coverage_gap:'部分过程未完整记录',late_terminal:'超过期限后返回保存结果',gap_opened:'发现序号缺口',gap_updated:'缺口范围变化',gap_terminal:'本次缺口处理结束',channel_inventory_snapshot_started:'开始查询群聊清单',channel_inventory_item:'服务端处理一个群聊',channel_inventory_snapshot_closed:'本次群聊清单已结束',channel_inventory_item_received:'本机收到群聊资料',channel_inventory_end_received:'本机收到批次结束',channel_inventory_item_committed:'本机已保存群聊资料',channel_checkpoint:'更新群聊保存位置',channel_inventory_page_returned:'服务端返回群聊清单',channel_inventory_persisted:'本机保存群聊清单',channel_inventory_applied:'页面接收群聊清单',sync_started:'开始补齐消息',sync_terminal:'本轮补齐结束',sync_page_returned:'服务端返回一页消息',sync_page_received:'本机收到一页消息',sync_persist_terminal:'本页消息保存结束',gap_observed:'观察到序号缺口',gap_repair_result:'返回缺口补齐结果',started:'开始',store:'读取本机缓存',persist:'保存到本机',publish_submitted:'已提交推送',connect:'建立连接',timeout:'超过确认期限',cancelled:'已取消',completed:'已完成',stopped:'已停止',initial_connection_failed:'首次连接失败',capacity_limit:'采集容量不足',identity_or_sequence_missing:'缺少身份或事件序号',terminal_result_unknown:'无法识别保存结果',retired_sequence_ambiguous:'旧序号再次到达，无法确认是否重复',outside_observed_deadline:'超时或未观察到对应接收记录'};
+  const fieldLabels = {count_scope:'数量口径',duration_scope:'耗时口径',page_index:"页号",total_pages:"清单总页数",started_at_ms:"开始时间",completed_at_ms:"完成时间",producer_service:'产出服务',batch_id:'服务端推送批次',inventory_snapshot_id:'服务端清单记录',inventory_scope:'清单范围',inventory_filter:'清单筛选方式',inventory_since:'查询起始时间',selected_channels:'本次查询选中群数',selected_set_hash:'查询群集合摘要',returned_set_hash:'返回群集合摘要',snapshot_complete:'清单记录是否完整',filter_reason:'筛除原因',omitted_records:'未逐条记录数量',Time:'记录时间',tenant_id:'租户',user_id:'用户',channel_id:'群聊',login_attempt_id:'本次登录',device_session_id:'设备会话',event:'发生的事情',stage:'进行到哪一步',result:'处理结果',reason:'原因',count:'本次数量',expected_known:'是否知道应有群数',membership_revision:'成员清单版本',expected_channels:'应有群数',returned_channels:'服务端返回群数',persisted_channels:'本机保存群数',projected_channels:'准备展示群数',applied_channels:'页面接收群数',filtered_channels:'被筛除群数',missing_count:'缺少群数',elapsed_seconds:'耗时（秒）',evidence_complete:'记录是否完整',dropped_records:'采集丢弃记录数',sync_session_id:'本轮同步',trigger:'同步原因',pages:'分页数',events_received:'收到事件数',events_committed:'保存事件数',events_returned:'返回事件数',sync_kind:'同步类型',requested_from_seq:'请求起始序号',response_next_seq:'响应下次序号',has_more:'是否还有下一页',deduplicated:'重复排除数',redacted:'不可见事件数',from_seq:'起始序号',next_seq:'下次序号',horizon_seq:'服务端最新序号',cohort_id:'本次统计窗口',path:'到达方式',matured:'已到确认期限',committed:'确认保存成功',failed:'保存失败',timeout:'超过确认期限',pending:'仍待确认',unknown:'结果未知',observed:'实际观察事件数',gap_id:'本次序号缺口',seq_domain:'序号类型',stream_epoch:'序号所属批次',expected_seq:'原本应收到的序号',received_seq:'实际收到的序号',declared_from_seq:'服务端声明缺口起点',declared_to_seq:'服务端声明缺口终点',missing_ranges:'缺少序号范围',local_contiguous_seq:'本机连续保存到',observed_high_seq:'本机观察到的最高序号',server_horizon_seq:'服务端最新序号',observed_at:'实际发生时间',checkpoint_version:'状态记录版本',local_persisted_high_seq:'本机已保存的最高序号',pending_ranges:'仍待补齐范围',evidence_scope:'统计范围',message_id:'消息标识',business_event_id:'业务事件标识',trace_id:'调用追踪标识',event_seq:'本次事件序号'};
+  const values = {sync_recovery_started:"整轮同步开始",sync_recovery_terminal:"整轮同步结束",sync_inventory_page_started:"清单页开始",sync_inventory_page_terminal:"清单页落库结束",sync_server_page_started:"服务端分页开始",sync_server_page_terminal:"服务端分页结束",client:"客户端内核",server:"服务端",server_committed:'服务端已提交',audience_resolved:'服务端已确定接收范围',server_enqueued:'服务端已入发送队列',socket_written:'服务端已写入连接',ws_received:'已从连接收到',persist_terminal:'本机保存返回结果',client_received:'页面收到事件',client_applied:'页面已处理事件',success:'成功',failed:'失败',received:'收到',already_committed:'此前已保存',live_ws:'在线推送',stream_seq:'群内事件序号',legacy_event_seq:'兼容事件序号',channel_cursor:'本机连续序号',client_persistence:'本机接收到保存',true:'是',false:'否',login_started:'开始登录',login_sync_started:'开始恢复群聊',login_sync_terminal:'本次登录同步结束',runtime_stopped:'结束本次运行',delivery_cohort_closed:'本次保存统计已结束',diagnostic_coverage_gap:'部分过程未完整记录',late_terminal:'超过期限后返回保存结果',gap_opened:'发现序号缺口',gap_updated:'缺口范围变化',gap_terminal:'本次缺口处理结束',channel_inventory_snapshot_started:'开始查询群聊清单',channel_inventory_item:'服务端处理一个群聊',channel_inventory_snapshot_closed:'本次群聊清单已结束',channel_inventory_item_received:'本机收到群聊资料',channel_inventory_end_received:'本机收到批次结束',channel_inventory_item_committed:'本机已保存群聊资料',channel_checkpoint:'更新群聊保存位置',channel_inventory_page_returned:'服务端返回群聊清单',channel_inventory_persisted:'本机保存群聊清单',channel_inventory_applied:'页面接收群聊清单',sync_started:'开始补齐消息',sync_terminal:'本轮补齐结束',sync_page_returned:'服务端返回一页消息',sync_page_received:'本机收到一页消息',sync_persist_terminal:'本页消息保存结束',gap_observed:'观察到序号缺口',gap_repair_result:'返回缺口补齐结果',started:'开始',store:'读取本机缓存',persist:'保存到本机',publish_submitted:'已提交推送',connect:'建立连接',timeout:'超过确认期限',cancelled:'已取消',completed:'已完成',stopped:'已停止',initial_connection_failed:'首次连接失败',cross_layer_evidence_incomplete:'尚无完整跨端证据',identity_correlation_missing:'缺少登录或设备关联',capacity_limit:'采集容量不足',identity_or_sequence_missing:'缺少身份或事件序号',terminal_result_unknown:'无法识别保存结果',retired_sequence_ambiguous:'旧序号再次到达，无法确认是否重复',outside_observed_deadline:'超时或未观察到对应接收记录'};
 
   const enumKeys = {
     stage: ['client','server','server_committed','audience_resolved','server_enqueued','socket_written','ws_received','persist_terminal','client_received','client_applied','store','persist','publish_submitted','connect'],
@@ -69,13 +83,18 @@ export function buildDashboard() {
   }
 
   // 表格从JSON保留精确字符串，不把seq经float转换；所有表均受1000行窗口限制。
-  function logTable(title, events, fields, description, checkpoint = false, loginScope = false) {
+  function logTable(title, events, fields, description, checkpoint = false, loginScope = false, eventGroups = null) {
     fields = [...new Set(['producer_service', ...fields])];
-    const panel = base(title, 'table', loki, 10);
+    const panel = base(title, 'table', loki, 8);
     panel.description = `${description} 来源为专用业务诊断JSON；最多${contract.maxLogLines}行，空数据不表示零故障。`;
     panel.targets = [{ refId: 'A', datasource: loki, expr: `${loginScope ? diagnosticPipeline(contract.scopeFields.filter(field => field !== 'channel_id')) : dq} | event=~"${events.join('|')}"`, queryType: 'range', maxLines: contract.maxLogLines }];
-    panel.fieldConfig.defaults.noValue = '未提供';
+    panel.fieldConfig.defaults.noValue = '未采集 / 此事件不适用';
+    if (eventGroups) {
+      panel.targets = eventGroups.map((group, index) => ({...panel.targets[0], refId: String.fromCharCode(65 + index), expr: `${dq} | event=~"${group.join('|')}"` + syncDisplayProjection([...new Set(['event','producer_service','channel_id','count','count_scope','elapsed_seconds','duration_scope','result','from_seq','next_seq','has_more','trace_id',...contract.scopeFields,...fields])])}));
+      panel.description += ' 服务端、客户端分页与整轮终态各独立最多1000行；数量口径逐行列出，耗时只展示真正计时的事件。全时段记录数见末尾面板。';
+    }
     panel.transformations = [{ id: 'extractFields', options: { source: 'Line', format: 'json', replace: true, keepTime: true } }];
+    if (eventGroups) panel.transformations.push({id:'merge',options:{}});
     if (checkpoint) {
       // 多设备/登录/seq域/epoch单独分组，仅取窗口中最后观察，禁止max(seq)。
       const groupFields = {};
@@ -86,7 +105,7 @@ export function buildDashboard() {
       panel.transformations.push({ id: 'filterFieldsByName', options: { include: { names: ['Time', ...contract.scopeFields, ...fields] } } });
       panel.transformations.push({ id: 'sortBy', options: { sort: [{ field: 'Time', desc: true }] } });
     }
-    panel.options = { showHeader: true, cellHeight: 'sm', footer: { show: false } };
+    panel.options = { showHeader: true, cellHeight: 'sm', enablePagination: true, footer: { show: false } };
     // 身份可能缺失，表格不为缺值生成会清空筛选条件的链接；统一使用顶部精确筛选。
     for (const field of new Set(['Time', ...contract.scopeFields, ...fields])) {
       const properties = [{id:'displayName',value:fieldLabels[field] ?? field}];
@@ -109,16 +128,17 @@ export function buildDashboard() {
     panels.push(panel);
   }
 
-  note('范围与数据可用性', `默认身份留空=当前授权范围全局；输入准确用户/群聊/登录/设备ID，在顶部筛选对应的记录。\n\n技术指标来源：71族技术指标，无业务身份标签，选择身份后技术面板为空。业务诊断使用 \`${contract.diagnosticService}\` JSON流。2026-09-08 Go PRE发布 c391ddcf 已验证提交与推送诊断；独立 Native 验证服务 helix-pre-verification / helix-pre-verification-v2 已完成在线保存及离线重登补齐；helix-pre-verification-final 为最终累计快照与自观测修复验证服务，已完成真实保存和导出中断恢复复验。该证据不代表当前客户端 Angular 登录收尾或渲染已验收；选择对应服务与时间窗查看。不能将空值解释为0%/100%。\n\n现有Grafana 12.2.1、Loki 2.9.3；客户端经有界后台直接写入日志；服务端经专用日志采集规则接入。变量不是租户授权，数据源必须限制可读范围。`, 7);
+  note('范围与数据可用性', `技术指标服务留空=所选环境全部实际服务，非空=精确服务名。身份留空=当前数据源授权范围；输入准确用户/群聊/登录/设备ID后，查看对应业务明细。技术指标未携带这些身份维度，因此身份非空时保持空结果。\n\n表格每行是某一端的一条观测，本次数量按“数量口径”解释，不等于本地数据库总数；“未采集”不能解释为0。耗时只展示该事件实际计时的范围，服务端成功不证明本机保存或页面完成。各表最多1000行，消息补齐按三组分别取1000行；完整时段记录数量见末尾面板。\n\n只有同一设备和登录下的返回、接收、持久化、页面应用及终态能够共同支持完整性判断。未知应有群数、旧版本缺字段和丢弃记录都会留下证据边界。服务/身份变量是检索条件，数据源授权仍由访问权限控制。`, 7);
   logTable('登录后群聊是否完整', ['login_started', 'login_sync_started', 'login_sync_terminal', 'runtime_stopped', 'channel_inventory_page_returned', 'channel_inventory_persisted', 'channel_inventory_applied', 'channel_inventory_snapshot_started', 'channel_inventory_snapshot_closed', 'channel_inventory_end_received'],
     ['event', 'stage', 'result', 'reason', 'batch_id', 'inventory_snapshot_id', 'inventory_scope', 'inventory_filter', 'inventory_since', 'selected_channels', 'selected_set_hash', 'returned_set_hash', 'snapshot_complete', 'omitted_records', 'count', 'expected_known', 'membership_revision', 'expected_channels', 'returned_channels', 'persisted_channels', 'projected_channels', 'applied_channels', 'filtered_channels', 'missing_count', 'elapsed_seconds', 'evidence_complete', 'dropped_records'],
     '比较同一成员清单的返回、保存与展示结果；未知应有群数时无法判断完整。本区忽略群聊筛选，避免选中一个群后隐藏整次登录。', false, true);
   logTable('某个群聊查到了吗，收到并保存了吗', ['channel_inventory_item','channel_inventory_item_received','channel_inventory_item_committed'],
     ['event','batch_id','inventory_snapshot_id','result','filter_reason','trace_id','evidence_complete','dropped_records'],
     '服务端清单记录只证明该次请求选中的群聊。以原推送批次对照接收和保存，不把增量查询当作账号应有全部群；超过逐条记录上限时，需同时查看清单摘要中的遗漏数量。');
-  logTable('重新登录或恢复连接后，消息是否补齐', ['sync_started', 'sync_terminal', 'sync_page_returned', 'sync_page_received', 'sync_persist_terminal'],
-    ['event', 'sync_session_id', 'trigger', 'result', 'reason', 'pages', 'events_received', 'events_committed', 'count', 'events_returned', 'sync_kind', 'requested_from_seq', 'response_next_seq', 'has_more', 'deduplicated', 'redacted', 'from_seq', 'next_seq', 'horizon_seq', 'elapsed_seconds', 'evidence_complete'],
-    '同轮、同设备的分页和终态；成功HTTP不等于同步完成。');
+  logTable('重新登录或恢复连接后，消息是否补齐', ['sync_recovery_started','sync_recovery_terminal','sync_page_returned','sync_page_received','sync_persist_terminal','sync_server_page_started','sync_server_page_terminal'],
+    ['event','stage','result','reason','count','count_scope','elapsed_seconds','duration_scope','sync_session_id','total_pages','from_seq','next_seq','has_more','trace_id','evidence_complete'],
+    '同轮、同设备对照分页和终态；本次数量不是本地数据库总量，记录完整性不是业务成功率。服务端计时在同trace的分页结束事件中，客户端接收/保存事件未独立计时。',false,false,
+    [['sync_page_returned','sync_server_page_started','sync_server_page_terminal'],['sync_page_received','sync_persist_terminal'],['sync_recovery_started','sync_recovery_terminal']]);
   logCount('收到的消息走到了哪一步', 'delivery_stage', 'stage');
   logTable('某条消息收到了吗，保存结果是什么', ['delivery_stage', 'late_terminal', 'diagnostic_coverage_gap'],
     ['stage','result','reason','message_id','business_event_id','seq_domain','event_seq','trace_id','evidence_complete','dropped_records'],
@@ -176,7 +196,7 @@ export function buildDashboard() {
         panel.fieldConfig.defaults.unit = 'ops';
       } else {
         panel.targets = [{ refId: 'A', datasource: prom, expr: `${metric.name}{${selector}}`, legendFormat: '{{stage}} {{operation}} {{pool}} {{tick_kind}}' }];
-        panel.fieldConfig.defaults.unit = metric.name.endsWith('_ratio') ? 'percentunit' : 'short';
+        panel.fieldConfig.defaults.unit = metric.name.endsWith('_ratio') ? 'percentunit' : metric.name.endsWith('_bytes') ? 'bytes' : metric.name.endsWith('_seconds') ? 's' : 'short';
       }
       row.panels.push(panel);
     }
@@ -184,12 +204,15 @@ export function buildDashboard() {
   }
   note('操作过程记录能说明哪些情况', 'Collector和Jaeger各有调用Counter与耗时Histogram。这是Span观测，受采样/重试/配置影响，两个管道不能相加作为业务消息数量。');
   for (const metric of contract.traceMetrics) {
-    const panel = base(`全局 · ${metric.type === 'counter' ? '记录了多少次操作调用' : '操作调用耗时多久'}（${metric.job === 'jaeger' ? '追踪服务' : '采集服务'}）`, 'timeseries', prom);
-    panel.description = 'Span派生，非业务送达。当前4个族缺deployment_environment；严格环境筛选下为空，不能撤掉过滤后把跨环境Span当本环境。选择身份时也不回退全局。';
+    const panel = base(`全局 · ${metric.type === 'counter' ? '记录了多少次操作调用' : '操作调用耗时多久'}（${metric.job === 'jaeger-v2' ? '追踪服务' : '采集服务'}）`, 'timeseries', prom);
+    panel.description = 'Span派生，非业务送达。只统计Trace资源及聚合保留的真实deployment_environment。旧版本缺此维度时不进入结果；选择身份时不回退全局。';
+    // PRE 双 connector 同时处理相同 Span，只选择保留 collector.instance.id 的主链，避免双计数与混合桶。
+    const traceSelector = technicalSelector(metric.job) + (metric.job === 'opentelemetry-collector' ? ',collector_instance_id!=""' : '');
+    panel.description += metric.job === 'opentelemetry-collector' ? ' 仅统计主 span_metrics connector，排除重复兼容 connector。' : '';
     panel.fieldConfig.defaults.noValue = '缺环境/身份维度，或无数据';
     panel.targets = [{ refId: 'A', datasource: prom, expr: metric.type === 'counter'
-      ? `sum(rate(${metric.name}{${technicalSelector(metric.job)}}[$__rate_interval]))`
-      : `histogram_quantile(0.95, sum by (le) (rate(${metric.name}_bucket{${technicalSelector(metric.job)}}[$__rate_interval])))` }];
+      ? `sum(rate(${metric.name}{${traceSelector}}[$__rate_interval]))`
+      : `histogram_quantile(0.95, sum by (le) (rate(${metric.name}_bucket{${traceSelector}}[$__rate_interval])))` }];
     panel.fieldConfig.defaults.unit = metric.type === 'counter' ? 'ops' : 'ms';
     panels.push(panel);
   }
@@ -210,22 +233,35 @@ export function buildDashboard() {
     panel.description=metric.owner==='go'?'服务端真实分页handler结果；environment/service来自现有服务发现标签，不使用客户端资源标签。成功仅代表服务端处理完成。':'客户端内核真实恢复产出；与当前服务资源匹配。最近开始和最近成功完成为独立观测，不保证属于同一轮；用整轮明细确认。';
     panel.fieldConfig.defaults.unit=metric.kind==='gauge'?'dateTimeAsIso':metric.kind==='histogram'?'s':'ops';
     if(metric.kind==='gauge') {
-      panel.targets=[{refId:'A',datasource:prom,expr:`${metric.name}{${selector}} * 1000`,instant:true}];
+      panel.targets=[{refId:'A',datasource:prom,expr:`max(max_over_time(${metric.name}{${selector}}[$__range])) * 1000`,instant:true}];
       panel.options={reduceOptions:{calcs:['lastNotNull'],values:false},textMode:'auto'};
+      panel.description += ' 最近一次指所选时段内采集到的最大真实时间戳；客户端退出后仍保留该时段事实。';
     } else if(metric.kind==='histogram') {
       const group=metric.owner==='go'?'le,operation,result':'le,result';
-      panel.targets=[{refId:'A',datasource:prom,expr:`histogram_quantile(0.95, sum by (${group}) (rate(${metric.name}_bucket{${selector}}[$__rate_interval])))`,legendFormat:metric.owner==='go'?'{{operation}} {{result}}':'{{result}}'}];
+      // 启动恢复可能在首次抓取前结束，累计桶仍包含这些真实观测；不能用零rate伪装没有耗时。
+      const buckets = metric.owner === 'go' ? `rate(${metric.name}_bucket{${selector}}[$__rate_interval])` : `${metric.name}_bucket{${selector}}`;
+      if (metric.owner !== 'go') {
+        panel.title = metric.title.replace('分位', '（进程累计95分位）');
+        panel.description += ' 每个点展示当时活跃进程累计记录的P95，包含首次抓取前的启动过程；不表示所选区间内新增操作的P95。';
+      }
+      panel.targets=[{refId:'A',datasource:prom,expr:`histogram_quantile(0.95, sum by (${group}) (${buckets}))`,legendFormat:metric.owner==='go'?'{{operation}} {{result}}':'累计 {{result}}'}];
     } else {
       const group=metric.owner==='go'?'operation,result':'result';
       panel.targets=[{refId:'A',datasource:prom,expr:`sum by (${group}) (rate(${metric.name}{${selector}}[$__rate_interval]))`,legendFormat:metric.owner==='go'?'{{operation}} {{result}}':'{{result}}'}];
     }
     panels.push(panel);
   }
+  const records = base('整个时段的诊断记录数与明细显示上限', 'table', loki, 8);
+  records.description = '按事件统计完整所选时段的日志记录数，不是业务事件去重数。前面明细每个查询最多1000行；消息补齐表按服务端/客户端/整轮三组独立查询，其他明细整表共1000行。记录数超过上限时应缩小时间或身份范围；日志列表不可证明完整旅程。';
+  records.targets = [{refId:'A',datasource:loki,expr:`sum by (event) (count_over_time(${dq} [$__range]))`,queryType:'instant',legendFormat:'{{event}}'}];
+  records.transformations = [{id:'labelsToFields',options:{mode:'columns'}}];
+  records.options = {showHeader:true,cellHeight:'sm',enablePagination:true};
+  panels.push(records);
   const variables = [
     { name: 'DS_PROMETHEUS', label: '运行指标数据源', type: 'datasource', query: 'prometheus', current: { text: contract.defaults.prometheusUid, value: contract.defaults.prometheusUid }, refresh: 1 },
     { name: 'DS_LOKI', label: '业务明细数据源', type: 'datasource', query: 'loki', current: { text: contract.defaults.lokiUid, value: contract.defaults.lokiUid }, refresh: 1 },
     { name: 'environment', label: '环境', type: 'custom', query: 'pre,dev,prod,local,test,diagnostic-local', current: { text: 'pre', value: 'pre' } },
-    { name: 'service', label: '技术指标服务', type: 'textbox', query: contract.defaults.service, current: { text: contract.defaults.service, value: contract.defaults.service } },
+    { name: 'service', label: '技术指标服务（空=全部）', type: 'textbox', query: contract.defaults.service, current: { text: contract.defaults.service, value: contract.defaults.service } },
   ];
   const labels = { tenant_id: '租户ID', user_id: '用户ID', channel_id: '群聊ID', login_attempt_id: '登录ID', device_session_id: '设备会话ID' };
   for (const field of contract.scopeFields) variables.push({ name: field, label: `${labels[field]}（空=全部）`, type: 'textbox', query: '', current: { text: '', value: '' }, skipUrlSync: false });

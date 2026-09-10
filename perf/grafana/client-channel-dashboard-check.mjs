@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { buildDashboard, contract, outputPath, scopeLink } from './generate-client-channel-dashboard.mjs';
+import { buildDashboard, contract, outputPath, scopeLink, technicalSelector, syncDisplayProjection } from './generate-client-channel-dashboard.mjs';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const snapshot = JSON.parse(fs.readFileSync(path.resolve(dir, contract.snapshot), 'utf8'));
@@ -18,8 +18,9 @@ function flatten(panels) {
 function interpolate(query, selected = {}) {
   const vars = { service: 'cses-client-pre', environment: 'pre', DS_PROMETHEUS: 'prometheus', DS_LOKI: 'loki',
     tenant_id: '', user_id: '', channel_id: '', login_attempt_id: '', device_session_id: '', ...selected };
-  return query.replace(/\$\{([^}:]+):(doublequote|percentencode)\}/g, (_, name, format) => {
+  return query.replace(/\$\{([^}:]+):(doublequote|percentencode|regex)\}/g, (_, name, format) => {
     const value = vars[name] ?? '';
+    if (format === 'regex') return JSON.stringify(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).slice(1, -1);
     return format === 'doublequote' ? JSON.stringify(value) : encodeURIComponent(value);
   }).replaceAll('$__rate_interval', '5m').replaceAll('$__interval', '1m').replaceAll('$__range', '30m');
 }
@@ -31,8 +32,32 @@ assert.equal(dashboard.uid, 'helix-client-channel-v1');
 assert.equal(snapshot.families.length, 71);
 assert.equal(contract.review, 'APPROVED_ARTIFACT_ONLY');
 assert.equal(contract.diagnosticsStatus, 'PRE_GO_NATIVE_VERIFIED_CLIENT_TERMINAL_PENDING');
-assert.deepEqual(contract.metrics.map(({ name, type }) => ({ name, type })), snapshot.families);
+const correctedTypes = new Map(contract.typeCorrections.map(item => [item.name, item]));
+assert.deepEqual(contract.metrics.map(({name,type})=>({name,type})), snapshot.families.map(({name,type})=>{
+  const correction=correctedTypes.get(name);
+  if(correction) assert.equal(type,correction.from);
+  return {name,type:correction?.to??type};
+}));
+assert.equal(contract.baselinePanels.total, 111);
+for(let id=1;id<=111;id++) assert.ok(panels.some(panel=>panel.id===id), `原面板 ${id} 不得删除`);
+for (const service of ['', 'cses-client-dev', 'client.v1+(demo)']) {
+  const query=interpolate(technicalSelector(),{service});
+  const pattern=JSON.parse(query.match(/service_name=~("(?:[^"\\]|\\.)*")/)[1]);
+  const matcher=new RegExp(pattern);
+  for (const actual of ['cses-client-dev','cses-client-dev-extra','cses-client-pre','client.v1+(demo)','clientXv1demo']) {
+    assert.equal(matcher.test(actual), service===''||actual===service, '服务空值全选、非空精确且转义');
+  }
+}
+const syncDetail=panels.find(panel=>panel.id===4);
+assert.equal(syncDetail.targets.length,3,'分离服务端/客户端/整轮，避免共享1000行截断');
+assert.ok(syncDetail.targets.every(target=>target.maxLines===1000));
+assert.ok(syncDetail.targets.some(target=>target.expr.includes('sync_recovery_terminal')));
+assert.ok(syncDetail.targets.some(target=>target.expr.includes('sync_server_page_terminal')));
+assert.ok(syncDisplayProjection(['count','from_seq','elapsed_seconds']).includes('.events_returned'));
+assert.ok(!syncDisplayProjection(['count']).includes('default "0"'));
+assert.equal(panels.find(panel=>panel.id===112).targets[0].queryType,'instant');
 assert.equal(new Set(panels.map((panel) => panel.id)).size, panels.length, 'panel ID唯一');
+for(const panel of panels.filter(panel=>panel.type==='table')) assert.equal(panel.options.enablePagination,true,'明细必须分页，避免大量行遮挡其他面板');
 assert.equal(new Set(contract.plannedLabels.reason).size, contract.plannedLabels.reason.length);
 assert.ok(contract.plannedLabels.reason.includes('other'));
 for (const field of contract.scopeFields) {
@@ -80,6 +105,7 @@ for (const { panel, target } of targets) {
 for (const metric of contract.syncMetrics) {
   const entry=targets.find(({target})=>target.expr.includes(metric.name));
   assert.ok(entry,`缺少同步指标 ${metric.name}`);
+  if(metric.owner==='helix') assert.ok(metric.name.startsWith('otel_helix_'),'匹配实测Prometheus暴露名');
   if(metric.owner==='go') {
     assert.ok(entry.target.expr.includes('environment=${environment:doublequote}'));
     assert.ok(entry.target.expr.includes('job="cses-im-server"'));
@@ -166,4 +192,13 @@ async function checkLive() {
   assert.equal(evidence.failed, 0, '查询校验失败，不可标记看板通过');
 }
 
+// 同一Span被两个Collector connector接收，面板必须选择唯一主链。
+for (const {target} of targets.filter(({target}) => target.expr.includes('otel_traces_span_metrics_'))) assert.ok(target.expr.includes('collector_instance_id!=""'));
+// 短启动过程保留首个累计样本，最近时间按所选时段取实际最大值。
+for (const id of [104,105]) assert.ok(panels.find(panel=>panel.id===id).targets[0].expr.includes('max_over_time('));
+for (const id of [106,107]) {
+  const panel=panels.find(panel=>panel.id===id);
+  assert.ok(panel.title.includes('进程累计'));
+  assert.ok(!panel.targets[0].expr.includes('rate('));
+}
 if (process.argv.includes('--live')) await checkLive();

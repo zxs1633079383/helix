@@ -13,7 +13,7 @@ use bytes::Bytes;
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec,
     ScopedGetSpec, ScopedGuardedBumpSpec, SortDirection, SparseTableSpec, SqlValue, StorageOp,
-    UpsertSpec,
+    UpsertGuard, UpsertSpec,
 };
 use helix_core::port_codec::{classify_port_error, rows_to_reply_bytes};
 use helix_core::ports::Storage;
@@ -165,12 +165,12 @@ impl WebSessionStore {
                 StorageOp::Get(spec) => self.get_sync(spec.clone()).map(|row| {
                     last_read = row
                         .map(|row| rows_to_reply_bytes(&[row]))
-                        .unwrap_or_default();
+                        .unwrap_or_else(|| rows_to_reply_bytes(&[]));
                 }),
                 StorageOp::ScopedGet(spec) => self.scoped_get_sync(spec.clone()).map(|row| {
                     last_read = row
                         .map(|row| rows_to_reply_bytes(&[row]))
-                        .unwrap_or_default();
+                        .unwrap_or_else(|| rows_to_reply_bytes(&[]));
                 }),
                 StorageOp::Scan(spec) => self.scan_sync(spec.clone()).map(|rows| {
                     last_read = rows_to_reply_bytes(&rows);
@@ -234,7 +234,30 @@ impl WebSessionStore {
             .unwrap_or(false)
     }
 
+    /// Apply a bounded sparse upsert, checking an optional single-row CAS guard before merging.
     fn batch_upsert_sync(&self, spec: UpsertSpec) -> Result<(), PortError> {
+        if let Some(column) = spec.version_column {
+            if spec.conflict_key.is_none()
+                || spec
+                    .rows
+                    .iter()
+                    .any(|row| matches!(row_value(row, column), None | Some(SqlValue::Null)))
+            {
+                return Err(storage_error(
+                    "versioned upsert requires a conflict key and non-null version in every row",
+                ));
+            }
+        }
+        if spec.update_guard.is_some() {
+            if spec.conflict_key.is_none() {
+                return Err(storage_error("upsert update guard requires a conflict key"));
+            }
+            if spec.rows.len() != 1 {
+                return Err(storage_error(
+                    "upsert update guard requires a single-row batch",
+                ));
+            }
+        }
         if spec.rows.is_empty() {
             return Ok(());
         }
@@ -280,6 +303,21 @@ impl WebSessionStore {
                 .iter()
                 .position(|stored| rows_match(&stored.values, &incoming, &conflict_cols))
             {
+                if spec.version_column.is_some_and(|column| {
+                    let current = row_value(&table.rows[index].values, column);
+                    !matches!(current, None | Some(SqlValue::Null))
+                        && sql_value_cmp(row_value(&incoming, column), current) == Ordering::Less
+                }) {
+                    if spec.update_guard.is_some() {
+                        return Err(PortError::StorageConflict);
+                    }
+                    continue;
+                }
+                if let Some(guard) = spec.update_guard.as_ref() {
+                    if !upsert_guard_matches(&table.rows[index].values, guard) {
+                        return Err(PortError::StorageConflict);
+                    }
+                }
                 if replace_on_conflict {
                     table.rows[index] = StoredRow {
                         values: incoming,
@@ -608,7 +646,11 @@ impl WebSessionStore {
         Ok(())
     }
 
+    /// Only backend failures disable the session; optimistic conflicts are retryable.
     fn latch_fault(&self, error: &PortError) {
+        if matches!(error, PortError::StorageConflict) {
+            return;
+        }
         let Ok(mut state) = self.state.lock() else {
             return;
         };
@@ -970,6 +1012,21 @@ fn sql_value_eq(left: &SqlValue, right: &SqlValue) -> bool {
     }
 }
 
+/// Apply the same null-aware equality as SQLite `IS` to a sparse row column.
+fn upsert_guard_matches(row: &Row, guard: &UpsertGuard) -> bool {
+    row_value(row, guard.column).map_or(matches!(&guard.expected, &SqlValue::Null), |actual| {
+        sql_is_eq(actual, &guard.expected)
+    })
+}
+
+/// Match SQLite `IS` numeric behavior, including equal real values with distinct zero bits.
+fn sql_is_eq(left: &SqlValue, right: &SqlValue) -> bool {
+    match (left, right) {
+        (SqlValue::Real(left), SqlValue::Real(right)) => left == right,
+        _ => sql_value_eq(left, right),
+    }
+}
+
 fn sql_value_cmp(left: Option<&SqlValue>, right: Option<&SqlValue>) -> Ordering {
     match (left, right) {
         (None | Some(SqlValue::Null), None | Some(SqlValue::Null)) => Ordering::Equal,
@@ -1036,7 +1093,20 @@ mod tests {
         ]
     }
 
+    /// Build a message row with an explicit value suitable for an upsert guard.
+    fn message_with_props(
+        temporary_id: &str,
+        channel_id: &str,
+        create_at: i64,
+        props: &str,
+    ) -> Row {
+        let mut row = message(temporary_id, channel_id, create_at);
+        row.push(("props".into(), text(props)));
+        row
+    }
+
     #[test]
+    /// Verify sparse updates preserve excluded fields and batch atomicity.
     fn upsert_is_sparse_atomic_and_preserves_excluded_columns() {
         let store = new_store(limits());
         store
@@ -1045,6 +1115,8 @@ mod tests {
                 rows: vec![message("tmp-1", "channel-a", 1)],
                 conflict_key: Some("temporary_id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .expect("insert");
         store
@@ -1058,6 +1130,8 @@ mod tests {
                 ]],
                 conflict_key: Some("temporary_id"),
                 exclude_from_update: vec!["send_status"],
+                version_column: None,
+                update_guard: None,
             })
             .expect("update");
 
@@ -1086,6 +1160,8 @@ mod tests {
                 rows: vec![message("tmp-1", "channel-a", 1)],
                 conflict_key: Some("temporary_id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .expect("first row");
         assert!(tight
@@ -1094,12 +1170,206 @@ mod tests {
                 rows: vec![message("tmp-2", "channel-a", 2)],
                 conflict_key: Some("temporary_id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .is_err());
         assert_eq!(tight.row_count("message").expect("count"), 1);
     }
 
+    /// A guard only constrains an existing conflict row, so a guarded insert succeeds.
     #[test]
+    fn guarded_upsert_inserts_a_missing_row_without_reading_the_guard_column() {
+        let store = new_store(limits());
+        store
+            .batch_upsert_sync(UpsertSpec {
+                table: "message",
+                rows: vec![message_with_props("guarded-new", "channel-a", 1, "v1")],
+                conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: Some(UpsertGuard {
+                    column: "props",
+                    expected: text("stale"),
+                }),
+            })
+            .expect("guarded insert");
+
+        let row = store
+            .get_sync(GetSpec {
+                table: "message",
+                key_col: "temporary_id",
+                key_val: text("guarded-new"),
+            })
+            .expect("get")
+            .expect("inserted row");
+        assert!(matches!(
+            row_value(&row, "props"),
+            Some(SqlValue::Text(value)) if value == "v1"
+        ));
+    }
+
+    /// A matching guard permits the sparse row merge and advances its payload.
+    #[test]
+    fn guarded_upsert_updates_when_the_expected_value_matches() {
+        let store = new_store(limits());
+        store
+            .batch_upsert_sync(UpsertSpec {
+                table: "message",
+                rows: vec![message_with_props("guarded", "channel-a", 1, "v1")],
+                conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
+            })
+            .expect("initial row");
+
+        store
+            .batch_upsert_sync(UpsertSpec {
+                table: "message",
+                rows: vec![message_with_props("guarded", "channel-a", 2, "v2")],
+                conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: Some(UpsertGuard {
+                    column: "props",
+                    expected: text("v1"),
+                }),
+            })
+            .expect("guarded update");
+
+        let row = store
+            .get_sync(GetSpec {
+                table: "message",
+                key_col: "temporary_id",
+                key_val: text("guarded"),
+            })
+            .expect("get")
+            .expect("updated row");
+        assert!(matches!(
+            row_value(&row, "create_at"),
+            Some(SqlValue::Integer(2))
+        ));
+        assert!(matches!(
+            row_value(&row, "props"),
+            Some(SqlValue::Text(value)) if value == "v2"
+        ));
+    }
+
+    /// A stale expected value rejects the update without changing the existing row.
+    #[test]
+    fn guarded_upsert_rejects_a_stale_expected_value() {
+        let store = new_store(limits());
+        store
+            .batch_upsert_sync(UpsertSpec {
+                table: "message",
+                rows: vec![message_with_props("guarded", "channel-a", 1, "v2")],
+                conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
+            })
+            .expect("initial row");
+
+        let error = store
+            .batch_upsert_sync(UpsertSpec {
+                table: "message",
+                rows: vec![message_with_props("guarded", "channel-a", 3, "v3")],
+                conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: Some(UpsertGuard {
+                    column: "props",
+                    expected: text("v1"),
+                }),
+            })
+            .expect_err("stale update must fail");
+        assert!(matches!(error, PortError::StorageConflict));
+
+        let row = store
+            .get_sync(GetSpec {
+                table: "message",
+                key_col: "temporary_id",
+                key_val: text("guarded"),
+            })
+            .expect("get")
+            .expect("existing row");
+        assert!(matches!(
+            row_value(&row, "create_at"),
+            Some(SqlValue::Integer(1))
+        ));
+        assert!(matches!(
+            row_value(&row, "props"),
+            Some(SqlValue::Text(value)) if value == "v2"
+        ));
+    }
+
+    /// A guard mismatch aborts the whole atomic batch, including earlier facts.
+    #[test]
+    fn guarded_upsert_mismatch_rolls_back_other_atomic_facts() {
+        let store = new_store(limits());
+        store
+            .batch_upsert_sync(UpsertSpec {
+                table: "message",
+                rows: vec![message_with_props("guarded", "channel-a", 1, "v2")],
+                conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
+            })
+            .expect("initial row");
+
+        let outcome = store.execute_atomic_write(&[
+            StorageOp::BatchUpsert(UpsertSpec {
+                table: "message",
+                rows: vec![message_with_props("other-fact", "channel-a", 2, "new")],
+                conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
+            }),
+            StorageOp::BatchUpsert(UpsertSpec {
+                table: "message",
+                rows: vec![message_with_props("guarded", "channel-a", 3, "v3")],
+                conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: Some(UpsertGuard {
+                    column: "props",
+                    expected: text("v1"),
+                }),
+            }),
+        ]);
+        assert!(matches!(outcome, PortOutcome::Err(_)));
+
+        let state = store.state.lock().expect("inspect rolled-back state");
+        let rows = &state.tables["message"].rows;
+        assert!(
+            !rows.iter().any(|stored| {
+                matches!(
+                    row_value(&stored.values, "temporary_id"),
+                    Some(SqlValue::Text(value)) if value == "other-fact"
+                )
+            }),
+            "earlier fact must be rolled back"
+        );
+        let guarded = rows
+            .iter()
+            .find(|stored| {
+                matches!(
+                    row_value(&stored.values, "temporary_id"),
+                    Some(SqlValue::Text(value)) if value == "guarded"
+                )
+            })
+            .expect("original row");
+        assert!(matches!(
+            row_value(&guarded.values, "props"),
+            Some(SqlValue::Text(value)) if value == "v2"
+        ));
+    }
+
+    #[test]
+    /// Verify a capacity error leaves the whole incoming batch unapplied.
     fn capacity_failure_rolls_back_the_entire_incoming_batch() {
         let store = new_store(SessionStoreLimits {
             max_rows_per_table: 8,
@@ -1115,12 +1385,15 @@ mod tests {
                 ],
                 conflict_key: Some("temporary_id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .is_err());
         assert_eq!(store.row_count("message").expect("count"), 0);
     }
 
     #[test]
+    /// Verify oversized batches fail before mutation.
     fn oversized_write_batch_is_rejected_before_store_state_is_copied_or_mutated() {
         let store = new_store(SessionStoreLimits {
             max_rows_per_table: 2,
@@ -1136,6 +1409,8 @@ mod tests {
             ],
             conflict_key: Some("temporary_id"),
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         });
 
         assert!(result.is_err());
@@ -1145,6 +1420,7 @@ mod tests {
     }
 
     #[test]
+    /// Verify duplicate identities cannot overwrite an excluded scope.
     fn duplicate_new_identity_keeps_first_scope_when_scope_update_is_excluded() {
         let store = new_store(SessionStoreLimits {
             max_rows_per_table: 3,
@@ -1157,6 +1433,8 @@ mod tests {
                 rows: vec![message("existing", "channel-b", 1)],
                 conflict_key: Some("temporary_id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .expect("existing row");
 
@@ -1169,6 +1447,8 @@ mod tests {
                 ],
                 conflict_key: Some("temporary_id"),
                 exclude_from_update: vec!["channel_id"],
+                version_column: None,
+                update_guard: None,
             })
             .expect("first scope is the final scope");
 
@@ -1218,6 +1498,7 @@ mod tests {
     }
 
     #[test]
+    /// Verify the legacy replacement behavior without a conflict target.
     fn no_conflict_target_replaces_the_whole_sparse_row() {
         let store = new_store(limits());
         store
@@ -1230,6 +1511,8 @@ mod tests {
                 ]],
                 conflict_key: None,
                 exclude_from_update: vec!["purpose"],
+                version_column: None,
+                update_guard: None,
             })
             .expect("insert");
         store
@@ -1241,6 +1524,8 @@ mod tests {
                 ]],
                 conflict_key: None,
                 exclude_from_update: vec!["display_name"],
+                version_column: None,
+                update_guard: None,
             })
             .expect("replace");
 
@@ -1259,6 +1544,7 @@ mod tests {
     }
 
     #[test]
+    /// Verify undeclared identities fail without changing stored rows.
     fn undeclared_conflict_target_is_rejected_without_mutation() {
         let store = new_store(limits());
         assert!(store
@@ -1267,12 +1553,15 @@ mod tests {
                 rows: vec![message("tmp-1", "channel-a", 1)],
                 conflict_key: Some("id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .is_err());
         assert_eq!(store.row_count("message").expect("count"), 0);
     }
 
     #[test]
+    /// Verify storage failure prevents subsequent cursor advancement.
     fn write_failure_latches_store_before_any_cursor_can_advance() {
         let store = new_store(SessionStoreLimits {
             max_rows_per_table: 8,
@@ -1296,6 +1585,8 @@ mod tests {
                 ],
                 conflict_key: Some("temporary_id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             }),
         ]);
         assert!(matches!(failed, PortOutcome::Err(_)));
@@ -1324,6 +1615,7 @@ mod tests {
     }
 
     #[test]
+    /// Verify composite keys isolate channel writes and deletions.
     fn composite_identity_and_scoped_delete_do_not_cross_channels() {
         let store = new_store(limits());
         store
@@ -1343,6 +1635,8 @@ mod tests {
                 ],
                 conflict_key: Some("channel_id,user_id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .expect("members");
         store
@@ -1369,6 +1663,7 @@ mod tests {
     }
 
     #[test]
+    /// Verify filtering, stable ordering and limiting match the storage contract.
     fn scan_filters_then_orders_then_limits_without_reordering_ties() {
         let store = new_store(limits());
         store
@@ -1382,6 +1677,8 @@ mod tests {
                 ],
                 conflict_key: Some("temporary_id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .expect("messages");
         let rows = store
@@ -1461,6 +1758,7 @@ mod tests {
     }
 
     #[test]
+    /// Verify a forward bump changes its columns as one operation.
     fn guarded_bump_updates_all_columns_under_one_forward_guard() {
         let store = new_store(limits());
         store
@@ -1474,6 +1772,8 @@ mod tests {
                 ]],
                 conflict_key: None,
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .expect("channel");
         store
@@ -1508,6 +1808,7 @@ mod tests {
     }
 
     #[test]
+    /// Verify rejected bumps leave no partially updated row.
     fn guarded_bump_error_does_not_leave_a_partial_row_update() {
         let store = new_store(limits());
         store
@@ -1521,6 +1822,8 @@ mod tests {
                 ]],
                 conflict_key: Some("id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             })
             .expect("channel");
         assert!(store
@@ -1551,6 +1854,7 @@ mod tests {
     }
 
     #[test]
+    /// Verify operation batches return the final read using the shared codec.
     fn execute_ops_returns_last_read_in_shared_core_codec() {
         let store = new_store(limits());
         let outcome = store.execute_ops(&[
@@ -1559,6 +1863,8 @@ mod tests {
                 rows: vec![message("tmp-1", "channel-a", 1)],
                 conflict_key: Some("temporary_id"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             }),
             StorageOp::Scan(ScanSpec {
                 table: "message",
@@ -1611,5 +1917,94 @@ mod tests {
             order_by: &[],
         })]);
         assert!(matches!(read_rejected, PortOutcome::Err(_)));
+    }
+    #[test]
+    /// A missing row has the same JSON-array codec as HostStorage, including fresh category heads.
+    fn category_review_missing_get_returns_json_array() {
+        let store = new_store(limits());
+        let result = store.execute_ops(&[StorageOp::Get(GetSpec {
+            table: "category_chain_head",
+            key_col: "scope",
+            key_val: text("new-chain"),
+        })]);
+        let PortOutcome::Ok(bytes) = result else {
+            panic!("empty read failed")
+        };
+        assert_eq!(bytes.0.as_ref(), b"[]");
+    }
+
+    #[test]
+    /// A CAS conflict rolls back its transaction while leaving unrelated storage usable.
+    fn category_review_guard_conflict_does_not_disable_store() {
+        let store = new_store(limits());
+        let mut spec = UpsertSpec::new(
+            "message",
+            vec![message_with_props("guarded", "channel-a", 1, "v2")],
+            Some("temporary_id"),
+        );
+        assert!(matches!(
+            store.execute_atomic_write(&[StorageOp::BatchUpsert(spec.clone())]),
+            PortOutcome::Ok(_)
+        ));
+        spec.update_guard = Some(UpsertGuard {
+            column: "props",
+            expected: text("v1"),
+        });
+        assert!(matches!(
+            store.execute_atomic_write(&[StorageOp::BatchUpsert(spec)]),
+            PortOutcome::Err(_)
+        ));
+        assert!(
+            store.is_healthy(),
+            "a contention miss is not storage corruption"
+        );
+        assert!(matches!(
+            store.execute_ops(&[StorageOp::Get(GetSpec {
+                table: "message",
+                key_col: "temporary_id",
+                key_val: text("guarded"),
+            })]),
+            PortOutcome::Ok(_)
+        ));
+    }
+
+    /// Web uses the same full-width version order and keeps the default replacement policy.
+    #[test]
+    fn category_review_versioned_upsert_matches_host_order() {
+        let store = new_store(limits());
+        for (version, expected) in [
+            (10u64, 10),
+            (9, 10),
+            (10, 10),
+            (9007199254740993, 9007199254740993),
+            (u64::MAX, u64::MAX),
+            (u64::MAX - 1, u64::MAX),
+        ] {
+            let mut spec = UpsertSpec::new(
+                "message",
+                vec![message_with_props(
+                    "guarded",
+                    "channel-a",
+                    1,
+                    &format!("{version:020}"),
+                )],
+                Some("temporary_id"),
+            );
+            spec.version_column = Some("props");
+            assert!(matches!(
+                store.execute_atomic_write(&[StorageOp::BatchUpsert(spec)]),
+                PortOutcome::Ok(_)
+            ));
+            let outcome = store.execute_ops(&[StorageOp::Get(GetSpec {
+                table: "message",
+                key_col: "temporary_id",
+                key_val: text("guarded"),
+            })]);
+            let PortOutcome::Ok(bytes) = outcome else {
+                panic!("read failed")
+            };
+            let rows: serde_json::Value = serde_json::from_slice(&bytes.0).unwrap();
+            assert_eq!(rows[0]["props"], format!("{expected:020}"));
+        }
     }
 }

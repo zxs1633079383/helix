@@ -195,6 +195,8 @@ impl ScheduleFact {
         ];
         vec![
             StorageOp::BatchUpsert(UpsertSpec {
+                version_column: None,
+                update_guard: None,
                 table: "channel_schedule",
                 rows: vec![schedule_row],
                 conflict_key: Some("channel_id"),

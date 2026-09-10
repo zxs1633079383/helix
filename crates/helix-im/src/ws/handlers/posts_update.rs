@@ -172,6 +172,9 @@ impl WsMessageHandler for PostsUpdateHandler {
                 channel_id: batch.channel_id,
                 target_seq: working_cursor,
                 pending_domain_events,
+                has_category_posts: accepted.iter().any(|event| {
+                    event.post.get("type").and_then(Value::as_str) == Some("CATEGORY_CHAIN")
+                }),
                 refresh_timeline: saw_edit,
             },
         );
@@ -223,6 +226,12 @@ fn parse_posts_update_batch(data: &Value) -> Result<PostsUpdateBatch, &'static s
             .is_none_or(|id| id.is_empty())
         {
             return Err("malformed");
+        }
+        // Validate every post before gate admission so one malformed category event cannot
+        // partially commit an ordinary mixed batch or consume its cursor prefix.
+        let fields = extract_post_fields(post);
+        if crate::category_chain::post::validate_fields(&fields).is_err() {
+            return Err("invalid_category_revision");
         }
         let seq = Seq(seq);
         if previous.is_some_and(|last| seq <= last) {

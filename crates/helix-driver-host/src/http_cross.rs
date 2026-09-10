@@ -216,6 +216,7 @@ where
 fn error_kind(error: &PortError) -> &'static str {
     match error {
         PortError::Storage(_) => "storage",
+        PortError::StorageConflict => "storage_conflict",
         PortError::Transport(_) => "transport",
         PortError::Http(_) => "http",
         PortError::Clock(_) => "clock",

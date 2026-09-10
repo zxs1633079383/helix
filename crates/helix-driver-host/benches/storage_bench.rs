@@ -128,6 +128,8 @@ fn bench_batch_upsert_5000(c: &mut Criterion) {
                 rows: template.clone(),
                 conflict_key: Some("seq"),
                 exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
             }))
             .expect("upsert");
         });
@@ -178,6 +180,8 @@ fn bench_batch_upsert_39x100(c: &mut Criterion) {
                             rows,
                             conflict_key: Some("seq"),
                             exclude_from_update: Vec::new(),
+                            version_column: None,
+                            update_guard: None,
                         })
                         .await
                         .expect("upsert");

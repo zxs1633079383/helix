@@ -83,6 +83,8 @@ async fn parity_native_batch_upsert_5000() {
     let start = Instant::now();
     storage
         .batch_upsert(UpsertSpec {
+            version_column: None,
+            update_guard: None,
             table: "messages",
             rows,
             conflict_key: Some("seq"),

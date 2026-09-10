@@ -417,6 +417,7 @@ async fn crosscutting_http_starts_response_span_with_status() {
 }
 
 #[tokio::test]
+/// Verify SQLite spans retain the injected trace and bound SQL values.
 async fn sqlite_storage_span_carries_trace_context_statement_and_params() {
     let runtime = HostOtelRuntime::new(HostOtelConfig {
         enabled: true,
@@ -457,6 +458,8 @@ async fn sqlite_storage_span_carries_trace_context_statement_and_params() {
                     ]],
                     conflict_key: Some("id"),
                     exclude_from_update: Vec::new(),
+                    version_column: None,
+                    update_guard: None,
                 })
                 .await
         },

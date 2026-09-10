@@ -18,6 +18,7 @@
 pub mod acl;
 pub(crate) mod base64;
 pub(crate) mod chain;
+pub(crate) mod category_chain;
 pub mod channel;
 mod channel_kind;
 pub(crate) mod channel_sync;

@@ -31,6 +31,7 @@ fn make_rows(n: u64) -> Vec<Row> {
         .collect()
 }
 
+/// Measure the existing unguarded message upsert workload.
 fn bench_batch_upsert(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("rt");
     let db = format!(
@@ -54,6 +55,8 @@ fn bench_batch_upsert(c: &mut Criterion) {
     group.bench_function("batch_upsert_390", |b| {
         b.iter(|| {
             rt.block_on(storage.batch_upsert(UpsertSpec {
+                version_column: None,
+                update_guard: None,
                 table: "bench_msgs",
                 rows: rows.clone(),
                 conflict_key: Some("seq"),

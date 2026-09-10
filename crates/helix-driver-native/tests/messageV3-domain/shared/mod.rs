@@ -1660,7 +1660,7 @@ async fn pooled_session_at(
 }
 
 /// 根据当前批次开关选择隔离 session 或按账号复用的 Phase session。
-async fn start_real_helix_session_as_at(
+pub(crate) async fn start_real_helix_session_as_at(
     context: &AuthContext,
     persona: &Persona,
     channel_ids: &[&str],

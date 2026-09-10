@@ -59,6 +59,27 @@ pub struct UpsertSpec {
     ///
     /// 默认空：用 `UpsertSpec::new(...)` 构造可零改动迁移既有调用方。
     pub exclude_from_update: Vec<&'static str>,
+    /// 可选的冲突行更新守卫；仅原行该列 `IS expected` 时允许 `DO UPDATE`。
+    ///
+    /// 守卫值走绑定参数，不进入 SQL 文本。缺行时仍按普通 INSERT 处理，因此调用方可用
+    /// `SqlValue::Null` 表达“没有旧版本”的并发插入守卫。带守卫的规格只允许一个 row。
+    pub update_guard: Option<UpsertGuard>,
+    /// Optional orderable column: skip conflicting rows whose stored version is greater.
+    /// Values must have a consistent SQL type; missing/NULL stored versions admit initialization.
+    /// With an update_guard, a skipped row instead returns a conflict and rolls back the transaction.
+    pub version_column: Option<&'static str>,
+}
+
+/// batch upsert 冲突行的原子更新守卫。
+///
+/// `column` 是编译期列名；`expected` 是绑定到 `ON CONFLICT ... DO UPDATE ... WHERE`
+/// 的运行时值。驱动必须比较冲突前的原行，而不是 `excluded` 新值。
+#[derive(Debug, Clone)]
+pub struct UpsertGuard {
+    /// 冲突原行中参与 `IS` 比较的列名。
+    pub column: &'static str,
+    /// 冲突原行必须满足的值；`SqlValue::Null` 表示 SQL NULL。
+    pub expected: SqlValue,
 }
 
 impl UpsertSpec {
@@ -69,6 +90,8 @@ impl UpsertSpec {
             rows,
             conflict_key,
             exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
         }
     }
 }

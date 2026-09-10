@@ -202,3 +202,6 @@ mod phase5_chain_text_com_g06;
 mod phase5_chain_text_txt_g01;
 #[path = "messageV3-domain/Phase5/Chain/Text/CHAIN-TXT-G02/main.rs"]
 mod phase5_chain_text_txt_g02;
+
+#[path = "messageV3-domain/category_chain.rs"]
+mod category_chain;

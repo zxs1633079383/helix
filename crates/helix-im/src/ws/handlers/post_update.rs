@@ -75,6 +75,11 @@ pub(super) fn apply_post_update(
 
     // type=2 fields 取自该 post 子树；经 gate ingest（落库 patch + emit + cursor 一并 kind-aware）。
     let fields = extract_post_fields(post);
+    // CATEGORY_CHAIN authority must be rejected before gate admission, otherwise a malformed
+    // edit can become an admitted event without a correlated durable commit.
+    if crate::category_chain::post::validate_fields(&fields).is_err() {
+        return;
+    }
     // 投票/平均分只记录结构形状，验证完整帧是否在 Helix parser 前仍保留；不输出正文、成员姓名或凭证。
     if matches!(fields.msg_type.as_str(), "VOTE" | "AVERAGE_SCORE") {
         let props = serde_json::from_str::<serde_json::Value>(&fields.props).unwrap_or_default();
@@ -110,6 +115,25 @@ pub(super) fn apply_post_update(
         return;
     };
     if ctx.auth_user_id.is_empty() || i64::try_from(target_seq.0).is_err() {
+        return;
+    }
+    if fields.msg_type == "CATEGORY_CHAIN" {
+        let event = crate::sync_session::EventEnvelope::new(
+            channel_id,
+            target_seq,
+            EventKind::PostEdit,
+            fields,
+        )
+        .with_msg_id(msg_id)
+        .with_viewer_user_id(ctx.auth_user_id);
+        let Some(channel) = ctx.state.channels.get_mut(&channel_id) else {
+            return;
+        };
+        if let Ok(Some(event)) = channel.admit_message_v3_post(event, out) {
+            let corr = ctx.alloc_corr();
+            crate::category_chain::post::queue_edit(ctx.state, corr, event, out);
+        }
+        super::gate::trigger_backfill_if_large_gap(ctx, channel_id, target_seq, out);
         return;
     }
     let has_template_confirmation =

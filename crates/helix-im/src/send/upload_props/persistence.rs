@@ -63,6 +63,8 @@ fn strip_write_credentials(node: &mut Value) {
 pub fn props_persist_op(temporary_id: &TemporaryId, props_json: String) -> StorageOp {
     let props_json = sanitized_props_json(&props_json);
     StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "message",
         rows: vec![vec![
             (
@@ -105,6 +107,8 @@ pub fn media_send_state_persist_op(
         ));
     }
     StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "message",
         rows: vec![row],
         conflict_key: Some("temporary_id"),

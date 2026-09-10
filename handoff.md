@@ -282,8 +282,7 @@ node scripts/messagev3/phase1-5-real-chain.mjs --all
 ```
 
 CI 使用 `MESSAGEV3_ENV=pre`，需要 GitLab File 变量 `CSES_WDIO_CREDENTIALS_FILE`；
-结果上传到 `artifacts/messagev3-phase1-5-real-chain/`。`scripts/gate.sh` 仍保留给本地、
-pre-push 或人工完整 Rust/FFI 检查，不与 real-chain 争用 CI 主入口。
+结果上传到 `artifacts/messagev3-phase1-5-real-chain/`。`scripts/gate.sh` 仅保留给人工完整 Rust/FFI 检查，不与 real-chain 争用 CI 主入口。
 
 ## 9. PRE 重跑步骤与停止条件
 
@@ -328,7 +327,7 @@ artifacts/messagev3-phase1-5-real-chain/<suite-run-id>/<Phase>/<canonical-domain
 | [`crates/helix-driver-native/tests/messageV3-domain/README.md`](crates/helix-driver-native/tests/messageV3-domain/README.md) | Native 83 Gate 目录合同、运行方式、证据布局 |
 | [`crates/helix-driver-native/tests/messageV3-domain/shared/mod.rs`](crates/helix-driver-native/tests/messageV3-domain/shared/mod.rs) | session、频道/成员 fixture、发送、WS、SQLite、清理 harness |
 | [`crates/helix-driver-native/tests/messageV3-domain/handoff.md`](crates/helix-driver-native/tests/messageV3-domain/handoff.md) | Phase5 文字接龙与 domain 细节交接 |
-| [`docs/harness/OPERATING.md`](docs/harness/OPERATING.md) | CI、pre-push、人工运行边界 |
+| [`docs/harness/OPERATING.md`](docs/harness/OPERATING.md) | CI 与人工运行边界 |
 | [`docs/GOAL.md`](docs/GOAL.md) | runtime-agnostic、确定性、MessageV3 Event/PersistOk 不变量 |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | 当前 Phase/Spec 方向和活账 |
 | [`specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json`](specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json) | Spec 047 的 producer Gate 迁移合同 |

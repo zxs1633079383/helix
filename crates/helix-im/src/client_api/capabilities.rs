@@ -6,6 +6,8 @@ pub const CONTRACT_VERSION: u32 = 1;
 pub const BUS_CHANNEL: &str = "im:__bus__";
 
 pub const PUBLIC_EVENTS: &[&str] = &[
+    "im:category_chain:projection",
+    "im:category_chain:operation",
     "im:post:sending",
     "im:post:sent",
     "im:post:received",
@@ -65,6 +67,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
 
 pub const META_QUERIES: &[&str] = &["helix_capabilities", "helix_version"];
 
+/// Describe the loaded module; category feature version identifies the shared HTTP v3 query discriminator.
 pub fn capabilities_json() -> Vec<u8> {
     let mut commands = crate::outbound::outbound_command_names();
     commands.push("im_send_message");
@@ -83,6 +86,8 @@ pub fn capabilities_json() -> Vec<u8> {
         "queries": queries,
         "events": PUBLIC_EVENTS,
         "features": {
+            "postChainCategoryMode": true,
+            "postChainCategoryWireVersion": 3,
             "pendingSendTimeoutUnsend": true,
             "sendFailedProjection": true,
             "helixOwnedTemporaryId": true,

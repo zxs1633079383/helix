@@ -3,8 +3,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScopedGuardedBumpSpec,
-    SqlValue, StorageOp, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row,
+    ScopedGuardedBumpSpec, SqlValue, StorageOp, UpsertGuard, UpsertSpec,
 };
 use helix_core::PortError;
 use rusqlite::params_from_iter;
@@ -21,7 +21,53 @@ use super::trace::{
 use super::values::sql_values;
 use super::HostStorage;
 
+/// 校验 guarded upsert 的单行/冲突键前置条件，避免批量规格产生不明确的部分成功。
+fn validate_guarded_upsert(spec: &UpsertSpec) -> Result<(), PortError> {
+    if let Some(column) = spec.version_column {
+        if spec.conflict_key.is_none()
+            || spec.rows.iter().any(|row| {
+                !row.iter()
+                    .any(|(key, value)| key == column && !matches!(value, SqlValue::Null))
+            })
+        {
+            return Err(PortError::Storage(
+                "versioned upsert requires a conflict key and non-null version in every row".into(),
+            ));
+        }
+    }
+    if spec.update_guard.is_none() {
+        return Ok(());
+    }
+    if spec.conflict_key.is_none() {
+        return Err(PortError::Storage(
+            "UpsertGuard requires a conflict key".to_string(),
+        ));
+    }
+    if spec.rows.len() != 1 {
+        return Err(PortError::Storage(
+            "UpsertGuard accepts exactly one row".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// 将 upsert 行和可选守卫值按 SQL 占位符顺序编码；守卫值始终走绑定参数。
+fn upsert_values(row: &Row, guard: Option<&UpsertGuard>) -> Vec<Value> {
+    let mut values = sql_values(row.iter().map(|(_, value)| value));
+    if let Some(guard) = guard {
+        values.extend(sql_values(std::iter::once(&guard.expected)));
+    }
+    values
+}
+
+/// 将冲突行守卫失败转换为可由 PersistAtomic 识别并触发回滚的存储错误。
+fn guarded_upsert_mismatch(_table: &str, _column: &str) -> PortError {
+    PortError::StorageConflict
+}
+
+/// Execute row upserts on the blocking writer; a failed guard aborts the transaction.
 pub(super) async fn batch_upsert(storage: &HostStorage, spec: UpsertSpec) -> Result<(), PortError> {
+    validate_guarded_upsert(&spec)?;
     if spec.rows.is_empty() {
         return Ok(());
     }
@@ -34,10 +80,17 @@ pub(super) async fn batch_upsert(storage: &HostStorage, spec: UpsertSpec) -> Res
         {
             let mut stmt = tx.prepare_cached(&sql).map_err(map_sqlite_err)?;
             for row in &spec.rows {
-                let values = sql_values(row.iter().map(|(_, value)| value));
+                let values = upsert_values(row, spec.update_guard.as_ref());
                 let _span = trace_sql(&trace, "UPSERT", Some(spec.table), &sql, &values);
-                stmt.execute(params_from_iter(values.iter()))
+                let affected = stmt
+                    .execute(params_from_iter(values.iter()))
                     .map_err(map_sqlite_err)?;
+                if affected == 0 {
+                    let Some(guard) = spec.update_guard.as_ref() else {
+                        continue;
+                    };
+                    return Err(guarded_upsert_mismatch(spec.table, guard.column));
+                }
             }
         }
         tx.commit().map_err(map_sqlite_err)
@@ -368,11 +421,13 @@ fn atomic_write_op(
     }
 }
 
+/// Apply upserts inside the caller transaction; guard misses roll back the complete batch.
 fn atomic_batch_upsert(
     tx: &Transaction<'_>,
     spec: &UpsertSpec,
     trace: &Option<StorageTraceContext>,
 ) -> Result<usize, PortError> {
+    validate_guarded_upsert(spec)?;
     if spec.rows.is_empty() {
         return Ok(0);
     }
@@ -380,11 +435,19 @@ fn atomic_batch_upsert(
     let mut stmt = tx.prepare_cached(&sql).map_err(map_sqlite_err)?;
     let mut affected_rows = 0;
     for row in &spec.rows {
-        let values = sql_values(row.iter().map(|(_, value)| value));
+        let values = upsert_values(row, spec.update_guard.as_ref());
         let _span = trace_sql(trace, "UPSERT", Some(spec.table), &sql, &values);
-        affected_rows += stmt
+        let affected = stmt
             .execute(params_from_iter(values.iter()))
             .map_err(map_sqlite_err)?;
+        if affected == 0 {
+            let Some(guard) = spec.update_guard.as_ref() else {
+                affected_rows += affected;
+                continue;
+            };
+            return Err(guarded_upsert_mismatch(spec.table, guard.column));
+        }
+        affected_rows += affected;
     }
     Ok(affected_rows)
 }

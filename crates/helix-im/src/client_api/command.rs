@@ -13,6 +13,28 @@ pub struct CommandAlias {
 }
 
 pub const COMMAND_ALIASES: &[CommandAlias] = &[
+    CommandAlias { public: "im_category_chain_capabilities", core: "category_chain_capabilities" },
+    CommandAlias { public: "category_chain_capabilities", core: "category_chain_capabilities" },
+    CommandAlias { public: "category_chain_create_draft", core: "category_chain_create_draft" },
+    CommandAlias { public: "im_category_chain_create_draft", core: "category_chain_create_draft" },
+    CommandAlias { public: "category_chain_update_draft", core: "category_chain_update_draft" },
+    CommandAlias { public: "im_category_chain_update_draft", core: "category_chain_update_draft" },
+    CommandAlias { public: "category_chain_publish", core: "category_chain_publish" },
+    CommandAlias { public: "im_category_chain_publish", core: "category_chain_publish" },
+    CommandAlias { public: "category_chain_get", core: "category_chain_get" },
+    CommandAlias { public: "im_category_chain_get", core: "category_chain_get" },
+    CommandAlias { public: "category_chain_get_mine", core: "category_chain_get_mine" },
+    CommandAlias { public: "im_category_chain_get_mine", core: "category_chain_get_mine" },
+    CommandAlias { public: "category_chain_set_participation", core: "category_chain_set_participation" },
+    CommandAlias { public: "im_category_chain_set_participation", core: "category_chain_set_participation" },
+    CommandAlias { public: "category_chain_entries", core: "category_chain_entries" },
+    CommandAlias { public: "im_category_chain_entries", core: "category_chain_entries" },
+    CommandAlias { public: "category_chain_close", core: "category_chain_close" },
+    CommandAlias { public: "im_category_chain_close", core: "category_chain_close" },
+    CommandAlias { public: "category_chain_retract", core: "category_chain_retract" },
+    CommandAlias { public: "im_category_chain_retract", core: "category_chain_retract" },
+    CommandAlias { public: "category_chain_reconcile", core: "category_chain_reconcile" },
+    CommandAlias { public: "im_category_chain_reconcile", core: "category_chain_reconcile" },
     CommandAlias {
         public: "im_send",
         core: "im_send_message",
@@ -250,6 +272,9 @@ pub fn build_command(public_name: &str, payload: &[u8]) -> Result<AppCommand, Im
         return Err(ImError::Parse(
             "reserved runtime command is not part of the public command API".to_string(),
         ));
+    }
+    if (public_name.starts_with("im_category_chain_") || public_name.starts_with("category_chain_")) && command_alias(public_name).is_none() {
+        return Err(ImError::Parse("unknown category-chain command".to_owned()));
     }
     let normalized_payload = normalize_command_payload(public_name, payload)?;
     let core_name = command_alias(public_name).unwrap_or(public_name);

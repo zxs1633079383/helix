@@ -44,9 +44,12 @@ pub fn recovery_tenant_actor_scope(tenant_id: &str, actor_id: &str) -> Option<St
     Some(format!("{}:{}:{}", tenant_id.len(), tenant_id, actor_id))
 }
 
+/// Persist the recovery ledger under its declared sparse identity.
 pub fn recovery_ledger_op(entry: RecoveryLedgerEntry) -> StorageOp {
     use helix_core::effect::SqlValue;
     StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "channel_event_ledger",
         rows: vec![vec![
             ("tenant_id".to_string(), SqlValue::Text(entry.tenant_id)),
@@ -72,9 +75,12 @@ pub fn recovery_ledger_op(entry: RecoveryLedgerEntry) -> StorageOp {
     })
 }
 
+/// Persist channel recovery coverage without changing legacy update behavior.
 pub fn recovery_coverage_op(coverage: RecoveryCoverage) -> StorageOp {
     use helix_core::effect::SqlValue;
     StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "channel_sync_coverage",
         rows: vec![vec![
             (
@@ -128,6 +134,8 @@ pub fn upsert_message(_temporary_id: &TemporaryId, row: Row, corr: Correlation) 
     Effect::Persist {
         corr,
         ops: vec![StorageOp::BatchUpsert(UpsertSpec {
+            version_column: None,
+            update_guard: None,
             table: "message",
             rows: vec![row],
             conflict_key: Some("temporary_id"),
@@ -153,6 +161,8 @@ pub fn upsert_channel_full_op(
 ) -> StorageOp {
     let row: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
     StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "channel",
         rows: vec![row],
         conflict_key: Some("id"),
@@ -205,6 +215,8 @@ pub fn upsert_channel_member_channel_op(row: Row) -> Option<StorageOp> {
         return None;
     }
     Some(StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "channel_member",
         rows: vec![row],
         conflict_key: Some("channel_id,user_id"),
@@ -223,6 +235,8 @@ pub fn canonical_member_projection_ops(
     use helix_core::effect::{ScopedGuardedBumpSpec, SqlValue};
 
     let baseline = StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "channel_member",
         rows: vec![vec![
             (
@@ -367,6 +381,8 @@ pub fn advance_cursor_op(channel_id: ChannelId, target_seq: Seq) -> StorageOp {
 pub fn terminal_tombstone_and_cursor_op(channel_id: ChannelId, target_seq: Seq) -> StorageOp {
     use helix_core::effect::SqlValue;
     StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
         table: "channel_event_cursor",
         rows: vec![vec![
             (

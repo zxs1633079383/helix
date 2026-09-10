@@ -25,7 +25,7 @@ pub(crate) struct WsHandlerRegistration {
 
 inventory::collect!(WsHandlerRegistration);
 
-const EXPECTED_WS_HANDLER_COUNT: usize = 31;
+const EXPECTED_WS_HANDLER_COUNT: usize = 32;
 
 static WS_HANDLER_MAP: OnceLock<
     Result<HashMap<&'static str, &'static dyn WsMessageHandler>, ImError>,
@@ -969,7 +969,10 @@ mod tests {
             "action": "increment_channel_end", "data": { "channelId": channel_id.as_str() }
         }));
         dispatch_ws(&mut ctx, &single_end, &mut stale_out).unwrap();
-        assert_eq!(ctx.state.pending_increment_batch_id.as_deref(), Some("batch-current"));
+        assert_eq!(
+            ctx.state.pending_increment_batch_id.as_deref(),
+            Some("batch-current")
+        );
         let valid_end = frame_from_json(serde_json::json!({
             "action": "increment_channel_end",
             "data": { "scope": "channels", "batchId": "batch-current" }

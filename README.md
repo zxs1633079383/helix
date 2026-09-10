@@ -54,10 +54,10 @@ rustup target add wasm32-unknown-unknown
 cargo build --target wasm32-unknown-unknown -p helix-driver-web
 ```
 
-这条构建属于本地 `scripts/gate.sh` / pre-push 的 HX-C003 检查项；当前 GitLab CI 的业务 job 只执行
+这条构建属于人工运行 `scripts/gate.sh` 的 HX-C003 检查项；当前 GitLab CI 的业务 job 只执行
 MessageV3 real-chain（要求 Rust/Cargo 与 Node.js 20+），不执行 WASM、fmt 或 clippy。设置 `MESSAGEV3_DIAGNOSE=1` 时改走限时前置诊断与单 Gate `MV3-G07B`，不运行完整 83 Gate；诊断和日志说明见 [`scripts/README.md`](scripts/README.md#messagev3-ci-诊断与限时)。WASM 构建仍不能冒充浏览器 bootstrap 或真 Go E2E，不能据此宣称 Web 产品已经交付。
 
-## 验收红线（`scripts/gate.sh` / pre-push）
+## 人工完整验收（`scripts/gate.sh`）
 
 ```bash
 # helix-core 不含业务标识符（注释不计入）

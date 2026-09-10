@@ -1,0 +1,12 @@
+{
+  "data": {
+    "chainId": "chain-a",
+    "channelId": "chfixx00000000000000000001",
+    "clientMutationId": "business-error",
+    "command": "category_chain_set_participation",
+    "errorCode": "parse error: category_chain: CATEGORY_CHAIN_REJECTED:PARTICIPATION_CONFLICT",
+    "state": "REJECTED",
+    "viewerId": "user-a"
+  },
+  "event": "im:category_chain:operation"
+}

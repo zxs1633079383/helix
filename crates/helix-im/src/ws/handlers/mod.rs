@@ -14,6 +14,7 @@ pub(crate) mod member_projection;
 pub(crate) mod pong;
 pub(crate) mod post;
 pub(crate) mod post_chain;
+pub(crate) mod category_chain;
 pub(crate) mod post_echo_settle;
 pub(crate) mod post_pin;
 pub(crate) mod post_read;
@@ -46,6 +47,7 @@ pub(crate) fn force_link_inventory() {
     pong::inventory_link_anchor();
     post::inventory_link_anchor();
     post_chain::inventory_link_anchor();
+    category_chain::inventory_link_anchor();
     post_pin::inventory_link_anchor();
     post_read::inventory_link_anchor();
     post_schedule_canceled::inventory_link_anchor();

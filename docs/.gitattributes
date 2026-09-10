@@ -1,0 +1,2 @@
+# Unified diff 的空白上下文行必须保留单空格前缀；只豁免补丁数据的行尾空格。
+*.patch whitespace=-blank-at-eol

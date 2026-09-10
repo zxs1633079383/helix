@@ -40,6 +40,7 @@ fn make_module(channel_num: u64) -> ImModule {
     make_module_with_identity(channel_num, "stress-viewer", "stress-company")
 }
 
+/// 使用 Native 平台配置构造带注入身份的压测内核。
 fn make_module_with_identity(channel_num: u64, auth_user_id: &str, company_id: &str) -> ImModule {
     let config = ImConfig {
         ws_url: "ws://stress".to_string(),
@@ -52,7 +53,7 @@ fn make_module_with_identity(channel_num: u64, auth_user_id: &str, company_id: &
         user_name: String::new(),
         org_name: String::new(),
         dept_name: String::new(),
-        client_platform: Default::default(),
+        client_platform: helix_im::ClientPlatform::Native,
         offline_sync_diagnostics: Default::default(),
     };
     let mut module = ImModule::new(config);

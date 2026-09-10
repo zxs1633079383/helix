@@ -5,7 +5,7 @@
 
 ```toml
 [dependencies]
-helix-im = "=0.1.13"
+helix-im = "=0.1.15"
 ```
 
 本项目采用 `MIT OR Apache-2.0` 双许可证。

@@ -1,3 +1,10 @@
+## 2026-09-10 Markdown 日检
+
+🎯 EXPECT 基于 0cbbb6b59098793d2ae54fd6851c7419d01599fd，仅修改有源码证据的 Markdown；公共包版本与 manifest 一致，全库本地链接与聚焦 checker 通过，不修改代码/配置/生成物，不宣称运行态 Green。 | 赌注 中 | 可逆 是 | @2026-09-10T08:03:00+08:00
+分支 codex/helix-markdown-20260910-0802；upstream origin/reactor/MessageV3-helix；独立 worktree helix-markdown-20260910-0802，保留不删除。
+
+✅ DONE 本轮文档修正：四公共包版本0.1.15、ADR018及分类合同入口；分类11命令路由/view及历史reconcile私有回执与源码对齐。950份Markdown清单、1689条相对链接无缺失、Harness18/18/18、Spec047默认/self-test、历史Matrix与索引、diff check通过；未跑Cargo/真实链，canonical仍NOT_GENERATED。全库逐句语义未重证。 | @2026-09-10T08:09:10+08:00
+
 ## 2026-09-10 清理本地 pre-push 并继续分类推送
 
 用户明确要求关闭 pre-push。来源提交32eec39c已删除初始化脚本；本轮删除共享Git目录残留hook，清理README、操作手册、ADR及交接文档中的安装建议，保留人工检查与CI入口。分类生产及Native实现保持b8757f7c，既有114项领域测试和最终跨仓分类复跑通过；旧发送套件11通过/3失败/7忽略保留为未关闭问题，不宣称全仓绿色。推送结果以本轮远端SHA回读为准。

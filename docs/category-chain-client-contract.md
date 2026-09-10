@@ -6,18 +6,18 @@
 
 ## 公开入口与目标路由
 
-沿用 `helix_im::client_api::build_command(public_name, payload)` 与现有 Native/FFI/Web Command 入口；无新增业务ABI。顶层 camelCase 转 snake_case，nested audience/categories/selections 保持 camelCase。所有HTTP为POST，URL为既有 `api_base_url` 加 `/category-chain/<action>`。req_id仅用于本地waiter，不进入Go请求体。
+沿用 `helix_im::client_api::build_command(public_name, payload)` 与现有 Native/FFI/Web Command 入口；无新增业务ABI。顶层 camelCase 转 snake_case，nested audience/categories/selections 保持 camelCase。所有HTTP为POST，当前 URL 由既有 `api_base_url` 拼接 `post-chain/<action>?mode=CATEGORY`；下表列出 action 与读侧 view。请求体同时由 Helix 注入 `mode: "CATEGORY"`；`view` 由查询命令派生，不能由调用方指定。req_id仅用于本地waiter，不进入Go请求体。源码真源为 `crates/helix-im/src/category_chain/wire.rs::wire_body`；旧 `/category-chain/*` 路由只属于下方历史候选记录。
 
-| public alias | canonical Command | action | 终态 |
+| public alias | canonical Command | action / view | 终态 |
 | --- | --- | --- | --- |
 | im_category_chain_capabilities | category_chain_capabilities | capabilities | im:read:result |
-| im_category_chain_create_draft | category_chain_create_draft | create-draft | operation |
+| im_category_chain_create_draft | category_chain_create_draft | create | operation |
 | im_category_chain_update_draft | category_chain_update_draft | update-draft | operation |
 | im_category_chain_publish | category_chain_publish | publish | operation + canonical Post |
-| im_category_chain_get | category_chain_get | get | im:read:result |
-| im_category_chain_get_mine | category_chain_get_mine | my-participation | im:read:result |
-| im_category_chain_set_participation | category_chain_set_participation | set-participation | operation + 原Post更新 |
-| im_category_chain_entries | category_chain_entries | entries | im:read:result |
+| im_category_chain_get | category_chain_get | get / card | im:read:result |
+| im_category_chain_get_mine | category_chain_get_mine | get / mine | im:read:result |
+| im_category_chain_set_participation | category_chain_set_participation | append | operation + 原Post更新 |
+| im_category_chain_entries | category_chain_entries | get / entries | im:read:result |
 | im_category_chain_close | category_chain_close | close | operation + 原Post更新 |
 | im_category_chain_retract | category_chain_retract | retract | operation + 原Post更新 |
 | im_category_chain_reconcile | category_chain_reconcile | reconcile | im:read:result + operation |
@@ -33,7 +33,7 @@
 
 查询沿现有 `im:read:result` 的req_id/body/error：body为 `{status:"SUCCESS",data}`。get保留chain/card/draft/post四字段，my-participation和entries直接返回各自对象，reconcile保留四态外层及nullable result/error。PENDING/NOT_FOUND不能授权更换幂等键。
 
-业务成功必须经过HTTP/WS authority校验→durable head版本检查→PersistAtomic→持久读回→terminal Emit。SQLite用category_chain_head/category_chain_fact保存有界标量树，revision为精确十进制u64字符串；按viewer/channel/chain与查询scope隔离。Card、chain、Post和本人state分别持有head，避免Card-only WS擦掉HTTP字段；旧版本整笔回包不写入，转重新对账。无版本号的reconcile观察按state隔离，避免PENDING遮住后续终态。
+业务成功必须经过HTTP/WS authority校验→durable head版本检查→PersistAtomic→持久读回→terminal Emit。SQLite用category_chain_head/category_chain_fact保存有界标量树，revision为精确十进制u64字符串；按viewer/channel/chain与查询scope隔离。Card、chain、Post和本人state分别持有head，避免Card-only WS擦掉HTTP字段；旧版本不得覆盖公共 Card/chain/Post；confirmed reconcile 的历史回执可持久化私有 receipt，并在所需私有快照读回后完成确认，普通旧 authority 则转 RECONCILING。无版本号的reconcile观察按state隔离，避免PENDING遮住后续终态。
 
 完整CanonicalPost复用现有presence-aware message upsert和Post EventSink。HTTP及Card-only WS写入前读取message并比较props.categoryChain.revision；新增通用UpsertSpec.update_guard默认None，分类Post使用旧props作为CAS expected，比较失败使PersistAtomic整笔回滚。Host与Web均兑现该原语，Native/FFI继续复用Host；没有新Storage trait或业务ABI。最终再从message读回核对Card（HTTP要求相等，WS拒绝消息已存在的更高版本），防止只凭分类head忽略普通消息流已提交的新Post。旧WS拒绝后释放队列，当前Card仍可正常交付。同一锚点保持id/temporaryId，参与/编辑/取消不生成普通参与消息。WS action为`im:category_chain:projection`；eventSeq为字符串，与配对CanonicalPost共用channel_event。卡片本身绝不提交channel cursor或增加未读；游标由既有完整消息链提交。超时移除HTTP correlation，重复/迟到回包忽略；stop/account reset取消timer并清除队列和pending。
 

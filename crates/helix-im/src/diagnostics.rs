@@ -41,6 +41,11 @@ pub(crate) struct Observation<'a> {
     pub gap: Option<u64>,
     pub elapsed: f64,
     pub sync_session_id: &'a str,
+    pub pending_operations: Option<u64>,
+    pub barrier_mask: Option<u64>,
+    pub scheduler_inflight: Option<u64>,
+    pub scheduler_pending: Option<u64>,
+    pub batch_persist_inflight: Option<u64>,
     pub page_index: Option<u64>,
     pub total_pages: Option<u64>,
     pub started_at_ms: Option<u64>,
@@ -82,7 +87,10 @@ impl ImModule {
             expected_seq=%OptionalNumber(record.expected),received_seq=%OptionalNumber(record.received),
             declared_from_seq=%OptionalNumber(record.declared_from),declared_to_seq=%OptionalNumber(record.declared_to),
             corr=%OptionalNumber(record.corr),count=record.count as u64,has_more=record.has_more,expected_known=false,evidence_complete=false,
-            gap_id=%GapKey{session:self.diagnostics.login.as_str(),channel:record.channel,id:record.gap},elapsed_seconds=record.elapsed
+            gap_id=%GapKey{session:self.diagnostics.login.as_str(),channel:record.channel,id:record.gap},elapsed_seconds=record.elapsed,
+            pending_operations=%OptionalNumber(record.pending_operations),barrier_mask=%OptionalNumber(record.barrier_mask),
+            scheduler_inflight=%OptionalNumber(record.scheduler_inflight),scheduler_pending=%OptionalNumber(record.scheduler_pending),
+            batch_persist_inflight=%OptionalNumber(record.batch_persist_inflight)
         );
     }
     /// 只读取已存在的单群cursor，表示本次观察的已提交边界，不计算max(seq)。

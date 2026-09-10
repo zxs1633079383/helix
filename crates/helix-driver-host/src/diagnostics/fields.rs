@@ -45,6 +45,11 @@ const NAMES: &[&str] = &[
     "from_seq",
     "next_seq",
     "server_horizon_seq",
+    "pending_operations",
+    "barrier_mask",
+    "scheduler_inflight",
+    "scheduler_pending",
+    "batch_persist_inflight",
 ];
 #[derive(Clone, Copy)]
 struct Text {
@@ -109,8 +114,19 @@ impl Fields {
                 "evidence_complete" | "expected_known" | "has_more" => {
                     serde_json::Value::Bool(text == "true")
                 }
-                "page_index" | "total_pages" | "started_at_ms" | "completed_at_ms" | "count"
-                | "returned_channels" | "persisted_channels" | "applied_channels" => text
+                "page_index"
+                | "total_pages"
+                | "started_at_ms"
+                | "completed_at_ms"
+                | "count"
+                | "returned_channels"
+                | "persisted_channels"
+                | "applied_channels"
+                | "pending_operations"
+                | "barrier_mask"
+                | "scheduler_inflight"
+                | "scheduler_pending"
+                | "batch_persist_inflight" => text
                     .parse::<u64>()
                     .map(serde_json::Value::from)
                     .unwrap_or(serde_json::Value::Null),
@@ -159,5 +175,47 @@ impl Visit for Fields {
     /// Display包装的ID/可选序号只进入白名单固定缓冲。
     fn record_debug(&mut self, f: &Field, v: &dyn std::fmt::Debug) {
         self.put(f, format_args!("{v:?}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set(fields: &mut Fields, name: &str, value: &str) {
+        let index = NAMES
+            .iter()
+            .position(|candidate| *candidate == name)
+            .expect("field is whitelisted");
+        fields.values[index]
+            .write_str(value)
+            .expect("test value fits fixed buffer");
+    }
+
+    #[test]
+    fn recovery_pending_fields_are_whitelisted_and_typed() {
+        let mut fields = Fields::default();
+        set(&mut fields, "event", "sync_recovery_pending");
+        set(&mut fields, "pending_operations", "3");
+        set(&mut fields, "barrier_mask", "19");
+        set(&mut fields, "scheduler_inflight", "2");
+        set(&mut fields, "scheduler_pending", "4");
+        set(&mut fields, "batch_persist_inflight", "1");
+
+        let json = fields.json();
+        assert_eq!(json["event"], "sync_recovery_pending");
+        assert_eq!(json["pending_operations"], 3);
+        assert_eq!(json["barrier_mask"], 19);
+        assert_eq!(json["scheduler_inflight"], 2);
+        assert_eq!(json["scheduler_pending"], 4);
+        assert_eq!(json["batch_persist_inflight"], 1);
+    }
+
+    #[test]
+    fn recovery_pending_does_not_admit_unlisted_business_fields() {
+        assert!(NAMES.contains(&"barrier_mask"));
+        assert!(NAMES.contains(&"pending_operations"));
+        assert!(!NAMES.contains(&"completion_published"));
+        assert!(!NAMES.contains(&"channel_messages"));
     }
 }

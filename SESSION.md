@@ -1,5 +1,7 @@
 ## 2026-09-10 Grafana全量面板修复
 
+✅ DONE 恢复终态修复：单群hydration不再误开全局批次，保留真正WS输入开批；增加每秒最多1条恢复屏障旁路快照。新增回归先红后绿，IM库420、分页/生命周期28、字段2测试通过。真实只读UI第三候选46页全落库，recovery success耗时14.487s、mask0/pending0，UI success count2000，WDIO1/1通过。客户端双出口预算候选已使日志accepted/exported9503一致、日志/metrics丢弃0。Collector旧Histogram与新Gauge同名兼容仍独立验证；未发布crate/桌面包、未push。
+
 ✅ DONE 独立诊断队列修复：满批立即发送，稀疏批量共用一次截止时间；try_reserve后计数再发送，保持队列1024/批64、非阻塞producer及关闭排空。最新Cargo diagnostics_runtime 11/11通过，真实UI积压/丢记录改善待第二候选验证。
 
 ✅ DONE 独立看板修复：Grafana v14保留原111面板并增加1个全窗计数面板；10张表格分页/固定高度，数量与耗时靠左，退出单面板全屏。修正端侧字段语义、6个指标前缀、空服务匹配、Collector双链重复计数及启动直方图累计口径。STATIC PASS（112面板/171查询）。真实UI后审计91有样本、4缺样本、2查询429、15结构；429单独重试有记录，未合并为全量通过。整轮恢复与日志积压继续独立验收。

@@ -71,7 +71,7 @@ fn apply_increment_effects(ctx: &mut ImWsContext<'_>, inc: &IncrementChannel) ->
 /// HTTP 分页在 PersistOk 后才应用内存事实；旧 WS 路径保持既有接收时应用顺序。
 pub(crate) fn commit_increment_state(ctx: &mut ImWsContext<'_>, inc: &IncrementChannel) {
     let channel_id = inc.channel_id;
-    ctx.state.channel_sync_batch_pending = true;
+    // 输入批次仅由apply_increment打开；单群hydration/持久化后的状态应用保持已有批次边界。
     // 冷启动真新 channel（DB 无 cursor，on_start Scan 未载入）首次注册时，内存 cursor 种子
     // 必须是 0（= 本地未确认任何 event），不是帧的 lastEventSeq（服务端水位）。
     // 误种水位 → from_seq=cursor=max → Go no_change → 离线 backfill 永不触发，且 B2 heal 的

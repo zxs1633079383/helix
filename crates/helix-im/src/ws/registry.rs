@@ -771,6 +771,56 @@ mod tests {
         assert!(!ctx.state.channel_sync_batch_pending);
     }
 
+    /// 单群资料持久化不会开启全局输入批次；真正的新WS increment仍必须重新开批。
+    #[test]
+    fn single_channel_hydration_preserves_global_batch_boundary() {
+        let mut state = ImState::new();
+        state.channel_sync_batch_pending = false;
+        let channel = channel_id(23);
+        let raw = serde_json::json!({
+            "id": channel.as_str(), "lastEventSeq": 0, "needSync": false,
+            "mentionList": [], "urgentPostList": []
+        });
+        let inc = crate::ws::parser::parse_increment_channel(&raw).unwrap();
+        let mut alloc = || helix_core::Correlation::from_raw(10);
+        let mut ctx = ImWsContext::new(
+            &mut state,
+            1_000,
+            "https://example.test/api",
+            "user-a",
+            &mut alloc,
+        );
+        let mut out = EffectSink::new();
+        assert!(
+            super::super::handlers::increment_channel::apply_increment_hydration(
+                &mut ctx,
+                &inc,
+                helix_core::Correlation::from_raw(11),
+                &mut out
+            )
+        );
+        assert!(
+            !ctx.state.channel_sync_batch_pending,
+            "single-channel hydration must not reopen a sealed global inventory batch"
+        );
+        assert!(out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::PersistAtomic { .. })));
+
+        out.clear();
+        super::super::handlers::increment_channel::apply_increment(&mut ctx, &inc, &mut out);
+        assert!(
+            ctx.state.channel_sync_batch_pending,
+            "new WS input must reopen the next batch"
+        );
+        super::super::handlers::increment_channel::commit_increment_state(&mut ctx, &inc);
+        assert!(
+            ctx.state.channel_sync_batch_pending,
+            "state application must preserve an open batch"
+        );
+    }
+
     #[test]
     fn dispatch_ws_invalid_increment_end_channel_id_preserves_global_end_compatibility() {
         let mut state = ImState::new();

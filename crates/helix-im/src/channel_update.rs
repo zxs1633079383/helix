@@ -203,11 +203,12 @@ pub fn member_channel_from_update_channel(
         projection.unread_post_id = Some(v);
     }
     if let Some(v) = pick_value(channel, data, &["lastPost", "last_post"]) {
+        let v = crate::message_summary::prepare_post(v);
         row.push((
             "last_post".to_string(),
-            SqlValue::Text(value_storage_text(v)),
+            SqlValue::Text(value_storage_text(&v)),
         ));
-        projection.last_post = Some(v.clone());
+        projection.last_post = Some(v);
     }
     if let Some(v) = pick_int(channel, data, &["lastPostAt", "last_post_at"]) {
         row.push(("last_post_at".to_string(), SqlValue::Integer(v)));

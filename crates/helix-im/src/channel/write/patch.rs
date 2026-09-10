@@ -33,13 +33,18 @@ pub fn collect_present(data: &serde_json::Value) -> Vec<ChannelCol> {
         ("top_permission", "topPermission"),
         ("urgent_current_name", "urgentCurrentName"),
         ("picture_type", "pictureType"),
-        ("last_post", "lastPost"),
         ("unread_post_id", "unreadPostId"),
     ];
     for (col, key) in STR_MAP {
         if let Some(v) = data.get(key).and_then(|v| v.as_str()) {
             cols.push((col, SqlValue::Text(v.to_string())));
         }
+    }
+
+    if let Some(value) = data.get("lastPost").or_else(|| data.get("last_post")).filter(|value| !value.is_null()) {
+        let post = crate::message_summary::prepare_post(value);
+        let encoded = post.as_str().map(str::to_owned).unwrap_or_else(|| post.to_string());
+        cols.push(("last_post", SqlValue::Text(encoded)));
     }
 
     // 整数类（i64 / 计数 / 时间戳）。

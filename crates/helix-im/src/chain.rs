@@ -1301,6 +1301,7 @@ fn summary_value(value: &ChainSummary) -> Value {
         "mode": value.mode,
         "status": value.status,
         "title": value.title,
+        "simpleMessage": crate::message_summary::simple_message("TEXT_CHAIN", &value.title, &Value::Null),
         "description": value.description,
         "deadlineAt": value.deadline_at,
         "creatorSnapshot": value.creator_snapshot,
@@ -1322,6 +1323,7 @@ fn entry_value(value: &ChainEntry) -> Value {
         "authorSnapshot": value.author_snapshot,
         "seq": value.seq,
         "text": value.text,
+        "simpleMessage": crate::message_summary::simple_message("TEXT_CHAIN", &value.text, &Value::Null),
         "createdAt": value.created_at,
         "status": value.status,
     })

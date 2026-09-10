@@ -79,7 +79,7 @@ pub(crate) fn extract_post_fields_with_event_seq(
     let message = pick_str("message").unwrap_or_default();
     let simple_message = pick_str("simple_message")
         .or_else(|| pick_str("simpleMessage"))
-        .unwrap_or_else(|| message.clone());
+        .unwrap_or_default();
     let create_at = post
         .get("create_at")
         .or_else(|| post.get("createAt"))
@@ -96,6 +96,7 @@ pub(crate) fn extract_post_fields_with_event_seq(
         .unwrap_or(0);
     // props 只保留服务端业务对象与受信 event_seq；quickReply 使用独立 durable 列。
     let props = super::super::post_props::props_with_event_seq(post, root, event_seq);
+    let simple_message = crate::message_summary::resolve(&msg_type, &message, &serde_json::from_str(&props).unwrap_or(serde_json::Value::Null), &simple_message, false);
     let user_snapshot = post
         .get("userSnapshot")
         .or_else(|| post.get("user_snapshot"))
@@ -227,6 +228,9 @@ pub(crate) fn extract_post_fields_with_event_seq(
         if source_has_any(post, root, keys) {
             present_fields |= field;
         }
+    }
+    if !simple_message.is_empty() {
+        present_fields |= POST_FIELD_SIMPLE_MESSAGE;
     }
     if !present_fields_has(present_fields, POST_FIELD_QUICK_REPLY)
         && (post

@@ -35,6 +35,7 @@ pub mod error;
 pub mod event;
 mod forward;
 mod forward_shape;
+mod message_summary;
 pub mod http_envelope;
 mod http_outcome;
 mod increment_hydration;

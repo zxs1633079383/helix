@@ -254,11 +254,6 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
     let channel_id = get_str(row, &["channel_id", "channelId"]);
     let text = get_str(row, &["message", "text"]);
     let simple_message_raw = get_str(row, &["simple_message", "simpleMessage"]);
-    let simple_message = if simple_message_raw.is_empty() {
-        text
-    } else {
-        simple_message_raw
-    };
     let msg_type_raw = get_str(row, &["type"]);
     let msg_type = if msg_type_raw.is_empty() {
         "TEXT"
@@ -296,6 +291,7 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         _ => "sent",
     };
     let props = props_value(row);
+    let simple_message = crate::message_summary::resolve(msg_type, text, &props, simple_message_raw, revoke_bool(row));
     let event_seq = event_seq_value(row, &props);
     let forward_detail = super::forward::detail(msg_type, &props);
     let quick_reply = quick_reply_value(row, &props);

@@ -71,7 +71,7 @@ fn find_emit<'a>(emits: &'a [Effect], event: &str) -> Option<serde_json::Value> 
         .find(|v| v.get("event").and_then(|e| e.as_str()) == Some(event))
 }
 
-/// 离线 replay 撤回不依赖 messages 快照，只发布最小 MessageV3 identity/state。
+/// 离线 replay 无需 messages 快照，仍保留 identity/state 与 0.1.18 的撤回摘要合同。
 #[test]
 fn revoke_replay_emits_minimal_post_revoke_even_without_messages() {
     let emits = sync_mutation_emits(&[revoke_ev(3)], &HashMap::new());
@@ -83,7 +83,8 @@ fn revoke_replay_emits_minimal_post_revoke_even_without_messages() {
                 "id": MSG,
                 "channelId": CH,
                 "eventSeq": 3,
-                "revoke": true
+                "revoke": true,
+                "simpleMessage": "撤回了一条消息"
             }
         }))
     );

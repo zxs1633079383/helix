@@ -148,14 +148,14 @@ fn build_simple_message_short_text_full() {
 fn build_rich_simple_message_describes_media() {
     for (msg_type, content_types, text, expected) in [
         ("IMAGE", &["image/png"][..], "配图说明", "[图片] 配图说明"),
-        ("RICH", &["image/png", "image/jpeg"][..], "", "[图片] 2个"),
+        ("RICH", &["image/png", "image/jpeg"][..], "", "[图片 2个]"),
         ("RICH", &["video/mp4"][..], "演示", "[视频] 演示"),
-        ("RICH", &["video/mp4", "video/webm"][..], "", "[视频] 2个"),
+        ("RICH", &["video/mp4", "video/webm"][..], "", "[视频 2个]"),
         (
             "RICH",
             &["image/png", "video/mp4"][..],
             "项目素材",
-            "[媒体] 2个 项目素材",
+            "[媒体 2个] 项目素材",
         ),
     ] {
         let mut input = base_input(text, 1);

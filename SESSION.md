@@ -31,6 +31,8 @@
 
 本地隔离候选合并开发 11cbbaf8 与分类 32eec39c。五 crate check、IM lib 414、分类 39、重连 6、stress 3、Host 分类 6/guard 3、FFI parity 4 通过。保留开发发送终态、成员投影与事件序列守卫，保留分类版本守卫和事件读回。H3、新增非法 revision 回归与 Native 分类真实链仍须继续合入验收；未推送。
 
+✅ DONE 消息摘要统一归 Helix，补齐系统通知末条及有界嵌套 forwardDetail；客户端已接入本地 0.1.16 修复副本。摘要、发送、频道与嵌套定向回归及 Native 实测通过；按用户授权提交源码，不提版、不推送、不发布。超大嵌套字节限制与按需展开暂缓。 | @2026-09-10
+
 ✅ DONE 用户追加授权修复摘要断言：15c58e98仅修改Host测试预期，Host check、SQLite关闭重开2/2、IM摘要38/38通过；文档链接1663条与Spec/Matrix检查通过。恢复本轮分类提交与目标分支发布，push仍需现有完整gate通过。 | @2026-09-09T09:39:18+08:00
 
 历史阻断记录（已由15c58e98修复该断言，完整发布门禁待复验）：8 份 Markdown 的证据修正保留于独立 worktree；链接/版本/Harness/Spec/Matrix/历史索引/dry-run 通过。完整 gate 第5阶段因既有 markdown_persist::rich_markdown_command_survives_sqlite_reopen 断言失败退出101（实际 [图片] @张三，期望 [媒体]@张三）；不修改Rust/测试，不commit/merge/push。 | @2026-09-09T08:08:48+08:00

@@ -20,6 +20,7 @@
 //! - 回声对账锚 `action=="post"`（**非 `posted`**）+ body 字段 `createAt`（**非 `createdAt`**，B3）。
 //! - `temporary_id` 是主键，全程不变（乐观落库 / Http body / echo reconcile 同一值）。
 
+use crate::message_summary::simple_message;
 use helix_core::effect::{SqlValue, StorageOp, UpsertSpec};
 use serde_json::{json, Map, Value};
 
@@ -43,8 +44,6 @@ const TEMPLATE_INNER_TEXT: &str = "TEXT";
 /// `props.document.version` 的 Helix 权威常量（MV3-G01f 参考包固定 `1`）。
 const DOCUMENT_PROPS_VERSION: u64 = 1;
 
-/// 空文档的会话摘要兜底（MV3-G01f inbound 契约：正文前 50 字，空文档兜底 `[文档]`）。
-const DOCUMENT_EMPTY_SIMPLE_MESSAGE: &str = "[文档]";
 
 /// 当前登录用户身份（host 经 ImConfig 注入，确定性身份；core/im 不自取登录态）。
 ///
@@ -324,79 +323,6 @@ fn has_non_empty_str(object: &Map<String, Value>, key: &str) -> bool {
         .is_some_and(|value| !value.is_empty())
 }
 
-/// 从原文派生摘要，绝不覆盖消息正文或改变搜索索引输入。
-fn simple_message(msg_type: &str, message: &str, props: &Value) -> String {
-    let visible_text;
-    let message = if matches!(msg_type, "TEXT" | "RICH" | "IMAGE")
-        || (msg_type == "TEMPLATE"
-            && props.pointer("/template/type").and_then(Value::as_str) == Some("TEXT"))
-    {
-        visible_text = markdown_text(message);
-        if visible_text.is_empty() && !matches!(msg_type, "RICH" | "IMAGE") {
-            "[消息]"
-        } else {
-            visible_text.as_str()
-        }
-    } else {
-        message
-    };
-    if matches!(msg_type, "RICH" | "IMAGE") {
-        let files = props.get("files").and_then(Value::as_array);
-        let kind = if media_files_are(files, "image/") {
-            "图片"
-        } else if media_files_are(files, "video/") {
-            "视频"
-        } else {
-            "媒体"
-        };
-        let mut summary = format!("[{kind}]");
-        if let Some(count) = files.filter(|files| files.len() > 1).map(Vec::len) {
-            summary.push_str(&format!(" {count}个"));
-        }
-        if !message.trim().is_empty() {
-            summary.push(' ');
-            summary.push_str(message.trim());
-        }
-        return summary.chars().take(50).collect();
-    }
-    let (prefix, content) = match msg_type {
-        "FILE" => (
-            "[文件]",
-            props
-                .pointer("/file/name")
-                .or_else(|| props.pointer("/file/mediaInput/fileName"))
-                .and_then(Value::as_str)
-                .filter(|name| !name.is_empty())
-                .unwrap_or(message),
-        ),
-        "AUDIO" => ("[音频]", message),
-        "VIDEO" => ("[视频]", message),
-        // MV3-G01f：正文前 50 字；空文档兜底 `[文档]`（会话列表摘要不得为空串）。
-        "DOCUMENT" => (
-            "",
-            if message.trim().is_empty() {
-                DOCUMENT_EMPTY_SIMPLE_MESSAGE
-            } else {
-                message
-            },
-        ),
-        _ => ("", message),
-    };
-    prefix.chars().chain(content.chars()).take(50).collect()
-}
-
-fn media_files_are(files: Option<&Vec<Value>>, prefix: &str) -> bool {
-    files.is_some_and(|files| {
-        !files.is_empty()
-            && files.iter().all(|file| {
-                file.get("contentType")
-                    .or_else(|| file.pointer("/mediaInput/contentType"))
-                    .and_then(Value::as_str)
-                    .is_some_and(|content_type| content_type.starts_with(prefix))
-            })
-    })
-}
-
 /// 按 message-v3 `buildRepliedMessageInfo` 规则生成 Go 接受的 camelCase 引用快照。
 fn build_replied_message(snapshot: &RepliedSnapshot) -> Value {
     let preview = if snapshot.msg_type != "TEXT" || snapshot.message.chars().count() > 30 {
@@ -620,32 +546,4 @@ fn parse_replied_snapshot(snapshot: &Value) -> Option<RepliedSnapshot> {
             })
             .unwrap_or_default(),
     })
-}
-
-/// O(n) 提取 CommonMark 可见文本；代码/HTML 保留字面量，块边界折叠为单个空格。
-fn markdown_text(source: &str) -> String {
-    use pulldown_cmark::{Event, Options, Parser, TagEnd};
-    let options =
-        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-    let mut text = String::with_capacity(source.len());
-    for event in Parser::new_ext(source, options) {
-        match event {
-            Event::Text(value)
-            | Event::Code(value)
-            | Event::Html(value)
-            | Event::InlineHtml(value) => text.push_str(&value),
-            Event::SoftBreak | Event::HardBreak | Event::Rule => text.push(' '),
-            Event::End(
-                TagEnd::Paragraph
-                | TagEnd::Heading(_)
-                | TagEnd::CodeBlock
-                | TagEnd::Item
-                | TagEnd::TableCell
-                | TagEnd::TableRow,
-            ) => text.push(' '),
-            Event::TaskListMarker(checked) => text.push_str(if checked { "[x] " } else { "[ ] " }),
-            _ => {}
-        }
-    }
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }

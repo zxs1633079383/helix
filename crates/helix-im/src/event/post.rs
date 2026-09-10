@@ -201,6 +201,8 @@ pub fn authority_projection(
             .map_err(|error| crate::ImError::Parse(format!("post props: {error}")))?
     };
     canonicalize_media_file_names(&mut props);
+    let summary = crate::message_summary::resolve(&fields.msg_type, &fields.message, &props, &fields.simple_message, false);
+    if !summary.is_empty() { attach_shared_field(&mut received_data, &mut last_post, "simpleMessage", Value::String(summary)); }
     if let Some(object) = props.as_object_mut() {
         object.remove("channel_event_seq");
     }
@@ -477,7 +479,10 @@ pub fn send_failed_for_identity(
 }
 
 /// 构造消息撤回事实。
-pub fn revoke(data: Value) -> Result<MessageV3Event, crate::ImError> {
+pub fn revoke(mut data: Value) -> Result<MessageV3Event, crate::ImError> {
+    if let Some(object) = data.as_object_mut() {
+        object.insert("simpleMessage".to_string(), Value::String(crate::message_summary::resolve("", "", &Value::Null, "", true)));
+    }
     super::encode("im:post:revoke", data)
 }
 
@@ -503,6 +508,7 @@ pub fn revoke_from_sync_authority(
         "channelId": event.channel_id.as_str(),
         "eventSeq": event.seq.0,
         "revoke": true,
+        "simpleMessage": crate::message_summary::resolve("", "", &Value::Null, "", true),
     }))
 }
 
@@ -521,6 +527,7 @@ fn canonical_revoke_data(post: &Value, event_seq: Option<u64>) -> Result<Value, 
         "id": id,
         "channelId": channel_id,
         "revoke": true,
+        "simpleMessage": crate::message_summary::resolve("", "", &Value::Null, "", true),
     });
     if let Some(event_seq) = event_seq {
         data["eventSeq"] = serde_json::json!(event_seq);

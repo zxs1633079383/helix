@@ -202,7 +202,7 @@ pub(super) fn message_item_data(
         "userSnapshot": user_snapshot,
         "type": msg_type,
         "message": fields.message.as_str(),
-        "simpleMessage": fields.simple_message.as_str(),
+        "simpleMessage": crate::message_summary::resolve(msg_type, &fields.message, &props, &fields.simple_message, false),
         "text": fields.message.as_str(),
         "props": props,
         "forwardDetail": forward_detail,

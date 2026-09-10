@@ -3,8 +3,18 @@
 use super::MessageV3Event;
 use serde_json::Value;
 
+/// 稀疏频道事件只处理已携带的末条，不新增计数、草稿或提及字段。
+fn prepare_last_post(data: &mut Value) {
+    for key in ["lastPost", "last_post"] {
+        if let Some(value) = data.get_mut(key) {
+            *value = crate::message_summary::prepare_post(value);
+        }
+    }
+}
+
 /// 构造频道创建后的权威快照。
-pub fn created(data: Value) -> Result<MessageV3Event, crate::ImError> {
+pub fn created(mut data: Value) -> Result<MessageV3Event, crate::ImError> {
+    prepare_last_post(&mut data);
     super::encode("im:channel:created", data)
 }
 
@@ -26,7 +36,8 @@ pub fn members(data: Value) -> Result<MessageV3Event, crate::ImError> {
 }
 
 /// 构造频道及当前 viewer 绝对态更新。
-pub fn update(data: Value) -> Result<MessageV3Event, crate::ImError> {
+pub fn update(mut data: Value) -> Result<MessageV3Event, crate::ImError> {
+    prepare_last_post(&mut data);
     super::encode("im:channel:update", data)
 }
 

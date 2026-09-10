@@ -21,6 +21,12 @@ pub(crate) fn assemble_posts(
     }
 }
 
+/// 转发沿用同一摘要合同，旧行缺摘要时也由 Helix 补全。
+fn row_summary(row: &Value) -> String {
+    crate::message_summary::resolve(&string_or(row, "type", "TEXT"), &string_at(row, "message"),
+        &json_column(row, "props", json!({})), &string_at(row, "simple_message"), false)
+}
+
 fn individual_post(
     module: &ImModule,
     assembly: &ForwardAssembly,
@@ -28,8 +34,7 @@ fn individual_post(
     index: usize,
 ) -> Result<Value, ImError> {
     let message = string_at(row, "message");
-    let simple_message = nonempty_string_at(row, "simple_message")
-        .unwrap_or_else(|| message.chars().take(50).collect());
+    let simple_message = row_summary(row);
     Ok(base_post(
         module,
         assembly,
@@ -63,7 +68,7 @@ fn merged_post(module: &ImModule, assembly: &ForwardAssembly) -> Result<Value, I
                 "temporaryId": string_at(row, "temporary_id"),
                 "userId": string_at(row, "user_id"),
                 "props": json_column(row, "props", json!({})),
-                "simpleMessage": string_at(row, "simple_message"),
+                "simpleMessage": row_summary(row),
                 "type": string_or(row, "type", "TEXT"),
                 "sendStatus": "sended",
                 "userSnapshot": json_column(row, "user_snapshot", json!({})),

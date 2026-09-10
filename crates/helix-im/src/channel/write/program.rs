@@ -92,7 +92,11 @@ pub fn program_full(
         "urgent_post_list",
         SqlValue::Text(j("urgentPostList", "[]")),
     ));
-    let last_post = s("lastPost").unwrap_or_default();
+    let last_post = data.get("lastPost").or_else(|| data.get("last_post"))
+        .filter(|value| !value.is_null())
+        .map(|value| crate::message_summary::prepare_post(value))
+        .map(|value| value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string()))
+        .unwrap_or_default();
     row.push(("last_post", SqlValue::Text(last_post.clone())));
     // Real increment_channel frames may omit lastPostAt while carrying the same last post boundary as lastRootPostAt.
     let last_post_at = i("lastPostAt").or_else(|| {

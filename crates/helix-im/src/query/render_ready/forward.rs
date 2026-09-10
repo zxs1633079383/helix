@@ -3,6 +3,8 @@
 use serde_json::{json, Value};
 
 const MAX_FORWARD_ITEMS: usize = 100;
+const MAX_FORWARD_DEPTH: usize = 8;
+const MAX_FORWARD_TOTAL_ITEMS: usize = 1000;
 
 /// 将 durable MULTIPLY props 转成 bounded render-ready detail，非法记录整体 fail closed。
 pub(crate) fn detail(msg_type: &str, props: &Value) -> Value {
@@ -10,13 +12,30 @@ pub(crate) fn detail(msg_type: &str, props: &Value) -> Value {
         return Value::Null;
     }
 
+    let mut remaining = MAX_FORWARD_TOTAL_ITEMS;
+    detail_at_depth(props, 0, &mut remaining)
+}
+
+/// 共享总条数与深度预算，防止嵌套记录指数展开；坏的子卡片不吞掉外层普通消息。
+fn detail_at_depth(props: &Value, depth: usize, remaining: &mut usize) -> Value {
+    if depth >= MAX_FORWARD_DEPTH {
+        return unavailable("merge_depth_limit");
+    }
     let Some(items) = decode_items(props) else {
         return unavailable("invalid_merge_message");
     };
     if items.len() > MAX_FORWARD_ITEMS {
         return unavailable("too_many_merge_items");
     }
-    let Some(items) = normalize_items(items) else {
+    if items.len() > *remaining {
+        return unavailable("merge_total_limit");
+    }
+    *remaining -= items.len();
+    let Some(items) = items
+        .into_iter()
+        .map(|item| normalize_item(item, depth, remaining))
+        .collect::<Option<Vec<_>>>()
+    else {
         return unavailable("invalid_merge_item");
     };
     let item_count = items.len();
@@ -47,12 +66,8 @@ fn decode_items(props: &Value) -> Option<Vec<Value>> {
     }
 }
 
-fn normalize_items(items: Vec<Value>) -> Option<Vec<Value>> {
-    items.into_iter().map(normalize_item).collect()
-}
-
 /// 单条来源记录统一 snake/camel 别名，并保留 strict item 所需的 id 与 userId。
-fn normalize_item(item: Value) -> Option<Value> {
+fn normalize_item(item: Value, depth: usize, remaining: &mut usize) -> Option<Value> {
     let Value::Object(object) = item else {
         return None;
     };
@@ -84,6 +99,21 @@ fn normalize_item(item: Value) -> Option<Value> {
         "createAt": create_at,
         "userSnapshot": snapshot,
     });
+    let props = item.get("props").map(|value| match value {
+        Value::String(raw) => serde_json::from_str(raw).unwrap_or(Value::Null),
+        value => value.clone(),
+    }).unwrap_or(Value::Null);
+    result["simpleMessage"] = Value::String(crate::message_summary::resolve(
+        &msg_type, &text, &props, &string_at(&item, &["simpleMessage", "simple_message"]).unwrap_or_default(), false,
+    ));
+    if msg_type == "MULTIPLY" {
+        let props = match item.get("props") {
+            Some(Value::String(raw)) => serde_json::from_str(raw).unwrap_or(Value::Null),
+            Some(value) => value.clone(),
+            None => Value::Null,
+        };
+        result["forwardDetail"] = detail_at_depth(&props, depth + 1, remaining);
+    }
     // 媒体详情沿用普通消息的 props；不把原始嵌套 mergeMessage 扩散到投影边界。
     if matches!(
         msg_type.as_str(),
@@ -150,6 +180,55 @@ mod tests {
         assert_eq!(from_string["items"][0]["text"], "你好");
     }
 
+    /// 回归锚：6aa1289d / 6aa1289e；摘要与正文分离，嵌套子卡片仍可继续打开。
+    #[test]
+    fn preserves_summary_and_nested_detail_without_raw_merge_props() {
+        let inner = json!({"mergeMessage": [{"id":"leaf", "type":"TEXT", "message":"完整正文", "simpleMessage":"摘要"}]});
+        let props = json!({"mergeMessage": [
+            {"id":"nested", "type":"MULTIPLY", "simple_message":"[聊天记录]", "props":inner.to_string()},
+            {"id":"plain", "type":"TEXT", "message":"混排"}
+        ]});
+        let result = detail("MULTIPLY", &props);
+        let nested = &result["items"][0];
+        assert_eq!(nested["simpleMessage"], "[聊天记录]");
+        assert!(nested.get("props").is_none());
+        assert_eq!(nested["forwardDetail"]["items"][0]["text"], "完整正文");
+        assert_eq!(nested["forwardDetail"]["items"][0]["simpleMessage"], "摘要");
+        assert_eq!(result["items"][1]["text"], "混排");
+        let history = super::super::core::shape_row(
+            &json!({"type":"MULTIPLY", "props":props.to_string()}),
+            "",
+        );
+        assert_eq!(history["forwardDetail"], result);
+    }
+
+    /// 超深/超总数和损坏子项局部不可用，有限外层仍可渲染。
+    #[test]
+    fn nested_projection_has_depth_and_total_bounds() {
+        let mut props = json!({"mergeMessage": [{"type":"TEXT", "message":"leaf"}]});
+        for _ in 0..MAX_FORWARD_DEPTH {
+            props = json!({"mergeMessage": [{"type":"MULTIPLY", "props":props}]});
+        }
+        let result = detail("MULTIPLY", &props);
+        let mut nested = &result;
+        for _ in 0..MAX_FORWARD_DEPTH {
+            nested = &nested["items"][0]["forwardDetail"];
+        }
+        assert_eq!(nested["failureReason"], "merge_depth_limit");
+        let mut remaining = 0;
+        assert_eq!(
+            detail_at_depth(&props, 0, &mut remaining)["failureReason"],
+            "merge_total_limit"
+        );
+        let broken = detail(
+            "MULTIPLY",
+            &json!({"mergeMessage":[{"type":"MULTIPLY","props":"broken"},{"type":"TEXT","message":"ok"}]}),
+        );
+        assert_eq!(broken["state"], "ready");
+        assert_eq!(broken["items"][0]["forwardDetail"]["state"], "unavailable");
+        assert_eq!(broken["items"][1]["text"], "ok");
+    }
+
     #[test]
     fn malformed_merged_payload_fails_closed() {
         let result = detail("MULTIPLY", &json!({"mergeMessage":"not-json"}));
@@ -163,17 +242,24 @@ mod tests {
     fn media_forward_detail_preserves_props_in_both_projection_paths() {
         use crate::state::{ChannelId, Seq};
         use crate::sync_session::{EventEnvelope, EventKind, PostFields};
-        use std::str::FromStr;
 
         for kind in ["RICH", "IMAGE", "VIDEO", "FILE", "AUDIO", "VOICE"] {
-            let media = json!({"url":"https://media.test/a", "fileName":"a.mp4", "contentType":"video/mp4", "width":640, "height":480});
+            let file_name = if kind == "RICH" { "a.png" } else { "a.mp4" };
+            let content_type = if kind == "RICH" { "image/png" } else { "video/mp4" };
+            let media = json!({"url":"https://media.test/a", "fileName":file_name, "contentType":content_type, "width":640, "height":480});
             let props = if matches!(kind, "RICH" | "IMAGE") {
-                json!({"files":[media], "imagePosition":"bottom"})
+                let files = if kind == "RICH" { vec![media.clone(); 3] } else { vec![media] };
+                json!({"files":files, "imagePosition":"bottom"})
             } else {
                 json!({"file":media})
             };
             for encoded in [props.clone(), Value::String(props.to_string())] {
-                let merged = json!({"mergeMessage":[{"id":"m1", "type":kind, "message":"caption", "props":encoded}]});
+                let summary = if kind == "RICH" { "[图片] 3个 11 1 1 11" } else if kind == "VOICE" { "[语音]" } else { "已保存的媒体摘要" };
+                let merged = json!({"mergeMessage":[
+                    {"id":"first", "type":"TEXT", "message":"1", "simpleMessage":"1"},
+                    {"id":"second", "type":"TEXT", "message":"1", "simpleMessage":"1"},
+                    {"id":"m1", "type":kind, "message":"11\n1\n1\n11", "simpleMessage":summary, "props":encoded}
+                ]});
                 let history = super::super::core::shape_row(
                     &json!({"type":"MULTIPLY", "props":merged.to_string()}),
                     "",
@@ -192,8 +278,11 @@ mod tests {
                 let detail = &live.received_data["forwardDetail"];
                 assert_eq!(detail, &history["forwardDetail"]);
                 assert_eq!(detail, &live.last_post["forwardDetail"]);
-                let item = &detail["items"][0];
-                assert_eq!(item["text"], "caption");
+                assert_eq!(detail["items"][0]["simpleMessage"], "1");
+                assert_eq!(detail["items"][1]["simpleMessage"], "1");
+                let item = &detail["items"][2];
+                assert_eq!(item["text"], "11\n1\n1\n11");
+                assert_eq!(item["simpleMessage"], summary);
                 let file = if matches!(kind, "RICH" | "IMAGE") {
                     assert_eq!(item["props"]["imagePosition"], "bottom");
                     &item["props"]["files"][0]
@@ -201,7 +290,7 @@ mod tests {
                     &item["props"]["file"]
                 };
                 assert_eq!(file["url"], "https://media.test/a");
-                assert_eq!(file["name"], "a.mp4");
+                assert_eq!(file["name"], file_name);
                 assert_eq!(file["width"], 640);
                 assert!(file.get("fileName").is_none());
             }

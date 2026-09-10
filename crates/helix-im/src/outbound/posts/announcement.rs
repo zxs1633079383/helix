@@ -151,9 +151,9 @@ impl SaveAnnouncementCommand {
             "teamId": self.team_id,
             "topicId": "",
             "type": "ANNOUNCEMENT",
-            // 公告正文既是消息体也是摘要（`outbound-sample.json` 两者同值）。
+            // 正文原样发送，完整摘要由 Helix 的统一规则生成。
             "message": self.content,
-            "simpleMessage": self.content,
+            "simpleMessage": crate::message_summary::simple_message("ANNOUNCEMENT", &self.content, &Value::Null),
             // 公告不走消息位图已读（`contract.json`：readBits 常量 ''）。
             "readBits": "",
             // 公告对全群可见，不支持定向（空 viewers 会让公告对任何人都不可见）。
@@ -332,7 +332,7 @@ mod tests {
         assert_eq!(body["channelId"], "c1");
         assert_eq!(body["userId"], "u1");
         assert_eq!(body["message"], "公告内容");
-        assert_eq!(body["simpleMessage"], "公告内容");
+        assert_eq!(body["simpleMessage"], "[群公告] 公告内容");
         assert_eq!(body["readBits"], "");
         assert_eq!(body["viewers"], json!(["all"]));
         assert_eq!(body["props"]["announcement"]["announcementId"], "");

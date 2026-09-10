@@ -212,7 +212,7 @@ fn post_fields_json(
         "userId": fields.user_id.clone(),
         "type": fields.msg_type.clone(),
         "message": fields.message.clone(),
-        "simpleMessage": fields.simple_message.clone(),
+        "simpleMessage": crate::message_summary::resolve(&fields.msg_type, &fields.message, &props, &fields.simple_message, false),
         "props": props,
         "viewers": fields.viewers.clone(),
         "mentions": fields.mentions.clone(),

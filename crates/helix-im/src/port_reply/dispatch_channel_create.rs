@@ -240,6 +240,15 @@ fn build_message_v3_created_projection(
             projection_object.insert(field.to_string(), value.clone());
         }
     }
+    // 建群的入群通知与排序时间一并发布，不能等待另一条 post/update_channel 补齐。
+    if let Some(post) = channel.get("lastPost").or_else(|| channel.get("last_post")) {
+        projection["lastPost"] = crate::message_summary::prepare_post(post);
+    }
+    for (name, alias) in [("lastPostAt", "last_post_at"), ("lastRootPostAt", "last_root_post_at")] {
+        if let Some(value) = channel.get(name).or_else(|| channel.get(alias)) {
+            projection[name] = value.clone();
+        }
+    }
     projection
 }
 
@@ -342,6 +351,22 @@ mod tests {
     use super::build_message_v3_created_projection;
     use crate::state::ChannelId;
     use serde_json::json;
+
+    #[test]
+    fn channel_summary_created_projection_includes_first_notice_and_order() {
+        let id = ChannelId::from_str("3xzt493oabgijx5kto9ozba5fw").unwrap();
+        let post = json!({"id":"first-notice", "type":"NOTICE", "message":"", "simpleMessage":"", "props":{
+            "type":"join", "operator":{"id":"a","name":"甲"}, "users":[{"id":"b","name":"乙"}]
+        }});
+        for encoded in [post.clone(), serde_json::Value::String(post.to_string())] {
+            let channel = json!({"id":id.as_str(), "type":"P", "lastPost":encoded, "lastPostAt":123, "lastRootPostAt":123});
+            let created = build_message_v3_created_projection(id, &channel, &[], "a");
+            assert_eq!(created["lastPost"]["simpleMessage"], "甲邀请乙加入群聊");
+            assert_eq!(created["lastPost"]["id"], "first-notice");
+            assert_eq!(created["lastPostAt"], 123);
+            assert_eq!(created["lastRootPostAt"], 123);
+        }
+    }
 
     /// 建群事件投影必须保留 Go authority 的类型、头像、来源、身份与创建审计字段。
     #[test]

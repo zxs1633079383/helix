@@ -9,7 +9,7 @@
 ## 当前身份与阶段
 - Helix：reactor/MessageV3-helix，46f9cf6bb21c6fdefc9dd7f83a5abc4d7f367463。
 - 客户端：tracked clean，四包当前精确 pin =0.1.16。
-- 本阶段：plan通过；全量IM仅旧注册总数断言失败，已校正148并逐条断言11命令，定向7/7通过；其余全量target通过。准备publish。
+- 本阶段：plan通过；全量IM仅旧注册总数断言失败，已校正148并逐条断言11命令，定向7/7通过；其余全量target通过。四包0.1.17发布成功且可解析；八包check及dry-run通过。
 
 ## 预期
 🎯 EXPECT 四包0.1.17可从crates.io解析；提交版本事务并建注释Tag；客户端四个精确pin及实际锁解析同为0.1.17且PRE cargo check通过。 | 赌注 中 | 可逆 首次上传前是
@@ -23,3 +23,6 @@
 - plan → 全量IM验证 → publish → release commit/tag → 客户端pin/check → 完成通知。
 
 - 预检发现并修复分类接龙合并后的注册闭集断言遗漏；证据 /tmp/helix-release-0910-im-all-results.log 与 /tmp/helix-release-0910-registry-test.log。
+
+- 发布证据：/tmp/helix-release-0910-publish.log（RELEASE PASS）。版本事务随本发布提交固化，注释Tag helix-v-0.1.17指向本提交。
+- 下一阶段：cses-client monorepo-message 基线587e26213fa961e885bf95d605595d6257218874，更新四项pin及本地忽略的Cargo.lock，PRE编译。

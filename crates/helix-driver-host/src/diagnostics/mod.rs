@@ -116,13 +116,13 @@ impl<S: tracing::Subscriber> Layer<S> for DiagnosticLayer {
             self.stats.invalid.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        self.stats.depth.fetch_add(1, Ordering::Relaxed);
-        match tx.try_send(fields) {
-            Ok(()) => {
+        match tx.try_reserve() {
+            Ok(permit) => {
+                self.stats.depth.fetch_add(1, Ordering::Relaxed);
                 self.stats.accepted.fetch_add(1, Ordering::Relaxed);
+                permit.send(fields);
             }
             Err(_) => {
-                self.stats.depth.fetch_sub(1, Ordering::Relaxed);
                 self.stats.dropped.fetch_add(1, Ordering::Relaxed);
             }
         }

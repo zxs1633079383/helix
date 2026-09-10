@@ -4,8 +4,8 @@ use helix_driver_host::{NoopMetricSink, ShutdownOutcome};
 use std::{
     io::{Read, Write},
     net::TcpListener,
-    sync::Arc,
-    time::Duration,
+    sync::{Arc, Barrier},
+    time::{Duration, Instant},
 };
 use tracing_subscriber::prelude::*;
 
@@ -254,7 +254,9 @@ fn saturated_queue_rejects_without_unbounded_growth() {
         }
     });
     let snapshot = runtime.snapshot();
-    assert_eq!(snapshot.accepted + snapshot.dropped, 1000);
+    // dropped还包含后台HTTP最终失败，不能把accepted+dropped当作producer尝试的精确分解。
+    assert!(snapshot.accepted <= 1000);
+    assert!(snapshot.accepted + snapshot.dropped >= 1000);
     assert!(snapshot.dropped > 0);
     assert!(
         snapshot.queue_depth <= 2,
@@ -265,6 +267,206 @@ fn saturated_queue_rejects_without_unbounded_growth() {
         ShutdownOutcome::Drained
     );
     assert_eq!(runtime.snapshot().exported, 0);
+    assert_eq!(runtime.snapshot().queue_depth, 0);
+}
+
+/// 并发producer与worker竞态下，深度不得下溢或在关闭后残留。
+#[test]
+fn concurrent_producers_keep_queue_depth_bounded_and_drain() {
+    const PRODUCERS: usize = 8;
+    const EVENTS_PER_PRODUCER: usize = 512;
+    const QUEUE_CAPACITY: usize = 32;
+    const BATCH_MAX: usize = 8;
+    let mut runtime = DiagnosticRuntime::start(
+        DiagnosticConfig {
+            enabled: true,
+            loki_url: "http://127.0.0.1:9/loki/api/v1/push".into(),
+            queue_capacity: QUEUE_CAPACITY,
+            batch_max: BATCH_MAX,
+            export_interval: Duration::from_millis(10),
+            retry_max: 0,
+            ..Default::default()
+        },
+        Arc::new(NoopMetricSink),
+    )
+    .unwrap();
+    let start = Arc::new(Barrier::new(PRODUCERS + 1));
+    let layer = runtime.layer();
+    let producers = (0..PRODUCERS)
+        .map(|_| {
+            let start = Arc::clone(&start);
+            let layer = layer.clone();
+            std::thread::spawn(move || {
+                let subscriber = tracing_subscriber::registry().with(layer);
+                start.wait();
+                tracing::subscriber::with_default(subscriber, || {
+                    for _ in 0..EVENTS_PER_PRODUCER {
+                        tracing::info!(
+                            target:"helix::diagnostics",
+                            event="delivery_stage",
+                            user_id="concurrent-user"
+                        );
+                    }
+                });
+            })
+        })
+        .collect::<Vec<_>>();
+    start.wait();
+    let mut max_depth = 0;
+    while producers.iter().any(|producer| !producer.is_finished()) {
+        max_depth = max_depth.max(runtime.snapshot().queue_depth);
+        std::thread::yield_now();
+    }
+    for producer in producers {
+        producer.join().unwrap();
+    }
+    max_depth = max_depth.max(runtime.snapshot().queue_depth);
+    assert!(
+        max_depth <= QUEUE_CAPACITY + BATCH_MAX,
+        "queue depth escaped queue plus one in-flight batch bound: {max_depth}"
+    );
+    assert_eq!(
+        runtime.shutdown(Duration::from_secs(5)),
+        ShutdownOutcome::Drained
+    );
+    let snapshot = runtime.snapshot();
+    assert_eq!(snapshot.queue_depth, 0);
+    assert_eq!(snapshot.invalid, 0);
+    assert!(snapshot.accepted + snapshot.dropped >= (PRODUCERS * EVENTS_PER_PRODUCER) as u64);
+}
+
+/// 已有至少两批时，批间不应被每次额外的export_interval阻塞。
+#[test]
+fn full_backlog_batches_without_per_batch_interval_wait() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let receiver = std::thread::spawn(move || {
+        let mut received_at = Vec::new();
+        for _ in 0..2 {
+            let (mut socket, _) = listener.accept().unwrap();
+            let _ = receive_body(&mut socket);
+            received_at.push(Instant::now());
+            socket
+                .write_all(
+                    b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+        }
+        received_at
+    });
+    let mut runtime = DiagnosticRuntime::start(
+        DiagnosticConfig {
+            enabled: true,
+            loki_url: format!("http://{address}/loki/api/v1/push"),
+            batch_max: 2,
+            export_interval: Duration::from_secs(1),
+            retry_max: 0,
+            ..Default::default()
+        },
+        Arc::new(NoopMetricSink),
+    )
+    .unwrap();
+    tracing::subscriber::with_default(tracing_subscriber::registry().with(runtime.layer()), || {
+        for _ in 0..4 {
+            tracing::info!(target:"helix::diagnostics",event="delivery_stage",user_id="backlog-user");
+        }
+    });
+    let received_at = receiver.join().unwrap();
+    let elapsed = received_at[1].duration_since(received_at[0]);
+    assert!(
+        elapsed < Duration::from_millis(900),
+        "two full batches were separated by the per-batch interval: {elapsed:?}"
+    );
+    assert_eq!(
+        runtime.shutdown(Duration::from_secs(5)),
+        ShutdownOutcome::Drained
+    );
+    assert_eq!(runtime.snapshot().exported, 4);
+}
+
+/// 稀疏事件仍应在一次coalescing截止内导出，不能等到凑满批量。
+#[test]
+fn sparse_event_flushes_by_coalescing_deadline() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let receiver = std::thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        let _ = receive_body(&mut socket);
+        let received_at = Instant::now();
+        socket
+            .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .unwrap();
+        received_at
+    });
+    let mut runtime = DiagnosticRuntime::start(
+        DiagnosticConfig {
+            enabled: true,
+            loki_url: format!("http://{address}/loki/api/v1/push"),
+            batch_max: 64,
+            export_interval: Duration::from_millis(100),
+            retry_max: 0,
+            ..Default::default()
+        },
+        Arc::new(NoopMetricSink),
+    )
+    .unwrap();
+    let emitted_at = Instant::now();
+    tracing::subscriber::with_default(tracing_subscriber::registry().with(runtime.layer()), || {
+        tracing::info!(target:"helix::diagnostics",event="delivery_stage",user_id="sparse-user");
+    });
+    let received_at = receiver.join().unwrap();
+    assert!(
+        received_at.duration_since(emitted_at) < Duration::from_millis(700),
+        "sparse record exceeded its coalescing flush bound: {:?}",
+        received_at.duration_since(emitted_at)
+    );
+    assert_eq!(
+        runtime.shutdown(Duration::from_secs(5)),
+        ShutdownOutcome::Drained
+    );
+    assert_eq!(runtime.snapshot().exported, 1);
+}
+
+/// 关闭信号到达后仍有限排空已接收队列，不丢弃排队记录。
+#[test]
+fn shutdown_drains_accepted_queue() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let receiver = std::thread::spawn(move || {
+        for _ in 0..2 {
+            let (mut socket, _) = listener.accept().unwrap();
+            let _ = receive_body(&mut socket);
+            socket
+                .write_all(
+                    b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+        }
+    });
+    let mut runtime = DiagnosticRuntime::start(
+        DiagnosticConfig {
+            enabled: true,
+            loki_url: format!("http://{address}/loki/api/v1/push"),
+            batch_max: 2,
+            export_interval: Duration::from_secs(1),
+            retry_max: 0,
+            ..Default::default()
+        },
+        Arc::new(NoopMetricSink),
+    )
+    .unwrap();
+    tracing::subscriber::with_default(tracing_subscriber::registry().with(runtime.layer()), || {
+        for _ in 0..4 {
+            tracing::info!(target:"helix::diagnostics",event="delivery_stage",user_id="shutdown-user");
+        }
+    });
+    assert_eq!(
+        runtime.shutdown(Duration::from_secs(5)),
+        ShutdownOutcome::Drained
+    );
+    receiver.join().unwrap();
+    assert_eq!(runtime.snapshot().accepted, 4);
+    assert_eq!(runtime.snapshot().exported, 4);
     assert_eq!(runtime.snapshot().queue_depth, 0);
 }
 

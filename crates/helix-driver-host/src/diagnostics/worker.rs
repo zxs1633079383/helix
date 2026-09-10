@@ -32,21 +32,67 @@ pub(super) async fn run(
         let first = if closing {
             rx.recv().await
         } else {
-            tokio::select! {biased; _=&mut stop=>{closing=true;rx.close();rx.recv().await},value=rx.recv()=>value,_=tokio::time::sleep(config.export_interval)=>None}
+            tokio::select! {
+                biased;
+                _ = &mut stop => {
+                    closing = true;
+                    rx.close();
+                    rx.recv().await
+                }
+                value = rx.recv() => {
+                    if value.is_none() {
+                        closing = true;
+                    }
+                    value
+                }
+                _ = tokio::time::sleep(config.export_interval) => None,
+            }
         };
         let finished = closing && first.is_none();
         let mut records = Vec::with_capacity(config.batch_max);
         if let Some(first) = first {
             records.push(first);
         }
-        if !closing {
-            tokio::select! {_=&mut stop=>{closing=true;rx.close();},_=tokio::time::sleep(config.export_interval)=>{}}
-        }
-        while records.len() < config.batch_max {
-            match rx.try_recv() {
-                Ok(record) => records.push(record),
-                Err(_) => break,
+        // 关闭路径也必须先用try_recv排空已接收记录；运行路径由首条记录开始一次固定截止时间。
+        let mut deadline = if !closing && !records.is_empty() {
+            Some(tokio::time::Instant::now() + config.export_interval)
+        } else {
+            None
+        };
+        loop {
+            while records.len() < config.batch_max {
+                match rx.try_recv() {
+                    Ok(record) => records.push(record),
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                        closing = true;
+                        rx.close();
+                        break;
+                    }
+                }
             }
+            if records.len() >= config.batch_max || closing {
+                break;
+            }
+            let Some(batch_deadline) = deadline.take() else {
+                break;
+            };
+            tokio::select! {
+                biased;
+                _ = &mut stop => {
+                    closing = true;
+                    rx.close();
+                }
+                value = rx.recv() => match value {
+                    Some(record) => records.push(record),
+                    None => {
+                        closing = true;
+                        rx.close();
+                    }
+                },
+                _ = tokio::time::sleep_until(batch_deadline) => break,
+            }
+            deadline = Some(batch_deadline);
         }
         stats.depth.fetch_sub(records.len(), Ordering::Relaxed);
         let now = std::time::SystemTime::now()

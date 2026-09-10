@@ -6,6 +6,17 @@ fn default_config_keeps_otel_disabled() {
 
     assert!(!config.enabled);
     assert_eq!(config.protocol, "grpc");
+    assert_eq!(config.deployment_environment, "local");
+}
+
+#[test]
+fn runtime_bounds_trace_deployment_environment_to_metric_allowlist() {
+    let runtime = HostOtelRuntime::new(HostOtelConfig {
+        deployment_environment: "unknown-pre-tenant".to_string(),
+        ..Default::default()
+    });
+
+    assert_eq!(runtime.config().deployment_environment, "local");
 }
 
 /// 动态命名入口必须保留命令 Span 名称，不能退回固定生命周期名称。
@@ -16,6 +27,7 @@ fn owned_span_name_preserves_command_operation() {
         service_name: "helix-test".to_string(),
         endpoint: "noop".to_string(),
         protocol: "noop".to_string(),
+        deployment_environment: "local".to_string(),
     });
 
     let scope = runtime.span_with_owned_name(

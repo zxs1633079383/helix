@@ -14,7 +14,7 @@ use opentelemetry_sdk::Resource;
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
 
-use super::{HostOtelConfig, HostSpanSnapshot, TraceDirection};
+use super::{bounded_deployment_environment, HostOtelConfig, HostSpanSnapshot, TraceDirection};
 use crate::metrics::{AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels};
 
 // 三窗口真实链会在短时同步恢复后集中结束 span；8K 有界队列吸收突发且不反压业务线程。
@@ -181,11 +181,20 @@ fn init_exporter(
         }
     };
 
-    let resource = Resource::builder()
-        .with_service_name(config.service_name.clone())
-        .build();
+    let resource = trace_resource(config);
     exporter.set_resource(&resource);
     Some(exporter)
+}
+
+// Trace和指标携带同一部署环境，供Collector与Jaeger按环境聚合。
+fn trace_resource(config: &HostOtelConfig) -> Resource {
+    Resource::builder()
+        .with_service_name(config.service_name.clone())
+        .with_attribute(KeyValue::new(
+            "deployment.environment",
+            bounded_deployment_environment(&config.deployment_environment),
+        ))
+        .build()
 }
 
 async fn run_export_worker(
@@ -419,6 +428,26 @@ fn span_kind_for_direction(direction: TraceDirection) -> SpanKind {
 #[cfg(test)]
 mod query_status_tests {
     use super::*;
+
+    #[test]
+    fn trace_resource_contains_bounded_deployment_environment() {
+        let resource = trace_resource(&HostOtelConfig {
+            deployment_environment: "PRE".to_string(),
+            ..HostOtelConfig::default()
+        });
+        let key = opentelemetry::Key::from_static_str("deployment.environment");
+        assert_eq!(resource.get(&key).unwrap().to_string(), "pre");
+    }
+
+    #[test]
+    fn trace_resource_rejects_unknown_environment_without_defaulting_to_pre() {
+        let resource = trace_resource(&HostOtelConfig {
+            deployment_environment: "pre-production-user-42".to_string(),
+            ..HostOtelConfig::default()
+        });
+        let key = opentelemetry::Key::from_static_str("deployment.environment");
+        assert_eq!(resource.get(&key).unwrap().to_string(), "local");
+    }
 
     /// OTLP 必须保留显式失败，同时不改变未标记 span 的兼容状态。
     #[test]

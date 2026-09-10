@@ -17,6 +17,24 @@ pub struct HostOtelConfig {
     pub service_name: String,
     pub endpoint: String,
     pub protocol: String,
+    /// 真实部署环境，限定在低基数环境值域。
+    pub deployment_environment: String,
+}
+
+// 与 metrics/otlp.rs 的 MetricRuntimeConfig 环境值域保持一致，避免 Trace Resource 接受任意环境名。
+pub(crate) const DEPLOYMENT_ENVIRONMENT_VALUES: &[&str] = &["local", "test", "dev", "pre", "prod"];
+
+// 将Trace环境归一到固定值域，禁止任意身份值进入资源标签。
+pub(crate) fn bounded_deployment_environment(value: &str) -> String {
+    let normalized = value.trim().to_ascii_lowercase();
+    if DEPLOYMENT_ENVIRONMENT_VALUES
+        .iter()
+        .any(|candidate| *candidate == normalized)
+    {
+        normalized
+    } else {
+        "local".to_string()
+    }
 }
 
 impl Default for HostOtelConfig {
@@ -27,6 +45,7 @@ impl Default for HostOtelConfig {
             endpoint: "http://opentelemetry-collector.monitoring.svc.cluster.local:4317"
                 .to_string(),
             protocol: "grpc".to_string(),
+            deployment_environment: "local".to_string(),
         }
     }
 }
@@ -122,6 +141,10 @@ impl HostOtelRuntime {
         slow_threshold: Duration,
         full_debug: bool,
     ) -> Self {
+        let config = HostOtelConfig {
+            deployment_environment: bounded_deployment_environment(&config.deployment_environment),
+            ..config
+        };
         let exporter = if config.enabled
             && !config.endpoint.eq_ignore_ascii_case("noop")
             && !config.protocol.eq_ignore_ascii_case("noop")
@@ -164,6 +187,9 @@ impl HostOtelRuntime {
                     .or_else(|_| std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT"))
                     .unwrap_or(defaults.endpoint),
                 protocol: std::env::var("HELIX_OTEL_PROTOCOL").unwrap_or(defaults.protocol),
+                deployment_environment: std::env::var("HELIX_OTEL_DEPLOYMENT_ENVIRONMENT")
+                    .or_else(|_| std::env::var("OTEL_DEPLOYMENT_ENVIRONMENT"))
+                    .unwrap_or(defaults.deployment_environment),
             },
             metrics,
         )

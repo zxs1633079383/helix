@@ -422,3 +422,21 @@ Go `/channels/load/increment/page` 与 `/channel/sync/notify` 的真实handler�
 日志字段：`sync_session_id`、`page_index`、`total_pages`、`started_at_ms`、`completed_at_ms`、`elapsed_seconds`；通过可选受限诊断头关联两端，身份、页号不成为Prom时序标签。Go为每次分页建立真实OTel子Span；诊断开关关闭不影响Prom生产。
 
 看板 `helix-client-channel-v1` 新增“同步开始、完成与分页耗时”。Helix按 `service_name/deployment_environment`，Go按既有 `service/environment` 过滤。详情Loki忽略单群过滤以保留整轮；所有身份字段仍在JSON中精确过滤。最大1000行，无数据不填零。当前新增producer未部署：看板配置通过不代表有线上业务样本。
+
+## 2026-09-10：当前 registry 数量与类型修订
+
+本节只补充当前代码核对，不改写上方历史基线。`reactor/MessageV3-helix@86f84f33987525814b844b6bbb53fd669ea928bc` 的
+`registry.rs` 当前注册 **196** 个 descriptor：`Runtime` **144**、`Planned` **39**、
+`HarnessOnly` **11**、`ProfileOnly` **2**。上方 `182/129` 属于
+`6f8d957a` 历史基线，不能作为当前分母。
+
+`MetricKind` 是 exporter 类型真源，不能由名称后缀推断。当前看板契约需按 Gauge
+核对以下四个修订项：`helix_metrics_last_success_age_seconds`、
+`helix_process_resident_memory_bytes`、`helix_traces_last_success_age_seconds`、
+`helix_ws_inbound_last_seen_age_seconds`。同样，`helix_recovery_started_timestamp_seconds`、
+`helix_recovery_completed_timestamp_seconds`、`helix_process_start_time_seconds`、
+`helix_process_uptime_seconds` 与 `helix_storage_wal_bytes` 也以 registry 的 Gauge 为准；
+`_seconds` 或 `_bytes` 后缀不能把它们改成 Histogram。OTLP view 只给 registry 中的
+Histogram 应用显式桶，Gauge 保持 SDK 的标量聚合；需用 SDK collect 回归覆盖全部 registry
+Gauge 与 Histogram。Prometheus 端若由 Collector 加 `otel_` 前缀，仍以
+`/api/v1/metadata` 的实际名称对账。

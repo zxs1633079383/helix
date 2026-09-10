@@ -92,6 +92,8 @@ observability:
     serviceName: "helix-host-cli"
     endpoint: "http://127.0.0.1:4317"
     protocol: "grpc"
+    attributes:
+      deployment.environment: "pre"
     sampler:
       type: "parentbased_traceidratio"
       ratio: 1.0
@@ -113,6 +115,18 @@ observability:
     assert_eq!(c.observability.otel.service_name, "helix-host-cli");
     assert_eq!(c.observability.otel.endpoint, "http://127.0.0.1:4317");
     assert_eq!(c.observability.otel.protocol, "grpc");
+    assert_eq!(
+        c.observability
+            .otel
+            .attributes
+            .get("deployment.environment")
+            .map(String::as_str),
+        Some("pre")
+    );
+    assert_eq!(
+        c.observability.otel.host_config().deployment_environment,
+        "pre"
+    );
     assert_eq!(
         c.observability.otel.sampler.kind,
         "parentbased_traceidratio"

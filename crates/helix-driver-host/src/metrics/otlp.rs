@@ -17,6 +17,7 @@ use super::{
 
 // 独立 provider 输出累计快照；一次导出失败后，下次成功仍保留此前观测。
 const OTLP_METRIC_TEMPORALITY: Temporality = Temporality::Cumulative;
+pub(crate) const DEPLOYMENT_ENVIRONMENT_VALUES: &[&str] = &["local", "test", "dev", "pre", "prod"];
 
 enum Instrument {
     Counter(Counter<f64>),
@@ -126,20 +127,19 @@ fn build_pipeline(config: &MetricRuntimeConfig) -> Result<OtlpPipeline, MetricEx
     let provider = SdkMeterProvider::builder()
         .with_reader(reader)
         .with_resource(resource)
-        .with_view(|instrument: &SdkInstrument| {
-            histogram_boundaries(instrument.name()).and_then(|boundaries| {
-                Stream::builder()
-                    .with_aggregation(Aggregation::ExplicitBucketHistogram {
-                        boundaries,
-                        record_min_max: true,
-                    })
-                    .build()
-                    .ok()
-            })
-        })
+        .with_view(histogram_view)
         .build();
+    let instruments = build_instruments(&provider);
+    Ok(OtlpPipeline {
+        provider,
+        instruments,
+    })
+}
+
+// 按registry声明一次构造全部SDK instrument，运行观测复用同一组句柄。
+fn build_instruments(provider: &SdkMeterProvider) -> Vec<Instrument> {
     let meter = provider.meter("helix-driver-host");
-    let instruments = ALL_METRIC_IDS
+    ALL_METRIC_IDS
         .iter()
         .map(|id| {
             let descriptor = id.descriptor();
@@ -166,11 +166,7 @@ fn build_pipeline(config: &MetricRuntimeConfig) -> Result<OtlpPipeline, MetricEx
                 ),
             }
         })
-        .collect();
-    Ok(OtlpPipeline {
-        provider,
-        instruments,
-    })
+        .collect()
 }
 
 // 每个 SDK provider 创建一次独立 writer 身份，避免同进程多个 FFI handle 互相覆盖。
@@ -194,7 +190,7 @@ fn build_resource(config: &MetricRuntimeConfig, instance_id: String) -> Resource
                 "deployment.environment",
                 bounded_value(
                     &config.deployment_environment,
-                    &["local", "test", "dev", "pre", "prod"],
+                    DEPLOYMENT_ENVIRONMENT_VALUES,
                     "unknown",
                 ),
             ),
@@ -291,6 +287,30 @@ fn histogram_boundaries(name: &str) -> Option<Vec<f64>> {
     None
 }
 
+// 只有registry中的Histogram可使用显式桶；Gauge不由名称后缀改型。
+fn histogram_view(instrument: &SdkInstrument) -> Option<Stream> {
+    if metric_kind_for_name(instrument.name()) != Some(MetricKind::Histogram) {
+        return None;
+    }
+    histogram_boundaries(instrument.name()).and_then(|boundaries| {
+        Stream::builder()
+            .with_aggregation(Aggregation::ExplicitBucketHistogram {
+                boundaries,
+                record_min_max: true,
+            })
+            .build()
+            .ok()
+    })
+}
+
+// provider初始化时查找固定registry；不进入业务观测热路径。
+fn metric_kind_for_name(name: &str) -> Option<MetricKind> {
+    ALL_METRIC_IDS
+        .iter()
+        .find(|id| id.descriptor().name == name)
+        .map(|id| id.descriptor().kind)
+}
+
 fn bounded_value(value: &str, allowed: &[&'static str], fallback: &'static str) -> &'static str {
     allowed
         .iter()
@@ -302,8 +322,9 @@ fn bounded_value(value: &str, allowed: &[&'static str], fallback: &'static str) 
 #[cfg(test)]
 mod tests {
     use super::{
-        bounded_value, build_resource, histogram_boundaries, new_instance_id, MetricRuntimeConfig,
-        Temporality, OTLP_METRIC_TEMPORALITY,
+        bounded_value, build_instruments, build_resource, histogram_boundaries, histogram_view,
+        new_instance_id, MetricKind, MetricRuntimeConfig, Temporality, ALL_METRIC_IDS,
+        OTLP_METRIC_TEMPORALITY,
     };
     use opentelemetry::Key;
 
@@ -375,5 +396,173 @@ mod tests {
         assert!(boundaries.contains(&30.0));
         assert!(boundaries.contains(&300.0));
         assert!(boundaries.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    /// SDK collect 必须按 registry kind 保留聚合类型；名称后缀不能把 Gauge 改成 Histogram。
+    #[test]
+    fn sdk_collect_preserves_registry_metric_kinds_and_histogram_buckets() {
+        use opentelemetry_sdk::metrics::{
+            data::{AggregatedMetrics, MetricData},
+            exporter::PushMetricExporter,
+            PeriodicReader, SdkMeterProvider,
+        };
+        use std::future::Future;
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        enum CollectedKind {
+            Counter,
+            Gauge,
+            Histogram,
+            ExponentialHistogram,
+        }
+
+        #[derive(Clone, Debug)]
+        struct CollectedMetric {
+            name: String,
+            kind: CollectedKind,
+            has_data_point: bool,
+            has_bucket: bool,
+        }
+
+        #[derive(Clone, Default)]
+        struct CollectingExporter {
+            metrics: Arc<Mutex<Vec<CollectedMetric>>>,
+        }
+
+        impl PushMetricExporter for CollectingExporter {
+            fn export(
+                &self,
+                resource_metrics: &opentelemetry_sdk::metrics::data::ResourceMetrics,
+            ) -> impl Future<Output = opentelemetry_sdk::error::OTelSdkResult> + Send {
+                let collected = resource_metrics
+                    .scope_metrics()
+                    .flat_map(|scope| scope.metrics())
+                    .map(|metric| {
+                        let (kind, has_data_point, has_bucket) = match metric.data() {
+                            AggregatedMetrics::F64(data) => match data {
+                                MetricData::Gauge(gauge) => (
+                                    CollectedKind::Gauge,
+                                    gauge.data_points().next().is_some(),
+                                    false,
+                                ),
+                                MetricData::Sum(sum) => (
+                                    CollectedKind::Counter,
+                                    sum.data_points().next().is_some(),
+                                    false,
+                                ),
+                                MetricData::Histogram(histogram) => (
+                                    CollectedKind::Histogram,
+                                    histogram.data_points().next().is_some(),
+                                    histogram
+                                        .data_points()
+                                        .next()
+                                        .is_some_and(|point| point.bounds().next().is_some()),
+                                ),
+                                MetricData::ExponentialHistogram(histogram) => (
+                                    CollectedKind::ExponentialHistogram,
+                                    histogram.data_points().next().is_some(),
+                                    false,
+                                ),
+                            },
+                            AggregatedMetrics::U64(_) | AggregatedMetrics::I64(_) => {
+                                panic!("test instruments must be f64")
+                            }
+                        };
+                        CollectedMetric {
+                            name: metric.name().to_string(),
+                            kind,
+                            has_data_point,
+                            has_bucket,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let metrics = Arc::clone(&self.metrics);
+                async move {
+                    metrics
+                        .lock()
+                        .expect("collecting exporter lock")
+                        .extend(collected);
+                    Ok(())
+                }
+            }
+
+            fn force_flush(&self) -> opentelemetry_sdk::error::OTelSdkResult {
+                Ok(())
+            }
+
+            fn shutdown_with_timeout(
+                &self,
+                _timeout: std::time::Duration,
+            ) -> opentelemetry_sdk::error::OTelSdkResult {
+                Ok(())
+            }
+
+            fn temporality(&self) -> super::Temporality {
+                super::Temporality::Cumulative
+            }
+        }
+
+        let exporter = CollectingExporter::default();
+        let reader = PeriodicReader::builder(exporter.clone()).build();
+        let provider = SdkMeterProvider::builder()
+            .with_reader(reader)
+            .with_view(histogram_view)
+            .build();
+        let instruments = build_instruments(&provider);
+        assert_eq!(instruments.len(), ALL_METRIC_IDS.len());
+        for instrument in &instruments {
+            match instrument {
+                super::Instrument::Counter(counter) => counter.add(1.0, &[]),
+                super::Instrument::Gauge(gauge) => gauge.record(1.0, &[]),
+                super::Instrument::Histogram(histogram) => histogram.record(1.0, &[]),
+            }
+        }
+        provider.force_flush().expect("collect metrics");
+        provider.shutdown().expect("shutdown collecting reader");
+        let metrics = exporter
+            .metrics
+            .lock()
+            .expect("collecting exporter lock")
+            .clone();
+
+        for id in ALL_METRIC_IDS {
+            let descriptor = id.descriptor();
+            let metric = metrics
+                .iter()
+                .find(|metric| metric.name == descriptor.name)
+                .unwrap_or_else(|| panic!("missing collected metric {}", descriptor.name));
+            match (descriptor.kind, metric.kind) {
+                (MetricKind::Counter, CollectedKind::Counter)
+                | (MetricKind::Gauge, CollectedKind::Gauge)
+                | (MetricKind::Histogram, CollectedKind::Histogram) => {}
+                (kind, data) => panic!(
+                    "metric {} registry kind {:?} collected as {:?}",
+                    descriptor.name, kind, data
+                ),
+            }
+        }
+
+        for name in [
+            "helix_metrics_last_success_age_seconds",
+            "helix_process_resident_memory_bytes",
+            "helix_traces_last_success_age_seconds",
+            "helix_ws_inbound_last_seen_age_seconds",
+        ] {
+            let metric = metrics
+                .iter()
+                .find(|metric| metric.name == name)
+                .expect("corrected Gauge should be collected");
+            assert_eq!(metric.kind, CollectedKind::Gauge);
+            assert!(metric.has_data_point);
+        }
+
+        let histogram = metrics
+            .iter()
+            .find(|metric| metric.name == "helix_recovery_duration_seconds")
+            .expect("histogram should be collected");
+        assert_eq!(histogram.kind, CollectedKind::Histogram);
+        assert!(histogram.has_data_point);
+        assert!(histogram.has_bucket);
     }
 }

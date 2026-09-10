@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use helix_driver_host::{
@@ -122,6 +123,8 @@ pub struct Otel {
     pub endpoint: String,
     #[serde(default = "d_otel_protocol")]
     pub protocol: String,
+    #[serde(default)]
+    pub attributes: BTreeMap<String, String>,
     #[serde(rename = "slowTraceThresholdMs", default = "d_slow_trace_threshold_ms")]
     pub slow_trace_threshold_ms: u64,
     #[serde(default)]
@@ -137,6 +140,7 @@ impl Default for Otel {
             service_name: d_helix_service_name(),
             endpoint: d_otel_endpoint(),
             protocol: d_otel_protocol(),
+            attributes: BTreeMap::new(),
             slow_trace_threshold_ms: d_slow_trace_threshold_ms(),
             sampler: OtelSampler::default(),
             facets: OtelFacets::default(),
@@ -156,6 +160,11 @@ impl Otel {
             service_name: self.service_name.clone(),
             endpoint: self.endpoint.clone(),
             protocol: self.protocol.clone(),
+            deployment_environment: self
+                .attributes
+                .get("deployment.environment")
+                .cloned()
+                .unwrap_or_else(|| HostOtelConfig::default().deployment_environment),
         }
     }
 }

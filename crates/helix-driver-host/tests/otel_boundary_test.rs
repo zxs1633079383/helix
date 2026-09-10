@@ -24,6 +24,7 @@ fn host_otel_runtime_extracts_traceparent_and_starts_child_span() {
         service_name: "helix-test".to_string(),
         endpoint: "noop".to_string(),
         protocol: "noop".to_string(),
+        deployment_environment: "local".to_string(),
     });
     let carrier = TraceCarrier::from_json_str(
         r#"{"traceparent":"00-00000000000000000000000000000001-0000000000000002-01","baggage":"client=test"}"#,
@@ -48,6 +49,7 @@ fn host_otel_runtime_uses_non_colliding_span_ids() {
         service_name: "helix-test".to_string(),
         endpoint: "noop".to_string(),
         protocol: "noop".to_string(),
+        deployment_environment: "local".to_string(),
     });
     let carrier = TraceCarrier::from_json_str(
         r#"{"traceparent":"00-00000000000000000000000000000001-0000000000000001-01"}"#,
@@ -73,6 +75,7 @@ fn trace_hooks_consume_command_trace_sidecar_at_host_boundary() {
         service_name: "helix-test".to_string(),
         endpoint: "noop".to_string(),
         protocol: "noop".to_string(),
+        deployment_environment: "local".to_string(),
     });
     let queue = CommandTraceQueue::default();
     queue.push_slot(Some(
@@ -142,6 +145,7 @@ fn lifecycle_children_are_parented_to_the_same_t1_root() {
         service_name: "helix-test".to_string(),
         endpoint: "noop".to_string(),
         protocol: "noop".to_string(),
+        deployment_environment: "local".to_string(),
     });
     let hooks = TraceHooks::noop().with_otel(runtime.clone());
     let context = LifecycleContext::new(41, None, None)
@@ -180,6 +184,7 @@ fn full_debug_switch_is_the_only_path_for_sensitive_http_attributes() {
             service_name: "helix-test".to_string(),
             endpoint: "noop".to_string(),
             protocol: "noop".to_string(),
+            deployment_environment: "local".to_string(),
         },
         Arc::new(helix_driver_host::NoopMetricSink),
         true,
@@ -217,6 +222,7 @@ fn full_debug_trace_carries_non_credential_user_context_without_metrics_labels()
             service_name: "helix-test".to_string(),
             endpoint: "noop".to_string(),
             protocol: "noop".to_string(),
+            deployment_environment: "local".to_string(),
         },
         Arc::new(helix_driver_host::NoopMetricSink),
         true,
@@ -255,6 +261,7 @@ fn safe_trace_does_not_carry_user_context_even_when_configured() {
             service_name: "helix-test".to_string(),
             endpoint: "noop".to_string(),
             protocol: "noop".to_string(),
+            deployment_environment: "local".to_string(),
         },
         Arc::new(helix_driver_host::NoopMetricSink),
         false,
@@ -374,6 +381,7 @@ async fn crosscutting_http_starts_response_span_with_status() {
         service_name: "helix-test".to_string(),
         endpoint: "noop".to_string(),
         protocol: "noop".to_string(),
+        deployment_environment: "local".to_string(),
     });
     let http = CrossCuttingHttp::new(
         MockHttp,
@@ -424,6 +432,7 @@ async fn sqlite_storage_span_carries_trace_context_statement_and_params() {
         service_name: "helix-test".to_string(),
         endpoint: "noop".to_string(),
         protocol: "noop".to_string(),
+        deployment_environment: "local".to_string(),
     });
     let carrier = TraceCarrier::from_json_str(
         r#"{"traceparent":"00-00000000000000000000000000000008-0000000000000009-01","baggage":"client=test"}"#,

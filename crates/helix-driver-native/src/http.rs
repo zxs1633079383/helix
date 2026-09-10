@@ -265,6 +265,7 @@ mod tests {
             service_name: "native-http-test".to_string(),
             endpoint: "noop".to_string(),
             protocol: "noop".to_string(),
+            deployment_environment: "local".to_string(),
         });
         let http = NativeHttp::with_crosscut_and_otel(
             client,

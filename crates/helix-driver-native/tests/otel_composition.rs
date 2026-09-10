@@ -30,6 +30,7 @@ fn native_compat_is_noop_and_explicit_entry_accepts_enabled_hooks() {
         service_name: "helix-driver-native-test".to_string(),
         endpoint: "noop".to_string(),
         protocol: "noop".to_string(),
+        deployment_environment: "local".to_string(),
     });
     let hooks = TraceHooks::noop().with_otel(runtime);
     assert!(hooks.is_otel_enabled());

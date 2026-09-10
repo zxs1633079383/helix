@@ -1,3 +1,9 @@
+## 2026-09-10 Grafana全量面板修复
+
+✅ DONE 独立出口修复：196 registry SDK类型回归、host104/CLI35测试、Native/FFI check通过；PRE真实Tauri候选采集到4个此前缺失Gauge，Collector/Jaeger Trace均保留真实pre环境。客户端10项observability库测试通过。未发布新crate或桌面包；整轮恢复与诊断拥塞另继续修复。
+
+🎯 EXPECT 保留既有111个面板ID；修复Gauge聚合、真实指标名与空服务筛选；按端区分诊断字段和采集缺失。生成器与真实SDK回归通过，运行修复候选并逐面板记录新鲜样本及真实旅程边界；不合成遥测、不混设备、不自动push。 | 赌注 中 | 可逆 是 | @2026-09-10
+
 ## 2026-09-10 发布 Helix 0.1.17
 
 ✅ DONE 客户端9c817d7abe四包精确pin/registry锁解析均0.1.17，PRE cargo check通过（49.25s）；Helix发布提交17921c21及注释Tag helix-v-0.1.17已完成。未push、未发布桌面包、未重跑真实业务链。

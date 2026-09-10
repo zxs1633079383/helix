@@ -95,6 +95,7 @@ mod tests {
             service_name: "helix-driver-ffi-test".to_string(),
             endpoint: "noop".to_string(),
             protocol: "noop".to_string(),
+            deployment_environment: "local".to_string(),
         });
         assert!(ffi_trace_hooks(CommandTraceQueue::default(), runtime).is_otel_enabled());
     }

@@ -56,6 +56,7 @@ fn ws_envelope_carrier_keeps_t1_trace_id() {
         service_name: "helix-test".to_string(),
         endpoint: "noop".to_string(),
         protocol: "noop".to_string(),
+        deployment_environment: "local".to_string(),
     });
     let hooks = TraceHooks::noop().with_otel(runtime.clone());
     let carrier = TraceCarrier::from_ws_frame(
@@ -81,6 +82,7 @@ fn inherited_span_parent_keeps_t1_trace_id_across_tick_roots() {
         service_name: "helix-test".to_string(),
         endpoint: "noop".to_string(),
         protocol: "noop".to_string(),
+        deployment_environment: "local".to_string(),
     });
     let hooks = TraceHooks::noop().with_otel(runtime);
     let parent = TraceCarrier::from_json_str(
@@ -280,6 +282,7 @@ fn absent_ws_reports_not_applicable_without_creating_network_span() {
         service_name: "helix-test".to_string(),
         endpoint: "noop".to_string(),
         protocol: "noop".to_string(),
+        deployment_environment: "local".to_string(),
     });
     let (sink, mut observations) = LifecycleTraceSink::channel();
     let hooks = TraceHooks::noop()

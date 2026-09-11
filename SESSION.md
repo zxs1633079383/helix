@@ -2,7 +2,7 @@
 
 ✅ DONE 四公共包README及docs入口版本对齐0.1.18，删除IM本地副本时态，补UpsertSpec源码入口；954份既有Markdown清单、1692相对链接目标、Harness18/18/18、Spec047默认/self-test、历史Matrix与索引均通过。全库逐句语义PARTIAL；Cargo/真实链未跑，canonical仍NOT_GENERATED；发布结果见本轮自动化报告。
 
-🎯 EXPECT 仅修改有当前源码证据的 Markdown；四公共包版本对齐0.1.18，链接、索引和聚焦checker通过；不改代码/配置/生成物、不宣称运行态Green。 | 赌注 中 | 可逆 是 | @2026-09-11T08:06:00+08:00
+🎯 EXPECT 仅修改有当前源码证据的 Markdown；四公共包版本对齐0.1.18，链接、索引和聚焦checker通过；不改代码/配置/生成物、不宣称运行态Green。 | 赌注 中 | 可逆 是 | @2026-09-11T08:01:37+08:00
 分支 codex/helix-markdown-20260911-0802；upstream origin/reactor/MessageV3-helix；基线 f4def0494a9934587abe6e4ca5b107c768e478ad；worktree保留。
 
 ## 2026-09-10 发布 Helix 0.1.17

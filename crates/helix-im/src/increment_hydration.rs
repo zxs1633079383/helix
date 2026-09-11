@@ -17,6 +17,60 @@ const HYDRATION_MESSAGE_ORDER: &[ScanOrder] = &[
     ScanOrder::desc("temporary_id"),
 ];
 
+/// Classify a missing-data reply using fixed values; never log remote payloads or messages.
+fn hydration_reply_diagnostic(body: &serde_json::Value) -> (&'static str, &'static str) {
+    match body.get("status").and_then(serde_json::Value::as_str) {
+        Some("failed") => (
+            "failed",
+            if body.get("message").and_then(serde_json::Value::as_str)
+                == Some("user not member of channel")
+            {
+                "remote_not_member"
+            } else {
+                "remote_business_failure"
+            },
+        ),
+        Some("SUCCESS") => ("SUCCESS", "missing_data"),
+        Some("FINISH") => ("FINISH", "missing_data"),
+        Some(_) => ("unknown", "invalid_business_status"),
+        None => ("missing_or_invalid", "invalid_business_status"),
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::hydration_reply_diagnostic;
+    use serde_json::json;
+
+    /// Preserve the actionable failure category without exporting arbitrary server text.
+    #[test]
+    fn hydration_diagnostic_classifies_business_failure_without_remote_text() {
+        for (body, expected) in [
+            (
+                json!({"status":"failed","message":"user not member of channel"}),
+                ("failed", "remote_not_member"),
+            ),
+            (
+                json!({"status":"failed","message":"secret=private\nraw payload"}),
+                ("failed", "remote_business_failure"),
+            ),
+            (json!({"status":"SUCCESS"}), ("SUCCESS", "missing_data")),
+            (json!({"status":"FINISH"}), ("FINISH", "missing_data")),
+            (
+                json!({"status":"private-value"}),
+                ("unknown", "invalid_business_status"),
+            ),
+            (
+                json!({"status":200}),
+                ("missing_or_invalid", "invalid_business_status"),
+            ),
+            (json!({}), ("missing_or_invalid", "invalid_business_status")),
+        ] {
+            assert_eq!(hydration_reply_diagnostic(&body), expected);
+        }
+    }
+}
+
 impl ImModule {
     /// B-rest 测试 / driver 入口：直接喂一个解析好的 `increment_channel` 帧。
     pub fn ingest_increment(
@@ -545,6 +599,7 @@ impl ImModule {
         self.finish_hydration_error(&req_id, channel_id, reason, out);
     }
 
+    /// Decode hydration replies; diagnostics do not change the existing Result contract.
     pub(crate) fn handle_increment_hydration_reply(
         &mut self,
         req_id: &str,
@@ -568,7 +623,15 @@ impl ImModule {
                         }
                     };
                     let Some(data) = body.get("data") else {
-                        tracing::warn!(req_id, "increment hydration reply missing data");
+                        let (business_status, reason) = hydration_reply_diagnostic(&body);
+                        tracing::warn!(
+                            req_id,
+                            operation = "channel_hydration",
+                            phase = "http_reply",
+                            business_status,
+                            reason,
+                            "hydration failed"
+                        );
                         out.push(crate::read_relay::emit_read_error(
                             req_id,
                             "increment hydration reply missing data",

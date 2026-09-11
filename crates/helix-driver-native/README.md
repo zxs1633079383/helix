@@ -4,7 +4,7 @@
 
 ```toml
 [dependencies]
-helix-driver-native = "=0.1.18"
+helix-driver-native = "=0.1.19"
 ```
 
 本项目采用 `MIT OR Apache-2.0` 双许可证。

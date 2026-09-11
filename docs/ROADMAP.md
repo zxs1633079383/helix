@@ -4,7 +4,7 @@
 > [`harness/decisions.md`](./harness/decisions.md)，MessageV3 实施真源见
 > [`specs/047-im-event-gate-inventory`](../specs/047-im-event-gate-inventory/)。
 >
-> Snapshot：2026-09-10（代码基线 `0cbbb6b5`；版本/静态入口对账，历史验收未重跑）。旧 Frame/Surface 报告属于历史证据，不自动继承为当前 Green。
+> Snapshot：2026-09-11（代码基线 `f4def049`；版本/静态入口对账，历史验收未重跑）。旧 Frame/Surface 报告属于历史证据，不自动继承为当前 Green。
 > `verification.md` 与 `evidence/p7-final-validation.txt` 记录的是固定历史 evidence window；当前 checkout 的
 > `.v1` 被 Git 忽略且未生成，`review-ledger.json` 仍为 `verifying`，因此下文不能单独作为当前 final Green。
 
@@ -27,7 +27,7 @@ PC WDIO、Mobile GTest、Go 修改与跨仓 fixture 同步明确延期。
   的当前 checkout 产物状态为 `NOT_GENERATED`，不能把历史 hash 代替当前产物；
 - PC/Mobile canonical consumer、真实宿主、真实 Go/WS 与双用户证据仍为
   `NOT_SYNCED_BY_SCOPE` / `NOT_RUN`，不得据此宣称三端 TGCR Green。
-- 四个公共包的当前 Cargo manifest 版本统一为 `0.1.15`；workspace 内消费者以 Cargo manifest 的
+- 四个公共包的当前 Cargo manifest 版本统一为 `0.1.18`；workspace 内消费者以 Cargo manifest 的
   精确依赖为准。
 - 独立的 Native Phase1-5 真实链 runner 当前可执行分母为 83 Gate（32/16/15/12/8）；
   五个 `NOT_APPLICABLE` 与四个 `NOT_IMPLEMENTED` Gate 从 runner 选择集排除。变更前的

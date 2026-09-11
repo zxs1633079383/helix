@@ -1,3 +1,7 @@
+## 2026-09-11 Grafana修复发布
+
+🎯 EXPECT 用户已授权发布0.1.19、推送源码和Tag、升级客户端依赖与PRE版本；真实业务验收由用户负责。合并最新远端仅涉及8份文档，生产代码与427项IM库测试及八包check通过的5a6fecb0一致。
+
 ## 2026-09-10 Grafana全量面板修复
 
 ✅ DONE 恢复与出口：恢复屏障回归先红后绿，IM库420、相关集成28、host diagnostics11、客户端observability10通过。第三/第四真实只读UI各46页全落库；恢复耗时14.487s/8.336s，pending0/mask0，UI success count2000。第四轮诊断accepted/exported9380一致，日志与metrics丢弃0，WDIO1/1通过2m10.3s。
@@ -7,6 +11,13 @@
 ✅ DONE 看板v15：保留原111面板并追加1个全窗计数；10表分页/固定高度，回到最近3小时总览。STATIC PASS（112面板/171查询），最终全171查询API成功，96数据面板有有限真实样本、1缺完整实时WS cohort、15结构面板。比例空值明确采集不完整/窗口未完成，不把缺证据显示100%。
 
 🎯 EXPECT 整体未全部验收：面板7仍需真实序号WS收到→落库→30秒窗口关闭证据；候选客户端用了local Cargo patch，Helix未发布新crate，Go PRE候选未push/deploy。交接与四轮证据位于Go docs/交接/Grafana面板缺失分析。用户已有CSES进程与其他任务脏改动保留。
+
+## 2026-09-11 Markdown 日检
+
+✅ DONE 四公共包README及docs入口版本对齐0.1.18，删除IM本地副本时态，补UpsertSpec源码入口；954份既有Markdown清单、1692相对链接目标、Harness18/18/18、Spec047默认/self-test、历史Matrix与索引均通过。全库逐句语义PARTIAL；Cargo/真实链未跑，canonical仍NOT_GENERATED；发布结果见本轮自动化报告。
+
+🎯 EXPECT 仅修改有当前源码证据的 Markdown；四公共包版本对齐0.1.18，链接、索引和聚焦checker通过；不改代码/配置/生成物、不宣称运行态Green。 | 赌注 中 | 可逆 是 | @2026-09-11T08:01:37+08:00
+分支 codex/helix-markdown-20260911-0802；upstream origin/reactor/MessageV3-helix；基线 f4def0494a9934587abe6e4ca5b107c768e478ad；worktree保留。
 
 ## 2026-09-10 发布 Helix 0.1.17
 

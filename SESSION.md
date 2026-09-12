@@ -1,3 +1,10 @@
+## 2026-09-12 Markdown 日检
+
+✅ DONE CLI Trace环境配置、同步屏障/日志批处理入口与历史部署边界已对齐；955份既有Markdown清单、1701相对链接目标、Harness18/18/18及6项聚焦校验通过。全库逐句语义PARTIAL；未跑Cargo、真实Go/UI或线上采集。发布结果见本轮自动化报告。
+
+🎯 EXPECT 仅修改有当前源码证据的Markdown，链接、Harness索引与相关checker通过；不改代码/配置/生成物，不宣称运行态Green。 | 赌注 中 | 可逆 是 | @2026-09-12T08:03:00+08:00
+分支 codex/helix-markdown-20260912-0802；upstream origin/reactor/MessageV3-helix；基线 b3473970b3d7793527c04f7d0e7ecd1dca8846b0；worktree保留。
+
 ## 2026-09-11 Grafana修复发布
 
 ✅ DONE 四个公共crate 0.1.19完成八包check、逐包dry-run、上传和registry解析，发布脚本RELEASE PASS。真实业务验收交用户；发布提交/Tag立即创建，源码推送及客户端升级继续。

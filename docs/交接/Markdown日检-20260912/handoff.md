@@ -1,0 +1,15 @@
+# Markdown 日检交接
+- 目标：本轮独立 worktree 仅 Markdown 对齐；验证通过后普通 push 到 origin/reactor/MessageV3-helix。
+- 时间：2026-09-12 08:00 CST，时间守卫和预检通过。
+- 阶段：文档修正与聚焦验证通过，进入提交/发布；最终SHA和推送回读见下述报告。
+- 基线：b3473970b3d7793527c04f7d0e7ecd1dca8846b0。
+- 分支：codex/helix-markdown-20260912-0802；upstream origin/reactor/MessageV3-helix。
+- worktree：/System/Volumes/Data/workspace/angular/visual/helix-markdown-20260912-0802。
+- 共享 checkout：同基线，4组未跟踪资产保留，不修改。
+- 修改：CLI设计README、Metrics README、同步耗时观测验证、SESSION与本交接；均为Markdown。
+- 真源：config_observability.rs、otel.rs/exporter.rs、sync_observation.rs、diagnostics/fields.rs/worker.rs及对应测试入口。
+- 验证：955份既有Markdown、1701相对链接无缺失，Harness18/18/18；Spec047默认/self-test、Strict Matrix、历史索引、看板静态checker、diff check均退出0。
+- 看板静态：112面板/行、171查询。canonical未生成；Cargo/真实Go/UI/线上采集均未运行。
+- 限制：全库逐句语义PARTIAL；链接仅目标存在性，不含锚点/外链/代码块。
+- 证据与最终报告：/Users/xpa-12/.codex/automations/helix-markdown/2026-09-12/日检报告.md。
+- 下一步：fetch目标，无冲突且验证满足后普通push；竞争/冲突/失败停止。后续日检续查未覆盖的语义，不能将清单扫描当全库语义通过。

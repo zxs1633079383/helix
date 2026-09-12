@@ -21,16 +21,16 @@ node perf/grafana/client-channel-dashboard-check.mjs --live
 
 `--live` 只读查询 PRE Prometheus/Loki，校验全局与指定用户的插值/语法/不回退全局。日志空数据不算producer验收。可通过 `HELIX_PRE_PROMETHEUS_URL` 与 `HELIX_DIAGNOSTIC_LOKI_URL` 覆盖目标。
 
-已发布：[打开客户端与群聊观测看板](http://192.168.6.66:30300/d/helix-client-channel-v1/fd6d377)，位于 Helix 文件夹，版本3。默认绑定现有 `Prometheus`（UID `prometheus`）和 `loki-pre`（UID `ef65piv34jegwd`），未修改数据源配置。Grafana `12.2.1`、PRE Prometheus 和 Loki `2.9.3` 已通过认证数据源代理查询。其他环境可上传 JSON 导入，并在顶部数据源变量中选择对应实例。
+历史部署快照（2026-09-07，当前远端版本未在本轮回读）：[打开客户端与群聊观测看板](http://192.168.6.66:30300/d/helix-client-channel-v1/fd6d377)，位于 Helix 文件夹，版本3。默认绑定现有 `Prometheus`（UID `prometheus`）和 `loki-pre`（UID `ef65piv34jegwd`），未修改数据源配置。Grafana `12.2.1`、PRE Prometheus 和 Loki `2.9.3` 已通过认证数据源代理查询。其他环境可上传 JSON 导入，并在顶部数据源变量中选择对应实例。
 
 - 默认 user_id/channel_id/login_attempt_id/device_session_id 留空，表示当前授权范围全局。
 - 在顶部输入准确 ID，或在登录/诊断表格的 ID 单元格点击下钻。没有虚构“自动列出所有用户”的变量：Loki 未索引的 JSON user_id 不能通过 label_values 枚举。
 - 环境、源服务和租户需按部署设置。默认 `pre`、`cses-client-pre`；租户为空只供已获全局权限的运维。
 - 技术面板只适用于全局；任一身份筛选非空时显示无身份维度，不借全局值冒充用户值。
-- 诊断面板已查询 `service_name=helix-im-diagnostics` 的真实事件；本轮样本环境为 `diagnostic-local`，PRE 新二进制尚未部署，空值不表示0%/100%。
+- 2026-09-07 验收中，诊断面板已查询 `service_name=helix-im-diagnostics` 的真实事件；当时样本环境为 `diagnostic-local`，当时 PRE 新二进制尚未部署，空值不表示0%/100%。
 - seq字段是字符串；群检查点表仅展示窗口内最后观察，不代表完整当前数据库。准确全量每群状态依赖设计中的授权 latest-state 查询服务。
 - 默认30分钟，日志每面板最多1000条；全局观察更长窗口可能被截断，先选租户/用户/登录，不能把表中缺失当作群不存在。
-- 两路 Span-derived 指标不可相加为业务量；当前还缺deployment_environment，严格环境过滤时这4个面板为空；没有实际业务终态数据时看板不提供已验证的送达率。
+- 两路 Span-derived 指标不可相加为业务量；2026-09-07 样本缺 deployment_environment，严格环境过滤时4个面板为空。当前 Host Trace 已接入有界环境 Resource（见 [配置入口](../../crates/helix-host-cli/docs/design/README.md)），实际 Collector 维度和近期样本仍需独立验证；没有实际业务终态数据时不宣称已验证的送达率。
 
 ## 验证证据
 

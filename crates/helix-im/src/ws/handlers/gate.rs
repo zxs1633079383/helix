@@ -25,15 +25,16 @@ use super::super::ImWsContext;
 use crate::error::ImError;
 use crate::state::{ChannelId, Seq};
 
-/// 大缺口立即 backfill 的阈值（gap = seq − cursor）。
+/// 需要立即 backfill 的缺口阈值（gap = seq − cursor）。
 ///
 /// 超过此阈值 → 判定为「活动频道 cursor 真落后服务端 high-water、需 backfill」，立即触发
-/// per-channel proactive resync（不等 1s gate timer）。≤ 阈值的小缺口仍只走 1s gate timer，
-/// 给 WS 自然乱序重排留窗口，避免对瞬时相邻乱序触发无谓 HTTP sync（回归保护）。
+/// per-channel proactive resync（不等 1s gate timer）。≤ 阈值的小缺口仍保留 gate timer 作为
+/// 有界兜底，但不会阻塞已经确认缺少一个前置事件的实时消息。
 ///
-/// 取 2：gap > 2 ⇒ seq ≥ cursor+4（至少 3 条中间事件缺失）才算「真缺口」。echo gate-gap 整类
-/// 实证 gap 极大（cursor=2 / server seq=22 ⇒ gap=20）；常规相邻乱序 gap=1。
-const GAP_IMMEDIATE_RESYNC_THRESHOLD: u64 = 2;
+/// 取 1：`gap = seq - cursor` 为 2 时表示只缺一个 `cursor + 1` 事件（录屏中的
+/// `gap_count=1`），也应立即回拉；更大的缺口同样立即回拉。只有调用方未触发 proactive
+/// backfill 的路径才会依赖 1s gate timer。
+const GAP_IMMEDIATE_RESYNC_THRESHOLD: u64 = 1;
 
 /// True only when the current WS handler has appended an authoritative local
 /// message-table mutation. Consumers use this to schedule a typed timeline
@@ -57,7 +58,7 @@ pub(super) fn recent_effects_persist_message(effects: &[Effect]) -> bool {
     })
 }
 
-/// 根治 echo gate-gap 整类：检测到**大缺口**即对该 channel **立即**触发 proactive resync。
+/// 根治 echo gate-gap 整类：检测到缺口即对该 channel **立即**触发 proactive resync。
 ///
 /// ## 根因（HOP③ 逐跳实证）
 ///
@@ -80,7 +81,8 @@ pub(super) fn recent_effects_persist_message(effects: &[Effect]) -> bool {
 /// ① per-channel `inflight_sync` 守卫：已在途 sync 的 channel 跳过（`emit_proactive_resync_for`
 ///    → `enqueue_and_drain` 内部 `inflight_sync.is_some() → continue`），突发多帧只触发一次；
 /// ② 全局 `SyncScheduler` 窗口 K（≤ MAX_INFLIGHT_SYNC）；
-/// ③ 小缺口（≤ 阈值）不在此触发——留 1s gate timer 兜底，给 WS 自然乱序重排留窗口。
+/// ③ gate timer 仍保留为调用方未触发 proactive backfill 时的兜底；已确认的单事件缺口不再
+/// 等待该 timer，避免实时消息在客户端门控中静默滞留约 1s。
 pub(super) fn trigger_backfill_if_large_gap(
     ctx: &mut ImWsContext<'_>,
     channel_id: ChannelId,
@@ -91,7 +93,7 @@ pub(super) fn trigger_backfill_if_large_gap(
         Some(ch) => {
             let cursor = ch.cursor.value().0;
             // 仅当：① 仍有缺口未平（gate armed）② 该 channel 无在途 sync（防风暴）
-            //      ③ 缺口够大（真 backfill·非瞬时乱序）
+            //      ③ 缺口达到立即回拉阈值
             ch.gate.is_some()
                 && ch.inflight_sync.is_none()
                 && seq.0 > cursor.saturating_add(GAP_IMMEDIATE_RESYNC_THRESHOLD)

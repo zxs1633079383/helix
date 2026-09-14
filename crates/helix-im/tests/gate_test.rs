@@ -93,6 +93,26 @@ fn gate_out_of_order_arms_timer() {
     );
 }
 
+/// 回归锚：单个缺失序号也必须立即发起补偿，不能再等待 1s gate timer。
+#[test]
+fn gate_single_missing_seq_triggers_immediate_backfill() {
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    // cursor=0、收到 seq=2 表示只缺 seq=1；这是录屏中 gap_count=1 的形态。
+    let effects = h.step(inbound_event(1, 2, 1), 1000);
+    assert!(
+        effects.iter().any(|e| matches!(e, EffectKind::Http(_))),
+        "a one-event gap must trigger immediate sync/notify, got: {:?}",
+        effects
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::ScheduleTimer(_))),
+        "the buffered event must retain its gate timer as a bounded fallback, got: {:?}",
+        effects
+    );
+}
+
 #[test]
 fn gate_dup_drop_silently() {
     let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
@@ -133,10 +153,15 @@ fn gate_second_out_of_order_no_double_arm() {
 #[test]
 fn gate_timer_fires_sync_http() {
     let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
-    // arm gate by sending **小缺口**（seq=2 / cursor=0 / gap=2 ≤ 阈值）→ 不触发立即 backfill resync
-    // （根治 fix/im-sync-cursor-catchup 仅对 gap>2 的大缺口立即发 sync），保留 1s gate timer 作为
-    // 缺口兜底触发点——本测专验「小缺口走 1s gate timer fire → sync/notify」这条路径仍成立。
+    // 先让 channel gate armed；单事件缺口现在会立即发起 proactive sync。
     let gate_effects = h.step(inbound_event(1, 2, 1), 1000);
+    let immediate_sync_corr = gate_effects
+        .iter()
+        .find_map(|e| match e {
+            EffectKind::Http(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("single-event gap should start proactive sync");
     let gate_timer_id = gate_effects
         .iter()
         .find_map(|e| {
@@ -147,6 +172,10 @@ fn gate_timer_fires_sync_http() {
             }
         })
         .expect("should have gate timer");
+
+    // 模拟 proactive sync 失败：inflight 守卫释放但 gate 仍保留，timer 必须继续作为
+    // fail-safe 兜底发出一次 sync/notify。
+    h.step(port_reply_err(immediate_sync_corr), 1500);
 
     // fire gate timer
     let sync_effects = h.step(timer_tick(gate_timer_id), 2001);

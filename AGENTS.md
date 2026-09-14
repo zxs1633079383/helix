@@ -47,7 +47,7 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 
 > 下面是开局必记的速查；可执行护栏见对应 `HX-C00*` 卡与 `scripts/gate.sh`。
 
-- [ ] **helix-core 零运行时依赖**：用 `cargo tree -p cses-helix-core` 检查依赖树为空；源码业务词检查排除注释（`HX-C001`）
+- [ ] **helix-core 零运行时依赖**：用 `cargo tree -p cses-helix-core` 检查无 tokio/sqlx/reqwest/web-sys/tauri 等运行时或平台依赖（允许 serde、bytes 等通用库）；源码业务词检查排除注释（`HX-C001`）
 - [ ] **async 抽象 Send 边界**：native 可 `Send+'static`，FFI/单线程宿主可能 `!Send` → cfg 切 / 不硬加 Send（`HX-C002`）
 - [ ] **状态用 owned/Copy/arena id，不用 `&'a`**：要进 async/闭包别带生命周期（Dioxus `Scope<'a>` 地狱 + 本仓 `Tick<'a>` blocker 教训，`HX-C002`）
 - [x] **Web 方案已落地**：A1-A5、最小浏览器 glue、正式 Web gate/HX-C003、历史 wasm 清理与真浏览器→真 Go 的鉴权、send/echo、断连恢复均已验收。FFI `mobile_query` 同步旁路已删除；业务查询统一走 `helix_command` → Effect/PortReply → DomainEvent，`helix_query` 只保留元信息。

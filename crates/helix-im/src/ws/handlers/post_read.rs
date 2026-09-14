@@ -10,7 +10,8 @@
 //!
 //! `read_bits`（`readMap`）是服务端权威**全量已读位图**——幂等覆盖、order-independent、与消息
 //! 序列**解耦**：
-//!   - 后端 `post_read` 广播帧**不携带 `event_seq`**（read 不产生 sequenced channel_event；
+//!   - 旧版后端 `post_read` 广播帧不携带 `event_seq`；当前 authority 可携带与同事务 type6
+//!     对账用的 `eventSeq`（read 不依赖该字段产生 sequenced channel_event；
 //!     Go `post_read` authority 同时携带 `authorUserId/readerUserId/snapshotId/memberIds`，
 //!     这些字段只在 Go→Helix 边界可见，绝不外发给 Angular；
 //!   - 走 `gate_ingest_content_event` 会因 `frame.event_seq() == None` 直接 no-op
@@ -80,6 +81,8 @@ impl WsMessageHandler for PostReadHandler {
         else {
             return Ok(());
         };
+        // 这是已持久化 type6 的关联元数据，不是该旁路写入的 cursor 输入；缺失时保持旧兼容。
+        let event_seq = frame.event_seq().map(|seq| seq.0);
 
         // 四字段 delta 已废弃：缺少 member snapshot/readMap 时 fail-closed，不向 Angular 发增量。
         if !has_receipt_bit_fields(data) || !has_receipt_member_fields(data) {
@@ -171,7 +174,7 @@ impl WsMessageHandler for PostReadHandler {
         if !valid_receipt_shape {
             return Ok(());
         }
-        let terminal_event = match crate::event::read::post_for_viewer(
+        let terminal_event = match crate::event::read::post_for_viewer_with_event_seq(
             channel_id.as_str(),
             post_id.as_str(),
             author_user_id,
@@ -181,6 +184,7 @@ impl WsMessageHandler for PostReadHandler {
             fields.read_bits.as_str(),
             receipt_revision,
             ctx.auth_user_id,
+            event_seq,
         ) {
             Ok(event) => event.into_bytes(),
             Err(_) => return Ok(()),

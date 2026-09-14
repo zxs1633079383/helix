@@ -241,6 +241,37 @@ pub fn post_for_viewer(
     receipt_revision: i64,
     viewer_user_id: &str,
 ) -> Result<MessageV3Event, crate::ImError> {
+    post_for_viewer_with_event_seq(
+        channel_id,
+        post_id,
+        author_user_id,
+        reader_id,
+        snapshot_id,
+        member_ids,
+        read_bits,
+        receipt_revision,
+        viewer_user_id,
+        None,
+    )
+}
+
+/// 构造带同事务 type6 序列关联的单视角终态。
+///
+/// `post_read` 仍是 read_bits 旁路，不凭该字段推进 channel cursor；序列仅用于把
+/// legacy authority 与已持久化的 channel_stream_event 对账，并在 render-ready 后保留给客户端。
+#[allow(clippy::too_many_arguments)]
+pub fn post_for_viewer_with_event_seq(
+    channel_id: &str,
+    post_id: &str,
+    author_user_id: &str,
+    reader_id: &str,
+    snapshot_id: &str,
+    member_ids: &[String],
+    read_bits: &str,
+    receipt_revision: i64,
+    viewer_user_id: &str,
+    event_seq: Option<u64>,
+) -> Result<MessageV3Event, crate::ImError> {
     let data = serde_json::json!({
         "postId": post_id,
         "channelId": channel_id,
@@ -251,6 +282,11 @@ pub fn post_for_viewer(
         "readBits": read_bits,
         "receiptRevision": receipt_revision,
     });
+    let mut data = data;
+    if let Some(event_seq) = event_seq.filter(|seq| *seq > 0) {
+        data["eventSeq"] = serde_json::json!(event_seq);
+        data["event_seq"] = serde_json::json!(event_seq);
+    }
     if !reader_id.is_empty() && reader_id == viewer_user_id {
         return post(data);
     }

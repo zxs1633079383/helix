@@ -69,6 +69,13 @@ fn legacy_authority(channel_id: &str, post_id: &str) -> Value {
     })
 }
 
+fn authority_with_event_seq(channel_id: &str, post_id: &str, event_seq: i64) -> Value {
+    let mut data = legacy_authority(channel_id, post_id);
+    data["eventSeq"] = json!(event_seq);
+    data["event_seq"] = json!(event_seq);
+    data
+}
+
 /// 构造旧兼容形态的 `readBits + memberIds` authority，覆盖 G14 位图别名路径。
 fn legacy_read_bits_authority(channel_id: &str, post_id: &str) -> Value {
     json!({
@@ -194,6 +201,32 @@ fn g06b_authority_frame_emits_absolute_readers_projection_after_persist() {
             "projection leaked {forbidden}"
         );
     }
+}
+
+/// post_read 旁路不推进 cursor，但必须把同事务 type6 序列保留到 render-ready 终态。
+#[test]
+fn g06b_authority_frame_preserves_event_seq_in_terminal_projection() {
+    let channel_id = cid(11);
+    let post_id = sid(11);
+    let mut harness = Harness::new_with_identity(&[11], "g14-author", "g06b-company", "", "", "");
+    harness.step(
+        inbound_post_read(authority_with_event_seq(&channel_id, &post_id, 44)),
+        1_700_001_406_004,
+    );
+    let persist_corr = harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("authority must wait for PersistOk");
+    harness.step(port_reply_ok(persist_corr.raw()), 1_700_001_406_005);
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["data"]["eventSeq"], 44);
+    assert_eq!(events[0]["data"]["event_seq"], 44);
 }
 
 /// 缺字段或 forbidden 字段的混合帧必须终止，不得降级到旧位图 Persist。

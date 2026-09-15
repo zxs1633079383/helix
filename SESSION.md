@@ -1,3 +1,9 @@
+## 2026-09-15 连续事件持久化屏障
+
+✅ DONE Channel以已提交cursor、单在途序号和有界BTreeMap区分接收连续性与落库；连续突发无补偿，缺号/存储失败仍恢复，缓冲交接先占位防重复写。428库测试+13gate+9read+5新增回归全通过；09:27:18 CST开始，Cargo编译18.40秒，各测试套件合计1.23秒。首轮新增测试曾因PortOutcome错误枚举编译失败，已纠正为Storage错误；缺陷红测复用前阶段相同基线回放。不改Go/driver/client协议，未发布crate或做真实WS/SQLite/UI验收。GitNexus无Helix索引，按源码调用点与精确diff审查。
+
+🎯 EXPECT Channel聚合区分已收到和已提交：连续type6→type1突发在PersistOk前不触发补偿，逐条回执后cursor连续推进；真实缺号/落库失败保持恢复。范围gate/flow.rs、聚焦回放测试及本记录；不改Go/driver协议。基线766b1f2c，reactor/MessageV3-helix；保留既有脏文件。 | 赌注 中 | 可逆 是
+
 ## 2026-09-12 Markdown 日检
 
 ✅ DONE CLI Trace环境配置、同步屏障/日志批处理入口与历史部署边界已对齐；955份既有Markdown清单、1701相对链接目标、Harness18/18/18及6项聚焦校验通过。全库逐句语义PARTIAL；未跑Cargo、真实Go/UI或线上采集。发布结果见本轮自动化报告。

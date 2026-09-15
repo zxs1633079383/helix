@@ -191,20 +191,85 @@ impl Channel {
         if self.is_terminal() {
             return Ok(None);
         }
+        self.discard_committed_stream_buffer();
         let expected = Seq(self.cursor.value().0.saturating_add(1));
         match event.seq.cmp(&expected) {
             std::cmp::Ordering::Equal if self.pending_stream_seq.is_none() => {
                 self.buffer.remove(&event.seq);
                 self.pending_stream_seq = Some(event.seq);
+                self.reconcile_stream_recovery(effects);
                 Ok(Some(event))
             }
             std::cmp::Ordering::Equal => Ok(None),
             std::cmp::Ordering::Less => Ok(None),
             std::cmp::Ordering::Greater => {
-                self.buffer_and_arm_gate(event, effects)?;
+                if self.buffer.len() >= MAX_GATE_BUFFER && !self.buffer.contains_key(&event.seq) {
+                    // Overflow intentionally discards received facts; preserve bounded recovery.
+                    self.buffer_and_arm_gate(event, effects)?;
+                } else {
+                    self.buffer.entry(event.seq).or_insert(event);
+                    self.reconcile_stream_recovery(effects);
+                }
                 Ok(None)
             }
         }
+    }
+
+    /// Remove superseded entries after another authoritative path advanced the cursor.
+    /// Each buffered entry is removed once; pruning is amortized O(log B) per event.
+    fn discard_committed_stream_buffer(&mut self) {
+        while self
+            .buffer
+            .first_key_value()
+            .is_some_and(|(seq, _)| *seq <= self.cursor.value())
+        {
+            self.buffer.pop_first();
+        }
+        if self
+            .pending_stream_seq
+            .is_some_and(|seq| seq <= self.cursor.value())
+        {
+            self.pending_stream_seq = None;
+        }
+    }
+
+    /// Decide receipt continuity independently of the durable cursor. All buffer keys are
+    /// unique and above cursor; the pending slot is outside the buffer. Consequently a
+    /// complete interval has exactly `highest - cursor` received events (O(log B), no scan).
+    /// A ready buffer without a pending writer still needs recovery after persistence failure.
+    fn reconcile_stream_recovery(&mut self, effects: &mut EffectSink) {
+        let cursor = self.cursor.value().0;
+        let pending = self
+            .pending_stream_seq
+            .filter(|seq| seq.0 == cursor.saturating_add(1));
+        let highest = self
+            .buffer
+            .last_key_value()
+            .map(|(seq, _)| seq.0)
+            .unwrap_or(cursor)
+            .max(pending.map_or(cursor, |seq| seq.0));
+        let received = self.buffer.len() as u64 + u64::from(pending.is_some());
+        if pending.is_some() && highest.saturating_sub(cursor) == received {
+            if let Some(gate) = self.gate.take() {
+                effects.push(Effect::CancelTimer { id: gate.timer_id });
+            }
+        } else if highest > cursor {
+            self.arm_gate_if_needed(effects);
+        }
+    }
+
+    /// Transfer the next contiguous buffered event into the single durable-write slot.
+    /// Reservation precedes returning it so duplicate inbound frames cannot start a second write.
+    fn reserve_next_stream_event(&mut self) -> Option<EventEnvelope> {
+        self.discard_committed_stream_buffer();
+        if self.pending_stream_seq.is_some() {
+            return None;
+        }
+        let next = self
+            .buffer
+            .remove(&Seq(self.cursor.value().0.saturating_add(1)))?;
+        self.pending_stream_seq = Some(next.seq);
+        Some(next)
     }
 
     /// 复用频道既有 eventSeq gate：连续返回 true，旧帧丢弃，缺口只 arm 原 gate。
@@ -237,8 +302,7 @@ impl Channel {
         {
             return None;
         }
-        let next_seq = Seq(committed_seq.0.saturating_add(1));
-        self.buffer.remove(&next_seq)
+        self.reserve_next_stream_event()
     }
 
     /// 持久化失败时把未提交事件放回 gate，等待补偿同步而不推进 cursor。
@@ -247,6 +311,10 @@ impl Channel {
         event: EventEnvelope,
         effects: &mut EffectSink,
     ) {
+        // A late failure cannot reintroduce an event already committed by sync or close.
+        if self.is_terminal() || event.seq <= self.cursor.value() {
+            return;
+        }
         if self.pending_stream_seq == Some(event.seq) {
             self.pending_stream_seq = None;
         }
@@ -307,8 +375,9 @@ impl Channel {
     ) -> Result<(bool, Option<EventEnvelope>), ImError> {
         if let Some(target_seq) = self.pending_commits.remove(&corr) {
             let committed = self.commit_cursor(target_seq)?;
-            let next_seq = Seq(self.cursor.value().0.saturating_add(1));
-            let next_buffered = committed.then(|| self.buffer.remove(&next_seq)).flatten();
+            let next_buffered = committed
+                .then(|| self.reserve_next_stream_event())
+                .flatten();
             return Ok((committed, next_buffered));
         }
         Ok((false, None))

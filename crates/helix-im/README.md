@@ -29,3 +29,9 @@ helix-im = "=0.1.19"
 `src/message_summary.rs` 为摘要规则唯一入口：发送准备、公告发送、服务端入站落库、历史与实时末条、合并转发/逐条转发共享。多选转发为 `[聊天记录]`；媒体沿用 `[图片 3个] 文字` / `[视频 2个] 文字` / `[媒体 2个] 文字`；业务卡片标签和标题、语音、系统通知也在此生成。系统通知使用服务端姓名快照，不编码查看者专属的“您”。稀疏状态更新不制造摘要。接龙声明和条目投影携带 `simpleMessage`。客户端不得再重算。定向回归：`cargo test -p helix-im --lib message_summary`、`cargo test -p helix-im --test p1_send_build_test`。
 
 频道末条补齐（2026-09-10）：`prepare_post` 同时处理对象/JSON 字符串形式的 `lastPost`。频道完整落库、PATCH、member 绝对态及 created/update 事件统一准备摘要；建群完成投影保留首条通知与末条时间。无末条的稀疏事件不造消息，不更改 @、加急、草稿字段。回归 `cargo test -p helix-im --lib channel_summary`。
+
+### 本端消息完成关联
+
+`im:post:sent.data.requestId` 可选，来自本端发送的 `req_id`，仅在权威 WS / sync 对账以及发送终态写入成功后释放。
+`im:post:received.data.requestId` 可选，只在命中本端 pending forward 的请求及目标、原子提交和成员读回成功后释放；接收方、重复目标和 HTTP admission 不携带该成功关联。
+Host 可按提交前登记的请求匹配最近转发目标；不得把 `im:post:batch-result` 的 accepted/pending 当作送达。字段不进入 Go Post、持久消息体或 core/driver 协议，旧消费者可忽略。

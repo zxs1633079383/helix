@@ -269,6 +269,7 @@ fn expected_forward_detail() -> Value {
                 "userId": "source-user-a",
                 "author": "Actor",
                 "text": "Forwarded message A",
+                "simpleMessage": "Forwarded message A",
                 "type": "TEXT",
                 "createAt": CREATE_AT - 20,
                 "userSnapshot": {"userName": "Actor"}
@@ -278,6 +279,7 @@ fn expected_forward_detail() -> Value {
                 "userId": "source-user-b",
                 "author": "Observer",
                 "text": "Forwarded message B",
+                "simpleMessage": "Forwarded message B",
                 "type": "TEXT",
                 "createAt": CREATE_AT - 10,
                 "userSnapshot": {"userName": "Observer"}
@@ -296,6 +298,7 @@ fn expected_last_post(authority: &Value) -> TestResult<Value> {
         "id": post["id"],
         "userId": post["userId"],
         "message": post["message"],
+        "simpleMessage": if post["type"] == "MULTIPLY" { json!("[聊天记录]") } else { post["message"].clone() },
         "createAt": post["createAt"],
     });
     // 当前 authority 会把服务端 userSnapshot 原样带入频道 lastPost，保持渲染所需身份快照。
@@ -576,6 +579,9 @@ fn g05_forwards_individual_and_merged_posts_without_rewriting_sources() -> TestR
         assert_eq!(batch["data"]["targets"][0]["acceptanceStatus"], "accepted");
         assert_eq!(batch["data"]["targets"][0]["deliveryStatus"], "pending");
     }
+    assert_eq!(trace.sender.events[1]["data"]["requestId"], INDIVIDUAL_REQ);
+    assert_eq!(trace.sender.events[4]["data"]["requestId"], MERGED_REQ);
+    assert!(trace.receiver.events.iter().all(|event| event["data"].get("requestId").is_none()));
     assert_eq!(trace.sender.events[1]["data"]["id"], TARGET_INDIVIDUAL);
     assert_eq!(trace.sender.events[4]["data"]["id"], TARGET_MERGED);
     assert_eq!(trace.receiver.events[0]["data"]["id"], TARGET_INDIVIDUAL);

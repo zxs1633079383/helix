@@ -1156,3 +1156,30 @@ fn emit_jsons(sink: &helix_core::EffectSink) -> Vec<Value> {
         })
         .collect()
 }
+
+/// 关联 ID 只随本端已持久确认的发送终态释放，失败和重复回声均不能制造成功。
+#[test]
+fn send_request_id_waits_for_durable_echo() {
+    for persist_ok in [true, false] {
+        let mut h = Harness::new_with_identity(&[1], "user_1", "company", "", "", "");
+        let initial = h.step(send_message_cmd_json(serde_json::json!({
+            "channel_id": cid(1), "temporary_id": "recent-forward-send", "text": "forwarded",
+            "req_id": "recent-forward-request"
+        })), 1000);
+        acknowledge_optimistic_persist(&mut h, &initial, 1001);
+        assert!(emit_jsons(&h.sink).iter().all(|v| v["data"].get("requestId").is_none()));
+        let echo = h.step(send_echo_frame(1, "recent-forward-send"), 1002);
+        assert!(!echo.contains(&EffectKind::Emit));
+        let corr = p1_corr(&echo);
+        h.step(if persist_ok { port_reply_ok(corr) } else { port_reply_err(corr) }, 1003);
+        let terminals = emit_jsons(&h.sink);
+        if persist_ok {
+            let sent = terminals.iter().find(|v| v["event"] == "im:post:sent").unwrap();
+            assert_eq!(sent["data"]["requestId"], "recent-forward-request");
+        } else {
+            assert!(terminals.iter().all(|v| v["event"] != "im:post:sent"));
+        }
+        h.step(send_echo_frame(1, "recent-forward-send"), 1004);
+        assert!(emit_jsons(&h.sink).iter().all(|v| v["data"].get("requestId").is_none()));
+    }
+}

@@ -104,9 +104,10 @@ pub(super) fn reconcile_post_echo(
         .state
         .pending_sends
         .get(&tmp)
-        .and_then(|pending| pending.body.as_ref())
-        .map(|body| {
+        .and_then(|pending| pending.body.as_ref().map(|body| (pending, body)))
+        .map(|(pending, body)| {
             crate::event::post::sent_from_local_body(
+                pending.timeline_readback.causation_id.as_deref(),
                 temporary_id,
                 server_id.as_str(),
                 ctx.auth_user_id,

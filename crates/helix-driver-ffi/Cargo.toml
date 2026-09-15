@@ -10,7 +10,7 @@ edition = "2021"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-helix-core        = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.21" }
+helix-core        = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.22" }
 helix-driver-host = { path = "../helix-driver-host" }
 # helix-im：pump 线程装配 ExecutionShell 时注册 ImModule（FFI 是 driver 层，依赖业务模块装配合法）
 helix-im          = { path = "../helix-im" }

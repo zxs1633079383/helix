@@ -67,6 +67,7 @@ fn local_send_data(channel_id: &str, temporary_id: &str, user_id: &str, body: &V
 
 /// 从已持久化的发送意图和权威 serverId 生成独立发送确认，不声明频道 cursor 已推进。
 pub(crate) fn sent_from_local_body(
+    request_id: Option<&str>,
     temporary_id: &str,
     server_id: &str,
     user_id: &str,
@@ -80,6 +81,9 @@ pub(crate) fn sent_from_local_body(
     data["id"] = serde_json::json!(server_id);
     data["serverId"] = serde_json::json!(server_id);
     data["sendStatus"] = serde_json::json!("sent");
+    if let Some(request_id) = request_id {
+        data["requestId"] = serde_json::json!(request_id);
+    }
     super::encode("im:post:sent", data)
 }
 

@@ -214,7 +214,7 @@ impl ImModule {
     /// G-01 复合键读回成功后只释放 post 与 channel 两个 MessageV3 终态。
     pub(super) fn handle_message_v3_post_readback_reply(
         &mut self,
-        received_data: serde_json::Value,
+        mut received_data: serde_json::Value,
         channel_id: crate::state::ChannelId,
         causation_id: Option<String>,
         outcome: &PortOutcome,
@@ -237,6 +237,14 @@ impl ImModule {
             .get("type")
             .and_then(serde_json::Value::as_str)
             == Some("CATEGORY_CHAIN");
+        // 仅匹配本端在途转发、且 durable/readback 均成功后公开关联；重复回声不再携带。
+        if let Some(request_id) = causation_id.as_deref().and_then(|id| {
+            self.state
+                .pending_forward_deliveries
+                .matching_request(id, channel_id)
+        }) {
+            received_data["requestId"] = serde_json::json!(request_id);
+        }
         let received = crate::event::post::received(received_data)?;
         if category {
             self.release_post_events(vec![received.into_bytes(), channel.into_bytes()], true, out)?;

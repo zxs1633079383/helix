@@ -1,3 +1,13 @@
+## 2026-09-15 发布 Helix 0.1.22
+
+🎯 EXPECT 用户已授权升级发布和 push：四公共 crate 0.1.22 发布并可从 registry 解析，发布提交及注释 Tag 推送，客户端升级精确依赖。本轮复用已通过的定向测试、三端编译和 WebDriver 布局证据；真实消息联调未验证，全量测试既有 mv3_g05l 失败不扩大修复。 | 赌注 中 | 可逆 首次上传前是
+
+## 2026-09-15 最近转发成功关联
+
+本地实现已验：durable sent/received 补 requestId，WS 与 sync 发送对账共用确认工厂；发送22、G05 3、库428、core、三端check及wasm通过。G05旧摘要断言按当前生产字段补齐；canonical由真实producer生成。全量测试指定当前reference_root后停在未修改的mv3_g05l负向断言。用户随后授权 0.1.22 升级发布及 push；本批先提交内核改动，真实后端联调仍未验证。
+
+🎯 EXPECT 只给 durable post 终态补可选 requestId：HTTP accepted、落库失败、非本端转发不输出关联成功；发送和 G05 回放通过。不改 Go wire、版本或发布；分支 reactor/MessageV3-helix，基线 be863e4e42cab004294897e50c93a0173dd81b23。 | 赌注 中 | 可逆 是
+
 ## 2026-09-15 连续事件持久化屏障
 
 ✅ DONE Channel以已提交cursor、单在途序号和有界BTreeMap区分接收连续性与落库；连续突发无补偿，缺号/存储失败仍恢复，缓冲交接先占位防重复写。428库测试+13gate+9read+5新增回归全通过；09:27:18 CST开始，Cargo编译18.40秒，各测试套件合计1.23秒。首轮新增测试曾因PortOutcome错误枚举编译失败，已纠正为Storage错误；缺陷红测复用前阶段相同基线回放。不改Go/driver/client协议，未发布crate或做真实WS/SQLite/UI验收。GitNexus无Helix索引，按源码调用点与精确diff审查。

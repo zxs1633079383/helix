@@ -362,7 +362,7 @@ impl ImModule {
                         self.queue_member_projection_readback(channel_id, expected, out)?;
                     }
                     for reconciliation in pending_send_reconciliations {
-                        self.reconcile_pending_send_after_sync(reconciliation, out);
+                        self.reconcile_pending_send_after_sync(reconciliation, out)?;
                     }
                     self.release_post_events(pending_domain_events, has_category_posts, out)?;
                 }

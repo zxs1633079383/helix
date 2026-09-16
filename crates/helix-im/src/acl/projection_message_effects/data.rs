@@ -170,7 +170,7 @@ pub(super) fn message_item_data(
     } else {
         fields.msg_type.as_str()
     };
-    let forward_detail = crate::query::render_ready::forward::detail(msg_type, &props);
+    let props = crate::query::render_ready::forward::props(msg_type, props);
     let user_snapshot = crate::query::render_ready::core::normalize_user_snapshot(
         &parse_json_field(&fields.user_snapshot, json!({})),
     );
@@ -205,7 +205,6 @@ pub(super) fn message_item_data(
         "simpleMessage": crate::message_summary::resolve(msg_type, &fields.message, &props, &fields.simple_message, false),
         "text": fields.message.as_str(),
         "props": props,
-        "forwardDetail": forward_detail,
         "topic": topic,
         "createAt": fields.create_at,
         "createdAt": fields.create_at,

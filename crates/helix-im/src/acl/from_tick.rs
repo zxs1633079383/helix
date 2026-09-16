@@ -25,6 +25,7 @@ pub fn accepts_tick(tick: &Tick) -> bool {
                     | "im_reconnect"
                     | "im_sync_channels"
             )
+                || crate::query::forward_detail::is_command(cmd.name.as_ref())
                 || crate::commands::is_outbound(cmd.name.as_ref())
                 || crate::chain::is_command(cmd.name.as_ref())
                 // query 族（im_load_older_context / dialog_list 等纯读投影命令）：handle 分发

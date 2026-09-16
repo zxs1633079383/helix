@@ -84,6 +84,11 @@ pub struct PendingSendReconciliation {
 // （非 key），`PartialEq` 供 ws/registry 测试 `assert_eq!`，`Eq` 无用处（grep 实证）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum CorrelationContext {
+    /// One immutable remote page; cancellation owns this correlation and timer.
+    ForwardDetail {
+        request: Box<crate::query::forward_detail::Request>,
+        timer: helix_core::TimerId,
+    },
     /// 分类接龙HTTP/持久化/读回的独立 continuation。
     CategoryChain {
         pending: Box<crate::category_chain::Pending>,
@@ -419,14 +424,15 @@ pub enum CorrelationContext {
         deferred_send_http: Option<TemporaryId>,
     },
 
-    /// G-05 ID 转发的本地消息逐条 Get 回报；全部组装完成后才发 createPosts HTTP。
-    ForwardSourceLookup {
-        assembly: Box<crate::forward::ForwardAssembly>,
+    /// Retry authority must cross Persist and durable readback before delivery.
+    ForwardCommittedHttp {
+        read: Box<crate::forward::CommittedRead>,
     },
-
-    /// G-05 合并转发来源频道 Get 回报；标题闭合后才允许装配 createPosts。
-    ForwardSourceChannelLookup {
-        assembly: Box<crate::forward::ForwardAssembly>,
+    ForwardCommittedPersist {
+        read: Box<crate::forward::CommittedRead>,
+    },
+    ForwardCommittedReadback {
+        read: Box<crate::forward::CommittedRead>,
     },
 
     /// G08 HTTP 只确认 transport 结果；成功等待 WS authority，失败撤销 request causation。

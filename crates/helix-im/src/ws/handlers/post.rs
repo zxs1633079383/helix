@@ -85,7 +85,7 @@ impl WsMessageHandler for PostHandler {
         let forward_causation = frame.cses_track_id().and_then(|request_id| {
             ctx.state
                 .pending_forward_deliveries
-                .matching_request(request_id, ev.channel_id)
+                .request_for_command(request_id, ev.channel_id)
         });
         let ev = ev
             .with_unread_bump(unread_bump)

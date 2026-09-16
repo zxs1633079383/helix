@@ -25,8 +25,7 @@ pub(crate) fn resolve(
                     k.as_str(),
                     "files"
                         | "file"
-                        | "mergeMessage"
-                        | "merge_message"
+                        | "forward"
                         | "vote"
                         | "averageScore"
                         | "announcement"
@@ -53,20 +52,45 @@ pub(crate) fn resolve(
     simple_message(kind, message, props)
 }
 
-/// 频道末条兼容对象/JSON 字符串，只准备摘要，不生成消息身份或覆盖正文。
+/// 频道末条准备摘要；MULTIPLY 只投影有界卡片，不生成消息身份或覆盖正文。
 pub(crate) fn prepare_post(value: &Value) -> Value {
     let mut post = decoded(value).into_owned();
-    let Some(object) = post.as_object() else { return value.clone(); };
-    if object.is_empty() { return post; }
+    let Some(object) = post.as_object() else {
+        return value.clone();
+    };
+    if object.is_empty() {
+        return post;
+    }
     let kind = object.get("type").and_then(Value::as_str).unwrap_or("TEXT");
-    let message = object.get("message").or_else(|| object.get("text")).and_then(Value::as_str).unwrap_or("");
-    let saved = object.get("simpleMessage").or_else(|| object.get("simple_message")).and_then(Value::as_str).unwrap_or("");
+    let message = object
+        .get("message")
+        .or_else(|| object.get("text"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let saved = object
+        .get("simpleMessage")
+        .or_else(|| object.get("simple_message"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let props = decoded(object.get("props").unwrap_or(&Value::Null));
-    let revoked = object.get("revoke").is_some_and(|v| v.as_bool() == Some(true) || v.as_i64() == Some(1));
+    let revoked = object
+        .get("revoke")
+        .is_some_and(|v| v.as_bool() == Some(true) || v.as_i64() == Some(1));
     let summary = resolve(kind, message, &props, saved, revoked);
+    let forward_props = kind
+        .eq_ignore_ascii_case("MULTIPLY")
+        .then(|| crate::query::render_ready::forward::props(kind, props.into_owned()));
     if !summary.is_empty() {
-        if object.contains_key("simple_message") { post["simple_message"] = Value::String(summary.clone()); }
+        if object.contains_key("simple_message") {
+            post["simple_message"] = Value::String(summary.clone());
+        }
         post["simpleMessage"] = Value::String(summary);
+    }
+    if let Some(props) = forward_props {
+        post["props"] = props;
+        if let Some(object) = post.as_object_mut() {
+            object.remove("forwardDetail");
+        }
     }
     post
 }
@@ -338,7 +362,11 @@ fn media_summary_counts_stay_inside_brackets() {
 #[test]
 fn summary_rules_cover_business_messages_and_sparse_updates() {
     for (kind, props, expected) in [
-        ("MULTIPLY", json!({"mergeMessage": []}), "[聊天记录]"),
+        (
+            "MULTIPLY",
+            json!({"forward": {"snapshotId":"s","title":"记录","itemCount":1,"preview":[]}}),
+            "[聊天记录]",
+        ),
         (
             "ANNOUNCEMENT",
             json!({"announcement": {"content":"标题"}}),
@@ -434,7 +462,12 @@ fn summary_is_shared_by_inbound_history_last_post_and_forward_detail() {
     let channel_id = ChannelId::from_str("yo9n4iud8fyt78zwjkonsya87e").unwrap();
     for (kind, message, props, expected) in [
         ("TEXT", "**你好**", json!({}), "你好"),
-        ("MULTIPLY", "", json!({"mergeMessage": []}), "[聊天记录]"),
+        (
+            "MULTIPLY",
+            "",
+            json!({"forward": {"snapshotId":"s","title":"记录","itemCount":1,"preview":[]}}),
+            "[聊天记录]",
+        ),
         (
             "RICH",
             "文字",
@@ -461,11 +494,11 @@ fn summary_is_shared_by_inbound_history_last_post_and_forward_detail() {
             crate::query::render_ready::core::shape_row(&row, "viewer")["simpleMessage"],
             expected
         );
-        let detail =
-            crate::query::render_ready::forward::detail("MULTIPLY", &json!({"mergeMessage":[row]}));
-        assert_eq!(detail["items"][0]["simpleMessage"], expected);
+        // Snapshot page projection is exercised through the public forward-detail lifecycle.
     }
-    let sparse = crate::ws::parser::extract_post_fields(&json!({"id":"p","props":{"pin":true,"type":"pin"}}));
+    let sparse = crate::ws::parser::extract_post_fields(
+        &json!({"id":"p","props":{"pin":true,"type":"pin"}}),
+    );
     assert_eq!(sparse.simple_message, "");
     assert_eq!(sparse.present_fields & POST_FIELD_SIMPLE_MESSAGE, 0);
 }
@@ -485,31 +518,56 @@ fn channel_summary_survives_full_patch_member_and_event_paths() {
         let (full, _) = crate::channel_write::program_full(&channel, "b", 123).unwrap();
         let patch = crate::channel_write::collect_present(&channel);
         for row in [&full, &patch] {
-            let raw = row.iter().find_map(|(key, value)| match value {
-                SqlValue::Text(raw) if *key == "last_post" => Some(raw), _ => None,
-            }).unwrap();
+            let raw = row
+                .iter()
+                .find_map(|(key, value)| match value {
+                    SqlValue::Text(raw) if *key == "last_post" => Some(raw),
+                    _ => None,
+                })
+                .unwrap();
             let saved: Value = serde_json::from_str(raw).unwrap();
             assert_eq!(saved["simpleMessage"], expected);
             assert_eq!(saved["props"], post["props"]);
             assert_eq!(saved["message"], "");
         }
-        let (member_row, projection) = crate::channel_update::member_channel_from_update_channel(&channel, id, "b", 123).unwrap();
-        assert!(member_row.iter().any(|(key, value)| key == "last_post" && matches!(value, SqlValue::Text(raw) if raw.contains(expected))));
+        let (member_row, projection) =
+            crate::channel_update::member_channel_from_update_channel(&channel, id, "b", 123)
+                .unwrap();
+        assert!(member_row.iter().any(|(key, value)| key == "last_post"
+            && matches!(value, SqlValue::Text(raw) if raw.contains(expected))));
         let data = crate::acl::to_effect::member_channel_update_data(id, &projection, "test");
         assert_eq!(data["lastPost"]["simpleMessage"], expected);
         assert_eq!(data["dialogPatch"]["lastPost"]["simpleMessage"], expected);
         assert_eq!(data["messageClass"], "mention_urgent");
-        for event in [crate::event::channel::created(channel.clone()), crate::event::channel::update(channel.clone())] {
+        for event in [
+            crate::event::channel::created(channel.clone()),
+            crate::event::channel::update(channel.clone()),
+        ] {
             let envelope: Value = serde_json::from_slice(&event.unwrap().into_bytes()).unwrap();
             assert_eq!(envelope["data"]["lastPost"]["simpleMessage"], expected);
-            for key in ["mentionList", "urgentPostList", "urgentCount", "mentionUser", "draft"] {
+            for key in [
+                "mentionList",
+                "urgentPostList",
+                "urgentCount",
+                "mentionUser",
+                "draft",
+            ] {
                 assert_eq!(envelope["data"][key], channel[key]);
             }
         }
     }
-    for empty in [Value::Null, json!({}), json!("bad-json")] { assert_eq!(prepare_post(&empty), empty); }
+    for empty in [Value::Null, json!({}), json!("bad-json")] {
+        assert_eq!(prepare_post(&empty), empty);
+    }
     let sparse = json!({"id":id.as_str(),"urgentCount":2});
-    assert!(!crate::channel_write::collect_present(&sparse).iter().any(|(key,_)| *key == "last_post"));
-    let event: Value = serde_json::from_slice(&crate::event::channel::update(sparse.clone()).unwrap().into_bytes()).unwrap();
+    assert!(!crate::channel_write::collect_present(&sparse)
+        .iter()
+        .any(|(key, _)| *key == "last_post"));
+    let event: Value = serde_json::from_slice(
+        &crate::event::channel::update(sparse.clone())
+            .unwrap()
+            .into_bytes(),
+    )
+    .unwrap();
     assert_eq!(event["data"], sparse);
 }

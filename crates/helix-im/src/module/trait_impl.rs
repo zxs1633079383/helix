@@ -63,6 +63,12 @@ impl Module for ImModule {
                             crate::sync_observation::SyncResult::Cancelled,
                         );
                         self.cancel_category(out);
+                        self.cancel_forward_details(None, "CANCELLED", out);
+                        self.cancel_forwards(out)
+                            .map_err(|e| CoreError::ModuleError {
+                                module: self.name(),
+                                source: Box::new(e),
+                            })?;
                         self.state.reset_message_v3_identity();
                     }
                     self.config.auth_user_id = auth_user_id;
@@ -83,6 +89,13 @@ impl Module for ImModule {
                             .recovery_session
                             .begin(self.config.auth_user_id.as_str());
                     }
+                }
+                name if crate::query::forward_detail::is_command(name) => {
+                    self.forward_detail_command(name, cmd.payload.as_ref(), out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
                 }
                 "im_send_message" => {
                     self.handle_send_message(cmd.payload.as_ref(), now_ms, out)
@@ -124,7 +137,7 @@ impl Module for ImModule {
                         },
                     )?;
                 }
-                "im_create_posts" if crate::forward::is_source_id_request(cmd.payload.as_ref()) => {
+                "im_create_posts" => {
                     crate::forward::start(self, cmd.payload.as_ref(), now_ms, out).map_err(
                         |e| CoreError::ModuleError {
                             module: self.name(),
@@ -398,12 +411,6 @@ impl Module for ImModule {
                             };
                             self.state.corr_map.insert(corr, ctx);
                         }
-                    } else if name == "im_create_posts" {
-                        if let Some(req_id) = crate::read_relay::read_req_id(cmd.payload.as_ref()) {
-                            self.state
-                                .corr_map
-                                .insert(corr, CorrelationContext::OutboundCreatePosts { req_id });
-                        }
                     } else if name == "im_create_schedule" {
                         if let Ok(args) =
                             serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
@@ -589,6 +596,18 @@ impl Module for ImModule {
             }
 
             Tick::Timer(id) => {
+                if self.forward_detail_timeout(*id, out) {
+                    return Ok(());
+                }
+                if self
+                    .forward_timeout(*id, out)
+                    .map_err(|e| CoreError::ModuleError {
+                        module: self.name(),
+                        source: Box::new(e),
+                    })?
+                {
+                    return Ok(());
+                }
                 if self
                     .handle_category_timeout(*id, out)
                     .map_err(|e| CoreError::ModuleError {
@@ -708,6 +727,12 @@ impl Module for ImModule {
         self.finish_sync_observation(crate::sync_observation::SyncResult::Cancelled);
         self.cancel_category(out);
         self.stop_schedule_media(out);
+        self.cancel_forward_details(None, "CANCELLED", out);
+        self.cancel_forwards(out)
+            .map_err(|e| CoreError::ModuleError {
+                module: self.name(),
+                source: Box::new(e),
+            })?;
         self.diagnose(crate::diagnostics::Observation {
             event: "runtime_stopped",
             result: "interrupted",

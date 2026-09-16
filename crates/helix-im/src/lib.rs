@@ -17,8 +17,8 @@
 
 pub mod acl;
 pub(crate) mod base64;
-pub(crate) mod chain;
 pub(crate) mod category_chain;
+pub(crate) mod chain;
 pub mod channel;
 mod channel_kind;
 pub(crate) mod channel_sync;
@@ -29,20 +29,19 @@ pub mod client_api;
 pub mod commands;
 /// MessageV3 Gate MV3-G02e 草稿域（`im_save_draft` / `im_query_draft`）。
 mod diagnostics;
-pub mod sync_observation;
 pub mod draft;
 pub mod error;
 pub mod event;
 mod forward;
-mod forward_shape;
-mod message_summary;
 pub mod http_envelope;
 mod http_outcome;
 mod increment_hydration;
 mod increment_pull;
+mod message_summary;
 pub mod mobile_contract;
 pub mod module;
 pub mod outbound;
+pub mod sync_observation;
 pub mod parser {
     pub use crate::ws::parser::core::*;
 }
@@ -55,9 +54,9 @@ pub use query::render_ready::core as render_ready;
 pub use query::render_ready::locate as render_ready_locate;
 pub use query::render_ready::members as render_ready_members;
 pub use query::render_ready::replies as render_ready_replies;
+mod schedule_media;
 pub mod schema;
 pub mod send;
-mod schedule_media;
 pub mod timeline_navigation;
 pub mod timeline_state;
 pub use send::pending as pending_send;

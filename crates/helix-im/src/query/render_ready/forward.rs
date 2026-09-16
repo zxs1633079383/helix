@@ -1,321 +1,271 @@
-//! Merged-forward props -> render-ready detail.
+//! Immutable merged-forward cards and one-page snapshot projection; never decode descendants.
 
+use crate::ImError;
 use serde_json::{json, Value};
 
-const MAX_FORWARD_ITEMS: usize = 100;
-const MAX_FORWARD_DEPTH: usize = 8;
-const MAX_FORWARD_TOTAL_ITEMS: usize = 1000;
+/// Validate the server-owned bounded card and copy only its declared fields.
+pub(crate) fn card(value: &Value) -> Result<Value, ImError> {
+    let snapshot_id = text(value, "snapshotId", 128)?;
+    if snapshot_id.is_empty() {
+        return Err(invalid("empty snapshotId"));
+    }
+    let title = text(value, "title", 128)?;
+    let count = value["itemCount"]
+        .as_u64()
+        .filter(|n| (1..=100).contains(n))
+        .ok_or_else(|| invalid("card itemCount"))?;
+    let preview = value["preview"]
+        .as_array()
+        .filter(|items| items.len() <= 3)
+        .ok_or_else(|| invalid("card preview"))?;
+    let preview = preview
+        .iter()
+        .map(|item| {
+            Ok(json!({
+                "author": text(item, "author", 128)?, "text": text(item, "text", 256)?
+            }))
+        })
+        .collect::<Result<Vec<_>, ImError>>()?;
+    if value.as_object().is_none_or(|object| object.len() != 4) {
+        return Err(invalid("undeclared card field"));
+    }
+    Ok(json!({"snapshotId":snapshot_id,"title":title,"itemCount":count,"preview":preview}))
+}
 
-/// 将 durable MULTIPLY props 转成 bounded render-ready detail，非法记录整体 fail closed。
-pub(crate) fn detail(msg_type: &str, props: &Value) -> Value {
+/// MULTIPLY never exports source trees, even if a corrupt local row contains extra props.
+pub(crate) fn props(msg_type: &str, value: Value) -> Value {
     if !msg_type.eq_ignore_ascii_case("MULTIPLY") {
-        return Value::Null;
+        return value;
     }
-
-    let mut remaining = MAX_FORWARD_TOTAL_ITEMS;
-    detail_at_depth(props, 0, &mut remaining)
+    card(&value["forward"])
+        .map(|card| json!({"forward":card}))
+        .unwrap_or_else(|_| json!({}))
 }
 
-/// 共享总条数与深度预算，防止嵌套记录指数展开；坏的子卡片不吞掉外层普通消息。
-fn detail_at_depth(props: &Value, depth: usize, remaining: &mut usize) -> Value {
-    if depth >= MAX_FORWARD_DEPTH {
-        return unavailable("merge_depth_limit");
+/// Turn a bounded current-layer item into the same ChatMessage shape as history.
+pub(crate) fn item(snapshot_id: &str, item: &Value, viewer: &str) -> Result<Value, ImError> {
+    let item_key = text(item, "itemKey", 128)?;
+    if item_key.is_empty() {
+        return Err(invalid("empty itemKey"));
     }
-    let Some(items) = decode_items(props) else {
-        return unavailable("invalid_merge_message");
+    if text(item, "userId", 128)?.is_empty() {
+        return Err(invalid("empty userId"));
+    }
+    if !item["userSnapshot"].is_object() || !item["createAt"].is_i64() {
+        return Err(invalid("item author/time"));
+    }
+    let id = format!("forward:{snapshot_id}:{item_key}");
+    let mut row = json!({"id":id,"temporaryId":id,"userId":item["userId"],
+        "userSnapshot":item["userSnapshot"],"createAt":item["createAt"]});
+    let fields: &[&str] = match item["kind"].as_str() {
+        Some("message") => &[
+            "kind",
+            "itemKey",
+            "userId",
+            "userSnapshot",
+            "createAt",
+            "type",
+            "message",
+            "simpleMessage",
+            "props",
+            "channelId",
+            "viewers",
+        ],
+        Some("forward") => &[
+            "kind",
+            "itemKey",
+            "userId",
+            "userSnapshot",
+            "createAt",
+            "snapshotId",
+            "title",
+            "itemCount",
+            "preview",
+        ],
+        _ => return Err(invalid("item kind")),
     };
-    if items.len() > MAX_FORWARD_ITEMS {
-        return unavailable("too_many_merge_items");
+    if item
+        .as_object()
+        .is_none_or(|object| object.keys().any(|key| !fields.contains(&key.as_str())))
+    {
+        return Err(invalid("undeclared item field"));
     }
-    if items.len() > *remaining {
-        return unavailable("merge_total_limit");
+    match item["kind"].as_str() {
+        Some("message") => {
+            let kind = text(item, "type", 64)?;
+            if kind.is_empty()
+                || kind.eq_ignore_ascii_case("MULTIPLY")
+                || !item["message"].is_string()
+                || !item["props"].is_object()
+            {
+                return Err(invalid("message item"));
+            }
+            for key in ["mergeMessage", "merge_message", "forwardDetail", "forward"] {
+                if item["props"].get(key).is_some() {
+                    return Err(invalid("recursive message props"));
+                }
+            }
+            // A forwarded business card still addresses the original business post.
+            // Only the render key belongs to the immutable snapshot; mutations must
+            // never send that synthetic key as a post ID.
+            if matches!(
+                kind,
+                "TASK_CARD"
+                    | "TASK_CARD_BLOCK"
+                    | "MEETING_CARD_BLOCK"
+                    | "DOCUMENT"
+                    | "CHAIN"
+                    | "TEXT_CHAIN"
+                    | "CATEGORY_CHAIN"
+                    | "VOTE"
+                    | "AVERAGE_SCORE"
+                    | "ANNOUNCEMENT"
+            ) || kind == "TEXT" && item["props"].get("meetingCardBlock").is_some()
+            {
+                row["id"] = json!(item_key);
+                let channel_id = text(item, "channelId", 128)?;
+                if channel_id.is_empty() {
+                    return Err(invalid("business channelId"));
+                }
+                row["channelId"] = json!(channel_id);
+                let viewers = item["viewers"]
+                    .as_array()
+                    .ok_or_else(|| invalid("business viewers"))?;
+                if viewers
+                    .iter()
+                    .any(|value| value.as_str().is_none_or(|id| id.len() > 128))
+                {
+                    return Err(invalid("business viewer"));
+                }
+                row["viewers"] = item["viewers"].clone();
+            } else if item.get("channelId").is_some() || item.get("viewers").is_some() {
+                return Err(invalid("non-business source context"));
+            }
+            row["type"] = item["type"].clone();
+            row["message"] = item["message"].clone();
+            row["props"] = item["props"].clone();
+            if item.get("simpleMessage").is_some() {
+                row["simpleMessage"] = json!(text(item, "simpleMessage", 256)?);
+            }
+            crate::event::post::canonicalize_media_file_names(&mut row["props"]);
+        }
+        Some("forward") => {
+            let card = card(
+                &json!({"snapshotId":item["snapshotId"],"title":item["title"],"itemCount":item["itemCount"],"preview":item["preview"]}),
+            )?;
+            row["type"] = json!("MULTIPLY");
+            row["message"] = json!("");
+            row["simpleMessage"] = json!("[聊天记录]");
+            row["props"] = json!({"forward":card});
+        }
+        _ => return Err(invalid("item kind")),
     }
-    *remaining -= items.len();
-    let Some(items) = items
-        .into_iter()
-        .map(|item| normalize_item(item, depth, remaining))
-        .collect::<Option<Vec<_>>>()
-    else {
-        return unavailable("invalid_merge_item");
-    };
-    let item_count = items.len();
-    json!({
-        "mode": "merged",
-        "state": "ready",
-        "title": string_at(props, &["forwardTitle", "forward_title"]).unwrap_or_else(|| "聊天记录".to_string()),
-        "summary": format!("共{item_count}条消息"),
-        "itemCount": item_count,
-        "sourceChannelId": string_at(props, &["sourceChannelId", "source_channel_id"]),
-        "sourceChannelName": string_at(props, &["sourceChannelName", "source_channel_name"]),
-        "items": items,
-        "failureReason": Value::Null,
-    })
+    let mut projected = super::core::shape_row(&row, viewer);
+    projected["forwardItemKey"] = json!(item_key);
+    Ok(projected)
 }
 
-fn decode_items(props: &Value) -> Option<Vec<Value>> {
-    let raw = props
-        .get("mergeMessage")
-        .or_else(|| props.get("merge_message"))?;
-    match raw {
-        Value::Array(items) => Some(items.clone()),
-        Value::String(encoded) => serde_json::from_str::<Value>(encoded)
-            .ok()?
-            .as_array()
-            .cloned(),
-        _ => None,
-    }
+pub(crate) fn text<'a>(value: &'a Value, key: &str, max: usize) -> Result<&'a str, ImError> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|s| s.len() <= max)
+        .ok_or_else(|| invalid(key))
 }
 
-/// 单条来源记录统一 snake/camel 别名，并保留 strict item 所需的 id 与 userId。
-fn normalize_item(item: Value, depth: usize, remaining: &mut usize) -> Option<Value> {
-    let Value::Object(object) = item else {
-        return None;
-    };
-    let item = Value::Object(object);
-    let snapshot = item
-        .get("userSnapshot")
-        .or_else(|| item.get("user_snapshot"))
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    let author = string_at(&item, &["author", "userName", "user_name"])
-        .or_else(|| string_at(&snapshot, &["displayName", "userName", "user_name", "name"]));
-    let text = string_at(&item, &["text", "message", "content"]).unwrap_or_default();
-    let id = string_at(&item, &["id", "temporaryId", "temporary_id"]).unwrap_or_default();
-    let user_id = string_at(&item, &["userId", "user_id"])
-        .or_else(|| string_at(&snapshot, &["userId", "user_id"]))
-        .unwrap_or_default();
-    let msg_type = string_at(&item, &["type"]).unwrap_or_else(|| "TEXT".to_string());
-    let create_at = item
-        .get("createAt")
-        .or_else(|| item.get("create_at"))
-        .and_then(Value::as_i64)
-        .unwrap_or_default();
-    let mut result = json!({
-        "id": id,
-        "userId": user_id,
-        "author": author.unwrap_or_default(),
-        "text": text,
-        "type": msg_type,
-        "createAt": create_at,
-        "userSnapshot": snapshot,
-    });
-    let props = item.get("props").map(|value| match value {
-        Value::String(raw) => serde_json::from_str(raw).unwrap_or(Value::Null),
-        value => value.clone(),
-    }).unwrap_or(Value::Null);
-    result["simpleMessage"] = Value::String(crate::message_summary::resolve(
-        &msg_type, &text, &props, &string_at(&item, &["simpleMessage", "simple_message"]).unwrap_or_default(), false,
-    ));
-    if msg_type == "MULTIPLY" {
-        let props = match item.get("props") {
-            Some(Value::String(raw)) => serde_json::from_str(raw).unwrap_or(Value::Null),
-            Some(value) => value.clone(),
-            None => Value::Null,
-        };
-        result["forwardDetail"] = detail_at_depth(&props, depth + 1, remaining);
-    }
-    // 媒体详情沿用普通消息的 props；不把原始嵌套 mergeMessage 扩散到投影边界。
-    if matches!(
-        msg_type.as_str(),
-        "RICH" | "IMAGE" | "VIDEO" | "FILE" | "AUDIO" | "VOICE"
-    ) {
-        let mut props = match item.get("props") {
-            Some(Value::String(raw)) if !raw.trim().is_empty() => serde_json::from_str(raw).ok()?,
-            Some(Value::Object(object)) => Value::Object(object.clone()),
-            None | Some(Value::Null) => json!({}),
-            Some(Value::String(_)) => json!({}),
-            _ => return None,
-        };
-        let object = props.as_object_mut()?;
-        object.remove("channel_event_seq");
-        object.remove("mergeMessage");
-        object.remove("merge_message");
-        crate::event::post::canonicalize_media_file_names(&mut props);
-        result["props"] = props;
-    }
-    Some(result)
-}
-
-fn string_at(value: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| value.get(*key).and_then(Value::as_str))
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
-fn unavailable(reason: &'static str) -> Value {
-    json!({
-        "mode": "merged",
-        "state": "unavailable",
-        "title": "聊天记录",
-        "summary": "聊天记录暂不可用",
-        "itemCount": 0,
-        "sourceChannelId": Value::Null,
-        "sourceChannelName": Value::Null,
-        "items": [],
-        "failureReason": reason,
-    })
+fn invalid(field: &str) -> ImError {
+    ImError::Parse(format!("invalid forward {field}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn parses_string_and_array_shapes_to_the_same_detail() {
-        let items = json!([{
-            "temporaryId":"p1",
-            "message":"你好",
-            "type":"TEXT",
-            "createAt":7,
-            "userSnapshot":{"userName":"甲"}
-        }]);
-        let string_props = json!({"mergeMessage": items.to_string()});
-        let array_props = json!({"mergeMessage": items});
-        let from_string = detail("MULTIPLY", &string_props);
-        let from_array = detail("MULTIPLY", &array_props);
-        assert_eq!(from_string, from_array);
-        assert_eq!(from_string["state"], "ready");
-        assert_eq!(from_string["items"][0]["author"], "甲");
-        assert_eq!(from_string["items"][0]["text"], "你好");
-    }
-
-    /// 回归锚：6aa1289d / 6aa1289e；摘要与正文分离，嵌套子卡片仍可继续打开。
-    #[test]
-    fn preserves_summary_and_nested_detail_without_raw_merge_props() {
-        let inner = json!({"mergeMessage": [{"id":"leaf", "type":"TEXT", "message":"完整正文", "simpleMessage":"摘要"}]});
-        let props = json!({"mergeMessage": [
-            {"id":"nested", "type":"MULTIPLY", "simple_message":"[聊天记录]", "props":inner.to_string()},
-            {"id":"plain", "type":"TEXT", "message":"混排"}
-        ]});
-        let result = detail("MULTIPLY", &props);
-        let nested = &result["items"][0];
-        assert_eq!(nested["simpleMessage"], "[聊天记录]");
-        assert!(nested.get("props").is_none());
-        assert_eq!(nested["forwardDetail"]["items"][0]["text"], "完整正文");
-        assert_eq!(nested["forwardDetail"]["items"][0]["simpleMessage"], "摘要");
-        assert_eq!(result["items"][1]["text"], "混排");
-        let history = super::super::core::shape_row(
-            &json!({"type":"MULTIPLY", "props":props.to_string()}),
-            "",
-        );
-        assert_eq!(history["forwardDetail"], result);
-    }
-
-    /// 超深/超总数和损坏子项局部不可用，有限外层仍可渲染。
-    #[test]
-    fn nested_projection_has_depth_and_total_bounds() {
-        let mut props = json!({"mergeMessage": [{"type":"TEXT", "message":"leaf"}]});
-        for _ in 0..MAX_FORWARD_DEPTH {
-            props = json!({"mergeMessage": [{"type":"MULTIPLY", "props":props}]});
-        }
-        let result = detail("MULTIPLY", &props);
-        let mut nested = &result;
-        for _ in 0..MAX_FORWARD_DEPTH {
-            nested = &nested["items"][0]["forwardDetail"];
-        }
-        assert_eq!(nested["failureReason"], "merge_depth_limit");
-        let mut remaining = 0;
-        assert_eq!(
-            detail_at_depth(&props, 0, &mut remaining)["failureReason"],
-            "merge_total_limit"
-        );
-        let broken = detail(
-            "MULTIPLY",
-            &json!({"mergeMessage":[{"type":"MULTIPLY","props":"broken"},{"type":"TEXT","message":"ok"}]}),
-        );
-        assert_eq!(broken["state"], "ready");
-        assert_eq!(broken["items"][0]["forwardDetail"]["state"], "unavailable");
-        assert_eq!(broken["items"][1]["text"], "ok");
-    }
-
-    #[test]
-    fn malformed_merged_payload_fails_closed() {
-        let result = detail("MULTIPLY", &json!({"mergeMessage":"not-json"}));
-        assert_eq!(result["state"], "unavailable");
-        assert_eq!(result["items"], json!([]));
-        assert_eq!(result["failureReason"], "invalid_merge_message");
-    }
-
-    /// 历史查询与实时 authority 使用同一媒体归一化，保留图文顺序和视频属性。
-    #[test]
-    fn media_forward_detail_preserves_props_in_both_projection_paths() {
-        use crate::state::{ChannelId, Seq};
-        use crate::sync_session::{EventEnvelope, EventKind, PostFields};
-
-        for kind in ["RICH", "IMAGE", "VIDEO", "FILE", "AUDIO", "VOICE"] {
-            let file_name = if kind == "RICH" { "a.png" } else { "a.mp4" };
-            let content_type = if kind == "RICH" { "image/png" } else { "video/mp4" };
-            let media = json!({"url":"https://media.test/a", "fileName":file_name, "contentType":content_type, "width":640, "height":480});
-            let props = if matches!(kind, "RICH" | "IMAGE") {
-                let files = if kind == "RICH" { vec![media.clone(); 3] } else { vec![media] };
-                json!({"files":files, "imagePosition":"bottom"})
-            } else {
-                json!({"file":media})
-            };
-            for encoded in [props.clone(), Value::String(props.to_string())] {
-                let summary = if kind == "RICH" { "[图片] 3个 11 1 1 11" } else if kind == "VOICE" { "[语音]" } else { "已保存的媒体摘要" };
-                let merged = json!({"mergeMessage":[
-                    {"id":"first", "type":"TEXT", "message":"1", "simpleMessage":"1"},
-                    {"id":"second", "type":"TEXT", "message":"1", "simpleMessage":"1"},
-                    {"id":"m1", "type":kind, "message":"11\n1\n1\n11", "simpleMessage":summary, "props":encoded}
-                ]});
-                let history = super::super::core::shape_row(
-                    &json!({"type":"MULTIPLY", "props":merged.to_string()}),
-                    "",
-                );
-                let event = EventEnvelope::new(
-                    ChannelId::from_str("a9h5hrdsy3873dmg375a6ntqiw").unwrap(),
-                    Seq(8),
-                    EventKind::PostUpsert,
-                    PostFields {
-                        msg_type: "MULTIPLY".to_string(),
-                        props: merged.to_string(),
-                        ..PostFields::default()
-                    },
-                );
-                let live = crate::event::post::authority_projection(&event).unwrap();
-                let detail = &live.received_data["forwardDetail"];
-                assert_eq!(detail, &history["forwardDetail"]);
-                assert_eq!(detail, &live.last_post["forwardDetail"]);
-                assert_eq!(detail["items"][0]["simpleMessage"], "1");
-                assert_eq!(detail["items"][1]["simpleMessage"], "1");
-                let item = &detail["items"][2];
-                assert_eq!(item["text"], "11\n1\n1\n11");
-                assert_eq!(item["simpleMessage"], summary);
-                let file = if matches!(kind, "RICH" | "IMAGE") {
-                    assert_eq!(item["props"]["imagePosition"], "bottom");
-                    &item["props"]["files"][0]
-                } else {
-                    &item["props"]["file"]
-                };
-                assert_eq!(file["url"], "https://media.test/a");
-                assert_eq!(file["name"], file_name);
-                assert_eq!(file["width"], 640);
-                assert!(file.get("fileName").is_none());
-            }
+    fn business_cards_keep_source_identity_and_separate_render_identity() {
+        for kind in [
+            "TASK_CARD",
+            "TASK_CARD_BLOCK",
+            "MEETING_CARD_BLOCK",
+            "DOCUMENT",
+            "CHAIN",
+            "TEXT_CHAIN",
+            "CATEGORY_CHAIN",
+            "VOTE",
+            "AVERAGE_SCORE",
+            "ANNOUNCEMENT",
+        ] {
+            let source = json!({"kind":"message","itemKey":"source-post","userId":"author",
+                "userSnapshot":{},"createAt":1,"type":kind,"message":"content",
+                "props":{"businessId":"original-object"},"channelId":"source-channel","viewers":["viewer"]});
+            let a = item("snapshot-a", &source, "viewer").unwrap();
+            let b = item("snapshot-b", &source, "viewer").unwrap();
+            assert_eq!(a["id"], "source-post");
+            assert_eq!(a["channelId"], "source-channel");
+            assert_eq!(a["viewers"], source["viewers"]);
+            assert_eq!(a["props"], source["props"]);
+            assert_ne!(a["temporaryId"], b["temporaryId"]);
+            let mut invalid = source.clone();
+            invalid["channelId"] = json!("");
+            assert!(item("s", &invalid, "viewer").is_err());
+            invalid = source.clone();
+            invalid["viewers"] = json!([1]);
+            assert!(item("s", &invalid, "viewer").is_err());
+            invalid = source.clone();
+            invalid["type"] = json!("TEXT");
+            assert!(item("s", &invalid, "viewer").is_err());
         }
     }
 
-    /// 非法媒体 props 与过量条目不能变成看似成功的详情。
     #[test]
-    fn media_forward_detail_rejects_invalid_props_and_overflow() {
-        for props in [json!("bad-json"), json!("[]"), json!([]), json!(42)] {
-            let result = detail(
-                "MULTIPLY",
-                &json!({"mergeMessage":[{"type":"RICH", "props":props}]}),
-            );
-            assert_eq!(result["failureReason"], "invalid_merge_item");
+    fn current_task_and_meeting_wire_shapes_keep_business_context() {
+        for (kind, props) in [
+            (
+                "TASK_CARD",
+                json!({"taskCard":{"id":"task"},"taskCardBlock":{"taskId":"task"}}),
+            ),
+            ("TEXT", json!({"meetingCardBlock":{"meetingId":"meeting"}})),
+        ] {
+            let source = json!({"kind":"message","itemKey":"original-post","userId":"author",
+                "userSnapshot":{},"createAt":1,"type":kind,"message":"card","props":props,
+                "channelId":"original-channel","viewers":["all"]});
+            let projected = item("snapshot", &source, "viewer").unwrap();
+            assert_eq!(projected["id"], "original-post");
+            assert_eq!(projected["type"], kind);
+            assert_eq!(projected["props"], props);
+            assert_eq!(projected["channelId"], "original-channel");
+            assert_ne!(projected["temporaryId"], projected["id"]);
         }
-        let items = vec![json!({"type":"TEXT"}); 100];
-        assert_eq!(
-            detail("MULTIPLY", &json!({"mergeMessage":items}))["itemCount"],
-            100
+    }
+
+    /// Live authority and history export the same bounded card and no legacy tree.
+    #[test]
+    fn live_and_history_share_card_only() {
+        let card = json!({"snapshotId":"s","title":"记录","itemCount":100,"preview":[]});
+        let props = json!({"forward":card,"mergeMessage":"deliberately-unparsed"});
+        let history = super::super::core::shape_row(&json!({"type":"MULTIPLY","props":props}), "");
+        let event = crate::sync_session::EventEnvelope::new(
+            crate::state::test_channel_id(1),
+            crate::state::Seq(1),
+            crate::sync_session::EventKind::PostUpsert,
+            crate::sync_session::PostFields {
+                msg_type: "MULTIPLY".into(),
+                props: props.to_string(),
+                ..Default::default()
+            },
         );
-        let overflow = vec![json!({"type":"TEXT"}); 101];
-        assert_eq!(
-            detail("MULTIPLY", &json!({"mergeMessage":overflow}))["failureReason"],
-            "too_many_merge_items"
-        );
+        let live = crate::event::post::authority_projection(&event).unwrap();
+        assert_eq!(history["props"], json!({"forward":card}));
+        assert_eq!(history["props"], live.received_data["props"]);
+        assert_eq!(history["props"], live.last_post["props"]);
+        assert!(history.get("forwardDetail").is_none());
+        assert!(live.received_data.get("forwardDetail").is_none());
+        let last_post =
+            json!({"type":"MULTIPLY","props":props,"forwardDetail":{"items":["never export"]}});
+        for value in [last_post.clone(), json!(last_post.to_string())] {
+            let channel = crate::event::channel::update(json!({"lastPost":value})).unwrap();
+            let event: Value = serde_json::from_slice(&channel.into_bytes()).unwrap();
+            assert_eq!(event["data"]["lastPost"]["props"], json!({"forward":card}));
+            assert!(event["data"]["lastPost"].get("forwardDetail").is_none());
+        }
     }
 }

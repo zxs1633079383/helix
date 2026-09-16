@@ -112,27 +112,6 @@ pub(crate) fn normalize_replies(
     None
 }
 
-/// 将 createPosts admission 回包收敛为 MessageV3 batch result。
-pub(crate) fn emit_create_posts_result(
-    req_id: &str,
-    outcome: &PortOutcome,
-    out: &mut EffectSink,
-) -> Result<(), crate::ImError> {
-    let event = match outcome {
-        PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
-            Ok(raw_body) => {
-                let body =
-                    serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
-                crate::event::post::batch_result_from_authority(req_id, &body)?
-            }
-            Err(_) => crate::event::post::batch_error(req_id, "response envelope decode failed")?,
-        },
-        PortOutcome::Err(_) => crate::event::post::batch_error(req_id, "http request failed")?,
-    };
-    out.push(event.into_effect());
-    Ok(())
-}
-
 /// 回灌读取同步结果，并仅将每条回执发布为 canonical `im:post:readers` 事件。
 ///
 /// 成功 body 只在 Helix 内部交给 receipt projector；不能再经通用

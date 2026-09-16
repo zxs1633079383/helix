@@ -205,19 +205,26 @@ pub fn authority_projection(
             .map_err(|error| crate::ImError::Parse(format!("post props: {error}")))?
     };
     canonicalize_media_file_names(&mut props);
-    let summary = crate::message_summary::resolve(&fields.msg_type, &fields.message, &props, &fields.simple_message, false);
-    if !summary.is_empty() { attach_shared_field(&mut received_data, &mut last_post, "simpleMessage", Value::String(summary)); }
-    if let Some(object) = props.as_object_mut() {
-        object.remove("channel_event_seq");
-    }
-    if event.fields.msg_type.eq_ignore_ascii_case("MULTIPLY") {
+    let summary = crate::message_summary::resolve(
+        &fields.msg_type,
+        &fields.message,
+        &props,
+        &fields.simple_message,
+        false,
+    );
+    if !summary.is_empty() {
         attach_shared_field(
             &mut received_data,
             &mut last_post,
-            "forwardDetail",
-            crate::query::render_ready::forward::detail(&event.fields.msg_type, &props),
+            "simpleMessage",
+            Value::String(summary),
         );
-    } else if !props.as_object().is_some_and(serde_json::Map::is_empty) && !props.is_null() {
+    }
+    if let Some(object) = props.as_object_mut() {
+        object.remove("channel_event_seq");
+    }
+    let props = crate::query::render_ready::forward::props(&event.fields.msg_type, props);
+    if !props.as_object().is_some_and(serde_json::Map::is_empty) && !props.is_null() {
         attach_shared_field(&mut received_data, &mut last_post, "props", props);
     }
     Ok(AuthorityProjection {
@@ -386,7 +393,10 @@ pub fn batch_result_from_authority(
             if channel_id.is_empty() {
                 return None;
             }
-            let accepted = target.get("status").and_then(Value::as_str) == Some("accepted");
+            let accepted = matches!(
+                target.get("status").and_then(Value::as_str),
+                Some("accepted" | "committed")
+            );
             Some(serde_json::json!({
                 "channelId": channel_id,
                 "acceptanceStatus": if accepted { "accepted" } else { "failed" },
@@ -485,7 +495,16 @@ pub fn send_failed_for_identity(
 /// 构造消息撤回事实。
 pub fn revoke(mut data: Value) -> Result<MessageV3Event, crate::ImError> {
     if let Some(object) = data.as_object_mut() {
-        object.insert("simpleMessage".to_string(), Value::String(crate::message_summary::resolve("", "", &Value::Null, "", true)));
+        object.insert(
+            "simpleMessage".to_string(),
+            Value::String(crate::message_summary::resolve(
+                "",
+                "",
+                &Value::Null,
+                "",
+                true,
+            )),
+        );
     }
     super::encode("im:post:revoke", data)
 }

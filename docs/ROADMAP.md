@@ -10,6 +10,8 @@
 
 ## 1. 当前结论
 
+2026-09-16 合并转发快照 Helix 源码已落地：删除递归 mergeMessage/forwardDetail，仅发送 ID 意图并按 rootPostId/path 分页读取，详情逻辑取消清理模块状态，底层 HTTP 沿现有超时回收。最终 461 项库/定向、五 crate check、WASM 和 G-05 producer schema 通过；全量有 2 项无关失败，未改变 Spec 047 Gate 分母。真实 Go/Native/Mobile/Web 与 UI 性能未在此批验收；详见[源码交接](../artifacts/forward-snapshot-20260916/REPORT.md)。
+
 `helix-im` 已从旧呈现套壳与旧 V1 compatibility 硬切到 MessageV3 Gate Event。
 唯一业务出站合同为 `Effect::Emit { event: DomainEventBytes }`，其中 bytes 载荷为 `{event,data}`；driver 只批量交付 bytes，平台不重建业务 reducer。
 

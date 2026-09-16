@@ -1,7 +1,7 @@
 //! 发送相关 correlation 注册。
 //!
 //! `posts/create` HTTP 回包只代表 transport admission，不携带权威 success/post.id；
-//! `temporary_id -> post.id` 终态只由 WS post 或权威 read-back 完成。
+//! `temporary_id -> post.id` 终态只由权威 WS post echo 完成。
 
 use helix_core::{Correlation, EffectSink};
 
@@ -25,14 +25,12 @@ pub(crate) fn register_outbound_send_http_corr(
     h1_corr: Correlation,
     channel_id: crate::state::ChannelId,
     temporary_id: TemporaryId,
-    authoritative_readback: bool,
 ) {
     state.corr_map.insert(
         h1_corr,
         CorrelationContext::OutboundSendHttp {
             channel_id,
             temporary_id,
-            authoritative_readback,
         },
     );
 }

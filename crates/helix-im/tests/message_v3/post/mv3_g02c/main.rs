@@ -144,65 +144,77 @@ fn terminal_events(harness: &Harness) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// 复现HTTP权威回读先于WS：回读已找到服务端消息，但PersistOk之前不能发终态。
-fn retry_authority_before_echo() -> (Harness, u64) {
+/// 复现权威 WS echo 先于终态：echo 已带上服务端消息与 id，但 PersistOk 之前不能发终态。
+///
+/// retry 的 posts/create admission 只代表 transport 接收，不发起任何历史回读；
+/// `temporary_id -> post.id` 结算只由权威 WS post echo 推进。
+fn retry_echo_before_terminal() -> (Harness, u64) {
     let mut harness = Harness::new_with_identity(&[1], "actor", "company", "", "", "");
     let initial = harness.step(send_message_cmd(1, "tmp-retry-authority", "重试正文"), 1000);
     let admitted = harness.step(port_reply_ok(correlation_of(&initial, "persist")), 1001);
     harness.step(port_reply_err(correlation_of(&admitted, "http")), 1002);
     let retry = harness.step(retry_command("tmp-retry-authority"), 1003);
     let admitted = harness.step(port_reply_ok(correlation_of(&retry, "persist")), 1004);
-    let query = harness.step(port_reply_ok(correlation_of(&admitted, "http")), 1005);
-    let response = serde_json::json!({"status":"SUCCESS","data":{"posts":[{
-        "id": common::sid(1), "temporaryId":"tmp-retry-authority", "channelId":common::cid(1),
-        "userId":"actor", "type":"TEXT", "message":"重试正文", "createAt":1000,
-        "props":{}, "viewers":["all"], "event_seq":8
-    }]}});
+    let admission = harness.step(port_reply_ok(correlation_of(&admitted, "http")), 1005);
+    assert!(
+        !admission.iter().any(|effect| matches!(
+            effect,
+            EffectKind::Http(_) | EffectKind::Persist(_)
+        )),
+        "retry admission must wait for the authoritative WS echo: {admission:?}"
+    );
+
+    let frame = serde_json::json!({"action":"post", "data": {
+        "id":common::sid(1), "temporaryId":"tmp-retry-authority", "channelId":common::cid(1),
+        "event_seq":8, "userId":"actor", "type":"TEXT", "message":"重试正文", "createAt":1000
+    }});
     harness.step(
-        common::port_reply_with_body(
-            correlation_of(&query, "http"),
-            common::enveloped(bytes::Bytes::from(serde_json::to_vec(&response).unwrap())),
-        ),
+        helix_core::Tick::Inbound(helix_core::tick::InboundBytes(bytes::Bytes::from(
+            serde_json::to_vec(&frame).unwrap(),
+        ))),
         1006,
     );
     assert!(
         terminal_events(&harness).is_empty(),
-        "HTTP authority must wait for durable settlement"
+        "echo authority must wait for durable settlement"
     );
     let corr = harness.sink.as_slice().iter().find_map(|effect| {
         let helix_core::Effect::Persist { corr, ops } = effect else { return None; };
         ops.iter().any(|op| matches!(op, helix_core::effect::StorageOp::BatchUpsert(spec)
             if spec.table == "message" && spec.rows.iter().any(|row| row.iter().any(|(key,_)| key=="send_status"))))
             .then_some(corr.raw())
-    }).expect("authority must persist the send reconciliation");
+    }).expect("echo authority must persist the send reconciliation");
     (harness, corr)
 }
 
-/// 同一authority在持久化成功后只发received，重复回报不能重复终态。
+/// 同一 echo authority 在持久化成功后只发 sender 终态，重复回报不能重复终态。
+///
+/// 本帧 userId == auth user，viewer 是发送者，因此终态是 `im:post:sent`；
+/// `im:post:received` 只属于其它成员的权威 post（对齐 MV3-G02c outbound viewer 语义）。
 #[test]
-fn authority_retry_emits_received_only_after_persist_success() {
-    let (mut harness, corr) = retry_authority_before_echo();
+fn echo_retry_emits_sent_only_after_persist_success() {
+    let (mut harness, corr) = retry_echo_before_terminal();
     harness.step(port_reply_ok(corr), 1007);
     let events = terminal_events(&harness);
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0]["event"], "im:post:received");
+    assert_eq!(events[0]["event"], "im:post:sent");
     assert_eq!(events[0]["data"]["temporaryId"], "tmp-retry-authority");
     harness.step(port_reply_ok(corr), 1008);
     assert!(terminal_events(&harness).is_empty());
 }
 
-/// 对账写失败不能把HTTP成功包装成任何消息成功终态。
+/// 对账写失败不能把 echo authority 包装成任何消息成功终态。
 #[test]
-fn authority_retry_persist_failure_suppresses_terminal() {
-    let (mut harness, corr) = retry_authority_before_echo();
+fn echo_retry_persist_failure_suppresses_terminal() {
+    let (mut harness, corr) = retry_echo_before_terminal();
     harness.step(port_reply_err(corr), 1007);
     assert!(terminal_events(&harness).is_empty());
 }
 
-/// sync已推进cursor后迟到的同一WS echo不能再次发终态或重放旧message/channel写集。
+/// 结算已推进cursor后迟到的同一WS echo不能再次发终态或重放旧message/channel写集。
 #[test]
 fn late_echo_after_authority_does_not_replay_committed_stream() {
-    let (mut harness, corr) = retry_authority_before_echo();
+    let (mut harness, corr) = retry_echo_before_terminal();
     harness.step(port_reply_ok(corr), 1007);
     assert_eq!(terminal_events(&harness).len(), 1);
     harness.module.register_channel(common::channel_id(1), 8);

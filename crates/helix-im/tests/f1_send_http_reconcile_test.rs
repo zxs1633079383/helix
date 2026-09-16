@@ -1,7 +1,10 @@
 //! posts/create HTTP admission 与 WS 权威对账回归测试。
 //!
 //! 已确认协议：HTTP 不返回可用于业务结算的 success/post.id。任何 HTTP body 都只代表
-//! transport admission；sent、post.id 与 timer 取消只由 WS post 或权威 read-back 推进。
+//! transport admission；sent、post.id 与 timer 取消只由权威 WS post echo 推进。
+//!
+//! admission 不得发起任何历史回读：echo 缺失时保留 15s 终态（UnSend），
+//! 后续 seq gap 由 sync notify 补偿，而不是让发送路径指数退避轮询 getLatestPost。
 
 mod common;
 use common::*;
@@ -45,29 +48,28 @@ fn start_posts_create(harness: &mut Harness, initial_effects: &[EffectKind]) -> 
     http_corr(&post_p1_effects)
 }
 
-/// 断言 HTTP admission 只启动一次 Go history 权威读回，不提前产生其他业务副作用。
-fn authoritative_readback_corr(harness: &Harness, effects: &[EffectKind]) -> u64 {
+/// 断言 HTTP admission 不发起任何读回、也不提前结算，只等待权威 WS echo。
+fn assert_admission_only_waits(harness: &Harness, effects: &[EffectKind]) {
     use helix_core::effect::Effect;
 
-    assert_eq!(effects.len(), 1, "admission must only start one readback");
-    let corr = effects
-        .iter()
-        .find_map(|effect| match effect {
-            EffectKind::Http(corr) => Some(*corr),
-            _ => None,
-        })
-        .expect("admission must start getLatestPost readback");
-    assert!(harness.sink.as_slice().iter().any(|effect| matches!(
-        effect,
-        Effect::Http { corr: effect_corr, req }
-            if effect_corr.raw() == corr && req.url.ends_with("/posts/getLatestPost")
-    )));
-    corr
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Http(_) | EffectKind::Persist(_))),
+        "admission must not start a readback or settle locally"
+    );
+    assert!(
+        !harness.sink.as_slice().iter().any(|effect| matches!(
+            effect,
+            Effect::Http { req, .. } if req.url.ends_with("/posts/getLatestPost")
+        )),
+        "admission must never poll getLatestPost for send settlement"
+    );
 }
 
-/// HTTP 响应启动 readback 后，在权威结果回来前必须保持 Sending。
+/// HTTP admission 在权威 echo 回来前必须保持 Sending，且不发起读回。
 #[test]
-fn send_http_success_remains_sending_while_readback_is_pending() {
+fn send_http_success_remains_sending_until_ws_echo() {
     let mut h = Harness::new(&[1]);
     let initial_effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
     let h1 = start_posts_create(&mut h, &initial_effects);
@@ -83,11 +85,11 @@ fn send_http_success_remains_sending_while_readback_is_pending() {
     let reply = posts_create_reply(h1, json!({ "status": "SUCCESS", "data": { "id": sid(7) } }));
     let reply_effects = h.step(reply, 1100);
 
-    authoritative_readback_corr(&h, &reply_effects);
+    assert_admission_only_waits(&h, &reply_effects);
     assert_eq!(
         h.module.pending_send_status("tmp_f1"),
         Some(SendStatus::Sending),
-        "HTTP admission cannot replace WS/read-back authority"
+        "HTTP admission cannot replace the authoritative WS echo"
     );
 }
 
@@ -101,16 +103,16 @@ fn send_http_body_server_id_is_not_authoritative() {
     let reply = posts_create_reply(h1, json!({ "status": "SUCCESS", "data": { "id": sid(7) } }));
     let reply_effects = h.step(reply, 1100);
 
-    authoritative_readback_corr(&h, &reply_effects);
+    assert_admission_only_waits(&h, &reply_effects);
     assert_eq!(
         h.module.pending_send_status("tmp_f1"),
         Some(SendStatus::Sending)
     );
 }
 
-/// 无 id 的正常 admission 保留 pending，并同时等待 echo 或权威 readback。
+/// 无 id 的正常 admission 保留 pending，只等待权威 WS echo。
 #[test]
-fn send_http_success_without_server_id_starts_authoritative_readback() {
+fn send_http_success_without_server_id_waits_for_ws_echo() {
     let mut h = Harness::new(&[1]);
     let initial_effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
     let h1 = start_posts_create(&mut h, &initial_effects);
@@ -118,19 +120,18 @@ fn send_http_success_without_server_id_starts_authoritative_readback() {
     let reply = posts_create_reply(h1, json!({ "status": "SUCCESS", "data": {} }));
     let reply_effects = h.step(reply, 1100);
 
-    authoritative_readback_corr(&h, &reply_effects);
+    assert_admission_only_waits(&h, &reply_effects);
     assert_eq!(
         h.module.pending_send_status("tmp_f1"),
         Some(SendStatus::Sending),
-        "admission retains pending until WS/read-back authority arrives"
+        "admission retains pending until the authoritative WS echo arrives"
     );
 }
 
-/// 显式 retry 的幂等 HTTP admission 必须转入 Go 历史读回，不能再次依赖缺失的 WS echo。
+/// 显式 retry 的幂等 HTTP admission 同样只代表 transport admission：不发起历史回读，
+/// 由权威 WS echo 结算；echo 缺失时保留 15s 终态，交给后续 sync notify 补偿。
 #[test]
-fn retry_http_success_without_second_echo_settles_from_authoritative_readback() {
-    use helix_core::effect::Effect;
-
+fn retry_http_success_without_second_echo_waits_for_ws_echo() {
     let mut h = Harness::new(&[1]);
     let initial_effects = h.step(send_message_cmd(1, "tmp_retry_readback", "hello"), 1_000);
     let h1 = start_posts_create(&mut h, &initial_effects);
@@ -146,12 +147,14 @@ fn retry_http_success_without_second_echo_settles_from_authoritative_readback() 
         .expect("initial posts/create must schedule the send timeout");
 
     let admission = posts_create_reply(h1, json!({ "status": "SUCCESS" }));
-    let first_readback = h.step(admission, 1_100);
-    authoritative_readback_corr(&h, &first_readback);
+    let admission_effects = h.step(admission, 1_100);
+    assert_admission_only_waits(&h, &admission_effects);
+
     h.step(timer_tick(timeout_timer), 16_100);
     assert_eq!(
         h.module.pending_send_status("tmp_retry_readback"),
-        Some(SendStatus::UnSend)
+        Some(SendStatus::UnSend),
+        "a missing echo must fall back to the 15s terminal instead of polling history"
     );
 
     let retry_effects = h.step(
@@ -171,60 +174,26 @@ fn retry_http_success_without_second_echo_settles_from_authoritative_readback() 
     let retry_after_persist = h.step(port_reply_ok(retry_persist), 16_201);
     let retry_http = http_corr(&retry_after_persist);
 
+    h.sink.clear();
     let retry_admission = posts_create_reply(retry_http, json!({ "status": "SUCCESS" }));
-    let readback_effects = h.step(retry_admission, 16_202);
-    assert!(
-        !readback_effects
-            .iter()
-            .any(|effect| matches!(effect, EffectKind::Persist(_))),
-        "retry admission must not settle from a local message-table lookup"
+    let retry_admission_effects = h.step(retry_admission, 16_202);
+    assert_admission_only_waits(&h, &retry_admission_effects);
+    assert_eq!(
+        h.module.pending_send_status("tmp_retry_readback"),
+        Some(SendStatus::Sending),
+        "retry admission must wait for the authoritative WS echo"
     );
-    let readback_corr = readback_effects
-        .iter()
-        .find_map(|effect| match effect {
-            EffectKind::Http(corr) => Some(*corr),
-            _ => None,
-        })
-        .expect("retry admission must force getLatestPost readback");
-    assert!(h.sink.as_slice().iter().any(|effect| matches!(
-        effect,
-        Effect::Http { req, .. } if req.url.ends_with("/posts/getLatestPost")
-    )));
 
-    let latest_body = json!({
-        "status": "SUCCESS",
-        "data": {
-            "posts": [{
-                "id": sid(77),
-                "temporaryId": "tmp_retry_readback",
-                "channelId": cid(1),
-                "userId": "user-1",
-                "type": "TEXT",
-                "message": "hello",
-                "createAt": 1_001
-            }]
-        }
-    });
-    let readback = port_reply_with_body(
-        readback_corr,
-        enveloped(bytes::Bytes::from(
-            serde_json::to_vec(&latest_body).unwrap(),
-        )),
-    );
-    let terminal_effects = h.step(readback, 16_203);
-
+    let _ = h.step(echo_frame(1, 1, "tmp_retry_readback", 77), 16_203);
     assert_eq!(
         h.module.pending_send_status("tmp_retry_readback"),
         None,
-        "authority match must clear pending instead of allowing a second timeout"
+        "WS echo must clear pending instead of allowing a second timeout"
     );
-    assert!(terminal_effects
-        .iter()
-        .any(|effect| matches!(effect, EffectKind::CancelTimer(_))));
     assert_eq!(
         echo_persisted_id(&h, "tmp_retry_readback"),
         Some(sid(77)),
-        "authority match must persist the canonical server id"
+        "WS echo must persist the canonical server id"
     );
 }
 

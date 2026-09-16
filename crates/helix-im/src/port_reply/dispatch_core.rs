@@ -1522,12 +1522,11 @@ impl ImModule {
         Ok(())
     }
 
-    /// 将 posts/create 终态收敛到本地发送状态，并只发布 MessageV3 失败事实。
+    /// 消费 posts/create transport admission：成功不产生发送终态，失败立即发布失败事实。
     pub(super) fn handle_outbound_send_http_reply(
         &mut self,
         channel_id: ChannelId,
         temporary_id: TemporaryId,
-        authoritative_readback: bool,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -1539,19 +1538,8 @@ impl ImModule {
             .unwrap_or_default();
         match outcome {
             // posts/create HTTP 只代表 transport admission。服务端不会在该回包提供
-            // success/post.id，终态必须继续等待 WS post 或权威 read-back。
-            PortOutcome::Ok(_)
-                if authoritative_readback
-                    && self.state.pending_sends.contains_key(&temporary_id) =>
-            {
-                self.start_authoritative_send_readback(
-                    channel_id,
-                    timeline_readback.window_token.as_deref(),
-                    timeline_readback.causation_id,
-                    temporary_id,
-                    out,
-                )?;
-            }
+            // success/post.id，发送终态只由权威 WS post echo 推进；echo 缺失时保留 15s
+            // 终态，并由下一个 seq gap 触发的 sync notify 补偿。
             PortOutcome::Ok(_) => {}
             PortOutcome::Err(e) => {
                 tracing::warn!(

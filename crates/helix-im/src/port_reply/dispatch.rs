@@ -728,19 +728,12 @@ impl ImModule {
                 self.handle_optimistic_send_reply(temporary_id, outcome, out)?;
             }
 
-            // posts/create HTTP 只结算 transport admission；sent 继续等待 WS/read-back。
+            // posts/create HTTP 只结算 transport admission；sent 继续等待 WS echo。
             CorrelationContext::OutboundSendHttp {
                 channel_id,
                 temporary_id,
-                authoritative_readback,
             } => {
-                self.handle_outbound_send_http_reply(
-                    channel_id,
-                    temporary_id,
-                    authoritative_readback,
-                    outcome,
-                    out,
-                )?;
+                self.handle_outbound_send_http_reply(channel_id, temporary_id, outcome, out)?;
             }
             CorrelationContext::AuthoritativeSendTerminalPersist {
                 temporary_id,
@@ -947,7 +940,6 @@ impl ImModule {
                 query_generation,
                 causation_id,
                 deferred_send_http,
-                authoritative_send_readback,
             } => self.handle_message_query_remote_reply(
                 *request,
                 *local_rows_desc,
@@ -955,7 +947,6 @@ impl ImModule {
                 query_generation,
                 causation_id,
                 deferred_send_http,
-                authoritative_send_readback,
                 now_ms,
                 outcome,
                 out,

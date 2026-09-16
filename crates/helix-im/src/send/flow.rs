@@ -238,7 +238,7 @@ impl ImModule {
         body: &serde_json::Value,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let (timeout_timer, request_id, authoritative_readback) = {
+        let (timeout_timer, request_id) = {
             let pending = self
                 .state
                 .pending_sends
@@ -256,7 +256,6 @@ impl ImModule {
             (
                 pending.timeout_timer,
                 pending.timeline_readback.causation_id.clone(),
-                pending.authoritative_readback_after_http,
             )
         };
         let h1_corr = self.alloc_corr_internal();
@@ -288,7 +287,6 @@ impl ImModule {
             h1_corr,
             channel_id,
             temporary_id,
-            authoritative_readback,
         );
         Ok(())
     }

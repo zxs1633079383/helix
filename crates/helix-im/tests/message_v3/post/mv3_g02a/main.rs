@@ -73,7 +73,7 @@ fn reference_package_is_complete() {
 
 /// posts/create HTTP 只承认请求入站，任何响应形状都不得提前结算 sent。
 #[test]
-fn http_admission_never_replaces_the_ws_or_readback_authority() {
+fn http_admission_never_replaces_the_ws_echo_authority() {
     let mut harness = Harness::new(&[1]);
     let initial = harness.step(
         send_message_cmd(1, "tmp-mv3-g02a-001", "验证发送三态"),
@@ -91,14 +91,19 @@ fn http_admission_never_replaces_the_ws_or_readback_authority() {
         1_700_000_000_002,
     );
 
-    assert_eq!(
-        http_reply.len(),
-        1,
-        "HTTP admission must start exactly one authoritative readback"
+    assert!(
+        !http_reply.iter().any(|effect| matches!(
+            effect,
+            EffectKind::Http(_) | EffectKind::Persist(_) | EffectKind::Emit
+        )),
+        "HTTP admission must not read history, write terminal state or emit: {http_reply:?}"
     );
     assert!(
-        matches!(http_reply[0], EffectKind::Http(_)),
-        "HTTP admission must not write terminal state or cancel the echo timer"
+        !harness.sink.as_slice().iter().any(|effect| matches!(
+            effect,
+            Effect::Http { req, .. } if req.url.ends_with("/posts/getLatestPost")
+        )),
+        "admission must never poll history for send settlement"
     );
     assert_eq!(
         harness.module.pending_send_status("tmp-mv3-g02a-001"),

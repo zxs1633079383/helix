@@ -124,11 +124,6 @@ pub(super) fn reconcile_post_echo(
         .get(&tmp)
         .map(|ps| ps.persist_corr)
         .unwrap_or_default();
-    let authoritative_readback_timer = ctx
-        .state
-        .pending_sends
-        .get(&tmp)
-        .and_then(|ps| ps.authoritative_readback_timer);
     if let Some(ps) = ctx.state.pending_sends.get_mut(&tmp) {
         ps.reconcile(server_id, reconcile_corr, out);
     }
@@ -138,9 +133,6 @@ pub(super) fn reconcile_post_echo(
     // 对账落定后移除该 send 的 OptimisticSend 路由（防 corr_map 泄漏）。
     if let Some(corr) = persist_corr {
         ctx.state.corr_map.remove(&corr);
-    }
-    if let Some(timer_id) = authoritative_readback_timer {
-        out.push(helix_core::Effect::CancelTimer { id: timer_id });
     }
     // 发送终态等待自己的 PersistOk；频道 gate 的 received 仍独立等待连续提交。
     let continuation = match terminal_event {

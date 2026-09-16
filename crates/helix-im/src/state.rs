@@ -472,9 +472,8 @@ impl ImState {
     /// socket reconnects, so preserving projector state lets recovered durable facts publish the
     /// next V2 patch against the revision that is still mounted in the UI.
     pub(crate) fn reset_transport_query_session(&mut self) {
-        // 增量批次/transport reset 会让普通 timeline query 失效，但显式 retry 的
-        // authoritative readback 仍需消费迟到 HTTP 回包，否则 posts/create 已成功却
-        // 会丢掉 temporaryId 对账入口。
+        // 增量批次/transport reset 会让普通 timeline query 失效，但本地发送读回不依赖 WS，
+        // 仍需保留 deferred posts/create 衔接，否则已落库的发送会丢掉出站入口。
         self.drop_query_session_correlations(true);
         self.announcement_reload_versions.clear();
         self.pinned_projection_epochs.clear();
@@ -487,7 +486,7 @@ impl ImState {
     }
 
     /// 撤销旧窗口查询；transport reset 保留本地发送衔接，身份 reset 全部撤销。
-    fn drop_query_session_correlations(&mut self, preserve_authoritative_readback: bool) {
+    fn drop_query_session_correlations(&mut self, preserve_deferred_send_http: bool) {
         self.recent_message_coverage.clear();
         self.timeline_navigation_coverage.clear();
         self.timeline_navigation_pending.clear();
@@ -496,11 +495,7 @@ impl ImState {
             // 本地发送读回不依赖 WS；仅 transport reset 保留，身份切换仍删除。
             CorrelationContext::MessageQueryLocal {
                 deferred_send_http, ..
-            } if preserve_authoritative_readback => deferred_send_http.is_some(),
-            CorrelationContext::MessageQueryRemote {
-                authoritative_send_readback,
-                ..
-            } if preserve_authoritative_readback => authoritative_send_readback.is_some(),
+            } if preserve_deferred_send_http => deferred_send_http.is_some(),
             CorrelationContext::MessageQueryLocal { .. }
             | CorrelationContext::MessageQueryRemote { .. }
             | CorrelationContext::MessageQueryCache { .. }

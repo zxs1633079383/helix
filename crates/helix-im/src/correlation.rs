@@ -318,16 +318,17 @@ pub enum CorrelationContext {
     /// P1 乐观落库 **Persist** 回报：把对应 `PendingSend` 状态推进到 `Sending`（取代旧 `corr_to_send`）。
     OptimisticSend { temporary_id: TemporaryId },
     /// `posts/create` HTTP admission 回报；成功不结算 sent，失败进入本地失败态。
+    ///
+    /// admission 成功只代表 transport 已接收；发送终态由权威 WS post echo 推进，
+    /// 不在此处发起任何历史回读。
     OutboundSendHttp {
         temporary_id: TemporaryId,
         channel_id: ChannelId,
-        /// admission 成功后是否从 Go 权威历史按 temporaryId 对账；首发与显式 retry 均启用。
-        authoritative_readback: bool,
     },
     /// 发送对账终态持久化回报；retry 的 timeline 已由同一远端查询发布，普通 WS echo
     /// 则由 `post` handler 的 MessageV3 权威投影发布，因此两者都不再触发额外 latest 回读。
     AuthoritativeSendReconcilePersist { temporary_id: TemporaryId },
-    /// HTTP权威回读的独立发送终态；仅在对应窄写集PersistOk后释放canonical received。
+    /// 发送对账的独立终态；仅在对应窄写集PersistOk后释放canonical received。
     AuthoritativeSendTerminalPersist {
         temporary_id: TemporaryId,
         terminal_event: bytes::Bytes,
@@ -395,8 +396,6 @@ pub enum CorrelationContext {
         query_generation: u64,
         causation_id: Option<String>,
         deferred_send_http: Option<TemporaryId>,
-        /// 显式 retry 的权威对账键；普通 timeline 查询保持 None。
-        authoritative_send_readback: Option<TemporaryId>,
     },
 
     /// 最近消息 local-first 第 3 段：cache Persist 回报后发起同一 Scan read-back。

@@ -166,23 +166,6 @@ fn persist_corr(effects: &[Effect]) -> Option<Correlation> {
     })
 }
 
-/// 断言来源阶段只做按 id 的 `message` 只读 Get，转发绝不改写来源行。
-fn expect_source_get(effects: &[Effect], source_id: &str) -> Correlation {
-    effects
-        .iter()
-        .find_map(|effect| {
-            let Effect::Persist { corr, ops } = effect else {
-                return None;
-            };
-            let [StorageOp::Get(spec)] = ops.as_slice() else {
-                return None;
-            };
-            (spec.table == "message" && spec.key_col == "id" && text_of(&spec.key_val) == source_id)
-                .then_some(*corr)
-        })
-        .unwrap_or_else(|| panic!("missing read-only source lookup for {source_id}"))
-}
-
 fn atomic_commit(effects: &[Effect]) -> Option<(Correlation, &Vec<StorageOp>)> {
     effects.iter().find_map(|effect| {
         let Effect::PersistAtomic { corr, ops } = effect else {
@@ -251,6 +234,7 @@ fn relay_payload(mode: &str, source_ids: &[String], targets: &[String]) -> Value
         "target_channel_ids": targets,
         "mode": mode,
         "req_id": REQ_ID,
+        "command_id": format!("command-{REQ_ID}"),
     })
 }
 
@@ -261,7 +245,7 @@ fn relay_tick(payload: &Value) -> Tick {
         .expect("public relay command builds")
 }
 
-/// 驱动 item 模式直到 createPosts 出站，返回真实 HTTP body。
+/// 核对真实 ID 意图；另提供独立 Go authority 输入给持久化回放。
 fn drive_item_forward(
     harness: &mut Harness,
     rows: &[Value],
@@ -269,25 +253,25 @@ fn drive_item_forward(
     mode: &str,
     now_ms: u64,
 ) -> Value {
-    let source_ids: Vec<String> = rows
+    let source_ids = rows
         .iter()
-        .map(|row| row["id"].as_str().expect("source id").to_string())
-        .collect();
+        .map(|r| r["id"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
     harness.step(
         relay_tick(&relay_payload(mode, &source_ids, targets)),
         now_ms,
     );
-    for (index, source_id) in source_ids.iter().enumerate() {
-        let corr = expect_source_get(harness.sink.as_slice(), source_id);
-        let body = serde_json::to_vec(&json!([rows[index]])).expect("row encodes");
-        harness.step(
-            port_reply_with_body(corr.raw(), Bytes::from(body)),
-            now_ms + index as u64 + 1,
-        );
-    }
-    harness
-        .last_http_body()
-        .expect("item forward must reach createPosts")
+    let wire = harness.last_http_body().expect("ID intent HTTP");
+    assert_eq!(wire["postIds"], json!(source_ids));
+    assert_eq!(wire["targetChannelIds"], json!(targets));
+    assert!(wire.get("posts").is_none());
+    assert!(persist_corr(harness.sink.as_slice()).is_none());
+    // These are server authority inputs for the WS/Persist replay, not Helix output.
+    let authority_posts=rows.iter().enumerate().map(|(i,row)| json!({
+        "temporaryId":format!("relay-{REQ_ID}-{i}"),"userId":SENDER,"userSnapshot":{"userName":"Sender"},
+        "type":row["type"],"message":row["message"],"simpleMessage":row["simple_message"],"props":{},"viewers":["all"]
+    })).collect::<Vec<_>>();
+    json!({"wire":wire,"authorityPosts":authority_posts})
 }
 
 fn acceptance(targets: &[String]) -> Bytes {
@@ -312,7 +296,7 @@ fn authority(post: &Value, channel_id: &str, id: u64, seq: u64, create_at: i64) 
     post["updateAt"] = json!(create_at);
     json!({
         "action": "post",
-        "tracing": {"csesTrackId": REQ_ID},
+        "tracing": {"csesTrackId": format!("command-{REQ_ID}")},
         "data": {"event_seq": seq, "channelId": channel_id, "post": post}
     })
 }
@@ -370,97 +354,31 @@ fn apply_authority(
 /// 参考包的 canonical mode token 必须被内核接受，不得因内核旧别名反向削弱目标载荷。
 #[test]
 fn canonical_item_mode_token_from_reference_is_accepted() {
-    let payload = reference_payload();
-    assert_eq!(
-        payload["mode"], "item",
-        "参考包是线型权威：MV3-G03a 的 mode token 必须是 item"
-    );
-    let mode = payload["mode"].as_str().expect("mode token").to_string();
-
-    let mut harness = Harness::new_with_identity(&[TARGET_A], SENDER, "mv3-g03a", "", "", "");
-    let rows = [source_row(
-        SOURCE_A,
-        "source-user-a",
-        "TEXT",
-        "A",
-        CREATE_AT - 20,
-    )];
-    let body = drive_item_forward(
-        &mut harness,
-        &rows,
-        &[cid(TARGET_A)],
-        &mode,
-        CREATE_AT as u64,
-    );
-    assert_eq!(
-        body["posts"].as_array().map(Vec::len),
-        Some(1),
-        "canonical item token 必须走逐条装配，而不是被当成未知 mode 拒绝"
-    );
-    assert_eq!(body["posts"][0]["type"], "TEXT");
+    assert_eq!(reference_payload()["mode"], "item");
+    let mut h = Harness::new(&[]);
+    let rows = [source_row(SOURCE_A, "author", "TEXT", "正文", 1)];
+    let result = drive_item_forward(&mut h, &rows, &[cid(TARGET_A)], "item", 100);
+    assert_eq!(result["wire"]["mode"], "individual");
 }
 
 /// N 条源消息 × M 个目标频道：出站恰好 N 条 post 与 M 个目标，顺序与类型逐条保真。
 #[test]
-fn item_mode_assembles_one_post_per_source_for_every_target() {
-    let mut harness =
-        Harness::new_with_identity(&[TARGET_A, TARGET_B], SENDER, "mv3-g03a", "", "", "");
+fn item_mode_keeps_order_and_targets_without_copying_bodies() {
+    let mut h = Harness::new(&[]);
     let rows = [
-        source_row(
-            SOURCE_A,
-            "source-user-a",
-            "TEXT",
-            "第一条源消息",
-            CREATE_AT - 20,
-        ),
-        source_row(
-            SOURCE_B,
-            "source-user-b",
-            "FILE",
-            "第二条源消息",
-            CREATE_AT - 10,
-        ),
+        source_row(SOURCE_A, "a", "TEXT", "secret-a", 1),
+        source_row(SOURCE_B, "b", "FILE", "secret-b", 2),
     ];
-    let targets = [cid(TARGET_A), cid(TARGET_B)];
-    let body = drive_item_forward(&mut harness, &rows, &targets, "item", CREATE_AT as u64);
-
-    let posts = body["posts"].as_array().expect("posts array");
-    assert_eq!(posts.len(), 2, "item 模式必须 1 源 = 1 post，禁止合并");
+    let result = drive_item_forward(&mut h, &rows, &[cid(TARGET_A), cid(TARGET_B)], "item", 100);
     assert_eq!(
-        body["channelIds"],
-        json!([cid(TARGET_A), cid(TARGET_B)]),
-        "M 个目标频道必须原样进入同一次 createPosts"
+        result["wire"]["postIds"],
+        json!([sid(SOURCE_A), sid(SOURCE_B)])
     );
     assert_eq!(
-        posts
-            .iter()
-            .map(|post| post["message"].as_str().unwrap_or_default())
-            .collect::<Vec<_>>(),
-        ["第一条源消息", "第二条源消息"],
-        "逐条转发必须保持源消息顺序"
+        result["wire"]["targetChannelIds"],
+        json!([cid(TARGET_A), cid(TARGET_B)])
     );
-    assert_eq!(
-        posts
-            .iter()
-            .map(|post| post["type"].as_str().unwrap_or_default())
-            .collect::<Vec<_>>(),
-        ["TEXT", "FILE"],
-        "逐条转发必须逐条保留源消息类型，不得统一降级为 TEXT"
-    );
-    assert_eq!(
-        posts
-            .iter()
-            .map(|post| post["temporaryId"].as_str().unwrap_or_default().to_string())
-            .collect::<Vec<_>>(),
-        vec![format!("relay-{REQ_ID}-0"), format!("relay-{REQ_ID}-1")],
-        "每条转发必须有各自的对账键（INV-02）"
-    );
-    assert!(
-        posts
-            .iter()
-            .all(|post| post["type"] != "MULTIPLY" && post["props"].get("mergeMessage").is_none()),
-        "item 模式禁止产出合并载荷"
-    );
+    assert!(!result["wire"].to_string().contains("secret"));
 }
 
 /// 接收者在每个目标频道各累加 N 次未读；N×M 全量核对（INV-12 数量语义）。
@@ -486,7 +404,10 @@ fn item_mode_receiver_unread_accrues_once_per_forwarded_post_in_each_target() {
     ];
     let targets = [cid(TARGET_A), cid(TARGET_B)];
     let body = drive_item_forward(&mut sender, &rows, &targets, "item", CREATE_AT as u64);
-    let posts = body["posts"].as_array().expect("posts array").clone();
+    let posts = body["authorityPosts"]
+        .as_array()
+        .expect("posts array")
+        .clone();
 
     let mut receiver =
         Harness::new_with_identity(&[TARGET_A, TARGET_B], RECEIVER, "mv3-g03a", "", "", "");
@@ -555,7 +476,7 @@ fn sender_persona_never_accrues_unread_for_its_own_forward() {
     assert_eq!(batch["data"]["batchStatus"], "success");
     assert_eq!(batch["data"]["targets"][0]["deliveryStatus"], "pending");
 
-    let post = body["posts"][0].clone();
+    let post = body["authorityPosts"][0].clone();
     let frame = authority(&post, &cid(TARGET_A), 200, 1, CREATE_AT + 1);
     let mut table = MemberTable::default();
     let applied = apply_authority(
@@ -589,6 +510,103 @@ fn sender_persona_never_accrues_unread_for_its_own_forward() {
     assert_eq!(channel_update["data"]["channelId"], cid(TARGET_A));
 }
 
+/// A 100-item target completes only on its last unique durable echo, even before HTTP acceptance.
+#[test]
+fn hundred_item_target_waits_for_all_durable_posts_and_cleans_late_http() {
+    let mut sender = Harness::new_with_identity(&[TARGET_A], SENDER, "mv3-g03a", "", "", "");
+    let rows = (0..100)
+        .map(|i| {
+            source_row(
+                500 + i,
+                "source-user",
+                "TEXT",
+                "正文",
+                CREATE_AT - 100 + i as i64,
+            )
+        })
+        .collect::<Vec<_>>();
+    let targets = [cid(TARGET_A)];
+    let body = drive_item_forward(&mut sender, &rows, &targets, "item", CREATE_AT as u64);
+    let http = http_corr(sender.sink.as_slice()).unwrap();
+    let timer = sender
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::ScheduleTimer { id, .. } => Some(*id),
+            _ => None,
+        })
+        .unwrap();
+    let mut table = MemberTable::default();
+    for (i, post) in body["authorityPosts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
+        let frame = authority(
+            post,
+            &cid(TARGET_A),
+            1000 + i as u64,
+            1 + i as u64,
+            CREATE_AT + i as i64,
+        );
+        let applied = apply_authority(
+            &mut sender,
+            &mut table,
+            SENDER,
+            &cid(TARGET_A),
+            &frame,
+            CREATE_AT as u64 + 10 + i as u64 * 3,
+        );
+        assert!(applied.committed);
+        let received = applied
+            .events
+            .iter()
+            .find(|event| event["event"] == "im:post:received")
+            .unwrap();
+        assert_eq!(
+            received["data"].get("requestId").and_then(Value::as_str),
+            if i == 99 { Some(REQ_ID) } else { None }
+        );
+        if i == 0 {
+            let duplicate = apply_authority(
+                &mut sender,
+                &mut table,
+                SENDER,
+                &cid(TARGET_A),
+                &frame,
+                CREATE_AT as u64 + 13,
+            );
+            assert!(!duplicate.committed);
+            assert!(duplicate.events.is_empty());
+        }
+    }
+    assert!(sender
+        .sink
+        .as_slice()
+        .iter()
+        .any(|effect| matches!(effect, Effect::CancelTimer { id } if *id==timer)));
+    sender.step(
+        port_reply_with_body(http.raw(), acceptance(&targets)),
+        CREATE_AT as u64 + 400,
+    );
+    assert!(sender.sink.as_slice().is_empty());
+    sender.step(Tick::Timer(timer), CREATE_AT as u64 + 100_000);
+    assert!(emitted(sender.sink.as_slice()).is_empty());
+    let mut retry = relay_payload(
+        "item",
+        &rows
+            .iter()
+            .map(|row| row["id"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>(),
+        &targets,
+    );
+    retry["req_id"] = json!("retry-after-durable");
+    sender.step(relay_tick(&retry), CREATE_AT as u64 + 100_001);
+    assert!(http_corr(sender.sink.as_slice()).is_some());
+}
+
 /// `post_ids` / `target_channel_ids` 的空洞值必须在任何 Effect 之前 fail closed。
 #[test]
 fn undefined_source_or_target_ids_fail_closed_before_any_effect() {
@@ -605,6 +623,7 @@ fn undefined_source_or_target_ids_fail_closed_before_any_effect() {
             "target_channel_ids": [cid(TARGET_A)],
             "mode": "item",
             "req_id": REQ_ID,
+        "command_id": format!("command-{REQ_ID}"),
         });
         let bytes = serde_json::to_vec(&payload).expect("payload encodes");
         let outcome =
@@ -627,6 +646,7 @@ fn undefined_source_or_target_ids_fail_closed_before_any_effect() {
         "target_channel_ids": [cid(TARGET_A), Value::Null],
         "mode": "item",
         "req_id": REQ_ID,
+        "command_id": format!("command-{REQ_ID}"),
     });
     let bytes = serde_json::to_vec(&payload).expect("payload encodes");
     let outcome =
@@ -642,67 +662,28 @@ fn undefined_source_or_target_ids_fail_closed_before_any_effect() {
 
 /// 任一来源行缺失 → 全部目标标记失败，且绝不出站 createPosts。
 #[test]
-fn missing_source_row_cancels_every_target_without_http() {
-    let mut harness =
-        Harness::new_with_identity(&[TARGET_A, TARGET_B], SENDER, "mv3-g03a", "", "", "");
-    let rows = [
-        source_row(
-            SOURCE_A,
-            "source-user-a",
-            "TEXT",
-            "第一条源消息",
-            CREATE_AT - 20,
+fn server_source_rejection_fails_every_target_without_delivery() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        relay_tick(&relay_payload(
+            "item",
+            &[sid(SOURCE_A)],
+            &[cid(TARGET_A), cid(TARGET_B)],
+        )),
+        100,
+    );
+    let corr = http_corr(h.sink.as_slice()).unwrap();
+    h.step(
+        port_reply_with_body(
+            corr.raw(),
+            enveloped(Bytes::from(
+                json!({"status":"FAILED","data":null}).to_string(),
+            )),
         ),
-        source_row(
-            SOURCE_B,
-            "source-user-b",
-            "TEXT",
-            "第二条源消息",
-            CREATE_AT - 10,
-        ),
-    ];
-    let source_ids: Vec<String> = rows
-        .iter()
-        .map(|row| row["id"].as_str().expect("source id").to_string())
-        .collect();
-    let targets = [cid(TARGET_A), cid(TARGET_B)];
-    harness.step(
-        relay_tick(&relay_payload("item", &source_ids, &targets)),
-        CREATE_AT as u64,
+        101,
     );
-
-    let first = expect_source_get(harness.sink.as_slice(), &source_ids[0]);
-    let body = serde_json::to_vec(&json!([rows[0]])).expect("row encodes");
-    harness.step(
-        port_reply_with_body(first.raw(), Bytes::from(body)),
-        CREATE_AT as u64 + 1,
-    );
-
-    // 第二条来源不存在（被过滤掉的 undefined 在服务端等价形态）。
-    let second = expect_source_get(harness.sink.as_slice(), &source_ids[1]);
-    harness.step(
-        port_reply_with_body(second.raw(), Bytes::from("[]")),
-        CREATE_AT as u64 + 2,
-    );
-
-    assert!(
-        http_corr(harness.sink.as_slice()).is_none(),
-        "来源缺失时禁止出站 createPosts"
-    );
-    let batch = emitted(harness.sink.as_slice())
-        .into_iter()
-        .find(|event| event["event"] == "im:posts:batch-result")
-        .expect("来源缺失必须发布可观察的批失败");
-    assert_eq!(batch["data"]["batchStatus"], "failed");
-    assert_eq!(
-        batch["data"]["failedCount"], 2,
-        "所有 M 个目标都必须被标记为不可投递"
-    );
-    assert_eq!(
-        batch["data"]["targets"].as_array().map(|targets| targets
-            .iter()
-            .map(|target| target["channelId"].as_str().unwrap_or_default().to_string())
-            .collect::<Vec<_>>()),
-        Some(vec![cid(TARGET_A), cid(TARGET_B)])
-    );
+    let events = emitted(h.sink.as_slice());
+    assert_eq!(events[0]["data"]["batchStatus"], "failed");
+    assert_eq!(events[0]["data"]["failedCount"], 2);
+    assert!(!events.iter().any(|e| e["event"] == "im:post:received"));
 }

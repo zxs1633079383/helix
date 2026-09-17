@@ -933,3 +933,12 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 🎯 EXPECT 发布 Helix 0.1.16 四包可从 registry 解析，客户端四包统一 repin；Jenkins PRE 部署与业务采集分层记录。 | 赌注 中 | 可逆 否 | @2026-09-10
 
 ✅ DONE 按用户授权 rebase 到远端 0.1.17 后推送 e97c6b5d，四公共包 0.1.18 已发布至 crates.io 且均可解析。发布脚本 7 项、整合后定向 13+38 项通过，8 包 check、四包 dry-run/上传通过；未跑全量测试。版本提交与注释 Tag 按发布规则生成并推送；本任务不升级客户端，超大嵌套性能继续暂缓。 | @2026-09-10
+## 2026-09-16 合并转发不可变快照
+
+🎯 EXPECT 合并转发只发送 source IDs 与稳定 command_id，不做本地全文组装；MULTIPLY 投影只有 bounded props.forward；im_forward_detail 按层分页经公开 Command/PortReply 产出 ChatMessage，成功/失败/超时/逻辑取消无残留模块 correlation，迟到回包不重复 Emit。公开 seam 红测先失败，再运行定向生命周期、共享三端 check 与 WASM build。 | 赌注 中 | 可逆 是 | @2026-09-16
+
+分支 reactor/MessageV3-helix；基线 0143874b4c608e4e223561c7fa8512db0746e012；保留现有三个 artifacts 目录，不 commit/push、不提版。当前任务为源码实施，真实 Go/Native/Mobile/Web 与 100 条 UI 性能由主会话分别取证。
+
+✅ DONE Helix 本批源码：ID-only 意图、稳定 command_id 与 attempt req_id、bounded card、按层分页/逻辑取消、全部唯一 durable Post 结算、committed 权威回读均完成。公开 seam 3 项红测先失败；最终 461 库/定向通过，五 crate check/WASM/schema/hash 通过。完整 IM+Core 1554 passed、2 个范围外旧断言失败、12 ignored，未宣称全库 GREEN。真实 Go、Native/手机制品及 UI 性能未在本工作包验收；无 commit/push。证据与生命周期表：artifacts/forward-snapshot-20260916/REPORT.md。
+
+⚡ DRIFT-PRED 收尾发现原 ledger 会在逐条转发第一条 echo 就结算，并漏清 WS-first 的 HTTP continuation；通用 lastPost 还需独立收紧。已补 100 条唯一 durable 回声和实际 channel Emit bytes 回归。Cargo 编译/测试共 7 次（含前置红测、两次最终定向及两次 WASM），高于 2–3 次目标；候选教训：冻结前先完成所有输出路径与异步终态审查，再一次性验证。未扩大到两个无关全量失败。

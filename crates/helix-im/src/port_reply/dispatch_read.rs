@@ -1170,7 +1170,7 @@ impl ImModule {
     }
 
     /// 将 HTTP 可见行转成 message upsert；只接受请求 id 命中且每个请求键一次。
-    fn collect_exact_posts_cache_ops(
+    pub(crate) fn collect_exact_posts_cache_ops(
         &self,
         requested_ids: &[String],
         posts: Vec<Value>,
@@ -2155,6 +2155,9 @@ fn project_exact_posts(accepted_keys: &[String], rows: Vec<Value>) -> Vec<Value>
     let mut seen = HashSet::new();
     let mut projected = Vec::new();
     for row in rows {
+        // Reuse the DB-row decoder before the wire parser; SQLite JSON columns
+        // are text, and parsing them as wire values double-encodes card props.
+        let row = crate::query::render_ready::core::shape_row(&row, "");
         let fields = crate::ws::parser::extract_post_fields(&row);
         let Some(key) = exact_storage_key(&fields) else {
             continue;

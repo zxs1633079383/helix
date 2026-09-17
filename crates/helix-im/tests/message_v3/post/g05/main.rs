@@ -43,8 +43,9 @@ fn relay_command(mode: &str, source_ids: &[&str], req_id: &str) -> TestResult<Ti
     let payload = serde_json::to_vec(&json!({
         "post_ids": source_ids,
         "target_channel_ids": [TARGET_CHANNEL],
-        "mode": mode,
+        "mode": if mode == "merged" { "merge" } else { "item" },
         "req_id": req_id,
+        "command_id": format!("command-{req_id}"),
     }))
     .map_err(|error| error.to_string())?;
     helix_im::client_api::build_command("im_relay_messages", &payload)
@@ -93,28 +94,6 @@ fn emitted_events(effects: &[Effect]) -> Vec<Value> {
         .collect()
 }
 
-/// 断言 source 阶段只有按 id 的 message Get，不允许改写来源行。
-fn assert_source_lookup(effects: &[Effect], source_id: &str) -> TestResult<Correlation> {
-    let effect = effects
-        .iter()
-        .find_map(|effect| {
-            let Effect::Persist { corr, ops } = effect else {
-                return None;
-            };
-            Some((*corr, ops))
-        })
-        .ok_or_else(|| format!("missing source lookup for {source_id}"))?;
-    assert_eq!(effect.1.len(), 1);
-    assert!(matches!(
-        &effect.1[0],
-        StorageOp::Get(spec)
-            if spec.table == "message"
-                && spec.key_col == "id"
-                && matches!(&spec.key_val, SqlValue::Text(value) if value == source_id)
-    ));
-    Ok(effect.0)
-}
-
 /// 构造 createPosts 的 host HTTP 成功信封。
 fn acceptance_reply() -> TestResult<Bytes> {
     let raw = serde_json::to_vec(&json!({
@@ -150,66 +129,27 @@ fn run_command(
             "name": "im_relay_messages",
             "post_ids": source_ids,
             "target_channel_ids": [TARGET_CHANNEL],
-            "mode": mode,
+            "mode": if mode == "merged" { "merge" } else { "item" },
+            "command_id": format!("command-{req_id}"),
             "req_id": req_id
         },
         "now_ms": now_ms
     }));
 
-    for (index, row) in source_rows.iter().enumerate() {
-        let source_id = row["id"]
-            .as_str()
-            .ok_or_else(|| "source row missing id".to_string())?;
-        let corr = assert_source_lookup(harness.sink.as_slice(), source_id)?;
-        let body = serde_json::to_vec(&json!([row])).map_err(|error| error.to_string())?;
-        harness.step(
-            port_reply_with_body(corr.raw(), Bytes::from(body)),
-            now_ms + index as u64 + 1,
-        );
-        ticks.push(json!({
-            "kind": "PortReply",
-            "value": {
-                "correlation": corr.raw(),
-                "outcome": {"variant": "Ok", "rows": [row]}
-            },
-            "now_ms": now_ms + index as u64 + 1
-        }));
-    }
-
-    if mode == "merged" {
-        let corr = correlation(harness.sink.as_slice(), "persist")
-            .ok_or_else(|| "merged forward missing source channel lookup".to_string())?;
-        let body = serde_json::to_vec(&json!([{
-            "id": SOURCE_CHANNEL,
-            "display_name": "Gate Review Group"
-        }]))
-        .map_err(|error| error.to_string())?;
-        harness.step(
-            port_reply_with_body(corr.raw(), Bytes::from(body)),
-            now_ms + source_rows.len() as u64 + 1,
-        );
-        ticks.push(json!({
-            "kind": "PortReply",
-            "value": {
-                "correlation": corr.raw(),
-                "outcome": {
-                    "variant": "Ok",
-                    "rows": [{"id": SOURCE_CHANNEL, "display_name": "Gate Review Group"}]
-                }
-            },
-            "now_ms": now_ms + source_rows.len() as u64 + 1
-        }));
-    }
-
-    let body = harness
-        .last_http_body()
-        .ok_or_else(|| format!("{mode} forward missing createPosts HTTP"))?;
-    assert_eq!(body["channelIds"], json!([TARGET_CHANNEL]));
-    let post = body["posts"]
-        .as_array()
-        .and_then(|posts| posts.first())
-        .cloned()
-        .ok_or_else(|| format!("{mode} forward missing target post"))?;
+    let body = harness.last_http_body().ok_or("missing ID forward HTTP")?;
+    assert_eq!(body["postIds"], json!(source_ids));
+    assert_eq!(body["targetChannelIds"], json!([TARGET_CHANNEL]));
+    assert!(body.get("posts").is_none());
+    assert!(correlation(harness.sink.as_slice(), "persist").is_none());
+    // Server authority input: Go owns the actual snapshot, not the Helix outbound builder.
+    let post = json!({
+        "temporaryId":format!("target-{req_id}"),"userId":SENDER_ID,"userSnapshot":{"userName":"Sender"},
+        "type":if mode == "merged" { "MULTIPLY" } else { "TEXT" },
+        "message":if mode == "merged" { json!("") } else { source_rows[0]["message"].clone() },
+        "simpleMessage":if mode == "merged" { json!("[聊天记录]") } else { source_rows[0]["message"].clone() },
+        "props":if mode == "merged" { json!({"forward":expected_forward_card()}) } else { json!({}) },
+        "viewers":["all"]
+    });
     let corr = correlation(harness.sink.as_slice(), "http")
         .ok_or_else(|| format!("{mode} forward missing HTTP correlation"))?;
     harness.step(
@@ -244,7 +184,7 @@ fn target_authority(mut post: Value, req_id: &str, id: &str, seq: u64, create_at
     post["updateAt"] = json!(create_at);
     json!({
         "action": "post",
-        "tracing": {"csesTrackId": req_id},
+        "tracing": {"csesTrackId": format!("command-{req_id}")},
         "data": {
             "event_seq": seq,
             "channelId": TARGET_CHANNEL,
@@ -253,40 +193,10 @@ fn target_authority(mut post: Value, req_id: &str, id: &str, seq: u64, create_at
     })
 }
 
-/// 构造合并转发对外只读的 bounded detail，raw mergeMessage 不跨事件边界。
-fn expected_forward_detail() -> Value {
-    json!({
-        "mode": "merged",
-        "state": "ready",
-        "title": "Gate Review Group的聊天记录",
-        "summary": "共2条消息",
-        "itemCount": 2,
-        "sourceChannelId": SOURCE_CHANNEL,
-        "sourceChannelName": "Gate Review Group",
-        "items": [
-            {
-                "id": SOURCE_A,
-                "userId": "source-user-a",
-                "author": "Actor",
-                "text": "Forwarded message A",
-                "simpleMessage": "Forwarded message A",
-                "type": "TEXT",
-                "createAt": CREATE_AT - 20,
-                "userSnapshot": {"userName": "Actor"}
-            },
-            {
-                "id": SOURCE_B,
-                "userId": "source-user-b",
-                "author": "Observer",
-                "text": "Forwarded message B",
-                "simpleMessage": "Forwarded message B",
-                "type": "TEXT",
-                "createAt": CREATE_AT - 10,
-                "userSnapshot": {"userName": "Observer"}
-            }
-        ],
-        "failureReason": Value::Null
-    })
+/// Go authority fixture contains only one bounded snapshot card.
+fn expected_forward_card() -> Value {
+    json!({"snapshotId":"g05-snapshot","title":"Gate Review Group的聊天记录","itemCount":2,
+        "preview":[{"author":"Actor","text":"Forwarded message A"},{"author":"Observer","text":"Forwarded message B"}]})
 }
 
 /// 从 target authority 推导本地 channel/member 应持久化的 lastPost。
@@ -307,12 +217,12 @@ fn expected_last_post(authority: &Value) -> TestResult<Value> {
     }
     if post["type"] == "MULTIPLY" {
         last_post["type"] = json!("MULTIPLY");
-        last_post["forwardDetail"] = expected_forward_detail();
+        last_post["props"] = json!({"forward":expected_forward_card()});
     }
     Ok(last_post)
 }
 
-/// 断言 target message 与 forward detail 进入同一原子写集，source row 未被当作目标更新。
+/// Target card and message enter one atomic commit; source IDs never become writes.
 fn assert_target_commit(
     effects: &[Effect],
     authority: &Value,
@@ -581,19 +491,25 @@ fn g05_forwards_individual_and_merged_posts_without_rewriting_sources() -> TestR
     }
     assert_eq!(trace.sender.events[1]["data"]["requestId"], INDIVIDUAL_REQ);
     assert_eq!(trace.sender.events[4]["data"]["requestId"], MERGED_REQ);
-    assert!(trace.receiver.events.iter().all(|event| event["data"].get("requestId").is_none()));
+    assert!(trace
+        .receiver
+        .events
+        .iter()
+        .all(|event| event["data"].get("requestId").is_none()));
     assert_eq!(trace.sender.events[1]["data"]["id"], TARGET_INDIVIDUAL);
     assert_eq!(trace.sender.events[4]["data"]["id"], TARGET_MERGED);
     assert_eq!(trace.receiver.events[0]["data"]["id"], TARGET_INDIVIDUAL);
     assert_eq!(trace.receiver.events[2]["data"]["id"], TARGET_MERGED);
     assert_eq!(
-        trace.sender.events[4]["data"]["forwardDetail"],
-        expected_forward_detail()
+        trace.sender.events[4]["data"]["props"]["forward"],
+        expected_forward_card()
     );
-    assert!(trace.sender.events[4]["data"].get("props").is_none());
+    assert!(trace.sender.events[4]["data"]
+        .get("forwardDetail")
+        .is_none());
     assert_eq!(
-        trace.sender.events[5]["data"]["lastPost"]["forwardDetail"],
-        expected_forward_detail()
+        trace.sender.events[5]["data"]["lastPost"]["props"]["forward"],
+        expected_forward_card()
     );
     assert_eq!(trace.sender.events[2]["data"]["unreadCount"], 0);
     assert_eq!(trace.sender.events[5]["data"]["unreadCount"], 0);
@@ -686,13 +602,8 @@ fn g05_merged_media_survives_sender_and_receiver_projection() -> TestResult<()> 
         &mut Vec::new(),
     )?;
     let authority = target_authority(post, MERGED_REQ, TARGET_MERGED, 1, CREATE_AT + 2);
-    let mut expected = expected_forward_detail();
-    expected["items"][0]["type"] = json!("RICH");
-    expected["items"][0]["props"] = image_props;
-    expected["items"][1]["type"] = json!("VIDEO");
-    expected["items"][1]["props"] = video_props;
-    let mut last_post = expected_last_post(&authority)?;
-    last_post["forwardDetail"] = expected.clone();
+    let expected = expected_forward_card();
+    let last_post = expected_last_post(&authority)?;
     for (harness, viewer, unread) in [(&mut sender, SENDER_ID, 0), (&mut receiver, RECEIVER_ID, 1)]
     {
         let now = CREATE_AT as u64 + 10;
@@ -726,8 +637,8 @@ fn g05_merged_media_survives_sender_and_receiver_projection() -> TestResult<()> 
             .iter()
             .find(|e| e["event"] == "im:post:received")
             .ok_or("missing received")?;
-        assert_eq!(received["data"]["forwardDetail"], expected);
-        assert!(received["data"].get("props").is_none());
+        assert_eq!(received["data"]["props"]["forward"], expected);
+        assert!(received["data"].get("forwardDetail").is_none());
     }
     Ok(())
 }

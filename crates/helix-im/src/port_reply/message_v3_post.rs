@@ -99,6 +99,9 @@ impl ImModule {
             ..Default::default()
         });
         if !matches!(outcome, PortOutcome::Ok(_)) {
+            if let Some(req_id) = event.causation_id.as_deref() {
+                self.fail_forward(req_id, "forward post persist failed", out)?;
+            }
             if let Some(channel) = self.state.channels.get_mut(&event.channel_id) {
                 channel.restore_message_v3_post(event, out);
             }
@@ -220,8 +223,14 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let Some(channel) = channel_update_from_member_readback(outcome)? else {
-            return Ok(());
+        let channel = match channel_update_from_member_readback(outcome) {
+            Ok(Some(channel)) => channel,
+            other => {
+                if let Some(req_id) = causation_id.as_deref() {
+                    self.fail_forward(req_id, "forward post readback failed", out)?;
+                }
+                return other.map(|_| ());
+            }
         };
         self.diagnose(crate::diagnostics::Observation {
             event: "delivery_stage",
@@ -237,11 +246,19 @@ impl ImModule {
             .get("type")
             .and_then(serde_json::Value::as_str)
             == Some("CATEGORY_CHAIN");
-        // 仅匹配本端在途转发、且 durable/readback 均成功后公开关联；重复回声不再携带。
+        // Only the final unique durable post completes a multi-item target.
+        let forward_post_id = received_data["id"].as_str().unwrap_or_default().to_owned();
         if let Some(request_id) = causation_id.as_deref().and_then(|id| {
             self.state
                 .pending_forward_deliveries
                 .matching_request(id, channel_id)
+                .filter(|req| {
+                    self.state.pending_forward_deliveries.is_final_post(
+                        req,
+                        channel_id,
+                        &forward_post_id,
+                    )
+                })
         }) {
             received_data["requestId"] = serde_json::json!(request_id);
         }
@@ -253,9 +270,7 @@ impl ImModule {
             out.push(channel.into_effect());
         }
         if let Some(causation_id) = causation_id {
-            self.state
-                .pending_forward_deliveries
-                .complete_target(&causation_id, channel_id);
+            self.complete_forward_post(&causation_id, channel_id, &forward_post_id, out);
         }
         Ok(())
     }

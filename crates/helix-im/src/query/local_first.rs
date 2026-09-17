@@ -816,7 +816,6 @@ impl ImModule {
         causation_id: Option<String>,
         page_override: Option<crate::timeline_state::WindowPage>,
     ) -> Result<Effect, ImError> {
-        let terminal_request = causation_id.clone();
         let scope = crate::timeline_state::TimelineScope {
             channel_id: request.channel_id.as_str().to_string(),
             window_token: request.window_token.to_string(),
@@ -966,11 +965,6 @@ impl ImModule {
             )?
         }
         .into_effect();
-        if let Some(request_id) = terminal_request {
-            self.state
-                .pending_forward_deliveries
-                .complete_target(&request_id, request.channel_id);
-        }
         Ok(effect)
     }
 

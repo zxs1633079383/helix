@@ -990,23 +990,16 @@ impl ImModule {
                 out,
             )?,
 
-            CorrelationContext::ForwardSourceLookup { assembly } => {
-                if let Err(error) =
-                    crate::forward::handle_lookup_reply(self, *assembly, outcome, out)
-                {
-                    tracing::warn!(error = ?error, "forward source assembly failed");
-                }
+            CorrelationContext::ForwardCommittedHttp { read } => {
+                self.forward_committed_http(*read, outcome, out)?
+            }
+            CorrelationContext::ForwardCommittedPersist { read } => {
+                self.forward_committed_persist(*read, outcome, out)?
+            }
+            CorrelationContext::ForwardCommittedReadback { read } => {
+                self.forward_committed_readback(*read, outcome, out)?
             }
 
-            CorrelationContext::ForwardSourceChannelLookup { assembly } => {
-                if let Err(error) =
-                    crate::forward::handle_source_channel_reply(self, *assembly, outcome, out)
-                {
-                    tracing::warn!(error = ?error, "forward source channel assembly failed");
-                }
-            }
-
-            // 本地 dialog Scan 只发布一次 typed command Result，不广播旧频道/已读事件。
             CorrelationContext::DialogListQuery { causation_id } => match outcome {
                 PortOutcome::Ok(reply) => {
                     out.push(self.emit_dialog_list_result_for_runtime(
@@ -1171,6 +1164,9 @@ impl ImModule {
             // Ok → 剥 ADR-007 信封（base64 body）得裸后端响应体 → emit `im:read:result{req_id, body}`
             // （后端返回什么吐什么，零改业务数据）。信封畸形 → 当作 read error 回灌（不丢 req_id 关联，
             // 前端 reject 而非永久挂起）。Err（网络/HTTP 层）→ emit `im:read:result{req_id, error}`。
+            CorrelationContext::ForwardDetail { request, timer } => {
+                self.forward_detail_reply(*request, timer, outcome, out);
+            }
             CorrelationContext::OutboundReadReply {
                 req_id,
                 command,
@@ -1605,19 +1601,7 @@ impl ImModule {
             }
 
             CorrelationContext::OutboundCreatePosts { req_id } => {
-                if let PortOutcome::Ok(reply) = outcome {
-                    if let Ok(raw) = crate::http_envelope::unwrap_sync_envelope(reply.0.as_ref()) {
-                        if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&raw) {
-                            self.state
-                                .pending_forward_deliveries
-                                .retain_http_accepted_targets(&req_id, &body);
-                        }
-                    }
-                }
-                // createPosts 仅确认各 target admission，不是 delivery authority。只有携同一
-                // csesTrackId 的 WS post 经 channel 持久化读回后才允许发布终态事件；
-                // 因而这里也不能完成 ActionRegistry，避免 WS-first 后迟到 HTTP 重复确认。
-                crate::port_reply_emit::emit_create_posts_result(&req_id, outcome, out)?;
+                self.forward_acceptance(&req_id, outcome, out)?
             }
 
             CorrelationContext::TopicActivityRootRead { projection } => {

@@ -290,10 +290,16 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "sending" => "sending",
         _ => "sent",
     };
-    let props = props_value(row);
-    let simple_message = crate::message_summary::resolve(msg_type, text, &props, simple_message_raw, revoke_bool(row));
-    let event_seq = event_seq_value(row, &props);
-    let forward_detail = super::forward::detail(msg_type, &props);
+    let raw_props = props_value(row);
+    let event_seq = event_seq_value(row, &raw_props);
+    let props = super::forward::props(msg_type, raw_props);
+    let simple_message = crate::message_summary::resolve(
+        msg_type,
+        text,
+        &props,
+        simple_message_raw,
+        revoke_bool(row),
+    );
     let quick_reply = quick_reply_value(row, &props);
     let expedite_map = row
         .get("expedite_map")
@@ -356,7 +362,6 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "type": msg_type,
         "props": props,
         "quickReply": quick_reply,
-        "forwardDetail": forward_detail,
         "topic": topic_value(row),
         "revoke": revoke_bool(row),
         "revoked": revoke_bool(row),

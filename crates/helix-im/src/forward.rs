@@ -1,492 +1,623 @@
-//! G-05 转发编排：UI 只传源消息 ID、目标频道和模式，Helix 从本地消息表装配完整 Post。
+//! G-05 ID-only forwarding. Go owns immutable snapshots and stable per-target identities.
 
-use helix_core::effect::{Effect, GetSpec, SqlValue, StorageOp};
+use crate::{
+    state::{ChannelId, CorrelationContext},
+    ImError, ImModule,
+};
+use helix_core::effect::{ScanSpec, SqlValue, StorageOp};
 use helix_core::tick::PortOutcome;
-use helix_core::EffectSink;
+use helix_core::{Effect, EffectSink, TimerId};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::error::ImError;
-use crate::module::ImModule;
-use crate::state::{ChannelId, CorrelationContext};
+const MAX_PENDING: usize = 64;
 
-const MAX_FORWARD_POSTS: usize = 100;
-const MAX_FORWARD_TARGETS: usize = 50;
-const MAX_PENDING_FORWARD_REQUESTS: usize = 64;
+#[derive(Debug)]
+struct Delivery {
+    command_id: String,
+    targets: BTreeSet<ChannelId>,
+    all_targets: Vec<String>,
+    timer: TimerId,
+    post_count: usize,
+    delivered: BTreeMap<ChannelId, BTreeSet<String>>,
+}
 
-/// Bounded request-to-target authority ledger for forward delivery.
-///
-/// HTTP acceptance never completes a target. A target remains eligible only until a trusted
-/// `envelope.tracing.csesTrackId` post is durably projected with the same request id.
+/// One active attempt per stable command; retries never overwrite an in-flight waiter.
 #[derive(Debug, Default)]
 pub(crate) struct PendingForwardDeliveryLedger {
-    targets_by_request: BTreeMap<String, BTreeSet<ChannelId>>,
-    insertion_order: VecDeque<String>,
+    by_request: BTreeMap<String, Delivery>,
 }
 
 impl PendingForwardDeliveryLedger {
-    pub(crate) fn register(&mut self, request_id: String, targets: &[String]) {
-        let targets = targets
-            .iter()
-            .filter_map(|target| ChannelId::from_str(target))
-            .collect::<BTreeSet<_>>();
-        if targets.is_empty() {
-            return;
-        }
-        if !self.targets_by_request.contains_key(&request_id) {
-            while self.targets_by_request.len() >= MAX_PENDING_FORWARD_REQUESTS {
-                let Some(oldest) = self.insertion_order.pop_front() else {
-                    break;
-                };
-                self.targets_by_request.remove(&oldest);
-            }
-            self.insertion_order.push_back(request_id.clone());
-        }
-        self.targets_by_request.insert(request_id, targets);
-    }
-
-    pub(crate) fn matching_request(
-        &self,
-        request_id: &str,
-        channel_id: ChannelId,
-    ) -> Option<String> {
-        self.targets_by_request
-            .get(request_id)
-            .is_some_and(|targets| targets.contains(&channel_id))
-            .then(|| request_id.to_string())
-    }
-
-    /// 测试只读探针：判断转发请求是否仍在等待全部目标确认。
-    #[cfg(test)]
-    pub(crate) fn contains_request(&self, request_id: &str) -> bool {
-        self.targets_by_request.contains_key(request_id)
-    }
-
-    pub(crate) fn retain_http_accepted_targets(&mut self, request_id: &str, body: &Value) {
-        let Some(targets) = self.targets_by_request.get_mut(request_id) else {
-            return;
-        };
-        let Some(results) = body
-            .get("data")
-            .and_then(|data| data.get("targets"))
-            .and_then(Value::as_array)
-        else {
-            return;
-        };
-        for result in results {
-            if result.get("status").and_then(Value::as_str) == Some("accepted") {
-                continue;
-            }
-            if let Some(channel_id) = result
-                .get("channelId")
-                .and_then(Value::as_str)
-                .and_then(ChannelId::from_str)
-            {
-                targets.remove(&channel_id);
-            }
-        }
-        self.remove_if_empty(request_id);
-    }
-
-    /// Returns true only when this target completed the final still-accepted target.
-    pub(crate) fn complete_target(&mut self, request_id: &str, channel_id: ChannelId) -> bool {
-        let existed = self.targets_by_request.contains_key(request_id);
-        if let Some(targets) = self.targets_by_request.get_mut(request_id) {
-            targets.remove(&channel_id);
-        }
-        let completed = existed
-            && self
-                .targets_by_request
-                .get(request_id)
-                .is_some_and(BTreeSet::is_empty);
-        self.remove_if_empty(request_id);
-        completed
-    }
-
-    pub(crate) fn cancel(&mut self, request_id: &str) {
-        self.targets_by_request.remove(request_id);
-        self.insertion_order
-            .retain(|candidate| candidate != request_id);
-    }
-
-    fn remove_if_empty(&mut self, request_id: &str) {
-        if self
-            .targets_by_request
-            .get(request_id)
-            .is_some_and(BTreeSet::is_empty)
+    fn register(
+        &mut self,
+        req_id: &str,
+        command_id: &str,
+        targets: &[String],
+        timer: TimerId,
+        post_count: usize,
+    ) -> Result<(), ImError> {
+        if self.by_request.contains_key(req_id)
+            || self.by_request.values().any(|d| d.command_id == command_id)
         {
-            self.cancel(request_id);
+            return Err(ImError::Parse("FORWARD_IN_PROGRESS".into()));
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// 多 target ledger 只在最后一个持久化 target 后清空请求。
-    #[test]
-    fn multi_target_ledger_completes_only_on_the_last_remaining_target() {
-        let first = crate::state::test_channel_id(50);
-        let last = crate::state::test_channel_id(51);
-        let mut ledger = PendingForwardDeliveryLedger::default();
-        ledger.register(
-            "forward-1".to_string(),
-            &[first.as_str().to_string(), last.as_str().to_string()],
+        if self.by_request.len() >= MAX_PENDING {
+            return Err(ImError::Parse("FORWARD_BUSY".into()));
+        }
+        self.by_request.insert(
+            req_id.into(),
+            Delivery {
+                command_id: command_id.into(),
+                timer,
+                post_count,
+                delivered: BTreeMap::new(),
+                all_targets: targets.to_vec(),
+                targets: targets
+                    .iter()
+                    .filter_map(|id| ChannelId::from_str(id))
+                    .collect(),
+            },
         );
+        Ok(())
+    }
 
-        assert!(ledger.contains_request("forward-1"));
-        assert!(!ledger.complete_target("forward-1", first));
-        assert!(ledger.matching_request("forward-1", last).is_some());
-        assert!(ledger.complete_target("forward-1", last));
-        assert!(!ledger.contains_request("forward-1"));
-        assert!(ledger.matching_request("forward-1", last).is_none());
+    /// WS echo correlation is a stable command ID, separate from local attempt IDs.
+    pub(crate) fn request_for_command(&self, command: &str, channel: ChannelId) -> Option<String> {
+        self.by_request.iter().find_map(|(req, d)| {
+            (d.command_id == command && d.targets.contains(&channel)).then(|| req.clone())
+        })
+    }
+
+    /// Persist continuations retain their original attempt ID.
+    pub(crate) fn matching_request(&self, req: &str, channel: ChannelId) -> Option<String> {
+        self.by_request
+            .get(req)
+            .is_some_and(|d| d.targets.contains(&channel))
+            .then(|| req.to_owned())
+    }
+
+    pub(crate) fn timer(&self, req: &str) -> Option<TimerId> {
+        self.by_request.get(req).map(|d| d.timer)
+    }
+
+    pub(crate) fn is_final_post(&self, req: &str, channel: ChannelId, post_id: &str) -> bool {
+        self.by_request.get(req).is_some_and(|d| {
+            let seen = d.delivered.get(&channel);
+            !seen.is_some_and(|ids| ids.contains(post_id))
+                && seen.map_or(0, BTreeSet::len) + 1 == d.post_count
+        })
+    }
+
+    fn complete_post(&mut self, req: &str, channel: ChannelId, post_id: &str) -> bool {
+        let Some(delivery) = self.by_request.get_mut(req) else {
+            return false;
+        };
+        let seen = delivery.delivered.entry(channel).or_default();
+        if !seen.insert(post_id.to_owned()) || seen.len() < delivery.post_count {
+            return false;
+        }
+        self.complete_target(req, channel)
+    }
+
+    fn complete_target(&mut self, req: &str, channel: ChannelId) -> bool {
+        let Some(delivery) = self.by_request.get_mut(req) else {
+            return false;
+        };
+        delivery.targets.remove(&channel);
+        if delivery.targets.is_empty() {
+            self.by_request.remove(req);
+            return true;
+        }
+        false
+    }
+
+    fn targets(&self, req: &str) -> Vec<String> {
+        self.by_request
+            .get(req)
+            .map(|d| d.targets.iter().map(|c| c.as_str().to_owned()).collect())
+            .unwrap_or_default()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ForwardMode {
-    Individual,
-    Merged,
+/// Validate the only accepted forward intent; clients cannot submit source bodies or references.
+pub(crate) fn request(
+    value: &Value,
+) -> Result<(String, String, Vec<String>, Vec<String>, &'static str), ImError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| ImError::Parse("forward payload must be object".into()))?;
+    if object.keys().any(|key| {
+        ![
+            "post_ids",
+            "target_channel_ids",
+            "mode",
+            "command_id",
+            "req_id",
+        ]
+        .contains(&key.as_str())
+    }) {
+        return Err(ImError::Parse(
+            "forward payload has undeclared fields".into(),
+        ));
+    }
+    let text = |key| {
+        crate::query::render_ready::forward::text(value, key, 128).and_then(|s| {
+            if s.is_empty() {
+                Err(ImError::Parse(format!("missing forward {key}")))
+            } else {
+                Ok(s.to_owned())
+            }
+        })
+    };
+    let sources = ids(value, "post_ids", 100)?;
+    let targets = ids(value, "target_channel_ids", 50)?;
+    if targets.iter().any(|id| ChannelId::from_str(id).is_none()) {
+        return Err(ImError::Parse("invalid forward target ID".into()));
+    }
+    let mode = match value["mode"].as_str() {
+        Some("item") => "individual",
+        Some("merge") => "merged",
+        _ => return Err(ImError::Parse("invalid forward mode".into())),
+    };
+    Ok((text("req_id")?, text("command_id")?, sources, targets, mode))
 }
 
-/// G-05 分段本地读期间持有的 bounded assembly，不包含客户端可伪造的来源详情。
-#[derive(Debug, Clone, PartialEq)]
-pub struct ForwardAssembly {
-    pub(crate) req_id: String,
-    pub(crate) source_post_ids: Vec<String>,
-    pub(crate) target_channel_ids: Vec<String>,
-    pub(crate) mode: ForwardMode,
-    pub(crate) next_index: usize,
-    pub(crate) rows: Vec<Value>,
-    pub(crate) source_channel_id: Option<String>,
-    pub(crate) source_channel_title: Option<String>,
-    pub(crate) now_ms: u64,
-}
-
-pub(crate) fn is_source_id_request(payload: &[u8]) -> bool {
-    serde_json::from_slice::<Value>(payload)
-        .ok()
-        .and_then(|value| value.get("post_ids").and_then(Value::as_array).cloned())
-        .is_some()
+fn ids(value: &Value, key: &str, max: usize) -> Result<Vec<String>, ImError> {
+    let bad = || ImError::Parse(format!("invalid forward {key}"));
+    let values = value[key]
+        .as_array()
+        .filter(|a| !a.is_empty() && a.len() <= max)
+        .ok_or_else(bad)?;
+    let mut unique = BTreeSet::new();
+    values
+        .iter()
+        .map(|v| {
+            let id = v
+                .as_str()
+                .filter(|s| !s.is_empty() && s.len() <= 128)
+                .ok_or_else(bad)?;
+            if !unique.insert(id) {
+                return Err(bad());
+            }
+            Ok(id.to_owned())
+        })
+        .collect()
 }
 
 pub(crate) fn start(
     module: &mut ImModule,
     payload: &[u8],
-    now_ms: u64,
+    _now_ms: u64,
     out: &mut EffectSink,
 ) -> Result<(), ImError> {
     let value: Value = serde_json::from_slice(payload)
-        .map_err(|error| ImError::Parse(format!("im_relay_messages payload: {error}")))?;
-    require_exact_keys(
-        &value,
-        &["post_ids", "target_channel_ids", "mode", "req_id"],
-    )?;
-    let source_post_ids = required_strings(&value, "post_ids", MAX_FORWARD_POSTS)?;
-    let target_channel_ids = required_strings(&value, "target_channel_ids", MAX_FORWARD_TARGETS)?;
-    if target_channel_ids
-        .iter()
-        .any(|id| ChannelId::from_str(id).is_none())
-    {
-        return Err(ImError::Parse(
-            "im_relay_messages: target_channel_ids 含非法频道 ID".to_string(),
-        ));
-    }
-    let mode = match value
-        .get("mode")
-        .and_then(Value::as_str)
-        .unwrap_or("individual")
-    {
-        // MessageV3 Phase 1 参考包（gates/post/mv3-g03a|mv3-g03b/inbound-sample.json）声明的
-        // canonical token 是 `item` / `merge`；`individual` / `merged` 是既有内核别名，两者
-        // 同义且都必须被接受，否则 canonical 载荷会被 fail-closed 拒绝。
-        "individual" | "item" => ForwardMode::Individual,
-        "merged" | "merge" => ForwardMode::Merged,
-        other => {
-            return Err(ImError::Parse(format!(
-                "im_relay_messages: 不支持的 mode '{other}'"
-            )))
-        }
-    };
-    let req_id = operation_req_id(module, &value, now_ms)?;
-    let assembly = ForwardAssembly {
-        req_id,
-        source_post_ids,
-        target_channel_ids,
-        mode,
-        next_index: 0,
-        rows: Vec::new(),
-        source_channel_id: None,
-        source_channel_title: None,
-        now_ms,
-    };
-    module
-        .state
-        .pending_forward_deliveries
-        .register(assembly.req_id.clone(), &assembly.target_channel_ids);
-    schedule_next_lookup(module, assembly, out);
-    Ok(())
-}
-
-/// 消费单条来源消息 Get，全部闭合后按模式进入频道查询或 createPosts。
-pub(crate) fn handle_lookup_reply(
-    module: &mut ImModule,
-    mut assembly: ForwardAssembly,
-    outcome: &PortOutcome,
-    out: &mut EffectSink,
-) -> Result<(), ImError> {
-    let source_id = assembly
-        .source_post_ids
-        .get(assembly.next_index)
-        .cloned()
-        .ok_or_else(|| ImError::Parse("im_relay_messages: 本地查询状态越界".to_string()))?;
-    let row = match outcome {
-        PortOutcome::Ok(reply) => first_row(reply.0.as_ref()),
-        PortOutcome::Err(_) => None,
-    };
-    let Some(row) = row else {
-        module
-            .state
-            .pending_forward_deliveries
-            .cancel(&assembly.req_id);
-        out.push(
-            crate::event::post::batch_target_error(
-                &assembly.req_id,
-                &assembly.target_channel_ids,
-                &format!("source post not found: {source_id}"),
-            )?
-            .into_effect(),
-        );
-        return Ok(());
-    };
-    assembly.rows.push(row);
-    assembly.next_index += 1;
-    if assembly.next_index < assembly.source_post_ids.len() {
-        schedule_next_lookup(module, assembly, out);
-        return Ok(());
-    }
-
-    if assembly.mode == ForwardMode::Merged {
-        schedule_source_channel_lookup(module, assembly, out)?;
-        return Ok(());
-    }
-    dispatch_create_posts(module, assembly, out)
-}
-
-/// 合并转发在 createPosts 前读取来源频道权威标题，避免 renderer 猜测业务文案。
-pub(crate) fn handle_source_channel_reply(
-    module: &mut ImModule,
-    mut assembly: ForwardAssembly,
-    outcome: &PortOutcome,
-    out: &mut EffectSink,
-) -> Result<(), ImError> {
-    let row = match outcome {
-        PortOutcome::Ok(reply) => first_row(reply.0.as_ref()),
-        PortOutcome::Err(_) => None,
-    };
-    let title = row
-        .as_ref()
-        .and_then(|row| {
-            ["display_name", "displayName", "name"]
-                .iter()
-                .find_map(|key| row.get(*key).and_then(Value::as_str))
-        })
-        .filter(|title| !title.is_empty())
-        .map(str::to_string);
-    let Some(title) = title else {
-        cancel_forward_with_error(module, &assembly, "source channel title not found", out)?;
-        return Ok(());
-    };
-    assembly.source_channel_title = Some(title);
-    dispatch_create_posts(module, assembly, out)
-}
-
-/// 已封闭来源事实的 assembly 才进入 createPosts HTTP；HTTP 仍不代表 WS authority 完成。
-fn dispatch_create_posts(
-    module: &mut ImModule,
-    assembly: ForwardAssembly,
-    out: &mut EffectSink,
-) -> Result<(), ImError> {
-    let posts = crate::forward_shape::assemble_posts(module, &assembly)?;
-    let args = json!({
-        "req_id": assembly.req_id,
-        "posts": posts,
-        "channel_ids": assembly.target_channel_ids,
-    });
-    let payload =
-        serde_json::to_vec(&args).map_err(|error| ImError::Serialize(error.to_string()))?;
+        .map_err(|_| ImError::Parse("invalid forward JSON".into()))?;
+    let (req_id, command_id, sources, targets, mode) = request(&value)?;
     let corr = module.alloc_corr_internal();
     let effects = crate::commands::handle_outbound(
         "im_create_posts",
-        &payload,
-        module.config.api_base_url.as_str(),
-        module.config.default_api_base_url.as_str(),
+        payload,
+        &module.config.api_base_url,
+        &module.config.default_api_base_url,
         module.state.connection_id.as_deref(),
         corr,
     )?;
-    module.state.corr_map.insert(
-        corr,
-        CorrelationContext::OutboundCreatePosts {
-            req_id: assembly.req_id,
-        },
-    );
+    let timer = module.alloc_timer();
+    if let Err(error) = module.state.pending_forward_deliveries.register(
+        &req_id,
+        &command_id,
+        &targets,
+        timer,
+        if mode == "merged" { 1 } else { sources.len() },
+    ) {
+        out.push(
+            crate::event::post::batch_target_error(&req_id, &targets, &error.to_string())?
+                .into_effect(),
+        );
+        return Ok(());
+    }
+    module
+        .state
+        .corr_map
+        .insert(corr, CorrelationContext::OutboundCreatePosts { req_id });
+    out.push(Effect::ScheduleTimer {
+        id: timer,
+        after_ms: module.config.send_timeout_ms,
+    });
     for effect in effects {
         out.push(effect);
     }
     Ok(())
 }
 
-/// 逐条读取来源消息，保证 forwarding payload 只由本地 durable row 组装。
-fn schedule_next_lookup(module: &mut ImModule, assembly: ForwardAssembly, out: &mut EffectSink) {
-    let source_id = assembly.source_post_ids[assembly.next_index].clone();
-    let corr = module.alloc_corr_internal();
-    module.state.corr_map.insert(
-        corr,
-        CorrelationContext::ForwardSourceLookup {
-            assembly: Box::new(assembly),
-        },
-    );
-    out.push(Effect::Persist {
-        corr,
-        ops: vec![StorageOp::Get(GetSpec {
-            table: "message",
-            key_col: "id",
-            key_val: SqlValue::Text(source_id),
-        })],
-    });
+/// Retry proof reads only the durable identities declared by Go, then persists and reads them back.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommittedRead {
+    pub req_id: String,
+    pub channel_id: ChannelId,
+    pub post_ids: Vec<String>,
+    pub temporary_ids: Vec<String>,
+    pub next: usize,
+    pub rows: Vec<Value>,
 }
 
-/// 合并转发只接受同一来源频道，并在本地 channel 表补齐权威标题。
-fn schedule_source_channel_lookup(
-    module: &mut ImModule,
-    mut assembly: ForwardAssembly,
-    out: &mut EffectSink,
-) -> Result<(), ImError> {
-    let source_channels = assembly
-        .rows
-        .iter()
-        .filter_map(|row| {
-            row.get("channel_id")
-                .or_else(|| row.get("channelId"))
-                .and_then(Value::as_str)
-                .filter(|value| !value.is_empty())
-        })
-        .collect::<BTreeSet<_>>();
-    if source_channels.len() != 1 {
-        cancel_forward_with_error(
-            module,
-            &assembly,
-            "merged forward requires one source channel",
-            out,
-        )?;
-        return Ok(());
-    }
-    let source_channel_id = source_channels
-        .into_iter()
-        .next()
-        .expect("one source channel checked above")
-        .to_string();
-    assembly.source_channel_id = Some(source_channel_id.clone());
-    let corr = module.alloc_corr_internal();
-    module.state.corr_map.insert(
-        corr,
-        CorrelationContext::ForwardSourceChannelLookup {
-            assembly: Box::new(assembly),
-        },
-    );
-    out.push(Effect::Persist {
-        corr,
-        ops: vec![StorageOp::Get(GetSpec {
-            table: "channel",
-            key_col: "id",
-            key_val: SqlValue::Text(source_channel_id),
-        })],
-    });
-    Ok(())
-}
-
-/// 统一撤销未闭合的 forwarding ledger，并按目标发布可观察失败。
-fn cancel_forward_with_error(
-    module: &mut ImModule,
-    assembly: &ForwardAssembly,
-    error: &str,
-    out: &mut EffectSink,
-) -> Result<(), ImError> {
-    module
-        .state
-        .pending_forward_deliveries
-        .cancel(&assembly.req_id);
-    out.push(
-        crate::event::post::batch_target_error(
-            &assembly.req_id,
-            &assembly.target_channel_ids,
-            error,
-        )?
-        .into_effect(),
-    );
-    Ok(())
-}
-
-/// 从 driver Get 回报提取首个对象行，空行与非法 JSON 都视作 authority 缺失。
-fn first_row(reply: &[u8]) -> Option<Value> {
-    serde_json::from_slice::<Value>(reply)
-        .ok()?
-        .as_array()?
-        .first()
-        .filter(|value| value.is_object())
-        .cloned()
-}
-
-fn operation_req_id(module: &mut ImModule, value: &Value, now_ms: u64) -> Result<String, ImError> {
-    match value.get("req_id") {
-        None => {
-            let sequence = module.alloc_corr_internal().raw();
-            Ok(format!("relay-{now_ms}-{sequence}"))
+impl ImModule {
+    pub(crate) fn forward_acceptance(
+        &mut self,
+        req_id: &str,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if self
+            .state
+            .pending_forward_deliveries
+            .timer(req_id)
+            .is_none()
+        {
+            return Ok(());
         }
-        Some(Value::String(req_id)) if !req_id.is_empty() => Ok(req_id.clone()),
-        Some(_) => Err(ImError::Parse(
-            "im_relay_messages: 'req_id' 必须为非空字符串".to_string(),
-        )),
+        let result = (|| {
+            let PortOutcome::Ok(reply) = outcome else {
+                return Err(ImError::Parse("forward HTTP failed".into()));
+            };
+            let raw = crate::http_envelope::unwrap_success_envelope(&reply.0, "posts/createPosts")?;
+            let body: Value = serde_json::from_slice(&raw)
+                .map_err(|_| ImError::Parse("invalid forward response".into()))?;
+            if body["status"] != "SUCCESS" {
+                return Err(ImError::Parse("forward rejected".into()));
+            }
+            let targets = body
+                .pointer("/data/targets")
+                .and_then(Value::as_array)
+                .ok_or_else(|| ImError::Parse("missing forward targets".into()))?;
+            let (expected, post_count) = self
+                .state
+                .pending_forward_deliveries
+                .by_request
+                .get(req_id)
+                .map(|d| (d.all_targets.clone(), d.post_count))
+                .ok_or_else(|| ImError::Parse("missing forward attempt".into()))?;
+            let mut seen = BTreeSet::new();
+            let mut committed = Vec::new();
+            for target in targets {
+                let channel = target["channelId"]
+                    .as_str()
+                    .filter(|c| expected.iter().any(|e| e == c))
+                    .ok_or_else(|| ImError::Parse("unexpected forward target".into()))?;
+                if !seen.insert(channel.to_owned()) {
+                    return Err(ImError::Parse("duplicate forward target".into()));
+                }
+                let channel_id = ChannelId::from_str(channel)
+                    .ok_or_else(|| ImError::Parse("invalid forward channel".into()))?;
+                match target["status"].as_str() {
+                    Some("accepted") => {}
+                    Some("committed") => {
+                        let post_ids = ids(target, "postIds", 100)?;
+                        let temporary_ids = ids(target, "temporaryIds", 100)?;
+                        if post_ids.len() != temporary_ids.len() || post_ids.len() != post_count {
+                            return Err(ImError::Parse("invalid committed identities".into()));
+                        }
+                        committed.push(CommittedRead {
+                            req_id: req_id.into(),
+                            channel_id,
+                            post_ids,
+                            temporary_ids,
+                            next: 0,
+                            rows: Vec::new(),
+                        });
+                    }
+                    Some("failed") => {}
+                    _ => return Err(ImError::Parse("invalid forward acceptance".into())),
+                }
+            }
+            if seen.len() != expected.len() {
+                return Err(ImError::Parse("missing forward target".into()));
+            }
+            Ok((body, committed))
+        })();
+        let (body, committed) = match result {
+            Ok(result) => result,
+            Err(error) => {
+                self.fail_forward(req_id, &error.to_string(), out)?;
+                return Ok(());
+            }
+        };
+        out.push(crate::event::post::batch_result_from_authority(req_id, &body)?.into_effect());
+        for target in body["data"]["targets"].as_array().into_iter().flatten() {
+            if target["status"] == "failed" {
+                if let Some(channel) = target["channelId"].as_str().and_then(ChannelId::from_str) {
+                    self.fail_forward_target(req_id, channel, out);
+                }
+            }
+        }
+        for read in committed {
+            if self
+                .state
+                .pending_forward_deliveries
+                .matching_request(req_id, read.channel_id)
+                .is_none()
+            {
+                continue;
+            }
+            let corr = self.alloc_corr_internal();
+            let args = json!({"post_ids":read.post_ids,"req_id":req_id});
+            let effects = crate::commands::handle_outbound(
+                "im_get_posts",
+                args.to_string().as_bytes(),
+                &self.config.api_base_url,
+                &self.config.default_api_base_url,
+                self.state.connection_id.as_deref(),
+                corr,
+            )?;
+            self.state.corr_map.insert(
+                corr,
+                CorrelationContext::ForwardCommittedHttp {
+                    read: Box::new(read),
+                },
+            );
+            for effect in effects {
+                out.push(effect);
+            }
+        }
+        Ok(())
     }
-}
 
-fn required_strings(value: &Value, key: &str, max: usize) -> Result<Vec<String>, ImError> {
-    let values = value
-        .get(key)
-        .and_then(Value::as_array)
-        .filter(|items| !items.is_empty() && items.len() <= max)
-        .ok_or_else(|| {
-            ImError::Parse(format!(
-                "im_relay_messages: '{key}' 必须为 1..={max} 个字符串"
-            ))
-        })?;
-    let values: Vec<String> = values
-        .iter()
-        .map(|item| {
-            item.as_str()
-                .filter(|text| !text.is_empty())
-                .map(str::to_string)
-                .ok_or_else(|| ImError::Parse(format!("im_relay_messages: '{key}' 含空值")))
-        })
-        .collect::<Result<_, _>>()?;
-    let mut unique = BTreeSet::new();
-    if values.iter().any(|item| !unique.insert(item.as_str())) {
-        return Err(ImError::Parse(format!(
-            "im_relay_messages: '{key}' 不允许重复值"
-        )));
+    pub(crate) fn complete_forward_post(
+        &mut self,
+        req: &str,
+        channel: ChannelId,
+        post_id: &str,
+        out: &mut EffectSink,
+    ) {
+        let timer = self.state.pending_forward_deliveries.timer(req);
+        if self
+            .state
+            .pending_forward_deliveries
+            .complete_post(req, channel, post_id)
+        {
+            if let Some(timer) = timer {
+                out.push(Effect::CancelTimer { id: timer });
+            }
+            self.clear_forward_correlations(req);
+        }
     }
-    Ok(values)
-}
 
-fn require_exact_keys(value: &Value, allowed: &[&str]) -> Result<(), ImError> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| ImError::Parse("im_relay_messages: payload 必须是 object".to_string()))?;
-    if let Some(unknown) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
-        return Err(ImError::Parse(format!(
-            "im_relay_messages: 未知或非 canonical 字段 '{unknown}'"
-        )));
+    fn fail_forward_target(&mut self, req: &str, channel: ChannelId, out: &mut EffectSink) {
+        let timer = self.state.pending_forward_deliveries.timer(req);
+        if self
+            .state
+            .pending_forward_deliveries
+            .complete_target(req, channel)
+        {
+            if let Some(timer) = timer {
+                out.push(Effect::CancelTimer { id: timer });
+            }
+            self.clear_forward_correlations(req);
+        }
     }
-    Ok(())
+
+    pub(crate) fn forward_timeout(
+        &mut self,
+        timer: TimerId,
+        out: &mut EffectSink,
+    ) -> Result<bool, ImError> {
+        let req = self
+            .state
+            .pending_forward_deliveries
+            .by_request
+            .iter()
+            .find_map(|(id, d)| (d.timer == timer).then(|| id.clone()));
+        if let Some(req) = req {
+            self.fail_forward(&req, "FORWARD_TIMEOUT", out)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    pub(crate) fn cancel_forwards(&mut self, out: &mut EffectSink) -> Result<(), ImError> {
+        let requests = self
+            .state
+            .pending_forward_deliveries
+            .by_request
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for req in requests {
+            self.fail_forward(&req, "CANCELLED", out)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn fail_forward(
+        &mut self,
+        req: &str,
+        reason: &str,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let targets = self.state.pending_forward_deliveries.targets(req);
+        if let Some(delivery) = self.state.pending_forward_deliveries.by_request.remove(req) {
+            out.push(Effect::CancelTimer { id: delivery.timer });
+            self.clear_forward_correlations(req);
+            out.push(crate::event::post::batch_target_error(req, &targets, reason)?.into_effect());
+        }
+        Ok(())
+    }
+
+    /// A WS-first success also releases its still-pending HTTP continuation.
+    fn clear_forward_correlations(&mut self, req: &str) {
+        self.state.corr_map.retain(|_, ctx| match ctx {
+            CorrelationContext::OutboundCreatePosts { req_id } => req_id != req,
+            CorrelationContext::ForwardCommittedHttp { read }
+            | CorrelationContext::ForwardCommittedPersist { read }
+            | CorrelationContext::ForwardCommittedReadback { read } => read.req_id != req,
+            _ => true,
+        });
+    }
+
+    pub(crate) fn forward_committed_http(
+        &mut self,
+        read: CommittedRead,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if self
+            .state
+            .pending_forward_deliveries
+            .matching_request(&read.req_id, read.channel_id)
+            .is_none()
+        {
+            return Ok(());
+        }
+        let result = (|| {
+            let PortOutcome::Ok(reply) = outcome else {
+                return Err(ImError::Parse("committed post lookup failed".into()));
+            };
+            let raw = crate::http_envelope::unwrap_success_envelope(&reply.0, "posts/get")?;
+            let body: Value = serde_json::from_slice(&raw)
+                .map_err(|_| ImError::Parse("invalid committed post reply".into()))?;
+            if body["status"] != "SUCCESS" {
+                return Err(ImError::Parse("committed post lookup rejected".into()));
+            }
+            let posts = body
+                .pointer("/data/posts")
+                .or_else(|| body.get("data"))
+                .and_then(Value::as_array)
+                .ok_or_else(|| ImError::Parse("missing committed posts".into()))?;
+            if posts.len() != read.post_ids.len() {
+                return Err(ImError::Parse("incomplete committed posts".into()));
+            }
+            let mut ordered = Vec::with_capacity(posts.len());
+            for (id, temp) in read.post_ids.iter().zip(&read.temporary_ids) {
+                let post = posts
+                    .iter()
+                    .find(|p| p["id"] == *id)
+                    .ok_or_else(|| ImError::Parse("missing committed identity".into()))?;
+                let fields = crate::ws::parser::extract_post_fields(post);
+                if fields.channel_id != read.channel_id.as_str() || fields.temporary_id != *temp {
+                    return Err(ImError::Parse("committed post scope mismatch".into()));
+                }
+                ordered.push(post.clone());
+            }
+            let (keys, ops) = self.collect_exact_posts_cache_ops(&read.post_ids, ordered);
+            if keys.len() != read.post_ids.len()
+                || self.local_store_mode == crate::query::LocalStoreMode::Disabled
+            {
+                return Err(ImError::Parse(
+                    "committed posts unavailable for durable proof".into(),
+                ));
+            }
+            Ok(ops)
+        })();
+        match result {
+            Ok(ops) => {
+                let corr = self.alloc_corr_internal();
+                self.state.corr_map.insert(
+                    corr,
+                    CorrelationContext::ForwardCommittedPersist {
+                        read: Box::new(read),
+                    },
+                );
+                out.push(Effect::Persist { corr, ops });
+            }
+            Err(error) => self.fail_forward(&read.req_id, &error.to_string(), out)?,
+        }
+        Ok(())
+    }
+
+    pub(crate) fn forward_committed_persist(
+        &mut self,
+        read: CommittedRead,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if matches!(outcome, PortOutcome::Err(_)) {
+            return self.fail_forward(&read.req_id, "committed post persist failed", out);
+        }
+        self.forward_readback(read, out);
+        Ok(())
+    }
+
+    fn forward_readback(&mut self, read: CommittedRead, out: &mut EffectSink) {
+        if self
+            .state
+            .pending_forward_deliveries
+            .matching_request(&read.req_id, read.channel_id)
+            .is_none()
+        {
+            return;
+        }
+        let corr = self.alloc_corr_internal();
+        let filter = (
+            "temporary_id",
+            SqlValue::Text(read.temporary_ids[read.next].clone()),
+        );
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::ForwardCommittedReadback {
+                read: Box::new(read),
+            },
+        );
+        out.push(Effect::Persist {
+            corr,
+            ops: vec![StorageOp::Scan(ScanSpec {
+                table: "message",
+                filter: Some(filter),
+                limit: Some(1),
+                order_by: &[],
+            })],
+        });
+    }
+
+    pub(crate) fn forward_committed_readback(
+        &mut self,
+        mut read: CommittedRead,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if self
+            .state
+            .pending_forward_deliveries
+            .matching_request(&read.req_id, read.channel_id)
+            .is_none()
+        {
+            return Ok(());
+        }
+        let row = match outcome {
+            PortOutcome::Ok(reply) => crate::query::local_first::parse_local_rows(&reply.0)
+                .ok()
+                .and_then(|r| r.into_iter().next()),
+            _ => None,
+        };
+        let Some(row) = row else {
+            return self.fail_forward(&read.req_id, "committed post readback failed", out);
+        };
+        let projected =
+            crate::query::render_ready::core::shape_row(&row, &self.config.auth_user_id);
+        if projected["id"] != read.post_ids[read.next]
+            || projected["temporaryId"] != read.temporary_ids[read.next]
+            || projected["channelId"] != read.channel_id.as_str()
+        {
+            return self.fail_forward(&read.req_id, "committed post readback mismatch", out);
+        }
+        read.rows.push(projected);
+        read.next += 1;
+        if read.next < read.post_ids.len() {
+            self.forward_readback(read, out);
+            return Ok(());
+        }
+        for mut row in read.rows {
+            let post_id = row["id"].as_str().unwrap_or_default().to_owned();
+            if self.state.pending_forward_deliveries.is_final_post(
+                &read.req_id,
+                read.channel_id,
+                &post_id,
+            ) {
+                row["requestId"] = json!(read.req_id);
+            }
+            out.push(crate::event::post::received(row)?.into_effect());
+            self.complete_forward_post(&read.req_id, read.channel_id, &post_id, out);
+        }
+        Ok(())
+    }
 }

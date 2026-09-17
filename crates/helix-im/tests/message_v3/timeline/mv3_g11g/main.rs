@@ -130,7 +130,7 @@ fn durable_visible_row() -> Bytes {
             "type": "TEXT",
             "message": "durable-visible",
             "simple_message": "durable-visible",
-            "props": "{\"tenant\":\"t1\"}",
+            "props": json!({"tenant":"t1","taskCard":{"id":"task-1","title":"最新任务"}}).to_string(),
             "user_snapshot": "{\"userId\":\"sender-1\"}",
             "viewers": "[\"viewer-1\"]",
             "create_at": 1700000000000_i64,
@@ -208,6 +208,9 @@ fn g11g_exact_posts_waits_for_durable_readback_and_filters_viewer() {
     );
     let post = &event["data"]["body"]["posts"][0];
     assert_eq!(post["message"], "durable-visible");
+    assert_eq!(post["props"]["taskCard"]["title"], "最新任务");
+    assert_eq!(post["userSnapshot"]["userId"], "sender-1");
+    assert_eq!(post["viewers"], json!(["viewer-1"]));
     assert!(post.get("readBits").is_none());
     assert!(post.get("eventSeq").is_none());
     assert!(post.get("olderCursor").is_none());

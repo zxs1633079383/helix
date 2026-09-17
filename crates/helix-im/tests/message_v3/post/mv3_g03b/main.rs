@@ -167,22 +167,6 @@ fn persist_corr(effects: &[Effect]) -> Option<Correlation> {
     })
 }
 
-/// 断言只做按主键的只读 Get，转发绝不改写来源行或来源频道行。
-fn expect_get(effects: &[Effect], table: &str, key: &str) -> Correlation {
-    effects
-        .iter()
-        .find_map(|effect| {
-            let Effect::Persist { corr, ops } = effect else {
-                return None;
-            };
-            let [StorageOp::Get(spec)] = ops.as_slice() else {
-                return None;
-            };
-            (spec.table == table && text_of(&spec.key_val) == key).then_some(*corr)
-        })
-        .unwrap_or_else(|| panic!("missing read-only {table} lookup for {key}"))
-}
-
 fn atomic_commit(effects: &[Effect]) -> Option<(Correlation, &Vec<StorageOp>)> {
     effects.iter().find_map(|effect| {
         let Effect::PersistAtomic { corr, ops } = effect else {
@@ -260,6 +244,7 @@ fn relay_tick(mode: &str, source_ids: &[String], targets: &[String]) -> Tick {
         "target_channel_ids": targets,
         "mode": mode,
         "req_id": REQ_ID,
+        "command_id": format!("command-{REQ_ID}"),
     });
     let bytes = serde_json::to_vec(&payload).expect("payload encodes");
     helix_im::client_api::build_command("im_relay_messages", &bytes)
@@ -267,7 +252,7 @@ fn relay_tick(mode: &str, source_ids: &[String], targets: &[String]) -> Tick {
         .expect("public relay command builds")
 }
 
-/// 驱动转发直到 createPosts 出站，返回真实 HTTP body。merge 模式额外闭合来源频道标题读取。
+/// 核对真实 ID 意图；另提供独立 Go authority 输入给持久化回放。
 fn drive_forward(
     harness: &mut Harness,
     rows: &[Value],
@@ -275,34 +260,29 @@ fn drive_forward(
     mode: &str,
     now_ms: u64,
 ) -> Value {
-    let source_ids: Vec<String> = rows
+    let source_ids = rows
         .iter()
-        .map(|row| row["id"].as_str().expect("source id").to_string())
-        .collect();
+        .map(|r| r["id"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
     harness.step(relay_tick(mode, &source_ids, targets), now_ms);
-    for (index, source_id) in source_ids.iter().enumerate() {
-        let corr = expect_get(harness.sink.as_slice(), "message", source_id);
-        let body = serde_json::to_vec(&json!([rows[index]])).expect("row encodes");
-        harness.step(
-            port_reply_with_body(corr.raw(), Bytes::from(body)),
-            now_ms + index as u64 + 1,
-        );
+    let wire = harness.last_http_body().expect("ID intent HTTP");
+    assert_eq!(wire["postIds"], json!(source_ids));
+    assert_eq!(wire["targetChannelIds"], json!(targets));
+    assert!(wire.get("posts").is_none());
+    assert!(persist_corr(harness.sink.as_slice()).is_none());
+    // These are server authority inputs for the WS/Persist replay, not Helix output.
+    let mut authority_posts=rows.iter().enumerate().map(|(i,row)| json!({
+        "temporaryId":format!("relay-{REQ_ID}-{i}"),"userId":SENDER,"userSnapshot":{"userName":"Sender"},
+        "type":row["type"],"message":row["message"],"simpleMessage":row["simple_message"],"props":{},"viewers":["all"]
+    })).collect::<Vec<_>>();
+    if mode == "merge" {
+        authority_posts = vec![
+            json!({"temporaryId":format!("relay-{REQ_ID}-0"),"userId":SENDER,"userSnapshot":{"userName":"Sender"},
+            "type":"MULTIPLY","message":"","simpleMessage":"[聊天记录]","viewers":["all"],
+            "props":{"forward":{"snapshotId":"g03b-snapshot","title":format!("{SOURCE_TITLE}的聊天记录"),"itemCount":rows.len(),"preview":[]}}}),
+        ];
     }
-    if mode == "merge" || mode == "merged" {
-        let corr = expect_get(harness.sink.as_slice(), "channel", &cid(SOURCE_CHANNEL));
-        let body = serde_json::to_vec(&json!([{
-            "id": cid(SOURCE_CHANNEL),
-            "display_name": SOURCE_TITLE
-        }]))
-        .expect("channel row encodes");
-        harness.step(
-            port_reply_with_body(corr.raw(), Bytes::from(body)),
-            now_ms + source_ids.len() as u64 + 1,
-        );
-    }
-    harness
-        .last_http_body()
-        .unwrap_or_else(|| panic!("{mode} forward must reach createPosts"))
+    json!({"wire":wire,"authorityPosts":authority_posts})
 }
 
 /// 把 createPosts 的一条 post 补成 Go WS `post` authority。
@@ -314,7 +294,7 @@ fn authority(post: &Value, channel_id: &str, id: u64, seq: u64, create_at: i64) 
     post["updateAt"] = json!(create_at);
     json!({
         "action": "post",
-        "tracing": {"csesTrackId": REQ_ID},
+        "tracing": {"csesTrackId": format!("command-{REQ_ID}")},
         "data": {"event_seq": seq, "channelId": channel_id, "post": post}
     })
 }
@@ -398,120 +378,42 @@ fn three_sources() -> [Value; 3] {
 /// 参考包的 canonical mode token 必须被内核接受，不得因内核旧别名反向削弱目标载荷。
 #[test]
 fn canonical_merge_mode_token_from_reference_is_accepted() {
-    let sample = reference_json("inbound-sample.json");
-    let payload = &sample["rust_entry_inputs"][0]["value"]["payload"];
     assert_eq!(
-        payload["mode"], "merge",
-        "参考包是线型权威：MV3-G03b 的 mode token 必须是 merge"
+        reference_json("inbound-sample.json")["rust_entry_inputs"][0]["value"]["payload"]["mode"],
+        "merge"
     );
-    let mode = payload["mode"].as_str().expect("mode token").to_string();
-
-    let mut harness = Harness::new_with_identity(&[TARGET_A], SENDER, "mv3-g03b", "", "", "");
-    let rows = three_sources();
-    let body = drive_forward(
-        &mut harness,
-        &rows,
-        &[cid(TARGET_A)],
-        &mode,
-        CREATE_AT as u64,
-    );
-    assert_eq!(
-        body["posts"][0]["type"], "MULTIPLY",
-        "canonical merge token 必须走合并装配，而不是被当成未知 mode 拒绝"
-    );
+    let mut h = Harness::new(&[]);
+    let result = drive_forward(&mut h, &three_sources(), &[cid(TARGET_A)], "merge", 100);
+    assert_eq!(result["wire"]["mode"], "merged");
 }
 
 /// merge 模式把任意条数的源消息收敛为**单条** MULTIPLY，并采用参考包声明的摘要文案。
 #[test]
-fn merge_mode_collapses_every_source_into_exactly_one_multiply_post() {
-    let mut harness = Harness::new_with_identity(&[TARGET_A], SENDER, "mv3-g03b", "", "", "");
-    let rows = three_sources();
-    let body = drive_forward(
-        &mut harness,
-        &rows,
-        &[cid(TARGET_A)],
-        "merge",
-        CREATE_AT as u64,
-    );
-
-    let posts = body["posts"].as_array().expect("posts array");
+fn merged_intent_keeps_selection_and_stable_command() {
+    let mut h = Harness::new(&[]);
+    let result = drive_forward(&mut h, &three_sources(), &[cid(TARGET_A)], "merge", 100);
     assert_eq!(
-        posts.len(),
-        1,
-        "3 条源消息在 merge 模式下必须收敛为 1 条，不得退化为逐条转发"
+        result["wire"]["postIds"],
+        json!([sid(SOURCE_A), sid(SOURCE_B), sid(SOURCE_C)])
     );
-    let post = &posts[0];
-    assert_eq!(post["type"], "MULTIPLY");
-    let expected_simple = reference_json("outbound-sample.json")["samples"][0]["rust"]["data"]
-        ["simpleMessage"]
-        .clone();
-    assert_eq!(expected_simple, "[聊天记录]");
-    assert_eq!(
-        post["simpleMessage"], expected_simple,
-        "合并消息摘要必须与参考包一致"
-    );
-    assert_eq!(post["props"]["sourceChannelId"], cid(SOURCE_CHANNEL));
-    assert_eq!(post["props"]["sourceChannelName"], SOURCE_TITLE);
-    assert_eq!(
-        post["props"]["forwardTitle"],
-        format!("{SOURCE_TITLE}的聊天记录"),
-        "合并标题必须来自已读取的来源频道权威，而不是 renderer 猜测"
-    );
-    assert_eq!(
-        post["temporaryId"],
-        format!("relay-{REQ_ID}-0"),
-        "合并转发只分配一个对账键（INV-02）"
-    );
+    assert_eq!(result["wire"]["commandId"], format!("command-{REQ_ID}"));
+    assert_eq!(result["wire"].as_object().unwrap().len(), 4);
 }
 
 /// mergeMessage 必须逐条保留源消息顺序与稳定 identity。
 #[test]
-fn merge_message_preserves_source_order_and_identity() {
-    let mut harness = Harness::new_with_identity(&[TARGET_A], SENDER, "mv3-g03b", "", "", "");
-    let rows = three_sources();
-    let body = drive_forward(
-        &mut harness,
-        &rows,
-        &[cid(TARGET_A)],
-        "merge",
-        CREATE_AT as u64,
-    );
-
-    let encoded = body["posts"][0]["props"]["mergeMessage"]
-        .as_str()
-        .expect("mergeMessage must be a wire string");
-    let items: Vec<Value> = serde_json::from_str(encoded).expect("mergeMessage decodes to array");
-    assert_eq!(items.len(), 3);
-    assert_eq!(
-        items
-            .iter()
-            .map(|item| item["id"].as_str().unwrap_or_default().to_string())
-            .collect::<Vec<_>>(),
-        vec![sid(SOURCE_A), sid(SOURCE_B), sid(SOURCE_C)],
-        "合并项顺序必须严格等于用户选择的源消息顺序"
-    );
-    assert_eq!(
-        items
-            .iter()
-            .map(|item| item["message"].as_str().unwrap_or_default().to_string())
-            .collect::<Vec<_>>(),
-        vec!["第一条源消息", "第二条源消息", "第三条源消息"]
-    );
-    assert_eq!(
-        items
-            .iter()
-            .map(|item| item["userId"].as_str().unwrap_or_default().to_string())
-            .collect::<Vec<_>>(),
-        vec!["source-user-a", "source-user-b", "source-user-c"],
-        "合并项必须保留各自作者，不得统一成转发者"
-    );
-    assert_eq!(
-        items
-            .iter()
-            .map(|item| item["createAt"].as_i64().unwrap_or_default())
-            .collect::<Vec<_>>(),
-        vec![CREATE_AT - 30, CREATE_AT - 20, CREATE_AT - 10]
-    );
+fn merged_intent_rejects_client_supplied_snapshot() {
+    let payload = json!({"post_ids":[sid(SOURCE_A)],"target_channel_ids":[cid(TARGET_A)],"mode":"merge","req_id":REQ_ID,"command_id":"stable","snapshotId":"forged"});
+    let command =
+        helix_im::client_api::build_command("im_relay_messages", payload.to_string().as_bytes())
+            .unwrap();
+    let mut h = Harness::new(&[]);
+    use helix_core::Module;
+    assert!(h
+        .module
+        .handle(&Tick::Command(command), 100, &mut h.sink)
+        .is_err());
+    assert!(h.sink.as_slice().is_empty());
 }
 
 /// 数量语义对撞：同样 3 条源消息，item 模式接收者 +3，merge 模式只 +1。
@@ -529,7 +431,10 @@ fn merge_accrues_one_unread_while_item_accrues_one_per_source() {
         "merge",
         CREATE_AT as u64,
     );
-    let merge_posts = merge_body["posts"].as_array().expect("posts").clone();
+    let merge_posts = merge_body["authorityPosts"]
+        .as_array()
+        .expect("posts")
+        .clone();
 
     let mut merge_receiver =
         Harness::new_with_identity(&[TARGET_A], RECEIVER, "mv3-g03b", "", "", "");
@@ -558,7 +463,10 @@ fn merge_accrues_one_unread_while_item_accrues_one_per_source() {
     // item：3 条独立消息 → 接收者 +3。
     let mut item_sender = Harness::new_with_identity(&[TARGET_A], SENDER, "mv3-g03b", "", "", "");
     let item_body = drive_forward(&mut item_sender, &rows, &targets, "item", CREATE_AT as u64);
-    let item_posts = item_body["posts"].as_array().expect("posts").clone();
+    let item_posts = item_body["authorityPosts"]
+        .as_array()
+        .expect("posts")
+        .clone();
 
     let mut item_receiver =
         Harness::new_with_identity(&[TARGET_A], RECEIVER, "mv3-g03b", "", "", "");
@@ -608,7 +516,7 @@ fn duplicate_merged_authority_is_idempotent() {
         "merge",
         CREATE_AT as u64,
     );
-    let post = body["posts"][0].clone();
+    let post = body["authorityPosts"][0].clone();
     let frame = authority(&post, &cid(TARGET_A), 500, 1, CREATE_AT + 1);
 
     let mut receiver = Harness::new_with_identity(&[TARGET_A], RECEIVER, "mv3-g03b", "", "", "");
@@ -665,7 +573,7 @@ fn merged_forward_diverges_between_sender_and_receiver_personas() {
         "merge",
         CREATE_AT as u64,
     );
-    let post = body["posts"][0].clone();
+    let post = body["authorityPosts"][0].clone();
     let frame = authority(&post, &cid(TARGET_A), 600, 1, CREATE_AT + 1);
 
     let mut sender_table = MemberTable::default();
@@ -724,15 +632,16 @@ fn merged_forward_diverges_between_sender_and_receiver_personas() {
             .unwrap_or_else(|| panic!("{label} must observe the merged post"));
         assert_eq!(received["data"]["type"], "MULTIPLY", "{label}");
         assert_eq!(
-            received["data"]["forwardDetail"]["itemCount"], 3,
+            received["data"]["props"]["forward"]["itemCount"], 3,
             "{label} 的合并投影必须还原 3 条源消息"
         );
         assert_eq!(
-            received["data"]["forwardDetail"]["sourceChannelName"], SOURCE_TITLE,
+            received["data"]["props"]["forward"]["title"],
+            format!("{SOURCE_TITLE}的聊天记录"),
             "{label}"
         );
         assert!(
-            received["data"].get("props").is_none(),
+            received["data"].get("forwardDetail").is_none(),
             "{label}: raw props.mergeMessage 不得跨事件边界外泄"
         );
     }
@@ -740,54 +649,26 @@ fn merged_forward_diverges_between_sender_and_receiver_personas() {
 
 /// 合并转发只接受同一来源频道；跨频道选择必须 fail closed 且绝不出站。
 #[test]
-fn merged_forward_requires_a_single_source_channel() {
-    let mut harness = Harness::new_with_identity(&[TARGET_A], SENDER, "mv3-g03b", "", "", "");
-    let rows = [
-        source_row(
-            SOURCE_A,
-            "source-user-a",
-            "Actor",
-            "第一条源消息",
-            CREATE_AT - 30,
-        ),
-        source_row_in(
-            OTHER_SOURCE_CHANNEL,
-            SOURCE_B,
-            "source-user-b",
-            "Observer",
-            "别的频道",
-            CREATE_AT - 20,
-        ),
-    ];
-    let source_ids: Vec<String> = rows
-        .iter()
-        .map(|row| row["id"].as_str().expect("source id").to_string())
-        .collect();
-    harness.step(
-        relay_tick("merge", &source_ids, &[cid(TARGET_A)]),
-        CREATE_AT as u64,
+fn server_rejection_of_source_scope_has_no_delivery() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        relay_tick("merge", &[sid(SOURCE_A), sid(SOURCE_B)], &[cid(TARGET_A)]),
+        100,
     );
-    for (index, source_id) in source_ids.iter().enumerate() {
-        let corr = expect_get(harness.sink.as_slice(), "message", source_id);
-        let body = serde_json::to_vec(&json!([rows[index]])).expect("row encodes");
-        harness.step(
-            port_reply_with_body(corr.raw(), Bytes::from(body)),
-            CREATE_AT as u64 + index as u64 + 1,
-        );
-    }
-
-    assert!(
-        http_corr(harness.sink.as_slice()).is_none(),
-        "跨来源频道的合并转发禁止出站 createPosts"
+    let corr = http_corr(h.sink.as_slice()).unwrap();
+    h.step(
+        port_reply_with_body(
+            corr.raw(),
+            common::enveloped(Bytes::from(
+                json!({"status":"FAILED","data":null}).to_string(),
+            )),
+        ),
+        101,
     );
-    let batch = emitted(harness.sink.as_slice())
-        .into_iter()
-        .find(|event| event["event"] == "im:posts:batch-result")
-        .expect("跨频道合并必须发布可观察的批失败");
-    assert_eq!(batch["data"]["batchStatus"], "failed");
-    assert_eq!(batch["data"]["targets"][0]["channelId"], cid(TARGET_A));
+    let events = emitted(h.sink.as_slice());
+    assert_eq!(events[0]["data"]["batchStatus"], "failed");
     assert_eq!(
-        batch["data"]["targets"][0]["deliveryStatus"],
+        events[0]["data"]["targets"][0]["deliveryStatus"],
         "not-applicable"
     );
 }

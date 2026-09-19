@@ -1,5 +1,7 @@
 ## 2026-09-20 Rust重新打包与客户端集成
 
+✅ DONE 四公共crate 0.1.25已发布crates.io并可解析，八包check/逐包dry-run通过；源码09535194、版本368dae8f与注释Tag helix-v-0.1.25已push。客户端093f7770aa四包精确pin+registry lock、用户库迁移已push dev-message；yarn start完成Angular构建78.076秒、Rust编译2分22秒并Running，命令退出0。保留旧客户端实例，不把编译/启动尝试当作新运行实例或未读跳转验收；应用环境版本未另提，既有release.json改动未提交。无CDN/桌面安装包发布/业务验收。最终远端回读与证据见客户端 docs/交接/0919-increment-unread-jump/handoff.md。
+
 🎯 EXPECT 四公共crate 0.1.24→0.1.25发布可解析，客户端精确依赖同步，yarn start真实编译通过后再push两仓当前分支及版本Tag。用户授权包含最新用户库/公司闸门与unread映射修复；保留无关交接/产物和client release.json已有kernel修改，桌面应用版本等待环境选择。复用同代码身份已验记录；历史4项独立失败明确保留，不冒充全仓/业务验收绿色。 | 赌注 中 | 可逆 发布前是
 
 ## 2026-09-20 increment 未读定位字段修复

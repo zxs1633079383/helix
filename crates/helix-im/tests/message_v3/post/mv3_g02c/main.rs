@@ -157,10 +157,9 @@ fn retry_echo_before_terminal() -> (Harness, u64) {
     let admitted = harness.step(port_reply_ok(correlation_of(&retry, "persist")), 1004);
     let admission = harness.step(port_reply_ok(correlation_of(&admitted, "http")), 1005);
     assert!(
-        !admission.iter().any(|effect| matches!(
-            effect,
-            EffectKind::Http(_) | EffectKind::Persist(_)
-        )),
+        !admission
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Http(_) | EffectKind::Persist(_))),
         "retry admission must wait for the authoritative WS echo: {admission:?}"
     );
 

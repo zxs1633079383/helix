@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use bytes::Bytes;
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec,
-    ScopedGetSpec, ScopedGuardedBumpSpec, SortDirection, SparseTableSpec, SqlValue, StorageOp,
-    UpsertGuard, UpsertSpec,
+    ScopedGetSpec, ScopedGuardedBumpSpec, ScopedMaxSpec, ScopedScanSpec, SortDirection,
+    SparseTableSpec, SqlValue, StorageOp, UpsertGuard, UpsertSpec,
 };
 use helix_core::port_codec::{classify_port_error, rows_to_reply_bytes};
 use helix_core::ports::Storage;
@@ -172,6 +172,14 @@ impl WebSessionStore {
                         .map(|row| rows_to_reply_bytes(&[row]))
                         .unwrap_or_else(|| rows_to_reply_bytes(&[]));
                 }),
+                StorageOp::ScopedMax(spec) => self.scoped_max_sync(spec.clone()).map(|row| {
+                    last_read = row
+                        .map(|row| rows_to_reply_bytes(&[row]))
+                        .unwrap_or_else(|| rows_to_reply_bytes(&[]));
+                }),
+                StorageOp::ScopedScan(spec) => self.scoped_scan_sync(spec.clone()).map(|rows| {
+                    last_read = rows_to_reply_bytes(&rows);
+                }),
                 StorageOp::Scan(spec) => self.scan_sync(spec.clone()).map(|rows| {
                     last_read = rows_to_reply_bytes(&rows);
                 }),
@@ -212,7 +220,11 @@ impl WebSessionStore {
         if ops.iter().any(|op| {
             matches!(
                 op,
-                StorageOp::Get(_) | StorageOp::ScopedGet(_) | StorageOp::Scan(_)
+                StorageOp::Get(_)
+                    | StorageOp::ScopedGet(_)
+                    | StorageOp::ScopedMax(_)
+                    | StorageOp::ScopedScan(_)
+                    | StorageOp::Scan(_)
             )
         }) {
             return PortOutcome::Err(classify_port_error(storage_error(
@@ -519,6 +531,66 @@ impl WebSessionStore {
             .map(|stored| stored.values.clone()))
     }
 
+    /// 在作用域集合内求指定列最大值；空集合不触碰任何表行。
+    fn scoped_max_sync(&self, spec: ScopedMaxSpec) -> Result<Option<Row>, PortError> {
+        if spec.scope_values.is_empty() {
+            return Ok(None);
+        }
+        let mut scoped_values: Vec<&SqlValue> = spec.scope_values.iter().collect();
+        scoped_values.sort_by(|left, right| sql_value_cmp(Some(*left), Some(*right)));
+        let state = self.lock()?;
+        let table = self.table(&state, spec.table)?;
+        let maximum = table
+            .rows
+            .iter()
+            .filter(|stored| {
+                row_value(&stored.values, spec.scope_col).is_some_and(|scope| {
+                    scoped_values
+                        .binary_search_by(|value| sql_value_cmp(Some(*value), Some(scope)))
+                        .is_ok()
+                })
+            })
+            .filter_map(|stored| row_value(&stored.values, spec.value_col))
+            .filter(|value| !matches!(value, SqlValue::Null))
+            .max_by(|left, right| sql_value_cmp(Some(*left), Some(*right)));
+        Ok(maximum.map(|value| vec![(spec.result_alias.to_string(), value.clone())]))
+    }
+
+    /// 在作用域集合内读取有界多行；超过显式 limit 时 fail-closed，不静默截断。
+    fn scoped_scan_sync(&self, spec: ScopedScanSpec) -> Result<Vec<Row>, PortError> {
+        const MAX_SCOPED_SCAN_LIMIT: usize = 10_000;
+        if spec.scope_values.is_empty() {
+            return Ok(Vec::new());
+        }
+        if spec.limit > MAX_SCOPED_SCAN_LIMIT {
+            return Err(storage_error(format!(
+                "scoped scan limit exceeds driver maximum {MAX_SCOPED_SCAN_LIMIT}"
+            )));
+        }
+        let mut scoped_values: Vec<&SqlValue> = spec.scope_values.iter().collect();
+        scoped_values.sort_by(|left, right| sql_value_cmp(Some(*left), Some(*right)));
+        scoped_values
+            .dedup_by(|left, right| sql_value_cmp(Some(*left), Some(*right)) == Ordering::Equal);
+        let state = self.lock()?;
+        let table = self.table(&state, spec.table)?;
+        let mut rows = Vec::new();
+        for stored in &table.rows {
+            let Some(scope) = row_value(&stored.values, spec.scope_col) else {
+                continue;
+            };
+            if scoped_values
+                .binary_search_by(|value| sql_value_cmp(Some(*value), Some(scope)))
+                .is_ok()
+            {
+                rows.push(&stored.values);
+                if rows.len() > spec.limit {
+                    return Err(storage_error("scoped scan result exceeds explicit limit"));
+                }
+            }
+        }
+        Ok(rows.into_iter().cloned().collect())
+    }
+
     fn scan_sync(&self, spec: ScanSpec) -> Result<Vec<Row>, PortError> {
         let state = self.lock()?;
         let table = self.table(&state, spec.table)?;
@@ -738,6 +810,15 @@ impl Storage for WebSessionStore {
     /// 读取复合作用域内唯一行。
     async fn scoped_get(&self, spec: ScopedGetSpec) -> Result<Option<Row>, PortError> {
         self.scoped_get_sync(spec)
+    }
+
+    /// 读取复合作用域集合内的最大值。
+    async fn scoped_max(&self, spec: ScopedMaxSpec) -> Result<Option<Row>, PortError> {
+        self.scoped_max_sync(spec)
+    }
+
+    async fn scoped_scan(&self, spec: ScopedScanSpec) -> Result<Vec<Row>, PortError> {
+        self.scoped_scan_sync(spec)
     }
 
     async fn scan(&self, spec: ScanSpec) -> Result<Vec<Row>, PortError> {
@@ -1696,6 +1777,99 @@ mod tests {
         assert!(
             matches!(row_value(&rows[1], "temporary_id"), Some(SqlValue::Text(v)) if v == "third")
         );
+    }
+
+    #[test]
+    fn scoped_max_filters_scope_before_aggregating_and_ignores_empty_scope() {
+        let store = new_store(limits());
+        store
+            .batch_upsert_sync(UpsertSpec {
+                table: "message",
+                rows: vec![
+                    message("in-scope-1", "channel-a", 1_700),
+                    message("in-scope-2", "channel-a", 2_300),
+                    message("other-company", "channel-b", 9_900),
+                ],
+                conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
+            })
+            .expect("messages");
+
+        let row = store
+            .scoped_max_sync(ScopedMaxSpec {
+                table: "message",
+                scope_col: "channel_id",
+                scope_values: vec![text("channel-a")],
+                value_col: "create_at",
+                result_alias: "create_at",
+            })
+            .expect("scoped max")
+            .expect("in-scope max");
+        assert!(matches!(
+            row_value(&row, "create_at"),
+            Some(SqlValue::Integer(2_300))
+        ));
+        assert!(store
+            .scoped_max_sync(ScopedMaxSpec {
+                table: "message",
+                scope_col: "channel_id",
+                scope_values: Vec::new(),
+                value_col: "create_at",
+                result_alias: "create_at",
+            })
+            .expect("empty scoped max")
+            .is_none());
+    }
+
+    #[test]
+    fn scoped_scan_filters_scope_before_limit_and_rejects_truncation() {
+        let store = new_store(limits());
+        store
+            .batch_upsert_sync(UpsertSpec {
+                table: "message",
+                rows: vec![
+                    message("in-scope-1", "channel-a", 1_700),
+                    message("in-scope-2", "channel-a", 2_300),
+                    message("other-company", "channel-b", 9_900),
+                ],
+                conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
+            })
+            .expect("messages");
+
+        let rows = store
+            .scoped_scan_sync(ScopedScanSpec {
+                table: "message",
+                scope_col: "channel_id",
+                scope_values: vec![text("channel-a"), text("channel-a")],
+                limit: 4,
+            })
+            .expect("scoped scan");
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|row| {
+            matches!(row_value(row, "channel_id"), Some(SqlValue::Text(channel)) if channel == "channel-a")
+        }));
+        assert!(store
+            .scoped_scan_sync(ScopedScanSpec {
+                table: "message",
+                scope_col: "channel_id",
+                scope_values: vec![text("channel-a")],
+                limit: 1,
+            })
+            .is_err());
+        assert!(store
+            .scoped_scan_sync(ScopedScanSpec {
+                table: "missing_table",
+                scope_col: "channel_id",
+                scope_values: Vec::new(),
+                limit: 1,
+            })
+            .expect("empty scope must not touch table")
+            .is_empty());
     }
 
     #[test]

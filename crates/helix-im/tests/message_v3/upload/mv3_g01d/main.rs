@@ -267,7 +267,7 @@ fn first_effect_is_persist_atomic_without_emit_http_or_timer() {
 /// 乐观 Sending 投影必须自带逐文件与消息级绝对上传进度（INV-01：Angular 不自算）。
 #[test]
 fn sending_projection_carries_absolute_upload_progress() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "upload-viewer", "upload-company", "", "", "");
     h.step(file_send_tick("tmp-mv3-g01d-002"), 1_700_000_000_000);
     let p1 = stage_corr(&h, "prepare");
     h.step(port_reply_ok(p1), 1_700_000_000_001);

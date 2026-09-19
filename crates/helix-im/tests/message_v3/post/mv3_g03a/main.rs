@@ -663,7 +663,7 @@ fn undefined_source_or_target_ids_fail_closed_before_any_effect() {
 /// 任一来源行缺失 → 全部目标标记失败，且绝不出站 createPosts。
 #[test]
 fn server_source_rejection_fails_every_target_without_delivery() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[TARGET_A, TARGET_B], SENDER, "mv3-g03a", "", "", "");
     h.step(
         relay_tick(&relay_payload(
             "item",

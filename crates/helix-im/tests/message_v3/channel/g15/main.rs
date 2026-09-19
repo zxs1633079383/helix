@@ -39,7 +39,7 @@ fn events(effects: &[Effect]) -> Vec<Value> {
 /// 回放 make-topic HTTP、关系持久化和 root durable readback。
 fn run_success() -> TestResult<(Vec<Value>, Vec<Value>)> {
     let mut harness =
-        common::Harness::new_with_identity(&[], "g15-sender", "g15-company", "", "", "");
+        common::Harness::new_with_identity(&[0x14, 0x15], "g15-sender", "g15-company", "", "", "");
     harness.step(
         common::command_json(
             "im_make_topic",

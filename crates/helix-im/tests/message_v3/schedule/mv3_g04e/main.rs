@@ -265,7 +265,13 @@ fn run_sender_cancel(harness: &mut Harness, base_ms: u64) -> Vec<Value> {
     events.extend(emitted(harness.sink.as_slice()));
     let http_corr = corr_of(harness.sink.as_slice(), "http").expect("取消必须发出 Http");
 
-    harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), base_ms + 1);
+    harness.step(
+        port_reply_with_body(
+            http_corr,
+            common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#)),
+        ),
+        base_ms + 1,
+    );
     events.extend(emitted(harness.sink.as_slice()));
 
     harness.step(inbound(&canceled_authority()), base_ms + 2);
@@ -603,7 +609,13 @@ fn cancel_half_follows_the_contract_sequence_without_timers() {
         "取消首批只允许一条 Http，实际 {kinds:?}"
     );
     let http_corr = corr_of(harness.sink.as_slice(), "http").expect("必须发出取消 Http");
-    kinds.extend(harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), NOW_MS + 1));
+    kinds.extend(harness.step(
+        port_reply_with_body(
+            http_corr,
+            common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#)),
+        ),
+        NOW_MS + 1,
+    ));
     kinds.extend(harness.step(inbound(&canceled_authority()), NOW_MS + 2));
     let atomic_corr = corr_of(harness.sink.as_slice(), "atomic").expect("必须落 PersistAtomic");
     kinds.extend(harness.step(port_reply_ok(atomic_corr), NOW_MS + 3));

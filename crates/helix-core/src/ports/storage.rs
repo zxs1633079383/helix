@@ -18,7 +18,7 @@
 
 use crate::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec,
-    ScopedGetSpec, ScopedGuardedBumpSpec, StorageOp, UpsertSpec,
+    ScopedGetSpec, ScopedGuardedBumpSpec, ScopedMaxSpec, ScopedScanSpec, StorageOp, UpsertSpec,
 };
 use crate::error::PortError;
 use crate::platform::{MaybeSend, MaybeSync};
@@ -118,6 +118,20 @@ pub trait Storage: MaybeSend + MaybeSync + 'static {
     async fn scoped_get(&self, _spec: ScopedGetSpec) -> Result<Option<Row>, PortError> {
         Err(PortError::Storage(
             "scoped get is not implemented by this driver".to_string(),
+        ))
+    }
+
+    /// 以作用域集合约束读取一列的最大值；空集合必须返回空结果。
+    async fn scoped_max(&self, _spec: ScopedMaxSpec) -> Result<Option<Row>, PortError> {
+        Err(PortError::Storage(
+            "scoped max is not implemented by this driver".to_string(),
+        ))
+    }
+
+    /// 以作用域集合约束读取多行；匹配行数超过 limit 必须 fail-closed。
+    async fn scoped_scan(&self, _spec: ScopedScanSpec) -> Result<Vec<Row>, PortError> {
+        Err(PortError::Storage(
+            "scoped scan is not implemented by this driver".to_string(),
         ))
     }
 

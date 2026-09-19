@@ -29,7 +29,8 @@ use std::time::Instant;
 
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
-    Row as HelixRow, ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec, UpsertSpec,
+    Row as HelixRow, ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec, ScopedMaxSpec, ScopedScanSpec,
+    UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
@@ -310,6 +311,34 @@ impl Storage for HostStorage {
             .and_then(Option::as_ref)
             .map_or(0, |_| 1);
         self.record_storage_result("scoped_get", rows, started, &result);
+        result
+    }
+
+    /// 在作用域集合内读取单列最大值，保留 HostStorage 的观测装饰器。
+    async fn scoped_max(&self, spec: ScopedMaxSpec) -> Result<Option<HelixRow>, PortError> {
+        if !self.metrics.is_enabled() {
+            return read::scoped_max(self, spec).await;
+        }
+        let started = self.start_storage_operation();
+        let result = read::scoped_max(self, spec).await;
+        let rows = result
+            .as_ref()
+            .ok()
+            .and_then(Option::as_ref)
+            .map_or(0, |_| 1);
+        self.record_storage_result("scoped_max", rows, started, &result);
+        result
+    }
+
+    /// 在作用域集合内读取有界多行，保留 HostStorage 的观测装饰器。
+    async fn scoped_scan(&self, spec: ScopedScanSpec) -> Result<Vec<HelixRow>, PortError> {
+        if !self.metrics.is_enabled() {
+            return read::scoped_scan(self, spec).await;
+        }
+        let started = self.start_storage_operation();
+        let result = read::scoped_scan(self, spec).await;
+        let rows = result.as_ref().map_or(0, Vec::len);
+        self.record_storage_result("scoped_scan", rows, started, &result);
         result
     }
 

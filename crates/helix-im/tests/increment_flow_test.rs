@@ -38,13 +38,40 @@ fn inc(channel_num: u64, last_event_seq: u64, need_sync: bool, raw: &str) -> Inc
     }
 }
 
+/// 握手自身的测试先兑现真实的空库启动回读；冷启动竞态由 render_scope_test 单独验证。
+fn start_with_empty_store(harness: &mut Harness) {
+    let first = harness.start(0);
+    let corr = first
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .unwrap();
+    let second = harness.step(
+        port_reply_with_body(corr, bytes::Bytes::from_static(b"[]")),
+        1,
+    );
+    let corr = second
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .unwrap();
+    harness.step(
+        port_reply_with_body(corr, bytes::Bytes::from_static(b"[]")),
+        2,
+    );
+}
+
 // ─── ① hello → increment HTTP（POST /channels/load/increment，非 resync）────────
 
 #[test]
 fn hello_triggers_increment_http_not_resync() {
-    // 预注册 channel=1（已知游标 0）；启动投影尚未完成时，hello 仍按既有闸门发送空 cursor 快照。
-    let mut h = Harness::new(&[1]);
-    h.start(0);
+    // 已完成空库扫描的握手发送空 cursor；有消息时的真实 ScopedMax 由 host 集成测试兑现。
+    let mut h = Harness::new(&[]);
+    start_with_empty_store(&mut h);
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
 
     let hello_effects = h.step(hello_inbound("CONN_INC"), 200);
@@ -58,7 +85,7 @@ fn hello_triggers_increment_http_not_resync() {
     h.step(
         port_reply_with_body(
             timestamp_scan_corr,
-            bytes::Bytes::from_static(br#"[{"update_at":1726000123}]"#),
+            bytes::Bytes::from_static(br#"[{"create_at":1726000123}]"#),
         ),
         210,
     );
@@ -124,7 +151,7 @@ fn hello_triggers_increment_http_not_resync() {
 #[test]
 fn duplicate_hello_preserves_increment_and_original_scan() {
     let mut h = Harness::new(&[]);
-    h.start(0);
+    start_with_empty_store(&mut h);
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
     h.step(hello_inbound("CONN_DEDUP"), 200);
     let original = message_timestamp_scan_corr(&h.sink).expect("initial watermark scan");
@@ -168,7 +195,7 @@ fn duplicate_hello_preserves_increment_and_original_scan() {
 #[test]
 fn reconnect_hello_recovers_and_old_connection_scan_is_ignored() {
     let mut h = Harness::new(&[]);
-    h.start(0);
+    start_with_empty_store(&mut h);
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
     h.step(hello_inbound("CONN_OLD"), 101);
     let old = message_timestamp_scan_corr(&h.sink).expect("old scan");
@@ -299,7 +326,7 @@ fn global_increment_end_syncs_fetched_minus_skip() {
 /// per-channel end（Some）→ emit im:channel:update，不发 sync。
 #[test]
 fn subtopic_increment_end_emits_update_no_sync() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[99], "viewer", "company-a", "", "", "");
     h.start(0);
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
     h.step(hello_inbound("CONN_INC"), 200);

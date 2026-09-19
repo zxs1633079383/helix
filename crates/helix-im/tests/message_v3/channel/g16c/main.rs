@@ -38,7 +38,8 @@ fn events(effects: &[Effect]) -> Vec<Value> {
 
 /// attach dialog 后回放带版本的 update_channel，并跨越 PersistOk。
 fn run_persona(viewer: &str) -> TestResult<(Vec<Value>, u64)> {
-    let mut harness = common::Harness::new_with_identity(&[], viewer, "g16c-company", "", "", "");
+    let mut harness =
+        common::Harness::new_with_identity(&[0x1c], viewer, "g16c-company", "", "", "");
     harness.step(
         common::command_json("im_query_dialog_list", json!({})),
         1_700_001_620_000,

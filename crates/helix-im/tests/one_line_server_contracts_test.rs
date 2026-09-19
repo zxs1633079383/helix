@@ -47,7 +47,7 @@ fn emits(h: &Harness, event: &str) -> Vec<serde_json::Value> {
 
 #[test]
 fn create_posts_emits_partial_acceptance_without_claiming_delivery() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[1, 2], "444", "team-1", "", "", "");
     h.step(
         command_json(
             "im_create_posts",
@@ -89,7 +89,7 @@ fn create_posts_emits_partial_acceptance_without_claiming_delivery() {
 /// Forward commands use no local Get and never expose client-supplied content.
 #[test]
 fn relay_ids_go_to_server_authority_without_local_assembly() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[1, 2], "444", "team-1", "", "", "");
     h.step(command_json("im_create_posts",serde_json::json!({"req_id":"r","command_id":"c","mode":"merge","post_ids":[cid(1),cid(2)],"target_channel_ids":[cid(3)]})),100);
     let body = h.last_http_body().unwrap();
     assert_eq!(body["postIds"], serde_json::json!([cid(1), cid(2)]));
@@ -105,7 +105,7 @@ fn relay_ids_go_to_server_authority_without_local_assembly() {
 /// 验证服务端阅读快照按 readBits 生成当前渲染所需的已读与未读成员集合。
 #[test]
 fn post_read_list_derives_render_ready_read_and_unread_members_from_snapshot() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[1, 2], "444", "team-1", "", "", "");
     h.step(
         command_json(
             "im_post_read_list",
@@ -132,7 +132,7 @@ fn post_read_list_derives_render_ready_read_and_unread_members_from_snapshot() {
 
 #[test]
 fn post_read_list_accepts_canonical_snapshot_without_author() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[1, 2], "444", "team-1", "", "", "");
     h.step(
         command_json(
             "im_post_read_list",
@@ -158,7 +158,7 @@ fn post_read_list_accepts_canonical_snapshot_without_author() {
 
 #[test]
 fn post_read_list_rejects_repeated_author_and_illegal_bitmap() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[1, 2], "444", "team-1", "", "", "");
     h.step(
         command_json(
             "im_post_read_list",
@@ -168,7 +168,7 @@ fn post_read_list_rejects_repeated_author_and_illegal_bitmap() {
     );
     let corr = http_corr(&h);
     let raw = bytes::Bytes::from(
-        br#"{"status":"SUCCESS","data":[{"postId":"p1","authorUserId":"444","readBits":"101","snapshotId":"snapshot-1","snapshotVersion":1001,"memberIds":["444","678","444"]},{"postId":"p2","authorUserId":"444","readBits":"02","snapshotId":"snapshot-2","snapshotVersion":1002,"memberIds":["678","555"]}]}"#.to_vec(),
+        br#"{"status":"SUCCESS","data":[{"postId":"p1","channelId":"chfixx00000000000000000001","authorUserId":"444","readBits":"101","snapshotId":"snapshot-1","snapshotVersion":1001,"memberIds":["444","678","444"]},{"postId":"p2","channelId":"chfixx00000000000000000001","authorUserId":"444","readBits":"02","snapshotId":"snapshot-2","snapshotVersion":1002,"memberIds":["678","555"]}]}"#.to_vec(),
     );
     h.step(port_reply_with_body(corr, enveloped(raw)), 2);
 
@@ -185,7 +185,7 @@ fn post_read_list_rejects_repeated_author_and_illegal_bitmap() {
 
 #[test]
 fn post_read_list_fails_closed_when_snapshot_and_bitmap_do_not_match() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[1, 2], "444", "team-1", "", "", "");
     h.step(
         command_json(
             "im_post_read_list",
@@ -195,7 +195,7 @@ fn post_read_list_fails_closed_when_snapshot_and_bitmap_do_not_match() {
     );
     let corr = http_corr(&h);
     let raw = bytes::Bytes::from(
-        br#"{"status":"SUCCESS","data":[{"postId":"p1","authorUserId":"444","readBits":"1","snapshotId":"snapshot-1","snapshotVersion":1001,"memberIds":["444","678"]}]}"#.to_vec(),
+        br#"{"status":"SUCCESS","data":[{"postId":"p1","channelId":"chfixx00000000000000000001","authorUserId":"444","readBits":"1","snapshotId":"snapshot-1","snapshotVersion":1001,"memberIds":["444","678"]}]}"#.to_vec(),
     );
     h.step(port_reply_with_body(corr, enveloped(raw)), 2);
 
@@ -211,7 +211,7 @@ fn post_read_list_fails_closed_when_snapshot_and_bitmap_do_not_match() {
 
 #[test]
 fn post_read_list_keeps_server_unavailable_row_when_bitmap_is_null() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[1, 2], "444", "team-1", "", "", "");
     h.step(
         command_json(
             "im_post_read_list",
@@ -221,7 +221,7 @@ fn post_read_list_keeps_server_unavailable_row_when_bitmap_is_null() {
     );
     let corr = http_corr(&h);
     let raw = bytes::Bytes::from(
-        br#"{"status":"SUCCESS","data":[{"postId":"p1","authorUserId":"444","status":"unavailable","unavailableReason":"missing_member_snapshot","readBits":null,"snapshotVersion":0,"memberIds":[]}] }"#.to_vec(),
+        br#"{"status":"SUCCESS","data":[{"postId":"p1","channelId":"chfixx00000000000000000001","authorUserId":"444","status":"unavailable","unavailableReason":"missing_member_snapshot","readBits":null,"snapshotVersion":0,"memberIds":[]}] }"#.to_vec(),
     );
     h.step(port_reply_with_body(corr, enveloped(raw)), 2);
 
@@ -272,11 +272,11 @@ fn candidate_users_default_to_company_directory_and_emit_render_ready_projection
 #[test]
 fn settings_drop_viewer_capabilities_from_server_matrix() {
     let channel = cid(7);
-    let mut h = Harness::new_with_identity(&[], "444", "", "", "", "");
+    let mut h = Harness::new_with_identity(&[7], "444", "team-1", "", "", "");
     h.step(
         inbound(serde_json::json!({
             "action":"increment_channel",
-            "data":{"id":channel,"role":"MANAGER","needSync":false,"lastEventSeq":0}
+            "data":{"id":channel,"teamId":"team-1","role":"MANAGER","needSync":false,"lastEventSeq":0}
         })),
         1,
     );

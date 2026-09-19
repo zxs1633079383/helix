@@ -70,11 +70,7 @@ fn contract_json() -> Value {
 }
 
 fn persona(auth_user_id: &str) -> Harness {
-    let mut harness = Harness::new_with_identity(&[], auth_user_id, TEAM_ID, "", "", "");
-    harness
-        .module
-        .register_channel(common::channel_id(WS_CHANNEL), 0);
-    harness
+    Harness::new_with_identity(&[WS_CHANNEL], auth_user_id, TEAM_ID, "", "", "")
 }
 
 /// 一次出站 HTTP 调用的可断言快照。

@@ -145,7 +145,7 @@ fn persisted_temporary_id(h: &Harness) -> Option<String> {
 /// Helix 分配的 temporaryId 必须贯穿 optimistic 持久化、sending 投影和 HTTP。
 #[test]
 fn send_message_mints_one_temporary_id_for_projection_persist_and_http() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let first_effects = h.step(
         command_json(
             "im_send_message",
@@ -221,7 +221,7 @@ fn send_message_mints_one_temporary_id_for_projection_persist_and_http() {
 /// 初始命令只写 optimistic 事实，PersistOk 后才 Emit/Http/ScheduleTimer。
 #[test]
 fn send_message_emits_four_effects() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let initial_effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
 
     // 应产出 Persist{P1}（乐观落库）
@@ -272,7 +272,7 @@ fn send_message_emits_four_effects() {
 
 #[test]
 fn send_message_forwards_request_id_as_trace_header() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let initial_effects = h.step(
         send_message_cmd_json(serde_json::json!({
             "channel_id": cid(1),
@@ -307,7 +307,7 @@ fn send_message_forwards_request_id_as_trace_header() {
 
 #[test]
 fn send_two_messages_each_independent() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let e1 = h.step(send_message_cmd(1, "tmp_1", "msg1"), 1000);
     let e2 = h.step(send_message_cmd(1, "tmp_2", "msg2"), 1001);
 
@@ -367,7 +367,7 @@ fn send_two_messages_each_independent() {
 
 #[test]
 fn send_p1_persist_ok_advances_status() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
     // P1 落库成功：无 attach surface 的 Harness 直接推进 H1 + timeout。
     let reply_effects = acknowledge_optimistic_persist(&mut h, &effects, 1100);
@@ -391,7 +391,7 @@ fn send_p1_persist_ok_advances_status() {
 #[test]
 /// 证明 15 秒无权威回声会进入有回执的 unsend 持久化边界。
 fn send_timeout_marks_unsend() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let initial_effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
     let effects = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
     let timeout_timer = effects
@@ -424,7 +424,7 @@ fn send_timeout_marks_unsend() {
 
 #[test]
 fn pending_send_http_error_marks_unsend_cancels_timer_and_emits_failed_projection() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let initial_effects = h.step(send_message_cmd(1, "tmp_fail", "hello"), 1000);
     let effects = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
     let h1 = http_corr(&effects);
@@ -466,7 +466,7 @@ fn pending_send_http_error_marks_unsend_cancels_timer_and_emits_failed_projectio
 #[test]
 /// 证明迟到的初始 P1 回包不会阻断随后经过新持久屏障的 retry。
 fn late_optimistic_persist_reply_does_not_reopen_failed_send() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let effects = h.step(send_message_cmd(1, "tmp_late_p1", "hello"), 1000);
     let p1 = p1_corr(&effects);
     let after_p1 = acknowledge_optimistic_persist(&mut h, &effects, 1001);
@@ -504,7 +504,7 @@ fn late_optimistic_persist_reply_does_not_reopen_failed_send() {
 #[test]
 /// 证明 retry 在持久化 sending 后复用原 body、temporaryId 与 posts/create。
 fn retry_send_reuses_cached_body_and_temporary_id_after_real_http_error() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let initial_effects = h.step(send_message_cmd(1, "tmp_retry_send", "hello retry"), 1000);
     let effects = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
     let h1 = http_corr(&effects);
@@ -550,7 +550,7 @@ fn retry_send_reuses_cached_body_and_temporary_id_after_real_http_error() {
 #[test]
 /// 证明 retry 的乐观投影保留原消息回复锚点。
 fn retry_send_keeps_reply_anchors_in_optimistic_projection() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let initial_effects = h.step(
         send_message_cmd_json(serde_json::json!({
             "channel_id": cid(1),
@@ -586,7 +586,7 @@ fn retry_send_keeps_reply_anchors_in_optimistic_projection() {
 #[test]
 /// 证明冷启动 durable row 经 retry 持久屏障恢复原发送合同。
 fn retry_send_rehydrates_failed_message_after_native_restart() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let lookup_effects = h.step(
         command_json(
             "im_retry_send",
@@ -707,7 +707,7 @@ fn retry_send_rehydrates_failed_message_after_native_restart() {
 #[test]
 /// 证明 server id fallback 命中后仍以 durable temporaryId 继续 retry。
 fn retry_send_falls_back_from_temporary_id_to_server_id_lookup() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let first = h.step(
         command_json(
             "im_retry_send",
@@ -773,7 +773,7 @@ fn retry_send_falls_back_from_temporary_id_to_server_id_lookup() {
 #[test]
 /// 证明超时持久化只触发一次，重复 timer 不会重复失败写入。
 fn duplicate_timeout_does_not_repeat_failed_persist() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let initial_effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
     let effects = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
     let timeout_timer = effects
@@ -868,7 +868,7 @@ fn send_timeline_query(channel: u64) -> helix_core::Tick {
 /// 旧窗口读回可以丢弃投影，但已持久化消息仍必须发送并启动独立超时。
 #[test]
 fn superseded_send_readback_still_sends_and_times_out() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     attach_empty_send_timeline(&mut h, 1);
     let initial = h.step(send_message_cmd(1, "race_a", "hello"), 1000);
     let readback = acknowledge_optimistic_persist(&mut h, &initial, 1001);
@@ -913,7 +913,8 @@ fn superseded_send_readback_still_sends_and_times_out() {
 /// 千条消息跨四频道交错落库并逆序读回：每条发送恰好一次，各自拥有 timer。
 #[test]
 fn concurrent_send_readbacks_keep_independent_http_and_timers() {
-    let mut h = Harness::new(&[1, 2, 3, 4]);
+    let mut h =
+        Harness::new_with_identity(&[1, 2, 3, 4], "send-viewer", "send-company", "", "", "");
     for channel in 1..=4 {
         attach_empty_send_timeline(&mut h, channel);
     }
@@ -984,7 +985,7 @@ fn concurrent_send_readbacks_keep_independent_http_and_timers() {
 /// WS 断线不能取消已成功落库、仍等待本地读回的 HTTP 发送。
 #[test]
 fn disconnected_send_readback_still_sends() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     attach_empty_send_timeline(&mut h, 1);
     let initial = h.step(send_message_cmd(1, "disconnect_a", "hello"), 1000);
     let readback = acknowledge_optimistic_persist(&mut h, &initial, 1001);
@@ -1018,7 +1019,7 @@ fn disconnected_send_readback_still_sends() {
 /// 身份切换必须撤销旧账号读回，即使之前经历过 transport reset。
 #[test]
 fn identity_change_discards_deferred_send_readback() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     attach_empty_send_timeline(&mut h, 1);
     let initial = h.step(send_message_cmd(1, "identity_a", "hello"), 1000);
     let readback = acknowledge_optimistic_persist(&mut h, &initial, 1001);
@@ -1162,24 +1163,41 @@ fn emit_jsons(sink: &helix_core::EffectSink) -> Vec<Value> {
 fn send_request_id_waits_for_durable_echo() {
     for persist_ok in [true, false] {
         let mut h = Harness::new_with_identity(&[1], "user_1", "company", "", "", "");
-        let initial = h.step(send_message_cmd_json(serde_json::json!({
-            "channel_id": cid(1), "temporary_id": "recent-forward-send", "text": "forwarded",
-            "req_id": "recent-forward-request"
-        })), 1000);
+        let initial = h.step(
+            send_message_cmd_json(serde_json::json!({
+                "channel_id": cid(1), "temporary_id": "recent-forward-send", "text": "forwarded",
+                "req_id": "recent-forward-request"
+            })),
+            1000,
+        );
         acknowledge_optimistic_persist(&mut h, &initial, 1001);
-        assert!(emit_jsons(&h.sink).iter().all(|v| v["data"].get("requestId").is_none()));
+        assert!(emit_jsons(&h.sink)
+            .iter()
+            .all(|v| v["data"].get("requestId").is_none()));
         let echo = h.step(send_echo_frame(1, "recent-forward-send"), 1002);
         assert!(!echo.contains(&EffectKind::Emit));
         let corr = p1_corr(&echo);
-        h.step(if persist_ok { port_reply_ok(corr) } else { port_reply_err(corr) }, 1003);
+        h.step(
+            if persist_ok {
+                port_reply_ok(corr)
+            } else {
+                port_reply_err(corr)
+            },
+            1003,
+        );
         let terminals = emit_jsons(&h.sink);
         if persist_ok {
-            let sent = terminals.iter().find(|v| v["event"] == "im:post:sent").unwrap();
+            let sent = terminals
+                .iter()
+                .find(|v| v["event"] == "im:post:sent")
+                .unwrap();
             assert_eq!(sent["data"]["requestId"], "recent-forward-request");
         } else {
             assert!(terminals.iter().all(|v| v["event"] != "im:post:sent"));
         }
         h.step(send_echo_frame(1, "recent-forward-send"), 1004);
-        assert!(emit_jsons(&h.sink).iter().all(|v| v["data"].get("requestId").is_none()));
+        assert!(emit_jsons(&h.sink)
+            .iter()
+            .all(|v| v["data"].get("requestId").is_none()));
     }
 }

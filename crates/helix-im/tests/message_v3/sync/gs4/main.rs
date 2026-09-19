@@ -4,6 +4,8 @@ use serde_json::json;
 #[path = "../support.rs"]
 mod support;
 
+const CHANNEL_ID: &str = "chfixx00000000000000000024";
+
 /// G-S4 hydrated 只在真实 PersistOk 后释放。
 #[test]
 fn gs4_channel_hydrated_is_persist_gated() -> support::TestResult<()> {
@@ -11,7 +13,7 @@ fn gs4_channel_hydrated_is_persist_gated() -> support::TestResult<()> {
         json!({"channelId":"chfixx00000000000000000024","state":"hydrated","needSync":true}),
     )
     .map_err(|error| error.to_string())?;
-    let trace = support::run(event)?;
+    let trace = support::run(event, CHANNEL_ID)?;
     assert_eq!(trace.events[0]["event"], "im:sync:channel-hydrated");
     assert_eq!(trace.events[0]["data"]["state"], "hydrated");
     Ok(())
@@ -24,6 +26,6 @@ fn artifact_test() -> support::TestResult<()> {
         json!({"channelId":"chfixx00000000000000000024","state":"hydrated","needSync":true}),
     )
     .map_err(|error| error.to_string())?;
-    let trace = support::run(event)?;
+    let trace = support::run(event, CHANNEL_ID)?;
     support::write_artifact("G-S4", "message_v3_gs4", trace)
 }

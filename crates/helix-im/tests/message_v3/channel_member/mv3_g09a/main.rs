@@ -21,7 +21,7 @@ fn phase3_gate_reference_is_complete() {
 /// 驱动成员变更到最终 roster 读回，返回 canonical renderer 事件。
 fn run_member_update() -> Value {
     let channel_id = common::cid(9);
-    let mut harness = Harness::new_with_identity(&[], "owner", "team-a", "", "", "");
+    let mut harness = Harness::new_with_identity(&[9], "owner", "team-a", "", "", "");
     harness.step(
         Tick::Inbound(InboundBytes(Bytes::from(
             serde_json::to_vec(&json!({
@@ -136,7 +136,7 @@ fn member_update_emits_absolute_durable_roster_after_readback() {
 #[test]
 fn kicked_viewer_persists_left_tombstone_before_terminal_emit() {
     let channel_id = common::cid(19);
-    let mut harness = Harness::new_with_identity(&[], "removed-user", "team-a", "", "", "");
+    let mut harness = Harness::new_with_identity(&[19], "removed-user", "team-a", "", "", "");
     harness.step(
         Tick::Inbound(InboundBytes(Bytes::from(
             serde_json::to_vec(&json!({
@@ -220,8 +220,7 @@ fn kicked_viewer_persists_left_tombstone_before_terminal_emit() {
 #[test]
 fn rejoined_viewer_clears_local_left_state_after_atomic_persist() {
     let channel_id = common::channel_id(29);
-    let mut harness = Harness::new_with_identity(&[], "rejoined-user", "team-a", "", "", "");
-    harness.module.register_channel(channel_id, 0);
+    let mut harness = Harness::new_with_identity(&[29], "rejoined-user", "team-a", "", "", "");
     harness.step(
         Tick::Inbound(InboundBytes(Bytes::from(
             serde_json::to_vec(&json!({

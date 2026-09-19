@@ -11,16 +11,33 @@ use helix_core::EffectSink;
 /// Ok → ① 透传 im:read:result{req_id, body}（UC-6.4 ② 冻结契约面）；
 ///       ② 解析 byIds body（map[channelId][]）逐 channel emit render-ready im:channel:members
 ///       （壳退纯绑定·载族自愈）。信封畸形 / Err → 仅回灌 read error（不丢 req_id，前端 reject）。
-pub(crate) fn emit_members_by_ids(req_id: &str, outcome: &PortOutcome, out: &mut EffectSink) {
+pub(crate) fn emit_members_by_ids(
+    req_id: &str,
+    outcome: &PortOutcome,
+    visible: impl Fn(&str) -> bool,
+    out: &mut EffectSink,
+) {
     match outcome {
         PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
             Ok(raw_body) => {
+                let body: serde_json::Value =
+                    serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
+                // byIds 以对象 key 表达频道归属；成员自己的 teamId 不是频道公司。
+                if body
+                    .get("data")
+                    .and_then(serde_json::Value::as_object)
+                    .is_some_and(|channels| channels.keys().any(|id| !visible(id)))
+                {
+                    out.push(crate::read_relay::emit_read_error(
+                        req_id,
+                        "RENDER_SCOPE_MISMATCH",
+                    ));
+                    return;
+                }
                 out.push(crate::read_relay::emit_read_result(
                     req_id,
                     raw_body.as_ref(),
                 ));
-                let body: serde_json::Value =
-                    serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
                 for (cid, members) in crate::render_ready_members::members_from_byids_body(&body) {
                     out.push(crate::render_ready_members::emit_channel_members(
                         &cid,

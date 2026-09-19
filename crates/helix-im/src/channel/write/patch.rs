@@ -41,9 +41,16 @@ pub fn collect_present(data: &serde_json::Value) -> Vec<ChannelCol> {
         }
     }
 
-    if let Some(value) = data.get("lastPost").or_else(|| data.get("last_post")).filter(|value| !value.is_null()) {
+    if let Some(value) = data
+        .get("lastPost")
+        .or_else(|| data.get("last_post"))
+        .filter(|value| !value.is_null())
+    {
         let post = crate::message_summary::prepare_post(value);
-        let encoded = post.as_str().map(str::to_owned).unwrap_or_else(|| post.to_string());
+        let encoded = post
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| post.to_string());
         cols.push(("last_post", SqlValue::Text(encoded)));
     }
 

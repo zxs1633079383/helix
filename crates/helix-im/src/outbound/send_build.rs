@@ -44,7 +44,6 @@ const TEMPLATE_INNER_TEXT: &str = "TEXT";
 /// `props.document.version` 的 Helix 权威常量（MV3-G01f 参考包固定 `1`）。
 const DOCUMENT_PROPS_VERSION: u64 = 1;
 
-
 /// 当前登录用户身份（host 经 ImConfig 注入，确定性身份；core/im 不自取登录态）。
 ///
 /// `org_name` / `dept_name` / `user_name` 是 ucenter 跨 feature 读依赖（现网

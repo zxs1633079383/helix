@@ -12,7 +12,8 @@ type TestResult<T> = Result<T, String>;
 
 /// 通过既有 channel_close WS handler 和持久化回执收集终态事件。
 fn run_persona(user_id: &str) -> TestResult<Vec<Value>> {
-    let mut harness = common::Harness::new_with_identity(&[], user_id, "g08c-company", "", "", "");
+    let mut harness =
+        common::Harness::new_with_identity(&[0x8c], user_id, "g08c-company", "", "", "");
     let inbound = serde_json::to_vec(&json!({
         "action": "channel_close",
         "data": {"channelId": CHANNEL_ID, "deleteAt": 1_700_001_600_010_i64}

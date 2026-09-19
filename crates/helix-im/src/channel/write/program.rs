@@ -69,8 +69,13 @@ pub fn program_full(
             omit.push("unread_count");
         }
     }
-    match s("unreadPostId") {
-        Some(v) => row.push(("unread_post_id", SqlValue::Text(v))),
+    // Go increment 使用大写 R；保留旧 camelCase，明确空串清除，缺失/坏类型不覆盖。
+    match data
+        .get("unReadPostId")
+        .or_else(|| data.get("unreadPostId"))
+        .and_then(serde_json::Value::as_str)
+    {
+        Some(v) => row.push(("unread_post_id", SqlValue::Text(v.to_owned()))),
         None => {
             row.push(("unread_post_id", SqlValue::Text(String::new())));
             omit.push("unread_post_id");
@@ -92,10 +97,17 @@ pub fn program_full(
         "urgent_post_list",
         SqlValue::Text(j("urgentPostList", "[]")),
     ));
-    let last_post = data.get("lastPost").or_else(|| data.get("last_post"))
+    let last_post = data
+        .get("lastPost")
+        .or_else(|| data.get("last_post"))
         .filter(|value| !value.is_null())
         .map(|value| crate::message_summary::prepare_post(value))
-        .map(|value| value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string()))
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.to_string())
+        })
         .unwrap_or_default();
     row.push(("last_post", SqlValue::Text(last_post.clone())));
     // Real increment_channel frames may omit lastPostAt while carrying the same last post boundary as lastRootPostAt.

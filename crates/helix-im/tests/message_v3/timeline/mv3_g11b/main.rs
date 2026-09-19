@@ -14,6 +14,31 @@ const CHANNEL: u64 = 0x11b;
 const WINDOW: &str = "mv3-g11b-window";
 const REQUEST_ID: &str = "req-mv3-g11b-001";
 
+/// 为 older 回放注入真实 runtime identity 与 channel scope，保持正例可进入渲染闸门。
+fn scoped_harness() -> Harness {
+    let config = helix_im::module::ImConfig {
+        ws_url: "ws://test".to_string(),
+        api_base_url: "http://test".to_string(),
+        default_api_base_url: "http://localhost:3399".to_string(),
+        auth_user_id: "g11b-viewer".to_string(),
+        company_id: "g11b-company".to_string(),
+        ..Default::default()
+    };
+    let mut harness = Harness {
+        module: helix_im::ImModule::new_with_local_store(
+            config,
+            helix_im::query::LocalStoreMode::Session,
+        ),
+        sink: helix_core::EffectSink::new(),
+        effect_log: Vec::new(),
+    };
+    harness.module.register_channel(common::channel_id(CHANNEL), 0);
+    harness.seed_channel_scope(&common::cid(CHANNEL), "g11b-company", "g11b-viewer");
+    harness.sink.clear();
+    harness.effect_log.clear();
+    harness
+}
+
 /// 从当前批次提取唯一 HTTP correlation，并可校验 Go endpoint。
 fn only_http(harness: &Harness, suffix: Option<&str>) -> Correlation {
     let mut correlations = harness
@@ -244,8 +269,7 @@ fn older_command(page_size: u64) -> helix_core::Tick {
 /// G11b 成功链严格为 HTTP → Persist → 每条 authority identity 的 exact Scan → 唯一结果。
 #[test]
 fn g11b_older_waits_for_durable_scan_and_returns_query_result() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness();
     attach_latest_window(&mut harness);
     harness.step(older_command(20), 5);
     let http = only_http(&harness, Some("/posts/getPostsAfterIndex"));
@@ -325,8 +349,7 @@ fn g11b_older_waits_for_durable_scan_and_returns_query_result() {
 /// 最新频道 Scan 不能冒充 older authority 页；否则客户端会收到当前窗口并重试同一 anchor。
 #[test]
 fn g11b_latest_channel_scan_cannot_satisfy_older_authority_page() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness();
     attach_latest_window(&mut harness);
     harness.step(older_command(20), 5);
     let http = only_http(&harness, Some("/posts/getPostsAfterIndex"));
@@ -361,8 +384,7 @@ fn g11b_latest_channel_scan_cannot_satisfy_older_authority_page() {
 /// G11b 页长接受 60，超过上限在任何 storage/http effect 前拒绝。
 #[test]
 fn g11b_page_size_caps_before_io() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness();
     attach_latest_window(&mut harness);
     harness.step(older_command(60), 5);
     let http = only_http(&harness, Some("/posts/getPostsAfterIndex"));
@@ -402,8 +424,7 @@ fn g11b_page_size_caps_before_io() {
 /// 锚点不需要 attached window；缺 coverage 时直接向 Go 发起一次请求。
 #[test]
 fn g11b_anchor_miss_starts_one_authority_io() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness();
     let command = command_json(
         "im_load_older_context",
         json!({
@@ -438,8 +459,7 @@ fn g11b_anchor_miss_starts_one_authority_io() {
 /// HTTP 失败只结算关联 error，且不产生 timeline 广播或第二 terminal。
 #[test]
 fn g11b_http_failure_preserves_old_window() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness();
     attach_latest_window(&mut harness);
     harness.step(older_command(20), 5);
     let http = only_http(&harness, Some("/posts/getPostsAfterIndex"));
@@ -464,8 +484,7 @@ fn g11b_http_failure_preserves_old_window() {
 /// 非空 authority 页被 viewer 全部过滤时，不能伪装成带 hasOlder=true 的成功空页。
 #[test]
 fn g11b_non_empty_filtered_page_fails_closed_instead_of_retryable_empty_success() {
-    let mut harness =
-        Harness::new_with_identity(&[CHANNEL], "g11b-viewer", "g11b-company", "", "", "");
+    let mut harness = scoped_harness();
     attach_latest_window(&mut harness);
     harness.step(older_command(20), 5);
     let http = only_http(&harness, Some("/posts/getPostsAfterIndex"));

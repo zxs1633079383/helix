@@ -578,17 +578,14 @@ mod tests {
                 Effect::Persist { corr, ops } => {
                     saw_message_timestamp_scan = true;
                     assert_eq!(corr.raw(), 91);
-                    let [StorageOp::Scan(spec)] = ops.as_slice() else {
-                        panic!("hello watermark must be one message Scan");
+                    let [StorageOp::ScopedMax(spec)] = ops.as_slice() else {
+                        panic!("hello watermark must be one scoped max operation");
                     };
                     assert_eq!(spec.table, "message");
-                    assert_eq!(spec.limit, Some(1));
-                    assert_eq!(spec.order_by.len(), 1);
-                    assert_eq!(spec.order_by[0].column, "update_at");
-                    assert_eq!(
-                        spec.order_by[0].direction,
-                        helix_core::effect::SortDirection::Desc
-                    );
+                    assert_eq!(spec.scope_col, "channel_id");
+                    assert!(spec.scope_values.is_empty());
+                    assert_eq!(spec.value_col, "create_at");
+                    assert_eq!(spec.result_alias, "create_at");
                 }
                 Effect::Http { .. } => {
                     panic!("hello must wait for the message watermark scan before HTTP");

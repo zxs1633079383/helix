@@ -406,6 +406,21 @@ pub(crate) fn storage_op_metadata(op: &StorageOp) -> Value {
         }),
         StorageOp::Get(spec) => json!({ "operation": "Get", "table": spec.table }),
         StorageOp::ScopedGet(spec) => json!({ "operation": "ScopedGet", "table": spec.table }),
+        StorageOp::ScopedMax(spec) => json!({
+            "operation": "ScopedMax",
+            "table": spec.table,
+            "scope_col": spec.scope_col,
+            "value_col": spec.value_col,
+            "result_alias": spec.result_alias,
+            "scope_count": spec.scope_values.len(),
+        }),
+        StorageOp::ScopedScan(spec) => json!({
+            "operation": "ScopedScan",
+            "table": spec.table,
+            "scope_col": spec.scope_col,
+            "scope_count": spec.scope_values.len(),
+            "limit": spec.limit,
+        }),
         StorageOp::Scan(spec) => json!({ "operation": "Scan", "table": spec.table }),
     }
 }

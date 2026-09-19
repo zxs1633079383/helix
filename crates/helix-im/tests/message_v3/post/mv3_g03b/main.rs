@@ -650,7 +650,7 @@ fn merged_forward_diverges_between_sender_and_receiver_personas() {
 /// 合并转发只接受同一来源频道；跨频道选择必须 fail closed 且绝不出站。
 #[test]
 fn server_rejection_of_source_scope_has_no_delivery() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[TARGET_A], SENDER, "mv3-g03b", "", "", "");
     h.step(
         relay_tick("merge", &[sid(SOURCE_A), sid(SOURCE_B)], &[cid(TARGET_A)]),
         100,

@@ -206,6 +206,7 @@ fn dialog_list_merges_auth_scoped_member_top_after_channel_scan() {
         {
             "id": cid(2),
             "team_id": "company-a",
+            "user_id": "user-a",
             "members": [{ "userId": "user-a" }],
             "is_top": 0,
             "unread_count": 3,

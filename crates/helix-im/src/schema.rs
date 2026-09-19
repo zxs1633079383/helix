@@ -504,6 +504,7 @@ END",
 /// `channel_member` 补列，故 host/ffi 装配层需逐条执行并忽略 SQLite
 /// `duplicate column name`。
 pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
+    "CREATE INDEX IF NOT EXISTS idx_message_channel_id_create_at ON message (channel_id, create_at)",
     "ALTER TABLE message ADD COLUMN reply_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE message ADD COLUMN event_seq INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE message ADD COLUMN upload_progress_percent INTEGER NOT NULL DEFAULT 0",

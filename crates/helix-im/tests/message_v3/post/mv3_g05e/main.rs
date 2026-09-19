@@ -91,9 +91,19 @@ fn read_list_body(rows: Value) -> Bytes {
     ))
 }
 
+/// Read/list projections carry a channel id and therefore need the exact persisted
+/// channel ownership row used by the receipt fixture.
+fn scoped_reader_harness(viewer_user_id: &str) -> Harness {
+    let mut harness = Harness::new_with_identity(&[], viewer_user_id, "mv3-g05e", "", "", "");
+    harness.seed_channel_scope(&cid(CHANNEL_IX), "mv3-g05e", viewer_user_id);
+    harness.sink.clear();
+    harness.effect_log.clear();
+    harness
+}
+
 /// 以指定 viewer 身份跑一次 `im_post_read_list`，返回全部逐条 canonical 回执。
 fn run_read_list_events(viewer_user_id: &str, req_id: &str, rows: Value) -> Vec<Value> {
-    let mut harness = Harness::new_with_identity(&[], viewer_user_id, "mv3-g05e", "", "", "");
+    let mut harness = scoped_reader_harness(viewer_user_id);
     harness.step(
         command_json(
             "im_post_read_list",
@@ -343,7 +353,7 @@ fn sender_and_receiver_personas_receive_byte_exact_receipts() {
 /// HTTP 失败只回灌内部读错误，禁止向 Angular 发布伪造的空回执快照。
 #[test]
 fn transport_failure_emits_read_result_error_without_receipt() {
-    let mut harness = Harness::new_with_identity(&[], READER_ID, "mv3-g05e", "", "", "");
+    let mut harness = scoped_reader_harness(READER_ID);
     harness.step(
         command_json(
             "im_post_read_list",

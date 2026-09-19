@@ -8,7 +8,7 @@
 //! use common::*;
 //! ```
 
-use helix_core::effect::{Correlation, StorageOp, TimerId};
+use helix_core::effect::{Correlation, Row, SqlValue, StorageOp, TimerId, UpsertSpec};
 use helix_core::tick::{AppCommand, InboundBytes, PortOutcome, ReplyBytes};
 use helix_core::{Effect, EffectSink, Tick};
 use helix_im::module::ImConfig;
@@ -139,11 +139,41 @@ impl Harness {
         for &id in channel_ids {
             module.register_channel(channel_id(id), 0);
         }
-        Self {
+        let mut harness = Self {
             module,
             sink: EffectSink::new(),
             effect_log: Vec::new(),
+        };
+        // 非空 RuntimeAuth + 显式 channel_ids 代表可信本地频道行；空身份/空列表仍 fail-closed。
+        if !auth_user_id.is_empty() && !company_id.is_empty() {
+            for &id in channel_ids {
+                harness.seed_channel_scope(&cid(id), company_id, auth_user_id);
+            }
+            // Fixture setup 不应改变被测首批 Effect 或 effect_log 的起点。
+            harness.sink.clear();
+            harness.effect_log.clear();
         }
+        harness
+    }
+
+    /// 通过真实 MessageV3 提交 seam 建立可信频道归属；空身份不会被隐式授权。
+    #[allow(dead_code)]
+    pub fn seed_channel_scope(&mut self, channel_id: &str, team_id: &str, viewer_id: &str) {
+        let row: Row = vec![
+            ("id".to_string(), SqlValue::Text(channel_id.to_string())),
+            ("team_id".to_string(), SqlValue::Text(team_id.to_string())),
+            ("user_id".to_string(), SqlValue::Text(viewer_id.to_string())),
+        ];
+        let corr = self.module.queue_message_v3_commit(
+            vec![StorageOp::BatchUpsert(UpsertSpec::new(
+                "channel",
+                vec![row],
+                Some("id"),
+            ))],
+            Vec::new(),
+            &mut self.sink,
+        );
+        self.step(port_reply_ok(corr.raw()), 0);
     }
 
     /// 取本批次最后一条 `Effect::Http` 的 body（解析为 JSON）。P1 send body 断言用。
@@ -206,11 +236,15 @@ pub fn message_timestamp_scan_corr(sink: &EffectSink) -> Option<u64> {
         let Effect::Persist { corr, ops } = effect else {
             continue;
         };
-        let [StorageOp::Scan(spec)] = ops.as_slice() else {
-            continue;
-        };
-        if spec.table == "message" && spec.limit == Some(1) {
-            return Some(corr.raw());
+        match ops.as_slice() {
+            [StorageOp::ScopedMax(spec)]
+                if spec.table == "message"
+                    && spec.scope_col == "channel_id"
+                    && spec.value_col == "create_at" =>
+            {
+                return Some(corr.raw());
+            }
+            _ => {}
         }
     }
     None
@@ -478,6 +512,30 @@ pub fn channel_projection_scan_reply(rows: &[(u64, bool, u64)]) -> bytes::Bytes 
         .map(|&(channel_id, deleted, last_event_seq)| {
             json!({
                 "id": cid(channel_id),
+                "delete_at": if deleted { 1_i64 } else { 0_i64 },
+                "is_remove": 0_i64,
+                "last_event_seq": last_event_seq as i64,
+            })
+        })
+        .collect();
+    bytes::Bytes::from(serde_json::to_vec(&arr).unwrap())
+}
+
+/// 构造带可信频道公司/本地 viewer 归属的启动扫描回报；稀疏旧 fixture 不得冒充授权行。
+#[allow(dead_code)]
+pub fn channel_projection_scan_reply_with_scope(
+    rows: &[(u64, bool, u64)],
+    team_id: &str,
+    viewer_id: &str,
+) -> bytes::Bytes {
+    use serde_json::json;
+    let arr: Vec<_> = rows
+        .iter()
+        .map(|&(channel_id, deleted, last_event_seq)| {
+            json!({
+                "id": cid(channel_id),
+                "team_id": team_id,
+                "user_id": viewer_id,
                 "delete_at": if deleted { 1_i64 } else { 0_i64 },
                 "is_remove": 0_i64,
                 "last_event_seq": last_event_seq as i64,

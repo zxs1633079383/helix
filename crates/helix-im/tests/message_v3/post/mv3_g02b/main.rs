@@ -75,7 +75,8 @@ fn reference_package_is_complete() {
 /// 发送超时只结算本机失败态，不自动补发 HTTP，并产出可直接渲染的失败投影。
 #[test]
 fn timeout_marks_unsend_without_automatic_http_retry() {
-    let mut sender = Harness::new(&[1]);
+    let mut sender =
+        Harness::new_with_identity(&[1], "user-actor-444", "company-phase1", "", "", "");
     let initial = sender.step(
         send_message_cmd(1, "tmp-mv3-g02b-timeout", "等待超时"),
         1_700_000_000_000,

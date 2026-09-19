@@ -558,7 +558,7 @@ fn send_default_type_text_id_empty_no_regression() {
 #[test]
 /// 验证完整发送编排同时保留 reply 锚并把引用快照送入 posts/create body。
 fn send_reply_merges_root_fields() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let initial_effects = h.step(
         send_message_cmd_json(json!({
             "channel_id": cid(1),

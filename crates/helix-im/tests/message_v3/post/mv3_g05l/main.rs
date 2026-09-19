@@ -239,7 +239,9 @@ impl SideEffectCounts {
 
 /// 建空场景：注册一个频道、注入身份，但**不喂任何 Tick**。
 fn empty_scenario() -> Harness {
-    Harness::new_with_identity(&[1], ACTOR_ID, COMPANY_ID, "", "", "")
+    // Keep both the prelude channel and the negative-control channel as real
+    // persisted scopes; the control must not rely on an unknown channel.
+    Harness::new_with_identity(&[1, 2], ACTOR_ID, COMPANY_ID, "", "", "")
 }
 
 /// 五个工具栏动作在 helix 命令边界上可能出现的**标识符**形态。
@@ -491,7 +493,7 @@ fn toolbar_action_ticks_are_transparent_to_the_next_real_command() {
     );
 
     // 对照组：插入一条真 inbound 消息，序列必须变化（证明差分装置有鉴别力）。
-    let control = replay(vec![inbound_event(1, 2, 0)]);
+    let control = replay(vec![inbound_event(2, 1, 0)]);
     assert_ne!(
         baseline, control,
         "negative control: 插入真 inbound 消息都不改变 Effect 序列，差分装置无鉴别力，\

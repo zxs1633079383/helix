@@ -21,7 +21,7 @@ fn phase3_gate_reference_is_complete() {
 /// 喂入真实昵称 WS action，并返回持久化 correlation 与回放 harness。
 fn nickname_harness() -> (common::Harness, helix_core::Correlation) {
     let mut harness =
-        common::Harness::new_with_identity(&[], "g09c-viewer", "g09c-company", "", "", "");
+        common::Harness::new_with_identity(&[0x9c], "g09c-viewer", "g09c-company", "", "", "");
     let inbound = serde_json::to_vec(&json!({
         "action": "update_channel_member_nickName",
         "data": {

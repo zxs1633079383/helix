@@ -105,7 +105,12 @@ fn emitted_events(effects: &[Effect]) -> Vec<Value> {
 fn run_persona(viewer_id: &str, unread_count: i64) -> TestResult<PersonaTrace> {
     let inbound = authority();
     let bytes = serde_json::to_vec(&inbound).map_err(|error| error.to_string())?;
-    let mut harness = Harness::new_with_identity(&[1], viewer_id, "g02-company", "", "", "");
+    // The contract channel is deliberately not `cid(1)`; seed the exact persisted
+    // channel row instead of letting the numeric fixture silently authorize another id.
+    let mut harness = Harness::new_with_identity(&[], viewer_id, "g02-company", "", "", "");
+    harness.seed_channel_scope(CHANNEL_ID, "g02-company", viewer_id);
+    harness.sink.clear();
+    harness.effect_log.clear();
     harness.step(
         Tick::Inbound(InboundBytes(Bytes::from(bytes))),
         CREATE_AT as u64,

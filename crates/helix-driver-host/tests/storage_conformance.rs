@@ -1,6 +1,7 @@
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanOrder,
-    ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec, SqlValue, UpsertSpec,
+    ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec, ScopedMaxSpec, ScopedScanSpec, SqlValue,
+    UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::tick::PortOutcome;
@@ -232,6 +233,118 @@ async fn host_storage_scan_applies_structured_multi_order_before_limit() {
         .collect();
 
     assert_eq!(ids, ["old-pinned", "active", "new-empty"]);
+}
+
+#[tokio::test]
+async fn host_storage_scoped_max_filters_before_aggregate() {
+    let storage = storage().await;
+    storage
+        .execute_raw(
+            "CREATE TABLE watermark_messages (\
+             id INTEGER PRIMARY KEY, channel_id TEXT NOT NULL, \
+             create_at INTEGER NOT NULL, update_at INTEGER NOT NULL);\
+             CREATE INDEX idx_watermark_messages_scope_create \
+             ON watermark_messages(channel_id, create_at);\
+             INSERT INTO watermark_messages VALUES \
+             (1,'channel-a',1700,9900),\
+             (2,'channel-a',2300,1200),\
+             (3,'channel-b',9900,12000);",
+        )
+        .await
+        .expect("create and seed scoped max table");
+
+    let mut scope_values = (0..900)
+        .map(|index| SqlValue::Text(format!("missing-{index}")))
+        .collect::<Vec<_>>();
+    // Force the host adapter's bounded-IN path to execute more than one query;
+    // the matching channel is deliberately in the second chunk.
+    scope_values.push(SqlValue::Text("channel-a".into()));
+
+    let row = storage
+        .scoped_max(ScopedMaxSpec {
+            table: "watermark_messages",
+            scope_col: "channel_id",
+            scope_values,
+            value_col: "create_at",
+            result_alias: "create_at",
+        })
+        .await
+        .expect("scoped max")
+        .expect("scoped row");
+    assert!(matches!(
+        row.iter().find(|(column, _)| column == "create_at"),
+        Some((_, SqlValue::Integer(2300)))
+    ));
+
+    assert!(storage
+        .scoped_max(ScopedMaxSpec {
+            table: "watermark_messages",
+            scope_col: "channel_id",
+            scope_values: Vec::new(),
+            value_col: "create_at",
+            result_alias: "create_at",
+        })
+        .await
+        .expect("empty scope")
+        .is_none());
+}
+
+#[tokio::test]
+async fn host_storage_scoped_scan_filters_before_limit_and_rejects_truncation() {
+    let storage = storage().await;
+    storage
+        .execute_raw(
+            "CREATE TABLE scoped_scan_rows (\
+             id INTEGER PRIMARY KEY, channel_id TEXT NOT NULL, payload TEXT NOT NULL);\
+             INSERT INTO scoped_scan_rows VALUES\
+             (1,'channel-a','a1'),(2,'channel-a','a2'),(3,'channel-b','b1');",
+        )
+        .await
+        .expect("create and seed scoped scan table");
+
+    let mut scope_values = vec![SqlValue::Text("channel-a".into())];
+    scope_values.extend(
+        (0..899)
+            .map(|index| SqlValue::Text(format!("missing-{index}")))
+            .collect::<Vec<_>>(),
+    );
+    scope_values.push(SqlValue::Text("channel-a".into()));
+    let rows = storage
+        .scoped_scan(ScopedScanSpec {
+            table: "scoped_scan_rows",
+            scope_col: "channel_id",
+            scope_values,
+            limit: 4,
+        })
+        .await
+        .expect("scoped scan");
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|row| {
+        row.iter().any(|(column, value)| {
+            column == "channel_id"
+                && matches!(value, SqlValue::Text(channel) if channel == "channel-a")
+        })
+    }));
+
+    assert!(storage
+        .scoped_scan(ScopedScanSpec {
+            table: "scoped_scan_rows",
+            scope_col: "channel_id",
+            scope_values: vec![SqlValue::Text("channel-a".into())],
+            limit: 1,
+        })
+        .await
+        .is_err());
+    assert!(storage
+        .scoped_scan(ScopedScanSpec {
+            table: "missing_table",
+            scope_col: "channel_id",
+            scope_values: Vec::new(),
+            limit: 1,
+        })
+        .await
+        .expect("empty scope must not touch table")
+        .is_empty());
 }
 
 #[tokio::test]

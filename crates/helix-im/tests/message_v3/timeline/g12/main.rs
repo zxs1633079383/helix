@@ -1,7 +1,7 @@
 // 回归锚: Spec 047/T062-T063，G-12 回复列表与分支。
 
 use bytes::Bytes;
-use helix_core::effect::Effect;
+use helix_core::effect::{Effect, SqlValue, StorageOp, UpsertSpec};
 use helix_core::tick::{AppCommand, PortOutcome, ReplyBytes};
 use helix_core::{Correlation, EffectSink, Module, Tick};
 use helix_im::module::ImConfig;
@@ -18,6 +18,8 @@ const ROOT_ID: &str = "srvfix0000000000000000001c";
 const FIRST_REPLY_ID: &str = "srvfix0000000000000000002c";
 const SECOND_REPLY_ID: &str = "srvfix0000000000000000003c";
 const BRANCH_REPLY_ID: &str = "srvfix0000000000000000004c";
+const VIEWER_ID: &str = "g12-sender";
+const COMPANY_ID: &str = "g12-company";
 const CREATED_AT: i64 = 1_700_001_300_000;
 
 type TestResult<T> = Result<T, String>;
@@ -41,8 +43,8 @@ impl Replay {
             ImConfig {
                 api_base_url: "http://g12.invalid".to_string(),
                 default_api_base_url: "http://g12.invalid".to_string(),
-                auth_user_id: "g12-sender".to_string(),
-                company_id: "g12-company".to_string(),
+                auth_user_id: VIEWER_ID.to_string(),
+                company_id: COMPANY_ID.to_string(),
                 ..ImConfig::default()
             },
             LocalStoreMode::Session,
@@ -50,10 +52,38 @@ impl Replay {
         let channel_id =
             ChannelId::from_str(CHANNEL_ID).ok_or_else(|| "invalid channel fixture".to_string())?;
         module.register_channel(channel_id, 0);
-        Ok(Self {
-            module,
-            sink: EffectSink::new(),
-        })
+        // 通过真实 PersistOk 建立 render_scope 所需的 channel{id,team_id,user_id}；不从消息作者推断归属。
+        let mut sink = EffectSink::new();
+        let row = vec![
+            ("id".to_string(), SqlValue::Text(CHANNEL_ID.to_string())),
+            (
+                "team_id".to_string(),
+                SqlValue::Text(COMPANY_ID.to_string()),
+            ),
+            ("user_id".to_string(), SqlValue::Text(VIEWER_ID.to_string())),
+        ];
+        let corr = module.queue_message_v3_commit(
+            vec![StorageOp::BatchUpsert(UpsertSpec::new(
+                "channel",
+                vec![row],
+                Some("id"),
+            ))],
+            Vec::new(),
+            &mut sink,
+        );
+        sink.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr,
+                    outcome: PortOutcome::Ok(ReplyBytes::default()),
+                },
+                CREATED_AT as u64,
+                &mut sink,
+            )
+            .map_err(|error| error.to_string())?;
+        sink.clear();
+        Ok(Self { module, sink })
     }
 
     /// 执行单步并覆盖当前 Effect batch。

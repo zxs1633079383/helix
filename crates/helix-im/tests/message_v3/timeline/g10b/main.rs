@@ -1,7 +1,7 @@
 // 回归锚: Spec 047/T052-T053，G-10b newer page durable window。
 
 use bytes::Bytes;
-use helix_core::effect::{Effect, StorageOp};
+use helix_core::effect::{Effect, SqlValue, StorageOp, UpsertSpec};
 use helix_core::tick::{AppCommand, PortError, PortOutcome, ReplyBytes};
 use helix_core::{Correlation, EffectSink, Module, Tick};
 use helix_im::module::ImConfig;
@@ -17,6 +17,7 @@ const CHANNEL_ID: &str = "chfixx0000000000000000001b";
 const WINDOW_TOKEN: &str = "g10b-latest-window";
 const ACTOR_ID: &str = "g10b-actor";
 const OTHER_ID: &str = "g10b-other";
+const COMPANY_ID: &str = "g10b-company";
 const CREATED_AT: i64 = 1_700_001_200_000;
 
 type TestResult<T> = Result<T, String>;
@@ -42,7 +43,7 @@ impl Replay {
                 api_base_url: "http://g10b.invalid".to_string(),
                 default_api_base_url: "http://g10b.invalid".to_string(),
                 auth_user_id: ACTOR_ID.to_string(),
-                company_id: "g10b-company".to_string(),
+                company_id: COMPANY_ID.to_string(),
                 ..ImConfig::default()
             },
             LocalStoreMode::Session,
@@ -50,9 +51,40 @@ impl Replay {
         let channel_id = ChannelId::from_str(CHANNEL_ID)
             .ok_or_else(|| "invalid G-10b channel fixture".to_string())?;
         module.register_channel(channel_id, 0);
+        // 通过真实 PersistOk 建立 render_scope 所需的 channel{id,team_id,user_id}；不从消息作者推断归属。
+        let mut sink = EffectSink::new();
+        let row = vec![
+            ("id".to_string(), SqlValue::Text(CHANNEL_ID.to_string())),
+            (
+                "team_id".to_string(),
+                SqlValue::Text(COMPANY_ID.to_string()),
+            ),
+            ("user_id".to_string(), SqlValue::Text(ACTOR_ID.to_string())),
+        ];
+        let corr = module.queue_message_v3_commit(
+            vec![StorageOp::BatchUpsert(UpsertSpec::new(
+                "channel",
+                vec![row],
+                Some("id"),
+            ))],
+            Vec::new(),
+            &mut sink,
+        );
+        sink.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr,
+                    outcome: PortOutcome::Ok(ReplyBytes::default()),
+                },
+                CREATED_AT as u64,
+                &mut sink,
+            )
+            .map_err(|error| error.to_string())?;
+        sink.clear();
         Ok(Self {
             module,
-            sink: EffectSink::new(),
+            sink,
             now_ms: CREATED_AT as u64,
         })
     }

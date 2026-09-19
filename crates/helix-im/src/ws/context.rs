@@ -10,6 +10,9 @@ pub(crate) struct ImWsContext<'a> {
     /// 当前登录用户 Id26（host 注入，与 `api_base_url` 同机制）。空串 = 无身份。
     /// 用于 path3 未读 sender 豁免 + 可见性门控、path1 channel `user_id` 列（BLOCKING-1）。
     pub(crate) auth_user_id: &'a str,
+    /// 当前 RuntimeAuth user/company 对应的本地频道快照；只由 ImModule 注入。
+    /// None 表示该调用点没有可信 startup scope，水位查询必须 fail-closed。
+    pub(crate) scoped_channel_ids: Option<&'a [ChannelId]>,
     alloc_corr: &'a mut dyn FnMut() -> Correlation,
     /// WS handler 只能判定某个 gate 已经接受了可见消息；最终的 local-first
     /// 时间线读回必须等 handler 返回后由 `ImModule` 调度，避免在这里复制
@@ -30,9 +33,15 @@ impl<'a> ImWsContext<'a> {
             now_ms,
             api_base_url,
             auth_user_id,
+            scoped_channel_ids: None,
             alloc_corr,
             attached_timeline_refreshes: BTreeMap::new(),
         }
+    }
+
+    /// 注入当前 RuntimeAuth 作用域的本地频道快照；调用方负责保证快照已按身份过滤。
+    pub(crate) fn set_scoped_channel_ids(&mut self, channel_ids: &'a [ChannelId]) {
+        self.scoped_channel_ids = Some(channel_ids);
     }
 
     pub(crate) fn alloc_corr(&mut self) -> Correlation {

@@ -39,6 +39,16 @@ impl EffectSink {
         &self.buf
     }
 
+    /// 在原缓冲中筛选/替换本次模块追加的输出，不触及先前模块的输出、不重新分配缓冲。
+    pub fn retain_mut_from(&mut self, start: usize, mut keep: impl FnMut(&mut Effect) -> bool) {
+        let mut index = 0;
+        self.buf.retain_mut(|effect| {
+            let retained = index < start || keep(effect);
+            index += 1;
+            retained
+        });
+    }
+
     /// 是否有 Effect 产出
     #[inline]
     pub fn is_empty(&self) -> bool {
@@ -49,5 +59,30 @@ impl EffectSink {
 impl Default for EffectSink {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::effect::{DomainEventBytes, TimerId};
+
+    /// 出口过滤只处理本模块追加的后缀，并保留其它 Effect 的原始顺序。
+    #[test]
+    fn retain_suffix_preserves_prefix_and_nonmatching_effects() {
+        let mut sink = EffectSink::new();
+        sink.push(Effect::Emit {
+            event: DomainEventBytes(bytes::Bytes::from_static(b"prefix")),
+        });
+        sink.push(Effect::Emit {
+            event: DomainEventBytes(bytes::Bytes::from_static(b"remove")),
+        });
+        sink.push(Effect::CancelTimer {
+            id: TimerId::from_raw(1),
+        });
+        sink.retain_mut_from(1, |effect| !matches!(effect, Effect::Emit { .. }));
+        assert_eq!(sink.as_slice().len(), 2);
+        assert!(matches!(&sink.as_slice()[0],Effect::Emit{event} if event.0.as_ref()==b"prefix"));
+        assert!(matches!(&sink.as_slice()[1], Effect::CancelTimer { .. }));
     }
 }

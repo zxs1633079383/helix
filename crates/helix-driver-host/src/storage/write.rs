@@ -415,9 +415,13 @@ fn atomic_write_op(
         StorageOp::GuardedBump(spec) => atomic_guarded_bump(tx, spec, trace),
         StorageOp::ScopedGuardedBump(spec) => atomic_scoped_guarded_bump(tx, spec, trace),
         StorageOp::BatchDelete(spec) => atomic_batch_delete(tx, spec, trace),
-        StorageOp::Get(_) | StorageOp::ScopedGet(_) | StorageOp::Scan(_) => Err(
-            PortError::Storage("atomic storage write does not permit read operations".to_string()),
-        ),
+        StorageOp::Get(_)
+        | StorageOp::ScopedGet(_)
+        | StorageOp::ScopedMax(_)
+        | StorageOp::ScopedScan(_)
+        | StorageOp::Scan(_) => Err(PortError::Storage(
+            "atomic storage write does not permit read operations".to_string(),
+        )),
     }
 }
 
@@ -838,6 +842,8 @@ fn op_identity(op: &StorageOp) -> (&'static str, &'static str) {
         StorageOp::ScopedGuardedBump(spec) => ("ScopedGuardedBump", spec.table),
         StorageOp::Get(spec) => ("Get", spec.table),
         StorageOp::ScopedGet(spec) => ("ScopedGet", spec.table),
+        StorageOp::ScopedMax(spec) => ("ScopedMax", spec.table),
+        StorageOp::ScopedScan(spec) => ("ScopedScan", spec.table),
         StorageOp::Scan(spec) => ("Scan", spec.table),
         StorageOp::BatchDelete(spec) => ("BatchDelete", spec.table),
     }

@@ -148,40 +148,24 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
         .expect("on_start should emit Persist(Scan)");
 
     // A4：先 Connected（→Connecting）再 hello（→Connected 握手完成）。
-    // B-rest：即使 channels 空，hello 也先扫描本地 message 水位，再发 1 个 increment HTTP（空 cursors）。
+    // 冷启动时 hello 可以先到，但必须等 cursor/channel 投影双扫描完成，不能以空 scope
+    // 读取 message 水位或发 increment HTTP。
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
     h.step(hello_inbound("CONN_1"), 150);
-    let timestamp_scan_corr =
-        message_timestamp_scan_corr(&h.sink).expect("hello should emit a message watermark scan");
-    assert!(http_reqs(&h.sink).is_empty());
-    h.step(
-        port_reply_with_body(timestamp_scan_corr, bytes::Bytes::from_static(br#"[]"#)),
-        160,
-    );
-    let hello_reqs = http_reqs(&h.sink);
-    assert_eq!(
-        hello_reqs.len(),
-        1,
-        "B-rest：hello 即使 channels 空也发 1 个 increment HTTP，got: {:?}",
-        hello_reqs
+    assert!(
+        message_timestamp_scan_corr(&h.sink).is_none(),
+        "hello must wait for trusted startup channel scope before reading the message watermark"
     );
     assert!(
-        hello_reqs[0].1.ends_with("/channels/load/increment"),
-        "hello 须触发 increment HTTP，got: {}",
-        hello_reqs[0].1
-    );
-    assert_eq!(
-        h.last_http_body()
-            .expect("empty message scan increment body")["timestamp"],
-        0,
-        "empty local message scan must send timestamp 0"
+        http_reqs(&h.sink).is_empty(),
+        "hello must not emit increment HTTP before startup scans resolve"
     );
 
     // 重复握手不得吞掉启动扫描完成后的合法二阶段补偿。
     h.step(hello_inbound("CONN_1"), 170);
     assert!(h.sink.as_slice().is_empty());
 
-    // 然后 cursor scan 回报（已握手完成/Connected）；删除过滤完成后再补发 bootstrap/sync。
+    // cursor scan 回报（已握手完成/Connected）；删除过滤完成后再补发 bootstrap/sync。
     let scan_body = scan_reply(&[(1, 10), (2, 20), (3, 30)]);
     let scan_port_reply = port_reply_with_body(scan_persist_corr, scan_body);
     h.step(scan_port_reply, 200);
@@ -243,6 +227,12 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
             >= 3,
         "projection scan should retain the three sync effects"
     );
+    assert_eq!(
+        h.last_http_body()
+            .expect("empty message scan increment body after startup barrier")["timestamp"],
+        0,
+        "empty local message scan must send timestamp 0"
+    );
 }
 
 #[test]
@@ -262,26 +252,13 @@ fn scan_reply_after_empty_hello_retries_increment_with_loaded_cursors() {
 
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
     h.step(hello_inbound("CONN_1"), 150);
-    let hello_timestamp_scan_corr =
-        message_timestamp_scan_corr(&h.sink).expect("hello should emit a message watermark scan");
-    h.step(
-        port_reply_with_body(
-            hello_timestamp_scan_corr,
-            bytes::Bytes::from_static(br#"[]"#),
-        ),
-        160,
+    assert!(
+        message_timestamp_scan_corr(&h.sink).is_none(),
+        "hello must not read the message watermark before cursor/channel scans"
     );
-    let hello_body = h
-        .last_http_body()
-        .expect("message watermark scan should emit increment HTTP");
-    assert_eq!(
-        hello_body["cursors"].as_array().map(Vec::len),
-        Some(0),
-        "pre-scan hello reproduces the empty-cursor bootstrap race"
-    );
-    assert_eq!(
-        hello_body["timestamp"], 0,
-        "empty local message scan must send timestamp 0"
+    assert!(
+        http_reqs(&h.sink).is_empty(),
+        "hello must not emit an empty-cursor increment before startup scope is trusted"
     );
 
     let scan_body = scan_reply(&[(1, 10), (2, 20), (3, 30)]);

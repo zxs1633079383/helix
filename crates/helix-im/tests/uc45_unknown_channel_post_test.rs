@@ -2,7 +2,7 @@
 //!
 //! 回归锚: UC-4.5（陌生 channel 自动注册，对齐真源）
 //!
-//! ## 行为真源（现网 source of truth）
+//! ## 迁移前行为参考
 //!
 //! cses-client `handlers/post.rs:42-114 handle` 对陌生 channel：
 //!   ① 落库 `message_service::handle_new_post` **无条件**调用（仅 `unwrap_or("unknown")` 用于日志，
@@ -19,12 +19,13 @@
 //! ## 修复后（本测试锁住）
 //!
 //! `entry().or_insert_with(|| Channel::new(channel_id, 0))` 自动注册（cursor=0 = 本地未确认，
-//! 不误种服务端水位）→ gate 接管：event_seq==1 进入原子落库，成功后推进 cursor 并读回 emit；
+//! 不误种服务端水位）→ gate 接管：event_seq==1 进入原子落库，成功后推进 cursor；
+//! 2026-09 用户共库合同：归属未知时 Rust 主动补水，确认当前公司前禁止读回广播。
 //! event_seq>1 缺口 → buffer + arm 1s gate → sync 回拉前置消息，首条不丢。
 //!
 //! 可证伪（HX-C011）：
 //! - 陌生 channel post 不落库 → 无 message BatchUpsert FAIL
-//! - 陌生 channel post 不 emit → 无 Emit FAIL
+//! - 陌生 channel 未补水即 emit → 出现 Emit FAIL；落库后无补水 HTTP → FAIL
 //! - 陌生 channel 未注册 → cursor_for 仍 None FAIL
 
 mod common;
@@ -88,6 +89,9 @@ fn acknowledge_unknown_channel_post(harness: &mut Harness, effects: &[EffectKind
         panic!("unknown channel post must enter MessageV3 atomic commit");
     };
     let readback = harness.step(port_reply_ok(persist_corr), 1_001);
+    assert!(harness.sink.as_slice().iter().any(|effect| matches!(
+        effect, Effect::Http { req, .. } if req.url.ends_with("/channel/load/incrementByChannelId")
+    )), "未知归属必须由 Rust 主动补水，不能依赖被闸门阻断的 Angular post 广播");
     let readback_corr = readback.iter().find_map(|effect| match effect {
         EffectKind::Persist(corr) => Some(*corr),
         _ => None,
@@ -118,7 +122,7 @@ fn acknowledge_unknown_channel_post(harness: &mut Harness, effects: &[EffectKind
 }
 
 #[test]
-fn unknown_channel_first_post_at_seq1_persists_and_emits() {
+fn unknown_channel_first_post_at_seq1_persists_and_hydrates_before_render() {
     // 不预注册任何 channel——模拟「首次见到的新群」首条在线 push。
     let mut h = Harness::new_with_identity(&[], "uc45-viewer", "uc45-company", "", "", "");
     assert_eq!(
@@ -155,11 +159,11 @@ fn unknown_channel_first_post_at_seq1_persists_and_emits() {
     );
     acknowledge_unknown_channel_post(&mut h, &effects);
     assert!(
-        h.sink
+        !h.sink
             .as_slice()
             .iter()
             .any(|effect| matches!(effect, Effect::Emit { .. })),
-        "陌生 channel post 在持久化和读回成功后必须 emit"
+        "持久化消息不等于已确认频道归属；补水前不得发布渲染投影"
     );
     // ③ 自动注册 + durable commit 后 cursor 推进到 event_seq。
     assert_eq!(

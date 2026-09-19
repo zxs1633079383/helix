@@ -88,7 +88,8 @@ fn channel_readback(notify: &str) -> Bytes {
 #[test]
 fn g10e_notify_states_persist_after_barrier_and_emit_scalar_contract() -> Result<(), String> {
     for notify in ["NORMAL", "STRONG", "IGNORE"] {
-        let mut harness = common::Harness::new_with_identity(&[], ACTOR_ID, COMPANY_ID, "", "", "");
+        let mut harness =
+            common::Harness::new_with_identity(&[0x0e], ACTOR_ID, COMPANY_ID, "", "", "");
         harness.step(notify_frame(ACTOR_ID, json!(notify), json!({})), NOW_MS);
         let patch = channel_patch(harness.sink.as_slice())?;
         assert_eq!(
@@ -140,13 +141,14 @@ fn g10e_notify_states_persist_after_barrier_and_emit_scalar_contract() -> Result
 /// Persist 失败或无 readback 时必须 fail-closed，不泄漏实时 channel update。
 #[test]
 fn g10e_notify_failure_does_not_emit() -> Result<(), String> {
-    let mut harness = common::Harness::new_with_identity(&[], ACTOR_ID, COMPANY_ID, "", "", "");
+    let mut harness = common::Harness::new_with_identity(&[0x0e], ACTOR_ID, COMPANY_ID, "", "", "");
     harness.step(notify_frame(ACTOR_ID, json!("IGNORE"), json!({})), NOW_MS);
     let corr = persist_corr(harness.sink.as_slice())?;
     harness.step(common::port_reply_err(corr.raw()), NOW_MS + 1);
     assert!(emitted(harness.sink.as_slice()).is_empty());
 
-    let mut no_readback = common::Harness::new_with_identity(&[], ACTOR_ID, COMPANY_ID, "", "", "");
+    let mut no_readback =
+        common::Harness::new_with_identity(&[0x0e], ACTOR_ID, COMPANY_ID, "", "", "");
     no_readback.step(notify_frame(ACTOR_ID, json!("IGNORE"), json!({})), NOW_MS);
     let corr = persist_corr(no_readback.sink.as_slice())?;
     no_readback.step(
@@ -168,7 +170,8 @@ fn g10e_invalid_notify_is_fail_closed() {
         notify_frame(ACTOR_ID, json!("IGNORE"), json!({"channel": "mixed"})),
     ];
     for (index, frame) in cases.into_iter().enumerate() {
-        let mut harness = common::Harness::new_with_identity(&[], ACTOR_ID, COMPANY_ID, "", "", "");
+        let mut harness =
+            common::Harness::new_with_identity(&[0x0e], ACTOR_ID, COMPANY_ID, "", "", "");
         use helix_core::Module;
         harness.sink.clear();
         let result = harness.module.handle(&frame, NOW_MS, &mut harness.sink);
@@ -183,7 +186,7 @@ fn g10e_invalid_notify_is_fail_closed() {
         assert!(harness.sink.as_slice().is_empty());
     }
 
-    let mut missing = common::Harness::new_with_identity(&[], ACTOR_ID, COMPANY_ID, "", "", "");
+    let mut missing = common::Harness::new_with_identity(&[0x0e], ACTOR_ID, COMPANY_ID, "", "", "");
     missing.step(
         Tick::Inbound(helix_core::tick::InboundBytes(
             serde_json::to_vec(&json!({
@@ -201,7 +204,7 @@ fn g10e_invalid_notify_is_fail_closed() {
 /// 重新进入列表只消费 durable channel row，正式输出保持与 increment/PC 一致的 scalar notifyProps。
 #[test]
 fn g10e_reentry_query_reads_scalar_notify_props() -> Result<(), String> {
-    let mut harness = common::Harness::new_with_identity(&[], ACTOR_ID, COMPANY_ID, "", "", "");
+    let mut harness = common::Harness::new_with_identity(&[0x0e], ACTOR_ID, COMPANY_ID, "", "", "");
     harness.step(
         common::command_json("im_query_dialog_list", json!({"req_id": "g10e-reentry"})),
         NOW_MS,

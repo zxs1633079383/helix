@@ -7,7 +7,7 @@ use bytes::Bytes;
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, DomainEventBytes, FileUploadProgress, FileUploadRequest,
     FileUploadResponse, GetSpec, GuardedBumpSpec, HttpResponse, MonotonicUpsertSpec, Row, ScanSpec,
-    SqlValue, StorageOp, UpsertSpec,
+    ScopedMaxSpec, ScopedScanSpec, SqlValue, StorageOp, UpsertSpec,
 };
 use helix_core::ports::{
     Clock, EventSink, FileUploadProgressReporter, FileUploader, FrameSender, Storage,
@@ -124,6 +124,14 @@ impl Storage for RecordingStorage {
 
     async fn get(&self, spec: GetSpec) -> Result<Option<Row>, PortError> {
         self.inner.get(spec).await
+    }
+
+    async fn scoped_max(&self, spec: ScopedMaxSpec) -> Result<Option<Row>, PortError> {
+        self.inner.scoped_max(spec).await
+    }
+
+    async fn scoped_scan(&self, spec: ScopedScanSpec) -> Result<Vec<Row>, PortError> {
+        self.inner.scoped_scan(spec).await
     }
 
     async fn scan(&self, spec: ScanSpec) -> Result<Vec<Row>, PortError> {

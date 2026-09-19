@@ -290,8 +290,11 @@ impl ImModule {
                 outcome,
                 out,
             )?,
-            CorrelationContext::MessageV3ClientAck { platform } => {
-                self.handle_message_v3_client_ack_reply(platform, outcome, out)?;
+            CorrelationContext::MessageV3ClientAck {
+                channel_id,
+                platform,
+            } => {
+                self.handle_message_v3_client_ack_reply(channel_id, platform, outcome, out)?;
             }
             CorrelationContext::MessageV3RevokeChannelPersist { channel_id } => {
                 self.handle_message_v3_revoke_channel_persist_reply(channel_id, outcome, out);
@@ -379,20 +382,34 @@ impl ImModule {
                 pending_chain_event_ids,
                 pending_send_reconciliations,
                 member_projection,
-            } => self.handle_channel_persist_reply(
-                corr,
-                channel_id,
-                trigger,
-                wants_continuation,
-                channel_updates,
-                pending_domain_events,
-                has_category_posts,
-                pending_chain_event_ids,
-                pending_send_reconciliations,
-                member_projection,
-                outcome,
-                out,
-            )?,
+            } => {
+                let effect_start = out.as_slice().len();
+                let auto_req_id = (trigger == crate::state::SyncTrigger::Hydration)
+                    .then(|| self.state.hydration_req_ids.get(&channel_id).cloned())
+                    .flatten()
+                    .filter(|req_id| self.scope_hydration.is_active(channel_id, req_id));
+                self.handle_channel_persist_reply(
+                    corr,
+                    channel_id,
+                    trigger,
+                    wants_continuation,
+                    channel_updates,
+                    pending_domain_events,
+                    has_category_posts,
+                    pending_chain_event_ids,
+                    pending_send_reconciliations,
+                    member_projection,
+                    outcome,
+                    out,
+                )?;
+                if let Some(req_id) = auto_req_id.as_deref() {
+                    if !crate::scope_hydration::has_hydration_stage(&self.state, channel_id, req_id)
+                    {
+                        self.scope_hydration.clear(channel_id);
+                        crate::scope_hydration::drop_auto_read_emits(out, effect_start, req_id);
+                    }
+                }
+            }
 
             CorrelationContext::ChannelTerminalPersist {
                 channel_id,
@@ -402,18 +419,32 @@ impl ImModule {
                 has_category_posts,
                 pending_chain_event_ids,
                 member_projection,
-            } => self.handle_channel_terminal_persist_reply(
-                corr,
-                channel_id,
-                terminal_seq,
-                trigger,
-                pending_domain_events,
-                has_category_posts,
-                pending_chain_event_ids,
-                member_projection,
-                outcome,
-                out,
-            )?,
+            } => {
+                let effect_start = out.as_slice().len();
+                let auto_req_id = (trigger == crate::state::SyncTrigger::Hydration)
+                    .then(|| self.state.hydration_req_ids.get(&channel_id).cloned())
+                    .flatten()
+                    .filter(|req_id| self.scope_hydration.is_active(channel_id, req_id));
+                self.handle_channel_terminal_persist_reply(
+                    corr,
+                    channel_id,
+                    terminal_seq,
+                    trigger,
+                    pending_domain_events,
+                    has_category_posts,
+                    pending_chain_event_ids,
+                    member_projection,
+                    outcome,
+                    out,
+                )?;
+                if let Some(req_id) = auto_req_id.as_deref() {
+                    if !crate::scope_hydration::has_hydration_stage(&self.state, channel_id, req_id)
+                    {
+                        self.scope_hydration.clear(channel_id);
+                        crate::scope_hydration::drop_auto_read_emits(out, effect_start, req_id);
+                    }
+                }
+            }
 
             CorrelationContext::IncrementBatchPersist {
                 projections,
@@ -471,44 +502,127 @@ impl ImModule {
                 raw_increment,
                 snapshot,
                 emit_channel_increment,
-            } => self.handle_increment_hydration_persist(
-                channel_id,
-                req_id,
-                need_sync,
-                raw_increment,
-                snapshot,
-                emit_channel_increment,
-                outcome,
-                out,
-            )?,
+            } => {
+                let effect_start = out.as_slice().len();
+                let auto_scope = self.scope_hydration.is_active(channel_id, &req_id);
+                self.handle_increment_hydration_persist(
+                    channel_id,
+                    req_id.clone(),
+                    need_sync,
+                    raw_increment,
+                    snapshot,
+                    emit_channel_increment,
+                    outcome,
+                    out,
+                )?;
+                if auto_scope
+                    && !crate::scope_hydration::has_hydration_stage(
+                        &self.state,
+                        channel_id,
+                        &req_id,
+                    )
+                {
+                    self.scope_hydration.clear(channel_id);
+                    crate::scope_hydration::drop_auto_read_emits(out, effect_start, &req_id);
+                }
+            }
 
             CorrelationContext::HydrationChannelReadback { req_id, channel_id } => {
-                self.handle_hydration_channel_readback(req_id, channel_id, outcome, out)?
+                let effect_start = out.as_slice().len();
+                let auto_scope = self.scope_hydration.is_active(channel_id, &req_id);
+                self.handle_hydration_channel_readback(req_id.clone(), channel_id, outcome, out)?;
+                if auto_scope
+                    && !crate::scope_hydration::has_hydration_stage(
+                        &self.state,
+                        channel_id,
+                        &req_id,
+                    )
+                {
+                    self.scope_hydration.clear(channel_id);
+                    crate::scope_hydration::drop_auto_read_emits(out, effect_start, &req_id);
+                }
             }
             CorrelationContext::HydrationMemberReadback {
                 req_id,
                 channel_id,
                 channel,
             } => {
-                self.handle_hydration_member_readback(req_id, channel_id, channel, outcome, out)?
+                let effect_start = out.as_slice().len();
+                let auto_scope = self.scope_hydration.is_active(channel_id, &req_id);
+                self.handle_hydration_member_readback(
+                    req_id.clone(),
+                    channel_id,
+                    channel,
+                    outcome,
+                    out,
+                )?;
+                if auto_scope
+                    && !crate::scope_hydration::has_hydration_stage(
+                        &self.state,
+                        channel_id,
+                        &req_id,
+                    )
+                {
+                    self.scope_hydration.clear(channel_id);
+                    crate::scope_hydration::drop_auto_read_emits(out, effect_start, &req_id);
+                }
             }
             CorrelationContext::HydrationMessagesReadback {
                 req_id,
                 channel_id,
                 channel,
                 member,
-            } => self.handle_hydration_messages_readback(
-                req_id, channel_id, channel, member, outcome, out,
-            )?,
+            } => {
+                let effect_start = out.as_slice().len();
+                let auto_scope = self.scope_hydration.is_active(channel_id, &req_id);
+                self.handle_hydration_messages_readback(
+                    req_id.clone(),
+                    channel_id,
+                    channel,
+                    member,
+                    outcome,
+                    out,
+                )?;
+                if auto_scope
+                    && !crate::scope_hydration::has_hydration_stage(
+                        &self.state,
+                        channel_id,
+                        &req_id,
+                    )
+                {
+                    self.scope_hydration.clear(channel_id);
+                    crate::scope_hydration::drop_auto_read_emits(out, effect_start, &req_id);
+                }
+            }
             CorrelationContext::HydrationCursorReadback {
                 req_id,
                 channel_id,
                 channel,
                 member,
                 messages,
-            } => self.handle_hydration_cursor_readback(
-                req_id, channel_id, channel, member, messages, outcome, out,
-            )?,
+            } => {
+                let effect_start = out.as_slice().len();
+                let auto_scope = self.scope_hydration.is_active(channel_id, &req_id);
+                self.handle_hydration_cursor_readback(
+                    req_id.clone(),
+                    channel_id,
+                    channel,
+                    member,
+                    messages,
+                    outcome,
+                    out,
+                )?;
+                if auto_scope
+                    && !crate::scope_hydration::has_hydration_stage(
+                        &self.state,
+                        channel_id,
+                        &req_id,
+                    )
+                {
+                    self.scope_hydration.clear(channel_id);
+                    crate::scope_hydration::drop_auto_read_emits(out, effect_start, &req_id);
+                }
+            }
 
             CorrelationContext::ChannelUpdateByPost { pending } => match outcome {
                 PortOutcome::Ok(reply) => {
@@ -911,7 +1025,19 @@ impl ImModule {
                 channel_id,
                 trigger,
             } => {
+                let effect_start = out.as_slice().len();
+                let auto_req_id = (trigger == crate::state::SyncTrigger::Hydration)
+                    .then(|| self.state.hydration_req_ids.get(&channel_id).cloned())
+                    .flatten()
+                    .filter(|req_id| self.scope_hydration.is_active(channel_id, req_id));
                 self.handle_sync_pull_reply(corr, channel_id, trigger, outcome, out)?;
+                if let Some(req_id) = auto_req_id.as_deref() {
+                    if !crate::scope_hydration::has_hydration_stage(&self.state, channel_id, req_id)
+                    {
+                        self.scope_hydration.clear(channel_id);
+                        crate::scope_hydration::drop_auto_read_emits(out, effect_start, req_id);
+                    }
+                }
             }
 
             CorrelationContext::MessageQueryLocal {
@@ -1505,7 +1631,17 @@ impl ImModule {
             CorrelationContext::OutboundIncrementHydration {
                 req_id,
                 emit_channel_increment,
+                scope_channel,
             } => {
+                let effect_start = out.as_slice().len();
+                let auto_scope = scope_channel
+                    .is_some_and(|channel_id| self.scope_hydration.is_active(channel_id, &req_id));
+                // A disconnect or RuntimeIdentity transition invalidates the
+                // internal lease.  Late replies must not recreate the old
+                // company's durable projection or UI result.
+                if scope_channel.is_some() && !auto_scope {
+                    return Ok(());
+                }
                 self.handle_increment_hydration_reply(
                     &req_id,
                     emit_channel_increment,
@@ -1513,6 +1649,16 @@ impl ImModule {
                     now_ms,
                     out,
                 )?;
+                if let Some(channel_id) = scope_channel {
+                    if !crate::scope_hydration::has_increment_persist(
+                        &self.state,
+                        channel_id,
+                        &req_id,
+                    ) {
+                        self.scope_hydration.clear(channel_id);
+                        crate::scope_hydration::drop_auto_read_emits(out, effect_start, &req_id);
+                    }
+                }
             }
 
             // S7（issue #56）：byIds 成员快照读族回报 → 双 emit。
@@ -1520,7 +1666,12 @@ impl ImModule {
             //       ② 解析 byIds body（map[channelId][]）逐 channel emit render-ready im:channel:members
             //       （壳退纯绑定·载族自愈）。信封畸形 / Err → 仅回灌 read error（不丢 req_id，前端 reject）。
             CorrelationContext::OutboundMembersByIds { req_id } => {
-                crate::port_reply_emit::emit_members_by_ids(&req_id, outcome, out);
+                crate::port_reply_emit::emit_members_by_ids(
+                    &req_id,
+                    outcome,
+                    |channel| self.render_scope.visible(&self.config, channel),
+                    out,
+                );
             }
 
             CorrelationContext::OutboundContactCandidates { req_id } => {

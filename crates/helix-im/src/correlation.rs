@@ -139,6 +139,8 @@ pub enum CorrelationContext {
 
     /// 本地权威投影 ACK 的 HTTP 终态；回报只生成可观测事件，不改变消息事实。
     MessageV3ClientAck {
+        /// 从已持久的 `received_data.channelId` 携带，不能由当前公司上下文推导。
+        channel_id: ChannelId,
         platform: crate::module::ClientPlatform,
     },
 
@@ -671,6 +673,8 @@ pub enum CorrelationContext {
     OutboundIncrementHydration {
         req_id: String,
         emit_channel_increment: bool,
+        /// `Some` 仅表示由未知频道 post 内部触发；显式用户 hydration 保持 `None`。
+        scope_channel: Option<ChannelId>,
     },
 
     /// UC-4.5 IncrementChannel 的 channel/channel_member 相关 Persist 回报。

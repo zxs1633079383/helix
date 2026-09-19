@@ -18,23 +18,36 @@ pub struct SyncTrace {
     pub ticks: Vec<Value>,
 }
 
-/// 用 Gate 对应事件通过生产 commit coordinator 验证持久屏障。
-pub fn run(event: MessageV3Event) -> TestResult<SyncTrace> {
+const SYNC_VIEWER: &str = "sync-viewer";
+const SYNC_COMPANY: &str = "sync-company";
+
+/// 用调用方明确的频道资源建立可信归属，再通过生产 commit coordinator 验证持久屏障。
+pub fn run(event: MessageV3Event, channel_id: &str) -> TestResult<SyncTrace> {
     let mut replay = scenario::Scenario::new(helix_im::ImConfig {
-        auth_user_id: "sync-viewer".to_string(),
-        company_id: "sync-company".to_string(),
+        auth_user_id: SYNC_VIEWER.to_string(),
+        company_id: SYNC_COMPANY.to_string(),
         ..helix_im::ImConfig::default()
     });
+    let channel_row: Row = vec![
+        ("id".to_string(), SqlValue::Text(channel_id.to_string())),
+        (
+            "team_id".to_string(),
+            SqlValue::Text(SYNC_COMPANY.to_string()),
+        ),
+        (
+            "user_id".to_string(),
+            SqlValue::Text(SYNC_VIEWER.to_string()),
+        ),
+    ];
     let row: Row = vec![
         ("id".to_string(), SqlValue::Text("sync-state".to_string())),
         ("value".to_string(), SqlValue::Text("committed".to_string())),
     ];
     let corr = replay.queue_commit(
-        vec![StorageOp::BatchUpsert(UpsertSpec::new(
-            "meta",
-            vec![row],
-            Some("id"),
-        ))],
+        vec![
+            StorageOp::BatchUpsert(UpsertSpec::new("channel", vec![channel_row], Some("id"))),
+            StorageOp::BatchUpsert(UpsertSpec::new("meta", vec![row], Some("id"))),
+        ],
         vec![event],
         1_700_001_700_000,
     );

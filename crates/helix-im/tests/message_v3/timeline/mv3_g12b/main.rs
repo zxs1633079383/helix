@@ -13,6 +13,9 @@ use helix_im::state::ChannelId;
 use helix_im::ImModule;
 use serde_json::{json, Value};
 
+#[path = "../../../common.rs"]
+mod common;
+
 const API_BASE: &str = "http://g12b.invalid/api/cses";
 const DEFAULT_BASE: &str = "http://g12b.invalid";
 const CHANNEL: &str = "chfixx0000000000000000001b";
@@ -102,7 +105,7 @@ struct Replay {
 }
 
 impl Replay {
-    /// 创建固定频道和 viewer，避免测试旁路 production command admission。
+    /// 保留 Session 本地存储与既有端点，只通过公共提交 seam 补可信归属。
     fn new() -> Self {
         let mut module = ImModule::new_with_local_store(
             ImConfig {
@@ -115,9 +118,16 @@ impl Replay {
             LocalStoreMode::Session,
         );
         module.register_channel(ChannelId::from_str(CHANNEL).expect("channel fixture"), 0);
-        Self {
+        let mut harness = common::Harness {
             module,
             sink: EffectSink::new(),
+            effect_log: Vec::new(),
+        };
+        harness.seed_channel_scope(CHANNEL, "company-g12b", VIEWER);
+        harness.sink.clear();
+        Self {
+            module: harness.module,
+            sink: harness.sink,
         }
     }
 

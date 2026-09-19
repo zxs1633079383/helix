@@ -78,6 +78,7 @@ impl ImModule {
         inc: &crate::sync_session::IncrementChannel,
         out: &mut EffectSink,
     ) {
+        let start = out.as_slice().len();
         let api_base_url = self.config.api_base_url.clone();
         let auth_user_id = self.config.auth_user_id.clone();
         self.with_state_and_corr_allocator(|state, alloc| {
@@ -85,6 +86,7 @@ impl ImModule {
                 crate::ws::ImWsContext::new(state, 0, &api_base_url, &auth_user_id, alloc);
             crate::ws::handlers::increment_channel::apply_increment(&mut ctx, inc, out);
         });
+        self.render_scope.guard_effects(&self.config, start, out);
     }
 
     fn ingest_increment_hydration(
@@ -209,14 +211,23 @@ impl ImModule {
         ordered: &[serde_json::Value],
     ) -> Result<(), ImError> {
         let mut durable = std::collections::HashMap::with_capacity(durable_rows.len());
+        let expected_teams: std::collections::HashMap<_, _> = ordered
+            .iter()
+            .filter_map(|member| Some((member["userId"].as_str()?, member["teamId"].as_str()?)))
+            .collect();
         for row in durable_rows {
             let user_id = row
                 .get("user_id")
                 .and_then(serde_json::Value::as_str)
                 .filter(|value| !value.is_empty())
                 .ok_or_else(|| ImError::Parse("hydration durable member id missing".to_string()))?;
-            if row.get("team_id").and_then(serde_json::Value::as_str)
-                != Some(self.config.company_id.as_str())
+            // member.teamId 是成员自身公司，允许与频道/当前 UI 公司不同。
+            let expected_team = expected_teams.get(user_id).copied();
+            if expected_team
+                .filter(|team| !team.is_empty())
+                .is_some_and(|team| {
+                    row.get("team_id").and_then(serde_json::Value::as_str) != Some(team)
+                })
             {
                 return Err(ImError::Parse(
                     "hydration durable member tenant mismatch".to_string(),
@@ -253,7 +264,7 @@ impl ImModule {
                 .unwrap_or("MEMBER");
             let projected = serde_json::json!({
                 "userId": user_id,
-                "teamId": self.config.company_id,
+                "teamId": row.get("team_id").and_then(serde_json::Value::as_str).unwrap_or_default(),
                 "role": role,
                 "nickName": row.get("nick_name").and_then(serde_json::Value::as_str).unwrap_or_default(),
             });
@@ -322,7 +333,7 @@ impl ImModule {
         let Some(channel) = channel.filter(|row| {
             row.get("id").and_then(serde_json::Value::as_str) == Some(channel_id.as_str())
                 && row.get("team_id").and_then(serde_json::Value::as_str)
-                    == Some(self.config.company_id.as_str())
+                    == self.render_scope.company_for(channel_id.as_str())
                 && row.get("user_id").and_then(serde_json::Value::as_str)
                     == Some(self.config.auth_user_id.as_str())
         }) else {
@@ -386,8 +397,6 @@ impl ImModule {
             .find(|row| {
                 row.get("user_id").and_then(serde_json::Value::as_str)
                     == Some(self.config.auth_user_id.as_str())
-                    && row.get("team_id").and_then(serde_json::Value::as_str)
-                        == Some(self.config.company_id.as_str())
             })
             .cloned()
         else {
@@ -649,10 +658,10 @@ impl ImModule {
                         .get("teamId")
                         .or_else(|| data.get("team_id"))
                         .and_then(serde_json::Value::as_str);
-                    if remote_company != Some(self.config.company_id.as_str()) {
+                    if remote_company.is_none_or(str::is_empty) {
                         out.push(crate::read_relay::emit_read_error(
                             req_id,
-                            "increment hydration tenant mismatch",
+                            "increment hydration missing channel company",
                         ));
                         return Ok(());
                     }

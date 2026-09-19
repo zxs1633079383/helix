@@ -15,9 +15,26 @@ fn emitted_json(effect: &Effect) -> Value {
     serde_json::from_slice(event.0.as_ref()).expect("MessageV3 event must be JSON")
 }
 
-/// 构造一条最小持久写，确保测试覆盖真实 correlation 屏障而非空操作。
-fn persisted_row() -> StorageOp {
-    let row: Row = vec![
+const CONTRACT_USER: &str = "message-v3-contract-user";
+const CONTRACT_COMPANY: &str = "message-v3-contract-company";
+
+/// 构造带可信频道归属的最小提交，确保 terminal event 经过真实 scope 屏障。
+fn persisted_rows() -> Vec<StorageOp> {
+    let channel: Row = vec![
+        (
+            "id".to_string(),
+            SqlValue::Text("channel-message-v3-contract".to_string()),
+        ),
+        (
+            "team_id".to_string(),
+            SqlValue::Text(CONTRACT_COMPANY.to_string()),
+        ),
+        (
+            "user_id".to_string(),
+            SqlValue::Text(CONTRACT_USER.to_string()),
+        ),
+    ];
+    let message: Row = vec![
         (
             "temporary_id".to_string(),
             SqlValue::Text("tmp-message-v3-contract".to_string()),
@@ -27,7 +44,14 @@ fn persisted_row() -> StorageOp {
             SqlValue::Text("channel-message-v3-contract".to_string()),
         ),
     ];
-    StorageOp::BatchUpsert(UpsertSpec::new("message", vec![row], Some("temporary_id")))
+    vec![
+        StorageOp::BatchUpsert(UpsertSpec::new("channel", vec![channel], Some("id"))),
+        StorageOp::BatchUpsert(UpsertSpec::new(
+            "message",
+            vec![message],
+            Some("temporary_id"),
+        )),
+    ]
 }
 
 /// MessageV3 业务信封只能暴露 event 与 data，不携带呈现层套壳。
@@ -68,14 +92,18 @@ fn message_v3_event_contains_only_event_and_data() {
 /// 只有匹配的 PersistOk 才释放一次 terminal event，错误和重复回报均为 no-op。
 #[test]
 fn matching_persist_ok_releases_terminal_event_exactly_once() {
-    let mut module = ImModule::new(ImConfig::default());
+    let mut module = ImModule::new(ImConfig {
+        auth_user_id: CONTRACT_USER.to_string(),
+        company_id: CONTRACT_COMPANY.to_string(),
+        ..Default::default()
+    });
     let mut sink = EffectSink::new();
     let terminal = post::received(json!({
         "id": "post-message-v3-contract",
         "channelId": "channel-message-v3-contract"
     }))
     .expect("typed post event");
-    let corr = module.queue_message_v3_commit(vec![persisted_row()], vec![terminal], &mut sink);
+    let corr = module.queue_message_v3_commit(persisted_rows(), vec![terminal], &mut sink);
 
     assert!(matches!(
         sink.as_slice(),
@@ -132,10 +160,14 @@ fn matching_persist_ok_releases_terminal_event_exactly_once() {
 /// PersistErr 消费同一事务上下文，但绝不能释放 terminal event。
 #[test]
 fn persist_error_discards_terminal_event() {
-    let mut module = ImModule::new(ImConfig::default());
+    let mut module = ImModule::new(ImConfig {
+        auth_user_id: CONTRACT_USER.to_string(),
+        company_id: CONTRACT_COMPANY.to_string(),
+        ..Default::default()
+    });
     let mut sink = EffectSink::new();
     let corr = module.queue_message_v3_commit(
-        vec![persisted_row()],
+        persisted_rows(),
         vec![post::received(json!({"id": "post-message-v3-contract"})).expect("typed post event")],
         &mut sink,
     );

@@ -13,17 +13,20 @@ mod common;
 
 const CHANNEL_ID: &str = "chfixx0000000000000000001b";
 const LEAVER_ID: &str = "g16b-leaver";
+const VIEWER_ID: &str = "g16b-remaining";
+const COMPANY_ID: &str = "g16b-company";
 type TestResult<T> = Result<T, String>;
 
 /// 只为仍在册的 receiver 回放 Go 单播的成员变更 authority。
 fn run_remaining_receiver() -> TestResult<(Vec<Value>, u64)> {
-    let viewer = "g16b-remaining";
-    let mut harness = common::Harness::new_with_identity(&[], viewer, "g16b-company", "", "", "");
+    let viewer = VIEWER_ID;
+    let mut harness = common::Harness::new_with_identity(&[0x1b], viewer, COMPANY_ID, "", "", "");
     let inbound = serde_json::to_vec(&json!({
         "action":"channel_member_update",
         "data":{
             "id":CHANNEL_ID,
             "type":"P",
+            "teamId":COMPANY_ID,
             "event_seq":51,
             "memberChange":{"leave":[{"id":LEAVER_ID}]}
         }
@@ -62,8 +65,13 @@ fn run_remaining_receiver() -> TestResult<(Vec<Value>, u64)> {
         Tick::PortReply {
             corr: channel_corr,
             outcome: PortOutcome::Ok(ReplyBytes(Bytes::from(
-                serde_json::to_vec(&[json!({"id":CHANNEL_ID,"type":"P"})])
-                    .map_err(|error| error.to_string())?,
+                serde_json::to_vec(&[json!({
+                    "id":CHANNEL_ID,
+                    "type":"P",
+                    "team_id":COMPANY_ID,
+                    "user_id":VIEWER_ID
+                })])
+                .map_err(|error| error.to_string())?,
             ))),
         },
         1_700_001_610_002,
@@ -84,7 +92,7 @@ fn run_remaining_receiver() -> TestResult<(Vec<Value>, u64)> {
                 serde_json::to_vec(&[json!({
                     "channel_id":CHANNEL_ID,
                     "user_id":viewer,
-                    "team_id":"g16b-company",
+                    "team_id":COMPANY_ID,
                     "role":"MEMBER",
                     "nick_name":""
                 })])

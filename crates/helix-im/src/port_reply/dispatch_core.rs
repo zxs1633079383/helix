@@ -706,8 +706,11 @@ impl ImModule {
             .and_then(|value| value.as_array().cloned())
             .ok_or_else(|| ImError::Parse("channel sync page rows are invalid".to_string()))?;
         let member_corr = self.alloc_corr_internal();
-        let member_effect =
-            crate::channel_sync::member_scan_effect(member_corr, self.config.company_id.as_str())?;
+        let member_effect = crate::channel_sync::member_scan_effect(
+            member_corr,
+            &channel_rows,
+            self.config.company_id.as_str(),
+        )?;
         self.state.corr_map.insert(
             member_corr,
             crate::state::CorrelationContext::ChannelSyncPageMemberSnapshot {
@@ -2055,6 +2058,24 @@ mod channel_sync_contract_tests {
             .as_slice()
             .iter()
             .any(|effect| matches!(effect, helix_core::Effect::Persist { .. })));
+        let member_scan = scan_out.as_slice().iter().find_map(|effect| match effect {
+            helix_core::Effect::Persist { ops, .. } => ops.first(),
+            _ => None,
+        });
+        let Some(helix_core::effect::StorageOp::ScopedScan(spec)) = member_scan else {
+            panic!("channel page must schedule one scoped member scan");
+        };
+        assert_eq!(spec.limit, 10_000usize);
+        let scoped_ids = spec
+            .scope_values
+            .iter()
+            .map(|value| match value {
+                helix_core::effect::SqlValue::Text(value) => value.as_str(),
+                _ => panic!("channel scope must use text IDs"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(scoped_ids, vec!["creator-channel", "member-channel"]);
+        assert!(!scoped_ids.contains(&"other-company"));
 
         let mut out = EffectSink::new();
         module

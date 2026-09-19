@@ -524,8 +524,11 @@ fn a4_identical_injected_lifecycle_script_is_three_platform_equivalent() {
         let watermark_corr = native.iter().find_map(|effect| match effect {
             Effect::Persist { corr, ops }
                 if ops.iter().any(|op| {
-                    matches!(op,
-                StorageOp::Scan(spec) if spec.table == "message")
+                    matches!(
+                        op,
+                        StorageOp::ScopedMax(spec)
+                            if spec.table == "message" && spec.value_col == "create_at"
+                    )
                 }) =>
             {
                 Some(*corr)
@@ -565,7 +568,7 @@ fn a4_identical_injected_lifecycle_script_is_three_platform_equivalent() {
             let corr = watermark_corr.expect("hello must request a message watermark scan");
             let reply = || Tick::PortReply {
                 corr,
-                outcome: PortOutcome::Ok(ReplyBytes(Bytes::from_static(b"[{\"update_at\":1234}]"))),
+                outcome: PortOutcome::Ok(ReplyBytes(Bytes::from_static(b"[{\"create_at\":1234}]"))),
             };
             let native = native_shell
                 .step(reply(), now_ms)

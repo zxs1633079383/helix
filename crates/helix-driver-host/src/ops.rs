@@ -11,7 +11,7 @@ use crate::rows_to_reply_bytes;
 /// Execute a StorageOp batch in order.
 ///
 /// Any failure short-circuits the remaining ops. Success returns the last
-/// meaningful read result (`Get`/`Scan`) as shared rows JSON bytes; writes return
+/// meaningful read result (`Get`/`ScopedMax`/`ScopedScan`/`Scan`) as shared rows JSON bytes; writes return
 /// empty bytes.
 pub async fn execute_storage_ops<S>(storage: &S, ops: &[StorageOp]) -> PortOutcome
 where
@@ -63,6 +63,21 @@ where
                 }
                 Err(e) => return PortOutcome::Err(classify_port_error(e)),
             },
+            StorageOp::ScopedMax(spec) => match storage.scoped_max(spec.clone()).await {
+                Ok(Some(row)) => {
+                    last_ok_bytes = rows_to_reply_bytes(&[row]);
+                }
+                Ok(None) => {
+                    last_ok_bytes = rows_to_reply_bytes(&[]);
+                }
+                Err(e) => return PortOutcome::Err(classify_port_error(e)),
+            },
+            StorageOp::ScopedScan(spec) => match storage.scoped_scan(spec.clone()).await {
+                Ok(rows) => {
+                    last_ok_bytes = rows_to_reply_bytes(&rows);
+                }
+                Err(e) => return PortOutcome::Err(classify_port_error(e)),
+            },
             StorageOp::Scan(spec) => match storage.scan(spec.clone()).await {
                 Ok(rows) => {
                     last_ok_bytes = rows_to_reply_bytes(&rows);
@@ -111,6 +126,8 @@ pub fn table_set_key(ops: &[StorageOp]) -> String {
             StorageOp::ScopedGuardedBump(s) => s.table,
             StorageOp::Get(s) => s.table,
             StorageOp::ScopedGet(s) => s.table,
+            StorageOp::ScopedMax(s) => s.table,
+            StorageOp::ScopedScan(s) => s.table,
             StorageOp::Scan(s) => s.table,
             StorageOp::BatchDelete(s) => s.table,
         })

@@ -6,9 +6,8 @@
 use helix_core::effect::{Effect, Row, SqlValue, StorageOp};
 use helix_core::port_codec::rows_to_reply_bytes;
 use helix_core::tick::AppCommand;
-use helix_core::{EffectSink, Module, Tick};
+use helix_core::{Module, Tick};
 use helix_im::draft::{self, DraftProjection, QueryDraftCommand, SaveDraftCommand};
-use helix_im::{ImConfig, ImModule};
 use serde_json::{json, Value};
 
 #[path = "../../../common.rs"]
@@ -28,7 +27,12 @@ const NOW_MS: u64 = 1_700_000_000_500;
 // ── fixtures ────────────────────────────────────────────────────────────────
 
 fn harness(account_id: &str) -> Harness {
-    Harness::new_with_identity(&[], account_id, "company-phase1", "", "", "")
+    let mut harness = Harness::new_with_identity(&[], account_id, "company-phase1", "", "", "");
+    // 正例必须先建立真实 channel/team/viewer 归属，才能进入 draft 的渲染闸门。
+    harness.seed_channel_scope(CHANNEL_ID, "company-phase1", account_id);
+    harness.sink.clear();
+    harness.effect_log.clear();
+    harness
 }
 
 fn save_payload() -> Vec<u8> {
@@ -529,15 +533,9 @@ fn pc_and_mobile_results_are_byte_exact() {
 
     let payload = save_payload();
     let bytes = |account: &str| -> Vec<u8> {
-        let config = ImConfig {
-            ws_url: "ws://test".to_string(),
-            api_base_url: "http://test".to_string(),
-            default_api_base_url: "http://test".to_string(),
-            auth_user_id: account.to_string(),
-            ..Default::default()
-        };
-        let mut module = ImModule::new(config);
-        let mut sink = EffectSink::new();
+        let fixture = harness(account);
+        let mut module = fixture.module;
+        let mut sink = fixture.sink;
         draft::handle_save_draft(&mut module, &payload, NOW_MS, &mut sink)
             .expect("save must be accepted");
         let corr = persist_corr(sink.as_slice());

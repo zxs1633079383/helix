@@ -16,7 +16,8 @@ type TestResult<T> = Result<T, String>;
 
 /// 通过真实 WS handler 和 PersistAtomic 回执生成关闭终态。
 fn run_persona(user_id: &str) -> TestResult<(Vec<Value>, u64)> {
-    let mut harness = common::Harness::new_with_identity(&[], user_id, "g16-company", "", "", "");
+    let mut harness =
+        common::Harness::new_with_identity(&[0x16], user_id, "g16-company", "", "", "");
     let inbound = serde_json::to_vec(&json!({
         "action":"channel_close",
         "data":{"channelId":CHANNEL_ID,"deleteAt":1_700_001_600_010_i64}

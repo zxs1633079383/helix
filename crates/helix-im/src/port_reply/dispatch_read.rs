@@ -837,10 +837,45 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        // 某些读回只有公告正文/成员数组，没有 channelId；必须使用请求 correlation 冻结的频道。
+        if channel_id.is_some_and(|id| !self.render_scope.visible(&self.config, id)) {
+            out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "RENDER_SCOPE_MISMATCH",
+            ));
+            return Ok(());
+        }
         match outcome {
             PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
                 Ok(raw_body) => {
-                    if command == "im_get_schedule" {
+                    if command == "im_channel_query" {
+                        // 频道目录行是明确的 channel schema；不要让 id/teamId 简化形状
+                        // 绕过公司围栏，也不要把通用成员行的 teamId 误当频道公司。
+                        let body: serde_json::Value =
+                            serde_json::from_slice(&raw_body).unwrap_or(serde_json::Value::Null);
+                        let scoped = body
+                            .get("data")
+                            .and_then(serde_json::Value::as_array)
+                            .is_some_and(|rows| {
+                                rows.iter().all(|row| {
+                                    !self.config.auth_user_id.is_empty()
+                                        && !self.config.company_id.is_empty()
+                                        && row
+                                            .get("teamId")
+                                            .or_else(|| row.get("team_id"))
+                                            .and_then(serde_json::Value::as_str)
+                                            == Some(self.config.company_id.as_str())
+                                })
+                            });
+                        if !scoped {
+                            out.push(crate::read_relay::emit_read_error(
+                                req_id,
+                                "RENDER_SCOPE_MISMATCH",
+                            ));
+                        } else {
+                            out.push(crate::read_relay::emit_read_body(req_id, body));
+                        }
+                    } else if command == "im_get_schedule" {
                         // 允许既有裸数据响应；显式业务失败或坏 JSON 不能伪装成空列表成功。
                         let body = match serde_json::from_slice::<serde_json::Value>(&raw_body) {
                             Ok(body)

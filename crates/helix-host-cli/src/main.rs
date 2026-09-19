@@ -238,9 +238,18 @@ async fn main() {
             dept_name: dept_name.clone(),
             ..Default::default()
         })
-        .with_sync_observer(Arc::new(move |record: helix_im::sync_observation::SyncRecord| {
-            helix_driver_host::metrics::record_sync_timing(sync_metrics.as_ref(),record.stage == helix_im::sync_observation::SyncStage::Recovery,record.result.as_str(),record.started_at_ms,record.completed_at_ms,record.total_pages);
-        }))
+        .with_sync_observer(Arc::new(
+            move |record: helix_im::sync_observation::SyncRecord| {
+                helix_driver_host::metrics::record_sync_timing(
+                    sync_metrics.as_ref(),
+                    record.stage == helix_im::sync_observation::SyncStage::Recovery,
+                    record.result.as_str(),
+                    record.started_at_ms,
+                    record.completed_at_ms,
+                    record.total_pages,
+                );
+            },
+        ))
         .with_diagnostic_session(
             if diagnostic_enabled {
                 login_attempt.clone()

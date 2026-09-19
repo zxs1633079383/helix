@@ -339,7 +339,7 @@ fn announcement_changed_deduplicates_versioned_reload() {
 #[test]
 fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
     let cid1 = cid(1);
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-1", "tenant-1", "", "", "");
     let before = h.module.cursor_for(channel_id(1));
 
     dispatch(

@@ -284,7 +284,7 @@ fn two_images_produce_two_independent_prepare_targets() {
 /// 乐观 Sending 首帧即带齐**逐文件**绝对进度与消息级加权进度（INV-01）。
 #[test]
 fn sending_projection_carries_per_file_pending_progress() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "upload-viewer", "upload-company", "", "", "");
     start_two_image_send(&mut h, "tmp-mv3-g01c-002");
 
     let sending = emitted(&h, "im:post:sending");

@@ -164,7 +164,9 @@ fn emitted(effects: &[Effect]) -> Vec<Value> {
 /// 失败只能结束关联请求，不能产生业务终态或后续 I/O。
 fn assert_request_failed(effects: &[Effect], code: &str) {
     assert_eq!(effects.len(), 1);
-    let Effect::Emit {event} = &effects[0] else { panic!("expected correlated failure"); };
+    let Effect::Emit { event } = &effects[0] else {
+        panic!("expected correlated failure");
+    };
     let payload: Value = serde_json::from_slice(event.0.as_ref()).unwrap();
     assert_eq!(payload["event"], "im:read:result");
     assert_eq!(payload["data"]["error"], code);
@@ -195,7 +197,13 @@ fn drive_step(
     let http_corr = corr_of(harness.sink.as_slice(), "http")
         .unwrap_or_else(|| panic!("{command} 必须发出权威 Http"));
 
-    harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), base_ms + 1);
+    harness.step(
+        port_reply_with_body(
+            http_corr,
+            common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#)),
+        ),
+        base_ms + 1,
+    );
     events.extend(emitted(harness.sink.as_slice()));
 
     harness.step(inbound(authority), base_ms + 2);
@@ -563,7 +571,13 @@ fn cancel_persist_failure_suppresses_the_terminal_and_stays_retryable() {
         NOW_MS + 100,
     );
     let http_corr = corr_of(harness.sink.as_slice(), "http").expect("必须发出取消 Http");
-    harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), NOW_MS + 101);
+    harness.step(
+        port_reply_with_body(
+            http_corr,
+            common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#)),
+        ),
+        NOW_MS + 101,
+    );
     harness.step(
         inbound(&canceled_authority(CANCELED_REVISION)),
         NOW_MS + 102,

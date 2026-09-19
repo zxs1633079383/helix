@@ -55,6 +55,19 @@ fn emit_jsons(sink: &EffectSink) -> Vec<serde_json::Value> {
         .collect()
 }
 
+const READ_RELAY_VIEWER: &str = "read-relay-viewer";
+const READ_RELAY_COMPANY: &str = "read-relay-company";
+
+/// 读回 fixture 只为明确列出的频道建立可信归属，不给未知频道或空身份隐式授权。
+fn scoped_read_harness(channel_ids: &[&str]) -> Harness {
+    let mut harness =
+        Harness::new_with_identity(&[], READ_RELAY_VIEWER, READ_RELAY_COMPANY, "", "", "");
+    for channel_id in channel_ids {
+        harness.seed_channel_scope(channel_id, READ_RELAY_COMPANY, READ_RELAY_VIEWER);
+    }
+    harness
+}
+
 // ─── 不变量 1：读命令注册回灌 + emit 透传 body ──────────────────────────────────
 
 #[test]
@@ -65,7 +78,7 @@ fn read_command_registers_relay_and_emits_result() {
         "im_top20 必为读族（posts_read）"
     );
 
-    let mut h = Harness::new(&[]);
+    let mut h = scoped_read_harness(&["ch00000000000000000000000a"]);
 
     // ① 喂读命令（带前端 bridge 注入的 req_id）。
     let cmd = outbound_cmd(
@@ -187,7 +200,7 @@ fn pinned_authority_read_persists_before_local_replay() {
 #[test]
 fn search_do_registers_relay_and_passes_three_sections_through() {
     assert!(commands::is_read("im_search_do"), "聚合搜索必须为读族");
-    let mut h = Harness::new(&[]);
+    let mut h = scoped_read_harness(&["c1"]);
     h.step(
         outbound_cmd(
             "im_search_do",
@@ -254,7 +267,7 @@ fn search_do_registers_relay_and_passes_three_sections_through() {
 
 #[test]
 fn announcement_delete_replies_and_reloads_same_version_list() {
-    let mut h = Harness::new(&[]);
+    let mut h = scoped_read_harness(&["ch00000000000000000000000a"]);
     h.step(
         outbound_cmd(
             "im_announcement_delete",
@@ -337,7 +350,7 @@ fn announcement_delete_replies_and_reloads_same_version_list() {
 
 #[test]
 fn announcement_delete_noop_version_zero_replies_without_list_reload() {
-    let mut h = Harness::new(&[]);
+    let mut h = scoped_read_harness(&["ch00000000000000000000000a"]);
     h.step(
         outbound_cmd(
             "im_announcement_delete",
@@ -591,8 +604,8 @@ fn reply_query_without_req_id_never_emits_uncorrelated_projection() {
 
 #[test]
 fn members_by_ids_emits_authoritative_snapshot_projection() {
-    let mut h = Harness::new(&[]);
     let channel_id = cid(21);
+    let mut h = scoped_read_harness(&[channel_id.as_str()]);
     h.step(
         outbound_cmd(
             "im_channels_members_by_ids",
@@ -621,8 +634,8 @@ fn members_by_ids_emits_authoritative_snapshot_projection() {
 /// 证明 G12 新快照只产 Frame，迟到旧 authority 不再泄漏 raw read/reply event。
 #[test]
 fn stale_reply_snapshot_is_suppressed_after_latest_frame() {
-    let mut h = Harness::new(&[]);
     let channel_id = cid(31);
+    let mut h = scoped_read_harness(&[channel_id.as_str()]);
     let root_id = cid(32);
     let latest_reply_id = cid(33);
     let stale_reply_id = cid(34);
@@ -766,7 +779,7 @@ fn is_read_marks_read_family_only() {
 #[test]
 fn markdown_search_preserves_literal_query_and_authority() {
     assert!(commands::is_read("im_search_do"), "聚合搜索必须为读族");
-    let mut h = Harness::new(&[]);
+    let mut h = scoped_read_harness(&["c1"]);
     h.step(
         outbound_cmd(
             "im_search_do",

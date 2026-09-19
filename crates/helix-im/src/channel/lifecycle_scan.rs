@@ -32,7 +32,7 @@ impl ImModule {
 
         let timestamp = match outcome {
             helix_core::tick::PortOutcome::Ok(reply) => {
-                parse_latest_message_update_at(reply.0.as_ref())
+                parse_latest_message_create_at(reply.0.as_ref())
             }
             helix_core::tick::PortOutcome::Err(error) => {
                 tracing::warn!(
@@ -174,6 +174,7 @@ impl ImModule {
 
         let mut terminal_count = 0usize;
         for row in &rows {
+            self.render_scope.observe_channel(row);
             let Some(channel_id) = row
                 .get("id")
                 .or_else(|| row.get("channel_id"))
@@ -219,8 +220,8 @@ impl ImModule {
     }
 }
 
-/// 从 message 扫描首行读取 update_at；空行、畸形值和负数都回退为 0。
-fn parse_latest_message_update_at(bytes: &[u8]) -> i64 {
+/// 从 scoped max 回报中读取最大 create_at；空行、畸形值和负数都回退为 0。
+fn parse_latest_message_create_at(bytes: &[u8]) -> i64 {
     if bytes.is_empty() {
         return 0;
     }
@@ -229,17 +230,17 @@ fn parse_latest_message_update_at(bytes: &[u8]) -> i64 {
         Err(error) => {
             tracing::warn!(
                 %error,
-                raw = %String::from_utf8_lossy(bytes),
+                reason = "invalid_scoped_message_watermark",
                 "message watermark scan JSON parse failed; using timestamp zero"
             );
             return 0;
         }
     };
 
-    rows.first()
-        .and_then(|row| row.get("update_at"))
-        .and_then(serde_json::Value::as_i64)
+    rows.iter()
+        .filter_map(|row| row.get("create_at").and_then(serde_json::Value::as_i64))
         .filter(|timestamp| *timestamp >= 0)
+        .max()
         .unwrap_or(0)
 }
 
@@ -295,5 +296,16 @@ mod tests {
         restore_scanned_cursor(&mut channel, Seq(19));
 
         assert_eq!(channel.cursor.value(), Seq(23));
+    }
+
+    /// 水位只认 scoped channel 回报中的最大 create_at；update_at 更大也不能抬高边界。
+    #[test]
+    fn message_watermark_uses_max_create_at_across_scoped_channel_rows() {
+        let reply = br#"[
+            {"channel_id":"ch-a","create_at":1700,"update_at":9900},
+            {"channel_id":"ch-b","create_at":2300,"update_at":1200}
+        ]"#;
+
+        assert_eq!(parse_latest_message_create_at(reply), 2300);
     }
 }

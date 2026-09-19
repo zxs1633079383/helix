@@ -128,7 +128,11 @@ fn effect_set_is_http_only_with_zero_events() {
 /// 真实 Command -> HTTP -> PortReply 链必须回灌稳定排序后的结构化结果。
 #[test]
 fn http_reply_projects_structured_result_through_real_dispatch() {
-    let mut harness = Harness::new(&[]);
+    let mut harness =
+        Harness::new_with_identity(&[], "schedule-viewer", "schedule-company", "", "", "");
+    harness.seed_channel_scope(CHANNEL_ID, "schedule-company", "schedule-viewer");
+    harness.sink.clear();
+    harness.effect_log.clear();
     harness.step(
         command_json(
             "im_get_schedule",

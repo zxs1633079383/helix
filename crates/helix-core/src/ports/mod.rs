@@ -21,7 +21,7 @@ pub mod upload;
 
 pub use crate::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanSpec,
-    ScopedGetSpec, ScopedGuardedBumpSpec, UpsertSpec,
+    ScopedGetSpec, ScopedGuardedBumpSpec, ScopedMaxSpec, ScopedScanSpec, UpsertSpec,
 };
 pub use clock::Clock;
 #[cfg(any(test, feature = "testing"))]

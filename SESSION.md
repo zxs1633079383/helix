@@ -1,3 +1,19 @@
+## 2026-09-20 Rust重新打包与客户端集成
+
+🎯 EXPECT 四公共crate 0.1.24→0.1.25发布可解析，客户端精确依赖同步，yarn start真实编译通过后再push两仓当前分支及版本Tag。用户授权包含最新用户库/公司闸门与unread映射修复；保留无关交接/产物和client release.json已有kernel修改，桌面应用版本等待环境选择。复用同代码身份已验记录；历史4项独立失败明确保留，不冒充全仓/业务验收绿色。 | 赌注 中 | 可逆 发布前是
+
+## 2026-09-20 increment 未读定位字段修复
+
+🎯 EXPECT 仅修 program.rs 与 channel_update.rs 的 unreadPostId 输入映射，并新增 Host SQLite 回归；真实 Go unReadPostId 写入 channel/member，缺失保留、空串清除，channelSyncPage 返回同一 ID。使用已有工作树迁移实现，保留所有既有修改；不提版、发布或切换客户端依赖。run_id=unread-anchor-20260920；基线1ca4e8534c835f50e090de63711f533dd1c8ee4f。先红后绿的定向 Host 测试、相关 IM 测试与 diff 检查。 | 赌注 中 | 可逆 是
+
+✅ DONE 源码及本地回归完成：修复前真实 Go fixture 落 channel 的 anchor 为空，修复后 SQLite 两表及 channelSyncPage 返回同一 ID；2 项 Host 回归（含7种更新场景）+453项 IM 测试通过，cargo check -p helix-im 与限定 diff 检查通过。仅改上述2处映射、新增1个测试文件；保留其他任务改动。验证基于共享迁移工作树，未独立拆分提交；无发布/push/客户端依赖更新。桌面仍锁 registry 0.1.24，真实 Tauri/WDIO/线上 SQLite 未验，不能视为运行端已生效。详见客户端 docs/交接/0919-increment-unread-jump/handoff.md。
+
+## 2026-09-19 用户级本地库与公司渲染硬闸门
+
+🎯 EXPECT 同一用户 B 公司数据允许补水及持久化，但当前 A 公司在线/离线渲染投影中 B 数据为零；increment timeStamp 来自当前用户当前公司消息最大 createAt；物理库按用户隔离且旧库可恢复迁移。聚焦回放、SQLite 与三端编译分层验证，不自动发送真实消息、发布或 push。基线 1ca4e8534c835f50e090de63711f533dd1c8ee4f，保留既有脏文件。 | 赌注 高 | 可逆 是
+
+PARTIAL：源码硬闸门/自动补水/用户库迁移已落地；render13、内部补水11、真SQLite共库/离线/水位、三端check/wasm、客户端local patch迁移9+路径3+generation1通过。全IM1552通过/7失败，相关3项修后补测53通过、消息id负例再测11通过；余4项独立契约/产物失败未扩修。客户端仍锁0.1.24，编译互锁阻止新库配旧包，发布接入待授权；Go C019本轮全覆盖未证，真实链/UI未验。未提交/发布/push/部署，CSES保持修复中。详见 docs/交接/task-6aacb31382481a450ebfd3aa/handoff.md。
+
 ## 2026-09-15 发布 Helix 0.1.22
 
 🎯 EXPECT 用户已授权升级发布和 push：四公共 crate 0.1.22 发布并可从 registry 解析，发布提交及注释 Tag 推送，客户端升级精确依赖。本轮复用已通过的定向测试、三端编译和 WebDriver 布局证据；真实消息联调未验证，全量测试既有 mv3_g05l 失败不扩大修复。 | 赌注 中 | 可逆 首次上传前是

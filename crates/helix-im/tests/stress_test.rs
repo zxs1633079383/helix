@@ -58,7 +58,14 @@ fn make_module_with_identity(channel_num: u64, auth_user_id: &str, company_id: &
     };
     let mut module = ImModule::new(config);
     module.register_channel(channel_id(channel_num), 0);
-    module
+    // 压测前通过持久化 seam 建立可信归属，计时窗口仍只覆盖原业务负载。
+    let mut harness = common::Harness {
+        module,
+        sink: EffectSink::new(),
+        effect_log: Vec::new(),
+    };
+    harness.seed_channel_scope(&cid(channel_num), company_id, auth_user_id);
+    harness.module
 }
 
 /// 测试桥接：数值 channel id → 真 wire 26 字符字符串。

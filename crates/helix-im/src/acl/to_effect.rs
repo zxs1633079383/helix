@@ -32,6 +32,7 @@ pub use super::sync_effects::{
     sync_mutation_emits, sync_mutation_emits_with_auth, sync_mutation_emits_with_auth_and_path,
 };
 pub use super::sync_http_effects::{
-    connection_id_headers, increment_http_trigger, increment_message_timestamp_scan, sync_notify,
+    connection_id_headers, increment_http_trigger, increment_message_timestamp_scan,
+    increment_message_timestamp_scan_for_channels, sync_notify,
 };
 pub use super::transport_effects::ping_frame;

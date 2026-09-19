@@ -31,6 +31,7 @@ fn inc_with_lists(channel_num: u64, mentions: &[&str], urgents: &[&str]) -> Incr
     use serde_json::json;
     let raw = json!({
         "id": cid(channel_num),
+        "teamId": "team1",
         "mentionList": mentions,
         "urgentPostList": urgents,
     });
@@ -85,7 +86,7 @@ fn drive_to_increment_end(h: &mut Harness, inc: IncrementChannel) {
 
 #[test]
 fn assembles_todo_from_increment_mentions() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[1], "todo-viewer", "team1", "", "", "");
     drive_to_increment_end(
         &mut h,
         inc_with_lists(1, &["postaaa", "postbbb"], &["posturg"]),

@@ -28,6 +28,55 @@ impl Module for ImModule {
 
     /// 处理一个 Tick，零 I/O，零 await。
     fn handle(&mut self, tick: &Tick, now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError> {
+        let start = out.as_slice().len();
+        self.render_scope.observe_reply(tick);
+        let result = self.handle_scoped_tick(tick, now_ms, out);
+        // 包括提前 return 和错误路径在内，任何跨端 Emit 都必须经过同一个业务闸门。
+        self.render_scope.guard_effects(&self.config, start, out);
+        result
+    }
+
+    /// 启动：加载持久频道归属后才允许其渲染；I/O 仍全部由端口执行。
+    fn on_start(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
+        let start = out.as_slice().len();
+        let result = self.start_scoped_module(out);
+        self.render_scope.guard_effects(&self.config, start, out);
+        result
+    }
+
+    /// 停止生命周期也不允许已失效公司投影穿过出口。
+    fn on_stop(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
+        let start = out.as_slice().len();
+        let result = self.stop_scoped_module(out);
+        self.render_scope.guard_effects(&self.config, start, out);
+        result
+    }
+}
+
+impl ImModule {
+    /// 执行业务 Tick；最终输出由 Module 实现统一审查。
+    fn handle_scoped_tick(
+        &mut self,
+        tick: &Tick,
+        now_ms: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), CoreError> {
+        if let Tick::PortReply {
+            corr,
+            outcome: helix_core::tick::PortOutcome::Ok(reply),
+        } = tick
+        {
+            if matches!(
+                self.state.corr_map.get(corr),
+                Some(
+                    CorrelationContext::DialogListQuery { .. }
+                        | CorrelationContext::ChannelViewSnapshotQuery { .. }
+                        | CorrelationContext::ChannelSyncPage { .. }
+                )
+            ) {
+                self.render_scope.observe_rows(reply.0.as_ref());
+            }
+        }
         self.diagnostics.now_ms = now_ms;
         let effect_start = out.as_slice().len();
         let corr_floor = self.next_corr;
@@ -56,9 +105,33 @@ impl Module for ImModule {
                     let company_id = identity
                         .company_id
                         .unwrap_or_else(|| self.config.company_id.clone());
+                    if auth_user_id != self.config.auth_user_id {
+                        self.render_scope = Default::default();
+                    }
                     if auth_user_id != self.config.auth_user_id
                         || company_id != self.config.company_id
                     {
+                        self.scope_hydration.reset();
+                        // 原始 HTTP 读体可能不带频道/公司字段；切换身份时显式结束旧请求，
+                        // A→B→A 后的迟到回包也不能重新晋升为当前公司的投影。
+                        let mut cancelled_reads: Vec<_> = self
+                            .state
+                            .corr_map
+                            .iter()
+                            .filter_map(|(corr, context)| match context {
+                                CorrelationContext::OutboundReadReply { req_id, .. }
+                                | CorrelationContext::OutboundMembersByIds { req_id }
+                                | CorrelationContext::OutboundContactCandidates { req_id } => {
+                                    Some((*corr, req_id.clone()))
+                                }
+                                _ => None,
+                            })
+                            .collect();
+                        cancelled_reads.sort_unstable_by_key(|(corr, _)| corr.raw());
+                        for (corr, req_id) in cancelled_reads {
+                            self.state.corr_map.remove(&corr);
+                            out.push(crate::read_relay::emit_read_error(&req_id, "CANCELLED"));
+                        }
                         self.finish_sync_observation(
                             crate::sync_observation::SyncResult::Cancelled,
                         );
@@ -275,6 +348,7 @@ impl Module for ImModule {
                                 CorrelationContext::OutboundIncrementHydration {
                                     req_id,
                                     emit_channel_increment,
+                                    scope_channel: None,
                                 }
                             } else if name == "im_channels_members_by_ids" {
                                 CorrelationContext::OutboundMembersByIds { req_id }
@@ -646,6 +720,7 @@ impl Module for ImModule {
             }
 
             Tick::Disconnected(_transport) => {
+                self.scope_hydration.reset();
                 self.finish_sync_observation(crate::sync_observation::SyncResult::Cancelled);
                 self.state.increment_pull = None;
                 self.state.corr_map.retain(|_, context| {
@@ -653,6 +728,10 @@ impl Module for ImModule {
                         context,
                         CorrelationContext::IncrementPullHttp
                             | CorrelationContext::IncrementPullPersist
+                            | CorrelationContext::OutboundIncrementHydration {
+                                scope_channel: Some(_),
+                                ..
+                            }
                     )
                 });
                 self.state.conn = ConnState::Disconnected;
@@ -692,7 +771,7 @@ impl Module for ImModule {
     }
 
     /// 启动：先 Scan `channel_event_cursor` 与 `channel` 投影，过滤终态后才触发 proactive sync。
-    fn on_start(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
+    fn start_scoped_module(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
         self.diagnose(crate::diagnostics::Observation {
             event: "login_sync_started",
             stage: "store",
@@ -723,7 +802,7 @@ impl Module for ImModule {
     }
 
     /// 停止：取消所有 timer + 关闭连接
-    fn on_stop(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
+    fn stop_scoped_module(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
         self.finish_sync_observation(crate::sync_observation::SyncResult::Cancelled);
         self.cancel_category(out);
         self.stop_schedule_media(out);

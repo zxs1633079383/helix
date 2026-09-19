@@ -521,8 +521,10 @@ impl ImModule {
                 );
                 let persist_corr = self.alloc_corr_internal();
                 let auth_user_id = self.config.auth_user_id.as_str();
+                // 用户级库的恢复证明不随 UI 公司切换分裂；真实频道公司留在 channel 行。
+                // 陌生频道也可先补水/落库，不能为取得公司归属而中断同步。
                 let tenant_id = crate::acl::to_effect::recovery_tenant_actor_scope(
-                    self.config.company_id.as_str(),
+                    "account",
                     self.config.auth_user_id.as_str(),
                 )
                 .ok_or_else(|| {

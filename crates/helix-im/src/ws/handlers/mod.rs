@@ -1,4 +1,5 @@
 pub(crate) mod announcement_changed;
+pub(crate) mod category_chain;
 pub(crate) mod change_channel_approval;
 pub(crate) mod channel_close;
 pub(crate) mod channel_created;
@@ -14,7 +15,6 @@ pub(crate) mod member_projection;
 pub(crate) mod pong;
 pub(crate) mod post;
 pub(crate) mod post_chain;
-pub(crate) mod category_chain;
 pub(crate) mod post_echo_settle;
 pub(crate) mod post_pin;
 pub(crate) mod post_read;

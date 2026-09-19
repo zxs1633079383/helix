@@ -15,6 +15,33 @@ const OTHER_CHANNEL: u64 = 0x11e;
 const WINDOW: &str = "mv3-g11d-window";
 const REQUEST_ID: &str = "req-mv3-g11d-001";
 
+/// 为 locate 回放注入真实 runtime identity 与指定频道 scope，保持正例可进入渲染闸门。
+fn scoped_harness(channel_ids: &[u64]) -> Harness {
+    let config = helix_im::module::ImConfig {
+        ws_url: "ws://test".to_string(),
+        api_base_url: "http://test".to_string(),
+        default_api_base_url: "http://localhost:3399".to_string(),
+        auth_user_id: "g11d-viewer".to_string(),
+        company_id: "g11d-company".to_string(),
+        ..Default::default()
+    };
+    let mut harness = Harness {
+        module: helix_im::ImModule::new_with_local_store(
+            config,
+            helix_im::query::LocalStoreMode::Session,
+        ),
+        sink: helix_core::EffectSink::new(),
+        effect_log: Vec::new(),
+    };
+    for &id in channel_ids {
+        harness.module.register_channel(common::channel_id(id), 0);
+        harness.seed_channel_scope(&common::cid(id), "g11d-company", "g11d-viewer");
+    }
+    harness.sink.clear();
+    harness.effect_log.clear();
+    harness
+}
+
 /// 从当前批次提取唯一 HTTP correlation，并校验 locate authority endpoint。
 fn only_http(harness: &Harness, suffix: &str) -> Correlation {
     let mut correlations = harness
@@ -129,7 +156,7 @@ fn emitted_events(harness: &Harness) -> Vec<Value> {
         .collect()
 }
 
-/// 先以真实 latest local-first 链附着一个可定位的窗口。
+/// 先以真实 latest local-first 链附着一个可定位的窗口，并保留成功投影断言。
 fn attach_latest_window(harness: &mut Harness) {
     harness.step(
         command_json(
@@ -377,8 +404,7 @@ fn locate_command_with(target: &str, request_id: &str, navigation_token: &str) -
 /// temporaryId 目标必须沿用 HTTP → Persist → exact identity readback 的真实 locate 链路。
 #[test]
 fn g11d_context_accepts_temporary_id_target() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness(&[CHANNEL]);
     attach_latest_window(&mut harness);
     harness.step(locate_command_for_target("mv3-g11d-3"), 6);
     let http = only_http(&harness, "/posts/postContext");
@@ -423,8 +449,7 @@ fn g11d_context_accepts_temporary_id_target() {
 /// Locate 成功必须是 HTTP → Persist → exact Scan → 一个 QueryMessagesResult，且不广播 timeline。
 #[test]
 fn g11d_context_waits_for_centered_durable_window() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness(&[CHANNEL]);
     attach_latest_window(&mut harness);
     harness.step(locate_command(3), 6);
     let http = only_http(&harness, "/posts/postContext");
@@ -532,8 +557,7 @@ fn g11d_context_waits_for_centered_durable_window() {
 /// 缺失 temporaryId 时，Locate 必须按实际 durable `id` 主键逐条读回。
 #[test]
 fn g11d_locate_falls_back_to_id_storage_key() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness(&[CHANNEL]);
     attach_latest_window(&mut harness);
     harness.step(
         locate_command_with("mv3-g11d-id-2", "req-mv3-g11d-id", "g11d-id"),
@@ -598,8 +622,7 @@ fn g11d_locate_falls_back_to_id_storage_key() {
 /// 重复/乱序 durable 回报不得重复发布结果，也不得改变 authority 的窗口顺序。
 #[test]
 fn g11d_locate_deduplicates_out_of_order_readback() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness(&[CHANNEL]);
     attach_latest_window(&mut harness);
     harness.step(locate_command(3), 6);
     let http = only_http(&harness, "/posts/postContext");
@@ -652,8 +675,7 @@ fn g11d_locate_deduplicates_out_of_order_readback() {
 /// Locate authority 缺失目标时必须失败保旧，不能用其它 rows 猜测 targetIndex。
 #[test]
 fn g11d_locate_missing_target_fails_before_persist() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness(&[CHANNEL]);
     attach_latest_window(&mut harness);
     harness.step(
         locate_command_with("mv3-g11d-not-found", "req-missing", "missing"),
@@ -677,10 +699,7 @@ fn g11d_locate_missing_target_fails_before_persist() {
 /// Locate authority 任何跨频道 row 都必须失败，不能混入当前频道窗口。
 #[test]
 fn g11d_locate_cross_channel_fails_before_persist() {
-    let mut harness = Harness::new_with_store_mode(
-        &[CHANNEL, OTHER_CHANNEL],
-        helix_im::query::LocalStoreMode::Session,
-    );
+    let mut harness = scoped_harness(&[CHANNEL, OTHER_CHANNEL]);
     attach_latest_window(&mut harness);
     harness.step(locate_command(3), 6);
     let http = only_http(&harness, "/posts/postContext");
@@ -706,8 +725,8 @@ fn g11d_locate_cross_channel_fails_before_persist() {
 /// Locate authority 缺失 temporaryId 与 id 时必须 fail closed，不产生无身份缓存写入。
 #[test]
 fn g11d_locate_missing_identity_fails_before_persist() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    // 缺的是 authority 消息的 temporaryId/id，不是 RuntimeAuth；避免 scope 错误掩盖本负例。
+    let mut harness = scoped_harness(&[CHANNEL]);
     attach_latest_window(&mut harness);
     harness.step(locate_command(3), 6);
     let http = only_http(&harness, "/posts/postContext");
@@ -737,8 +756,7 @@ fn g11d_locate_missing_identity_fails_before_persist() {
 /// locate 等待 authority 时并发 latest 刷新不得让同 reqId 的真实回包失效。
 #[test]
 fn g11d_latest_refresh_does_not_cancel_inflight_locate_request() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness(&[CHANNEL]);
     attach_latest_window(&mut harness);
     harness.step(
         locate_command_with(
@@ -783,8 +801,7 @@ fn g11d_latest_refresh_does_not_cancel_inflight_locate_request() {
 /// 已完成 Locate coverage 再次定位同一目标时只读本地 coverage，不重复请求 Go。
 #[test]
 fn g11d_repeated_locate_coverage_hit_avoids_go_http() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness(&[CHANNEL]);
     attach_latest_window(&mut harness);
     harness.step(
         locate_command_with("srvfix00000000000000000003", "req-first", "token-first"),
@@ -833,8 +850,7 @@ fn g11d_repeated_locate_coverage_hit_avoids_go_http() {
 /// 撤回目标在 authority 阶段 fail closed，只结算 error 并保留旧窗口。
 #[test]
 fn g11d_revoked_target_has_correlated_error_without_persist() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness(&[CHANNEL]);
     attach_latest_window(&mut harness);
     harness.step(locate_command(3), 6);
     let http = only_http(&harness, "/posts/postContext");
@@ -881,8 +897,7 @@ fn g11d_revoked_target_has_correlated_error_without_persist() {
 /// 隐藏前置消息被过滤后，locate 的 targetIndex 必须按可见 durable 窗口重算。
 #[test]
 fn g11d_hidden_predecessor_reindexes_visible_target() {
-    let mut harness =
-        Harness::new_with_identity(&[CHANNEL], "g11d-viewer", "g11d-company", "", "", "");
+    let mut harness = scoped_harness(&[CHANNEL]);
     attach_latest_window(&mut harness);
     harness.step(locate_command(3), 6);
     let http = only_http(&harness, "/posts/postContext");

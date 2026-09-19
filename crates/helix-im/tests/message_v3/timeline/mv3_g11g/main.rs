@@ -144,7 +144,7 @@ fn durable_visible_row() -> Bytes {
 
 #[test]
 fn g11g_exact_posts_waits_for_durable_readback_and_filters_viewer() {
-    let mut harness = Harness::new_with_identity(&[], "viewer-1", "tenant-1", "", "", "");
+    let mut harness = Harness::new_with_identity(&[CHANNEL], "viewer-1", "tenant-1", "", "", "");
     harness.step(
         command_json(
             "im_get_posts",
@@ -218,7 +218,7 @@ fn g11g_exact_posts_waits_for_durable_readback_and_filters_viewer() {
 
 #[test]
 fn g11g_empty_ids_emit_one_empty_terminal_after_empty_persist() {
-    let mut harness = Harness::new_with_identity(&[], "viewer-1", "tenant-1", "", "", "");
+    let mut harness = Harness::new_with_identity(&[CHANNEL], "viewer-1", "tenant-1", "", "", "");
     harness.step(
         command_json(
             "im_get_posts",
@@ -252,7 +252,7 @@ fn g11g_empty_ids_emit_one_empty_terminal_after_empty_persist() {
 
 #[test]
 fn g11g_http_failure_has_one_error_terminal() {
-    let mut harness = Harness::new_with_identity(&[], "viewer-1", "tenant-1", "", "", "");
+    let mut harness = Harness::new_with_identity(&[CHANNEL], "viewer-1", "tenant-1", "", "", "");
     harness.step(
         command_json(
             "im_get_posts",

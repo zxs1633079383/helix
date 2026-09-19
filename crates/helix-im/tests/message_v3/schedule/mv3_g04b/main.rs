@@ -151,7 +151,13 @@ fn issue_cancel(harness: &mut Harness) -> u64 {
 /// 走到 WS authority 已入原子屏障的状态，返回 PersistAtomic correlation。
 fn drive_to_authority(harness: &mut Harness) -> u64 {
     let http_corr = issue_cancel(harness);
-    harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), NOW_MS + 1);
+    harness.step(
+        port_reply_with_body(
+            http_corr,
+            common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#)),
+        ),
+        NOW_MS + 1,
+    );
     harness.step(inbound(&canceled_authority()), NOW_MS + 2);
     corr_of(harness.sink.as_slice(), "atomic").expect("WS authority 必须落 PersistAtomic")
 }
@@ -205,7 +211,13 @@ fn cancel_command_emits_only_the_authoritative_http() {
 fn http_2xx_alone_never_settles_the_cancel() {
     let mut harness = creator_harness();
     let http_corr = issue_cancel(&mut harness);
-    harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), NOW_MS + 1);
+    harness.step(
+        port_reply_with_body(
+            http_corr,
+            common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#)),
+        ),
+        NOW_MS + 1,
+    );
     assert!(
         harness.sink.as_slice().is_empty(),
         "HTTP 成功不得产生任何 Effect / 事件"
@@ -342,7 +354,13 @@ fn cancel_never_publishes_a_post_event() {
     let mut all = Vec::new();
     let http_corr = issue_cancel(&mut harness);
     all.extend(emitted(harness.sink.as_slice()));
-    harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), NOW_MS + 1);
+    harness.step(
+        port_reply_with_body(
+            http_corr,
+            common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#)),
+        ),
+        NOW_MS + 1,
+    );
     all.extend(emitted(harness.sink.as_slice()));
     harness.step(inbound(&canceled_authority()), NOW_MS + 2);
     all.extend(emitted(harness.sink.as_slice()));
@@ -409,11 +427,23 @@ fn persist_failure_suppresses_the_terminal_projection() {
     let mut harness = creator_harness();
     let atomic_corr = drive_to_authority(&mut harness);
     harness.step(port_reply_err(atomic_corr), NOW_MS + 3);
-    assert!(emitted(harness.sink.as_slice()).is_empty(), "提交失败不得发布业务终态");
-    assert!(corr_of(harness.sink.as_slice(), "persist").is_none(), "提交失败不得读回");
-    let failures: Vec<Value> = harness.sink.as_slice().iter().filter_map(|effect| match effect {
-        Effect::Emit {event} => serde_json::from_slice(event.0.as_ref()).ok(), _ => None
-    }).collect();
+    assert!(
+        emitted(harness.sink.as_slice()).is_empty(),
+        "提交失败不得发布业务终态"
+    );
+    assert!(
+        corr_of(harness.sink.as_slice(), "persist").is_none(),
+        "提交失败不得读回"
+    );
+    let failures: Vec<Value> = harness
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).ok(),
+            _ => None,
+        })
+        .collect();
     assert_eq!(failures.len(), 1);
     assert_eq!(failures[0]["event"], "im:read:result");
     assert_eq!(failures[0]["data"]["error"], "SCHEDULE_PERSIST_FAILED");
@@ -499,7 +529,13 @@ fn stale_created_readback_on_a_canceled_row_never_revives_the_banner() {
         NOW_MS,
     );
     let http_corr = corr_of(harness.sink.as_slice(), "http").expect("创建必须发出 Http");
-    harness.step(port_reply_with_body(http_corr, common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#))), NOW_MS + 1);
+    harness.step(
+        port_reply_with_body(
+            http_corr,
+            common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#)),
+        ),
+        NOW_MS + 1,
+    );
     harness.step(
         inbound(&json!({
             "action": "post_schedule_created",

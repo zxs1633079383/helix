@@ -51,6 +51,18 @@ impl WsMessageHandler for HelloHandler {
             connection_id,
         ));
 
+        // 共库的频道归属扫描尚未完成时，空集合不是“当前公司没有本地消息”。
+        // finish_startup_scan 会用完整公司集合计算 create_at，再发唯一 increment 请求。
+        if ctx.state.corr_map.values().any(|context| {
+            matches!(
+                context,
+                CorrelationContext::ScanCursors | CorrelationContext::ScanChannelProjections
+            )
+        }) {
+            ctx.state.pending_increment_bootstrap_after_scan = true;
+            return Ok(());
+        }
+
         // 启动 channel 投影扫描完成前不发送任何 active cursor；否则已删除频道会在
         // hello 竞态窗口重新进入 Go 的增量/补偿链路。扫描成功后仍排除 terminal 聚合。
         let mut cursors: Vec<(ChannelId, Seq)> = if ctx.state.startup_channel_projection_ready
@@ -79,9 +91,12 @@ impl WsMessageHandler for HelloHandler {
                 cursors,
             },
         );
-        out.push(crate::acl::to_effect::increment_message_timestamp_scan(
-            timestamp_scan_corr,
-        ));
+        out.push(
+            crate::acl::to_effect::increment_message_timestamp_scan_for_channels(
+                timestamp_scan_corr,
+                ctx.scoped_channel_ids.unwrap_or(&[]),
+            ),
+        );
         tracing::info!(
             "helix-im: hello handshake complete, local message watermark scan started before increment HTTP"
         );

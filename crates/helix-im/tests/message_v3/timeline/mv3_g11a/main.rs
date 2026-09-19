@@ -13,6 +13,31 @@ use common::{cid, command_json, enveloped, port_reply_with_body, Harness};
 const CHANNEL: u64 = 0x11a;
 const WINDOW: &str = "mv3-g11a-latest";
 
+/// 为 latest 回放注入真实 runtime identity 与 channel scope，避免正例被渲染闸门误判为越权。
+fn scoped_harness() -> Harness {
+    let config = helix_im::module::ImConfig {
+        ws_url: "ws://test".to_string(),
+        api_base_url: "http://test".to_string(),
+        default_api_base_url: "http://localhost:3399".to_string(),
+        auth_user_id: "g11a-viewer".to_string(),
+        company_id: "g11a-company".to_string(),
+        ..Default::default()
+    };
+    let mut harness = Harness {
+        module: helix_im::ImModule::new_with_local_store(
+            config,
+            helix_im::query::LocalStoreMode::Session,
+        ),
+        sink: helix_core::EffectSink::new(),
+        effect_log: Vec::new(),
+    };
+    harness.module.register_channel(common::channel_id(CHANNEL), 0);
+    harness.seed_channel_scope(&common::cid(CHANNEL), "g11a-company", "g11a-viewer");
+    harness.sink.clear();
+    harness.effect_log.clear();
+    harness
+}
+
 /// 从当前批次取唯一 HTTP correlation，防止隐藏的额外网络请求。
 fn only_http(harness: &Harness) -> Correlation {
     let mut correlations = harness
@@ -156,8 +181,7 @@ fn latest_command(page_size: u64) -> helix_core::Tick {
 
 #[test]
 fn g11a_latest_waits_for_durable_readback_and_matches_go_wire() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness();
 
     harness.step(latest_command(20), 1);
     let initial_scan = only_scan(&harness);
@@ -233,8 +257,7 @@ fn g11a_latest_waits_for_durable_readback_and_matches_go_wire() {
 
 #[test]
 fn g11a_page_size_over_sixty_fails_before_storage_or_http() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness();
     let tick = latest_command(61);
     let result = harness.module.handle(&tick, 1, &mut harness.sink);
     assert!(result.is_err(), "pageSize=61 must fail before I/O");
@@ -246,8 +269,7 @@ fn g11a_page_size_over_sixty_fails_before_storage_or_http() {
 
 #[test]
 fn g11a_late_generation_reply_is_ignored() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness();
     harness.step(latest_command(20), 1);
     let first_scan = only_scan(&harness);
 

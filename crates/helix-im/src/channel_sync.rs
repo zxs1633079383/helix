@@ -3,7 +3,9 @@
 //! 该模块只负责协议解析、cursor 绑定和有界投影；存储 I/O 仍由 `Effect`/`PortReply`
 //! 驱动，避免 Host 侧重新解释 account、company 或分页字段。
 
-use helix_core::effect::{Correlation, Effect, ScanOrder, ScanSpec, SqlValue, StorageOp};
+use helix_core::effect::{
+    Correlation, Effect, ScanOrder, ScanSpec, ScopedScanSpec, SqlValue, StorageOp,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -11,6 +13,7 @@ use serde_json::Value;
 pub(crate) const PAGE_SIZE: u32 = 20;
 /// opaque cursor 可推进的最大本地窗口；超过后由 caller 重新建立 ready session。
 const MAX_OFFSET: usize = 2_000;
+const MEMBER_SCAN_LIMIT: usize = 10_000;
 const CURSOR_VERSION: u8 = 1;
 const CHANNEL_SYNC_ORDER: &[ScanOrder] = &[
     ScanOrder::desc("is_top"),
@@ -216,9 +219,14 @@ pub(crate) fn page_scan_effect(
     })
 }
 
-/// 构造租户内成员快照 Scan；一次回读服务当前频道页，避免逐频道 N+1 查询。
+/// 构造当前频道页的成员快照 Scan；作用域只来自当前页的真实频道 ID。
+///
+/// 成员所属公司 (`channel_member.team_id`) 不是频道可见性的拒绝条件：同一用户可
+/// 作为外部公司的成员出现在当前公司的频道中。频道公司先由 channel rows 约束，viewer
+/// membership 再由投影阶段判断；这里不得退化为全表或按成员公司扫描。
 pub(crate) fn member_scan_effect(
     corr: Correlation,
+    channel_rows: &[Value],
     company_id: &str,
 ) -> Result<Effect, crate::ImError> {
     if company_id.is_empty() {
@@ -226,13 +234,29 @@ pub(crate) fn member_scan_effect(
             "im_query_channel_sync_page requires RuntimeAuth company".to_string(),
         ));
     }
+    let mut channel_ids = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for row in channel_rows {
+        let Some(object) = row.as_object() else {
+            continue;
+        };
+        if text_field(object, &["team_id", "teamId"]) != Some(company_id) {
+            continue;
+        }
+        let Some(channel_id) = text_field(object, &["id", "channel_id", "channelId"]) else {
+            continue;
+        };
+        if seen.insert(channel_id.to_string()) {
+            channel_ids.push(SqlValue::Text(channel_id.to_string()));
+        }
+    }
     Ok(Effect::Persist {
         corr,
-        ops: vec![StorageOp::Scan(ScanSpec {
+        ops: vec![StorageOp::ScopedScan(ScopedScanSpec {
             table: "channel_member",
-            limit: None,
-            filter: Some(("team_id", SqlValue::Text(company_id.to_string()))),
-            order_by: &[],
+            scope_col: "channel_id",
+            scope_values: channel_ids,
+            limit: MEMBER_SCAN_LIMIT,
         })],
     })
 }
@@ -330,9 +354,6 @@ pub(crate) fn project_page_with_members(
         let Some(team_id) = text_field(object, &["team_id", "teamId"]) else {
             continue;
         };
-        if team_id != scope.company_id {
-            continue;
-        }
         let source_role = text_field(object, &["role"]).unwrap_or("");
         let nickname = text_field(object, &["nick_name", "nickName", "nickname"]).unwrap_or("");
         by_channel
@@ -530,6 +551,38 @@ mod tests {
     }
 
     #[test]
+    fn member_scan_effect_scopes_to_deduplicated_current_company_channels() {
+        let rows = vec![
+            serde_json::json!({"id": "channel-a", "team_id": "company-a"}),
+            serde_json::json!({"id": "channel-a", "team_id": "company-a"}),
+            serde_json::json!({"id": "other-company", "team_id": "company-b"}),
+            serde_json::json!({"id": "channel-c", "teamId": "company-a"}),
+            serde_json::json!({"id": "missing-team"}),
+        ];
+        let effect = member_scan_effect(Correlation::from_raw(1), &rows, "company-a")
+            .expect("company scope is required");
+        let Effect::Persist { ops, .. } = effect else {
+            panic!("member snapshot must be a persist effect");
+        };
+        assert_eq!(ops.len(), 1);
+        let StorageOp::ScopedScan(spec) = &ops[0] else {
+            panic!("member snapshot must use a scoped scan");
+        };
+        assert_eq!(spec.table, "channel_member");
+        assert_eq!(spec.scope_col, "channel_id");
+        assert_eq!(spec.limit, 10_000usize);
+        let ids = spec
+            .scope_values
+            .iter()
+            .map(|value| match value {
+                SqlValue::Text(value) => value.as_str(),
+                _ => panic!("channel scope must use text IDs"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec!["channel-a", "channel-c"]);
+    }
+
+    #[test]
     fn projection_is_bounded_to_twenty_rows() {
         let rows = (0..21)
             .map(|index| {
@@ -618,18 +671,44 @@ mod tests {
     }
 
     #[test]
-    fn member_projection_does_not_make_wrong_tenant_rows_visible() {
-        let channels = serde_json::json!([{
-            "id": "channel-1",
-            "team_id": "company-a",
-            "type": "P",
-        }]);
-        let members = serde_json::json!([{
-            "channel_id": "channel-1",
-            "user_id": "user-a",
-            "team_id": "company-b",
-            "role": "OWNER",
-        }]);
+    fn member_projection_keeps_external_member_company_but_rejects_other_channels() {
+        let channels = serde_json::json!([
+            {
+                "id": "channel-a",
+                "team_id": "company-a",
+                "type": "P",
+            },
+            {
+                "id": "channel-b",
+                "team_id": "company-b",
+                "type": "P",
+            },
+            {
+                "id": "channel-nonmember",
+                "team_id": "company-a",
+                "type": "P",
+            }
+        ]);
+        let members = serde_json::json!([
+            {
+                "channel_id": "channel-a",
+                "user_id": "user-a",
+                "team_id": "company-b",
+                "role": "OWNER",
+            },
+            {
+                "channel_id": "channel-b",
+                "user_id": "user-a",
+                "team_id": "company-b",
+                "role": "MEMBER",
+            },
+            {
+                "channel_id": "channel-nonmember",
+                "user_id": "user-b",
+                "team_id": "company-b",
+                "role": "MEMBER",
+            }
+        ]);
         let scope = crate::query::DialogListScope::new("user-a", "company-a");
         let (page, has_more) = project_page_with_members(
             &serde_json::to_vec(&channels).unwrap(),
@@ -638,8 +717,10 @@ mod tests {
             0,
         )
         .expect("valid snapshots");
-        assert!(page.is_empty());
+        assert_eq!(page.len(), 1);
         assert!(!has_more);
+        assert_eq!(page[0]["id"], "channel-a");
+        assert_eq!(page[0]["owner"]["teamId"], "company-b");
     }
 
     #[test]

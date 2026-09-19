@@ -48,6 +48,8 @@ pub mod parser {
 mod port_reply;
 mod port_reply_emit;
 pub mod query;
+mod render_scope;
+mod scope_hydration;
 pub use query::read_relay;
 pub use query::render_ready::candidates as render_ready_candidates;
 pub use query::render_ready::core as render_ready;
@@ -76,3 +78,7 @@ pub use http_outcome::{http_outcome_event, EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OF
 pub use module::ImModule;
 pub use module::{ClientPlatform, ImConfig};
 pub use schema::{SparseTableSpec, IM_SCHEMA, IM_SCHEMA_MIGRATIONS, IM_SPARSE_TABLE_SPECS};
+
+/// 用户级共库要求公司渲染硬闸门和同公司 create_at 水位同时可用。
+/// 宿主在启用物理库迁移前必须绑定本合同，禁止以旧 IM 内核打开跨公司合并库。
+pub const USER_SCOPED_STORE_RENDER_CONTRACT_VERSION: u32 = 1;

@@ -96,7 +96,13 @@ pub(crate) fn extract_post_fields_with_event_seq(
         .unwrap_or(0);
     // props 只保留服务端业务对象与受信 event_seq；quickReply 使用独立 durable 列。
     let props = super::super::post_props::props_with_event_seq(post, root, event_seq);
-    let simple_message = crate::message_summary::resolve(&msg_type, &message, &serde_json::from_str(&props).unwrap_or(serde_json::Value::Null), &simple_message, false);
+    let simple_message = crate::message_summary::resolve(
+        &msg_type,
+        &message,
+        &serde_json::from_str(&props).unwrap_or(serde_json::Value::Null),
+        &simple_message,
+        false,
+    );
     let user_snapshot = post
         .get("userSnapshot")
         .or_else(|| post.get("user_snapshot"))

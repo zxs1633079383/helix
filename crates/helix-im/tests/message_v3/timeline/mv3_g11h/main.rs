@@ -179,7 +179,7 @@ fn durable_next() -> Bytes {
 
 #[test]
 fn g11h_initial_window_waits_for_readback_and_keeps_target_first() {
-    let mut harness = Harness::new_with_identity(&[], "viewer-1", "tenant-1", "", "", "");
+    let mut harness = Harness::new_with_identity(&[CHANNEL], "viewer-1", "tenant-1", "", "", "");
     harness.step(
         command_json(
             "im_get_posts_after_index",
@@ -261,7 +261,7 @@ fn g11h_initial_window_waits_for_readback_and_keeps_target_first() {
 
 #[test]
 fn g11h_target_not_first_fails_closed_without_persist_or_pseudo_success() {
-    let mut harness = Harness::new_with_identity(&[], "viewer-1", "tenant-1", "", "", "");
+    let mut harness = Harness::new_with_identity(&[CHANNEL], "viewer-1", "tenant-1", "", "", "");
     harness.step(
         command_json(
             "im_get_posts_after_index",
@@ -299,7 +299,7 @@ fn g11h_target_not_first_fails_closed_without_persist_or_pseudo_success() {
 
 #[test]
 fn g11h_missing_target_is_typed_empty_terminal_after_empty_persist() {
-    let mut harness = Harness::new_with_identity(&[], "viewer-1", "tenant-1", "", "", "");
+    let mut harness = Harness::new_with_identity(&[CHANNEL], "viewer-1", "tenant-1", "", "", "");
     harness.step(
         command_json(
             "im_get_posts_after_index",
@@ -338,7 +338,7 @@ fn g11h_missing_target_is_typed_empty_terminal_after_empty_persist() {
 
 #[test]
 fn g11h_page_size_above_contract_is_rejected_before_http() {
-    let mut harness = Harness::new_with_identity(&[], "viewer-1", "tenant-1", "", "", "");
+    let mut harness = Harness::new_with_identity(&[CHANNEL], "viewer-1", "tenant-1", "", "", "");
     let command = command_json(
         "im_get_posts_after_index",
         json!({

@@ -2,7 +2,7 @@
 
 use crate::state::{ChannelId, Seq};
 use bytes::Bytes;
-use helix_core::effect::{HttpRequest, ScanOrder, ScanSpec, StorageOp};
+use helix_core::effect::{HttpRequest, ScopedMaxSpec, SqlValue, StorageOp};
 use helix_core::{AuthKind, Correlation, Effect, AUTH_KIND_HEADER};
 
 const CSES_TRACK_ID_HEADER: &str = "Cses-Track-Id";
@@ -11,17 +11,27 @@ pub(crate) fn sync_track_id(corr: Correlation) -> String {
     format!("helix-sync:{}", corr.raw())
 }
 
-const INCREMENT_MESSAGE_TIMESTAMP_ORDER: &[ScanOrder] = &[ScanOrder::desc("update_at")];
-
-/// 读取本地 message 表的最大 update_at，作为下一次 increment 的时间边界。
+/// 兼容尚未完成频道投影加载的 hello 调用：空作用域只能得到 0，禁止退化为全表读取。
 pub fn increment_message_timestamp_scan(corr: Correlation) -> Effect {
+    increment_message_timestamp_scan_for_channels(corr, &[])
+}
+
+/// 按可信频道集合读取本地消息创建时间最大值，作为下一次 increment 的时间边界。
+pub fn increment_message_timestamp_scan_for_channels(
+    corr: Correlation,
+    channel_ids: &[ChannelId],
+) -> Effect {
     Effect::Persist {
         corr,
-        ops: vec![StorageOp::Scan(ScanSpec {
+        ops: vec![StorageOp::ScopedMax(ScopedMaxSpec {
             table: "message",
-            limit: Some(1),
-            filter: None,
-            order_by: INCREMENT_MESSAGE_TIMESTAMP_ORDER,
+            scope_col: "channel_id",
+            scope_values: channel_ids
+                .iter()
+                .map(|channel_id| SqlValue::Text(channel_id.as_str().to_string()))
+                .collect(),
+            value_col: "create_at",
+            result_alias: "create_at",
         })],
     }
 }
@@ -112,7 +122,7 @@ pub fn session_auth_headers(connection_id: Option<&str>) -> Vec<(String, String)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use helix_core::effect::{ScanOrder, StorageOp};
+    use helix_core::effect::StorageOp;
 
     #[test]
     fn sync_notify_carries_corr_derived_track_id() {
@@ -140,24 +150,43 @@ mod tests {
     }
 
     #[test]
-    fn increment_message_timestamp_scan_reads_latest_message_update_at() {
+    fn increment_message_timestamp_scan_reads_scoped_message_create_at() {
         let corr = Correlation::from_raw(42);
+        let channel_id = ChannelId::from_str("ch00000000000000000000000a").unwrap();
         let Effect::Persist {
             corr: effect_corr,
             ops,
-        } = increment_message_timestamp_scan(corr)
+        } = increment_message_timestamp_scan_for_channels(corr, &[channel_id])
         else {
             panic!("increment timestamp lookup must use Persist");
         };
 
         assert_eq!(effect_corr, corr);
-        let [StorageOp::Scan(spec)] = ops.as_slice() else {
-            panic!("increment timestamp lookup must scan exactly one operation");
+        let [StorageOp::ScopedMax(spec)] = ops.as_slice() else {
+            panic!("increment timestamp lookup must use exactly one scoped max operation");
         };
         assert_eq!(spec.table, "message");
-        assert_eq!(spec.limit, Some(1));
-        assert!(spec.filter.is_none());
-        assert_eq!(spec.order_by, &[ScanOrder::desc("update_at")]);
+        assert_eq!(spec.scope_col, "channel_id");
+        assert_eq!(spec.scope_values.len(), 1);
+        assert!(matches!(
+            &spec.scope_values[0],
+            SqlValue::Text(value) if value == channel_id.as_str()
+        ));
+        assert_eq!(spec.value_col, "create_at");
+        assert_eq!(spec.result_alias, "create_at");
+    }
+
+    #[test]
+    fn increment_message_timestamp_scan_without_scope_is_fail_closed() {
+        let Effect::Persist { ops, .. } =
+            increment_message_timestamp_scan(Correlation::from_raw(7))
+        else {
+            panic!("increment timestamp lookup must use Persist");
+        };
+        let [StorageOp::ScopedMax(spec)] = ops.as_slice() else {
+            panic!("empty timestamp scope must still use scoped max");
+        };
+        assert!(spec.scope_values.is_empty());
     }
 
     #[test]

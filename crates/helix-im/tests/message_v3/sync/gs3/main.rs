@@ -4,12 +4,14 @@ use serde_json::json;
 #[path = "../support.rs"]
 mod support;
 
+const CHANNEL_ID: &str = "chfixx00000000000000000023";
+
 /// G-S3 repaired 只在真实 PersistOk 后释放。
 #[test]
 fn gs3_gap_repaired_is_persist_gated() -> support::TestResult<()> {
     let event = helix_im::event::sync::gap_repaired(json!({"state":"repaired","source":"pong"}))
         .map_err(|error| error.to_string())?;
-    let trace = support::run(event)?;
+    let trace = support::run(event, CHANNEL_ID)?;
     assert_eq!(trace.events[0]["event"], "im:sync:gap-repaired");
     assert_eq!(trace.events[0]["data"]["state"], "repaired");
     Ok(())
@@ -20,6 +22,6 @@ fn gs3_gap_repaired_is_persist_gated() -> support::TestResult<()> {
 fn artifact_test() -> support::TestResult<()> {
     let event = helix_im::event::sync::gap_repaired(json!({"state":"repaired","source":"pong"}))
         .map_err(|error| error.to_string())?;
-    let trace = support::run(event)?;
+    let trace = support::run(event, CHANNEL_ID)?;
     support::write_artifact("G-S3", "message_v3_gs3", trace)
 }

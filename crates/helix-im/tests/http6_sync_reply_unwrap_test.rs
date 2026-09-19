@@ -238,6 +238,10 @@ fn canonical_stream_projection_and_cursor_share_one_atomic_write() {
         if spec.bump_col == "unread_count")));
     assert!(!ops.iter().any(|op| matches!(
         op,
-        StorageOp::Get(_) | StorageOp::ScopedGet(_) | StorageOp::Scan(_)
+        StorageOp::Get(_)
+            | StorageOp::ScopedGet(_)
+            | StorageOp::ScopedMax(_)
+            | StorageOp::ScopedScan(_)
+            | StorageOp::Scan(_)
     )));
 }

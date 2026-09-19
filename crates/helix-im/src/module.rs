@@ -106,6 +106,8 @@ impl Default for ImConfig {
 /// IM 业务模块（实现 helix_core::Module trait）
 pub struct ImModule {
     pub(crate) config: ImConfig,
+    pub(crate) render_scope: crate::render_scope::RenderScope,
+    pub(crate) scope_hydration: crate::scope_hydration::ScopeHydration,
     pub(crate) sync_timing: crate::sync_observation::Timing,
     pub(crate) diagnostics: crate::diagnostics::Session,
     pub(crate) state: ImState,
@@ -134,6 +136,7 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> helix_core::Correlation {
         let corr = self.alloc_corr_internal();
+        self.render_scope.stage_ops(corr, &ops);
         let terminal_events = terminal_events
             .into_iter()
             .map(crate::event::MessageV3Event::into_bytes)
@@ -158,6 +161,8 @@ impl ImModule {
     ) -> Self {
         Self {
             config,
+            render_scope: Default::default(),
+            scope_hydration: Default::default(),
             diagnostics: crate::diagnostics::Session::default(),
             sync_timing: Default::default(),
             state: ImState::new(),
@@ -277,6 +282,7 @@ impl ImModule {
     /// B-rest 测试 / driver 入口：直接喂 `increment_channel_end` 信号。
     /// `Some(ch)`=子 topic 结束；`None`=global end（触发增量群 sync）。
     pub fn ingest_increment_end(&mut self, ch: Option<ChannelId>, out: &mut EffectSink) {
+        let start = out.as_slice().len();
         let api_base_url = self.config.api_base_url.as_str();
         let auth_user_id = self.config.auth_user_id.as_str();
         let next_corr = &mut self.next_corr;
@@ -293,6 +299,7 @@ impl ImModule {
             &mut alloc_corr,
         );
         crate::ws::handlers::increment_channel_end::apply_increment_end(&mut ctx, ch, out);
+        self.render_scope.guard_effects(&self.config, start, out);
     }
 
     /// 内部 alloc_corr（不借用 self.state，仅借用分配器）
@@ -330,6 +337,10 @@ impl ImModule {
         let module_name = self.name();
         let api_base_url = self.config.api_base_url.as_str();
         let auth_user_id = self.config.auth_user_id.as_str();
+        // Only hello needs the local watermark scope.  Do not rescan the channel
+        // ownership map for every ordinary WS frame.
+        let hello_scope = (frame.action().ok() == Some("hello"))
+            .then(|| self.render_scope.scoped_channel_ids(&self.config));
         let next_corr = &mut self.next_corr;
         let mut alloc_corr = || {
             let corr = helix_core::Correlation::from_raw(*next_corr);
@@ -344,6 +355,9 @@ impl ImModule {
                 auth_user_id,
                 &mut alloc_corr,
             );
+            if let Some(channel_ids) = hello_scope.as_deref() {
+                ctx.set_scoped_channel_ids(channel_ids);
+            }
             let result = crate::ws::dispatch_ws(&mut ctx, frame, out);
             let timeline_refreshes = ctx.take_attached_timeline_refreshes();
             (result, timeline_refreshes)

@@ -44,9 +44,13 @@ impl ImModule {
                 cursors,
             },
         );
-        out.push(crate::acl::to_effect::increment_message_timestamp_scan(
-            scan_corr,
-        ));
+        let channel_ids = self.render_scope.scoped_channel_ids(&self.config);
+        out.push(
+            crate::acl::to_effect::increment_message_timestamp_scan_for_channels(
+                scan_corr,
+                &channel_ids,
+            ),
+        );
     }
 
     /// 处理 Timer 触发
@@ -221,6 +225,16 @@ impl ImModule {
             &connection_id,
         ));
 
+        // 与 registry hello 同一冷启动屏障：未恢复频道归属时不得先发空作用域水位。
+        if self.state.corr_map.values().any(|context| {
+            matches!(
+                context,
+                CorrelationContext::ScanCursors | CorrelationContext::ScanChannelProjections
+            )
+        }) {
+            self.state.pending_increment_bootstrap_after_scan = true;
+            return;
+        }
         // B-rest：触发 increment HTTP（带已知 channel 游标）。HTTP 仅 ack 无数据。
         let cursors = self.channel_cursors();
         self.state.pending_increment_bootstrap_after_scan = cursors.is_empty();

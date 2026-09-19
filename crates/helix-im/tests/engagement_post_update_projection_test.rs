@@ -158,6 +158,7 @@ fn ordinary_post_update_gap_releases_through_post_update_atomic() {
     let mut harness = Harness::new_with_identity(&[], "engagement-owner", "company-1", "", "", "");
     let channel_id = helix_im::state::ChannelId::from_str(&common::cid(1)).expect("channel id");
     harness.module.register_channel(channel_id, 0);
+    harness.seed_channel_scope(&common::cid(1), "company-1", "engagement-owner");
 
     harness.step(vote_update_frame(2), 1_700_000_000_001);
     assert!(harness

@@ -198,9 +198,16 @@ pub fn member_channel_from_update_channel(
         row.push(("unread_count".to_string(), SqlValue::Integer(v)));
         projection.unread_count = Some(v);
     }
-    if let Some(v) = pick_text(channel, data, &["unreadPostId", "unread_post_id"]) {
-        row.push(("unread_post_id".to_string(), SqlValue::Text(v.clone())));
-        projection.unread_post_id = Some(v);
+    // 与 increment 的 Go wire 对齐；空串是清除锚点，不能被通用 pick_text 当作缺失。
+    if let Some(v) = pick_value(
+        channel,
+        data,
+        &["unReadPostId", "unreadPostId", "unread_post_id"],
+    )
+    .and_then(Value::as_str)
+    {
+        row.push(("unread_post_id".to_string(), SqlValue::Text(v.to_owned())));
+        projection.unread_post_id = Some(v.to_owned());
     }
     if let Some(v) = pick_value(channel, data, &["lastPost", "last_post"]) {
         let v = crate::message_summary::prepare_post(v);

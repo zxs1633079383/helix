@@ -21,7 +21,7 @@ const CHANNEL_ID: &str = "chfixx0000000000000000008d";
 /// Runs the public leave command through HTTP and the local persist barrier.
 fn run_leave() -> Result<Vec<Value>, String> {
     let mut harness =
-        common::Harness::new_with_identity(&[], "g08d-actor", "g08d-company", "", "", "");
+        common::Harness::new_with_identity(&[0x8d], "g08d-actor", "g08d-company", "", "", "");
     harness.step(
         common::command_json("im_channel_leave", json!({"channel_id": CHANNEL_ID})),
         1_700_001_600_020,

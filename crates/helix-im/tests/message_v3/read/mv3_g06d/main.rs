@@ -16,6 +16,15 @@ const READER_ID: &str = "user-receiver-445";
 const UNREAD_ID: &str = "user-receiver-446";
 const SNAPSHOT_ID: &str = "snapshot-phase2-read-001";
 
+/// 为 read-list 回放注入真实 runtime identity 与 channel scope，保留作者视角断言。
+fn scoped_harness(viewer: &str) -> Harness {
+    let mut harness = Harness::new_with_identity(&[], viewer, "mv3-g06d", "", "", "");
+    harness.seed_channel_scope(CHANNEL_ID, "mv3-g06d", viewer);
+    harness.sink.clear();
+    harness.effect_log.clear();
+    harness
+}
+
 /// 取当前 step 首个 HTTP effect 的 correlation。
 fn http_corr(harness: &Harness) -> u64 {
     harness
@@ -87,7 +96,7 @@ fn read_list_reply(rows: Value) -> Bytes {
 
 /// 在 ImModule 回放一次 `im_post_read_list` 命令并回灌指定 Go rows。
 fn run_rows_harness(rows: Value) -> Harness {
-    let mut harness = Harness::new_with_identity(&[], AUTHOR_ID, "mv3-g06d", "", "", "");
+    let mut harness = scoped_harness(AUTHOR_ID);
     harness.step(
         command_json(
             "im_post_read_list",
@@ -132,7 +141,7 @@ fn assert_no_internal_receipt_fields(value: &Value) {
 /// `im_post_read_list` 只映射 postIds 到 Go 单数前缀 endpoint，禁止内部字段进入 wire body。
 #[test]
 fn post_read_list_targets_authoritative_endpoint_and_body() {
-    let mut harness = Harness::new_with_identity(&[], AUTHOR_ID, "mv3-g06d", "", "", "");
+    let mut harness = scoped_harness(AUTHOR_ID);
     harness.step(
         command_json(
             "im_post_read_list",
@@ -271,7 +280,7 @@ fn malformed_rows_fail_closed_independently() {
 /// 非数组 data 不产生伪造 receipt 事件；相同完整快照重复投影保持 byte-stable。
 #[test]
 fn malformed_envelope_is_empty_and_replay_is_idempotent() {
-    let mut harness = Harness::new_with_identity(&[], AUTHOR_ID, "mv3-g06d", "", "", "");
+    let mut harness = scoped_harness(AUTHOR_ID);
     harness.step(
         command_json(
             "im_post_read_list",

@@ -86,7 +86,7 @@ fn member_row(effects: &[Effect]) -> Result<&Row, String> {
 fn g10d_top_preference_persists_actor_scope_and_emits_once() -> Result<(), String> {
     for top in [true, false] {
         let mut harness =
-            common::Harness::new_with_identity(&[], ACTOR_ID, "g10d-company", "", "", "");
+            common::Harness::new_with_identity(&[0x0d], ACTOR_ID, "g10d-company", "", "", "");
         harness.step(top_frame(Some(ACTOR_ID), json!(top), json!({})), NOW_MS);
         let persist_ops = harness
             .sink
@@ -159,7 +159,7 @@ fn g10d_invalid_or_mixed_top_intent_has_zero_effects() {
     ];
     for frame in cases {
         let mut harness =
-            common::Harness::new_with_identity(&[], ACTOR_ID, "g10d-company", "", "", "");
+            common::Harness::new_with_identity(&[0x0d], ACTOR_ID, "g10d-company", "", "", "");
         harness.step(frame, NOW_MS);
         assert!(harness.sink.as_slice().is_empty());
     }
@@ -168,7 +168,8 @@ fn g10d_invalid_or_mixed_top_intent_has_zero_effects() {
 /// 完整共享频道更新可携带 viewer 的 channelIsTop，但不得被误判成缺 actor 的置顶补丁。
 #[test]
 fn g10d_full_shared_update_with_top_reaches_channel_projection() -> Result<(), String> {
-    let mut harness = common::Harness::new_with_identity(&[], ACTOR_ID, "g10d-company", "", "", "");
+    let mut harness =
+        common::Harness::new_with_identity(&[0x0d], ACTOR_ID, "g10d-company", "", "", "");
     harness.step(
         top_frame(
             None,

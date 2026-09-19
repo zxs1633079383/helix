@@ -16,6 +16,10 @@ pub enum StorageOp {
     Get(GetSpec),
     /// 复合作用域 get：SELECT * FROM table WHERE scope=? AND key=?（单行）
     ScopedGet(ScopedGetSpec),
+    /// 作用域集合内的聚合最大值读取；空集合必须返回空结果，禁止退化为全表查询。
+    ScopedMax(ScopedMaxSpec),
+    /// 作用域集合内的多行读取；空集合必须返回空结果，不能退化为全表查询。
+    ScopedScan(ScopedScanSpec),
     /// scan：SELECT * FROM table [LIMIT n]（多行，C3）
     Scan(ScanSpec),
     /// batch delete：`DELETE FROM table WHERE scope_col = ? AND key_col IN (key_vals)`。
@@ -242,6 +246,32 @@ pub struct ScopedGetSpec {
     pub scope_val: SqlValue,
     pub key_col: &'static str,
     pub key_val: SqlValue,
+}
+
+/// 作用域集合内的最大值查询规格。
+///
+/// `scope_col`、`value_col` 和 `result_alias` 都是编译期列名；driver 只负责参数绑定与
+/// 聚合，不解释表或列的业务含义。空 `scope_values` 表示无可信作用域，driver 应返回空结果。
+#[derive(Debug, Clone)]
+pub struct ScopedMaxSpec {
+    pub table: &'static str,
+    pub scope_col: &'static str,
+    pub scope_values: Vec<SqlValue>,
+    pub value_col: &'static str,
+    pub result_alias: &'static str,
+}
+
+/// 作用域集合内的有界多行查询规格。
+///
+/// driver 必须先应用 `scope_col IN scope_values` 再执行 limit；若匹配行数超过 limit，
+/// 必须返回错误而不是静默截断。`limit` 是调用方明确给出的硬上限，空作用域返回空数组。
+/// `scope_values` 按集合解释：重复值不得让同一行跨分块重复返回。
+#[derive(Debug, Clone)]
+pub struct ScopedScanSpec {
+    pub table: &'static str,
+    pub scope_col: &'static str,
+    pub scope_values: Vec<SqlValue>,
+    pub limit: usize,
 }
 
 /// scan 规格：通用多行扫描读（C3）。on_start 载入单调水位（全表）/ P6 投影查询（等值过滤+排序）。

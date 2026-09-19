@@ -14,6 +14,31 @@ const CHANNEL: u64 = 0x11c;
 const WINDOW: &str = "mv3-g11c-window";
 const REQUEST_ID: &str = "req-mv3-g11c-001";
 
+/// 为 newer 回放注入真实 runtime identity 与 channel scope，保持正例可进入渲染闸门。
+fn scoped_harness() -> Harness {
+    let config = helix_im::module::ImConfig {
+        ws_url: "ws://test".to_string(),
+        api_base_url: "http://test".to_string(),
+        default_api_base_url: "http://localhost:3399".to_string(),
+        auth_user_id: "g11c-viewer".to_string(),
+        company_id: "g11c-company".to_string(),
+        ..Default::default()
+    };
+    let mut harness = Harness {
+        module: helix_im::ImModule::new_with_local_store(
+            config,
+            helix_im::query::LocalStoreMode::Session,
+        ),
+        sink: helix_core::EffectSink::new(),
+        effect_log: Vec::new(),
+    };
+    harness.module.register_channel(common::channel_id(CHANNEL), 0);
+    harness.seed_channel_scope(&common::cid(CHANNEL), "g11c-company", "g11c-viewer");
+    harness.sink.clear();
+    harness.effect_log.clear();
+    harness
+}
+
 /// 从当前批次提取唯一 newer HTTP correlation，并校验 endpoint。
 fn only_http(harness: &Harness) -> Correlation {
     let mut correlations = harness
@@ -269,8 +294,7 @@ fn latest_durable_rows() -> Bytes {
 /// MV3-G11c 成功链严格为 HTTP → Persist → 精确 identity Scan → 唯一 QueryMessagesResult。
 #[test]
 fn g11c_newer_waits_for_durable_scan_and_returns_sorted_result() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness();
     attach_latest_window(&mut harness);
     harness.step(newer_command(20), 6);
     let http = only_http(&harness);
@@ -371,8 +395,7 @@ fn g11c_newer_waits_for_durable_scan_and_returns_sorted_result() {
 /// newer 空页也必须经过空 Persist 与 bounded Scan，且成功结果保留旧窗口。
 #[test]
 fn g11c_empty_newer_page_is_valid_terminal_without_broadcast() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness();
     attach_latest_window(&mut harness);
     harness.step(newer_command(20), 6);
     let http = only_http(&harness);
@@ -405,8 +428,7 @@ fn g11c_empty_newer_page_is_valid_terminal_without_broadcast() {
 /// newer 页长 60 合法，超过上限或缺失 reqId 时在任何 I/O 前拒绝。
 #[test]
 fn g11c_page_size_and_req_id_fail_closed_before_io() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness();
     attach_latest_window(&mut harness);
     harness.step(newer_command(60), 6);
     assert_eq!(http_body(&harness, only_http(&harness))["pageSize"], 60);
@@ -435,8 +457,7 @@ fn g11c_page_size_and_req_id_fail_closed_before_io() {
 /// HTTP、Persist 与 read-back 各阶段失败都只返回同 reqId error，不擦除旧窗口或广播。
 #[test]
 fn g11c_failures_are_correlated_and_preserve_old_window() {
-    let mut http_failure =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut http_failure = scoped_harness();
     attach_latest_window(&mut http_failure);
     http_failure.step(newer_command(20), 6);
     let http = only_http(&http_failure);
@@ -450,8 +471,7 @@ fn g11c_failures_are_correlated_and_preserve_old_window() {
         .unwrap()
         .contains("im:timeline:update"));
 
-    let mut persist_failure =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut persist_failure = scoped_harness();
     attach_latest_window(&mut persist_failure);
     persist_failure.step(newer_command(20), 6);
     let http = only_http(&persist_failure);
@@ -475,8 +495,7 @@ fn g11c_failures_are_correlated_and_preserve_old_window() {
         .unwrap()
         .contains("im:timeline:update"));
 
-    let mut readback_failure =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut readback_failure = scoped_harness();
     attach_latest_window(&mut readback_failure);
     readback_failure.step(newer_command(20), 6);
     let http = only_http(&readback_failure);
@@ -506,8 +525,7 @@ fn g11c_failures_are_correlated_and_preserve_old_window() {
 /// matching read-back correlation 被消费后，迟到重复回包必须保持 no-op。
 #[test]
 fn g11c_duplicate_readback_is_noop() {
-    let mut harness =
-        Harness::new_with_store_mode(&[CHANNEL], helix_im::query::LocalStoreMode::Session);
+    let mut harness = scoped_harness();
     attach_latest_window(&mut harness);
     harness.step(newer_command(20), 6);
     let http = only_http(&harness);
@@ -533,8 +551,7 @@ fn g11c_duplicate_readback_is_noop() {
 /// 非空 authority newer 页被 viewer 全部过滤时，不能伪装成带 hasNewer=true 的成功空页。
 #[test]
 fn g11c_non_empty_filtered_page_fails_closed_instead_of_retryable_empty_success() {
-    let mut harness =
-        Harness::new_with_identity(&[CHANNEL], "g11c-viewer", "g11c-company", "", "", "");
+    let mut harness = scoped_harness();
     attach_latest_window(&mut harness);
     harness.step(newer_command(20), 6);
     let http = only_http(&harness);

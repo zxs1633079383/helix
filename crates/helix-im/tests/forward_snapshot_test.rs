@@ -326,7 +326,7 @@ fn detail_depth_capacity_and_conflicting_request_are_fail_closed() {
 /// A malformed committed response cannot mark fewer posts than the requested target as complete.
 #[test]
 fn committed_retry_rejects_incomplete_identity_set_and_can_retry() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[3], "sender", "company", "Sender", "", "");
     let mut args = json!({"post_ids":[common::sid(1),common::sid(2)],"target_channel_ids":[common::cid(3)],"mode":"item","command_id":"stable","req_id":"first"});
     command(&mut h, "im_relay_messages", args.clone());
     let (corr, _) = http(&h);
@@ -382,7 +382,7 @@ fn detail_transport_identity_and_duplicates_are_closed() {
 /// Stable duplicate commands cannot replace the first wait; timeout permits an explicit retry.
 #[test]
 fn duplicate_forward_attempt_and_timeout_keep_stable_command() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[2], "sender", "company", "Sender", "", "");
     let mut args = json!({"post_ids":[common::sid(1)],"target_channel_ids":[common::cid(2)],"mode":"merge","command_id":"stable","req_id":"first"});
     command(&mut h, "im_relay_messages", args.clone());
     let timer = h
@@ -422,7 +422,7 @@ fn duplicate_forward_attempt_and_timeout_keep_stable_command() {
 #[test]
 fn committed_retry_requires_durable_rows_and_cleans_persist_failure() {
     for fail_persist in [false, true] {
-        let mut h = Harness::new_with_identity(&[], "sender", "company", "Sender", "", "");
+        let mut h = Harness::new_with_identity(&[3], "sender", "company", "Sender", "", "");
         command(
             &mut h,
             "im_relay_messages",

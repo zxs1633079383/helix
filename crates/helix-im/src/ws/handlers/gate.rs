@@ -52,6 +52,8 @@ pub(super) fn recent_effects_persist_message(effects: &[Effect]) -> bool {
             StorageOp::ScopedGuardedBump(spec) => spec.table == "message",
             StorageOp::Get(spec) => spec.table == "message",
             StorageOp::ScopedGet(spec) => spec.table == "message",
+            StorageOp::ScopedMax(spec) => spec.table == "message",
+            StorageOp::ScopedScan(spec) => spec.table == "message",
             StorageOp::Scan(spec) => spec.table == "message",
             StorageOp::BatchDelete(spec) => spec.table == "message",
         })

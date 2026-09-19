@@ -94,6 +94,7 @@ pub fn received(data: Value) -> Result<MessageV3Event, crate::ImError> {
 
 /// 构造客户端 ACK 的真实 HTTP 终态，供 Host 在 Emit 边界沉淀成功率。
 pub fn client_ack_terminal(
+    channel_id: crate::state::ChannelId,
     platform: crate::module::ClientPlatform,
     succeeded: bool,
 ) -> Result<MessageV3Event, crate::ImError> {
@@ -104,6 +105,7 @@ pub fn client_ack_terminal(
             "im:post:client-ack-failed"
         },
         serde_json::json!({
+            "channelId": channel_id.as_str(),
             "platform": platform.as_str(),
         }),
     )
@@ -315,6 +317,33 @@ mod tests {
         );
         assert_eq!(projection.last_post["userSnapshot"]["userId"], "444");
         assert!(projection.received_data.get("receipt").is_none());
+    }
+
+    /// 成功/失败 ACK 都必须携带 authority 的频道身份，交由统一 scope gate 判定。
+    #[test]
+    fn client_ack_terminal_carries_channel_for_both_outcomes() {
+        let channel_id =
+            ChannelId::from_str("a9h5hrdsy3873dmg375a6ntqiw").expect("valid test channel");
+
+        for succeeded in [true, false] {
+            let envelope: serde_json::Value = serde_json::from_slice(
+                &client_ack_terminal(channel_id, crate::module::ClientPlatform::Native, succeeded)
+                    .expect("ACK terminal event")
+                    .into_bytes(),
+            )
+            .expect("ACK terminal JSON");
+
+            assert_eq!(envelope["data"]["channelId"], channel_id.as_str());
+            assert_eq!(envelope["data"]["platform"], "native");
+            assert_eq!(
+                envelope["event"],
+                if succeeded {
+                    "im:post:client-ack-succeeded"
+                } else {
+                    "im:post:client-ack-failed"
+                }
+            );
+        }
     }
 
     /// sending 投影必须沿用本地发送 body 的权威用户快照，避免首帧显示为空用户。

@@ -7,7 +7,8 @@
 
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
-    Row as HelixRow, ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec, StorageOp, UpsertSpec,
+    Row as HelixRow, ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec, ScopedMaxSpec, ScopedScanSpec,
+    StorageOp, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
@@ -66,6 +67,16 @@ impl Storage for NativeStorage {
     /// 将复合作用域读取委托给共享 HostStorage。
     async fn scoped_get(&self, spec: ScopedGetSpec) -> Result<Option<HelixRow>, PortError> {
         self.inner.scoped_get(spec).await
+    }
+
+    /// 将作用域集合最大值读取委托给共享 HostStorage。
+    async fn scoped_max(&self, spec: ScopedMaxSpec) -> Result<Option<HelixRow>, PortError> {
+        self.inner.scoped_max(spec).await
+    }
+
+    /// 将作用域集合有界多行读取委托给共享 HostStorage。
+    async fn scoped_scan(&self, spec: ScopedScanSpec) -> Result<Vec<HelixRow>, PortError> {
+        self.inner.scoped_scan(spec).await
     }
 
     async fn scan(&self, spec: ScanSpec) -> Result<Vec<HelixRow>, PortError> {

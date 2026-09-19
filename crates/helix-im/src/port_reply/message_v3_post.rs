@@ -130,6 +130,11 @@ impl ImModule {
                 causation_id: event.causation_id.clone(),
             },
         );
+        // PersistOk only proves the user-scoped message fact.  When the channel
+        // has no trusted durable owner row yet, proactively start the existing
+        // channel increment hydration; render_scope remains fail-closed until
+        // that lifecycle writes and reads back the current company/viewer row.
+        self.start_scope_hydration(event.channel_id, out);
 
         if let Some(next_event) = next {
             self.queue_next_message_v3_event(next_event, out)?;
@@ -293,6 +298,11 @@ impl ImModule {
         received_data: &serde_json::Value,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        let channel_id = received_data
+            .get("channelId")
+            .and_then(serde_json::Value::as_str)
+            .and_then(crate::state::ChannelId::from_str)
+            .ok_or_else(|| ImError::Parse("client ACK missing channelId".to_string()))?;
         let post_id = received_data
             .get("id")
             .and_then(serde_json::Value::as_str)
@@ -310,9 +320,13 @@ impl ImModule {
         }))
         .map_err(|error| ImError::Parse(format!("client ACK body: {error}")))?;
         let corr = self.alloc_corr_internal();
-        self.state
-            .corr_map
-            .insert(corr, CorrelationContext::MessageV3ClientAck { platform });
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::MessageV3ClientAck {
+                channel_id,
+                platform,
+            },
+        );
         let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
         headers.extend(crate::acl::sync_http_effects::session_auth_headers(
             self.state.connection_id.as_deref(),
@@ -332,12 +346,15 @@ impl ImModule {
     /// ACK 回报必须同时满足 transport 2xx 与 Go `status=SUCCESS` 才记录成功。
     pub(super) fn handle_message_v3_client_ack_reply(
         &mut self,
+        channel_id: crate::state::ChannelId,
         platform: crate::module::ClientPlatform,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let succeeded = client_ack_succeeded(outcome);
-        out.push(crate::event::post::client_ack_terminal(platform, succeeded)?.into_effect());
+        out.push(
+            crate::event::post::client_ack_terminal(channel_id, platform, succeeded)?.into_effect(),
+        );
         Ok(())
     }
 }

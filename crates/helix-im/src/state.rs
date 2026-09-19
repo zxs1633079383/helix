@@ -63,7 +63,8 @@ pub struct ImState {
     pub pending_uploads: HashMap<helix_core::Correlation, PendingUpload>,
 
     /// 媒体 Prepare/PUT/Complete 回包路由；corr 单次 O(1) remove 后按阶段分发。
-    pub(crate) pending_schedule_media: HashMap<helix_core::Correlation, crate::schedule_media::PendingScheduleMedia>,
+    pub(crate) pending_schedule_media:
+        HashMap<helix_core::Correlation, crate::schedule_media::PendingScheduleMedia>,
     pub pending_media_ops: HashMap<helix_core::Correlation, PendingMediaOp>,
 
     /// 文件 PUT 的 5% 进度合并器；图片不注册。每个 upload corr 至多一条落库在途。

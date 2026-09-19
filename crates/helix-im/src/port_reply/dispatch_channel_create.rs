@@ -244,7 +244,10 @@ fn build_message_v3_created_projection(
     if let Some(post) = channel.get("lastPost").or_else(|| channel.get("last_post")) {
         projection["lastPost"] = crate::message_summary::prepare_post(post);
     }
-    for (name, alias) in [("lastPostAt", "last_post_at"), ("lastRootPostAt", "last_root_post_at")] {
+    for (name, alias) in [
+        ("lastPostAt", "last_post_at"),
+        ("lastRootPostAt", "last_root_post_at"),
+    ] {
         if let Some(value) = channel.get(name).or_else(|| channel.get(alias)) {
             projection[name] = value.clone();
         }

@@ -59,7 +59,7 @@ fn emitted(effects: &[Effect]) -> Vec<Value> {
 #[test]
 fn g10a_success_persists_then_emits_bare_channel_update() -> Result<(), String> {
     let mut harness =
-        common::Harness::new_with_identity(&[], "g10a-actor", "g10a-company", "", "", "");
+        common::Harness::new_with_identity(&[0x0a], "g10a-actor", "g10a-company", "", "", "");
     harness.step(
         common::command_json(
             "im_channel_change_display_name",

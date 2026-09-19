@@ -56,6 +56,41 @@ fn deleted_inc(
     }
 }
 
+/// 完成 on_start 的 cursor/channel 双扫描；hello 只有在这个 scope barrier 后才可读水位。
+fn complete_startup_scope_scans(h: &mut Harness, cursors: &[(u64, u64)]) {
+    let start_effects = h.start(0);
+    let cursor_scan_corr = start_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("on_start should emit cursor scan");
+
+    let cursor_effects = h.step(
+        port_reply_with_body(cursor_scan_corr, scan_reply(cursors)),
+        100,
+    );
+    let projection_scan_corr = cursor_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("cursor scan should schedule channel projection scan");
+    let projection_rows: Vec<_> = cursors
+        .iter()
+        .map(|&(channel_id, cursor)| (channel_id, false, cursor))
+        .collect();
+    h.step(
+        port_reply_with_body(
+            projection_scan_corr,
+            channel_projection_scan_reply(&projection_rows),
+        ),
+        150,
+    );
+}
+
 // ─── on_start 行为 ────────────────────────────────────────────────────────────
 
 #[test]
@@ -102,7 +137,7 @@ fn on_start_with_channels_still_no_http() {
 #[test]
 fn connected_triggers_proactive_resync_for_each_channel() {
     let mut h = Harness::new(&[1, 2, 3]);
-    h.start(0);
+    complete_startup_scope_scans(&mut h, &[(1, 0), (2, 0), (3, 0)]);
 
     // A4：Connected 只置 Connecting；B-rest：hello 后触发 1 个 increment HTTP（非逐 channel resync）
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
@@ -230,7 +265,7 @@ fn terminal_channel_is_omitted_from_hello_increment_cursors() {
     let mut h = Harness::new(&[]);
     h.module
         .ingest_increment(&deleted_inc(43, 5, true, "deleteAt"), &mut h.sink);
-    h.start(0);
+    complete_startup_scope_scans(&mut h, &[]);
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
     h.step(hello_inbound("CONN_TERMINAL"), 600);
     let timestamp_scan_corr =
@@ -269,7 +304,7 @@ fn connected_with_no_channels_emits_no_http() {
 #[test]
 fn connected_each_channel_gets_different_corr() {
     let mut h = Harness::new(&[10, 20, 30]);
-    h.start(0);
+    complete_startup_scope_scans(&mut h, &[(10, 0), (20, 0), (30, 0)]);
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
 
     // B-rest：hello 只发 1 个 increment HTTP（corr 唯一性移到 global-end sync 路径验证）
@@ -336,7 +371,7 @@ fn disconnected_produces_no_effects() {
 fn disconnected_then_reconnect_triggers_new_resync() {
     // 断线后重连，Connected 再次触发 proactive resync
     let mut h = Harness::new(&[1, 2]);
-    h.start(0);
+    complete_startup_scope_scans(&mut h, &[(1, 0), (2, 0)]);
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
     h.step(hello_inbound("CONN_1"), 600); // 首次握手
     let first_scan_corr = message_timestamp_scan_corr(&h.sink)

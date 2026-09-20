@@ -1,0 +1,29 @@
+{
+  "base_sha": "90debf95f173ecb82a79e7a28630fe227e661623",
+  "branch": "codex/0920-unread-jump-helix",
+  "files": {
+    "crates/helix-core/src/effect/storage.rs": "1c1f5602c9069386bfc260548fe5c77d4c084cdea220650b5af1beafa033b73e",
+    "crates/helix-driver-host/src/storage/write.rs": "55a667681f2d033ea8d1f2b348a3fef455cf4c455c8ffc1609c7a05882b27665",
+    "crates/helix-driver-host/tests/increment_unread_anchor.rs": "608248b95708771956f5c5d2817080bdc1d7b1f09057ae792addd5f4cd95b653",
+    "crates/helix-driver-host/tests/storage_conformance.rs": "78bca1f1ced03a0b7ffaf97e9dcb64d689142f863c08f88b77b23d33b9436c1f",
+    "crates/helix-driver-web/src/session_store.rs": "1d2b20b1a1b6873df2733d50e6f762dc878a2a9f141ac36d8088ca6d1bda4857",
+    "crates/helix-im/docs/claude.md": "79b590d2846cfb478a13459964d40f0df52b36f55afb4672f97f0cf2938f98a3",
+    "crates/helix-im/src/acl/storage_effects.rs": "eba140a417cf5392089ba605363c46b143609e6ca51e172b72c34a161ffad6e8",
+    "crates/helix-im/src/channel/write/post.rs": "42a433370bc44e0a12300eb00c8634cb5c6276b6fd9937b46bcec51aa700d39e",
+    "crates/helix-im/src/channel/write/program.rs": "6f1661611b94e06759db92bdd865bc8878ba2d2b6dde83c03da25c328d99e3b3",
+    "crates/helix-im/src/channel_sync.rs": "d8beb2a242d30f33215ef2990a007f01bcb7be062a749910a44b0022aa00d108",
+    "crates/helix-im/src/query/render_ready/channel.rs": "ea50e6c3b21a44ec73604bae20967bde97c028f484278eda7c4ce6e9728a3ae9",
+    "crates/helix-im/src/sync/flow.rs": "c5498ef07067278060e58d2a59d52f31cca1befb4a360602902fdb805abcb63b",
+    "crates/helix-im/src/sync/session.rs": "a9a1f9ebcc23b88104647175878b4419869900f9887a2ffad9c4e0cb230817ef",
+    "crates/helix-im/src/ws/handlers/increment_channel.rs": "7291e4d3658cba79219eaab7b6ba182d1365e0fdc548fc752896f7f84b231732",
+    "crates/helix-im/src/ws/parser/core/increment.rs": "3e0ab0b1f7e423970e7bc7e69c55c462d04b928c431992e7429b7104e26f3381",
+    "crates/helix-im/tests/b2_increment_heal_test.rs": "1e89155655bbec45fa02234cfb938d50a4b110674f8925eeafc461b6f827ca0b",
+    "crates/helix-im/tests/http6_sync_reply_unwrap_test.rs": "e4935a4f624332937ddc79705f9da3c004bc84b7a0ff661b2fd8f7814f791ca6",
+    "crates/helix-im/tests/increment_flow_test.rs": "51859cf47954506e94bc3f4e3326e9d13740966ba4c9ef26f21fcfedf1a6884e",
+    "crates/helix-im/tests/lifecycle_test.rs": "8812a2146928dc5ac75684dfaa9b7d939fec04fdfb2ce96c44dcb88a2c396a32",
+    "crates/helix-im/tests/p4_sync_scheduler_test.rs": "d512c8a74697a5aef6a761365490d4710a3ba9f8861eb08c10bdb260647492bb",
+    "crates/helix-im/tests/p4_ws_events_test.rs": "185da1a2911f45cfe6ebe66262d4b3125637ad5d7e1b8a7b31515cddfe8f5298",
+    "crates/helix-im/tests/s6_sync_internal_test.rs": "8b12ee61149e71c3bd70291ae0d22a8ca9286625e15c6c95a95285c846d15870",
+    "crates/helix-im/tests/todo_assembly_test.rs": "be1db4558f40906c0d2d7a6123fb69efbf065aa1e20d95587196ff84377687d6"
+  }
+}

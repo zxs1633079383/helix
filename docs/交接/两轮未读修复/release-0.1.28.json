@@ -1,0 +1,16 @@
+{
+  "version": "0.1.28",
+  "releaseCommit": "02fdefa250417ba542b8d381b315fd3127ae579a",
+  "tag": "helix-v-0.1.28",
+  "registryCrates": [
+    "cses-helix-core",
+    "helix-im",
+    "helix-driver-host",
+    "helix-driver-native"
+  ],
+  "publishAndRegistryReadback": "PASS",
+  "mergeHydrationTests": 3,
+  "mergeHostTests": 8,
+  "fullGate": "PARTIAL: 7 baseline-equivalent failures",
+  "nativeAcceptance": "Pending client WDIO; see client release evidence"
+}

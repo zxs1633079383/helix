@@ -1,0 +1,47 @@
+{
+  "same_failure_names": true,
+  "details": [
+    {
+      "test": "category_chain_module_reaches_terminal_only_after_sqlite_persist_and_readback",
+      "same_normalized_error": true,
+      "fixed": "panic at crates/helix-driver-host/tests/category_chain_storage.rs:513:5:\nSQLite readback must release terminal EventSink",
+      "baseline": "panic at crates/helix-driver-host/tests/category_chain_storage.rs:513:5:\nSQLite readback must release terminal EventSink"
+    },
+    {
+      "test": "category_review_http_then_older_post_keeps_durable_revision",
+      "same_normalized_error": true,
+      "fixed": "panic at crates/helix-driver-host/tests/category_chain_storage.rs:670:5:\nassertion failed: events.iter().any(|e| e[\"data\"][\"state\"] == \"CONFIRMED\")",
+      "baseline": "panic at crates/helix-driver-host/tests/category_chain_storage.rs:670:5:\nassertion failed: events.iter().any(|e| e[\"data\"][\"state\"] == \"CONFIRMED\")"
+    },
+    {
+      "test": "rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins",
+      "same_normalized_error": true,
+      "fixed": "panic at crates/helix-driver-host/tests/media_pipeline_e2e.rs:516:9:\nassertion `left == right` failed\n  left: \"/go/channel/load/incrementByChannelId\"\n right: \"/go/posts/create\"\n\npanic at crates/helix-driver-host/tests/media_pipeline_e2e.rs:922:14:\nGo post notification channel",
+      "baseline": "panic at crates/helix-driver-host/tests/media_pipeline_e2e.rs:516:9:\nassertion `left == right` failed\n  left: \"/go/channel/load/incrementByChannelId\"\n right: \"/go/posts/create\"\n\npanic at crates/helix-driver-host/tests/media_pipeline_e2e.rs:922:14:\nGo post notification channel"
+    },
+    {
+      "test": "phase1_generated_artifacts_match_their_schemas",
+      "same_normalized_error": true,
+      "fixed": "panic at crates/helix-im/tests/message_v3/contracts/artifact_schema/main.rs:18:5:\nMV3-G03a/inbound-contract.json schema errors: [\n    \"Additional properties are not allowed ('go' was unexpected)\",\n]",
+      "baseline": "panic at crates/helix-im/tests/message_v3/contracts/artifact_schema/main.rs:18:5:\nMV3-G03a/inbound-contract.json schema errors: [\n    \"Additional properties are not allowed ('go' was unexpected)\",\n]"
+    },
+    {
+      "test": "http_admission_stays_sending_until_the_ws_echo_settles_sent",
+      "same_normalized_error": true,
+      "fixed": "panic at crates/helix-im/tests/message_v3/post/mv3_g01a/main.rs:518:5:\nassertion `left == right` failed: HTTP admission 只能启动一次权威 readback，实测 []\n  left: 0\n right: 1",
+      "baseline": "panic at crates/helix-im/tests/message_v3/post/mv3_g01a/main.rs:518:5:\nassertion `left == right` failed: HTTP admission 只能启动一次权威 readback，实测 []\n  left: 0\n right: 1"
+    },
+    {
+      "test": "document_stays_sending_through_http_admission_and_keeps_props_until_sent",
+      "same_normalized_error": true,
+      "fixed": "panic at crates/helix-im/tests/message_v3/post/mv3_g01f/main.rs:435:5:\nassertion `left == right` failed: DOCUMENT 的 HTTP admission 只能启动一次权威 readback，实测 []\n  left: 0\n right: 1",
+      "baseline": "panic at crates/helix-im/tests/message_v3/post/mv3_g01f/main.rs:435:5:\nassertion `left == right` failed: DOCUMENT 的 HTTP admission 只能启动一次权威 readback，实测 []\n  left: 0\n right: 1"
+    },
+    {
+      "test": "wire_body_is_the_full_announcement_post_shape",
+      "same_normalized_error": true,
+      "fixed": "panic at crates/helix-im/tests/message_v3/announcement/mv3_g07b/main.rs:483:5:\nassertion `left == right` failed: 摘要由 Helix 派生，不由客户端提交\n  left: String(\"[群公告] Phase 1 群公告\")\n right: \"Phase 1 群公告\"",
+      "baseline": "panic at crates/helix-im/tests/message_v3/announcement/mv3_g07b/main.rs:483:5:\nassertion `left == right` failed: 摘要由 Helix 派生，不由客户端提交\n  left: String(\"[群公告] Phase 1 群公告\")\n right: \"Phase 1 群公告\""
+    }
+  ]
+}

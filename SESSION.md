@@ -1,3 +1,26 @@
+# 两轮未读跳转修复
+
+🎯 EXPECT
+- run_id=0920-unread-jump-fix；操作=退出群、两轮收新消息、分别进入。
+- channel_id=47tkjnag4pyeiy8n8n1zgw95dr（历史只读证据；测试使用隔离 fixture）。
+- authority=Go viewer read boundary + visible posts；Helix 持久化及版本/Emit；Angular 捕获进入交互快照并定位。
+- 首轮 seq32，次轮 seq41；已读到47时 count0/anchor空；禁止从 seq+1 推断。
+- 保留 unReadPostId wire / unreadPostId projection / unread_post_id storage 既有命名映射；显式空清除。
+- 迟到/重复不倒退；PersistErr 不假报终态；Angular 快速切群取消旧定位，进入后新消息不拖动视口。
+- 预期文件：Go increment store/app与相关authority投影，Helix channel member projection/write/tests，client typed sync/entry lifecycle/tests/WDIO。范围以源码取证收敛。
+- 验证：先 focused 红绿，再受影响测试/类型/边界；真实 Native/Go/DOM 分层记录，不以 mock 冒充。
+- 三仓独立 worktree；不 push、不部署、不修改共享业务数据、不自动调整包版本。
+- 主交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/两次未读跳转定位/handoff.md
+
+## 当前结果
+- 实现与相关回归完成；独立复核发现的负 count 与 Sync 身份缺口已关闭。
+- 最终 six-crate check/WASM build 通过；Host/IM focused 33通过，IM lib437通过。
+- IM最终全量1572过/4失败/11忽略；四失败均同SHA基线复现。此前Core/IM/Host/Web全量1876过/7失败/12忽略，七失败同源错误完全一致。
+- 新两轮回归基线失败、修复树通过；具体证据在 docs/交接/两轮未读修复/，绑定 verified-source-fingerprint.json。
+- 状态PARTIAL（完整门禁/真实业务验收未关闭），未提交/发布；真实Tauri与Go端到端未执行。
+
+---
+
 ## 2026-09-20 成员通知统一摘要发布 0.1.27
 
 ✅ DONE 四公共crate 0.1.27由正式脚本发布crates.io，八包check、四包dry-run/上传与registry回读通过。合并后IM1567 PASS/4基线失败/11忽略；Core24 PASS/1忽略，WASM构建及零运行时依赖通过。Client合并后91项通过。证据 /tmp/cses-notice-sync-0920/release-*.log。此提交固化版本事务，随后创建注释Tag并按授权push；客户端Cargo接入后续提交，未打包部署或做真实业务验收。

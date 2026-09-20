@@ -117,7 +117,7 @@ fn replied_descriptor_is_mapped_to_go_three_anchor_body() {
         body["repliedMessage"],
         json!({
             "repliedUserId": "user-receiver-445",
-            "repliedUserName": "接收者",
+            "repliedTeamId": "",
             "message": "被回复的正文",
             "isRevoke": false,
             "type": "TEXT",
@@ -500,7 +500,7 @@ fn authority_echo_frame(temporary_id: &str) -> Value {
             "replyFirstLevelId": "post-parent-001",
             "repliedMessage": {
                 "repliedUserId": "user-receiver-445",
-                "repliedUserName": "接收者",
+                "repliedTeamId": "",
                 "message": "被回复的正文",
                 "isRevoke": false,
                 "type": "TEXT",

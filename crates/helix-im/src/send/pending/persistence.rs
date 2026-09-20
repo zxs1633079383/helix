@@ -9,6 +9,8 @@ pub fn optimistic_message_persist_op(
     channel_id: &str,
     body: &Value,
 ) -> StorageOp {
+    let clean_body = crate::message_identity::sanitize(body.clone());
+    let body = &clean_body;
     // 上传写凭据不进入 durable 行；失败上传必须重新获取签名。
     let json_text = |key: &str, fallback: &str| {
         body.get(key)
@@ -41,6 +43,7 @@ pub fn optimistic_message_persist_op(
             ),
             ("id".to_string(), SqlValue::Text(string("id"))),
             ("user_id".to_string(), SqlValue::Text(string("userId"))),
+            ("team_id".to_string(), SqlValue::Text(string("teamId"))),
             ("message".to_string(), SqlValue::Text(string("message"))),
             ("type".to_string(), SqlValue::Text(string("type"))),
             ("props".to_string(), SqlValue::Text(persisted_props)),
@@ -52,10 +55,7 @@ pub fn optimistic_message_persist_op(
                 "mentions".to_string(),
                 SqlValue::Text(json_text("mentions", "[]")),
             ),
-            (
-                "user_snapshot".to_string(),
-                SqlValue::Text(json_text("userSnapshot", "{}")),
-            ),
+            ("user_snapshot".to_string(), SqlValue::Text(String::new())),
             (
                 "simple_message".to_string(),
                 SqlValue::Text(string("simpleMessage")),

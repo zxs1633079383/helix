@@ -49,6 +49,8 @@ pub struct PostFields {
     /// post 内的 channel_id（缺省回退到 envelope 权威 channel_id，在拼装时处理）。
     pub channel_id: String,
     pub user_id: String,
+    /// Company owning the sender directory entry; identity only, not a profile.
+    pub team_id: String,
     /// Wire `type` 字段在内部 typed view 中使用 `msg_type`，日志仍映射回协议名称。
     #[serde(rename = "type")]
     pub msg_type: String,
@@ -57,7 +59,7 @@ pub struct PostFields {
     pub simple_message: String,
     /// 服务端原始 props 对象的字符串形态（业务扩展透传）。
     pub props: String,
-    /// 服务端原始 userSnapshot 对象的字符串形态，用于 senderUserId 优先级与渲染透传。
+    /// 旧调用方兼容字段；生产入站与持久化始终为空，姓名由宿主用户目录提供。
     pub user_snapshot: String,
     pub create_at: i64,
     /// 服务端消息更新时间；缺省保持 0，禁止用本地墙钟伪造远端权威值。

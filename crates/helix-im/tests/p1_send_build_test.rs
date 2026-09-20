@@ -71,12 +71,8 @@ fn build_normal_message_full_wire_body() {
     assert_eq!(body["id"], json!(""));
     assert_eq!(body["userId"], json!("u_self"));
     assert_eq!(body["teamId"], json!("team_x"));
-    // userSnapshot 5 字段全注入。
-    assert_eq!(body["userSnapshot"]["orgName"], json!("后端开发"));
-    assert_eq!(body["userSnapshot"]["deptName"], json!("技术部"));
-    assert_eq!(body["userSnapshot"]["userName"], json!("张立超"));
-    assert_eq!(body["userSnapshot"]["userId"], json!("u_self"));
-    assert_eq!(body["userSnapshot"]["teamId"], json!("team_x"));
+    // 身份仅保留 IDs；登录资料不得写进消息。
+    assert!(body.get("userSnapshot").is_none());
     // fail-hard ②：createAt == 注入 now_ms，且不含 createdAt。
     assert_eq!(body["createAt"], json!(1700u64));
     assert!(body.get("createdAt").is_none(), "禁止 createdAt（B3）");
@@ -260,7 +256,7 @@ fn build_from_command_adds_replied_message_snapshot() {
             "reply_first_level_id": "",
             "snapshot": {
                 "replied_user_id": "u_target",
-                "replied_user_name": "被回复者",
+                "replied_team_id": "reply-company",
                 "message": "原始短消息",
                 "simple_message": "原始摘要",
                 "is_revoke": false,
@@ -275,7 +271,7 @@ fn build_from_command_adds_replied_message_snapshot() {
         body["repliedMessage"],
         json!({
             "repliedUserId": "u_target",
-            "repliedUserName": "被回复者",
+            "repliedTeamId": "reply-company",
             "message": "原始短消息",
             "isRevoke": false,
             "type": "TEXT",
@@ -301,6 +297,7 @@ fn replied_message_preview_uses_simple_message_for_long_or_non_text() {
             reply_root_id: "",
             reply_first_level_id: "",
             snapshot: Some(RepliedSnapshot {
+                team_id: "company-1".to_string(),
                 replied_user_id: "u_target".to_string(),
                 replied_user_name: "被回复者".to_string(),
                 message: message.to_string(),
@@ -478,8 +475,6 @@ fn send_emits_http_body_with_create_at_not_created_at() {
     assert_eq!(body["temporaryId"], json!("tmp_send"));
     assert_eq!(body["type"], json!("TEXT"));
     assert_eq!(body["viewers"], json!(["all"]));
-    assert_eq!(body["userSnapshot"]["userName"], json!("张立超"));
-    assert_eq!(body["userSnapshot"]["orgName"], json!("后端开发"));
     assert_eq!(body["userId"], json!("u_self"));
     assert_eq!(body["teamId"], json!("team_x"));
 }
@@ -571,7 +566,7 @@ fn send_reply_merges_root_fields() {
                 "reply_first_level_id": "",
                 "snapshot": {
                     "replied_user_id": "u_target",
-                    "replied_user_name": "被回复者",
+                    "replied_team_id": "reply-company",
                     "message": "原消息",
                     "simple_message": "原摘要",
                     "is_revoke": false,

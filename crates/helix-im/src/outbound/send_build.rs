@@ -3,7 +3,7 @@
 //! ## 为什么独立成纯函数
 //!
 //! 现网前端 `buildMessageObject` 把 UI 表单字段补成完整 wire body（viewers 空补、回复 root
-//! 合并、userSnapshot 注入、文本截断、空消息拦截）。P1 接管把这套编排搬进 helix-im，
+//! 合并、仅用户与公司 ID、文本截断、空消息拦截）。P1 接管把这套编排搬进 helix-im，
 //! 前端退化为只发 UI 字段的语义 invoke（C1 纯渲染证伪：invoke 参数无 wire-only key）。
 //!
 //! 本函数是**纯函数**（无 I/O / 无 ambient 时间）：`createAt` 经 `now_ms`（Clock 注入，C3）、
@@ -12,7 +12,7 @@
 //! ## 行为真源
 //!
 //! - body 字段集 + casing：`docs/csesapi-migration/真机curl真源.md §1`（真抓包逐字 body）。
-//! - viewers 空补 / findReplyRootId / userSnapshot 5 字段 / 2000 截断 / 空消息 trim：
+//! - viewers 空补 / findReplyRootId / 用户与公司 ID / 2000 截断 / 空消息 trim：
 //!   现网 `src/pages/message-v3/service/messageSend.service.ts`（buildMessageObject / sendMessage）。
 //!
 //! ## 关键不变量
@@ -77,8 +77,10 @@ pub struct RepliedRef<'a> {
 pub struct RepliedSnapshot {
     /// 被回复者用户 ID。
     pub replied_user_id: String,
-    /// 被回复者展示名。
+    /// 旧调用方兼容字段，忽略且永不进入消息或 wire。
     pub replied_user_name: String,
+    /// Company of the referenced author, resolved by the host directory.
+    pub team_id: String,
     /// 被回复消息原正文。
     pub message: String,
     /// 被回复消息的短摘要。
@@ -331,7 +333,7 @@ fn build_replied_message(snapshot: &RepliedSnapshot) -> Value {
     };
     json!({
         "repliedUserId": snapshot.replied_user_id,
-        "repliedUserName": snapshot.replied_user_name,
+        "repliedTeamId": snapshot.team_id,
         "message": preview,
         "isRevoke": snapshot.is_revoke,
         "type": snapshot.msg_type,
@@ -382,16 +384,6 @@ pub fn build_message_object(input: &BuildInput<'_>) -> Option<Value> {
     body.insert("channelId".to_string(), json!(input.channel_id));
     body.insert("userId".to_string(), json!(id.user_id));
     body.insert("teamId".to_string(), json!(id.team_id));
-    body.insert(
-        "userSnapshot".to_string(),
-        json!({
-            "orgName": id.org_name,
-            "deptName": id.dept_name,
-            "userName": id.user_name,
-            "userId": id.user_id,
-            "teamId": id.team_id,
-        }),
-    );
     // id：新建时空串（现网 self message `id: ''`）；编辑时传被编辑消息真 post id（非空 →
     // Go 当 update 而非 create，UC-1.6）。透传 `input.post_id`，默认空串。
     body.insert("id".to_string(), json!(input.post_id));
@@ -416,7 +408,7 @@ pub fn build_message_object(input: &BuildInput<'_>) -> Option<Value> {
         }
     }
 
-    Some(Value::Object(body))
+    Some(crate::message_identity::sanitize(Value::Object(body)))
 }
 
 /// 乐观落库 `Effect::Persist` 的 message 表 BatchUpsert op（status=sending，PK=temporary_id）。
@@ -516,7 +508,7 @@ pub fn build_from_command(
 fn parse_replied_snapshot(snapshot: &Value) -> Option<RepliedSnapshot> {
     snapshot.as_object()?;
     let replied_user_id = snapshot["replied_user_id"].as_str()?;
-    let replied_user_name = snapshot["replied_user_name"].as_str()?;
+    let replied_user_name = "";
     let message = snapshot["message"].as_str()?;
     let is_revoke = snapshot["is_revoke"].as_bool()?;
     let msg_type = snapshot["type"].as_str()?;
@@ -529,6 +521,14 @@ fn parse_replied_snapshot(snapshot: &Value) -> Option<RepliedSnapshot> {
     Some(RepliedSnapshot {
         replied_user_id: replied_user_id.to_string(),
         replied_user_name: replied_user_name.to_string(),
+        team_id: snapshot
+            .get("replied_team_id")
+            .or_else(|| snapshot.get("repliedTeamId"))
+            .or_else(|| snapshot.get("team_id"))
+            .or_else(|| snapshot.get("teamId"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
         message: message.to_string(),
         simple_message,
         is_revoke,

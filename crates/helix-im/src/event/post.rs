@@ -162,6 +162,7 @@ pub fn authority_projection(
         "channelId": event.channel_id.as_str(),
         "temporaryId": fields.temporary_id,
         "eventSeq": event.seq.0,
+        "teamId": fields.team_id,
         "userId": fields.user_id,
         "message": fields.message,
         "type": fields.msg_type,
@@ -190,6 +191,7 @@ pub fn authority_projection(
     }
     let mut last_post = serde_json::json!({
         "id": fields.id,
+        "teamId": fields.team_id,
         "userId": fields.user_id,
         "message": fields.message,
         "createAt": fields.create_at,
@@ -230,8 +232,8 @@ pub fn authority_projection(
         attach_shared_field(&mut received_data, &mut last_post, "props", props);
     }
     Ok(AuthorityProjection {
-        received_data,
-        last_post,
+        received_data: crate::message_identity::sanitize(received_data),
+        last_post: crate::message_identity::sanitize(last_post),
     })
 }
 
@@ -311,11 +313,8 @@ mod tests {
 
         assert_eq!(projection.received_data["snapshotId"], "snapshot-1");
         assert_eq!(projection.received_data["userId"], "444");
-        assert_eq!(
-            projection.received_data["userSnapshot"]["userName"],
-            "破坏者"
-        );
-        assert_eq!(projection.last_post["userSnapshot"]["userId"], "444");
+        assert!(projection.received_data.get("userSnapshot").is_none());
+        assert_eq!(projection.last_post["userId"], "444");
         assert!(projection.received_data.get("receipt").is_none());
     }
 
@@ -365,7 +364,7 @@ mod tests {
             serde_json::from_slice(&event.into_bytes()).expect("event json");
 
         assert_eq!(envelope["data"]["userId"], "444");
-        assert_eq!(envelope["data"]["userSnapshot"]["userName"], "破坏者");
+        assert!(envelope["data"].get("userSnapshot").is_none());
     }
 
     /// Go 媒体回声的 `fileName` 别名必须在 Core 投影边界收敛，不能下放给平台 UI。

@@ -960,3 +960,11 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 ✅ DONE Helix 本批源码：ID-only 意图、稳定 command_id 与 attempt req_id、bounded card、按层分页/逻辑取消、全部唯一 durable Post 结算、committed 权威回读均完成。公开 seam 3 项红测先失败；最终 461 库/定向通过，五 crate check/WASM/schema/hash 通过。完整 IM+Core 1554 passed、2 个范围外旧断言失败、12 ignored，未宣称全库 GREEN。真实 Go、Native/手机制品及 UI 性能未在本工作包验收；无 commit/push。证据与生命周期表：artifacts/forward-snapshot-20260916/REPORT.md。
 
 ⚡ DRIFT-PRED 收尾发现原 ledger 会在逐条转发第一条 echo 就结算，并漏清 WS-first 的 HTTP continuation；通用 lastPost 还需独立收紧。已补 100 条唯一 durable 回声和实际 channel Emit bytes 回归。Cargo 编译/测试共 7 次（含前置红测、两次最终定向及两次 WASM），高于 2–3 次目标；候选教训：冻结前先完成所有输出路径与异步终态审查，再一次性验证。未扩大到两个无关全量失败。
+
+## 2026-09-20 用户目录身份修复发布 0.1.26
+
+🎯 EXPECT 继续用户已确认的 0.1.26 发布：四个公共 crates 可解析，版本提交与注释 Tag 推送到 reactor/MessageV3-helix；消息身份清理与远端用户级持久化均保留，CATEGORY 业务 Profile 输入保留。 | 赌注 中 | 可逆 否 | @2026-09-20
+
+记录时点：版本计划已通过、源码已 rebase，发布尚未执行；开局 EXPECT 漏记，本条如实补充后续发布预期。完整 IM 测试首轮引用根配置错误，已改用客户端实际 gates 目录复跑。
+
+发布前验证：IM 全量 1558 passed / 4 failed / 11 ignored；Core 24 passed / 1 ignored；真实 SQLite 的身份迁移、公司隔离、未读锚点共 4 passed。4 项失败（参考 schema 的 go 字段、TEXT/DOCUMENT HTTP admission 旧断言、公告摘要前缀）均在远端 abd689ac 独立源码副本同样复现，未扩大本次修复范围。日志在 artifacts/identity-release-0.1.26/{im-full-corrected,baseline-tests,core,host-merged}.log。

@@ -196,7 +196,7 @@ fn target_authority(mut post: Value, req_id: &str, id: &str, seq: u64, create_at
 /// Go authority fixture contains only one bounded snapshot card.
 fn expected_forward_card() -> Value {
     json!({"snapshotId":"g05-snapshot","title":"Gate Review Group的聊天记录","itemCount":2,
-        "preview":[{"author":"Actor","text":"Forwarded message A"},{"author":"Observer","text":"Forwarded message B"}]})
+        "preview":[{"userId":"source-actor","teamId":"source-team","text":"Forwarded message A"},{"userId":"source-observer","teamId":"source-team","text":"Forwarded message B"}]})
 }
 
 /// 从 target authority 推导本地 channel/member 应持久化的 lastPost。
@@ -211,10 +211,8 @@ fn expected_last_post(authority: &Value) -> TestResult<Value> {
         "simpleMessage": if post["type"] == "MULTIPLY" { json!("[聊天记录]") } else { post["message"].clone() },
         "createAt": post["createAt"],
     });
-    // 当前 authority 会把服务端 userSnapshot 原样带入频道 lastPost，保持渲染所需身份快照。
-    if post.get("userSnapshot").is_some() {
-        last_post["userSnapshot"] = post["userSnapshot"].clone();
-    }
+    // Author profiles never enter durable channel summaries.
+    last_post["teamId"] = json!("");
     if post["type"] == "MULTIPLY" {
         last_post["type"] = json!("MULTIPLY");
         last_post["props"] = json!({"forward":expected_forward_card()});

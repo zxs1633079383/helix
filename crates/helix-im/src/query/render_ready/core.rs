@@ -392,7 +392,7 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
     if let (Value::Object(data), Value::Object(urgent_fields)) = (&mut data, urgent_fields) {
         data.extend(urgent_fields);
     }
-    data
+    crate::message_identity::sanitize(data)
 }
 
 /// 历史消息行批整形：读族行数组（DB snake 或 wire camel）→ render-ready 行数组。
@@ -453,12 +453,12 @@ mod tests {
         assert_eq!(shaped["text"], "回复消息");
         assert_eq!(shaped["simpleMessage"], "回复消息");
         assert_eq!(shaped["userId"], "444");
-        assert_eq!(shaped["userSnapshot"]["userId"], "444");
-        assert_eq!(shaped["userSnapshot"]["userName"], "破坏者");
+        assert_eq!(shaped["userId"], "444");
+        assert!(shaped.get("userSnapshot").is_none());
         assert_eq!(shaped["viewers"][0], "all");
         assert_eq!(shaped["mentions"], json!([]));
         assert_eq!(shaped["repliedMessage"]["repliedUserId"], "444");
-        assert_eq!(shaped["repliedMessage"]["repliedUserName"], "破坏者");
+        assert!(shaped["repliedMessage"].get("repliedUserName").is_none());
         assert_eq!(shaped["repliedMessage"]["message"], "被回复消息");
     }
 

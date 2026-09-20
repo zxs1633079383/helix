@@ -147,6 +147,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
         props TEXT NOT NULL DEFAULT '',\
         viewers TEXT NOT NULL DEFAULT '',\
         user_snapshot TEXT NOT NULL DEFAULT '',\
+        team_id TEXT NOT NULL DEFAULT '',\
         mentions TEXT NOT NULL DEFAULT '',\
         replied_message TEXT NOT NULL DEFAULT '',\
         reply_messages TEXT NOT NULL DEFAULT '',\
@@ -500,11 +501,28 @@ END",
     "CREATE INDEX IF NOT EXISTS idx_category_chain_fact_revision ON category_chain_fact(snapshot_key, revision)",
 ];
 
+// Only app-owned message JSON columns pass this migration; directory/business profile tables do not.
+macro_rules! clean_message_identity_column {
+    ($table:literal, $column:literal) => { concat!(
+        "WITH RECURSIVE clean(rid, doc, encoded) AS (SELECT rowid, ", $column, ", '[]' FROM ", $table,
+        " WHERE json_valid(", $column, ") UNION ALL SELECT rid, CASE WHEN j.key IN ('mergeMessage','merge_message') THEN json_set(doc,j.fullkey,json(j.value)) ELSE json_remove(CASE ",
+        "WHEN j.key IN ('userSnapshot','user_snapshot','authorSnapshot','author_snapshot','creatorSnapshot','creator_snapshot') AND json_valid(j.value) THEN ",
+        "json_set(doc, j.path || CASE WHEN j.key IN ('authorSnapshot','author_snapshot') THEN '.authorId' WHEN j.key IN ('creatorSnapshot','creator_snapshot') THEN '.creatorId' ELSE '.userId' END, ",
+        "coalesce(nullif(json_extract(doc,j.path || CASE WHEN j.key IN ('authorSnapshot','author_snapshot') THEN '.authorId' WHEN j.key IN ('creatorSnapshot','creator_snapshot') THEN '.creatorId' ELSE '.userId' END),''),json_extract(j.value,'$.userId'),json_extract(j.value,'$.user_id'),''), ",
+        "j.path || '.teamId', coalesce(nullif(json_extract(doc,j.path || '.teamId'),''),json_extract(j.value,'$.teamId'),json_extract(j.value,'$.team_id'),json_extract(j.value,'$.companyId'),'')) ELSE doc END,j.fullkey) END, ",
+        "CASE WHEN j.key IN ('mergeMessage','merge_message') THEN json_insert(encoded,'$[#]',j.fullkey) ELSE encoded END ",
+        "FROM clean,json_tree(doc) AS j WHERE j.id=(SELECT id FROM json_tree(doc) WHERE key IN ('userSnapshot','user_snapshot','authorSnapshot','author_snapshot','creatorSnapshot','creator_snapshot','repliedUserName','replied_user_name','replyUserName','reply_user_name') OR (key='author' AND (path LIKE '%.forward.preview[%]' OR path LIKE '$.preview[%]')) OR (key IN ('mergeMessage','merge_message') AND type='text' AND CASE WHEN json_valid(value) THEN json_type(value) IN ('object','array') ELSE 0 END) LIMIT 1)), ",
+        "packed(rid,doc,encoded,n) AS (SELECT rid,doc,encoded,json_array_length(encoded)-1 FROM clean WHERE NOT EXISTS(SELECT 1 FROM json_tree(doc) WHERE key IN ('userSnapshot','user_snapshot','authorSnapshot','author_snapshot','creatorSnapshot','creator_snapshot','repliedUserName','replied_user_name','replyUserName','reply_user_name') OR (key='author' AND (path LIKE '%.forward.preview[%]' OR path LIKE '$.preview[%]')) OR (key IN ('mergeMessage','merge_message') AND type='text' AND CASE WHEN json_valid(value) THEN json_type(value) IN ('object','array') ELSE 0 END)) ",
+        "UNION ALL SELECT rid, CASE WHEN json_type(doc,json_extract(encoded,'$[' || n || ']')) IS NULL THEN doc ELSE json_set(doc,json_extract(encoded,'$[' || n || ']'),json_extract(doc,json_extract(encoded,'$[' || n || ']')) || '') END, encoded,n-1 FROM packed WHERE n>=0) ",
+        "UPDATE ", $table, " SET ", $column, "=(SELECT doc FROM packed WHERE rid=", $table, ".rowid AND n<0) WHERE rowid IN (SELECT rid FROM packed WHERE n<0)") };
+}
+
 /// 旧库 additive migration：`CREATE TABLE IF NOT EXISTS` 不会给既有 `message` /
 /// `channel_member` 补列，故 host/ffi 装配层需逐条执行并忽略 SQLite
 /// `duplicate column name`。
 pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "CREATE INDEX IF NOT EXISTS idx_message_channel_id_create_at ON message (channel_id, create_at)",
+    "ALTER TABLE message ADD COLUMN team_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE message ADD COLUMN reply_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE message ADD COLUMN event_seq INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE message ADD COLUMN upload_progress_percent INTEGER NOT NULL DEFAULT 0",
@@ -575,8 +593,8 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "CREATE INDEX IF NOT EXISTS idx_channel_event_ledger_coverage ON channel_event_ledger(tenant_id, channel_id, coverage_id)",
     "CREATE TABLE IF NOT EXISTS channel_sync_coverage (coverage_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, channel_id TEXT NOT NULL, from_seq INTEGER NOT NULL, to_seq INTEGER NOT NULL, event_count INTEGER NOT NULL, facts_hash TEXT NOT NULL, correlation_id TEXT NOT NULL, commit_state TEXT NOT NULL CHECK (commit_state = 'committed'), committed_at_ms INTEGER NOT NULL, UNIQUE (tenant_id, channel_id, from_seq, to_seq))",
     "CREATE INDEX IF NOT EXISTS idx_channel_sync_coverage_range ON channel_sync_coverage(tenant_id, channel_id, from_seq, to_seq)",
-    "CREATE TABLE IF NOT EXISTS chain_summary (chain_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL DEFAULT '', mode TEXT NOT NULL DEFAULT 'TEXT', status TEXT NOT NULL DEFAULT 'DRAFT', title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', deadline_at INTEGER NOT NULL DEFAULT 0, creator_snapshot TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL DEFAULT 0, total_messages INTEGER NOT NULL DEFAULT 0, participant_count INTEGER NOT NULL DEFAULT 0, last_seq INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0)",
-    "CREATE TABLE IF NOT EXISTS chain_entry (entry_id TEXT PRIMARY KEY, chain_id TEXT NOT NULL DEFAULT '', post_id TEXT NOT NULL DEFAULT '', author_id TEXT NOT NULL DEFAULT '', author_snapshot TEXT NOT NULL DEFAULT '{}', seq INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ACTIVE')",
+    "CREATE TABLE IF NOT EXISTS chain_summary (chain_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL DEFAULT '', mode TEXT NOT NULL DEFAULT 'TEXT', status TEXT NOT NULL DEFAULT 'DRAFT', title TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', deadline_at INTEGER NOT NULL DEFAULT 0, creator_snapshot TEXT NOT NULL DEFAULT '{}', creator_id TEXT NOT NULL DEFAULT '', team_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT 0, total_messages INTEGER NOT NULL DEFAULT 0, participant_count INTEGER NOT NULL DEFAULT 0, last_seq INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS chain_entry (entry_id TEXT PRIMARY KEY, chain_id TEXT NOT NULL DEFAULT '', post_id TEXT NOT NULL DEFAULT '', author_id TEXT NOT NULL DEFAULT '', author_snapshot TEXT NOT NULL DEFAULT '{}', team_id TEXT NOT NULL DEFAULT '', seq INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ACTIVE')",
     "CREATE INDEX IF NOT EXISTS idx_chain_entry_chain_seq ON chain_entry(chain_id, seq)",
     "CREATE TABLE IF NOT EXISTS chain_window (chain_id TEXT PRIMARY KEY, head_ids TEXT NOT NULL DEFAULT '[]', tail_ids TEXT NOT NULL DEFAULT '[]', hidden_count INTEGER NOT NULL DEFAULT 0, middle_cursor TEXT NOT NULL DEFAULT '', has_more INTEGER NOT NULL DEFAULT 0)",
     "CREATE TABLE IF NOT EXISTS chain_mutation (client_mutation_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'PENDING', entry_id TEXT NOT NULL DEFAULT '', error_code TEXT NOT NULL DEFAULT '')",
@@ -591,4 +609,20 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "CREATE INDEX IF NOT EXISTS idx_category_chain_fact_version_path ON category_chain_fact(version_key, path)",
     "ALTER TABLE message ADD COLUMN category_revision TEXT NOT NULL DEFAULT ''",
     "UPDATE message SET category_revision = substr('00000000000000000000' || json_extract(props, '$.categoryChain.revision'), -20) WHERE type = 'CATEGORY_CHAIN' AND category_revision = '' AND CASE WHEN json_valid(props) THEN json_type(props, '$.categoryChain.revision') = 'text' ELSE 0 END",
+    "ALTER TABLE chain_summary ADD COLUMN creator_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE chain_summary ADD COLUMN team_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE chain_entry ADD COLUMN team_id TEXT NOT NULL DEFAULT ''",
+
+    "UPDATE message SET user_id=coalesce(nullif(user_id,''),json_extract(user_snapshot,'$.userId'),json_extract(user_snapshot,'$.user_id'),''), team_id=coalesce(nullif(team_id,''),json_extract(user_snapshot,'$.teamId'),json_extract(user_snapshot,'$.team_id'),json_extract(user_snapshot,'$.companyId'),''), user_snapshot='' WHERE json_valid(user_snapshot)",
+    "UPDATE message SET user_snapshot='' WHERE user_snapshot<>''",
+    "UPDATE chain_summary SET creator_id=coalesce(nullif(creator_id,''),json_extract(creator_snapshot,'$.userId'),json_extract(creator_snapshot,'$.user_id'),''), team_id=coalesce(nullif(team_id,''),json_extract(creator_snapshot,'$.teamId'),json_extract(creator_snapshot,'$.team_id'),json_extract(creator_snapshot,'$.companyId'),''), creator_snapshot='' WHERE json_valid(creator_snapshot)",
+    "UPDATE chain_summary SET creator_snapshot='' WHERE creator_snapshot<>''",
+    "UPDATE chain_entry SET author_id=coalesce(nullif(author_id,''),json_extract(author_snapshot,'$.userId'),json_extract(author_snapshot,'$.user_id'),''), team_id=coalesce(nullif(team_id,''),json_extract(author_snapshot,'$.teamId'),json_extract(author_snapshot,'$.team_id'),json_extract(author_snapshot,'$.companyId'),''), author_snapshot='' WHERE json_valid(author_snapshot)",
+    "UPDATE chain_entry SET author_snapshot='' WHERE author_snapshot<>''",
+    clean_message_identity_column!("message", "props"),
+    clean_message_identity_column!("message", "replied_message"),
+    clean_message_identity_column!("message", "reply_messages"),
+    clean_message_identity_column!("channel", "last_post"),
+    clean_message_identity_column!("channel_member", "last_post"),
+    clean_message_identity_column!("channel_pinned_projection", "body"),
 ];

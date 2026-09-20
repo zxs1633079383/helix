@@ -491,8 +491,8 @@ fn wire_body_is_the_full_announcement_post_shape() {
     assert_eq!(body["channelId"], "channel-phase1-001");
     assert_eq!(body["userId"], ACTOR_ID);
     assert_eq!(body["teamId"], TEAM_ID);
-    assert_eq!(body["userSnapshot"]["userId"], ACTOR_ID);
-    assert_eq!(body["userSnapshot"]["userName"], "用户444");
+    assert!(body.get("userSnapshot").is_none());
+    assert!(body.get("userSnapshot").is_none());
     // 公告体。
     assert_eq!(
         body["props"]["announcement"]["announcementId"],

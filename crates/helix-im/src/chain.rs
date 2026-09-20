@@ -84,7 +84,8 @@ pub struct ChainSummary {
     pub title: String,
     pub description: String,
     pub deadline_at: i64,
-    pub creator_snapshot: Value,
+    pub creator_id: String,
+    pub team_id: String,
     /// Go chain.create_at 的 canonical 时间锚，供消息声明进入时间线时稳定排序。
     pub created_at: i64,
     pub total_messages: i64,
@@ -100,7 +101,7 @@ pub struct ChainEntry {
     pub chain_id: String,
     pub post_id: String,
     pub author_id: String,
-    pub author_snapshot: Value,
+    pub team_id: String,
     pub seq: i64,
     pub text: String,
     pub created_at: i64,
@@ -303,7 +304,7 @@ pub(crate) fn wire_body(command: &str, args: &Value) -> Result<(&'static str, Va
             copy_optional(&mut body, object, "title", "title");
             copy_optional(&mut body, object, "description", "description");
             copy_optional(&mut body, object, "deadline_at", "deadlineAt");
-            copy_optional(&mut body, object, "user_snapshot", "userSnapshot");
+
             "post-chain/create"
         }
         "post_chain_update_draft" => {
@@ -336,7 +337,7 @@ pub(crate) fn wire_body(command: &str, args: &Value) -> Result<(&'static str, Va
                 )));
             }
             body.insert("attachments".to_string(), attachments);
-            copy_optional(&mut body, object, "user_snapshot", "userSnapshot");
+
             "post-chain/append"
         }
         "post_chain_get" => {
@@ -367,7 +368,7 @@ pub(crate) fn wire_body(command: &str, args: &Value) -> Result<(&'static str, Va
         }
         _ => return Err(ImError::Parse(format!("unknown chain command {command}"))),
     };
-    Ok((path, Value::Object(body)))
+    Ok((path, crate::message_identity::sanitize(Value::Object(body))))
 }
 
 /// 解析 HTTP PortReply 中的 CommonRes/ADR-007 envelope，业务拒绝不伪造 authority。
@@ -578,10 +579,9 @@ pub(crate) fn persist_ops(
                 ("title".to_string(), text(&summary.title)),
                 ("description".to_string(), text(&summary.description)),
                 ("deadline_at".to_string(), integer(summary.deadline_at)),
-                (
-                    "creator_snapshot".to_string(),
-                    json_text(&summary.creator_snapshot),
-                ),
+                ("creator_id".to_string(), text(&summary.creator_id)),
+                ("team_id".to_string(), text(&summary.team_id)),
+                ("creator_snapshot".to_string(), text("")),
                 ("created_at".to_string(), integer(summary.created_at)),
                 (
                     "total_messages".to_string(),
@@ -613,10 +613,8 @@ pub(crate) fn persist_ops(
                         ("chain_id".to_string(), text(&entry.chain_id)),
                         ("post_id".to_string(), text(&entry.post_id)),
                         ("author_id".to_string(), text(&entry.author_id)),
-                        (
-                            "author_snapshot".to_string(),
-                            json_text(&entry.author_snapshot),
-                        ),
+                        ("team_id".to_string(), text(&entry.team_id)),
+                        ("author_snapshot".to_string(), text("")),
                         ("seq".to_string(), integer(entry.seq)),
                         ("text".to_string(), text(&entry.text)),
                         ("created_at".to_string(), integer(entry.created_at)),
@@ -1204,6 +1202,8 @@ fn parse_window_from_result(value: &Value, chain_id: &str) -> Option<ChainWindow
 
 /// 解析链摘要的 camelCase/snake_case 双形态字段。
 fn parse_summary(value: &Value, chain_id: &str, channel_id: &str) -> Option<ChainSummary> {
+    let clean = crate::message_identity::sanitize(value.clone());
+    let value = &clean;
     Some(ChainSummary {
         chain_id: string_or(value, &["chainId", "chain_id"], chain_id),
         channel_id: string_or(value, &["channelId", "channel_id"], channel_id),
@@ -1212,12 +1212,8 @@ fn parse_summary(value: &Value, chain_id: &str, channel_id: &str) -> Option<Chai
         title: string_or(value, &["title"], ""),
         description: string_or(value, &["description"], ""),
         deadline_at: integer_or(value, &["deadlineAt", "deadline_at"], 0),
-        creator_snapshot: value
-            .get("creatorSnapshot")
-            .or_else(|| value.get("creator_snapshot"))
-            .filter(|snapshot| snapshot.is_object())
-            .cloned()
-            .unwrap_or_else(|| json!({})),
+        creator_id: string_or(value, &["creatorId", "creator_id"], ""),
+        team_id: string_or(value, &["teamId", "team_id"], ""),
         created_at: integer_or(
             value,
             &["createdAt", "createAt", "created_at", "create_at"],
@@ -1232,20 +1228,15 @@ fn parse_summary(value: &Value, chain_id: &str, channel_id: &str) -> Option<Chai
 
 /// 解析单个接龙条目。
 fn parse_entry(value: &Value, chain_id: &str) -> Option<ChainEntry> {
+    let clean = crate::message_identity::sanitize(value.clone());
+    let value = &clean;
     let entry_id = find_local_string(value, &["entryId", "entry_id"])?;
     Some(ChainEntry {
         entry_id,
         chain_id: string_or(value, &["chainId", "chain_id"], chain_id),
         post_id: string_or(value, &["postId", "post_id"], ""),
         author_id: string_or(value, &["authorId", "author_id", "userId", "user_id"], ""),
-        author_snapshot: value
-            .get("authorSnapshot")
-            .or_else(|| value.get("author_snapshot"))
-            .or_else(|| value.get("userSnapshot"))
-            .or_else(|| value.get("user_snapshot"))
-            .filter(|snapshot| snapshot.is_object())
-            .cloned()
-            .unwrap_or_else(|| json!({})),
+        team_id: string_or(value, &["teamId", "team_id"], ""),
         seq: integer_or(value, &["seq"], 0),
         text: string_or(value, &["text", "message"], ""),
         created_at: integer_or(value, &["createdAt", "created_at"], 0),
@@ -1304,7 +1295,8 @@ fn summary_value(value: &ChainSummary) -> Value {
         "simpleMessage": crate::message_summary::simple_message("TEXT_CHAIN", &value.title, &Value::Null),
         "description": value.description,
         "deadlineAt": value.deadline_at,
-        "creatorSnapshot": value.creator_snapshot,
+        "creatorId": value.creator_id,
+        "teamId": value.team_id,
         "createdAt": value.created_at,
         "totalMessages": value.total_messages,
         "participantCount": value.participant_count,
@@ -1320,7 +1312,7 @@ fn entry_value(value: &ChainEntry) -> Value {
         "chainId": value.chain_id,
         "postId": value.post_id,
         "authorId": value.author_id,
-        "authorSnapshot": value.author_snapshot,
+        "teamId": value.team_id,
         "seq": value.seq,
         "text": value.text,
         "simpleMessage": crate::message_summary::simple_message("TEXT_CHAIN", &value.text, &Value::Null),
@@ -1499,7 +1491,8 @@ mod tests {
         assert!(request.chain_id.starts_with("chain-"));
         let (_, body) = wire_body("post_chain_create", &args).expect("create body");
         assert_eq!(body["chainId"], request.chain_id);
-        assert_eq!(body["userSnapshot"]["userName"], "张三");
+        assert!(body.get("userSnapshot").is_none());
+        assert!(body.get("userId").is_none());
     }
 
     /// TEXT append 的 wire body 只发送最小业务字段并拒绝 categoryIds。
@@ -1516,7 +1509,7 @@ mod tests {
         });
         let (_, body) = wire_body("post_chain_append", &args).expect("append body");
         assert_eq!(body["operationId"], "op-1");
-        assert_eq!(body["userSnapshot"]["deptName"], "研发部");
+        assert!(body.get("userSnapshot").is_none());
         assert!(body.get("categoryIds").is_none());
     }
 
@@ -1609,7 +1602,7 @@ mod tests {
                 if spec.table == "chain_entry"
                     && spec.rows.iter().any(|row| row.iter().any(|(column, value)|
                         column == "author_snapshot"
-                            && matches!(value, SqlValue::Text(snapshot) if snapshot.contains("张三")))))
+                            && matches!(value, SqlValue::Text(snapshot) if snapshot.is_empty()))))
         }));
         let bytes = event_bytes(
             "im:post_chain:upsert",
@@ -1627,10 +1620,8 @@ mod tests {
             json!(["entry-1"])
         );
         assert_eq!(event["data"]["textWindow"]["tailEntryIds"], json!([]));
-        assert_eq!(
-            event["data"]["chainEntry"]["authorSnapshot"]["userName"],
-            "张三"
-        );
+        assert!(event["data"]["chainEntry"].get("authorSnapshot").is_none());
+        assert_eq!(event["data"]["chainEntry"]["authorId"], "u-1");
         assert_eq!(
             event["data"]["chainSummary"]["createdAt"],
             json!(1700000000)

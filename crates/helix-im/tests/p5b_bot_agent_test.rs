@@ -379,7 +379,7 @@ fn bot_agent_send_direct_channel_camel_body_and_bot_auth() {
     assert_eq!(body["message"], "hello");
     assert_eq!(body["createChannel"], true);
     assert_eq!(body["props"]["k"], "v");
-    assert_eq!(body["userSnapshot"]["name"], "n");
+    assert!(body.get("userSnapshot").is_none());
     assert!(
         has_bot_auth(&h),
         "messages/direct 是 bot-token 命令，必带 X-Auth-Kind: bot"

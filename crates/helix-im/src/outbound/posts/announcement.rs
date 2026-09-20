@@ -158,13 +158,7 @@ impl SaveAnnouncementCommand {
             "readBits": "",
             // 公告对全群可见，不支持定向（空 viewers 会让公告对任何人都不可见）。
             "viewers": ["all"],
-            "userSnapshot": {
-                "userId": self.self_id,
-                "teamId": self.team_id,
-                "userName": self.user_name,
-                "orgName": self.org_name,
-                "deptName": self.dept_name,
-            },
+            "teamId": self.team_id,
             "props": {
                 "announcement": {
                     "announcementId": self.announcement_id,

@@ -123,7 +123,7 @@ fn event_to_upsert_op_with_policy(
             ("type", f.msg_type.is_empty()),
             ("message", f.message.is_empty()),
             ("viewers", f.viewers.is_empty()),
-            ("user_snapshot", online_json_field_missing(&f.user_snapshot)),
+            ("team_id", f.team_id.is_empty()),
             ("mentions", f.mentions.is_empty()),
             ("expedite_map", online_json_field_missing(&f.expedite_map)),
             ("topic", online_json_field_missing(&f.topic)),
@@ -171,10 +171,7 @@ fn event_to_upsert_op_with_policy(
                 !f.has_field(crate::sync_session::POST_FIELD_SIMPLE_MESSAGE),
             ),
             ("props", !f.has_field(crate::sync_session::POST_FIELD_PROPS)),
-            (
-                "user_snapshot",
-                !f.has_field(crate::sync_session::POST_FIELD_USER_SNAPSHOT),
-            ),
+            ("team_id", f.team_id.is_empty()),
             (
                 "viewers",
                 !f.has_field(crate::sync_session::POST_FIELD_VIEWERS),
@@ -249,17 +246,18 @@ fn event_to_upsert_op_with_policy(
             ("id".to_string(), SqlValue::Text(f.id.clone())),
             ("channel_id".to_string(), SqlValue::Text(channel_id)),
             ("user_id".to_string(), SqlValue::Text(f.user_id.clone())),
+            ("team_id".to_string(), SqlValue::Text(f.team_id.clone())),
             ("type".to_string(), SqlValue::Text(f.msg_type.clone())),
             ("message".to_string(), SqlValue::Text(f.message.clone())),
-            ("props".to_string(), SqlValue::Text(f.props.clone())),
+            (
+                "props".to_string(),
+                SqlValue::Text(crate::message_identity::json_text(&f.props)),
+            ),
             (
                 "viewers".to_string(),
                 SqlValue::Text(serde_json::json!(f.viewers.clone()).to_string()),
             ),
-            (
-                "user_snapshot".to_string(),
-                SqlValue::Text(f.user_snapshot.clone()),
-            ),
+            ("user_snapshot".to_string(), SqlValue::Text(String::new())),
             (
                 "mentions".to_string(),
                 SqlValue::Text(serde_json::json!(f.mentions.clone()).to_string()),
@@ -284,11 +282,11 @@ fn event_to_upsert_op_with_policy(
             ),
             (
                 "replied_message".to_string(),
-                SqlValue::Text(f.replied_message.clone()),
+                SqlValue::Text(crate::message_identity::json_text(&f.replied_message)),
             ),
             (
                 "reply_messages".to_string(),
-                SqlValue::Text(f.reply_messages.clone()),
+                SqlValue::Text(crate::message_identity::json_text(&f.reply_messages)),
             ),
             ("reply_count".to_string(), SqlValue::Integer(f.reply_count)),
             ("read_bits".to_string(), SqlValue::Text(f.read_bits.clone())),

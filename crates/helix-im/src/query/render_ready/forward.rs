@@ -22,7 +22,8 @@ pub(crate) fn card(value: &Value) -> Result<Value, ImError> {
         .iter()
         .map(|item| {
             Ok(json!({
-                "author": text(item, "author", 128)?, "text": text(item, "text", 256)?
+                "userId": optional_identity(item, "userId")?, "teamId": optional_identity(item, "teamId")?,
+                "text": text(item, "text", 256)?
             }))
         })
         .collect::<Result<Vec<_>, ImError>>()?;
@@ -44,6 +45,8 @@ pub(crate) fn props(msg_type: &str, value: Value) -> Value {
 
 /// Turn a bounded current-layer item into the same ChatMessage shape as history.
 pub(crate) fn item(snapshot_id: &str, item: &Value, viewer: &str) -> Result<Value, ImError> {
+    let clean_item = crate::message_identity::sanitize(item.clone());
+    let item = &clean_item;
     let item_key = text(item, "itemKey", 128)?;
     if item_key.is_empty() {
         return Err(invalid("empty itemKey"));
@@ -51,18 +54,19 @@ pub(crate) fn item(snapshot_id: &str, item: &Value, viewer: &str) -> Result<Valu
     if text(item, "userId", 128)?.is_empty() {
         return Err(invalid("empty userId"));
     }
-    if !item["userSnapshot"].is_object() || !item["createAt"].is_i64() {
+    if !item["createAt"].is_i64() {
         return Err(invalid("item author/time"));
     }
     let id = format!("forward:{snapshot_id}:{item_key}");
     let mut row = json!({"id":id,"temporaryId":id,"userId":item["userId"],
-        "userSnapshot":item["userSnapshot"],"createAt":item["createAt"]});
+        "teamId":item["teamId"],"createAt":item["createAt"]});
     let fields: &[&str] = match item["kind"].as_str() {
         Some("message") => &[
             "kind",
             "itemKey",
             "userId",
-            "userSnapshot",
+            "teamId",
+            "companyId",
             "createAt",
             "type",
             "message",
@@ -75,7 +79,8 @@ pub(crate) fn item(snapshot_id: &str, item: &Value, viewer: &str) -> Result<Valu
             "kind",
             "itemKey",
             "userId",
-            "userSnapshot",
+            "teamId",
+            "companyId",
             "createAt",
             "snapshotId",
             "title",
@@ -171,6 +176,14 @@ pub(crate) fn text<'a>(value: &'a Value, key: &str, max: usize) -> Result<&'a st
         .and_then(Value::as_str)
         .filter(|s| s.len() <= max)
         .ok_or_else(|| invalid(key))
+}
+
+/// Legacy preview cards lacked IDs; never reuse their frozen author name.
+fn optional_identity<'a>(value: &'a Value, key: &str) -> Result<&'a str, ImError> {
+    match value.get(key) {
+        None | Some(Value::Null) => Ok(""),
+        Some(_) => text(value, key, 128),
+    }
 }
 
 fn invalid(field: &str) -> ImError {

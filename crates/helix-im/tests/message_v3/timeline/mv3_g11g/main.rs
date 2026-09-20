@@ -209,7 +209,8 @@ fn g11g_exact_posts_waits_for_durable_readback_and_filters_viewer() {
     let post = &event["data"]["body"]["posts"][0];
     assert_eq!(post["message"], "durable-visible");
     assert_eq!(post["props"]["taskCard"]["title"], "最新任务");
-    assert_eq!(post["userSnapshot"]["userId"], "sender-1");
+    assert_eq!(post["userId"], "sender-1");
+    assert!(post.get("userSnapshot").is_none());
     assert_eq!(post["viewers"], json!(["viewer-1"]));
     assert!(post.get("readBits").is_none());
     assert!(post.get("eventSeq").is_none());

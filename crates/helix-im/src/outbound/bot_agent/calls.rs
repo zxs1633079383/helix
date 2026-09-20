@@ -107,5 +107,5 @@ fn send_message_common(args: &Value, cmd: &str) -> Result<Value, ImError> {
     if let Some(snapshot) = args.get("user_snapshot").filter(|v| v.is_object()) {
         b["userSnapshot"] = snapshot.clone();
     }
-    Ok(b)
+    Ok(crate::message_identity::sanitize(b))
 }

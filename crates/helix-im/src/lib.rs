@@ -77,6 +77,7 @@ pub use error::ImError;
 pub use http_outcome::{http_outcome_event, EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OFFLINE};
 pub use module::ImModule;
 pub use module::{ClientPlatform, ImConfig};
+mod message_identity;
 pub use schema::{SparseTableSpec, IM_SCHEMA, IM_SCHEMA_MIGRATIONS, IM_SPARSE_TABLE_SPECS};
 
 /// 用户级共库要求公司渲染硬闸门和同公司 create_at 水位同时可用。

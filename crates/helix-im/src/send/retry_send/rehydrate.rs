@@ -83,17 +83,24 @@ pub(super) fn rebuild_body(
         if let Some(team_id) = snapshot.get("teamId").and_then(Value::as_str) {
             body["teamId"] = Value::String(team_id.to_string());
         }
-        body["userSnapshot"] = snapshot;
+    }
+    let team_id = row_str(row, "team_id");
+    if !team_id.is_empty() {
+        body["teamId"] = Value::String(team_id.to_string());
     }
     let user_id = row_str(row, "user_id");
     if !user_id.is_empty() {
         body["userId"] = Value::String(user_id.to_string());
     }
+    let replied = row_json(row, "replied_message", Value::Null);
+    if replied.is_object() {
+        body["repliedMessage"] = crate::message_identity::sanitize(replied);
+    }
     let simple_message = row_str(row, "simple_message");
     if !simple_message.is_empty() {
         body["simpleMessage"] = Value::String(simple_message.to_string());
     }
-    Ok(body)
+    Ok(crate::message_identity::sanitize(body))
 }
 
 pub(super) fn row_str<'a>(row: &'a Value, key: &str) -> &'a str {
@@ -106,4 +113,26 @@ fn row_json(row: &Value, key: &str, fallback: Value) -> Value {
         .filter(|raw| !raw.is_empty())
         .and_then(|raw| serde_json::from_str(raw).ok())
         .unwrap_or(fallback)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ImConfig;
+
+    /// Retry retains company and reply content without restoring obsolete login/profile snapshots.
+    #[test]
+    fn retry_uses_ids_and_keeps_reply_content_without_names() {
+        let module = ImModule::new(ImConfig::default());
+        let row = json!({"channel_id":"a9h5hrdsy3873dmg375a6ntqiw","type":"TEXT","message":"reply",
+            "user_id":"sender","team_id":"source-company","user_snapshot":"{\"userName\":\"wrong\",\"teamId\":\"old-company\"}",
+            "replied_message":"{\"repliedUserId\":\"original\",\"teamId\":\"reply-company\",\"repliedUserName\":\"wrong\",\"message\":\"original content\"}"});
+        let body = rebuild_body(&module, &row, &TemporaryId("temporary-1".into()), 10).unwrap();
+        assert_eq!(body["userId"], "sender");
+        assert_eq!(body["teamId"], "source-company");
+        assert!(body.get("userSnapshot").is_none());
+        assert_eq!(body["repliedMessage"]["message"], "original content");
+        assert_eq!(body["repliedMessage"]["repliedTeamId"], "reply-company");
+        assert!(body["repliedMessage"].get("repliedUserName").is_none());
+    }
 }

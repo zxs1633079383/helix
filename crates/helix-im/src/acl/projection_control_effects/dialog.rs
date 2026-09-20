@@ -209,6 +209,7 @@ fn post_fields_json(
         } else {
             fields.channel_id.as_str()
         },
+        "teamId": fields.team_id,
         "userId": fields.user_id.clone(),
         "type": fields.msg_type.clone(),
         "message": fields.message.clone(),

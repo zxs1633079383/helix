@@ -56,10 +56,7 @@ pub(crate) fn guarded_edit(fields: &PostFields, mut patch: Row) -> StorageOp {
         ("id", SqlValue::Text(fields.id.to_owned())),
         ("channel_id", SqlValue::Text(fields.channel_id.to_owned())),
         ("user_id", SqlValue::Text(fields.user_id.to_owned())),
-        (
-            "user_snapshot",
-            SqlValue::Text(fields.user_snapshot.to_owned()),
-        ),
+        ("user_snapshot", SqlValue::Text(String::new())),
         ("read_bits", SqlValue::Text(fields.read_bits.to_owned())),
         ("send_status", SqlValue::Text("sent".to_owned())),
         ("create_at", SqlValue::Integer(fields.create_at)),

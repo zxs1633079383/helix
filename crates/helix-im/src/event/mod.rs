@@ -31,6 +31,7 @@ struct MessageV3Envelope {
 impl MessageV3Event {
     /// 构造只含 `event` 与对象 `data` 的业务信封。
     pub fn new(event: &'static str, data: Value) -> Result<Self, crate::ImError> {
+        let data = crate::message_identity::sanitize(data);
         if !data.is_object() {
             return Err(crate::ImError::Parse(format!(
                 "{event} MessageV3 data must be an object"

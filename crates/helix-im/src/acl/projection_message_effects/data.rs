@@ -198,6 +198,7 @@ pub(super) fn message_item_data(
         "temporaryId": fields.temporary_id.as_str(),
         "channelId": channel_id.as_str(),
         "eventSeq": event_seq,
+        "teamId": fields.team_id,
         "userId": fields.user_id.as_str(),
         "userSnapshot": user_snapshot,
         "type": msg_type,

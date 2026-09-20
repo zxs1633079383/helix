@@ -16,6 +16,12 @@ pub(super) fn http_request(
     request_id: Option<&str>,
     corr: Correlation,
 ) -> Effect {
+    // CATEGORY profile input is business data; its message projections are cleaned separately.
+    let body = if path.starts_with("post-chain/") && path.ends_with("?mode=CATEGORY") {
+        body
+    } else {
+        crate::message_identity::sanitize(body)
+    };
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
     headers.extend(crate::acl::to_effect::connection_id_headers(connection_id));
     headers.push((AUTH_KIND_HEADER.to_string(), auth_kind.as_str().to_string()));

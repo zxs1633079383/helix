@@ -27,6 +27,8 @@ pub(crate) fn extract_post_fields_with_event_seq(
     root: &serde_json::Value,
     event_seq: Option<u64>,
 ) -> PostFields {
+    let clean_root = crate::message_identity::sanitize(root.clone());
+    let root = &clean_root;
     // post 字段可能在顶层，也可能嵌套在 "post" / "data" 子对象下——按优先级探查。
     let post = root
         .get("post")
@@ -258,6 +260,9 @@ pub(crate) fn extract_post_fields_with_event_seq(
         simple_message,
         props,
         user_snapshot,
+        team_id: pick_str("teamId")
+            .or_else(|| pick_str("team_id"))
+            .unwrap_or_default(),
         create_at,
         update_at,
         read_bits,

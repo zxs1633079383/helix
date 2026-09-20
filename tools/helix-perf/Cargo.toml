@@ -13,7 +13,7 @@ sdk-metrics = ["dep:helix-driver-host", "dep:helix-driver-native", "dep:helix-dr
 bytes = { workspace = true }
 futures-util = "0.3"
 hdrhistogram = "7"
-helix-core = { package = "cses-helix-core", path = "../../crates/helix-core", version = "=0.1.26" }
+helix-core = { package = "cses-helix-core", path = "../../crates/helix-core", version = "=0.1.27" }
 helix-im = { path = "../../crates/helix-im" }
 helix-driver-host = { path = "../../crates/helix-driver-host", optional = true }
 helix-driver-native = { path = "../../crates/helix-driver-native", optional = true }

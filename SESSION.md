@@ -1,5 +1,7 @@
 ## 2026-09-20 成员通知统一摘要发布 0.1.27
 
+✅ DONE 四公共crate 0.1.27由正式脚本发布crates.io，八包check、四包dry-run/上传与registry回读通过。合并后IM1567 PASS/4基线失败/11忽略；Core24 PASS/1忽略，WASM构建及零运行时依赖通过。Client合并后91项通过。证据 /tmp/cses-notice-sync-0920/release-*.log。此提交固化版本事务，随后创建注释Tag并按授权push；客户端Cargo接入后续提交，未打包部署或做真实业务验收。
+
 🎯 EXPECT 按用户授权合并 Helix !6 与 Client !27 后发布四公共 crate 0.1.27；精确依赖版本、registry 回读、发布提交及注释 Tag 一致，Client 仅更新 Cargo 依赖与锁文件。复用已记录业务回归，本轮验证发布与接入；不做桌面打包或真实业务操作。 | 赌注 中 | 可逆 首次上传前是
 
 ## 2026-09-20 成员通知在线/离线摘要身份

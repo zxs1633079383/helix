@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-helix-core = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.26" }
+helix-core = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.27" }
 helix-im = { path = "../helix-im" }
 async-trait = { workspace = true }
 bytes = { workspace = true }

@@ -1,3 +1,16 @@
+## 2026-09-20 成员通知在线/离线摘要身份
+
+- EXPECT：无姓名 join/leave 的实时消息、离线历史、频道末条持久化/读回输出相同 summaryParts，且不含姓名快照；仅修改 helix-im 投影，无 DB/driver 变更。
+- 原因：simpleMessage 固化“群成员”，宿主目录更新后无法恢复身份。新增有序文本/用户引用计划，复用旧字符串摘要规则；宿主仅解析用户身份，不重算业务文案。
+- 生产范围：message_summary、member_notice、event/post、query/render_ready/core；测试先红后绿，lib 427 项通过；完整 crate 1562 PASS/4 FAIL/11 ignored，4项均在原基线复现；最终8项摘要回归与 cargo check 通过。全量后仅补空白公司别名处理并定向重验，未重新全量运行。未发布/部署或真实 Native/WDIO 验收。
+- 证据 /tmp/cses-notice-sync-0920；独立 codex/0920-notice-summary-identity 工作树，父级交接在 Client docs/交接/0920-群成员摘要/handoff.md。
+
+## 2026-09-20 群成员摘要 producer 补漏
+
+🎯 EXPECT 四个既有 Helix producer（message-item、dialog lastPost、sync lastPost、exact posts）均复用 `attach_parts`；NOTICE join 产出无姓名的 `summaryParts`，撤回不产出旧 parts，exact 重建不丢失；只改四个 producer 与对应单测/本记录。红绿定向、cargo check 通过；不改摘要核心算法/Go/schema/driver，不跑已知全量失败。| 赌注 中 | 可逆 是 | @2026-09-20
+
+✅ DONE 四个 producer 均已接入 `attach_parts`；message-item 撤回跳过，sync lastPost 与 exact 重建保留 `teamId/revoke`，保证二次 `prepare_post` 不丢公司作用域或复活撤回 parts。原 8 项摘要 + 本轮 sync/exact roundtrip 定向通过，`cargo check -p helix-im` 与 `git diff --check` 通过。证据 `/tmp/cses-notice-sync-0920/rust-producer-{red,green,check}.log`、`rust-producer-roundtrip-{red,green,check}.log`。未跑全量；真实 Go/WS、Native/UI 与已知基线失败仍未验证。已提交本地 commit（SHA 以当前 HEAD 为准），不 push。
+
 ## 2026-09-20 Rust重新打包与客户端集成
 
 ✅ DONE 四公共crate 0.1.25已发布crates.io并可解析，八包check/逐包dry-run通过；源码09535194、版本368dae8f与注释Tag helix-v-0.1.25已push。客户端093f7770aa四包精确pin+registry lock、用户库迁移已push dev-message；yarn start完成Angular构建78.076秒、Rust编译2分22秒并Running，命令退出0。保留旧客户端实例，不把编译/启动尝试当作新运行实例或未读跳转验收；应用环境版本未另提，既有release.json改动未提交。无CDN/桌面安装包发布/业务验收。最终远端回读与证据见客户端 docs/交接/0919-increment-unread-jump/handoff.md。

@@ -201,7 +201,7 @@ fn post_fields_json(
         .unwrap_or_else(|_| serde_json::json!({}));
     let topic = serde_json::from_str::<serde_json::Value>(&fields.topic)
         .unwrap_or_else(|_| serde_json::json!({}));
-    serde_json::json!({
+    let mut data = serde_json::json!({
         "id": if fields.id.is_empty() { msg_id } else { fields.id.as_str() },
         "temporaryId": fields.temporary_id.clone(),
         "channelId": if fields.channel_id.is_empty() {
@@ -230,5 +230,42 @@ fn post_fields_json(
         "userSnapshot": user_snapshot,
         "createAt": fields.create_at,
         "eventSeq": event_seq,
-    })
+    });
+    crate::message_summary::attach_parts(&mut data);
+    data
+}
+
+#[cfg(test)]
+mod tests {
+    use super::post_fields_json;
+    use crate::state::test_channel_id;
+    use crate::sync_session::PostFields;
+    use serde_json::json;
+
+    #[test]
+    fn dialog_last_post_contains_member_notice_parts() {
+        let fields = PostFields {
+            team_id: "company-a".to_string(),
+            msg_type: "NOTICE".to_string(),
+            message: "member notice".to_string(),
+            props: json!({
+                "type": "leave",
+                "operator": {"id": "operator"},
+                "users": [{"id": "target", "name": "旧目标名"}]
+            })
+            .to_string(),
+            ..PostFields::default()
+        };
+        let data = post_fields_json(test_channel_id(302), 8, "post-302", &fields);
+        assert_eq!(
+            data["summaryParts"],
+            json!([
+                {"kind":"user","userId":"operator","companyId":"company-a"},
+                {"kind":"text","text":"将"},
+                {"kind":"user","userId":"target","companyId":"company-a"},
+                {"kind":"text","text":"移除了群聊"}
+            ])
+        );
+        assert!(!data["summaryParts"].to_string().contains("旧"));
+    }
 }

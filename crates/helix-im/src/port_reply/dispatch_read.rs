@@ -2200,10 +2200,12 @@ fn project_exact_posts(accepted_keys: &[String], rows: Vec<Value>) -> Vec<Value>
         if !accepted.contains(&key) || !seen.insert(key) {
             continue;
         }
-        projected.push(serde_json::json!({
+        let mut projected_post = serde_json::json!({
             "id": if fields.id.is_empty() { fields.temporary_id.clone() } else { fields.id.clone() },
             "temporaryId": fields.temporary_id,
             "channelId": fields.channel_id,
+            // 后续读侧可能再次经过 prepare_post，保留作用域/撤回事实避免摘要漂移。
+            "teamId": row.get("teamId").cloned().unwrap_or_else(|| Value::String(fields.team_id.clone())),
             "userId": fields.user_id,
             "userSnapshot": exact_json_object(&fields.user_snapshot),
             "type": fields.msg_type,
@@ -2222,7 +2224,62 @@ fn project_exact_posts(accepted_keys: &[String], rows: Vec<Value>) -> Vec<Value>
             "replyCount": fields.reply_count,
             "repliedMessage": exact_json_object(&fields.replied_message),
             "replyMessages": exact_json_object(&fields.reply_messages),
-        }));
+            "revoke": row.get("revoke").cloned().unwrap_or(Value::Bool(false)),
+        });
+        crate::message_summary::attach_parts(&mut projected_post);
+        projected.push(projected_post);
     }
     projected
+}
+
+#[cfg(test)]
+mod member_notice_tests {
+    use super::project_exact_posts;
+    use serde_json::json;
+
+    #[test]
+    fn exact_posts_rebuild_keeps_parts_and_drops_them_for_revoke() {
+        let row = json!({
+            "id": "post-304",
+            "temporary_id": "tmp-304",
+            "channel_id": "channel-304",
+            "team_id": "company-a",
+            "user_id": "operator",
+            "type": "NOTICE",
+            "message": "member notice",
+            "simple_message": "旧摘要",
+            "props": {
+                "type": "join",
+                "operator": {"id": "operator"},
+                "users": [{"id": "target", "name": "旧目标名"}]
+            },
+            "revoke": 0
+        });
+        let projected = project_exact_posts(&["tmp-304".to_string()], vec![row]);
+        assert_eq!(projected.len(), 1);
+        assert_eq!(
+            projected[0]["summaryParts"],
+            json!([
+                {"kind":"user","userId":"operator","companyId":"company-a"},
+                {"kind":"text","text":"邀请"},
+                {"kind":"user","userId":"target","companyId":"company-a"},
+                {"kind":"text","text":"加入群聊"}
+            ])
+        );
+        assert!(!projected[0]["summaryParts"].to_string().contains("旧"));
+        assert_eq!(projected[0]["teamId"], "company-a");
+        assert_eq!(projected[0]["revoke"], false);
+        let reread = crate::message_summary::prepare_post(&projected[0]);
+        assert_eq!(reread["summaryParts"][0]["companyId"], "company-a");
+
+        let mut revoked = projected[0].clone();
+        revoked["revoke"] = json!(true);
+        let revoked = project_exact_posts(&["tmp-304".to_string()], vec![revoked]);
+        assert_eq!(revoked.len(), 1);
+        assert!(revoked[0].get("summaryParts").is_none());
+        assert_eq!(revoked[0]["revoke"], true);
+        assert!(crate::message_summary::prepare_post(&revoked[0])
+            .get("summaryParts")
+            .is_none());
+    }
 }

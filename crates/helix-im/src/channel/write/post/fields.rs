@@ -159,10 +159,12 @@ fn urgent_hit_from_candidates(
 
 /// Preserves the remote post clocks and preview fields in the recovered dialog snapshot.
 pub(super) fn sync_last_post_json(fields: &crate::sync_session::PostFields) -> String {
-    serde_json::json!({
+    let mut data = serde_json::json!({
         "id": fields.id.clone(),
         "temporaryId": fields.temporary_id.clone(),
         "channelId": fields.channel_id.clone(),
+        // 持久 lastPost 后续可能再次经过 prepare_post，必须保留摘要公司的作用域事实。
+        "teamId": fields.team_id.clone(),
         "userId": fields.user_id.clone(),
         "type": fields.msg_type.clone(),
         "message": fields.message.clone(),
@@ -173,6 +175,66 @@ pub(super) fn sync_last_post_json(fields: &crate::sync_session::PostFields) -> S
         "expediteMap": serde_json::from_str::<serde_json::Value>(&fields.expedite_map).unwrap_or(serde_json::Value::Null),
         "createAt": fields.create_at,
         "updateAt": if fields.update_at > 0 { fields.update_at } else { fields.create_at },
-    })
-    .to_string()
+    });
+    crate::message_summary::attach_parts(&mut data);
+    data.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sync_last_post_json;
+    use crate::sync_session::PostFields;
+    use serde_json::json;
+
+    #[test]
+    fn sync_last_post_contains_member_notice_parts() {
+        let fields = PostFields {
+            team_id: "company-a".to_string(),
+            msg_type: "NOTICE".to_string(),
+            message: "member notice".to_string(),
+            props: json!({
+                "type": "join",
+                "operator": {"id": "operator"},
+                "users": [{"id": "target", "name": "旧目标名"}]
+            })
+            .to_string(),
+            ..PostFields::default()
+        };
+        let data: serde_json::Value =
+            serde_json::from_str(&sync_last_post_json(&fields)).expect("sync last post JSON");
+        assert_eq!(
+            data["summaryParts"],
+            json!([
+                {"kind":"user","userId":"operator","companyId":"company-a"},
+                {"kind":"text","text":"邀请"},
+                {"kind":"user","userId":"target","companyId":"company-a"},
+                {"kind":"text","text":"加入群聊"}
+            ])
+        );
+        assert!(!data["summaryParts"].to_string().contains("旧"));
+    }
+
+    #[test]
+    fn sync_last_post_prepare_roundtrip_preserves_company_scope() {
+        let fields = PostFields {
+            team_id: "company-a".to_string(),
+            msg_type: "NOTICE".to_string(),
+            props: json!({
+                "type": "join",
+                "operator": {"id": "operator"},
+                "users": [{"id": "target"}]
+            })
+            .to_string(),
+            ..PostFields::default()
+        };
+        let data: serde_json::Value =
+            serde_json::from_str(&sync_last_post_json(&fields)).expect("sync last post JSON");
+        assert_eq!(data["teamId"], "company-a");
+        let reread = crate::message_summary::prepare_post(&data);
+        assert_eq!(
+            reread["summaryParts"][0]["companyId"], "company-a",
+            "durable lastPost prepare_post must retain the producer company scope"
+        );
+        assert_eq!(reread["summaryParts"][2]["companyId"], "company-a");
+    }
 }

@@ -1,6 +1,6 @@
 [package]
 name        = "helix-driver-host"
-version     = "0.1.25"
+version     = "0.1.26"
 edition     = "2021"
 authors     = ["CSES Team"]
 license     = "MIT OR Apache-2.0"
@@ -13,7 +13,7 @@ include     = ["/src/**", "/README.md"]
 # PC Tauri shell (helix-driver-native) and Flutter FFI shell (helix-driver-ffi).
 
 [dependencies]
-helix-core = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.25" }
+helix-core = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.26" }
 async-trait = { workspace = true }
 bytes       = { workspace = true }
 serde       = { workspace = true }
@@ -45,7 +45,7 @@ disallowed_macros = "allow"
 criterion = "0.5"
 # 真 DB 落库集成测试用：以 IM_SCHEMA 建真 SQLite，喂 event_to_upsert_op 产物，
 # 断言 message 表真有行（而非断 Effect 字符串）。helix-im 纯 crate，无运行时依赖。
-helix-im = { path = "../helix-im", version = "=0.1.25" }
+helix-im = { path = "../helix-im", version = "=0.1.26" }
 bytes = { workspace = true }
 
 [[bench]]

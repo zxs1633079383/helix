@@ -1,6 +1,6 @@
 [package]
 name        = "helix-im"
-version     = "0.1.25"
+version     = "0.1.26"
 edition     = "2021"
 authors     = ["CSES Team"]
 license     = "MIT OR Apache-2.0"
@@ -14,7 +14,7 @@ include     = ["/src/**", "/README.md"]
 # IM 业务逻辑通过 Effect 表达意图，driver 兑现，保证三栖可编译
 
 [dependencies]
-helix-core = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.25" }
+helix-core = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.26" }
 serde       = { workspace = true }
 serde_json  = { workspace = true, features = ["raw_value"] }
 thiserror   = { workspace = true }

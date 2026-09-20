@@ -968,3 +968,5 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 记录时点：版本计划已通过、源码已 rebase，发布尚未执行；开局 EXPECT 漏记，本条如实补充后续发布预期。完整 IM 测试首轮引用根配置错误，已改用客户端实际 gates 目录复跑。
 
 发布前验证：IM 全量 1558 passed / 4 failed / 11 ignored；Core 24 passed / 1 ignored；真实 SQLite 的身份迁移、公司隔离、未读锚点共 4 passed。4 项失败（参考 schema 的 go 字段、TEXT/DOCUMENT HTTP admission 旧断言、公告摘要前缀）均在远端 abd689ac 独立源码副本同样复现，未扩大本次修复范围。日志在 artifacts/identity-release-0.1.26/{im-full-corrected,baseline-tests,core,host-merged}.log。
+
+✅ DONE crates.io 0.1.26 四包正式发布并通过 cargo info 可解析验证；正式脚本八包 cargo check、四包 dry-run/上传全部通过。WASM 构建通过，Core 依赖树无运行时依赖。用户已授权 push，版本提交及 helix-v-0.1.26 注释 Tag 随后推送；客户端升级、桌面/手机制品发布不在本轮范围。发布日志：artifacts/identity-release-0.1.26/publish.log。

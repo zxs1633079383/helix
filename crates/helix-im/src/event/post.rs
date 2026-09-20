@@ -231,6 +231,8 @@ pub fn authority_projection(
     if !props.as_object().is_some_and(serde_json::Map::is_empty) && !props.is_null() {
         attach_shared_field(&mut received_data, &mut last_post, "props", props);
     }
+    crate::message_summary::attach_parts(&mut received_data);
+    crate::message_summary::attach_parts(&mut last_post);
     Ok(AuthorityProjection {
         received_data: crate::message_identity::sanitize(received_data),
         last_post: crate::message_identity::sanitize(last_post),

@@ -3,6 +3,7 @@
 use serde_json::json;
 use serde_json::Value;
 use std::borrow::Cow;
+mod member_notice;
 const DOCUMENT_EMPTY_SIMPLE_MESSAGE: &str = "[文档]";
 
 /// O(n) 准备可直接显示的摘要；保留历史正文型摘要，稀疏事件不伪造新内容。
@@ -92,7 +93,35 @@ pub(crate) fn prepare_post(value: &Value) -> Value {
             object.remove("forwardDetail");
         }
     }
+    attach_parts(&mut post);
     post
+}
+
+/// 仅从当前事实重建摘要引用；O(n) 且输出最多 23 段，不信任过期/伪造的缓存计划。
+pub(crate) fn attach_parts(post: &mut Value) {
+    let parts = if post["type"] == "NOTICE"
+        && !post["revoke"].as_bool().unwrap_or(false)
+        && post["revoke"].as_i64() != Some(1)
+    {
+        let props = decoded(&post["props"]);
+        let company = ["teamId", "team_id"]
+            .iter()
+            .find_map(|key| post[*key].as_str().map(str::trim).filter(|v| !v.is_empty()))
+            .unwrap_or("");
+        member_notice::wire(&props, company)
+    } else {
+        None
+    };
+    if let Some(object) = post.as_object_mut() {
+        match parts {
+            Some(parts) => {
+                object.insert("summaryParts".to_owned(), parts);
+            }
+            None => {
+                object.remove("summaryParts");
+            }
+        }
+    }
 }
 
 /// 兼容服务端 JSON 字符串型卡片字段，不改动持久化 props。
@@ -164,6 +193,9 @@ fn notice_name(user: &Value) -> &str {
 
 /// O(n) 转换已知群通知；未知通知回退服务端原摘要，不输出事件代码。
 fn notice_text(props: &Value) -> String {
+    if let Some(parts) = member_notice::plan(props, "") {
+        return parts.iter().map(member_notice::Part::legacy_text).collect();
+    }
     let operator = &props["operator"];
     let name = notice_name(operator);
     let users = props["users"].as_array().map(Vec::as_slice).unwrap_or(&[]);
@@ -185,11 +217,6 @@ fn notice_text(props: &Value) -> String {
         }
     };
     match props["type"].as_str().unwrap_or("") {
-        "join" => format!("{name}邀请{}加入群聊", names(true)),
-        "leave" if users.len() == 1 && users[0]["id"] == operator["id"] => {
-            format!("{}退出了群聊", notice_name(&users[0]))
-        }
-        "leave" => format!("{name}将{}移除了群聊", names(true)),
         "addManager" => format!("{name}将{}设为管理员", names(false)),
         "removeManager" => format!("{name}将{}移除管理员", names(false)),
         "creatorChange" => format!("{}已成为新群主", notice_name(&props["user"])),
@@ -570,4 +597,87 @@ fn channel_summary_survives_full_patch_member_and_event_paths() {
     )
     .unwrap();
     assert_eq!(event["data"], sparse);
+}
+
+/// 回归 task 6aa7ccb0：同一无姓名通知在实时、离线和末条投影保留可解析的身份引用。
+#[cfg(test)]
+#[test]
+fn member_notice_summary_parts_match_live_history_and_last_post() {
+    use crate::state::{ChannelId, Seq};
+    use crate::sync_session::{EventEnvelope, EventKind};
+    use helix_core::effect::SqlValue;
+    let channel_id = ChannelId::from_str("nfds4ncb8pyb98thscnuujgmuw").unwrap();
+    for (action, verb, tail) in [("join", "邀请", "加入群聊"), ("leave", "将", "移除了群聊")]
+    {
+        let post = json!({"id":"notice","type":"NOTICE","teamId":"c1","userId":"SYS",
+            "message":"","simpleMessage":"群成员旧摘要",
+            "props":{"type":action,"operator":{"id":"actor","name":""},
+                "users":[{"id":"target","teamId":"c2","name":""}]}});
+        let expected = json!([
+            {"kind":"user","userId":"actor","companyId":"c1"},
+            {"kind":"text","text":verb},
+            {"kind":"user","userId":"target","companyId":"c2"},
+            {"kind":"text","text":tail}
+        ]);
+        let fields = crate::ws::parser::extract_post_fields(&post);
+        let live = crate::event::post::authority_projection(&EventEnvelope::new(
+            channel_id,
+            Seq(7),
+            EventKind::PostUpsert,
+            fields,
+        ))
+        .unwrap();
+        assert_eq!(
+            live.received_data["summaryParts"], expected,
+            "live {action}"
+        );
+        assert_eq!(
+            live.last_post["summaryParts"], expected,
+            "live lastPost {action}"
+        );
+        assert_eq!(
+            crate::query::render_ready::core::shape_row(&post, "actor")["summaryParts"],
+            expected,
+            "history {action}"
+        );
+        for encoded in [post.clone(), Value::String(post.to_string())] {
+            assert_eq!(
+                prepare_post(&encoded)["summaryParts"],
+                expected,
+                "prepare {action}"
+            );
+            let channel = json!({"id":channel_id.as_str(),"lastPost":encoded,"lastPostAt":123});
+            let (full, _) = crate::channel_write::program_full(&channel, "actor", 123).unwrap();
+            let patch = crate::channel_write::collect_present(&channel);
+            for row in [&full, &patch] {
+                let raw = row
+                    .iter()
+                    .find_map(|(key, value)| match value {
+                        SqlValue::Text(raw) if *key == "last_post" => Some(raw),
+                        _ => None,
+                    })
+                    .unwrap();
+                let saved: Value = serde_json::from_str(raw).unwrap();
+                assert_eq!(saved["summaryParts"], expected, "persist {action}");
+                assert_eq!(
+                    crate::query::render_ready::core::shape_row(&saved, "actor")["summaryParts"],
+                    expected,
+                    "readback {action}"
+                );
+            }
+            let event = crate::event::channel::update(channel).unwrap();
+            let event: Value = serde_json::from_slice(&event.into_bytes()).unwrap();
+            assert_eq!(
+                event["data"]["lastPost"]["summaryParts"], expected,
+                "emit {action}"
+            );
+        }
+        let mut encoded_props = post.clone();
+        encoded_props["props"] = Value::String(post["props"].to_string());
+        assert_eq!(prepare_post(&encoded_props)["summaryParts"], expected);
+        assert_eq!(
+            post["props"]["operator"]["name"], "",
+            "projection must not rewrite server facts"
+        );
+    }
 }

@@ -392,6 +392,7 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
     if let (Value::Object(data), Value::Object(urgent_fields)) = (&mut data, urgent_fields) {
         data.extend(urgent_fields);
     }
+    crate::message_summary::attach_parts(&mut data);
     crate::message_identity::sanitize(data)
 }
 

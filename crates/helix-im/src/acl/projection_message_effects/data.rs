@@ -240,5 +240,55 @@ pub(super) fn message_item_data(
     if let (serde_json::Value::Object(data), Some(quick_reply)) = (&mut data, quick_reply) {
         data.insert("quickReply".to_string(), quick_reply);
     }
+    // 撤回事件复用该 payload 构造器，但撤回不应复活原 NOTICE 的结构化摘要。
+    if !_revoked {
+        crate::message_summary::attach_parts(&mut data);
+    }
     data
+}
+
+#[cfg(test)]
+mod tests {
+    use super::message_item_data;
+    use crate::state::test_channel_id;
+    use crate::sync_session::PostFields;
+    use serde_json::json;
+
+    fn member_notice_fields() -> PostFields {
+        PostFields {
+            team_id: "company-a".to_string(),
+            user_id: "operator".to_string(),
+            msg_type: "NOTICE".to_string(),
+            message: "member notice".to_string(),
+            props: json!({
+                "type": "join",
+                "operator": {"id": "operator", "name": "旧操作者名"},
+                "users": [
+                    {"id": "operator"},
+                    {"id": "target", "name": "旧目标名"}
+                ]
+            })
+            .to_string(),
+            ..PostFields::default()
+        }
+    }
+
+    #[test]
+    fn message_item_data_attaches_member_notice_parts_and_skips_revoke() {
+        let fields = member_notice_fields();
+        let data = message_item_data(test_channel_id(301), 7, "post-301", &fields, "", false);
+        assert_eq!(
+            data["summaryParts"],
+            json!([
+                {"kind":"user","userId":"operator","companyId":"company-a"},
+                {"kind":"text","text":"邀请"},
+                {"kind":"user","userId":"target","companyId":"company-a"},
+                {"kind":"text","text":"加入群聊"}
+            ])
+        );
+        assert!(!data["summaryParts"].to_string().contains("旧"));
+
+        let revoked = message_item_data(test_channel_id(301), 7, "post-301", &fields, "", true);
+        assert!(revoked.get("summaryParts").is_none());
+    }
 }

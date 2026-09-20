@@ -62,19 +62,25 @@ pub fn program_full(
     ));
 
     // 守卫列：unread_count / unread_post_id（server None → 不进 ON CONFLICT 更新集 = 回退本地）。
-    match i("unreadCount") {
+    let unread_count = i("unreadCount").or_else(|| i("unread_count"));
+    match unread_count {
         Some(v) => row.push(("unread_count", SqlValue::Integer(v))),
         None => {
             row.push(("unread_count", SqlValue::Integer(0)));
             omit.push("unread_count");
         }
     }
-    // Go increment 使用大写 R；保留旧 camelCase，明确空串清除，缺失/坏类型不覆盖。
-    match data
-        .get("unReadPostId")
-        .or_else(|| data.get("unreadPostId"))
-        .and_then(serde_json::Value::as_str)
-    {
+    // Go increment canonicalizes to snake_case; keep both historical spellings and explicit
+    // empty strings. A zero-count snapshot always clears the anchor, even if an old producer
+    // accidentally carries a stale non-empty alias in the same frame.
+    let zero_count = unread_count == Some(0);
+    match if zero_count {
+        Some("")
+    } else {
+        ["unread_post_id", "unreadPostId", "unReadPostId"]
+            .into_iter()
+            .find_map(|key| data.get(key).and_then(serde_json::Value::as_str))
+    } {
         Some(v) => row.push(("unread_post_id", SqlValue::Text(v.to_owned()))),
         None => {
             row.push(("unread_post_id", SqlValue::Text(String::new())));

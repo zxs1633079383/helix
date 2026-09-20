@@ -327,7 +327,7 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
         &mut output,
         row,
         "unreadPostId",
-        &["unread_post_id", "unreadPostId"],
+        &["unread_post_id", "unreadPostId", "unReadPostId"],
     );
     insert_alias(
         &mut output,

@@ -491,6 +491,12 @@ impl WebSessionStore {
         }) else {
             return Ok(());
         };
+        if let Some((column, expected)) = spec.additional_guard.as_ref() {
+            if !row_value(&stored.values, column).is_some_and(|value| sql_value_eq(value, expected))
+            {
+                return Ok(());
+            }
+        }
         let current_guard = integer_or_zero(row_value(&stored.values, spec.guard_col))?;
         if spec.guard_val <= current_guard {
             return Ok(());
@@ -1147,6 +1153,60 @@ mod tests {
     use super::*;
 
     const CREATE_AT_DESC: &[ScanOrder] = &[ScanOrder::desc("create_at")];
+
+    /// Both sequence and extra equality guards must hold on the Web storage path.
+    #[test]
+    fn scoped_guarded_bump_requires_all_guards() {
+        let store = new_store(limits());
+        for (viewer, revision) in [("legacy", 0), ("versioned", 8)] {
+            store
+                .batch_upsert_sync(UpsertSpec {
+                    table: "channel_member",
+                    rows: vec![vec![
+                        ("channel_id".into(), text("channel-a")),
+                        ("user_id".into(), text(viewer)),
+                        ("projection_revision".into(), SqlValue::Integer(revision)),
+                        ("last_unread_event_seq".into(), SqlValue::Integer(1)),
+                        ("last_post_at".into(), SqlValue::Integer(0)),
+                        ("unread_count".into(), SqlValue::Integer(4)),
+                    ]],
+                    conflict_key: Some("channel_id,user_id"),
+                    exclude_from_update: vec![],
+                    version_column: None,
+                    update_guard: None,
+                })
+                .unwrap();
+            store
+                .scoped_guarded_bump_sync(ScopedGuardedBumpSpec {
+                    table: "channel_member",
+                    scope_col: "channel_id",
+                    scope_val: text("channel-a"),
+                    key_col: "user_id",
+                    key_val: text(viewer),
+                    bump_col: "last_post_at",
+                    bump_delta: 0,
+                    set_cols: vec![("unread_count".into(), SqlValue::Integer(9))],
+                    guard_col: "last_unread_event_seq",
+                    guard_val: 2,
+                    additional_guard: Some(("projection_revision", SqlValue::Integer(0))),
+                })
+                .unwrap();
+            let row = store
+                .scoped_get_sync(ScopedGetSpec {
+                    table: "channel_member",
+                    scope_col: "channel_id",
+                    scope_val: text("channel-a"),
+                    key_col: "user_id",
+                    key_val: text(viewer),
+                })
+                .unwrap()
+                .unwrap();
+            let expected = if revision == 0 { 9 } else { 4 };
+            assert!(
+                matches!(row_value(&row, "unread_count"), Some(SqlValue::Integer(value)) if *value == expected)
+            );
+        }
+    }
 
     fn limits() -> SessionStoreLimits {
         SessionStoreLimits {

@@ -1196,6 +1196,7 @@ async fn scoped_guarded_bump_and_get_isolate_channel_member_row(
             ],
             guard_col: "last_root_post_at",
             guard_val: 200,
+            additional_guard: None,
         })
         .await?;
 

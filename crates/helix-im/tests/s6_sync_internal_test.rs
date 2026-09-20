@@ -263,6 +263,9 @@ fn s6_increment_end_fanout_preserves_delivery_order() {
             channel_id,
             last_event_seq: Seq(seq),
             need_sync: true,
+            unread_post_id: None,
+            last_read_seq: None,
+            projection_revision: None,
             raw: bytes::Bytes::from_static(b"{}"),
         }
     }

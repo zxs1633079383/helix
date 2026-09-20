@@ -21,6 +21,12 @@ correlation 再做一次租户内 `channel_member` Scan；两次读取在 Helix 
 `lastEventSeq` 等 camelCase 游标字段），并带 `hasMore`、`nextCursor`、
 `channelSyncSessionId`、`generation`。
 
+当前 viewer 的未读绝对态由持久化 `channel_member` 覆盖频道行：`unreadCount`、
+`unreadPostId`、`lastReadSeq` 与 `projectionRevision` 在同一成员快照中读取。正数未读必须
+带非空 anchor，零值显式输出空 anchor；成员快照缺失、字段非法或 anchor 不满足合同则整页
+fail-closed，不回退到频道旧值。在线 increment 的正 revision 使用严格 `>` 守卫；无 revision
+的 legacy 写入还要求 durable `projection_revision = 0`，不能覆盖 versioned member projection。
+
 频道页的 `members/adminUsers/boss/owner/memberCount` 来自 `channel_member` 行的角色分桶，
 并按 `team_id` 与 RuntimeAuth company 过滤；缺失快照时保留已有非空字段，不用空数组覆盖旧投影。
 频道页的群设置读取版本仍必须在本地读侧保留：Go 当前以 `channel.update_at` 同时作为
@@ -180,3 +186,5 @@ HTTP/WS 接龙 authority 的 `PersistAtomic` 成功不等于频道 cursor 一定
 `pending_chain_event_ids`（以及可能残留的 `seen` 标记），抑制当前 Emit 并等待后续 sync 重放，不能
 留下永久 pending 去重状态。同步普通批次和 type7 终态路径也只在 cursor commit 成功后把 chain event
 从 pending 移入 seen。
+
+未读投影入口在持久化前拒绝负数/非整数 unread count；Sync memberProjection 的 viewer 与显式 channel identity 必须匹配当前请求，错误身份不得写入其他成员行。

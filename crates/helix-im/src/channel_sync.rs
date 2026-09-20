@@ -356,20 +356,21 @@ pub(crate) fn project_page_with_members(
         };
         let source_role = text_field(object, &["role"]).unwrap_or("");
         let nickname = text_field(object, &["nick_name", "nickName", "nickname"]).unwrap_or("");
+        let mut authority_member = object.clone();
+        authority_member.insert("id".to_string(), Value::String(user_id.to_string()));
+        authority_member.insert("userId".to_string(), Value::String(user_id.to_string()));
+        authority_member.insert("teamId".to_string(), Value::String(team_id.to_string()));
+        authority_member.insert("nickName".to_string(), Value::String(nickname.to_string()));
+        authority_member.insert("nickname".to_string(), Value::String(nickname.to_string()));
+        authority_member.insert("role".to_string(), Value::String(source_role.to_string()));
         by_channel
             .entry(channel_id.to_string())
             .or_default()
-            .push(serde_json::json!({
-                "id": user_id,
-                "userId": user_id,
-                "teamId": team_id,
-                "nickName": nickname,
-                "nickname": nickname,
-                "role": source_role,
-            }));
+            .push(Value::Object(authority_member));
     }
 
     let mut seen = std::collections::HashSet::new();
+    let mut invalid_viewer_projection = false;
     let visible = channel_rows
         .into_iter()
         .filter_map(|row| {
@@ -389,7 +390,12 @@ pub(crate) fn project_page_with_members(
             }
             // 成功读回的租户快照是成员权威；缺少该频道成员行时必须 fail-closed，不能回退到
             // channel.members 旧占位字段把已离群用户重新显示出来。
-            let (row, visible) = attach_member_projection(row, by_channel.get(&channel_id), scope);
+            let Ok((row, visible)) =
+                attach_member_projection(row, by_channel.get(&channel_id), scope)
+            else {
+                invalid_viewer_projection = true;
+                return None;
+            };
             if visible && seen.insert(channel_id) {
                 Some(crate::query::render_ready::channel::shape_channel_row(&row))
             } else {
@@ -397,6 +403,9 @@ pub(crate) fn project_page_with_members(
             }
         })
         .collect::<Vec<_>>();
+    if invalid_viewer_projection {
+        return None;
+    }
     let has_more = visible.len() > offset.saturating_add(PAGE_SIZE as usize);
     let page = visible
         .into_iter()
@@ -411,12 +420,12 @@ fn attach_member_projection(
     mut row: Value,
     members: Option<&Vec<Value>>,
     scope: &crate::query::DialogListScope,
-) -> (Value, bool) {
+) -> Result<(Value, bool), ()> {
     let Some(members) = members else {
-        return (row, false);
+        return Ok((row, false));
     };
     if members.is_empty() {
-        return (row, false);
+        return Ok((row, false));
     }
     let mut regular = Vec::new();
     let mut admins = Vec::new();
@@ -429,16 +438,21 @@ fn attach_member_projection(
             continue;
         };
         let role = normalize_projection_role(source_role);
-        let mut projected_member = member.clone();
-        if let Some(object) = projected_member.as_object_mut() {
-            object.insert("role".to_string(), Value::String(role.to_string()));
-        }
+        let projected_member = serde_json::json!({
+            "id": member.get("id").and_then(Value::as_str).unwrap_or(""),
+            "userId": member.get("userId").and_then(Value::as_str).unwrap_or(""),
+            "teamId": member.get("teamId").and_then(Value::as_str).unwrap_or(""),
+            "nickName": member.get("nickName").and_then(Value::as_str).unwrap_or(""),
+            "nickname": member.get("nickname").and_then(Value::as_str).unwrap_or(""),
+            "role": role,
+        });
         let is_viewer = member
             .get("userId")
             .and_then(Value::as_str)
             .is_some_and(|id| id == scope.viewer_user_id);
         visible |= is_viewer;
         if is_viewer {
+            overlay_viewer_unread_projection(&mut row, member)?;
             // Keep the raw authority value for capability resolution; the normalized
             // display role must not turn an unknown or missing source role into MEMBER.
             viewer_role = canonical_projection_role(source_role);
@@ -451,7 +465,7 @@ fn attach_member_projection(
         }
     }
     let Some(object) = row.as_object_mut() else {
-        return (row, false);
+        return Ok((row, false));
     };
     object.insert("members".to_string(), Value::Array(regular));
     object.insert("adminUsers".to_string(), Value::Array(admins));
@@ -469,7 +483,105 @@ fn attach_member_projection(
             Value::from(members.len() as u64),
         );
     }
-    (row, visible)
+    Ok((row, visible))
+}
+
+/// Overlay the viewer's durable member authority onto a channel row before rendering.
+///
+/// A member row carrying any unread projection column is authoritative for that viewer. The
+/// count/anchor pair is validated together: positive counts require a non-empty string anchor,
+/// while zero explicitly clears it. Malformed authority fails the whole page instead of falling
+/// back to a stale channel column.
+fn overlay_viewer_unread_projection(channel: &mut Value, member: &Value) -> Result<(), ()> {
+    let Some(member_object) = member.as_object() else {
+        return Err(());
+    };
+    let has_projection = [
+        "unread_count",
+        "unreadCount",
+        "unread_post_id",
+        "unreadPostId",
+        "unReadPostId",
+        "last_read_seq",
+        "lastReadSeq",
+        "projection_revision",
+        "projectionRevision",
+    ]
+    .iter()
+    .any(|key| member_object.contains_key(*key));
+    if !has_projection {
+        return Ok(());
+    }
+    let Some(count_value) = first_value(member_object, &["unread_count", "unreadCount"]) else {
+        return Err(());
+    };
+    let Some(count) = projection_i64(count_value) else {
+        return Err(());
+    };
+    if count < 0 {
+        return Err(());
+    }
+    let read_seq = match first_value(member_object, &["last_read_seq", "lastReadSeq"]) {
+        None => None,
+        Some(value) => Some(
+            projection_i64(value)
+                .filter(|value| *value >= 0)
+                .ok_or(())?,
+        ),
+    };
+    let revision = match first_value(
+        member_object,
+        &["projection_revision", "projectionRevision"],
+    ) {
+        None => None,
+        Some(value) => Some(
+            projection_i64(value)
+                .filter(|value| *value >= 0)
+                .ok_or(())?,
+        ),
+    };
+    if revision.is_some_and(|value| value > 0) && read_seq.is_none() {
+        return Err(());
+    }
+    let anchor = if count == 0 {
+        String::new()
+    } else {
+        let Some(anchor) = first_value(
+            member_object,
+            &["unread_post_id", "unreadPostId", "unReadPostId"],
+        )
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty()) else {
+            return Err(());
+        };
+        anchor.to_string()
+    };
+    let Some(channel_object) = channel.as_object_mut() else {
+        return Err(());
+    };
+    channel_object.insert("unread_count".to_string(), Value::from(count));
+    channel_object.insert("unreadCount".to_string(), Value::from(count));
+    channel_object.insert("unread_post_id".to_string(), Value::String(anchor.clone()));
+    channel_object.insert("unreadPostId".to_string(), Value::String(anchor));
+    if let Some(read_seq) = read_seq {
+        channel_object.insert("last_read_seq".to_string(), Value::from(read_seq));
+        channel_object.insert("lastReadSeq".to_string(), Value::from(read_seq));
+    }
+    if let Some(revision) = revision {
+        channel_object.insert("projection_revision".to_string(), Value::from(revision));
+        channel_object.insert("projectionRevision".to_string(), Value::from(revision));
+    }
+    Ok(())
+}
+
+fn first_value<'a>(object: &'a serde_json::Map<String, Value>, keys: &[&str]) -> Option<&'a Value> {
+    keys.iter().find_map(|key| object.get(*key))
+}
+
+fn projection_i64(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|value| i64::try_from(value).ok()))
 }
 
 /// 读取 storage row 的非空文本列。
@@ -517,6 +629,7 @@ fn required_string(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn session() -> ChannelSyncSession {
         ChannelSyncSession::new("session-a".to_string(), 7, "user-a", "company-a")
@@ -768,5 +881,68 @@ mod tests {
         assert_eq!(page[0]["canManageMembers"], false);
         assert_eq!(page[0]["canPublishNotice"], false);
         assert_eq!(page[0]["canPinMessage"], false);
+    }
+
+    /// The emitted channel takes only its viewer authority and keeps member identities public-only.
+    #[test]
+    fn viewer_member_unread_projection_overlays_channel_and_validates_anchor_contract() {
+        let channels = serde_json::json!([{
+            "id": "channel-unread",
+            "team_id": "company-a",
+            "unread_count": 99,
+            "unread_post_id": "stale-channel-anchor",
+            "type": "P"
+        }]);
+        let scope = crate::query::DialogListScope::new("user-a", "company-a");
+        let member = |count: Value, anchor: Value| {
+            serde_json::json!([{
+                "channel_id": "channel-unread",
+                "user_id": "user-a",
+                "team_id": "company-a",
+                "role": "MEMBER",
+                "unread_count": count,
+                "unread_post_id": anchor,
+                "last_read_seq": 41,
+                "projection_revision": 7
+            }])
+        };
+
+        let (page, _) = project_page_with_members(
+            &serde_json::to_vec(&channels).unwrap(),
+            &serde_json::to_vec(&member(json!(3), json!("member-anchor"))).unwrap(),
+            &scope,
+            0,
+        )
+        .expect("valid member authority");
+        assert_eq!(page[0]["unreadCount"], 3);
+        assert_eq!(page[0]["unreadPostId"], "member-anchor");
+        assert_eq!(page[0]["lastReadSeq"], 41);
+        assert_eq!(page[0]["projectionRevision"], 7);
+        assert!(page[0]["members"][0].get("unread_count").is_none());
+        assert!(page[0]["members"][0].get("last_read_seq").is_none());
+
+        let (page, _) = project_page_with_members(
+            &serde_json::to_vec(&channels).unwrap(),
+            &serde_json::to_vec(&member(json!(0), json!("stale-member-anchor"))).unwrap(),
+            &scope,
+            0,
+        )
+        .expect("zero count explicitly clears the anchor");
+        assert_eq!(page[0]["unreadCount"], 0);
+        assert_eq!(page[0]["unreadPostId"], "");
+
+        for (count, anchor) in [
+            (json!(2), Value::Null),
+            (json!(2), json!(17)),
+            (json!(2), json!("")),
+        ] {
+            assert!(project_page_with_members(
+                &serde_json::to_vec(&channels).unwrap(),
+                &serde_json::to_vec(&member(count, anchor)).unwrap(),
+                &scope,
+                0,
+            )
+            .is_none());
+        }
     }
 }

@@ -159,6 +159,43 @@ async fn assert_anchor(storage: &HostStorage, expected: &str) {
     }
 }
 
+/// Assert all four durable viewer fields together so a torn snapshot cannot pass.
+async fn assert_member_projection(
+    storage: &HostStorage,
+    expected_count: i64,
+    expected_anchor: &str,
+    expected_read_seq: i64,
+    expected_revision: i64,
+) {
+    let member = storage
+        .scoped_get(ScopedGetSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text(CHANNEL.into()),
+            key_col: "user_id",
+            key_val: SqlValue::Text(VIEWER.into()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        column(&member, "unread_count"),
+        SqlValue::Integer(value) if *value == expected_count
+    ));
+    assert!(matches!(
+        column(&member, "unread_post_id"),
+        SqlValue::Text(value) if value == expected_anchor
+    ));
+    assert!(matches!(
+        column(&member, "last_read_seq"),
+        SqlValue::Integer(value) if *value == expected_read_seq
+    ));
+    assert!(matches!(
+        column(&member, "projection_revision"),
+        SqlValue::Integer(value) if *value == expected_revision
+    ));
+}
+
 /// 缺列直接失败，不用空串掩盖回归。
 fn column<'a>(row: &'a Row, name: &str) -> &'a SqlValue {
     &row.iter()
@@ -196,17 +233,17 @@ async fn assert_page(
     assert_eq!(items[0]["unreadCount"], count);
 }
 
-/// 原始 Go 大写 R 的定位 ID 必须落两表并穿过恢复分页。
+/// 原始 Go 大写 R 的定位 ID 在 count=0 时按合同清空两表并穿过恢复分页。
 #[tokio::test]
-async fn real_go_unread_anchor_survives_sqlite_and_sync_page() {
+async fn real_go_zero_count_clears_stale_anchor_in_sqlite_and_sync_page() {
     let (storage, mut module) = setup().await;
     let frame = increment_frame();
     assert_eq!(frame["data"]["unReadPostId"], ANCHOR);
     assert!(frame["data"].get("unreadPostId").is_none());
     let count = frame["data"]["unreadCount"].as_i64().unwrap();
     let session = persist_increment(&storage, &mut module, frame).await;
-    assert_anchor(&storage, ANCHOR).await;
-    assert_page(&storage, &mut module, &session, ANCHOR, count).await;
+    assert_anchor(&storage, "").await;
+    assert_page(&storage, &mut module, &session, "", count).await;
 }
 
 /// 不同字段拼写、冲突更新、稀疏/坏值及明确清空均保持同一读写合同。
@@ -215,9 +252,9 @@ async fn unread_anchor_alias_missing_invalid_and_empty_have_distinct_semantics()
     for (key, value, expected) in [
         ("unReadPostId", Some(json!("replacement")), "replacement"),
         ("unreadPostId", Some(json!("legacy")), "legacy"),
-        ("unReadPostId", None, ANCHOR),
-        ("unReadPostId", Some(Value::Null), ANCHOR),
-        ("unReadPostId", Some(json!(17)), ANCHOR),
+        ("unReadPostId", None, ""),
+        ("unReadPostId", Some(Value::Null), ""),
+        ("unReadPostId", Some(json!(17)), ""),
         ("unReadPostId", Some(json!("")), ""),
         ("unreadPostId", Some(json!("")), ""),
     ] {
@@ -243,4 +280,113 @@ async fn unread_anchor_alias_missing_invalid_and_empty_have_distinct_semantics()
         )
         .await;
     }
+}
+
+/// Build a complete absolute projection using the existing Go wire spelling.
+fn versioned_frame(revision: i64, count: i64, anchor: &str, read_seq: i64) -> Value {
+    let mut frame = increment_frame();
+    frame["data"]["unreadCount"] = json!(count);
+    frame["data"]["unReadPostId"] = json!(anchor);
+    frame["data"]["lastReadSeq"] = json!(read_seq);
+    frame["data"]["projectionRevision"] = json!(revision);
+    frame["data"]["lastEventSeq"] = json!(151);
+    frame
+}
+
+/// Member projection rows are guarded by projectionRevision, so an old, duplicate, or
+/// reordered snapshot cannot overwrite count, anchor, read boundary, or revision.
+#[tokio::test]
+async fn versioned_member_projection_is_strictly_monotonic_and_clears_zero_anchor() {
+    let (storage, mut module) = setup().await;
+    persist_increment(&storage, &mut module, versioned_frame(2, 3, "post-r2", 41)).await;
+    module = active_module(151);
+    persist_increment(&storage, &mut module, versioned_frame(4, 7, "post-r4", 53)).await;
+    module = active_module(151);
+    persist_increment(
+        &storage,
+        &mut module,
+        versioned_frame(3, 99, "stale-r3", 49),
+    )
+    .await;
+    assert_member_projection(&storage, 7, "post-r4", 53, 4).await;
+    module = active_module(151);
+    persist_increment(
+        &storage,
+        &mut module,
+        versioned_frame(4, 99, "duplicate-must-not-win", 53),
+    )
+    .await;
+    assert_member_projection(&storage, 7, "post-r4", 53, 4).await;
+
+    module = active_module(151);
+    persist_increment(
+        &storage,
+        &mut module,
+        versioned_frame(5, 0, "stale-anchor-must-clear", 60),
+    )
+    .await;
+    assert_member_projection(&storage, 0, "", 60, 5).await;
+}
+
+/// A legacy increment has no projection revision and must not clobber an already-versioned
+/// member row even when its event sequence is newer.
+#[tokio::test]
+async fn legacy_increment_cannot_overwrite_versioned_member_projection() {
+    let (storage, mut module) = setup().await;
+    persist_increment(
+        &storage,
+        &mut module,
+        versioned_frame(8, 4, "authoritative-r8", 80),
+    )
+    .await;
+    module = active_module(160);
+    let mut legacy = increment_frame();
+    legacy["data"]["unreadCount"] = json!(91);
+    legacy["data"]["unReadPostId"] = json!("legacy-must-not-win");
+    legacy["data"]["lastReadSeq"] = json!(12);
+    legacy["data"]["lastEventSeq"] = json!(160);
+    let session = persist_increment(&storage, &mut module, legacy).await;
+    assert_member_projection(&storage, 4, "authoritative-r8", 80, 8).await;
+    assert_page(&storage, &mut module, &session, "authoritative-r8", 4).await;
+}
+
+/// A legacy zero-count snapshot clears a stale anchor at both durable table boundaries.
+#[tokio::test]
+async fn legacy_zero_count_clears_stale_anchor() {
+    let (storage, mut module) = setup().await;
+    let mut seeded = increment_frame();
+    seeded["data"]["unreadCount"] = json!(3);
+    seeded["data"]["unReadPostId"] = json!("stale-before-zero");
+    seeded["data"]["lastEventSeq"] = json!(150);
+    persist_increment(&storage, &mut module, seeded).await;
+    module = active_module(151);
+    let mut legacy = increment_frame();
+    legacy["data"]["unreadCount"] = json!(0);
+    legacy["data"]
+        .as_object_mut()
+        .unwrap()
+        .remove("unReadPostId");
+    legacy["data"]["lastEventSeq"] = json!(151);
+    let session = persist_increment(&storage, &mut module, legacy).await;
+    assert_anchor(&storage, "").await;
+    assert_page(&storage, &mut module, &session, "", 0).await;
+}
+
+/// Exercise both unread rounds through real SQLite and the public channelSyncPage Emit seam.
+#[tokio::test]
+async fn two_rounds_replace_the_read_entry_anchor_and_ignore_late_first_round() {
+    let (storage, mut module) = setup().await;
+    let first =
+        persist_increment(&storage, &mut module, versioned_frame(18, 4, "post-32", 29)).await;
+    assert_page(&storage, &mut module, &first, "post-32", 4).await;
+    module = active_module(151);
+    persist_increment(&storage, &mut module, versioned_frame(19, 0, "", 38)).await;
+    assert_member_projection(&storage, 0, "", 38, 19).await;
+    module = active_module(151);
+    persist_increment(&storage, &mut module, versioned_frame(23, 4, "post-41", 38)).await;
+    module = active_module(151);
+    let second =
+        persist_increment(&storage, &mut module, versioned_frame(18, 4, "post-32", 29)).await;
+    assert_member_projection(&storage, 4, "post-41", 38, 23).await;
+    assert_page(&storage, &mut module, &second, "post-41", 4).await;
 }

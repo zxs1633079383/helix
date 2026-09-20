@@ -39,6 +39,9 @@ fn inc_with_lists(channel_num: u64, mentions: &[&str], urgents: &[&str]) -> Incr
         channel_id: channel_id(channel_num),
         last_event_seq: Seq(1),
         need_sync: false, // need_sync=false → 不混入 resync，隔离断言 queryTodoList
+        unread_post_id: None,
+        last_read_seq: None,
+        projection_revision: None,
         raw: bytes::Bytes::from(serde_json::to_vec(&raw).unwrap()),
     }
 }

@@ -228,6 +228,11 @@ pub struct ScopedGuardedBumpSpec {
     pub guard_col: &'static str,
     /// 仅严格大于当前守卫值时更新。
     pub guard_val: i64,
+    /// 可选的附加等值谓词；仅所有守卫同时满足时更新。
+    ///
+    /// 这是通用存储条件，用于 legacy 写路径保护已存在的 versioned projection；core
+    /// 不解释业务字段含义，driver 只负责把该条件安全地绑定到 SQL/内存谓词。
+    pub additional_guard: Option<(&'static str, SqlValue)>,
 }
 
 /// get 规格（单行；MAJ-5：`table`/`key_col` = `&'static str`）。

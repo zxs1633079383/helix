@@ -28,6 +28,9 @@ fn inc(channel_num: u64, last_event_seq: u64) -> IncrementChannel {
         channel_id: channel_id(channel_num),
         last_event_seq: Seq(last_event_seq),
         need_sync: true,
+        unread_post_id: None,
+        last_read_seq: None,
+        projection_revision: None,
         raw: bytes::Bytes::from("{}".to_string()),
     }
 }

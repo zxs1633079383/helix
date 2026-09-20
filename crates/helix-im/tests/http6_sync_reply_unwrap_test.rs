@@ -197,6 +197,7 @@ fn canonical_stream_projection_and_cursor_share_one_atomic_write() {
                     "projectionRevision": 2,
                     "effectId": "effect-1",
                     "unreadCount": 1,
+                    "unreadPostId": "msg-1",
                     "lastReadSeq": 0
                 },
                 "membershipState": "active",

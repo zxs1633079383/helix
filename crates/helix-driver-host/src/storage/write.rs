@@ -249,8 +249,13 @@ pub(super) async fn scoped_guarded_bump(
                 .iter()
                 .map(|(column, _)| format!("{column} = ?")),
         );
+        let additional_guard = spec
+            .additional_guard
+            .as_ref()
+            .map(|(column, _)| format!(" AND {column} = ?"))
+            .unwrap_or_default();
         let sql = format!(
-            "UPDATE {table} SET {set} WHERE {scope_col} = ? AND {key_col} = ? AND ? > {guard}",
+            "UPDATE {table} SET {set} WHERE {scope_col} = ? AND {key_col} = ? AND ? > {guard}{additional_guard}",
             table = spec.table,
             set = set_parts.join(", "),
             scope_col = spec.scope_col,
@@ -264,6 +269,9 @@ pub(super) async fn scoped_guarded_bump(
         params.extend(sql_values(std::iter::once(&SqlValue::Integer(
             spec.guard_val,
         ))));
+        if let Some((_, value)) = spec.additional_guard.as_ref() {
+            params.extend(sql_values(std::iter::once(value)));
+        }
         let conn = writer.lock().map_err(map_lock_err)?;
         let mut stmt = conn.prepare_cached(&sql).map_err(map_sqlite_err)?;
         let _span = trace_sql(&trace, "UPDATE", Some(spec.table), &sql, &params);
@@ -586,8 +594,13 @@ fn atomic_scoped_guarded_bump(
             .iter()
             .map(|(column, _)| format!("{column} = ?")),
     );
+    let additional_guard = spec
+        .additional_guard
+        .as_ref()
+        .map(|(column, _)| format!(" AND {column} = ?"))
+        .unwrap_or_default();
     let sql = format!(
-        "UPDATE {table} SET {set} WHERE {scope_col} = ? AND {key_col} = ? AND ? > {guard}",
+        "UPDATE {table} SET {set} WHERE {scope_col} = ? AND {key_col} = ? AND ? > {guard}{additional_guard}",
         table = spec.table,
         set = set_parts.join(", "),
         scope_col = spec.scope_col,
@@ -601,6 +614,9 @@ fn atomic_scoped_guarded_bump(
     params.extend(sql_values(std::iter::once(&SqlValue::Integer(
         spec.guard_val,
     ))));
+    if let Some((_, value)) = spec.additional_guard.as_ref() {
+        params.extend(sql_values(std::iter::once(value)));
+    }
     let mut stmt = tx.prepare_cached(&sql).map_err(map_sqlite_err)?;
     let _span = trace_sql(trace, "UPDATE", Some(spec.table), &sql, &params);
     stmt.execute(params_from_iter(params.iter()))

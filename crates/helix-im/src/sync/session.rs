@@ -235,13 +235,20 @@ impl EventEnvelope {
 /// `increment_channel` 帧 data（`IncrementChannel.ToMap()`）的解析结果（B-rest 契约）。
 ///
 /// 真 Go data 含 id/teamId/displayName/lastEventSeq/unreadCount/needSync/mentionList/
-/// urgentPostList（设计文档 §1.3）；helix 增量同步只需 `channel_id` + `last_event_seq`
-/// （作 cursor 种子）+ `need_sync`（false=已追平省 sync）；`raw` 供 emit im:channel:increment 透传。
+/// urgentPostList（设计文档 §1.3）；helix 另保留当前 viewer 的未读 anchor/read watermark/
+/// projection revision，供 member projection strict guard 使用；`raw` 供 emit
+/// im:channel:increment 透传。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncrementChannel {
     pub channel_id: ChannelId,
     pub last_event_seq: Seq,
     pub need_sync: bool,
+    /// Viewer-scoped unread anchor from the same snapshot as the optional projection revision.
+    pub unread_post_id: Option<String>,
+    /// Viewer-scoped read boundary, when supplied by the versioned member projection.
+    pub last_read_seq: Option<i64>,
+    /// Strict member projection revision; zero remains a legacy snapshot marker.
+    pub projection_revision: Option<u64>,
     pub raw: bytes::Bytes,
 }
 

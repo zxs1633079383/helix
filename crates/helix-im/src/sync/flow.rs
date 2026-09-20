@@ -39,7 +39,20 @@ fn prepare_sync_projection(
     let Some(data) = persona.member_projection.as_ref() else {
         return Ok(None);
     };
-    let Some((mut row, projection)) = crate::channel_update::member_channel_from_update_channel(
+    // Supplied channel identities must agree with the requested sync channel. Missing
+    // aliases remain compatible with legacy payloads; invalid or conflicting ones do not.
+    for object in [Some(data), data.get("channel")].into_iter().flatten() {
+        for key in ["channelId", "channel_id"] {
+            if let Some(value) = object.get(key) {
+                if value.as_str() != Some(channel_id.as_str()) {
+                    return Err(ImError::Parse(
+                        "sync memberProjection channel mismatch".to_string(),
+                    ));
+                }
+            }
+        }
+    }
+    let Some((mut row, mut projection)) = crate::channel_update::member_channel_from_update_channel(
         data,
         channel_id,
         auth_user_id,
@@ -47,10 +60,50 @@ fn prepare_sync_projection(
     ) else {
         return Err(ImError::Parse("invalid sync memberProjection".to_string()));
     };
+    if auth_user_id.is_empty() || projection.user_id != auth_user_id {
+        return Err(ImError::Parse(
+            "sync memberProjection viewer mismatch".to_string(),
+        ));
+    }
     let (revision, effect_id) = crate::channel_update::require_member_projection_identity(
         &projection,
         "sync memberProjection",
     )?;
+    let unread_count = projection
+        .unread_count
+        .ok_or_else(|| ImError::Parse("sync memberProjection missing unreadCount".to_string()))?;
+    if unread_count < 0 {
+        return Err(ImError::Parse(
+            "sync memberProjection unreadCount must be non-negative".to_string(),
+        ));
+    }
+    let read_seq = projection
+        .last_read_seq
+        .ok_or_else(|| ImError::Parse("sync memberProjection missing lastReadSeq".to_string()))?;
+    if read_seq < 0 {
+        return Err(ImError::Parse(
+            "sync memberProjection lastReadSeq must be non-negative".to_string(),
+        ));
+    }
+    let anchor = if unread_count == 0 {
+        String::new()
+    } else {
+        projection
+            .unread_post_id
+            .clone()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                ImError::Parse(
+                    "sync memberProjection unreadCount>0 requires unreadPostId".to_string(),
+                )
+            })?
+    };
+    row.retain(|(column, _)| column != "unread_post_id");
+    row.push((
+        "unread_post_id".to_string(),
+        helix_core::effect::SqlValue::Text(anchor.clone()),
+    ));
+    projection.unread_post_id = Some(anchor);
     append_persona_columns(&mut row, persona);
     Ok(Some((row, projection, revision, effect_id)))
 }
@@ -1094,6 +1147,24 @@ mod tests {
                 "unreadCount": 0,
                 "lastReadSeq": 1
             })),
+        }
+    }
+
+    /// A sync reply may only update the requested channel and authenticated viewer.
+    #[test]
+    fn projection_boundary_rejects_other_viewer_or_channel() {
+        let channel_id = crate::state::test_channel_id(501);
+        for (key, value) in [
+            ("userId", serde_json::json!("other-viewer")),
+            (
+                "channelId",
+                serde_json::json!(crate::state::test_channel_id(502).as_str()),
+            ),
+            ("channelId", serde_json::Value::Null),
+        ] {
+            let mut persona = sync_persona(1, "effect-baseline");
+            persona.member_projection.as_mut().unwrap()[key] = value;
+            assert!(prepare_sync_projection(&persona, channel_id, "viewer-501").is_err());
         }
     }
 

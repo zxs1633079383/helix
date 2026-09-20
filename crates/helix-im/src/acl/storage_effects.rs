@@ -265,6 +265,7 @@ pub fn canonical_member_projection_ops(
             set_cols,
             guard_col: "projection_revision",
             guard_val: revision.min(i64::MAX as u64) as i64,
+            additional_guard: None,
         }),
     ]
 }

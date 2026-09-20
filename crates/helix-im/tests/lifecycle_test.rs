@@ -31,6 +31,9 @@ fn inc(channel_num: u64, last_event_seq: u64, need_sync: bool) -> IncrementChann
         channel_id: channel_id(channel_num),
         last_event_seq: Seq(last_event_seq),
         need_sync,
+        unread_post_id: None,
+        last_read_seq: None,
+        projection_revision: None,
         raw: bytes::Bytes::from_static(b"{}"),
     }
 }
@@ -52,6 +55,9 @@ fn deleted_inc(
         channel_id: channel_id(channel_num),
         last_event_seq: Seq(last_event_seq),
         need_sync,
+        unread_post_id: None,
+        last_read_seq: None,
+        projection_revision: None,
         raw: bytes::Bytes::from(serde_json::to_vec(&raw).unwrap()),
     }
 }

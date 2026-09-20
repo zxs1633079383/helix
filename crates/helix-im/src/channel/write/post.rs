@@ -307,6 +307,7 @@ pub(crate) fn message_v3_post_mutation_ops(
         ],
         guard_col: "last_unread_event_seq",
         guard_val: event_seq,
+        additional_guard: None,
     }));
     ops
 }

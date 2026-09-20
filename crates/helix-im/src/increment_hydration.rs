@@ -17,6 +17,10 @@ const HYDRATION_MESSAGE_ORDER: &[ScanOrder] = &[
     ScanOrder::desc("temporary_id"),
 ];
 
+#[cfg(test)]
+#[path = "closed_hydration_tests.rs"]
+mod closed_hydration_tests;
+
 /// Classify a missing-data reply using fixed values; never log remote payloads or messages.
 fn hydration_reply_diagnostic(body: &serde_json::Value) -> (&'static str, &'static str) {
     match body.get("status").and_then(serde_json::Value::as_str) {
@@ -795,6 +799,7 @@ impl ImModule {
         Ok(())
     }
 
+    /// 已关闭频道不能再同步；通过持久化屏障后直接读回归档投影，结算补水。
     fn after_increment_persist(
         &mut self,
         channel_id: ChannelId,
@@ -812,7 +817,13 @@ impl ImModule {
         self.state
             .hydration_req_ids
             .insert(channel_id, req_id.clone());
-        if !need_sync {
+        // needSync 缺失默认 true，但 scheduler 永远跳过 terminal；不能等待不存在的 sync 回执。
+        let terminal = self
+            .state
+            .channels
+            .get(&channel_id)
+            .is_some_and(|channel| channel.is_terminal());
+        if !need_sync || terminal {
             return self.finish_increment_hydration(channel_id, out);
         }
         let api_base_url = self.config.api_base_url.clone();
@@ -829,7 +840,7 @@ impl ImModule {
         Ok(())
     }
 
-    /// terminal sync 后从本地表读回完整 dialogList 与该 channel messages。
+    /// 同步终态或归档快照落库后，从本地表读回该频道投影与 messages。
     pub(crate) fn finish_increment_hydration(
         &mut self,
         channel_id: ChannelId,

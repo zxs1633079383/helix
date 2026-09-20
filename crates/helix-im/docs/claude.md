@@ -27,6 +27,9 @@ correlation 再做一次租户内 `channel_member` Scan；两次读取在 Helix 
 fail-closed，不回退到频道旧值。在线 increment 的正 revision 使用严格 `>` 守卫；无 revision
 的 legacy 写入还要求 durable `projection_revision = 0`，不能覆盖 versioned member projection。
 
+建群 HTTP/WS 共用的 terminal roster 也只从 PersistOk 后读回的 `channel_member` 生成；成员
+`team_id` 原样发布为 `teamId`，不以当前 RuntimeAuth company 补猜跨企业身份。
+
 频道页的 `members/adminUsers/boss/owner/memberCount` 来自 `channel_member` 行的角色分桶，
 并按 `team_id` 与 RuntimeAuth company 过滤；缺失快照时保留已有非空字段，不用空数组覆盖旧投影。
 频道页的群设置读取版本仍必须在本地读侧保留：Go 当前以 `channel.update_at` 同时作为

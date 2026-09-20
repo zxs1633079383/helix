@@ -17,6 +17,9 @@ use common::{
 const ACTOR_ID: &str = "user-actor-444";
 const RECEIVER_A_ID: &str = "user-receiver-445";
 const RECEIVER_B_ID: &str = "user-receiver-446";
+const OWNER_TEAM_ID: &str = "durable-owner-company";
+const RECEIVER_A_TEAM_ID: &str = "durable-receiver-a-company";
+const RECEIVER_B_TEAM_ID: &str = "durable-receiver-b-company";
 const NOW_MS: u64 = 1_700_008_000_000;
 
 /// 构造 G08a 的最小建群意图，身份信息不由客户端重复提交。
@@ -52,18 +55,21 @@ fn channel_authority() -> Value {
         "owner": {
             "id": ACTOR_ID,
             "role": "OWNER",
-            "nickName": "Actor 444"
+            "nickName": "Actor 444",
+            "teamId": OWNER_TEAM_ID
         },
         "members": [
             {
                 "id": RECEIVER_A_ID,
                 "role": "MEMBER",
-                "nickName": "Receiver 445"
+                "nickName": "Receiver 445",
+                "teamId": RECEIVER_A_TEAM_ID
             },
             {
                 "id": RECEIVER_B_ID,
                 "role": "MEMBER",
-                "nickName": "Receiver 446"
+                "nickName": "Receiver 446",
+                "teamId": RECEIVER_B_TEAM_ID
             }
         ]
     })
@@ -130,15 +136,31 @@ fn assert_created_projection(event: &Value, viewer_role: &str) {
             "memberIds": [ACTOR_ID, RECEIVER_A_ID, RECEIVER_B_ID],
             "memberCount": 3,
             "members": [
-                {"userId": ACTOR_ID, "role": "OWNER", "nickName": "Actor 444"},
-                {"userId": RECEIVER_A_ID, "role": "MEMBER", "nickName": "Receiver 445"},
-                {"userId": RECEIVER_B_ID, "role": "MEMBER", "nickName": "Receiver 446"}
+                {"userId": ACTOR_ID, "teamId": OWNER_TEAM_ID, "role": "OWNER", "nickName": "Actor 444"},
+                {"userId": RECEIVER_A_ID, "teamId": RECEIVER_A_TEAM_ID, "role": "MEMBER", "nickName": "Receiver 445"},
+                {"userId": RECEIVER_B_ID, "teamId": RECEIVER_B_TEAM_ID, "role": "MEMBER", "nickName": "Receiver 446"}
             ],
-            "owner": {"userId": ACTOR_ID, "role": "OWNER", "nickName": "Actor 444"},
+            "owner": {"userId": ACTOR_ID, "teamId": OWNER_TEAM_ID, "role": "OWNER", "nickName": "Actor 444"},
             "ownerId": ACTOR_ID,
             "viewerRole": viewer_role,
             "unreadCount": 0,
             "mentionCount": 0
+        })
+    );
+}
+
+/// 断言 members terminal 也只传播持久化成员身份，不从当前 company 补齐 teamId。
+fn assert_members_projection(event: &Value) {
+    assert_eq!(
+        event["data"],
+        json!({
+            "channelId": common::cid(808),
+            "members": [
+                {"userId": ACTOR_ID, "teamId": OWNER_TEAM_ID, "role": "OWNER", "nickName": "Actor 444"},
+                {"userId": RECEIVER_A_ID, "teamId": RECEIVER_A_TEAM_ID, "role": "MEMBER", "nickName": "Receiver 445"},
+                {"userId": RECEIVER_B_ID, "teamId": RECEIVER_B_TEAM_ID, "role": "MEMBER", "nickName": "Receiver 446"}
+            ],
+            "leaves": []
         })
     );
 }
@@ -211,6 +233,10 @@ fn sender_create_is_http_then_persist_then_absolute_projection() {
     harness.step(port_reply_ok(persist_corr), NOW_MS + 2);
     let created = emitted_event(harness.sink.as_slice(), "im:channel:created");
     assert_created_projection(&created, "OWNER");
+    assert_members_projection(&emitted_event(
+        harness.sink.as_slice(),
+        "im:channel:members",
+    ));
     assert_eq!(created["data"]["tracing"]["requestId"], "req-mv3-g08a-001");
 }
 
@@ -227,6 +253,10 @@ fn receiver_ws_projection_is_ordered_and_idempotent() {
         &emitted_event(harness.sink.as_slice(), "im:channel:created"),
         "MEMBER",
     );
+    assert_members_projection(&emitted_event(
+        harness.sink.as_slice(),
+        "im:channel:members",
+    ));
 
     let duplicate = harness.step(channel_created_inbound(), NOW_MS + 2);
     assert!(

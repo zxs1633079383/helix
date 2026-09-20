@@ -266,6 +266,12 @@ fn build_message_v3_members(member_rows: &[serde_json::Value]) -> Vec<serde_json
                 .filter(|user_id| !user_id.is_empty())?;
             Some(serde_json::json!({
                 "userId": user_id,
+                // `team_id` is durable member identity. Do not substitute the current
+                // RuntimeAuth company: shared users/channels may cross that boundary.
+                "teamId": member
+                    .get("team_id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default(),
                 "role": member.get("role").and_then(serde_json::Value::as_str).unwrap_or("MEMBER"),
                 "nickName": member.get("nick_name").and_then(serde_json::Value::as_str).unwrap_or_default(),
             }))

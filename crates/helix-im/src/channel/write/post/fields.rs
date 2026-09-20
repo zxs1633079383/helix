@@ -163,7 +163,7 @@ pub(super) fn sync_last_post_json(fields: &crate::sync_session::PostFields) -> S
         "id": fields.id.clone(),
         "temporaryId": fields.temporary_id.clone(),
         "channelId": fields.channel_id.clone(),
-        // 仅作为摘要公司作用域输入；移除后保持既有 sync lastPost 字段集。
+        // 持久 lastPost 后续可能再次经过 prepare_post，必须保留摘要公司的作用域事实。
         "teamId": fields.team_id.clone(),
         "userId": fields.user_id.clone(),
         "type": fields.msg_type.clone(),
@@ -177,9 +177,6 @@ pub(super) fn sync_last_post_json(fields: &crate::sync_session::PostFields) -> S
         "updateAt": if fields.update_at > 0 { fields.update_at } else { fields.create_at },
     });
     crate::message_summary::attach_parts(&mut data);
-    if let Some(object) = data.as_object_mut() {
-        object.remove("teamId");
-    }
     data.to_string()
 }
 
@@ -215,5 +212,29 @@ mod tests {
             ])
         );
         assert!(!data["summaryParts"].to_string().contains("旧"));
+    }
+
+    #[test]
+    fn sync_last_post_prepare_roundtrip_preserves_company_scope() {
+        let fields = PostFields {
+            team_id: "company-a".to_string(),
+            msg_type: "NOTICE".to_string(),
+            props: json!({
+                "type": "join",
+                "operator": {"id": "operator"},
+                "users": [{"id": "target"}]
+            })
+            .to_string(),
+            ..PostFields::default()
+        };
+        let data: serde_json::Value =
+            serde_json::from_str(&sync_last_post_json(&fields)).expect("sync last post JSON");
+        assert_eq!(data["teamId"], "company-a");
+        let reread = crate::message_summary::prepare_post(&data);
+        assert_eq!(
+            reread["summaryParts"][0]["companyId"], "company-a",
+            "durable lastPost prepare_post must retain the producer company scope"
+        );
+        assert_eq!(reread["summaryParts"][2]["companyId"], "company-a");
     }
 }

@@ -9,7 +9,7 @@
 
 🎯 EXPECT 四个既有 Helix producer（message-item、dialog lastPost、sync lastPost、exact posts）均复用 `attach_parts`；NOTICE join 产出无姓名的 `summaryParts`，撤回不产出旧 parts，exact 重建不丢失；只改四个 producer 与对应单测/本记录。红绿定向、cargo check 通过；不改摘要核心算法/Go/schema/driver，不跑已知全量失败。| 赌注 中 | 可逆 是 | @2026-09-20
 
-✅ DONE 四个 producer 均已接入 `attach_parts`；message-item 撤回跳过，exact 重建临时保留并移除 `teamId/revoke`，保持既有字段集。4 新增 + 4 既有摘要测试通过，`cargo check -p helix-im` 通过，`git diff --check` 通过。证据 `/tmp/cses-notice-sync-0920/rust-producer-{red,green,check}.log`。未跑全量；真实 Go/WS、Native/UI 与已知基线失败仍未验证。已提交本地 commit（SHA 以当前 HEAD 为准），不 push。
+✅ DONE 四个 producer 均已接入 `attach_parts`；message-item 撤回跳过，sync lastPost 与 exact 重建保留 `teamId/revoke`，保证二次 `prepare_post` 不丢公司作用域或复活撤回 parts。原 8 项摘要 + 本轮 sync/exact roundtrip 定向通过，`cargo check -p helix-im` 与 `git diff --check` 通过。证据 `/tmp/cses-notice-sync-0920/rust-producer-{red,green,check}.log`、`rust-producer-roundtrip-{red,green,check}.log`。未跑全量；真实 Go/WS、Native/UI 与已知基线失败仍未验证。已提交本地 commit（SHA 以当前 HEAD 为准），不 push。
 
 ## 2026-09-20 Rust重新打包与客户端集成
 

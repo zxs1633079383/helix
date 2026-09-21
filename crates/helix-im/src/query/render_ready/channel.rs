@@ -5,6 +5,7 @@
 //! the Helix boundary so every channel-list producer shares the same projection.
 
 use serde_json::{json, Map, Value};
+use std::collections::HashSet;
 
 /// Pick the first channel field that exists, retaining its original JSON type.
 fn pick(row: &Value, keys: &[&str]) -> Value {
@@ -35,6 +36,76 @@ fn json_field_or_value(row: &Value, keys: &[&str], fallback: Value) -> Value {
         Value::Null => fallback,
         value => value,
     }
+}
+
+fn has_any_field(row: &Value, keys: &[&str]) -> bool {
+    keys.iter().any(|key| row.get(*key).is_some())
+}
+
+fn roster_member_id(value: &Value) -> Option<String> {
+    let object = value.as_object()?;
+    ["userId", "user_id", "id"]
+        .iter()
+        .find_map(|key| object.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn roster_member_count(row: &Value) -> Option<usize> {
+    match pick(row, &["member_count", "memberCount"]) {
+        Value::Number(value) => value
+            .as_u64()
+            .map(|count| count as usize)
+            .filter(|count| *count > 0),
+        Value::String(value) => value.parse::<usize>().ok().filter(|count| *count > 0),
+        _ => None,
+    }
+}
+
+/// Read a complete split member projection. A channel row alone is intentionally sparse.
+fn complete_roster_projection(row: &Value) -> Option<(Value, Value, Value, Value, usize)> {
+    let member_keys = ["members"];
+    let admin_keys = ["admin_users", "adminUsers"];
+    let boss_keys = ["boss"];
+    let owner_keys = ["owner"];
+    if !has_any_field(row, &member_keys)
+        || !has_any_field(row, &admin_keys)
+        || !has_any_field(row, &boss_keys)
+        || !has_any_field(row, &owner_keys)
+    {
+        return None;
+    }
+    let members = json_field(row, &member_keys, Value::Null);
+    let admins = json_field(row, &admin_keys, Value::Null);
+    let bosses = json_field(row, &boss_keys, Value::Null);
+    let owner = json_field(row, &owner_keys, Value::Null);
+    if !members.is_array() || !admins.is_array() || !bosses.is_array() {
+        return None;
+    }
+    if !owner.is_null() && roster_member_id(&owner).is_none() {
+        return None;
+    }
+    let mut ids = HashSet::new();
+    let owner_iter = (!owner.is_null()).then_some(&owner);
+    for member in members
+        .as_array()
+        .into_iter()
+        .flatten()
+        .chain(admins.as_array().into_iter().flatten())
+        .chain(bosses.as_array().into_iter().flatten())
+        .chain(owner_iter)
+    {
+        let id = roster_member_id(member)?;
+        if !ids.insert(id) {
+            return None;
+        }
+    }
+    let count = roster_member_count(row)?;
+    if ids.len() != count {
+        return None;
+    }
+    Some((members, admins, bosses, owner, count))
 }
 
 /// Shape the persisted last-post object with the same message contract as the timeline.
@@ -469,12 +540,6 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
     insert_alias(
         &mut output,
         row,
-        "memberCount",
-        &["member_count", "memberCount"],
-    );
-    insert_alias(
-        &mut output,
-        row,
         "subtopicsLoadedAt",
         &["subtopics_loaded_at", "subtopicsLoadedAt"],
     );
@@ -541,16 +606,24 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
         "urgentPostList".to_string(),
         json_field(row, &["urgent_post_list", "urgentPostList"], json!([])),
     );
-    output.insert(
-        "members".to_string(),
-        json_field(row, &["members"], json!([])),
-    );
-    output.insert(
-        "adminUsers".to_string(),
-        json_field(row, &["admin_users", "adminUsers"], json!([])),
-    );
-    output.insert("boss".to_string(), json_field(row, &["boss"], json!([])));
-    output.insert("owner".to_string(), json_field(row, &["owner"], json!({})));
+    for key in [
+        "members",
+        "admin_users",
+        "adminUsers",
+        "boss",
+        "owner",
+        "member_count",
+        "memberCount",
+    ] {
+        output.remove(key);
+    }
+    if let Some((members, admins, bosses, owner, member_count)) = complete_roster_projection(row) {
+        output.insert("members".to_string(), members);
+        output.insert("adminUsers".to_string(), admins);
+        output.insert("boss".to_string(), bosses);
+        output.insert("owner".to_string(), owner);
+        output.insert("memberCount".to_string(), Value::from(member_count as u64));
+    }
     // Go increment and notify-only WS both expose the viewer mode as one scalar string;
     // retain that render-ready shape instead of inventing a nested notifyProps object.
     output.insert(
@@ -633,6 +706,42 @@ mod tests {
         assert_eq!(shaped[0]["lastPost"]["message"], "回复消息");
         assert_eq!(shaped[1]["displayName"], "空群");
         assert_eq!(shaped.as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn omits_split_roster_for_channel_only_rows() {
+        let shaped = shape_channel_row(&json!({
+            "id": "channel-only",
+            "members": "[]",
+            "admin_users": "[]",
+            "boss": "[]",
+            "owner": "{}",
+            "member_count": 0
+        }));
+
+        assert!(!shaped.as_object().unwrap().contains_key("members"));
+        assert!(!shaped.as_object().unwrap().contains_key("adminUsers"));
+        assert!(!shaped.as_object().unwrap().contains_key("boss"));
+        assert!(!shaped.as_object().unwrap().contains_key("owner"));
+        assert!(!shaped.as_object().unwrap().contains_key("memberCount"));
+    }
+
+    #[test]
+    fn keeps_complete_split_roster_and_total_member_count() {
+        let shaped = shape_channel_row(&json!({
+            "id": "channel-complete",
+            "members": "[{\"userId\":\"member-1\"}]",
+            "admin_users": "[{\"userId\":\"admin-1\"}]",
+            "boss": "[]",
+            "owner": "{\"userId\":\"owner-1\"}",
+            "member_count": 3
+        }));
+
+        assert_eq!(shaped["members"][0]["userId"], "member-1");
+        assert_eq!(shaped["adminUsers"][0]["userId"], "admin-1");
+        assert_eq!(shaped["boss"], json!([]));
+        assert_eq!(shaped["owner"]["userId"], "owner-1");
+        assert_eq!(shaped["memberCount"], 3);
     }
 
     /// Legacy negative urgent counters become zero without changing the urgent post list.

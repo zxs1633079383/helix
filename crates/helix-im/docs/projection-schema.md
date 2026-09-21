@@ -335,6 +335,12 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 | `members` `owner` `adminUsers` `boss` | `channel_member` 表（独立成员表，patch 白名单排除）| `im:channel:member-updated` 信号触发回读 |
 | `memberCount` `subtopicsLoadedAt` | 本地列（patch 白名单**排除**，Rust 内部维护）| Angular 只读不写 |
 
+成员一致性约束：离线 `channel` 读回、在线 channel sync、increment hydration 和 Go `member/byIds`
+都以 `channel_member` 的 active rows 为成员身份/角色权威。Go increment 的有序 `members` 是全角色输入，
+Helix 输出时拆成互斥的 `members`（普通成员）、`adminUsers`、`boss`、`owner` 四个容器；
+`memberCount` 是四个容器去重后的总人数。仅有 channel 基础行时省略 roster 字段，禁止用空数组或空对象
+覆盖已有绝对 roster。
+
 ### Message.MessageItemData（消息行渲染关键字段）
 
 | 字段 | helix 供给路径 | 备注 |

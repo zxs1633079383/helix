@@ -75,6 +75,54 @@ mod diagnostic_tests {
     }
 }
 
+#[cfg(test)]
+mod hydration_roster_tests {
+    use crate::module::{ImConfig, ImModule};
+    use serde_json::json;
+
+    #[test]
+    fn hydration_emits_disjoint_role_projection_with_total_member_count() {
+        let module = ImModule::new(ImConfig::default());
+        let ordered = vec![
+            json!({"userId":"owner-1", "teamId":"team-1"}),
+            json!({"userId":"admin-1", "teamId":"team-1"}),
+            json!({"userId":"boss-1", "teamId":"team-1"}),
+            json!({"userId":"member-1", "teamId":"team-1"}),
+        ];
+        let durable_rows = vec![
+            json!({"user_id":"owner-1", "team_id":"team-1", "role":"OWNER", "nick_name":"owner"}),
+            json!({"user_id":"admin-1", "team_id":"team-1", "role":"MANAGER", "nick_name":"admin"}),
+            json!({"user_id":"boss-1", "team_id":"team-1", "role":"BOSS", "nick_name":"boss"}),
+            json!({"user_id":"member-1", "team_id":"team-1", "role":"MEMBER", "nick_name":"member"}),
+        ];
+        let mut channel = json!({"id":"channel-1"});
+
+        module
+            .attach_hydration_roster(&mut channel, &durable_rows, &ordered)
+            .expect("hydration roster should project");
+
+        assert_eq!(channel["memberCount"], json!(4));
+        assert_eq!(
+            channel["members"],
+            json!([{"userId":"member-1", "teamId":"team-1", "role":"MEMBER", "nickName":"member"}])
+        );
+        assert_eq!(channel["adminUsers"][0]["userId"], "admin-1");
+        assert_eq!(channel["boss"][0]["userId"], "boss-1");
+        assert_eq!(channel["owner"]["userId"], "owner-1");
+
+        let ids = [
+            channel["members"][0]["userId"].as_str().unwrap(),
+            channel["adminUsers"][0]["userId"].as_str().unwrap(),
+            channel["boss"][0]["userId"].as_str().unwrap(),
+            channel["owner"]["userId"].as_str().unwrap(),
+        ];
+        assert_eq!(
+            ids.len(),
+            ids.iter().collect::<std::collections::HashSet<_>>().len()
+        );
+    }
+}
+
 impl ImModule {
     /// B-rest 测试 / driver 入口：直接喂一个解析好的 `increment_channel` 帧。
     pub fn ingest_increment(
@@ -272,12 +320,11 @@ impl ImModule {
                 "role": role,
                 "nickName": row.get("nick_name").and_then(serde_json::Value::as_str).unwrap_or_default(),
             });
-            projected_members.push(projected.clone());
             match role {
-                "ADMIN" | "MANAGER" => admins.push(projected.clone()),
+                "ADMIN" | "MANAGER" | "MANGER" => admins.push(projected.clone()),
                 "BOSS" => bosses.push(projected.clone()),
                 "OWNER" | "CREATOR" => owner = projected.clone(),
-                _ => {}
+                _ => projected_members.push(projected.clone()),
             }
         }
         object.insert(

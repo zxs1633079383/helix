@@ -740,3 +740,96 @@ fn cold_hello_waits_for_channel_scope_before_reading_watermark() {
     assert_eq!(bodies.len(), 1);
     assert_eq!(bodies[0]["timestamp"], 300);
 }
+
+/// 回归锚：0921 latest 超时；话题引用没有本地归属也不能吞掉父消息窗口。
+#[test]
+fn latest_query_keeps_topic_reference_without_using_its_scope() {
+    for topic_company in [None, Some("company-a"), Some("company-b")] {
+        let mut h = common::Harness::new_with_identity(&[1], "viewer", "company-a", "", "", "");
+        if let Some(company) = topic_company {
+            h.seed_channel_scope(&common::cid(2), company, "viewer");
+        }
+        let topic = json!({"channelId":common::cid(2),"participantCount":3});
+        let rows = json!([{
+            "id":common::sid(1),"temporary_id":"topic-parent","channel_id":common::cid(1),
+            "user_id":"viewer","type":"TEXT","message":"parent message","create_at":100,
+            "topic":topic.to_string(),"viewers":"[\"all\"]"
+        }]);
+        let remote = common::enveloped(
+            serde_json::to_vec(&json!({
+                "status":"SUCCESS","data":{"posts":[{
+                    "id":common::sid(1),"temporaryId":"topic-parent","channelId":common::cid(1),
+                    "userId":"viewer","type":"TEXT","message":"parent message","createAt":100,
+                    "topic":topic,"viewers":["all"]
+                }]}
+            }))
+            .unwrap()
+            .into(),
+        );
+        // 第二次查询走已建立 coverage 的本地直出，同样必须结算。
+        for round in 0..2 {
+            let token = format!("topic-window-{round}");
+            h.step(
+                Tick::Command(helix_core::tick::AppCommand::new(
+                    "im_query_messages_by_channel",
+                    serde_json::to_vec(&json!({
+                        "channel_id":common::cid(1),"limit":20,"windowToken":token
+                    }))
+                    .unwrap(),
+                )),
+                1000,
+            );
+            let replies = if round == 0 {
+                vec![
+                    Bytes::from_static(b"[]"),
+                    remote.clone(),
+                    Bytes::from_static(b"[]"),
+                    Bytes::from(rows.to_string()),
+                ]
+            } else {
+                vec![Bytes::from(rows.to_string())]
+            };
+            for (index, body) in replies.into_iter().enumerate() {
+                assert!(
+                    emitted(&h.sink).is_empty(),
+                    "no ready before durable readback"
+                );
+                let corr = match h.sink.as_slice() {
+                    [Effect::Http { corr, .. }] if round == 0 && index == 1 => *corr,
+                    [Effect::Persist { corr, .. }] => *corr,
+                    other => panic!("unexpected query stage: {other:?}"),
+                };
+                h.step(
+                    common::port_reply_with_body(corr.raw(), body),
+                    1001 + index as u64,
+                );
+            }
+            let events = emitted(&h.sink);
+            assert_eq!(
+                events.len(),
+                1,
+                "topic company: {topic_company:?}, round: {round}"
+            );
+            assert_eq!(events[0]["event"], "im:timeline:ready");
+            assert_eq!(events[0]["data"]["state"], "ready");
+            assert_eq!(events[0]["data"]["windowToken"], token);
+            assert_eq!(events[0]["data"]["messages"][0]["topic"], topic);
+        }
+    }
+}
+
+/// 话题引用豁免不能授权主会话或窗口里的另一条未知频道消息。
+#[test]
+fn topic_reference_does_not_bypass_message_scope() {
+    for (company, message_channel) in [("company-b", CHANNEL), ("company-a", "unknown-channel")] {
+        let events = committed_events(
+            company,
+            "im:timeline:ready",
+            json!({
+                "channelId":CHANNEL,"messages":[{"channelId":message_channel,
+                    "topic":{"channelId":CHANNEL,"participantCount":3}}]
+            }),
+        );
+        assert!(events.is_empty());
+    }
+}

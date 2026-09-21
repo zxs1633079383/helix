@@ -252,7 +252,9 @@ impl<'de> Visitor<'de> for &mut ScopeVisitor<'_> {
                 if row {
                     self.valid &= entity_team == Some(self.config.company_id.as_str());
                 }
-            } else if matches!(key, "content" | "props" | "metadata" | "extra") {
+            } else if matches!(key, "content" | "props" | "metadata" | "extra" | "topic") {
+                // topic 是父消息携带的引用，不是本次投影的频道归属；其频道可能尚未补水。
+                // 主会话与消息自身的 channelId 仍逐项校验，话题详情由独立读取校验。
                 // 不把业务文本或任意扩展 JSON 中的同名字段误判为路由身份。
                 map.next_value::<IgnoredAny>()?;
             } else {

@@ -1,3 +1,18 @@
+# 0921 话题引用导致消息窗口超时
+
+🎯 EXPECT 修正 render_scope 对消息话题引用的递归误判；未知、同公司和外公司话题引用均不改变父消息可见性，外公司主会话/消息继续拒绝；公开 latest 命令经过 PersistOk 发出 ready；不改版本、协议或运行数据库。| 赌注 中 | 可逆 是 | @2026-09-21
+- 分支 reactor/MessageV3-helix，基线 f38abb700e388d626c6ebcacfe3b97b67ad4616d；用户已允许跨仓修复。
+
+✅ DONE Helix 源码修复与定向回归：topic 引用不参与父消息归属扫描，主会话/消息 channelId 仍校验。
+- RED：新增公开 latest 生命周期测试原先无终态，1 failed；/tmp/0921-topic-scope-red.log。
+- GREEN：库 442、G-10 5、G-15 2、render_scope 15，共 464 通过；/tmp/0921-topic-scope-regression.log。
+- cargo check -p helix-im 通过（既有 9 条警告），git diff --check 通过；未改协议、schema、版本或 driver。
+- 用户实际缓存样本保留原 topic 后离线回放发出 im:timeline:ready；证据位于客户端 artifacts/timeline-timeout-20260921/fixed-comparison.txt。HTTP 回包为离线构造，不是真实服务验证。
+- 交付仍 PARTIAL：客户端固定 registry 0.1.30；未发布、push、更新依赖、重启或执行最终候选真实 WDIO。桌面回归须接入修复候选后验证原会话及重新进入，不能以旧二进制替代。
+- 无新 Harness card；沿用现有权限隔离和持久屏障回归。
+
+---
+
 # 0921 发布 Helix 0.1.30
 
 🎯 EXPECT 用户授权发布最新Helix并更新客户端版本；按四公共crate依赖顺序发布0.1.30，八包版本图完整，客户端使用四个registry精确依赖。无Git push、桌面安装包发布或应用重启。

@@ -1,5 +1,5 @@
 //! Go increment wire → 真实 SQLite → channelSyncPage；不连接网络或启动 Tauri。
-use helix_core::effect::{GetSpec, Row, ScopedGetSpec, SqlValue};
+use helix_core::effect::{GetSpec, Row, ScopedGetSpec, SqlValue, UpsertSpec};
 use helix_core::ports::Storage;
 use helix_core::tick::{AppCommand, InboundBytes, PortOutcome};
 use helix_core::{Effect, EffectSink, Module, Tick};
@@ -389,4 +389,95 @@ async fn two_rounds_replace_the_read_entry_anchor_and_ignore_late_first_round() 
         persist_increment(&storage, &mut module, versioned_frame(18, 4, "post-32", 29)).await;
     assert_member_projection(&storage, 4, "post-41", 38, 23).await;
     assert_page(&storage, &mut module, &second, "post-41", 4).await;
+}
+
+/// 通过真实 SQLite 和公开 Command 逐页读取，删除记录占满前两页也不能提前完成。
+#[tokio::test]
+async fn deleted_channel_pages_continue_to_live_tail_without_zero_revision_items() {
+    let (storage, mut module) = setup().await;
+    let session = persist_increment(&storage, &mut module, increment_frame()).await;
+    let mut channels = Vec::new();
+    let mut members = Vec::new();
+    for index in 0..41 {
+        let id = format!("c{index:025}");
+        let deleted = if index < 40 { 123 } else { 0 };
+        channels.push(vec![
+            ("id".into(), SqlValue::Text(id.clone())),
+            ("team_id".into(), SqlValue::Text(COMPANY.into())),
+            ("user_id".into(), SqlValue::Text(VIEWER.into())),
+            ("type".into(), SqlValue::Text("P".into())),
+            ("is_top".into(), SqlValue::Integer(1)),
+            (
+                "last_post_at".into(),
+                SqlValue::Integer(1_900_000_000_000 - index),
+            ),
+            ("delete_at".into(), SqlValue::Integer(deleted)),
+        ]);
+        members.push(vec![
+            ("channel_id".into(), SqlValue::Text(id)),
+            ("user_id".into(), SqlValue::Text(VIEWER.into())),
+            ("team_id".into(), SqlValue::Text(COMPANY.into())),
+            ("role".into(), SqlValue::Text("OWNER".into())),
+            ("unread_count".into(), SqlValue::Integer(0)),
+            ("unread_post_id".into(), SqlValue::Text(String::new())),
+            ("last_read_seq".into(), SqlValue::Integer(0)),
+            (
+                "projection_revision".into(),
+                SqlValue::Integer(if deleted > 0 { 0 } else { 1 }),
+            ),
+        ]);
+    }
+    storage
+        .batch_upsert(UpsertSpec::new("channel", channels, Some("id")))
+        .await
+        .unwrap();
+    storage
+        .batch_upsert(UpsertSpec::new(
+            "channel_member",
+            members,
+            Some("channel_id,user_id"),
+        ))
+        .await
+        .unwrap();
+    let mut cursor = Value::Null;
+    let mut ids = Vec::new();
+    for page_index in 0..3 {
+        let mut sink = EffectSink::new();
+        module
+            .handle(
+                &Tick::Command(AppCommand {
+                    name: "im_query_channel_sync_page".into(),
+                    payload: serde_json::to_vec(&json!({"channel_sync_session_id":session,
+                "page_size":20,"req_id":"deleted-page","next_cursor":cursor}))
+                    .unwrap()
+                    .into(),
+                }),
+                1002 + page_index,
+                &mut sink,
+            )
+            .unwrap();
+        let events = drain(&storage, &mut module, sink).await;
+        let replies: Vec<_> = events
+            .iter()
+            .filter(|e| e["event"] == "im:read:result")
+            .collect();
+        assert_eq!(replies.len(), 1);
+        let data = &replies[0]["data"];
+        assert!(data.get("error").is_none(), "{data}");
+        let body = &data["body"];
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(
+            items.len(),
+            if page_index < 2 { 0 } else { 2 },
+            "page {page_index}: {body}"
+        );
+        assert_eq!(body["hasMore"], json!(page_index < 2));
+        for item in items {
+            assert!(item["deleteAt"].as_i64().unwrap_or(0) <= 0);
+            ids.push(item["id"].as_str().unwrap().to_owned());
+        }
+        cursor = body["nextCursor"].clone();
+    }
+    assert_eq!(ids, vec![format!("c{:025}", 40), CHANNEL.to_owned()]);
+    assert!(cursor.is_null());
 }

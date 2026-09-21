@@ -1,3 +1,23 @@
+# 0921 频道同步删除态过滤
+
+🎯 EXPECT 只修改 helix-im 频道同步/读取投影及对应 Host SQLite 回归；删除/移除频道在成员校验前过滤，零版本旧成员不污染页；游标按原始扫描位置推进，整页删除后仍能取到后续活跃频道；不改 core/driver 协议、schema、Angular 校验和包版本。| 赌注 中 | 可逆 是 | @2026-09-21
+
+- 基线 cad6755a8936ea9690854bdad46a9d288f5dc3f6，独立分支 codex/0921-channel-sync-deleted。
+- 主交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/0921-频道同步拒绝日志/handoff.md。
+- 授权修复、验证；发布、版本与客户端接入尚未授权。DNS/重启由用户处理。
+- 入口 im_query_channel_sync_page，本地确定性：Command → channel Scan → member ScopedScan → im:read:result；HTTP/WS N/A。
+- 成功终态：仅输出活跃频道，hasMore/cursor保留原始扫描续页信息；Scope/Persist/解析失败沿用错误终态，corr一次消费。
+
+
+✅ DONE 本地源码修复：删除/移除频道在成员扫描与投影前排除，分页先按原始行裁页再过滤，普通列表/快照复用删除态闸门。新增公开命令→真实内存 SQLite→typed result 回归，前两页全删除仍读取有效尾页。
+- RED：修复前 channel_sync 库测试 10 通过/2 失败，命中未过滤和提前结束；/tmp/0921-deleted-red.log。
+- GREEN：cargo test -p helix-im --lib 442 通过；Host increment_unread_anchor 7 通过；cargo check -p helix-im 通过（既有 dead_code 警告）。证据 /tmp/0921-deleted-{green,host,check}.log。
+- 客户端空页续拉/完整频道同步定向 39 通过，定向 lint 通过；/tmp/0921-deleted-{angular,lint}.log。
+- 基于本任务5文件diff验收，git diff --check通过；无 schema/core/driver 生产协议变化，无新 Harness card，协议文档同步原始行游标语义。
+- 运行边界：客户端仍锁 registry 0.1.29；没有发布、push、更新客户端依赖、重启或真实 Native/Go/UI 验收。本地独立提交依根 AGENTS 完成态授权执行。
+
+---
+
 # 两轮未读跳转修复
 
 🎯 EXPECT

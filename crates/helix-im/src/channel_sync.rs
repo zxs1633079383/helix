@@ -237,6 +237,9 @@ pub(crate) fn member_scan_effect(
     let mut channel_ids = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for row in channel_rows {
+        if crate::query::channel_row_is_terminal(row) {
+            continue;
+        }
         let Some(object) = row.as_object() else {
             continue;
         };
@@ -306,27 +309,33 @@ pub(crate) fn decode_cursor(
     Ok(body.offset)
 }
 
-/// 从本地 Scan rows 生成严格有界的 absolute channel page。
+/// 先按原始 Scan 游标裁页，再过滤不可见频道；空页仍保留后续扫描信息。
 pub(crate) fn project_page(
     reply_bytes: &[u8],
     scope: &crate::query::DialogListScope,
     offset: usize,
 ) -> (Vec<Value>, bool) {
-    let items = crate::query::project_dialog_list_items(reply_bytes, scope);
-    let has_more = items.len() > offset.saturating_add(PAGE_SIZE as usize);
-    let page = items
+    let Ok(Value::Array(rows)) = serde_json::from_slice(reply_bytes) else {
+        return (Vec::new(), false);
+    };
+    let has_more = rows.len() > offset.saturating_add(PAGE_SIZE as usize);
+    let window: Vec<_> = rows
         .into_iter()
         .skip(offset)
         .take(PAGE_SIZE as usize)
         .collect();
-    (page, has_more)
+    let items = crate::query::project_dialog_list_items(
+        &serde_json::to_vec(&window).unwrap_or_default(),
+        scope,
+    );
+    (items, has_more)
 }
 
 /// 把 channel 页和一次租户成员快照合成为绝对频道分页投影。
 ///
 /// `channel_member` 是成员权威表；成功读回的成员快照缺少频道行时直接 fail-closed，
 /// 绝不从 channel 行旧占位字段恢复可见性。返回 `None` 表示任一回包不是严格数组，
-/// 调用方必须保留上一页而不能发布伪造空成员投影。
+/// 调用方必须保留上一页而不能发布伪造空成员投影。游标按原始行推进，删除态在成员校验前过滤。
 pub(crate) fn project_page_with_members(
     channel_bytes: &[u8],
     member_bytes: &[u8],
@@ -371,8 +380,14 @@ pub(crate) fn project_page_with_members(
 
     let mut seen = std::collections::HashSet::new();
     let mut invalid_viewer_projection = false;
-    let visible = channel_rows
+    // Cursor counts scanned rows, not visible rows: a deleted-only page must still
+    // advance to the lookahead window rather than falsely completing synchronization.
+    let has_more = channel_rows.len() > offset.saturating_add(PAGE_SIZE as usize);
+    let page = channel_rows
         .into_iter()
+        .skip(offset)
+        .take(PAGE_SIZE as usize)
+        .filter(|row| !crate::query::channel_row_is_terminal(row))
         .filter_map(|row| {
             let channel_id = row
                 .get("id")
@@ -406,12 +421,6 @@ pub(crate) fn project_page_with_members(
     if invalid_viewer_projection {
         return None;
     }
-    let has_more = visible.len() > offset.saturating_add(PAGE_SIZE as usize);
-    let page = visible
-        .into_iter()
-        .skip(offset)
-        .take(PAGE_SIZE as usize)
-        .collect();
     Some((page, has_more))
 }
 
@@ -633,6 +642,101 @@ mod tests {
 
     fn session() -> ChannelSyncSession {
         ChannelSyncSession::new("session-a".to_string(), 7, "user-a", "company-a")
+    }
+
+    /// 删除/移除别名先于成员版本校验执行，旧零版本成员不能污染整个同步页。
+    #[test]
+    fn terminal_channels_are_filtered_before_member_projection() {
+        let scope = crate::query::DialogListScope::new("user-a", "company-a");
+        for marker in [
+            json!({"delete_at": 123}),
+            json!({"deleteAt": 123}),
+            json!({"is_remove": 1}),
+            json!({"isRemove": true}),
+            json!({"is_remove": "true"}),
+        ] {
+            let mut terminal = json!({"id":"deleted", "team_id":"company-a"});
+            terminal
+                .as_object_mut()
+                .unwrap()
+                .extend(marker.as_object().unwrap().clone());
+            let channels = json!([terminal, {"id":"live", "team_id":"company-a"}]);
+            let members = json!([
+                {"channel_id":"deleted","user_id":"user-a","team_id":"company-a","role":"OWNER",
+                 "unread_count":-1,"projection_revision":0},
+                {"channel_id":"live","user_id":"user-a","team_id":"company-a","role":"MEMBER"}
+            ]);
+            let (page, more) = project_page_with_members(
+                &serde_json::to_vec(&channels).unwrap(),
+                &serde_json::to_vec(&members).unwrap(),
+                &scope,
+                0,
+            )
+            .expect("terminal row is excluded before malformed member");
+            assert_eq!(page.len(), 1);
+            assert_eq!(page[0]["id"], "live");
+            assert!(!more);
+            let mut owned = channels.clone();
+            for row in owned.as_array_mut().unwrap() {
+                row["user_id"] = json!("user-a");
+            }
+            let ordinary = crate::query::project_dialog_list_items(
+                &serde_json::to_vec(&owned).unwrap(),
+                &scope,
+            );
+            assert_eq!(ordinary.len(), 1);
+            assert_eq!(ordinary[0]["id"], "live");
+            let Effect::Persist { ops, .. } = member_scan_effect(
+                Correlation::from_raw(1),
+                channels.as_array().unwrap(),
+                "company-a",
+            )
+            .unwrap() else {
+                panic!("member scan")
+            };
+            let StorageOp::ScopedScan(scan) = &ops[0] else {
+                panic!("scoped scan")
+            };
+            assert!(matches!(scan.scope_values.as_slice(), [SqlValue::Text(id)] if id == "live"));
+        }
+    }
+
+    /// 删除态占原始扫描位置，空页不能丢掉下一窗口或重复前一页。
+    #[test]
+    fn filtered_pages_preserve_raw_scan_cursor_and_tail() {
+        let scope = crate::query::DialogListScope::new("user-a", "company-a");
+        let channels: Vec<_> = (0..41)
+            .map(|i| {
+                json!({"id":format!("c-{i}"),
+            "team_id":"company-a", "delete_at":if i < 20 {1} else {0}})
+            })
+            .collect();
+        let members: Vec<_> = (0..41)
+            .map(|i| {
+                json!({"channel_id":format!("c-{i}"),
+            "user_id":"user-a", "team_id":"company-a", "role":"MEMBER"})
+            })
+            .collect();
+        let member_bytes = serde_json::to_vec(&members).unwrap();
+        let mut seen = Vec::new();
+        for (offset, expected_len, expected_more) in [(0, 0, true), (20, 20, true), (40, 1, false)]
+        {
+            let prefix = &channels[..channels.len().min(offset + 21)];
+            let (page, more) = project_page_with_members(
+                &serde_json::to_vec(prefix).unwrap(),
+                &member_bytes,
+                &scope,
+                offset,
+            )
+            .unwrap();
+            assert_eq!(page.len(), expected_len, "offset={offset}");
+            assert_eq!(more, expected_more, "offset={offset}");
+            seen.extend(
+                page.iter()
+                    .map(|row| row["id"].as_str().unwrap().to_owned()),
+            );
+        }
+        assert_eq!(seen, (20..41).map(|i| format!("c-{i}")).collect::<Vec<_>>());
     }
 
     #[test]

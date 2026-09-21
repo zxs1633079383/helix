@@ -619,8 +619,30 @@ fn render_subtopic_row(row: serde_json::Value) -> serde_json::Value {
     rendered
 }
 
+/// 删除或被移除的频道不再进入任何本地列表/频道快照；兼容持久列和投影别名。
+pub(crate) fn channel_row_is_terminal(row: &serde_json::Value) -> bool {
+    let deleted = ["delete_at", "deleteAt"].iter().any(|key| {
+        row.get(*key)
+            .and_then(serde_json::Value::as_i64)
+            .is_some_and(|value| value > 0)
+    });
+    let removed = ["is_remove", "isRemove"].iter().any(|key| {
+        row.get(*key).is_some_and(|value| {
+            value.as_bool().unwrap_or(false)
+                || value.as_i64().is_some_and(|value| value != 0)
+                || value
+                    .as_str()
+                    .is_some_and(|value| matches!(value, "1" | "true" | "TRUE"))
+        })
+    });
+    deleted || removed
+}
+
 /// 仅允许租户内、当前 viewer 所属的 channel 行进入结果。
 fn dialog_row_visible(row: &serde_json::Value, scope: &DialogListScope) -> bool {
+    if channel_row_is_terminal(row) {
+        return false;
+    }
     let Some(object) = row.as_object() else {
         return false;
     };

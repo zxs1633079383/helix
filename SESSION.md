@@ -1,3 +1,11 @@
+# 0921 发布 Helix 0.1.30
+
+🎯 EXPECT 用户授权发布最新Helix并更新客户端版本；按四公共crate依赖顺序发布0.1.30，八包版本图完整，客户端使用四个registry精确依赖。无Git push、桌面安装包发布或应用重启。
+
+✅ DONE 四包0.1.30上传crates.io并逐一解析成功；八包cargo check及逐包dry-run通过。源码6bb1dc33包含删除态过滤和原始扫描游标修复；复用相同源码442项库测试及7项SQLite回归。证据 /tmp/0921-helix-release-{plan,publish}.log。发布版本事务随本条提交并建立注释Tag helix-v-0.1.30；客户端接入进度见主交接。真实Native/UI及前阶段全量Jest失败边界保持。
+
+---
+
 # 0921 频道同步删除态过滤
 
 🎯 EXPECT 只修改 helix-im 频道同步/读取投影及对应 Host SQLite 回归；删除/移除频道在成员校验前过滤，零版本旧成员不污染页；游标按原始扫描位置推进，整页删除后仍能取到后续活跃频道；不改 core/driver 协议、schema、Angular 校验和包版本。| 赌注 中 | 可逆 是 | @2026-09-21

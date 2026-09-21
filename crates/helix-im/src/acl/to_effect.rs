@@ -19,11 +19,11 @@ pub use super::projection_message_effects::{
 };
 pub use super::storage_effects::{
     advance_cursor, advance_cursor_op, bump_channel_unread, bump_channel_unread_op,
-    canonical_member_projection_ops, get_channel_row_op, recovery_coverage_op, recovery_ledger_op,
-    recovery_tenant_actor_scope, reset_channel_dialog_op, terminal_tombstone_and_cursor_op,
-    update_channel_partial, update_channel_partial_op, upsert_channel_full, upsert_channel_full_op,
-    upsert_channel_member_channel, upsert_channel_member_channel_op, upsert_message,
-    RecoveryCoverage, RecoveryLedgerEntry,
+    canonical_member_projection_ops, closed_channel_op, get_channel_row_op, recovery_coverage_op,
+    recovery_ledger_op, recovery_tenant_actor_scope, reset_channel_dialog_op,
+    terminal_tombstone_and_cursor_op, update_channel_partial, update_channel_partial_op,
+    upsert_channel_full, upsert_channel_full_op, upsert_channel_member_channel,
+    upsert_channel_member_channel_op, upsert_message, RecoveryCoverage, RecoveryLedgerEntry,
 };
 pub(crate) use super::sync_effects::batch_upsert_events_with_messages_and_auth_observed;
 pub(crate) use super::sync_effects::pending_send_reconciliations;

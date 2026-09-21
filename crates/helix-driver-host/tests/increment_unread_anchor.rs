@@ -481,3 +481,82 @@ async fn deleted_channel_pages_continue_to_live_tail_without_zero_revision_items
     assert_eq!(ids, vec![format!("c{:025}", 40), CHANNEL.to_owned()]);
     assert!(cursor.is_null());
 }
+
+/// 关闭只有 terminal marker、没有时间戳；旧库恢复后迟到快照也必须保持只读。
+#[tokio::test]
+async fn closed_marker_survives_restart_and_late_increment_in_channel_page() {
+    let (storage, mut module) = setup().await;
+    persist_increment(&storage, &mut module, versioned_frame(1, 0, "", 151)).await;
+    let marker = helix_im::acl::to_effect::terminal_tombstone_and_cursor_op(ChannelId::from_str(CHANNEL).unwrap(), helix_im::state::Seq(152));
+    assert!(matches!(execute_storage_ops_atomic(&storage, &[marker]).await, PortOutcome::Ok(_)));
+    // 重放升级迁移，模拟现场 delete_at=0、terminal_event_seq>0 的历史库。
+    for sql in IM_SCHEMA_MIGRATIONS {
+        if let Err(error) = storage.execute_raw(sql).await {
+            assert!(
+                error.to_string().contains("duplicate column name"),
+                "{error}"
+            );
+        }
+    }
+    let mut restarted = active_module(152);
+    let session = persist_increment(&storage, &mut restarted, versioned_frame(2, 0, "", 151)).await;
+    let mut sink = EffectSink::new();
+    restarted
+        .handle(
+            &Tick::Command(AppCommand::new(
+                "im_query_channel_sync_page",
+                serde_json::to_vec(
+                    &json!({"channel_sync_session_id":session,"req_id":"closed-page"}),
+                )
+                .unwrap(),
+            )),
+            1002,
+            &mut sink,
+        )
+        .unwrap();
+    let events = drain(&storage, &mut restarted, sink).await;
+    let result = events
+        .iter()
+        .find(|event| event["event"] == "im:read:result")
+        .unwrap();
+    assert_eq!(
+        result["data"]["body"]["items"][0]["close"], true,
+        "{events:?}"
+    );
+    assert_eq!(result["data"]["body"]["items"][0]["deleteAt"], 0);
+}
+
+/// 在线 canonical terminal 的关闭投影必须随 cursor 原子提交，而不是只发一次 UI 通知。
+#[tokio::test]
+async fn live_terminal_persists_closed_channel_projection() {
+    let (storage, mut module) = setup().await;
+    persist_increment(&storage, &mut module, versioned_frame(1, 0, "", 151)).await;
+    let mut sink = EffectSink::new();
+    let frame = json!({"action":"channel_stream_event","data":{
+        "channel_id":CHANNEL,"stream_seq":152,"event_type":7,"event_id":"closed-event",
+        "payload":{"state":"closed"}
+    }});
+    module
+        .handle(
+            &Tick::Inbound(InboundBytes(serde_json::to_vec(&frame).unwrap().into())),
+            1002,
+            &mut sink,
+        )
+        .unwrap();
+    assert!(!sink
+        .as_slice()
+        .iter()
+        .any(|effect| matches!(effect, Effect::Emit { .. })));
+    drain(&storage, &mut module, sink).await;
+    let row = storage
+        .get(GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text(CHANNEL.into()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(column(&row, "is_closed"), SqlValue::Integer(1)));
+    assert!(matches!(column(&row, "delete_at"), SqlValue::Integer(0)));
+}

@@ -404,6 +404,14 @@ pub fn terminal_tombstone_and_cursor_op(channel_id: ChannelId, target_seq: Seq) 
     })
 }
 
+/// 关闭事实没有时间语义；与 terminal cursor 同事务保存独立布尔投影。
+pub fn closed_channel_op(channel_id: ChannelId) -> StorageOp {
+    crate::acl::to_effect_s1::channel_set_cols_op(
+        channel_id,
+        vec![("is_closed", helix_core::effect::SqlValue::Integer(1))],
+    )
+}
+
 /// too_long 覆盖式重拉：重置 channel 的 Dialog 派生字段，但保留本地 message 历史。
 pub fn reset_channel_dialog_op(channel_id: ChannelId) -> StorageOp {
     use helix_core::effect::{BatchUpdateSpec, SqlValue};

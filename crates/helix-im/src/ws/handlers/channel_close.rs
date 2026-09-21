@@ -103,6 +103,7 @@ impl WsMessageHandler for ChannelCloseHandler {
                 crate::state::ChannelLifecycleTransition::Closed { delete_at },
                 vec![
                     ("delete_at", SqlValue::Integer(delete_at)),
+                    ("is_closed", SqlValue::Integer(1)),
                     ("is_active", SqlValue::Integer(0)),
                 ],
             )

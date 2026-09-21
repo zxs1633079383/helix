@@ -270,6 +270,7 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
     let mut output = object.clone();
 
     insert_alias(&mut output, row, "id", &["id"]);
+    insert_bool_alias(&mut output, row, "close", &["is_closed", "close"]);
     insert_alias(
         &mut output,
         row,

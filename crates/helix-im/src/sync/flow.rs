@@ -1033,6 +1033,7 @@ impl ImModule {
                 chain_domain_events.push(projection.event);
             }
         }
+        ops.push(crate::acl::to_effect::closed_channel_op(channel_id));
         ops.push(crate::acl::to_effect::terminal_tombstone_and_cursor_op(
             channel_id,
             terminal_seq,

@@ -66,6 +66,9 @@ pub(crate) fn queue_stream_commit(
     } else {
         vec![crate::channel::event_to_storage_op(&event)]
     };
+    if terminal {
+        ops.push(crate::acl::to_effect::closed_channel_op(event.channel_id));
+    }
     ops.push(if terminal {
         crate::acl::to_effect::terminal_tombstone_and_cursor_op(event.channel_id, event.seq)
     } else {

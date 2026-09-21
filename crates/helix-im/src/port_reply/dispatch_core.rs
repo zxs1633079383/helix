@@ -148,6 +148,7 @@ impl ImModule {
                         .get_mut(&channel_id)
                         .is_some_and(|channel| channel.commit_terminal_after_atomic(terminal_seq));
                     if committed {
+                        out.push(crate::acl::to_effect_s1::emit_channel_closed(channel_id, 0));
                         if let Some(expected) = member_projection {
                             self.queue_member_projection_readback(channel_id, expected, out)?;
                         }
@@ -191,6 +192,7 @@ impl ImModule {
                     .is_some_and(|channel| channel.commit_terminal_after_atomic(terminal_seq));
                 self.state.pong_gap_batch.finish_persist(corr, committed);
                 if committed {
+                    out.push(crate::acl::to_effect_s1::emit_channel_closed(channel_id, 0));
                     for event_id in pending_chain_event_ids {
                         self.state.pending_chain_event_ids.remove(&event_id);
                         self.state.seen_chain_event_ids.insert(event_id);

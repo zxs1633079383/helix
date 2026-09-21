@@ -70,6 +70,7 @@ pub const ALLOWED_COLUMNS: &[&str] = &[
     "picture_type",
     "last_post_at",
     "delete_at",
+    "is_closed",
     "created_at",
     "updated_at",
     "last_root_post_at",

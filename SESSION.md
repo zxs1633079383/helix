@@ -1,3 +1,16 @@
+# 0921 关闭群输入状态恢复
+
+🎯 EXPECT 关闭终态与频道可写状态同事务持久化，重启及迟到 increment 不恢复输入；既有 terminal marker 可恢复旧缓存；不修改真实数据库、版本或发布。| 赌注 中 | 可逆 是 | @2026-09-21
+- 分支 reactor/MessageV3-helix；用户已授权 Helix/客户端跨仓修复。
+
+✅ DONE 源码与本地回归：新增 is_closed 持久布尔投影，同 terminal cursor 原子提交；旧库按 terminal marker 恢复，频道快照输出 close，在线关闭在 PersistOk 后通知。
+- Helix 库442、Host SQLite9、同步GS1–GS4共8通过；五crate check、core测试、wasm构建通过。日志 /tmp/0921-closed-{rust-lib,host,sync,cargo-check,core,wasm}.log。
+- 客户端定向首批98与追加批60通过（含重复），lint/包边界通过；关闭状态贯穿分页/当前会话/输入，WDIO真实桌面回归资产已添加。
+- 用户原数据库只读备份到内存验证恢复 is_closed=1/delete_at=0；未改原库、版本、依赖、Git refs或发布。
+- 交付 PARTIAL：已安装客户端仍固定registry 0.1.31，候选尚未发布/接入；WDIO未在候选二进制执行，不能宣称真实UI修复已生效。未重跑全仓历史失败Jest，不扩大无关修复。
+
+---
+
 # 0921 话题引用导致消息窗口超时
 
 🎯 EXPECT 修正 render_scope 对消息话题引用的递归误判；未知、同公司和外公司话题引用均不改变父消息可见性，外公司主会话/消息继续拒绝；公开 latest 命令经过 PersistOk 发出 ready；不改版本、协议或运行数据库。| 赌注 中 | 可逆 是 | @2026-09-21

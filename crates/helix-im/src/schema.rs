@@ -198,6 +198,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
         last_post TEXT NOT NULL DEFAULT '',\
         last_post_at INTEGER NOT NULL DEFAULT 0,\
         delete_at INTEGER NOT NULL DEFAULT 0,\
+        is_closed INTEGER NOT NULL DEFAULT 0,\
         props TEXT NOT NULL DEFAULT '',\
         created_at INTEGER NOT NULL DEFAULT 0,\
         updated_at INTEGER NOT NULL DEFAULT 0,\
@@ -583,6 +584,8 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE channel_member ADD COLUMN epoch_start_seq INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN epoch_end_seq INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_event_cursor ADD COLUMN terminal_event_seq INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel ADD COLUMN is_closed INTEGER NOT NULL DEFAULT 0",
+    "UPDATE channel SET is_closed = 1 WHERE is_closed = 0 AND id IN (SELECT channel_id FROM channel_event_cursor WHERE terminal_event_seq > 0)",
     "ALTER TABLE chain_summary ADD COLUMN title TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE chain_summary ADD COLUMN description TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE chain_summary ADD COLUMN deadline_at INTEGER NOT NULL DEFAULT 0",

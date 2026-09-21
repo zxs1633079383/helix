@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 #[path = "../../../common.rs"]
 mod common;
 
-use common::{cid, command_json, enveloped, port_reply_with_body, Harness};
+use common::{cid, command_json, enveloped, port_reply_with_body, send_message_cmd, Harness};
 
 const CHANNEL: u64 = 0x11a;
 const WINDOW: &str = "mv3-g11a-latest";
@@ -298,4 +298,194 @@ fn g11a_late_generation_reply_is_ignored() {
         "current generation still falls back to HTTP"
     );
     assert!(emitted_events(&harness).is_empty());
+}
+
+/// 服务端权威消息时间；客户端时钟比它慢 `CLOCK_LAG_MS`（真实现场量得的量级）。
+const NOTICE_AT: i64 = 1_700_000_200_000;
+const CLOCK_LAG_MS: i64 = 2_500;
+/// 群邀请 NOTICE 的 server id 与本地乐观消息 temporaryId。
+const NOTICE_ID: u64 = 0x11a00;
+const PENDING_TEMPORARY_ID: &str = "g11a-lagging-clock";
+
+/// 构造服务端 durable NOTICE 行（snake_case read-back 形状）。
+fn durable_notice() -> Value {
+    json!({
+        "id": format!("srvfix{NOTICE_ID:020x}"),
+        "temporary_id": format!("srvfix{NOTICE_ID:020x}"),
+        "channel_id": cid(CHANNEL),
+        "user_id": "mv3-g11a-other",
+        "type": "NOTICE",
+        "message": "invite notice",
+        "simple_message": "invite notice",
+        "create_at": NOTICE_AT,
+        "event_seq": 8,
+        "send_status": "sent",
+    })
+}
+
+/// 构造同一 NOTICE 的 Go latest wire 行（camelCase）。
+fn latest_notice() -> Value {
+    json!({
+        "id": format!("srvfix{NOTICE_ID:020x}"),
+        "channelId": cid(CHANNEL),
+        "userId": "mv3-g11a-other",
+        "type": "NOTICE",
+        "message": "invite notice",
+        "simpleMessage": "invite notice",
+        "viewers": ["all"],
+        "mentions": [],
+        "eventSeq": 8,
+        "createAt": NOTICE_AT,
+    })
+}
+
+/// 构造 read-back 中的本地未对账乐观行；`create_at` 必须由发送路径写入的排序键提供。
+fn durable_pending(create_at: i64) -> Value {
+    json!({
+        "id": "",
+        "temporary_id": PENDING_TEMPORARY_ID,
+        "channel_id": cid(CHANNEL),
+        "user_id": "g11a-viewer",
+        "type": "TEXT",
+        "message": "first",
+        "simple_message": "first",
+        "create_at": create_at,
+        "event_seq": 0,
+        "send_status": "sending",
+    })
+}
+
+/// 从当前批次取出 `im_send_message` 乐观落库行写入的 `create_at`。
+fn pending_create_at(harness: &Harness) -> i64 {
+    for effect in harness.sink.as_slice() {
+        let Effect::Persist { ops, .. } = effect else {
+            continue;
+        };
+        for op in ops {
+            let StorageOp::BatchUpsert(spec) = op else {
+                continue;
+            };
+            if spec.table != "message" {
+                continue;
+            }
+            for row in &spec.rows {
+                let stored = row
+                    .iter()
+                    .find_map(|(column, value)| match (column.as_str(), value) {
+                        ("temporary_id", helix_core::effect::SqlValue::Text(temporary)) => {
+                            Some(temporary.as_str())
+                        }
+                        _ => None,
+                    });
+                if stored != Some(PENDING_TEMPORARY_ID) {
+                    continue;
+                }
+                return row
+                    .iter()
+                    .find_map(|(column, value)| match (column.as_str(), value) {
+                        ("create_at", helix_core::effect::SqlValue::Integer(create_at)) => {
+                            Some(*create_at)
+                        }
+                        _ => None,
+                    })
+                    .expect("optimistic row must persist integer create_at");
+            }
+        }
+    }
+    panic!("send must persist the optimistic row");
+}
+
+/// 回归锚: 群邀请 NOTICE 已由服务端广播后，客户端时钟落后时发起首条消息，
+/// NOTICE 不得显示在首条消息下方（也无法被 latest 窗口截断）。
+#[test]
+fn g11a_lagging_client_clock_keeps_notice_above_first_message() {
+    let mut harness = scoped_harness();
+    let lagging_client_at = (NOTICE_AT - CLOCK_LAG_MS) as u64;
+
+    harness.step(latest_command(20), 1);
+    let initial_scan = only_scan(&harness);
+    harness.step(
+        port_reply_with_body(initial_scan.raw(), Bytes::from_static(b"[]")),
+        2,
+    );
+    let http = only_http(&harness);
+    harness.step(
+        port_reply_with_body(
+            http.raw(),
+            enveloped(Bytes::from(
+                serde_json::to_vec(&json!({
+                    "status": "SUCCESS",
+                    "data": {"posts": [latest_notice()], "hasOlder": false, "hasNewer": false},
+                }))
+                .unwrap(),
+            )),
+        ),
+        3,
+    );
+    let cache = only_cache_write(&harness);
+    harness.step(
+        port_reply_with_body(cache.raw(), Bytes::from_static(b"[]")),
+        4,
+    );
+    let readback = only_scan(&harness);
+    harness.step(
+        port_reply_with_body(
+            readback.raw(),
+            Bytes::from(serde_json::to_vec(&json!([durable_notice()])).unwrap()),
+        ),
+        5,
+    );
+    let ready = emitted_events(&harness);
+    assert_eq!(ready[0]["event"], "im:timeline:ready");
+    assert_eq!(ready[0]["data"]["messages"][0]["type"], "NOTICE");
+
+    // 客户端时钟落后 2500ms 时发起首条消息。
+    harness.step(
+        send_message_cmd(CHANNEL, PENDING_TEMPORARY_ID, "first"),
+        lagging_client_at,
+    );
+    let create_at = pending_create_at(&harness);
+    assert!(
+        create_at > NOTICE_AT,
+        "optimistic createAt {create_at} must follow observed server createAt {NOTICE_AT}"
+    );
+    let send_persist = harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("send starts with the optimistic persist");
+    harness.step(port_reply_with_body(send_persist.raw(), Bytes::from_static(b"[]")), (NOTICE_AT - CLOCK_LAG_MS + 1) as u64);
+
+    // 发送后的 attached latest 读回：未对账乐观行必须排在 NOTICE 之后（时间线末尾）。
+    let attached_scan = only_scan(&harness);
+    harness.step(
+        port_reply_with_body(
+            attached_scan.raw(),
+            Bytes::from(
+                serde_json::to_vec(&json!([durable_notice(), durable_pending(create_at)])).unwrap(),
+            ),
+        ),
+        (NOTICE_AT - CLOCK_LAG_MS + 2) as u64,
+    );
+    let events = emitted_events(&harness);
+    let timeline = events
+        .iter()
+        .find(|event| {
+            matches!(
+                event["event"].as_str(),
+                Some("im:timeline:ready") | Some("im:timeline:update")
+            ) && event["data"]["messages"].is_array()
+        })
+        .expect("attached send read-back must publish the timeline");
+    let messages = timeline["data"]["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 2, "both the notice and the pending row render");
+    assert_eq!(
+        messages[0]["type"], "NOTICE",
+        "invite notice must stay above the first own message"
+    );
+    assert_eq!(messages[1]["temporaryId"], PENDING_TEMPORARY_ID);
 }

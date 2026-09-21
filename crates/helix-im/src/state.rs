@@ -261,6 +261,14 @@ pub struct ImState {
     pub(crate) recent_message_coverage:
         HashMap<ChannelId, crate::query::local_first::RecentMessageCoverage>,
 
+    /// 每个频道已观测到的最新服务端消息时间（毫秒）。
+    ///
+    /// 本地乐观行的 `create_at` 来自客户端时钟，服务端行来自服务端时钟；客户端时钟落后时，
+    /// 刚发出的消息会排到更早的服务端消息（如入群 NOTICE）之前，并可能被
+    /// `ORDER BY create_at DESC LIMIT` 的 latest 窗口挤出。发送前用它把本地时间抬到服务端
+    /// 时间轴上（单调取最大，O(1)）。
+    pub(crate) observed_channel_create_at: HashMap<ChannelId, i64>,
+
     /// 同一 `(channel, windowToken)` local-first 查询的最新代际。每次发起查询都推进该值，
     /// 使同会话内晚到的旧 Scan/HTTP/cache 回包不能覆盖新窗口结果。
     pub(crate) message_query_generations: HashMap<(ChannelId, String), u64>,
@@ -402,6 +410,7 @@ impl ImState {
             hydration_ordered_rosters: HashMap::new(),
             hydration_authority_unreads: HashMap::new(),
             recent_message_coverage: HashMap::new(),
+            observed_channel_create_at: HashMap::new(),
             message_query_generations: HashMap::new(),
             timeline_state: crate::timeline_state::TimelineState::default(),
             timeline_navigation_coverage: HashMap::new(),
@@ -524,6 +533,8 @@ impl ImState {
         // channels and cursors from its own store rather than treating A's
         // in-memory aggregates as a locally trusted snapshot.
         self.channels.clear();
+        // 服务端时间下界属于上一身份观测到的频道事实，不能跨账号复用。
+        self.observed_channel_create_at.clear();
         self.committed_schedule_revisions.clear();
         self.committed_channel_creates.clear();
         self.inflight_member_update_seqs.clear();
@@ -642,6 +653,37 @@ impl ImState {
     pub(crate) fn invalidate_timeline_navigation_coverage(&mut self, channel_id: ChannelId) {
         self.timeline_navigation_coverage
             .retain(|_, coverage| coverage.channel_id != channel_id);
+    }
+
+    /// 登记服务端权威消息时间，单调取最大；非正值（未定序/缺省）忽略。
+    ///
+    /// 每次观测 O(1) 写；只在服务端行或权威广播上调用，不读 DOM、不发查询。
+    pub(crate) fn observe_channel_create_at(&mut self, channel_id: ChannelId, create_at: i64) {
+        if create_at <= 0 {
+            return;
+        }
+        let observed = self
+            .observed_channel_create_at
+            .entry(channel_id)
+            .or_insert(create_at);
+        if create_at > *observed {
+            *observed = create_at;
+        }
+    }
+
+    /// 返回该频道本地乐观消息必须不早于的服务端时间下界（毫秒）。
+    ///
+    /// 返回 `None` 表示本会话尚未观测到该频道的服务端消息（此时只能用本地时钟）。
+    pub(crate) fn channel_create_at_floor(&self, channel_id: ChannelId) -> Option<i64> {
+        self.observed_channel_create_at
+            .get(&channel_id)
+            .copied()
+            .filter(|create_at| *create_at > 0)
+    }
+
+    /// 丢弃全部频道的服务端时间下界；只在会话/身份/频道集合整体失效时调用。
+    pub(crate) fn reset_observed_channel_create_at(&mut self) {
+        self.observed_channel_create_at.clear();
     }
 }
 

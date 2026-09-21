@@ -138,6 +138,7 @@ impl ImModule {
                 // 内存 channel gate 清空（core 拥有的状态；物理 DELETE 留待 truncate 原语，query.rs）。
                 self.state.channels.clear();
                 self.state.reset_recent_query_coverage();
+                self.state.reset_observed_channel_create_at();
                 out.push(crate::query::emit_dialogs_cleared());
             }
             // G11b 上拉页：只用 reqId/scope/anchor correlation，不读取 attached visual window。

@@ -1201,3 +1201,90 @@ fn send_request_id_waits_for_durable_echo() {
             .all(|v| v["data"].get("requestId").is_none()));
     }
 }
+
+/// 构造服务端权威 `post` 广播帧（群邀请 NOTICE / 他人消息），用于注入服务端时钟下界。
+fn server_post_frame(
+    channel: u64,
+    server_id_fixture: u64,
+    event_seq: u64,
+    msg_type: &str,
+    create_at: i64,
+) -> helix_core::Tick {
+    let frame = serde_json::json!({"action":"post","data":{
+        "id":sid(server_id_fixture),
+        "channelId":cid(channel),
+        "event_seq":event_seq,
+        "userId":"other_user",
+        "type":msg_type,
+        "message":"invite notice",
+        "createAt":create_at
+    }});
+    helix_core::Tick::Inbound(helix_core::tick::InboundBytes(
+        serde_json::to_vec(&frame).unwrap().into(),
+    ))
+}
+
+/// 读取指定 temporaryId 的乐观落库行写入的 `create_at`，作为客户端排序键的直接证据。
+fn optimistic_create_at(harness: &Harness, temporary_id: &str) -> i64 {
+    for effect in harness.sink.as_slice() {
+        let Effect::Persist { ops, .. } = effect else {
+            continue;
+        };
+        for op in ops {
+            let StorageOp::BatchUpsert(spec) = op else {
+                continue;
+            };
+            if spec.table != "message" {
+                continue;
+            }
+            for row in &spec.rows {
+                let value = |column: &str| {
+                    row.iter()
+                        .find(|(name, _)| name == column)
+                        .map(|(_, value)| value.clone())
+                };
+                let matches_temporary_id = matches!(
+                    value("temporary_id"),
+                    Some(SqlValue::Text(ref stored)) if stored == temporary_id
+                );
+                if !matches_temporary_id {
+                    continue;
+                }
+                match value("create_at") {
+                    Some(SqlValue::Integer(create_at)) => return create_at,
+                    other => panic!("optimistic row must persist an integer create_at: {other:?}"),
+                }
+            }
+        }
+    }
+    panic!("no optimistic message persist for {temporary_id}");
+}
+
+/// 回归锚: 客户端时钟落后服务端时，本地乐观消息的 `createAt` 必须跟随已观测的服务端
+/// 时间轴，否则刚发出的消息会排到更早的入群 NOTICE 之前（“邀请通知出现在首条消息下方”），
+/// 并可能被 `ORDER BY create_at DESC LIMIT` 的 latest 窗口挤掉。
+#[test]
+fn optimistic_send_create_at_follows_observed_server_timeline() {
+    const NOTICE_AT: i64 = 1_700_000_200_000;
+    // 客户端时钟比服务端慢 2500ms：真实现场量得的偏差量级。
+    const LAGGING_CLIENT_AT: u64 = 1_700_000_197_500;
+    let mut h = Harness::new_with_identity(&[1], "user_1", "company", "", "", "");
+    // 服务端在 NOTICE_AT 落库并广播群邀请 NOTICE（客户端本地时间是 LAGGING_CLIENT_AT）。
+    h.step(
+        server_post_frame(1, 9, 8, "NOTICE", NOTICE_AT),
+        LAGGING_CLIENT_AT,
+    );
+    let effects = h.step(
+        send_message_cmd(1, "tmp-lagging-clock", "first"),
+        LAGGING_CLIENT_AT,
+    );
+    assert!(
+        effects.iter().any(|effect| matches!(effect, EffectKind::Persist(_))),
+        "ordinary send must still persist the optimistic row first"
+    );
+    let create_at = optimistic_create_at(&h, "tmp-lagging-clock");
+    assert!(
+        create_at > NOTICE_AT,
+        "optimistic createAt {create_at} must follow observed server createAt {NOTICE_AT}"
+    );
+}

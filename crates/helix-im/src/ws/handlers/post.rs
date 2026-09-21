@@ -47,6 +47,10 @@ impl WsMessageHandler for PostHandler {
             return Ok(());
         };
         ctx.state.invalidate_recent_message_coverage(ev.channel_id);
+        // 无论该帧最终 apply/buffer/drop，服务端时间都是该频道的权威时间下界：
+        // 本地乐观消息必须排在它之后（客户端时钟可能落后服务端）。
+        ctx.state
+            .observe_channel_create_at(ev.channel_id, ev.fields.create_at);
 
         // R4-echo-gate：echo 对账与 channel gate **解耦**——reconcile 只读 pending_sends/corr_map，
         // 从不读 channels，故必须**无条件**先做。否则冷启动 send-before-cursor-seed 乱序下，本端帧因

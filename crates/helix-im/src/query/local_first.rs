@@ -806,6 +806,32 @@ impl ImModule {
             )
     }
 
+    /// 把一页服务端行的最新时间登记为该频道的服务端时间下界，供后续乐观发送对齐 `createAt`。
+    ///
+    /// 只取有服务端 id 的行（本地未对账行的时间来自客户端时钟，不能反过来抬高下界）。
+    /// 每页一次 O(R) 扫描，R 为本页行数（有界）；不读 DOM、不发额外查询。
+    fn observe_rows_create_at(&mut self, channel_id: ChannelId, rows: &[Value]) {
+        let newest = rows
+            .iter()
+            .filter(|row| {
+                ["id", "msgId", "postId", "post_id"].iter().any(|key| {
+                    row.get(*key)
+                        .and_then(Value::as_str)
+                        .is_some_and(|value| !value.is_empty())
+                })
+            })
+            .filter_map(|row| {
+                row.get("create_at")
+                    .or_else(|| row.get("createAt"))
+                    .or_else(|| row.get("createdAt"))
+                    .and_then(Value::as_i64)
+            })
+            .max();
+        if let Some(create_at) = newest {
+            self.state.observe_channel_create_at(channel_id, create_at);
+        }
+    }
+
     /// local-first 已完成排序、去重、权限与 render-ready shaping 后的唯一 timeline 出口。
     /// `rows_desc` 可含一条本地 lookahead；这里只投影请求页长，并把额外行转成分页事实。
     pub(crate) fn emit_timeline_snapshot_with_causation(
@@ -816,6 +842,9 @@ impl ImModule {
         causation_id: Option<String>,
         page_override: Option<crate::timeline_state::WindowPage>,
     ) -> Result<Effect, ImError> {
+        // 时间线是本会话本地乐观消息的唯一排序参照；在时间线出口登记本页服务端时间下界，
+        // 覆盖 latest/locate/older/read-back 全部路径，每页一次 O(R)。
+        self.observe_rows_create_at(request.channel_id, rows_desc);
         let scope = crate::timeline_state::TimelineScope {
             channel_id: request.channel_id.as_str().to_string(),
             window_token: request.window_token.to_string(),
@@ -974,6 +1003,7 @@ impl ImModule {
         state: &crate::timeline_navigation::TimelineNavigationState,
         _now_ms: u64,
     ) -> Result<Effect, ImError> {
+        self.observe_rows_create_at(state.channel_id(), state.rows());
         let rows = Value::Array(state.rows().to_vec());
         let shaped = crate::render_ready::shape_message_rows_for_viewer(
             &rows,

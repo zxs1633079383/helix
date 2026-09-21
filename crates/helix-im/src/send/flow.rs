@@ -96,12 +96,18 @@ impl ImModule {
         // 现网前端 service 的 wire body 组装下沉到 outbound::send_build（C1 纯渲染）。命令载荷
         // （viewers/mentions/props/topic_id/replied/text）+ 注入身份/Clock → camelCase body。
         // 空消息（trim 空 + props 空）→ None → 拦截不发（现网 validMessages.length===0 → return）。
+        // `createAt` 与服务端行共同排序：客户端时钟落后时本地时间会把新消息排到更早的服务端
+        // 消息（如入群 NOTICE）之前并被 latest 窗口截断；用已观测服务端时间下界对齐，回声覆盖权威值。
+        let body_now_ms = self
+            .state
+            .channel_create_at_floor(channel_id)
+            .map_or(now_ms, |floor| now_ms.max(floor.saturating_add(1) as u64));
         let identity = self.config.user_identity();
         let Some(mut body) = crate::outbound::send_build::build_from_command(
             &cmd,
             channel_id.as_str(),
             &tmp_id_str,
-            now_ms,
+            body_now_ms,
             &identity,
         ) else {
             return Ok(());

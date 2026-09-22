@@ -128,18 +128,22 @@ fn project_row(item: &Value) -> Option<Value> {
             unread_user_ids.push(user_id);
         }
     }
+    // 接收者集合为空（viewers 只覆盖作者，例如文字接龙草稿声明）时，服务端并没有"所有人都读过"
+    // 的事实：这类行只能表达"没有接收者"，不能投影成 allRead=true。消费方据此保持空白，
+    // 而不是给用户一个假的"全部已读"。
+    let no_receivers = read_user_ids.is_empty() && unread_user_ids.is_empty();
     // 只允许公开合同字段；任何内部 DTO 字段都不能从输入对象复制到事件。
     let mut receipt = json!({
         "postId": post_id,
         "channelId": channel_id,
         "snapshotId": snapshot_id,
         "receiptKey": "snapshotId",
-        "state": "ready",
+        "state": if no_receivers { "no_receivers" } else { "ready" },
         "readUserIds": read_user_ids,
         "unreadUserIds": unread_user_ids,
         "readCount": read_user_ids.len(),
         "unreadCount": unread_user_ids.len(),
-        "allRead": unread_user_ids.is_empty(),
+        "allRead": !no_receivers && unread_user_ids.is_empty(),
         "authorExcluded": true,
     });
     // 快照版本是服务端对账锚；缺失时保持兼容，但不伪造版本号。
@@ -307,7 +311,6 @@ pub(crate) fn render_ready_post_read(data: &mut Value, viewer_user_id: &str) -> 
                 unread_user_ids.push(user_id);
             }
         }
-        object.insert("state".to_string(), json!("ready"));
     } else {
         object.insert("state".to_string(), json!("unavailable"));
         object.insert(
@@ -315,11 +318,20 @@ pub(crate) fn render_ready_post_read(data: &mut Value, viewer_user_id: &str) -> 
             json!("member snapshot and readBits are inconsistent"),
         );
     }
+    // 接收者集合为空（viewers 只覆盖作者，例如文字接龙草稿声明）时，服务端并没有"所有人都读过"
+    // 的事实：只能标成 no_receivers 并保持 allRead=false，与 project_row 同口径。
+    let no_receivers = consistent && read_user_ids.is_empty() && unread_user_ids.is_empty();
+    if consistent {
+        object.insert(
+            "state".to_string(),
+            json!(if no_receivers { "no_receivers" } else { "ready" }),
+        );
+    }
     object.insert("readCount".to_string(), json!(read_user_ids.len()));
     object.insert("unreadCount".to_string(), json!(unread_user_ids.len()));
     object.insert(
         "allRead".to_string(),
-        json!(consistent && unread_user_ids.is_empty()),
+        json!(consistent && !no_receivers && unread_user_ids.is_empty()),
     );
     object.insert("authorExcluded".to_string(), json!(true));
     object.insert("readUserIds".to_string(), json!(read_user_ids));
@@ -348,6 +360,68 @@ mod render_ready_post_read_tests {
             "readBits": bits,
             "receiptRevision": 1_700_000_000_000_i64,
         })
+    }
+
+    /// 构造 `im_post_read_list` 的单行 Go DTO（批量回执投影入口）。
+    fn batch_dto(author: &str, members: Value, bits: &str) -> Value {
+        json!({
+            "postId": "post-batch-001",
+            "channelId": "channel-phase1-001",
+            "authorUserId": author,
+            "snapshotId": "snapshot-post-template-001",
+            "status": "ready",
+            "memberIds": members,
+            "readBits": bits,
+            "readCount": 0,
+            "unreadCount": 0,
+            "allRead": true,
+        })
+    }
+
+    #[test]
+    fn empty_receiver_batch_row_is_projected_as_no_receivers() {
+        // 接龙草稿声明的 viewers 只覆盖作者：接收者集合为空，服务端没有"所有人都读过"的事实。
+        let body = json!({
+            "data": [batch_dto("user-actor-444", json!(["user-actor-444"]), "1")],
+        });
+        let rows = super::project(&body);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["state"], json!("no_receivers"));
+        assert_eq!(rows[0]["allRead"], json!(false));
+        assert_eq!(rows[0]["readCount"], json!(0));
+        assert_eq!(rows[0]["unreadCount"], json!(0));
+        assert_eq!(rows[0]["readUserIds"], json!([]));
+        assert_eq!(rows[0]["unreadUserIds"], json!([]));
+    }
+
+    #[test]
+    fn non_empty_receiver_batch_row_keeps_ready_semantics() {
+        let body = json!({
+            "data": [batch_dto("user-actor-444", json!(["user-actor-444", "user-receiver-445"]), "10")],
+        });
+        let rows = super::project(&body);
+
+        assert_eq!(rows[0]["state"], json!("ready"));
+        assert_eq!(rows[0]["allRead"], json!(false));
+        assert_eq!(rows[0]["unreadCount"], json!(1));
+    }
+
+    #[test]
+    fn self_only_receiver_never_claims_all_read() {
+        // readers 只有作者自己时不得投影成 allRead（否则 UI 显示"全部已读"）。
+        let mut data = receipt(
+            "user-actor-444",
+            "user-actor-444",
+            json!(["user-actor-444"]),
+            "1",
+        );
+        assert!(render_ready_post_read(&mut data, "user-receiver-445"));
+
+        assert_eq!(data["state"], json!("no_receivers"));
+        assert_eq!(data["allRead"], json!(false));
+        assert_eq!(data["readCount"], json!(0));
+        assert_eq!(data["unreadCount"], json!(0));
     }
 
     #[test]

@@ -19,7 +19,9 @@ impl Module for ImModule {
     /// 正是「query 族被 accepts 闸静默丢弃」旧事故的成因，本族不重复该反模式。
     fn accepts(&self, tick: &Tick) -> bool {
         if let Tick::Command(cmd) = tick {
-            if crate::draft::is_draft_command(cmd.name.as_ref()) {
+            if cmd.name.as_ref() == crate::recent_history::COMMAND
+                || crate::draft::is_draft_command(cmd.name.as_ref())
+            {
                 return true;
             }
         }
@@ -221,6 +223,14 @@ impl ImModule {
                 // MV3-G02e 草稿域：Effect 仅 Persist、零领域事件、结构化 Command Result。
                 // 必须排在 outbound / query 两个 guard 之前认领——草稿既不是 HTTP outbound，
                 // 也不在 query 闭集内，落到 `_` 分支就会退回「unhandled command」死代码态。
+                crate::recent_history::COMMAND => {
+                    crate::recent_history::handle(self, cmd.payload.as_ref(), out).map_err(
+                        |e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        },
+                    )?;
+                }
                 name if crate::draft::is_draft_command(name) => {
                     crate::draft::handle_command(self, name, cmd.payload.as_ref(), now_ms, out)
                         .map_err(|e| CoreError::ModuleError {

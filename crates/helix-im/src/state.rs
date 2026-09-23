@@ -46,6 +46,7 @@ pub(crate) struct FileUploadProgressPersist {
 ///
 /// 所有字段为可序列化的 Rust 值类型，确保三栖确定性。
 pub struct ImState {
+    pub recent_history: crate::recent_history::HistoryState,
     /// WS 连接状态机
     pub conn: ConnState,
 
@@ -370,6 +371,7 @@ impl ImState {
             pending_media_recovery_compensation: None,
             media_recovery_ready: false,
             media_retry_inflight: HashSet::new(),
+            recent_history: Default::default(),
             corr_map: HashMap::new(),
             category_chain: crate::category_chain::State::default(),
             chain_mutations: HashMap::new(),

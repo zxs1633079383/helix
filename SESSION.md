@@ -1078,3 +1078,4 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 🎯 EXPECT 发布最近搜索/转发本地存储为 0.1.36，四个 crate registry 可解析，提交和 tag 与远端一致；不改客户端依赖。 | 赌注 中 | 可逆 否 | @2026-09-23
 - 分支 reactor/MessageV3-helix；本地记录命令生命周期见 crates/helix-im/src/recent_history.rs。
 - 定向证据：/tmp/history-unit-final.log（2 通过）、/tmp/history-sqlite-final.log（1 通过）；PRE UI 未验证。
+✅ DONE 0.1.36 四个 crate 已发布 crates.io 并可解析；release workspace check 与逐包 dry-run 通过。未跑全量测试，未升级客户端依赖，PRE UI 未验证。发布日志 /tmp/helix-0136-publish.log。

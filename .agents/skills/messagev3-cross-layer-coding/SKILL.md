@@ -33,9 +33,9 @@ description: 按契约冻结、TDD 红绿、逐跳字段对账和分层证据，
 
 按顺序执行：
 
-1. `python3 ~/.codex/scripts/log_preflight.py`；再执行 `git status --short --branch`。保留所有既有 dirty/untracked 文件，不 reset、clean、stash 或 truncate 共享库。
-2. 触及三个以上文件、跨仓或新增测试/文档时，在 `SESSION.md` 登记可证伪 `🎯 EXPECT`；明确预测文件集合、字段不变量和验证命令。
-3. 读取根 `AGENTS.md`、目标目录的就近 `AGENTS.md`、[`docs/GOAL.md`](../../../docs/GOAL.md)、[`docs/ROADMAP.md`](../../../docs/ROADMAP.md)。触碰投影、EventSink 或 bus 时再读 [`projection-schema.md`](../../../crates/helix-im/docs/projection-schema.md)。
+1. 从任务 handoff 恢复；首次任务运行 `python3 ~/.codex/scripts/log_preflight.py`，同任务未发生相关变化时复用摘要。核对 `git status --short --branch`，保留既有 dirty/untracked，不 reset、clean、stash 或 truncate 共享库。
+2. 命中根 AGENTS 的实质任务门槛时，在 `SESSION.md` 留一行可证伪 `🎯 EXPECT`；完整目标、身份、字段不变量和证据保存在 handoff，SESSION 只引用。
+3. 按当前任务读取或复用已读且未变化的根 `AGENTS.md`、目标目录的就近 `AGENTS.md`、[`docs/GOAL.md`](../../../docs/GOAL.md)、[`docs/ROADMAP.md`](../../../docs/ROADMAP.md)。触碰投影、EventSink 或 bus 时再读 [`projection-schema.md`](../../../crates/helix-im/docs/projection-schema.md)。
 4. 先用 codebase-memory 的 `search_graph`/`trace_path` 定位符号与调用者；图谱不足再用 `rg`。从 [`references/source-map.md`](../messagev3-cross-layer-emit-diagnosis/references/source-map.md) 取检索入口，但必须用当前源码重新确认 `file:line`。
 5. 固定仓库和文件租约：记录每个 repo 的 cwd、branch、HEAD、允许修改的目录、禁止触碰的 dirty 文件和 owner。Go 只有在用户明确把 Go 纳入本轮范围时才改；否则保留精确 Go `file:line` 根因给上游。
 
@@ -128,7 +128,7 @@ Angular 提交最小 intent
 
 ## 4. 真实链验收
 
-触达外部 Go/WS/SQLite/Native 的 Command 使用共享 host/Native 装配，按八步留证：
+进行已授权的真实链验收时，触达外部 Go/WS/SQLite/Native 的 Command 使用共享 host/Native 装配，按八步留证。实现、定向验证、真实验收与发布分开报告；环境缺失不阻断独立的本地工作，但不得把实现完成冒称真实验收或整体任务完成：
 
 1. 公开入口接收 payload，记录 `run_id`/`corr`；
 2. Helix 产生首批 Effect，记录 optimistic/pending（如适用）；
@@ -157,7 +157,7 @@ yarn test <affected-filter>
 git diff --check
 ```
 
-Rust 遵守 Cargo 纪律：中途不改一处跑一次，完整模块最多一次 `cargo check`，阶段完成再跑规定验收。第二个无关失败出现时停止扩张，将该批次标为 `PARTIAL`/`BLOCKED`；Go、认证、WS、SQLite、Tauri 或客户端宿主未就绪时写 `BLOCKED_PRECONDITION`，不搭假服务伪造成功。
+Rust 允许必要 focused 红绿和失败后的定向复验；禁止每处小编辑后重复宽范围检查，已通过结果按代码/依赖/环境身份复用，次数不作硬性停工上限。第二个无关失败出现时停止扩张、单列受阻门禁，继续独立批次；真实 Go/认证/WS/SQLite/Tauri 前置缺失时仅该验收层标 `BLOCKED_PRECONDITION`，不搭假服务冒充真实链。
 
 ## 6. 失败分类与交付合同
 
@@ -192,7 +192,7 @@ UI_DOM：viewport、状态和证据（若运行）
 ## 7. 提交边界与反模式
 
 - 跨仓改动按仓库、owner 和可独立验收批次提交；使用中文 Conventional Commit 和 `docs/COMMIT_CONVENTION.md` 的结构化 body，不自动 push。
-- 未完成、存在 blocker、测试失败、cleanup 失败或混入无关 dirty 改动时禁止提交；先拆分或如实交付 `PARTIAL`。
+- 本批次实现未完成、适用门禁失败、已运行资源 cleanup 失败或暂存集合混入无关改动时禁止提交。无关工作树 dirty 不自动阻断；已满足本仓实现门禁的独立批次可按已有授权提交，真实验收/发布受阻单独报告。CI、合并、发布的真实链准入保持不变；不得将部分完成标记为整体完成。
 - 不把 Go raw WS 直接当 Angular 事实，不把 driver 当 projection，不把 Angular fallback 当修复，不把 HTTP 200/health/mock/fixture/单库读回当真实链，不手工改共享数据库制造绿。
 - 任何新函数/测试 helper 遵守就近 `AGENTS.md` 的紧邻精简注释、生命周期和热路径约束；固定字段复制必须有界，禁止重复 clone 和无界遍历。
 

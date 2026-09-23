@@ -147,6 +147,8 @@ handler/view_model.source.type  = ?
 
 ### 重跑：先 focused，再真实链
 
+先完成已授权 focused 验证；真实链按任务授权和真实前置执行。分别报告实现、定向验证、真实验收和发布；仅暂停受阻步骤，不重复索要已有授权，也不把静态/局部证据晋级。
+
 ```bash
 # 根据当前 crate/test target 替换过滤器
 cargo test -p helix-im --lib <focused_filter> -- --nocapture

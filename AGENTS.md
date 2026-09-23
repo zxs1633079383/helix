@@ -70,7 +70,7 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 ### 3.0 完成态自动提交授权
 
 - 每完成一个可独立验收的 Task、Phase 或任务，验证通过后自动创建分类清晰的 Conventional Commit，无需再次询问。
-- 未完成、blocked、partial、验证失败或仍混有其他任务改动时禁止提交；先继续完成或拆分工作树。
+- 本批次实现未完成、适用门禁失败或暂存集合混入其他任务改动时禁止提交。无关 dirty 文件不自动阻断；按精确白名单暂存，同文件无法安全分离时才隔离或协调。真实验收/发布受阻不自动冻结已满足本仓实现门禁的独立批次；分别报告实现、定向验证、真实验收和发布状态，不冒称整体完成。
 - commit body 遵循 `docs/COMMIT_CONVENTION.md`，写明影响范围、协议/依赖边界、真实验证和 Harness 更新；不得自动 push。
 
 - 改完一个完整模块 / commit 前：`cargo check -p <crate>` 一次
@@ -81,7 +81,7 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
   cargo build --target wasm32-unknown-unknown -p helix-driver-web
   ```
 - `cargo tree -p cses-helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` → **必须空**（零运行时证明）
-- **autonomous / sub-agent 模式**：自跑验证并回报；**单任务 prompt 模式**：输出命令让用户决定（除非用户说"你跑"）
+- 已授权实现或修复默认包含受影响范围的本地编译、静态检查和隔离测试，直接运行并报告，不要求用户重复说“你跑”；生产、真实业务数据、压测、发布及其他显式批准继续遵守对应门禁。纯文档/Skill 修改检查内容、元数据、引用与差异，不触发 Cargo。
 
 ### 3.0.1 验证扩张停止条件
 
@@ -90,21 +90,14 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 - `cargo test -p helix-im` 全量测试与三端 Rust 验收只在改动触及共享协议、core、port、driver，或任务明确属于 phase/release 时执行；不得把它们升级为每个小批次的默认提交前置。
 - 一个独立批次满足「文件归属明确、未混入 partial、聚焦验证通过、`git diff --check` 通过」后立即 commit，不等待其他仓库或无关全量验证；push 按本次任务授权直接执行，本地不安装或自动恢复 pre-push hook。
 
-### 3.1 派 helix Rust agent / workflow 必注入的 Cargo 纪律（🔴 硬性 · 防反复编译空耗）
+### 3.1 Cargo 验证纪律
 
-> **触发**：任何派去改 Rust 的 agent / workflow，prompt **必须**含下面这段。
-> **Why**：cargo 编译是分钟级物理成本；不约束则 agent 陷入「改一行→cargo check→报错→改→再 check」循环——
-> 实测一个 FixA agent 因此耗 ~17min，70%+ 全在编译循环空耗（非思考）。机器没法 gate「数 cargo 次数」，
-> 故靠**强制 prompt 注入 + 本节**双落点硬化。
+适用于主会话及 Rust 子任务；委派时引用本节或给出相关约束，不重复注入整段正文。
 
-```
-## Cargo 纪律（强约束·必守）
-- 中途编码**禁跑 cargo**：靠类型签名 + rust-analyzer 式自审，不每改一处就 check。
-- cargo **只在两处跑**：① 一个完整模块改完、准备 commit 前 `cargo check -p <crate>` 一次；
-  ② phase/任务完成 `cargo test`（或双端验收命令）一次。
-- **禁「失败→改→再 check」单点试错循环**：报错一次性读完、批量修完，再跑一次。
-- 目标：单 agent 全程 cargo 调用 **≤ 2-3 次**（不是 5-6 次）。
-```
+- 允许必要的 focused 红绿测试、失败后的定向复验；先取得红测证据再实现，不能因次数预算跳过验证。
+- 合并可批量修复的错误，禁止每处小编辑后重复执行宽范围 `cargo check/test`。
+- 完整模块完成后做受影响 crate 检查；全量/三端验证按 §3.0.1 的触发范围执行。
+- 同一代码、依赖、配置和环境身份的通过结果直接复用；调用次数只作效率提示，不是硬性停工上限。
 
 > 配套「共享编译缓存」：helix 是非 Tauri 纯 Rust → 用 **sccache**（artifact 缓存·分支无关·不 thrash）；
 > **禁 `CARGO_TARGET_DIR` 跨 worktree 共享**（不同分支不同代码 → 来回切全量重编，反向变慢，见全局 performance.md）。
@@ -136,10 +129,10 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 4. 失败生命周期：HTTP/WS/业务失败、Persist 失败、timeout 至少各有可证伪断言；
 5. 幂等与顺序：重复、迟到、断线后回灌不能重复 Emit、重复写入或倒退状态；
 6. 资源生命周期：成功、失败、超时、取消后均无 `corr_map`/pending/timer/transport 泄漏；
-7. 真实边界（适用于触达外部服务的 Command）：同轮保留 HTTP/WS、Helix projection、SQLite/持久化和 EventSink 证据；
+7. 真实边界（触达外部服务的 Command）：真实链验收必须在同一 run 内关联 HTTP/WS、Helix projection、SQLite/持久化和 EventSink。这里的“同轮”指关联证据来自同一次运行，不要求每个对话阶段重跑；已有证据按代码/依赖/环境身份复用，且不得宣称代表当前未核实运行态；
 8. 清理：测试只清理本轮 run-owned 资源，不能 truncate 共享库或把 health/HTTP 200 作为业务 PASS。
 
-`helix-im` 的 focused seam、Command/PortReply 规则由 [`crates/helix-im/tests/AGENTS.md`](crates/helix-im/tests/AGENTS.md) 继续约束；Native 真实链和 G01a 八步模板由 [`crates/helix-driver-native/tests/AGENTS.md`](crates/helix-driver-native/tests/AGENTS.md) 约束。任何新增 Command 如果没有对应生命周期测试、失败测试和清理证据，状态只能是 `PARTIAL`/`BLOCKED`，不得合并为 Green。
+`helix-im` 的 focused seam、Command/PortReply 规则由 [`crates/helix-im/tests/AGENTS.md`](crates/helix-im/tests/AGENTS.md) 继续约束；Native 真实链和 G01a 八步模板由 [`crates/helix-driver-native/tests/AGENTS.md`](crates/helix-driver-native/tests/AGENTS.md) 约束。任何新增 Command 没有对应生命周期测试、失败测试和已运行资源的清理证据时，实现验收只能是 `PARTIAL`/`BLOCKED`。真实环境缺失时单列真实链 `BLOCKED_PRECONDITION`/`NOT_VERIFIED`，不得合并为真实链 Green；已通过实现门禁的独立批次可按 §3.0 提交。任务要求真实验收/发布时必须继续完成已授权步骤，环境受阻也不能把整体任务标为完成；CI/合并/发布的真实链准入保持不变。
 
 ---
 
@@ -154,7 +147,7 @@ core layer   ★ helix-core ★   ports(Storage/Clock/EventSink/IdSource) + Modu
 2. 同根因 ≥ 3 次 / 用户明确 / Spec 拍板 → 即时新建 `docs/harness/HX-C{NNN}-*.md`（同会话内）
 3. harness/ 增删 → 即时同步本表 + `docs/harness/README.md` + 一次 commit
 
-**必须 Read 完整手册的触发**：autonomous 任务开始前（协议 P1-P5）/ 第一次建 harness（§4 模板 + §5 触发器）/ 升级 merged·deprecated（§3.3）/ 用户问"怎么不再踩同一个坑"（§0 + §8）。
+**按需 Read 手册**：首次 autonomous 任务读取 P1-P5；第一次建 harness 读 §4/§5；升级 merged·deprecated 读 §3.3；复盘重复根因读 §0/§8。同任务已读且未变时复用，不因阶段/代理切换重读全文。handoff 保存当前状态，SESSION 只留索引及 EXPECT/DONE，GOAL 仅随长期决策变化；不复制同一份证据。
 
 **在册 harness 索引**（详见 [`docs/harness/README.md`](docs/harness/README.md)）：
 
@@ -241,7 +234,7 @@ manifest/README/Mermaid 验证合同。
 **触发**（照 §6 实质任务门槛，命中任一才写；typo / 单行 / 纯格式**豁免**，防空转噪声）：
 ≥3 文件 / 净增删 ≥50 行 / 跨 crate / 改 port 或 driver / 迁移 / 不可逆操作。
 
-**开局**——写一行进 `SESSION.md §0`（EXPECT 必须**可证伪**，堵自评自判漏洞）：
+**开局**——写一行进 `SESSION.md §0`（EXPECT 必须**可证伪**）；其余目标、身份、状态和证据只在任务 handoff 保存，SESSION 引用交接，不复制全文：
 
 ```
 🎯 EXPECT <预判结果，至少含 1 条可证伪断言> | 赌注 高/中/低 | 可逆 是/否 | @<ts>

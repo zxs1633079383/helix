@@ -1,3 +1,7 @@
+🎯 EXPECT 指令优化只改规则、Skill和文档；生产代码、100%覆盖率、生产/发布/版本/指标批准不变；文档差异与技能元数据检查通过。 | 赌注 中 | 可逆 是 | @2026-09-23
+- 当前任务交接：/System/Volumes/Data/workspace/golang/cses-im-server/docs/交接/Token消耗与指令审阅/handoff.md
+✅ DONE 指令优化：规则与Skill修改，9入口元数据检查及白名单diff检查通过；未改生产代码/版本/质量门禁，未push。详细证据见任务交接。
+
 # 0921 关闭群输入状态恢复
 
 🎯 EXPECT 关闭终态与频道可写状态同事务持久化，重启及迟到 increment 不恢复输入；既有 terminal marker 可恢复旧缓存；不修改真实数据库、版本或发布。| 赌注 中 | 可逆 是 | @2026-09-21

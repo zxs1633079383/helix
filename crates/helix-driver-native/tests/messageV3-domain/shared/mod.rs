@@ -1690,7 +1690,42 @@ pub(crate) async fn start_real_helix_session_as_at(
             }
         });
     }
-    Ok(isolated_session(components))
+    let mut session = isolated_session(components);
+    if let Err(error) = ensure_session_channel_scope(&mut session, channel_ids).await {
+        let _ = session.close().await;
+        return Err(error);
+    }
+    Ok(session)
+}
+
+/// 真实频道补水完成后才交出会话，保证后续读与投影使用已提交的 RenderScope。
+async fn ensure_session_channel_scope(
+    session: &mut RealHelixSession,
+    channel_ids: &[&str],
+) -> Result<(), String> {
+    let mut pending = channel_ids.iter().copied().collect::<HashSet<_>>();
+    for channel_id in channel_ids {
+        session
+            .command(
+                "im_ensure_channel_loaded",
+                json!({"channel_id": channel_id, "req_id": run_token("scope-hydration")}),
+            )
+            .await?;
+    }
+    while !pending.is_empty() {
+        let event = session
+            .wait_event(
+                "im:channel:update",
+                |envelope| pending.iter().any(|id| event_targets_channel(envelope, id)),
+                Duration::from_secs(25),
+            )
+            .await
+            .map_err(|error| format!("channel scope hydration failed for {pending:?}: {error}"))?;
+        let envelope: Value = serde_json::from_slice(event.0.as_ref())
+            .map_err(|error| format!("channel scope hydration event JSON failed: {error}"))?;
+        pending.retain(|id| !event_targets_channel(&envelope, id));
+    }
+    Ok(())
 }
 
 /// 生成不含账号/令牌的本轮 correlation 头和 run-owned 资源前缀。
@@ -4282,6 +4317,28 @@ pub(crate) async fn run_helix_send(
             "im:connection:established",
             |_| true,
             Duration::from_secs(20),
+        )
+        .await?;
+
+        // 此路径自行装配 Engine，须在发送前建立可信频道归属。
+        let hydration_payload = json!({
+            "channel_id": channel_id,
+            "req_id": run_token("send-scope-hydration"),
+        });
+        tick_tx
+            .send(Tick::Command(AppCommand::new(
+                "im_ensure_channel_loaded",
+                Bytes::from(
+                    serde_json::to_vec(&hydration_payload).map_err(|error| error.to_string())?,
+                ),
+            )))
+            .await
+            .map_err(|error| format!("send channel scope hydration Tick failed: {error}"))?;
+        wait_domain_event(
+            &mut events,
+            "im:channel:update",
+            |envelope| event_targets_channel(envelope, channel_id),
+            Duration::from_secs(25),
         )
         .await?;
 
@@ -8266,6 +8323,7 @@ pub(crate) async fn assert_forward_chain(
             source_messages.push(text);
         }
         let req_id = run_token("forward");
+        let command_id = run_token("forward-command");
         actor
             .command(
                 "im_create_posts",
@@ -8273,6 +8331,7 @@ pub(crate) async fn assert_forward_chain(
                     "post_ids": source_ids.clone(),
                     "target_channel_ids": [target.clone()],
                     "mode": mode,
+                    "command_id": command_id,
                     "req_id": req_id.clone(),
                 }),
             )
@@ -8343,10 +8402,17 @@ pub(crate) async fn assert_forward_chain(
                     "item forward target messages mismatch: expected {expected_messages:?}, got {actual_messages:?}; frames={target_frames:?}"
                 ));
             }
-        } else if !target_frames[0].to_string().contains("MULTIPLY")
-            || !target_frames[0].to_string().contains("mergeMessage")
-        {
-            return Err(format!("{gate} merge forward post did not retain MULTIPLY/mergeMessage"));
+        } else {
+            // Go's ID-based forward contract stores a detached snapshot card in props.forward.
+            let frame = &target_frames[0];
+            let data = frame.get("data").unwrap_or(frame);
+            let card = data.pointer("/props/forward");
+            if data.get("type").and_then(Value::as_str) != Some("MULTIPLY")
+                || card.and_then(|card| card.get("snapshotId")).and_then(Value::as_str).is_none()
+                || card.and_then(|card| card.get("itemCount")).and_then(Value::as_u64) != Some(source_ids.len() as u64)
+            {
+                return Err(format!("{gate} merge forward post lacks the canonical MULTIPLY snapshot card: {frame}"));
+            }
         }
         let http = go_http(&context.actor).await?;
         let target_ids = target_frames
@@ -8417,7 +8483,7 @@ pub(crate) async fn assert_forward_chain(
     Ok(())
 }
 
-/// 按 Angular 图片 preview 转发的 `postIds + channelIds` wire 验证真实媒体上传后不变形。
+/// 用 Go 的 individual forward 合同验证图片上传后的稳定引用不变形。
 pub(crate) async fn assert_image_forward_chain(
     phase: &str,
     domain: &str,
@@ -8515,7 +8581,9 @@ pub(crate) async fn assert_image_forward_chain(
                 &format!("{}/posts/createPosts", go_http_base()),
                 Some(json!({
                     "postIds": [source_post_id],
-                    "channelIds": [target]
+                    "targetChannelIds": [target],
+                    "mode": "individual",
+                    "commandId": run_token("forward-image-command"),
                 })),
                 "forward-image",
             )
@@ -8584,7 +8652,7 @@ pub(crate) async fn assert_image_forward_chain(
                         "message": row_text(&source_row, "message"),
                         "send_status": row_text(&source_row, "send_status"),
                     },
-                    "wire": "postIds + channelIds",
+                    "wire": "postIds + targetChannelIds + mode + commandId",
                     "source_target_same_stable_reference": true,
                     "prepare_count": staged.len(),
                     "oss_put_count": staged.len(),

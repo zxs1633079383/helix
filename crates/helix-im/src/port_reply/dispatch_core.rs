@@ -1708,13 +1708,16 @@ mod channel_sync_contract_tests {
         assert_eq!(normalize_member_projection_role("MEMBER"), "MEMBER");
     }
 
-    /// 新 roster 写入后不得被同一频道快照中的旧 snake_case 别名反向覆盖。
+    /// 新完整 roster 写入后不得被同一频道快照中的旧 snake_case 别名反向覆盖。
     #[test]
     fn member_projection_removes_stale_storage_aliases_before_rendering() {
         let mut channel = serde_json::json!({
             "admin_users": [],
             "member_count": 2,
+            "members": [{ "userId": "member-a" }, { "userId": "member-b" }],
             "adminUsers": [{ "userId": "manager-a", "role": "MANAGER" }],
+            "boss": [],
+            "owner": null,
             "memberCount": 3,
         });
         remove_stale_member_projection_aliases(channel.as_object_mut().expect("channel object"));

@@ -134,11 +134,13 @@ pub fn program_full(
             omit.push("last_post_at");
         }
     }
-    row.push(("delete_at", SqlValue::Integer(i("deleteAt").unwrap_or(0))));
-    // 离线快照只采纳 Go 的权威 close；缺席时保留本地已提交的关闭终态。
-    match b("close") {
-        Some(closed) => row.push(("is_closed", SqlValue::Integer(closed as i64))),
-        None => {
+    let delete_at = i("deleteAt").unwrap_or(0);
+    row.push(("delete_at", SqlValue::Integer(delete_at)));
+    // Go 关群只写 deleteAt；本地关闭投影不能被快照里的 close=false 清掉。
+    match (delete_at > 0, b("close")) {
+        (true, _) => row.push(("is_closed", SqlValue::Integer(1))),
+        (false, Some(closed)) => row.push(("is_closed", SqlValue::Integer(closed as i64))),
+        (false, None) => {
             row.push(("is_closed", SqlValue::Integer(0)));
             omit.push("is_closed");
         }

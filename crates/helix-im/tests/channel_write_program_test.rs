@@ -9,11 +9,13 @@ fn get<'a>(row: &'a [ChannelCol], col: &str) -> Option<&'a SqlValue> {
     row.iter().find(|(k, _)| *k == col).map(|(_, v)| v)
 }
 
-/// 离线快照的权威 close 必须写入 is_closed，缺字段时保留已收到的关闭终态。
+/// Go 的关群快照只写 deleteAt；close=false 不得清掉关闭终态。
 #[test]
-fn program_full_persists_authoritative_close_fact() {
-    for (close, expected) in [(Some(false), 0), (Some(true), 1), (None, 0)] {
-        let mut data = serde_json::json!({"id": "00000000000000000000000007", "deleteAt": 123});
+fn program_full_derives_closed_fact_from_delete_at() {
+    for (delete_at, close, expected) in [(123, Some(false), 1), (123, None, 1), (0, Some(false), 0)]
+    {
+        let mut data =
+            serde_json::json!({"id": "00000000000000000000000007", "deleteAt": delete_at});
         if let Some(close) = close {
             data["close"] = serde_json::json!(close);
         }
@@ -21,7 +23,10 @@ fn program_full_persists_authoritative_close_fact() {
         assert!(
             matches!(get(&row, "is_closed"), Some(SqlValue::Integer(value)) if *value == expected)
         );
-        assert_eq!(omit.contains(&"is_closed"), close.is_none());
+        assert_eq!(
+            omit.contains(&"is_closed"),
+            delete_at == 0 && close.is_none()
+        );
     }
 }
 

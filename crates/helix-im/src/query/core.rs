@@ -619,14 +619,9 @@ fn render_subtopic_row(row: serde_json::Value) -> serde_json::Value {
     rendered
 }
 
-/// 已关闭且带删除时间的频道仍属归档会话；仅真正删除或移除态不可见。
+/// 频道 delete_at 是关群归档时间；只有当前 viewer 的移除态不进入列表。
 pub(crate) fn channel_row_is_terminal(row: &serde_json::Value) -> bool {
-    let deleted = ["delete_at", "deleteAt"].iter().any(|key| {
-        row.get(*key)
-            .and_then(serde_json::Value::as_i64)
-            .is_some_and(|value| value > 0)
-    });
-    let removed = ["is_remove", "isRemove"].iter().any(|key| {
+    ["is_remove", "isRemove"].iter().any(|key| {
         row.get(*key).is_some_and(|value| {
             value.as_bool().unwrap_or(false)
                 || value.as_i64().is_some_and(|value| value != 0)
@@ -634,12 +629,7 @@ pub(crate) fn channel_row_is_terminal(row: &serde_json::Value) -> bool {
                     .as_str()
                     .is_some_and(|value| matches!(value, "1" | "true" | "TRUE"))
         })
-    });
-    let closed = ["is_closed", "close"].iter().any(|key| {
-        row.get(*key)
-            .is_some_and(|value| value.as_bool() == Some(true) || value.as_i64() == Some(1))
-    });
-    removed || (deleted && !closed)
+    })
 }
 
 /// 仅允许租户内、当前 viewer 所属的 channel 行进入结果。

@@ -644,13 +644,11 @@ mod tests {
         ChannelSyncSession::new("session-a".to_string(), 7, "user-a", "company-a")
     }
 
-    /// 删除/移除别名先于成员版本校验执行，旧零版本成员不能污染整个同步页。
+    /// 移除别名先于成员版本校验执行，旧零版本成员不能污染整个同步页。
     #[test]
     fn terminal_channels_are_filtered_before_member_projection() {
         let scope = crate::query::DialogListScope::new("user-a", "company-a");
         for marker in [
-            json!({"delete_at": 123}),
-            json!({"deleteAt": 123}),
             json!({"is_remove": 1}),
             json!({"isRemove": true}),
             json!({"is_remove": "true"}),
@@ -706,7 +704,7 @@ mod tests {
     fn archived_channel_survives_member_scan_and_page_projection() {
         let scope = crate::query::DialogListScope::new("user-a", "company-a");
         let channels = json!([{"id":"archive", "team_id":"company-a", "type":"P",
-            "is_closed":1, "delete_at":1789974402636_i64}]);
+            "is_closed":0, "delete_at":1789974402636_i64}]);
         let members = json!([{"channel_id":"archive", "user_id":"user-a",
             "team_id":"company-a", "role":"MEMBER"}]);
         let Effect::Persist { ops, .. } = member_scan_effect(
@@ -730,7 +728,7 @@ mod tests {
         .expect("archived member projection");
         assert!(!more);
         assert_eq!(page.len(), 1);
-        assert_eq!(page[0]["close"], true);
+        assert_eq!(page[0]["close"], false);
         assert_eq!(page[0]["deleteAt"], 1789974402636_i64);
     }
 
@@ -741,7 +739,7 @@ mod tests {
         let channels: Vec<_> = (0..41)
             .map(|i| {
                 json!({"id":format!("c-{i}"),
-            "team_id":"company-a", "delete_at":if i < 20 {1} else {0}})
+            "team_id":"company-a", "is_remove":if i < 20 {1} else {0}})
             })
             .collect();
         let members: Vec<_> = (0..41)

@@ -197,16 +197,16 @@ fn query_dialog_list_emits_one_scoped_result_without_legacy_events() -> Result<(
     Ok(())
 }
 
-/// 关闭的频道仍是当前 viewer 可见的归档会话；删除和移除态不能混入结果。
+/// Go 关群只写 delete_at；close=false 的频道仍须返回给当前 viewer。
 #[test]
-fn query_dialog_list_returns_archived_channel_with_close_fact() -> Result<(), String> {
+fn query_dialog_list_returns_archived_channel_with_delete_at() -> Result<(), String> {
     let mut replay = Replay::new();
     let corr = replay.query(json!({"req_id": "req-g13a-archive"}))?;
     replay.reply_ok(
         corr,
         json!([
             {"id": CHANNEL_VISIBLE, "team_id": COMPANY, "user_id": VIEWER,
-             "is_closed": 1, "delete_at": 1789974402636_i64, "is_remove": 0},
+             "is_closed": 0, "delete_at": 1789974402636_i64, "is_remove": 0},
             {"id": CHANNEL_OTHER_TENANT, "team_id": "company-other", "user_id": VIEWER,
              "is_closed": 1, "delete_at": 1789974402636_i64},
             {"id": CHANNEL_OTHER_VIEWER, "team_id": COMPANY, "user_id": "viewer-other",
@@ -214,7 +214,7 @@ fn query_dialog_list_returns_archived_channel_with_close_fact() -> Result<(), St
             {"id": "removed", "team_id": COMPANY, "user_id": VIEWER,
              "is_closed": 1, "delete_at": 1789974402636_i64, "is_remove": 1},
             {"id": "deleted", "team_id": COMPANY, "user_id": VIEWER,
-             "is_closed": 0, "delete_at": 1789974402636_i64}
+             "is_closed": 0, "delete_at": 1789974402636_i64, "is_remove": 1}
         ]),
     )?;
     let events = replay.events();
@@ -224,7 +224,7 @@ fn query_dialog_list_returns_archived_channel_with_close_fact() -> Result<(), St
         .ok_or("missing items")?;
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["id"], CHANNEL_VISIBLE);
-    assert_eq!(items[0]["close"], true);
+    assert_eq!(items[0]["close"], false);
     assert_eq!(items[0]["deleteAt"], 1789974402636_i64);
     Ok(())
 }

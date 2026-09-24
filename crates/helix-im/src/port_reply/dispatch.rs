@@ -1377,6 +1377,12 @@ impl ImModule {
                 );
             }
 
+            CorrelationContext::RecentHistoryRead { command } => {
+                crate::recent_history::read_reply(self, command, outcome, out)?;
+            }
+            CorrelationContext::RecentHistoryWrite { command, result } => {
+                crate::recent_history::write_reply(self, command, result, outcome, out)?;
+            }
             CorrelationContext::MessageV3DraftReadback { command } => {
                 self.handle_draft_readback_reply(command, outcome, out)?;
             }

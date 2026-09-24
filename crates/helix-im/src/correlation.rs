@@ -565,6 +565,13 @@ pub enum CorrelationContext {
     },
 
     /// MV3-G02e 草稿 ScopedGet 读回；命令携带账号、频道和 req_id 的完整隔离上下文。
+    RecentHistoryRead {
+        command: Box<crate::recent_history::Command>,
+    },
+    RecentHistoryWrite {
+        command: Box<crate::recent_history::Command>,
+        result: serde_json::Value,
+    },
     MessageV3DraftReadback {
         command: Box<crate::draft::QueryDraftCommand>,
     },

@@ -1072,3 +1072,10 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 发布前验证：IM 全量 1558 passed / 4 failed / 11 ignored；Core 24 passed / 1 ignored；真实 SQLite 的身份迁移、公司隔离、未读锚点共 4 passed。4 项失败（参考 schema 的 go 字段、TEXT/DOCUMENT HTTP admission 旧断言、公告摘要前缀）均在远端 abd689ac 独立源码副本同样复现，未扩大本次修复范围。日志在 artifacts/identity-release-0.1.26/{im-full-corrected,baseline-tests,core,host-merged}.log。
 
 ✅ DONE crates.io 0.1.26 四包正式发布并通过 cargo info 可解析验证；正式脚本八包 cargo check、四包 dry-run/上传全部通过。WASM 构建通过，Core 依赖树无运行时依赖。用户已授权 push，版本提交及 helix-v-0.1.26 注释 Tag 随后推送；客户端升级、桌面/手机制品发布不在本轮范围。发布日志：artifacts/identity-release-0.1.26/publish.log。
+
+# 最近记录 Helix 发布
+
+🎯 EXPECT 发布最近搜索/转发本地存储为 0.1.36，四个 crate registry 可解析，提交和 tag 与远端一致；不改客户端依赖。 | 赌注 中 | 可逆 否 | @2026-09-23
+- 分支 reactor/MessageV3-helix；本地记录命令生命周期见 crates/helix-im/src/recent_history.rs。
+- 定向证据：/tmp/history-unit-final.log（2 通过）、/tmp/history-sqlite-final.log（1 通过）；PRE UI 未验证。
+✅ DONE 0.1.36 四个 crate 已发布 crates.io 并可解析；release workspace check 与逐包 dry-run 通过。未跑全量测试，未升级客户端依赖，PRE UI 未验证。发布日志 /tmp/helix-0136-publish.log。

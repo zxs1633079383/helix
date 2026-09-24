@@ -83,3 +83,5 @@ pub use schema::{SparseTableSpec, IM_SCHEMA, IM_SCHEMA_MIGRATIONS, IM_SPARSE_TAB
 /// 用户级共库要求公司渲染硬闸门和同公司 create_at 水位同时可用。
 /// 宿主在启用物理库迁移前必须绑定本合同，禁止以旧 IM 内核打开跨公司合并库。
 pub const USER_SCOPED_STORE_RENDER_CONTRACT_VERSION: u32 = 1;
+
+pub mod recent_history;

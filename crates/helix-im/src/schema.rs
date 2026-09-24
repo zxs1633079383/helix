@@ -21,6 +21,11 @@ pub use helix_core::effect::SparseTableSpec;
 /// Tables currently addressed through `StorageOp` by `ImModule`.
 pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
     SparseTableSpec {
+        table: "im_recent_history",
+        identity_cols: &["scope", "kind"],
+        scope_col: Some("scope"),
+    },
+    SparseTableSpec {
         table: "message",
         identity_cols: &["temporary_id"],
         scope_col: Some("channel_id"),
@@ -135,6 +140,7 @@ pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
 /// （恒空）。M2 共享既有 678 tenant.db 时该列仍由 cses-client 持有、IF NOT EXISTS 跳过、
 /// helix 永不触碰，故移除零功能影响；fresh helix-only 库则不再建该列与无用索引。
 pub const IM_SCHEMA: &[&'static str] = &[
+    "CREATE TABLE IF NOT EXISTS im_recent_history (scope TEXT NOT NULL, kind TEXT NOT NULL, items TEXT NOT NULL DEFAULT '[]', PRIMARY KEY (scope, kind))",
     // ── message（发送路径权威表；PK = temporary_id，对齐 678，除 segment_id 见上注）──
     "CREATE TABLE IF NOT EXISTS message (\
         temporary_id TEXT PRIMARY KEY,\
@@ -628,4 +634,5 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     clean_message_identity_column!("channel", "last_post"),
     clean_message_identity_column!("channel_member", "last_post"),
     clean_message_identity_column!("channel_pinned_projection", "body"),
+    "CREATE TABLE IF NOT EXISTS im_recent_history (scope TEXT NOT NULL, kind TEXT NOT NULL, items TEXT NOT NULL DEFAULT '[]', PRIMARY KEY (scope, kind))",
 ];

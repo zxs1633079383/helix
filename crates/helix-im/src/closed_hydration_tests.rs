@@ -131,6 +131,7 @@ fn assert_clean(module: &ImModule) {
     let state = &module.state;
     assert!(state.hydration_pending.is_empty());
     assert!(state.hydration_req_ids.is_empty());
+    assert!(state.hydration_waiters.is_empty());
     assert!(state.hydration_emit_channel_increment.is_empty());
     assert!(state.hydration_ordered_rosters.is_empty());
     assert!(state.hydration_authority_unreads.is_empty());

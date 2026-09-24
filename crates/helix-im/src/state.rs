@@ -249,6 +249,9 @@ pub struct ImState {
     /// G13b hydration request identity，贯穿 sync 与 durable read-back 的唯一终态。
     pub hydration_req_ids: HashMap<ChannelId, String>,
 
+    /// 同频道已落库的并发请求，共享主请求的同步及读回终态。
+    pub hydration_waiters: HashMap<ChannelId, Vec<String>>,
+
     /// G09d canonical increment is released only after the same durable read-back as the Result.
     pub hydration_emit_channel_increment: HashSet<ChannelId>,
 
@@ -408,6 +411,7 @@ impl ImState {
             channel_sync_refresh_pending: false,
             hydration_pending: HashSet::new(),
             hydration_req_ids: HashMap::new(),
+            hydration_waiters: HashMap::new(),
             hydration_emit_channel_increment: HashSet::new(),
             hydration_ordered_rosters: HashMap::new(),
             hydration_authority_unreads: HashMap::new(),
@@ -463,6 +467,7 @@ impl ImState {
         self.channel_sync_persist_inflight = 0;
         self.hydration_pending.clear();
         self.hydration_req_ids.clear();
+        self.hydration_waiters.clear();
         self.hydration_emit_channel_increment.clear();
         self.hydration_ordered_rosters.clear();
         self.hydration_authority_unreads.clear();
@@ -552,6 +557,7 @@ impl ImState {
         self.sync_scheduler.reset();
         self.hydration_pending.clear();
         self.hydration_req_ids.clear();
+        self.hydration_waiters.clear();
         self.hydration_emit_channel_increment.clear();
         self.hydration_ordered_rosters.clear();
         self.hydration_authority_unreads.clear();

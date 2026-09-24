@@ -613,18 +613,24 @@ impl ImModule {
                     .into_effect(),
             );
         }
-        out.push(crate::read_relay::emit_read_body(
-            &req_id,
-            serde_json::json!({
-                "channelId": channel_id.as_str(),
-                "channel": *channel,
-                "member": *member,
-                "messages": *messages,
-                "cursor": cursor,
-                "completion": "hydrated",
-                "unreadReconcile": unread_reconcile,
-            }),
-        ));
+        let body = serde_json::json!({
+            "channelId": channel_id.as_str(),
+            "channel": *channel,
+            "member": *member,
+            "messages": *messages,
+            "cursor": cursor,
+            "completion": "hydrated",
+            "unreadReconcile": unread_reconcile,
+        });
+        out.push(crate::read_relay::emit_read_body(&req_id, body.clone()));
+        for waiter in self
+            .state
+            .hydration_waiters
+            .remove(&channel_id)
+            .unwrap_or_default()
+        {
+            out.push(crate::read_relay::emit_read_body(&waiter, body.clone()));
+        }
         Ok(())
     }
 
@@ -636,6 +642,16 @@ impl ImModule {
         reason: &str,
         out: &mut EffectSink,
     ) {
+        // 尚未加入同步的独立 persist 失败，不能清掉另一请求正在等待的终态。
+        if self
+            .state
+            .hydration_req_ids
+            .get(&channel_id)
+            .is_some_and(|primary| primary != req_id)
+        {
+            out.push(crate::read_relay::emit_read_error(req_id, reason));
+            return;
+        }
         self.state.hydration_pending.remove(&channel_id);
         self.state.hydration_req_ids.remove(&channel_id);
         self.state
@@ -644,6 +660,14 @@ impl ImModule {
         self.state.hydration_ordered_rosters.remove(&channel_id);
         self.state.hydration_authority_unreads.remove(&channel_id);
         out.push(crate::read_relay::emit_read_error(req_id, reason));
+        for waiter in self
+            .state
+            .hydration_waiters
+            .remove(&channel_id)
+            .unwrap_or_default()
+        {
+            out.push(crate::read_relay::emit_read_error(&waiter, reason));
+        }
     }
 
     /// 以 channel 取回 hydration reqId 并结算一次失败，供 sync caller 处理解析/网络错误。
@@ -855,12 +879,21 @@ impl ImModule {
         emit_channel_increment: bool,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        self.state.hydration_pending.insert(channel_id);
         if emit_channel_increment {
             self.state
                 .hydration_emit_channel_increment
                 .insert(channel_id);
         }
+        if let Some(primary) = self.state.hydration_req_ids.get(&channel_id) {
+            if primary != &req_id {
+                let waiters = self.state.hydration_waiters.entry(channel_id).or_default();
+                if !waiters.contains(&req_id) {
+                    waiters.push(req_id);
+                }
+            }
+            return Ok(());
+        }
+        self.state.hydration_pending.insert(channel_id);
         self.state
             .hydration_req_ids
             .insert(channel_id, req_id.clone());

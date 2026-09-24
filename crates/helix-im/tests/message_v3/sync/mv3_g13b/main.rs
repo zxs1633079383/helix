@@ -49,10 +49,19 @@ impl Replay {
 
     /// 发起单频道 increment 命令并返回唯一 HTTP correlation。
     fn start(&mut self, channel_id: &str) -> Result<Correlation, String> {
+        self.start_with_id(channel_id, "")
+    }
+
+    /// 使用独立请求 ID 回放同频道并发加载。
+    fn start_with_id(&mut self, channel_id: &str, req_id: &str) -> Result<Correlation, String> {
         self.step(Tick::Command(AppCommand::new(
             "im_channel_load_increment_by_channel_id",
-            serde_json::to_vec(&json!({ "channel_id": channel_id }))
-                .map_err(|error| error.to_string())?,
+            serde_json::to_vec(&if req_id.is_empty() {
+                json!({ "channel_id": channel_id })
+            } else {
+                json!({ "channel_id": channel_id, "req_id": req_id })
+            })
+            .map_err(|error| error.to_string())?,
         )))?;
         let http = self
             .sink
@@ -496,5 +505,80 @@ fn hydration_terminal_is_idempotent_for_late_reply() -> Result<(), String> {
     assert_eq!(replay.events().len(), 1);
     replay.reply_err(http_corr)?;
     assert!(replay.events().is_empty());
+    Ok(())
+}
+
+/// 同频道并发请求共享同步终态，但每个请求必须收到自己的回包。
+#[test]
+fn concurrent_hydration_resolves_every_request() -> Result<(), String> {
+    for fail_sync in [false, true] {
+        let mut replay = Replay::new();
+        let first = replay.start_with_id(CHANNEL, "first")?;
+        replay.reply_http(first, INCREMENT_NEEDS_SYNC_BODY_B64)?;
+        replay.reply_persist_ok(replay.persist_corr().unwrap())?;
+        let sync = replay.sync_corr().unwrap();
+        let second = replay.start_with_id(CHANNEL, "second")?;
+        replay.reply_http(second, INCREMENT_NEEDS_SYNC_BODY_B64)?;
+        replay.reply_persist_ok(replay.persist_corr().unwrap())?;
+        if fail_sync {
+            replay.reply_err(sync)?;
+        } else {
+            replay.reply_http(sync, SYNC_NO_CHANGE_BODY_B64)?;
+            replay.complete_readback()?;
+        }
+        let events: Vec<_> = replay
+            .events()
+            .into_iter()
+            .filter(|e| e["event"] == "im:read:result")
+            .collect();
+        let mut ids: Vec<_> = events
+            .iter()
+            .map(|e| e["data"]["req_id"].as_str().unwrap())
+            .collect();
+        ids.sort();
+        assert_eq!(ids, vec!["first", "second"]);
+        assert!(events
+            .iter()
+            .all(|e| e["data"]["error"].is_string() == fail_sync));
+    }
+    Ok(())
+}
+
+/// 后来的独立写失败不能清掉主请求；读回中加入的请求也必须结算。
+#[test]
+fn concurrent_hydration_preserves_primary_on_persist_failure_and_readback_join(
+) -> Result<(), String> {
+    for fail_persist in [true, false] {
+        let mut replay = Replay::new();
+        let first = replay.start_with_id(CHANNEL, "first")?;
+        replay.reply_http(first, INCREMENT_NEEDS_SYNC_BODY_B64)?;
+        replay.reply_persist_ok(replay.persist_corr().unwrap())?;
+        let sync = replay.sync_corr().unwrap();
+        let second = replay.start_with_id(CHANNEL, "second")?;
+        replay.reply_http(second, INCREMENT_NEEDS_SYNC_BODY_B64)?;
+        let second_persist = replay.persist_corr().unwrap();
+        if fail_persist {
+            replay.reply_err(second_persist)?;
+            assert_eq!(replay.events()[0]["data"]["req_id"], "second");
+            assert!(replay.events()[0]["data"]["error"].is_string());
+        }
+        replay.reply_http(sync, SYNC_NO_CHANGE_BODY_B64)?;
+        let readback = std::mem::replace(&mut replay.sink, EffectSink::new());
+        if !fail_persist {
+            replay.reply_persist_ok(second_persist)?;
+            assert!(replay.events().is_empty());
+            // 保留已经发出的真实读回 effect，继续回灌它的 correlation。
+        }
+        replay.sink = readback;
+        replay.complete_readback()?;
+        let events: Vec<_> = replay
+            .events()
+            .into_iter()
+            .filter(|e| e["event"] == "im:read:result")
+            .collect();
+        assert_eq!(events.len(), if fail_persist { 1 } else { 2 });
+        assert_eq!(events[0]["data"]["req_id"], "first");
+        assert!(events.iter().all(|e| e["data"]["error"].is_null()));
+    }
     Ok(())
 }

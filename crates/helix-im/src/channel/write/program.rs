@@ -1,10 +1,10 @@
-//! S3 path1 — `program_full`：`increment_channel` 帧 → 全 54 列 upsert 行（JSON rename + 守卫）。
+//! S3 path1 — `program_full`：`increment_channel` 帧 → 全 55 列 upsert 行（JSON rename + 守卫）。
 
 use super::ChannelCol;
 use crate::state::ChannelId;
 use helix_core::effect::SqlValue;
 
-/// path1 — 从 `increment_channel` 帧 data 计算全 54 列 upsert 行（含 JSON rename + 守卫覆盖）。
+/// path1 — 从 `increment_channel` 帧 data 计算全 55 列 upsert 行（含 JSON rename + 守卫覆盖）。
 ///
 /// `auth_user_id`：当前登录用户（写 `user_id` 列；helix-im 无身份 → 传入空串时该列为空，
 /// 由 driver/host 注入真值，对齐 emit 路径的 sender 豁免下沉策略）。
@@ -38,7 +38,7 @@ pub fn program_full(
 
     let ch_type = s("type").unwrap_or_default();
     let mut omit: Vec<&'static str> = Vec::new();
-    let mut row: Vec<ChannelCol> = Vec::with_capacity(54);
+    let mut row: Vec<ChannelCol> = Vec::with_capacity(55);
 
     row.push(("id", SqlValue::Text(id.as_str().to_string())));
     row.push((
@@ -135,6 +135,14 @@ pub fn program_full(
         }
     }
     row.push(("delete_at", SqlValue::Integer(i("deleteAt").unwrap_or(0))));
+    // 离线快照只采纳 Go 的权威 close；缺席时保留本地已提交的关闭终态。
+    match b("close") {
+        Some(closed) => row.push(("is_closed", SqlValue::Integer(closed as i64))),
+        None => {
+            row.push(("is_closed", SqlValue::Integer(0)));
+            omit.push("is_closed");
+        }
+    }
     row.push(("props", SqlValue::Text(j("props", "{}"))));
     row.push((
         "created_at",

@@ -1,4 +1,4 @@
-//! 回归锚: S3 path1 —— `channel_write::program_full` 全 54 列 upsert 计算（含 JSON rename + 守卫 omit）。
+//! 回归锚: S3 path1 —— `channel_write::program_full` 全 55 列 upsert 计算（含 JSON rename + 守卫 omit）。
 //!
 //! 拆为集成测试（程序逻辑单元）以保 `src/channel_write/program.rs` ≤300 行硬顶（结构规约 §1）。
 
@@ -9,9 +9,25 @@ fn get<'a>(row: &'a [ChannelCol], col: &str) -> Option<&'a SqlValue> {
     row.iter().find(|(k, _)| *k == col).map(|(_, v)| v)
 }
 
-/// 回归锚: S3 path1 —— increment 全量 54 列 + JSON rename + 守卫 omit。
+/// 离线快照的权威 close 必须写入 is_closed，缺字段时保留已收到的关闭终态。
 #[test]
-fn program_full_emits_54_cols_with_guards_omitted_s3() {
+fn program_full_persists_authoritative_close_fact() {
+    for (close, expected) in [(Some(false), 0), (Some(true), 1), (None, 0)] {
+        let mut data = serde_json::json!({"id": "00000000000000000000000007", "deleteAt": 123});
+        if let Some(close) = close {
+            data["close"] = serde_json::json!(close);
+        }
+        let (row, omit) = program_full(&data, "viewer", 1).expect("valid snapshot");
+        assert!(
+            matches!(get(&row, "is_closed"), Some(SqlValue::Integer(value)) if *value == expected)
+        );
+        assert_eq!(omit.contains(&"is_closed"), close.is_none());
+    }
+}
+
+/// 回归锚: S3 path1 —— increment 全量 55 列 + JSON rename + 守卫 omit。
+#[test]
+fn program_full_emits_55_cols_with_guards_omitted_s3() {
     let data = serde_json::json!({
         "id": "00000000000000000000000007",
         "displayName": "群A",
@@ -30,8 +46,8 @@ fn program_full_emits_54_cols_with_guards_omitted_s3() {
 
     assert_eq!(
         row.len(),
-        54,
-        "path1 = 全 54 列（含 header/member_count 守卫列）"
+        55,
+        "path1 = 全 55 列（含 header/member_count/is_closed 守卫列）"
     );
     // JSON rename / 透传
     assert!(matches!(get(&row, "display_name"), Some(SqlValue::Text(s)) if s == "群A"));
@@ -61,6 +77,7 @@ fn program_full_emits_54_cols_with_guards_omitted_s3() {
         "admin_users",
         "boss",
         "member_count",
+        "is_closed",
     ] {
         assert!(omit.contains(&col), "{col} 应进 omit_on_conflict");
     }

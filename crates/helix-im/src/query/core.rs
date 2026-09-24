@@ -619,7 +619,7 @@ fn render_subtopic_row(row: serde_json::Value) -> serde_json::Value {
     rendered
 }
 
-/// 删除或被移除的频道不再进入任何本地列表/频道快照；兼容持久列和投影别名。
+/// 已关闭且带删除时间的频道仍属归档会话；仅真正删除或移除态不可见。
 pub(crate) fn channel_row_is_terminal(row: &serde_json::Value) -> bool {
     let deleted = ["delete_at", "deleteAt"].iter().any(|key| {
         row.get(*key)
@@ -635,7 +635,11 @@ pub(crate) fn channel_row_is_terminal(row: &serde_json::Value) -> bool {
                     .is_some_and(|value| matches!(value, "1" | "true" | "TRUE"))
         })
     });
-    deleted || removed
+    let closed = ["is_closed", "close"].iter().any(|key| {
+        row.get(*key)
+            .is_some_and(|value| value.as_bool() == Some(true) || value.as_i64() == Some(1))
+    });
+    removed || (deleted && !closed)
 }
 
 /// 仅允许租户内、当前 viewer 所属的 channel 行进入结果。

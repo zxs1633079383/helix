@@ -197,6 +197,38 @@ fn query_dialog_list_emits_one_scoped_result_without_legacy_events() -> Result<(
     Ok(())
 }
 
+/// 关闭的频道仍是当前 viewer 可见的归档会话；删除和移除态不能混入结果。
+#[test]
+fn query_dialog_list_returns_archived_channel_with_close_fact() -> Result<(), String> {
+    let mut replay = Replay::new();
+    let corr = replay.query(json!({"req_id": "req-g13a-archive"}))?;
+    replay.reply_ok(
+        corr,
+        json!([
+            {"id": CHANNEL_VISIBLE, "team_id": COMPANY, "user_id": VIEWER,
+             "is_closed": 1, "delete_at": 1789974402636_i64, "is_remove": 0},
+            {"id": CHANNEL_OTHER_TENANT, "team_id": "company-other", "user_id": VIEWER,
+             "is_closed": 1, "delete_at": 1789974402636_i64},
+            {"id": CHANNEL_OTHER_VIEWER, "team_id": COMPANY, "user_id": "viewer-other",
+             "is_closed": 1, "delete_at": 1789974402636_i64},
+            {"id": "removed", "team_id": COMPANY, "user_id": VIEWER,
+             "is_closed": 1, "delete_at": 1789974402636_i64, "is_remove": 1},
+            {"id": "deleted", "team_id": COMPANY, "user_id": VIEWER,
+             "is_closed": 0, "delete_at": 1789974402636_i64}
+        ]),
+    )?;
+    let events = replay.events();
+    assert_eq!(events.len(), 1);
+    let items = events[0]["data"]["body"]["items"]
+        .as_array()
+        .ok_or("missing items")?;
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], CHANNEL_VISIBLE);
+    assert_eq!(items[0]["close"], true);
+    assert_eq!(items[0]["deleteAt"], 1789974402636_i64);
+    Ok(())
+}
+
 /// 空成功与失败都返回唯一 typed empty Result，不清理既有状态或发布业务广播。
 #[test]
 fn query_dialog_list_empty_and_failure_are_single_typed_results() -> Result<(), String> {

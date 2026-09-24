@@ -701,6 +701,39 @@ mod tests {
         }
     }
 
+    /// 正式同步页须带回已关闭群的归档事实及当前 viewer 成员投影。
+    #[test]
+    fn archived_channel_survives_member_scan_and_page_projection() {
+        let scope = crate::query::DialogListScope::new("user-a", "company-a");
+        let channels = json!([{"id":"archive", "team_id":"company-a", "type":"P",
+            "is_closed":1, "delete_at":1789974402636_i64}]);
+        let members = json!([{"channel_id":"archive", "user_id":"user-a",
+            "team_id":"company-a", "role":"MEMBER"}]);
+        let Effect::Persist { ops, .. } = member_scan_effect(
+            Correlation::from_raw(1),
+            channels.as_array().unwrap(),
+            "company-a",
+        )
+        .unwrap() else {
+            panic!("member scan")
+        };
+        let StorageOp::ScopedScan(scan) = &ops[0] else {
+            panic!("scoped scan")
+        };
+        assert!(matches!(scan.scope_values.as_slice(), [SqlValue::Text(id)] if id == "archive"));
+        let (page, more) = project_page_with_members(
+            &serde_json::to_vec(&channels).unwrap(),
+            &serde_json::to_vec(&members).unwrap(),
+            &scope,
+            0,
+        )
+        .expect("archived member projection");
+        assert!(!more);
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0]["close"], true);
+        assert_eq!(page[0]["deleteAt"], 1789974402636_i64);
+    }
+
     /// 删除态占原始扫描位置，空页不能丢掉下一窗口或重复前一页。
     #[test]
     fn filtered_pages_preserve_raw_scan_cursor_and_tail() {

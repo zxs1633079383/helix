@@ -310,8 +310,8 @@ fn insert_viewer_capabilities(output: &mut Map<String, Value>, row: &Value) {
     let can_change_permissions =
         persisted_bool(row, &["can_change_permissions", "canChangePermissions"])
             .unwrap_or(change_role);
-    let can_pin_message =
-        persisted_bool(row, &["can_pin_message", "canPinMessage"]).unwrap_or(derived_top);
+    let can_pin_message = pick(row, &["type"]).as_str() != Some("D")
+        && persisted_bool(row, &["can_pin_message", "canPinMessage"]).unwrap_or(derived_top);
     output.insert("canEditChannelSettings".to_string(), Value::Bool(can_edit));
     output.insert(
         "canManageSettings".to_string(),
@@ -917,4 +917,16 @@ mod tests {
         assert_eq!(explicit["settingVersion"], 11_i64);
         assert_eq!(explicit["permissionRevision"], 12_i64);
     }
+    /// 私聊不允许置顶，即使旧持久化权限或创建者角色曾放行。
+    #[test]
+    fn direct_channels_never_grant_pin_capability() {
+        for role in ["CREATOR", "MANAGER", "MEMBER"] {
+            for key in ["canPinMessage", "can_pin_message"] {
+                let mut row = json!({"id":"direct","type":"D","role":role,"topPermission":"MEMBER"});
+                row[key] = json!(true);
+                assert_eq!(shape_channel_row(&row)["canPinMessage"], false);
+            }
+        }
+    }
+
 }

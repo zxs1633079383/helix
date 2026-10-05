@@ -429,18 +429,28 @@ def registry_version_exists(crate_name: str, version: str) -> bool:
     )
 
 
-def ensure_target_versions_available(version: str) -> None:
-    """在修改任何文件前确认目标版本在四个 crate 上均未被占用。"""
-    occupied = [
-        package.cargo_name
-        for package in PACKAGES
-        if registry_version_exists(package.cargo_name, version)
-    ]
-    if occupied:
-        raise ReleaseError(
-            f"目标版本 {version} 已被占用：{', '.join(occupied)}；"
-            "crates.io 版本不可覆盖"
+def select_target_version(version: str, *, exact: bool = False) -> str:
+    """上传前选择四包均空闲的版本；显式版本严格匹配，未知 registry 错误不跳过。"""
+    while True:
+        occupied = [
+            package.cargo_name
+            for package in PACKAGES
+            if registry_version_exists(package.cargo_name, version)
+        ]
+        if not occupied:
+            return version
+        if exact:
+            raise ReleaseError(
+                f"目标版本 {version} 已被占用：{', '.join(occupied)}；"
+                "显式 --version 不自动改写，请省略该参数以自动选择"
+            )
+        next_version = bump_version(version, "patch")
+        print(
+            f"[version] {version} 已被占用（{', '.join(occupied)}），"
+            f"自动尝试 {next_version}",
+            flush=True,
         )
+        version = next_version
 
 
 def ensure_current_versions_resolve(version: str) -> None:
@@ -596,11 +606,11 @@ def parse_args() -> argparse.Namespace:
         "--bump",
         choices=("patch", "minor", "major"),
         default="patch",
-        help="递增类型，默认 patch",
+        help="递增类型，默认 patch；候选被占用时继续递增 patch",
     )
     parser.add_argument(
         "--version",
-        help="显式目标版本；提供后不使用 --bump 计算",
+        help="显式目标版本；严格匹配，若已占用则失败",
     )
     parser.add_argument(
         "--allow-dirty-plan",
@@ -625,10 +635,11 @@ def main() -> int:
     if not tracked_worktree_is_clean() and not args.allow_dirty_plan:
         raise ReleaseError("存在 tracked dirty；请先提交或恢复后再发布")
     ensure_no_untracked_package_files()
+    ensure_version_transaction_complete(old_version)
+    ensure_current_versions_resolve(old_version)
+    new_version = select_target_version(new_version, exact=args.version is not None)
     print(f"Helix release: {old_version} -> {new_version}")
     rendered = render_candidate_manifests(old_version, new_version)
-    ensure_current_versions_resolve(old_version)
-    ensure_target_versions_available(new_version)
 
     if not args.publish:
         print(

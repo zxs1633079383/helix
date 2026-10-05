@@ -32,6 +32,47 @@ class PublishCratesTest(unittest.TestCase):
             PUBLISH_CRATES.version_parts("0.1.0"),
         )
 
+    def test_select_version_skips_full_and_partial_occupied_versions(self) -> None:
+        """任何一个包占用都跳过，直到四包都可用。"""
+        def exists(name: str, version: str) -> bool:
+            return version == "0.1.40" or (
+                version == "0.1.41" and name == "helix-driver-native"
+            )
+
+        with mock.patch.object(PUBLISH_CRATES, "registry_version_exists", side_effect=exists) as query:
+            self.assertEqual(PUBLISH_CRATES.select_target_version("0.1.40"), "0.1.42")
+        self.assertEqual(query.call_count, 12)
+
+    def test_select_version_keeps_free_candidate_and_exact_intent(self) -> None:
+        """空闲版本保持不变；显式目标不被静默替换。"""
+        with mock.patch.object(PUBLISH_CRATES, "registry_version_exists", return_value=False):
+            self.assertEqual(PUBLISH_CRATES.select_target_version("0.2.0"), "0.2.0")
+        with mock.patch.object(PUBLISH_CRATES, "registry_version_exists", return_value=True):
+            with self.assertRaisesRegex(PUBLISH_CRATES.ReleaseError, "显式 --version"):
+                PUBLISH_CRATES.select_target_version("0.1.40", exact=True)
+
+    def test_unknown_registry_failure_does_not_bump(self) -> None:
+        """网络或认证失败不能当作占用或空闲。"""
+        with mock.patch.object(PUBLISH_CRATES, "registry_version_exists", side_effect=PUBLISH_CRATES.ReleaseError("network")) as query:
+            with self.assertRaisesRegex(PUBLISH_CRATES.ReleaseError, "network"):
+                PUBLISH_CRATES.select_target_version("0.1.40")
+            self.assertEqual(query.call_count, 1)
+
+    def test_plan_renders_selected_version_without_writing(self) -> None:
+        """编排必须把跳号后的版本交给完整 manifest 图，plan 不写文件。"""
+        from argparse import Namespace
+        args = Namespace(version=None, bump="patch", publish=False, allow_dirty_plan=False)
+        with mock.patch.object(PUBLISH_CRATES, "parse_args", return_value=args), \
+             mock.patch.object(PUBLISH_CRATES, "tracked_worktree_is_clean", return_value=True), \
+             mock.patch.object(PUBLISH_CRATES, "ensure_no_untracked_package_files"), \
+             mock.patch.object(PUBLISH_CRATES, "ensure_current_versions_resolve"), \
+             mock.patch.object(PUBLISH_CRATES, "select_target_version", return_value="0.1.99"), \
+             mock.patch.object(PUBLISH_CRATES, "render_candidate_manifests", wraps=PUBLISH_CRATES.render_candidate_manifests) as render, \
+             mock.patch.object(PUBLISH_CRATES, "write_candidate_manifests") as write:
+            self.assertEqual(PUBLISH_CRATES.main(), 0)
+            self.assertEqual(render.call_args.args[1], "0.1.99")
+            write.assert_not_called()
+
     def test_rewrite_manifest_updates_package_and_exact_internal_versions(self) -> None:
         """单次改写必须同时更新 package 与登记过的内部精确依赖。"""
         package = PUBLISH_CRATES.ReleasePackage(

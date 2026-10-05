@@ -35,6 +35,7 @@ pub mod event;
 mod forward;
 pub mod http_envelope;
 mod http_outcome;
+mod identity;
 mod increment_hydration;
 mod increment_pull;
 mod message_summary;

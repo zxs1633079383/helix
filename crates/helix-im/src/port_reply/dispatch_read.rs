@@ -859,12 +859,15 @@ impl ImModule {
                             .is_some_and(|rows| {
                                 rows.iter().all(|row| {
                                     !self.config.auth_user_id.is_empty()
-                                        && !self.config.company_id.is_empty()
-                                        && row
-                                            .get("teamId")
-                                            .or_else(|| row.get("team_id"))
-                                            .and_then(serde_json::Value::as_str)
-                                            == Some(self.config.company_id.as_str())
+                                        && crate::identity::AccountScope::new(
+                                            &self.config.auth_user_id,
+                                            &self.config.company_id,
+                                        )
+                                        .accepts_channel_tenant(
+                                            row.get("teamId")
+                                                .or_else(|| row.get("team_id"))
+                                                .and_then(serde_json::Value::as_str),
+                                        )
                                 })
                             });
                         if !scoped {

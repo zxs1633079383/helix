@@ -495,3 +495,36 @@ fn identity_switch_drops_old_scope_hydration_and_allows_new_session_retry() {
         "新身份必须重新建立自己的补水生命周期"
     );
 }
+
+/// 个人身份保留跨公司频道补水、持久屏障及唯一终态。
+#[test]
+fn personal_account_hydrates_company_channel_after_terminal_readback() {
+    let mut harness = Harness::new_with_identity(&[], "scope-viewer", "", "", "", "");
+
+    let first = harness.step(post_frame(7, 1), 1_000);
+    let first_persist = persist_atomic_corr(&harness);
+    harness.step(port_reply_ok(first_persist), 1_001);
+    let first_http = hydration_http_corr(&harness);
+    harness.step(
+        port_reply_with_body(
+            first_http,
+            increment_success(7, "scope-viewer", "scope-company"),
+        ),
+        1_002,
+    );
+
+    let events =
+        complete_no_sync_hydration(&mut harness, 7, "scope-viewer", "scope-company", 1_003);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event["event"] == "im:channel:increment")
+            .count(),
+        1,
+        "当前 user/company 的自动补水终态必须发布真实频道投影"
+    );
+    assert_eq!(events.len(), 1, "内部补水 read result 不得广播给 UI");
+    assert_eq!(events[0]["event"], "im:channel:increment");
+    assert_eq!(events[0]["data"]["id"], cid(7));
+    assert_eq!(events[0]["data"]["teamId"], "scope-company");
+}

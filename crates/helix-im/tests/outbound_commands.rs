@@ -400,3 +400,17 @@ fn is_outbound_covers_exactly_the_ten() {
     assert!(!is_outbound("im_send_message"), "send 走 module.rs 不在此");
     assert!(!is_outbound("bogus"));
 }
+
+/// 无公司个人成员提交 userId 即可；请求体公司不充当权限来源。
+#[test]
+fn member_change_without_company_keeps_actor_and_targets() {
+    let (_, body) = one_http(run(
+        "im_channel_member_change",
+        json!({
+            "channel_id":"personal-group", "self_id":"actor", "join_user_ids":["target"], "leave_user_ids":[]
+        }),
+    ));
+    assert_eq!(body["channelId"], "personal-group");
+    assert_eq!(body["joinUsers"][0]["id"], "target");
+    assert_eq!(body["joinUsers"][0]["teamId"], "");
+}

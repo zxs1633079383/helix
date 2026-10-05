@@ -53,10 +53,9 @@ impl ImModule {
             }
             crate::query::channel_view_snapshot::QUERY_CHANNEL_VIEW_SNAPSHOT => {
                 let channel_id = crate::query::channel_view_snapshot::parse_channel_id(payload)?;
-                if self.config.auth_user_id.is_empty() || self.config.company_id.is_empty() {
+                if self.config.auth_user_id.is_empty() {
                     return Err(crate::error::ImError::Parse(
-                        "im_query_channel_view_snapshot requires RuntimeAuth user and company"
-                            .into(),
+                        "im_query_channel_view_snapshot requires RuntimeAuth user".into(),
                     ));
                 }
                 let corr = self.alloc_corr_internal();
@@ -262,6 +261,7 @@ impl ImModule {
         let effect = match crate::channel_sync::page_scan_effect(
             corr,
             session.company_id.as_str(),
+            session.account_id.as_str(),
             offset,
         ) {
             Ok(effect) => effect,

@@ -712,6 +712,7 @@ impl ImModule {
             member_corr,
             &channel_rows,
             self.config.company_id.as_str(),
+            self.config.auth_user_id.as_str(),
         )?;
         self.state.corr_map.insert(
             member_corr,

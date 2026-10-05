@@ -44,7 +44,7 @@ pub struct HistoryState {
 }
 fn scope(module: &ImModule) -> Result<String, ImError> {
     let c = &module.config;
-    if c.auth_user_id.is_empty() || c.company_id.is_empty() || c.api_base_url.is_empty() {
+    if c.auth_user_id.is_empty() || c.api_base_url.is_empty() {
         return Err(ImError::Parse(
             "recent history requires runtime identity".into(),
         ));

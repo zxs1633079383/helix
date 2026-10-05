@@ -67,7 +67,6 @@ impl ImModule {
     /// PersistOk 后为未知频道发起一次内部 hydration；已知外公司频道不重复补水。
     pub(crate) fn start_scope_hydration(&mut self, channel_id: ChannelId, out: &mut EffectSink) {
         if self.config.auth_user_id.is_empty()
-            || self.config.company_id.is_empty()
             || self
                 .render_scope
                 .has_trusted_channel_scope(&self.config, channel_id.as_str())

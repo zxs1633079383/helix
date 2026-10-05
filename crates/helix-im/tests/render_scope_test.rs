@@ -11,9 +11,20 @@ const CHANNEL: &str = "j519p4hif7di7xibc9p6a1189r";
 
 /// 通过公共提交入口冻结真实频道归属，完成持久回执后检查渲染结果。
 fn committed_events(company: &str, event: &'static str, data: Value) -> Vec<Value> {
+    committed_events_for("company-a", "viewer", company, event, data)
+}
+
+/// 按真实 RuntimeAuth 和持久 channel owner 回放相同的 PersistOk 屏障。
+fn committed_events_for(
+    auth_company: &str,
+    stored_user: &str,
+    company: &str,
+    event: &'static str,
+    data: Value,
+) -> Vec<Value> {
     let mut module = ImModule::new(ImConfig {
         auth_user_id: "viewer".into(),
-        company_id: "company-a".into(),
+        company_id: auth_company.into(),
         ..Default::default()
     });
     let mut sink = EffectSink::new();
@@ -22,7 +33,7 @@ fn committed_events(company: &str, event: &'static str, data: Value) -> Vec<Valu
         vec![vec![
             ("id".into(), SqlValue::Text(CHANNEL.into())),
             ("team_id".into(), SqlValue::Text(company.into())),
-            ("user_id".into(), SqlValue::Text("viewer".into())),
+            ("user_id".into(), SqlValue::Text(stored_user.into())),
         ]],
         Some("id"),
     ));
@@ -832,4 +843,27 @@ fn topic_reference_does_not_bypass_message_scope() {
         );
         assert!(events.is_empty());
     }
+}
+
+#[test]
+fn personal_account_renders_joined_channel_across_companies_after_commit() {
+    for tenant in ["company-b", "personal-b"] {
+        let events = committed_events_for(
+            "",
+            "viewer",
+            tenant,
+            "im:channel:update",
+            json!({"channelId":CHANNEL,"teamId":tenant}),
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["data"]["teamId"], tenant);
+    }
+    assert!(committed_events_for(
+        "",
+        "other-user",
+        "company-b",
+        "im:channel:update",
+        json!({"channelId":CHANNEL,"teamId":"company-b"})
+    )
+    .is_empty());
 }

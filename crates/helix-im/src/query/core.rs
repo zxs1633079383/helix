@@ -256,30 +256,40 @@ pub fn dialog_list_scan_spec_for_scope(
     request: DialogListQueryRequest,
     scope: &DialogListScope,
 ) -> Result<ScanSpec, ImError> {
-    if scope.company_id.is_empty() || scope.viewer_user_id.is_empty() {
+    if scope.viewer_user_id.is_empty() {
         return Err(ImError::Parse(
-            "im_query_dialog_list requires RuntimeAuth user and company".into(),
+            "im_query_dialog_list requires RuntimeAuth user".into(),
         ));
     }
     Ok(ScanSpec {
         table: "channel",
         limit: Some(request.limit),
-        filter: Some(("team_id", SqlValue::Text(scope.company_id.clone()))),
+        filter: Some({
+            let (column, value) =
+                crate::identity::AccountScope::new(&scope.viewer_user_id, &scope.company_id)
+                    .channel_filter();
+            (column, SqlValue::Text(value.to_string()))
+        }),
         order_by: DIALOG_QUERY_ORDER,
     })
 }
 
 /// 构造当前 RuntimeAuth 租户的本地 topic Scan；父频道可见性在同一回包中验证。
 pub fn subtopics_scan_spec_for_scope(scope: &DialogListScope) -> Result<ScanSpec, ImError> {
-    if scope.company_id.is_empty() || scope.viewer_user_id.is_empty() {
+    if scope.viewer_user_id.is_empty() {
         return Err(ImError::Parse(
-            "im_query_subtopics requires RuntimeAuth user and company".into(),
+            "im_query_subtopics requires RuntimeAuth user".into(),
         ));
     }
     Ok(ScanSpec {
         table: "channel",
         limit: Some(QUERY_DIALOGS_MAX),
-        filter: Some(("team_id", SqlValue::Text(scope.company_id.clone()))),
+        filter: Some({
+            let (column, value) =
+                crate::identity::AccountScope::new(&scope.viewer_user_id, &scope.company_id)
+                    .channel_filter();
+            (column, SqlValue::Text(value.to_string()))
+        }),
         order_by: DIALOG_QUERY_ORDER,
     })
 }
@@ -644,7 +654,9 @@ fn dialog_row_visible(row: &serde_json::Value, scope: &DialogListScope) -> bool 
         .get("team_id")
         .or_else(|| object.get("teamId"))
         .and_then(serde_json::Value::as_str);
-    if team_id != Some(scope.company_id.as_str()) {
+    if !crate::identity::AccountScope::new(&scope.viewer_user_id, &scope.company_id)
+        .accepts_channel_tenant(team_id)
+    {
         return false;
     }
     let owner_id = object

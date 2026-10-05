@@ -256,7 +256,13 @@ impl OutboundCommand for MemberChangeCommand {
             ],
             self.name(),
         )?;
-        require_string_fields(args, &["channel_id", "team_id", "self_id"], self.name())?;
+        // 个人用户没有公司；频道租户由 Go 在成员鉴权后从频道事实写入。
+        require_string_fields(args, &["channel_id", "self_id"], self.name())?;
+        if args.get("team_id").is_some_and(|value| !value.is_string()) {
+            return Err(ImError::Parse(
+                "im_channel_member_change: team_id must be a string".into(),
+            ));
+        }
         if args.get("req_id").is_some() {
             require_str(args, "req_id", self.name())?;
         }

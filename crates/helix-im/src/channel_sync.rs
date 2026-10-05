@@ -191,11 +191,12 @@ pub(crate) fn parse_complete_request(payload: &[u8]) -> Result<CompleteRequest, 
 pub(crate) fn page_scan_effect(
     corr: Correlation,
     company_id: &str,
+    user_id: &str,
     offset: usize,
 ) -> Result<Effect, crate::ImError> {
-    if company_id.is_empty() {
+    if user_id.is_empty() {
         return Err(crate::ImError::Parse(
-            "im_query_channel_sync_page requires RuntimeAuth company".to_string(),
+            "im_query_channel_sync_page requires RuntimeAuth user".to_string(),
         ));
     }
     if offset > MAX_OFFSET || offset % PAGE_SIZE as usize != 0 {
@@ -213,7 +214,11 @@ pub(crate) fn page_scan_effect(
         ops: vec![StorageOp::Scan(ScanSpec {
             table: "channel",
             limit: Some(limit),
-            filter: Some(("team_id", SqlValue::Text(company_id.to_string()))),
+            filter: Some({
+                let (column, value) =
+                    crate::identity::AccountScope::new(user_id, company_id).channel_filter();
+                (column, SqlValue::Text(value.to_string()))
+            }),
             order_by: CHANNEL_SYNC_ORDER,
         })],
     })
@@ -228,10 +233,11 @@ pub(crate) fn member_scan_effect(
     corr: Correlation,
     channel_rows: &[Value],
     company_id: &str,
+    user_id: &str,
 ) -> Result<Effect, crate::ImError> {
-    if company_id.is_empty() {
+    if user_id.is_empty() {
         return Err(crate::ImError::Parse(
-            "im_query_channel_sync_page requires RuntimeAuth company".to_string(),
+            "im_query_channel_sync_page requires RuntimeAuth user".to_string(),
         ));
     }
     let mut channel_ids = Vec::new();
@@ -243,7 +249,9 @@ pub(crate) fn member_scan_effect(
         let Some(object) = row.as_object() else {
             continue;
         };
-        if text_field(object, &["team_id", "teamId"]) != Some(company_id) {
+        if !crate::identity::AccountScope::new(user_id, company_id)
+            .accepts_channel_tenant(text_field(object, &["team_id", "teamId"]))
+        {
             continue;
         }
         let Some(channel_id) = text_field(object, &["id", "channel_id", "channelId"]) else {
@@ -395,11 +403,12 @@ pub(crate) fn project_page_with_members(
                 .and_then(Value::as_str)
                 .filter(|id| !id.is_empty())?
                 .to_string();
-            if row
-                .get("team_id")
-                .or_else(|| row.get("teamId"))
-                .and_then(Value::as_str)
-                != Some(scope.company_id.as_str())
+            if !crate::identity::AccountScope::new(&scope.viewer_user_id, &scope.company_id)
+                .accepts_channel_tenant(
+                    row.get("team_id")
+                        .or_else(|| row.get("teamId"))
+                        .and_then(Value::as_str),
+                )
             {
                 return None;
             }
@@ -640,6 +649,56 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// 个人同步只扫描当前账户，并以频道成员事实投影跨公司会话。
+    #[test]
+    fn personal_sync_has_no_company_filter_but_requires_membership() {
+        let channels = json!([
+            {"id":"company-group","team_id":"company-a","user_id":"personal"},
+            {"id":"personal-group","team_id":"other-person","user_id":"personal"},
+            {"id":"not-member","team_id":"company-a","user_id":"personal"}
+        ]);
+        let members = json!([
+            {"channel_id":"company-group","user_id":"personal","team_id":"company-a","role":"MEMBER"},
+            {"channel_id":"personal-group","user_id":"personal","team_id":"other-person","role":"ADMIN"}
+        ]);
+        let scope = crate::query::DialogListScope::new("personal", "");
+        let (page, _) = project_page_with_members(
+            &serde_json::to_vec(&channels).unwrap(),
+            &serde_json::to_vec(&members).unwrap(),
+            &scope,
+            0,
+        )
+        .unwrap();
+        assert_eq!(
+            page.iter()
+                .map(|row| row["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["company-group", "personal-group"]
+        );
+        let Effect::Persist { ops, .. } =
+            page_scan_effect(Correlation::from_raw(1), "", "personal", 0).unwrap()
+        else {
+            panic!("scan required")
+        };
+        assert!(
+            matches!(&ops[0], StorageOp::Scan(spec) if matches!(&spec.filter, Some(("user_id", SqlValue::Text(id))) if id == "personal"))
+        );
+        let Effect::Persist { ops, .. } = member_scan_effect(
+            Correlation::from_raw(2),
+            channels.as_array().unwrap(),
+            "",
+            "personal",
+        )
+        .unwrap() else {
+            panic!("scan required")
+        };
+        assert!(
+            matches!(&ops[0], StorageOp::ScopedScan(spec) if spec.scope_values.len() == 3 && spec.limit == MEMBER_SCAN_LIMIT)
+        );
+        assert!(page_scan_effect(Correlation::from_raw(1), "", "", 0).is_err());
+        assert!(member_scan_effect(Correlation::from_raw(1), &[], "", "").is_err());
+    }
+
     fn session() -> ChannelSyncSession {
         ChannelSyncSession::new("session-a".to_string(), 7, "user-a", "company-a")
     }
@@ -688,6 +747,7 @@ mod tests {
                 Correlation::from_raw(1),
                 channels.as_array().unwrap(),
                 "company-a",
+                "user-a",
             )
             .unwrap() else {
                 panic!("member scan")
@@ -711,6 +771,7 @@ mod tests {
             Correlation::from_raw(1),
             channels.as_array().unwrap(),
             "company-a",
+            "user-a",
         )
         .unwrap() else {
             panic!("member scan")
@@ -807,7 +868,7 @@ mod tests {
             serde_json::json!({"id": "channel-c", "teamId": "company-a"}),
             serde_json::json!({"id": "missing-team"}),
         ];
-        let effect = member_scan_effect(Correlation::from_raw(1), &rows, "company-a")
+        let effect = member_scan_effect(Correlation::from_raw(1), &rows, "company-a", "user-a")
             .expect("company scope is required");
         let Effect::Persist { ops, .. } = effect else {
             panic!("member snapshot must be a persist effect");

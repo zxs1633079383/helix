@@ -114,12 +114,13 @@ impl RenderScope {
         }
     }
 
-    /// 用户和公司都必须与可信 RuntimeAuth 一致；未知频道 fail-closed。
+    /// 账户必须匹配；个人模式跨公司展示，公司模式保持原过滤，未知频道仍拒绝。
     pub(crate) fn visible(&self, config: &ImConfig, channel: &str) -> bool {
         !config.auth_user_id.is_empty()
-            && !config.company_id.is_empty()
             && self.channels.get(channel).is_some_and(|(team, user)| {
-                team == &config.company_id && user == &config.auth_user_id
+                crate::identity::AccountScope::new(&config.auth_user_id, &config.company_id)
+                    .accepts_channel_tenant(Some(team))
+                    && user == &config.auth_user_id
             })
     }
 
@@ -250,7 +251,11 @@ impl<'de> Visitor<'de> for &mut ScopeVisitor<'_> {
             } else if matches!(key, "teamId" | "team_id") {
                 let entity_team = map.next_value::<Option<&str>>()?;
                 if row {
-                    self.valid &= entity_team == Some(self.config.company_id.as_str());
+                    self.valid &= crate::identity::AccountScope::new(
+                        &self.config.auth_user_id,
+                        &self.config.company_id,
+                    )
+                    .accepts_channel_tenant(entity_team);
                 }
             } else if matches!(key, "content" | "props" | "metadata" | "extra" | "topic") {
                 // topic 是父消息携带的引用，不是本次投影的频道归属；其频道可能尚未补水。

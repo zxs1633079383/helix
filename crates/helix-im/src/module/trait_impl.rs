@@ -324,10 +324,7 @@ impl ImModule {
                     if crate::commands::is_read(name) {
                         let explicit_req_id = crate::read_relay::read_req_id(cmd.payload.as_ref());
                         let increment_hydration = name == "im_channel_load_increment_by_channel_id";
-                        if increment_hydration
-                            && (self.config.auth_user_id.is_empty()
-                                || self.config.company_id.is_empty())
-                        {
+                        if increment_hydration && self.config.auth_user_id.is_empty() {
                             return Err(CoreError::ModuleError {
                                 module: self.name(),
                                 source: Box::new(crate::ImError::Parse(

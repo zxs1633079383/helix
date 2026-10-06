@@ -203,7 +203,9 @@ fn should_use_message_v3_compact_update(
 ) -> bool {
     let is_engagement = fields.msg_type.eq_ignore_ascii_case("VOTE")
         || fields.msg_type.eq_ignore_ascii_case("AVERAGE_SCORE");
+    // 明确的空回应必须完整写回；同时携带的加急/模板元数据不能吞掉取消。
     !is_engagement
+        && fields.quick_reply.trim() != "[]"
         && (has_quick_reply_items(fields.quick_reply.as_str())
             || !fields.expedite_map.is_empty()
             || has_template_confirmation)
@@ -214,6 +216,21 @@ mod tests {
     use super::should_use_message_v3_compact_update;
     use crate::ws::parser::extract_post_fields;
     use serde_json::json;
+
+    /// 空回应即使带加急/模板元数据也不能进入只写其中一列的稀疏提交。
+    #[test]
+    fn empty_reaction_with_urgent_metadata_keeps_full_snapshot_path() {
+        for urgent in [json!({}), json!({"member": {"status": 1}})] {
+            let fields = extract_post_fields(
+                &json!({"type": "TEXT", "quickReply": [], "expediteMap": urgent}),
+            );
+            assert!(!should_use_message_v3_compact_update(&fields, false));
+            assert!(!should_use_message_v3_compact_update(&fields, true));
+        }
+        let urgent_only =
+            extract_post_fields(&json!({"type": "TEXT", "expediteMap": {"member": {"status": 1}}}));
+        assert!(should_use_message_v3_compact_update(&urgent_only, false));
+    }
 
     /// 投票帧的空 quickReply 不能触发稀疏 reaction 投影。
     #[test]

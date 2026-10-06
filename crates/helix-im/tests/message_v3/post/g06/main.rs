@@ -442,6 +442,7 @@ fn g06_empty_reaction_snapshot_clears_the_durable_column() -> TestResult<()> {
     let mut harness = Harness::new_with_identity(&[6], ACTOR_ID, "g06-company", "", "", "");
     let mut authority = reaction_authority();
     authority["data"]["quickReply"] = json!([]);
+    authority["data"]["expediteMap"] = json!({});
     harness.step(
         Tick::Inbound(InboundBytes(Bytes::from(
             serde_json::to_vec(&authority).unwrap(),

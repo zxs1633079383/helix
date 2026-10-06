@@ -116,24 +116,7 @@ impl ImModule {
                         self.scope_hydration.reset();
                         // 原始 HTTP 读体可能不带频道/公司字段；切换身份时显式结束旧请求，
                         // A→B→A 后的迟到回包也不能重新晋升为当前公司的投影。
-                        let mut cancelled_reads: Vec<_> = self
-                            .state
-                            .corr_map
-                            .iter()
-                            .filter_map(|(corr, context)| match context {
-                                CorrelationContext::OutboundReadReply { req_id, .. }
-                                | CorrelationContext::OutboundMembersByIds { req_id }
-                                | CorrelationContext::OutboundContactCandidates { req_id } => {
-                                    Some((*corr, req_id.clone()))
-                                }
-                                _ => None,
-                            })
-                            .collect();
-                        cancelled_reads.sort_unstable_by_key(|(corr, _)| corr.raw());
-                        for (corr, req_id) in cancelled_reads {
-                            self.state.corr_map.remove(&corr);
-                            out.push(crate::read_relay::emit_read_error(&req_id, "CANCELLED"));
-                        }
+                        self.cancel_pending_reads(out);
                         self.finish_sync_observation(
                             crate::sync_observation::SyncResult::Cancelled,
                         );
@@ -808,8 +791,31 @@ impl ImModule {
         Ok(())
     }
 
-    /// 停止：取消所有 timer + 关闭连接
+    /// 账号切换与停止共用读请求终态；先删除 corr，迟到回包不可重新发布。
+    fn cancel_pending_reads(&mut self, out: &mut EffectSink) {
+        let mut cancelled_reads: Vec<_> = self
+            .state
+            .corr_map
+            .iter()
+            .filter_map(|(corr, context)| match context {
+                CorrelationContext::OutboundReadReply { req_id, .. }
+                | CorrelationContext::OutboundMembersByIds { req_id }
+                | CorrelationContext::OutboundContactCandidates { req_id } => {
+                    Some((*corr, req_id.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        cancelled_reads.sort_unstable_by_key(|(corr, _)| corr.raw());
+        for (corr, req_id) in cancelled_reads {
+            self.state.corr_map.remove(&corr);
+            out.push(crate::read_relay::emit_read_error(&req_id, "CANCELLED"));
+        }
+    }
+
+    /// 停止时释放读关联、发送与频道计时器。
     fn stop_scoped_module(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
+        self.cancel_pending_reads(out);
         self.finish_sync_observation(crate::sync_observation::SyncResult::Cancelled);
         self.cancel_category(out);
         self.stop_schedule_media(out);

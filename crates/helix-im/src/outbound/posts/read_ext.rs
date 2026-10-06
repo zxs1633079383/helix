@@ -479,3 +479,22 @@ read_cmd!(
         Ok(("post/read/list", json!({ "postIds": post_ids })))
     }
 );
+
+// 全局书签单独查询；认证 actor/company 由会话注入，不能由 renderer 覆盖。
+read_cmd!(
+    BookmarkLoadGlobalCommand,
+    BOOKMARK_LOAD_GLOBAL_REG,
+    "im_bookmark_load_global",
+    |args, cmd| {
+        require_bookmark_keys(args, &["page_number", "page_size", "req_id"], cmd)?;
+        let page_number = require_positive_page(args, "page_number", cmd)?;
+        let page_size = require_positive_page(args, "page_size", cmd)?;
+        if page_size > 100 || page_number > 1_000_000 {
+            return Err(ImError::Parse(format!("{cmd}: pagination out of range")));
+        }
+        Ok((
+            "post/bookmark/global",
+            json!({"pageNumber":page_number,"pageSize":page_size}),
+        ))
+    }
+);

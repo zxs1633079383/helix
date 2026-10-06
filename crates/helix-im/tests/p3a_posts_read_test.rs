@@ -499,3 +499,23 @@ fn every_p3a_read_command_is_dispatchable() {
 fn handle_outbound_bad_payload_is_error_not_panic() {
     assert!(handle_outbound("im_top20", b"{not json", BASE, BASE, None, corr()).is_err());
 }
+
+/// 全局只接收分页，禁止 UI 伪造用户、企业或频道作用域。
+#[test]
+fn global_bookmarks_wire_and_validation() {
+    let (url, body) = one_http(run(
+        "im_bookmark_load_global",
+        json!({"page_number":1,"page_size":20,"req_id":"global"}),
+    ));
+    assert_eq!(url, "http://x/api/cses/post/bookmark/global");
+    assert_eq!(body, json!({"pageNumber":1,"pageSize":20}));
+    for field in ["channel_id", "company_id", "user_id", "offset"] {
+        let mut args = json!({"page_number":1,"page_size":20});
+        args[field] = json!("bad");
+        assert!(err("im_bookmark_load_global", args));
+    }
+    assert!(err(
+        "im_bookmark_load_global",
+        json!({"page_number":0,"page_size":20})
+    ));
+}

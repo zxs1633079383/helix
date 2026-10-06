@@ -1,3 +1,6 @@
+🎯 EXPECT 表情历史复用 im_recent_history，发送/回应独立、最近使用优先、重启恢复；不新增表、不改版本、不发布。| 赌注 中 | 可逆 是 | @2026-10-06
+- 本任务交接：docs/交接/emoji-history-20261006.md
+✅ DONE 本仓实现：公开回放4项、真实SQLite2项、crate check、局部fmt/diff通过；全包历史路径缺口与桌面/发布状态分别记录于交接。
 🎯 EXPECT 指令优化只改规则、Skill和文档；生产代码、100%覆盖率、生产/发布/版本/指标批准不变；文档差异与技能元数据检查通过。 | 赌注 中 | 可逆 是 | @2026-09-23
 - 当前任务交接：/System/Volumes/Data/workspace/golang/cses-im-server/docs/交接/Token消耗与指令审阅/handoff.md
 ✅ DONE 指令优化：规则与Skill修改，9入口元数据检查及白名单diff检查通过；未改生产代码/版本/质量门禁，未push。详细证据见任务交接。

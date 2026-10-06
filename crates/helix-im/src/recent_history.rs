@@ -1,12 +1,12 @@
-//! 本机最近搜索/转发；身份只取运行时，读改写串行且 PersistOk 后才返回新状态。
-//! 入口：Tick::Command(im_recent_history)，kind=search|forward，action=read|record|remove|clear|import。
-//! 运行时身份生成 scope；写请求必须回传 read 得到的 scope，targets 只含 type/id。
+//! 本机最近搜索/转发/表情；身份只取运行时，读改写串行且 PersistOk 后才返回新状态。
+//! 入口：Tick::Command(im_recent_history)，kind=search|forward|emoji-send|emoji-reaction，action=read|record|remove|clear|import。
+//! 运行时身份生成 scope；写请求必须回传 read 得到的 scope，targets 只含 type/id。表情用独立 kind，最新使用移到头部，最多 32 条。
 //! 本地确定性命令：ScopedGet → 可选 BatchUpsert → PersistOk → im:read:result。
 //! 校验失败返回 ModuleError；存储失败/身份变化发出带 req_id 的读取错误并释放队列。
 //! corr 在统一 PortReply 分发中消费，重复/迟到回包不再执行；模块销毁释放在途状态。
 //! HTTP、WS、远程业务失败和重连：N/A；等待超时及取消由 Host 查询生命周期处理。
 //! 已验证：公开 Module 单测及真实 HostStorage SQLite；PRE UI 尚未验证。
-//! ponytail: 最多十条的低频偏好使用整行 JSON；不用于消息热路径或无界集合。
+//! ponytail: 最多三十二条的低频偏好使用整行 JSON；不用于消息热路径或无界集合。
 use crate::{error::ImError, event::MessageV3Event, module::ImModule, state::CorrelationContext};
 use helix_core::{
     effect::{Effect, ScopedGetSpec, SqlValue, StorageOp, UpsertSpec},
@@ -51,23 +51,27 @@ fn scope(module: &ImModule) -> Result<String, ImError> {
     }
     Ok(json!([c.api_base_url, c.company_id, c.auth_user_id]).to_string())
 }
-fn normalize(targets: Vec<Target>) -> Vec<Target> {
+fn normalize(targets: Vec<Target>, limit: usize) -> Vec<Target> {
     let mut seen = HashSet::new();
     targets
         .into_iter()
         .filter(|t| seen.insert((t.kind.clone(), t.id.clone())))
-        .take(10)
+        .take(limit)
         .collect()
 }
 fn validate(c: &Command) -> Result<(), ImError> {
-    if !["search", "forward"].contains(&c.kind.as_str())
+    if !["search", "forward", "emoji-send", "emoji-reaction"].contains(&c.kind.as_str())
         || !["read", "record", "remove", "clear", "import"].contains(&c.action.as_str())
         || c.req_id.is_empty()
         || c.targets.len() > 100
         || c.targets.iter().any(|t| {
             t.id.trim().is_empty()
                 || t.id.len() > 512
-                || !["user", "channel"].contains(&t.kind.as_str())
+                || (if c.kind.starts_with("emoji-") {
+                    t.kind != "emoji"
+                } else {
+                    !["user", "channel"].contains(&t.kind.as_str())
+                })
                 || (c.kind == "forward" && t.kind != "channel")
         })
         || (c.action == "record" && c.targets.is_empty())
@@ -179,14 +183,15 @@ pub fn read_reply(
         },
         None => vec![],
     };
+    let limit = if c.kind.starts_with("emoji-") { 32 } else { 10 };
     let items = match c.action.as_str() {
-        "record" => normalize(c.targets.iter().cloned().chain(existing).collect()),
+        "record" => normalize(c.targets.iter().cloned().chain(existing).collect(), limit),
         "remove" => existing
             .into_iter()
             .filter(|t| !c.targets.contains(t))
             .collect(),
         "clear" => vec![],
-        "import" if row.is_none() => normalize(c.targets.clone()),
+        "import" if row.is_none() => normalize(c.targets.clone(), limit),
         _ => existing,
     };
     let result = json!({"scope": c.scope, "items": items, "initialized": row.is_some() || c.action != "read"});
@@ -423,5 +428,91 @@ mod tests {
         );
         let payload = br#"{"kind":"search","action":"read","req_id":"x","account_id":"actor"}"#;
         assert!(handle(&mut m, payload, &mut sink).is_err());
+    }
+    #[test]
+    fn emoji_history_recency_is_not_frequency_and_send_reaction_are_isolated() {
+        let mut m = module();
+        let mut sink = EffectSink::new();
+        let mut db = HashMap::new();
+        for (kind, id) in [
+            ("emoji-send", "heart"),
+            ("emoji-send", "heart"),
+            ("emoji-send", "joy"),
+            ("emoji-reaction", "+1"),
+            ("emoji-send", "heart"),
+        ] {
+            let tick = Tick::Command(AppCommand::new(
+                COMMAND,
+                serde_json::to_vec(&json!({
+                    "kind":kind,"action":"record","scope":scope(&m).unwrap(),
+                    "targets":[{"type":"emoji","id":id}],"req_id":id
+                }))
+                .unwrap(),
+            ));
+            m.handle(&tick, 100, &mut sink).unwrap();
+            let result = drain(&mut m, &mut sink, &mut db, false);
+            assert_eq!(result[0]["data"]["body"]["items"][0]["id"], id);
+        }
+        let mut m = module();
+        for (kind, expected) in [
+            ("emoji-send", vec!["heart", "joy"]),
+            ("emoji-reaction", vec!["+1"]),
+        ] {
+            let tick = Tick::Command(AppCommand::new(
+                COMMAND,
+                serde_json::to_vec(&json!({
+                    "kind":kind,"action":"read","req_id":"read"
+                }))
+                .unwrap(),
+            ));
+            m.handle(&tick, 200, &mut sink).unwrap();
+            let result = drain(&mut m, &mut sink, &mut db, false);
+            let ids: Vec<_> = result[0]["data"]["body"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| item["id"].as_str().unwrap())
+                .collect();
+            assert_eq!(ids, expected);
+            assert!(m.state.corr_map.is_empty());
+        }
+    }
+
+    #[test]
+    fn emoji_limit_and_invalid_cross_kind_targets_fail_closed() {
+        let mut m = module();
+        let mut sink = EffectSink::new();
+        let mut db = HashMap::new();
+        let targets: Vec<_> = (0..40)
+            .map(|i| json!({"type":"emoji","id":format!("emoji-{i}")}))
+            .collect();
+        let payload = serde_json::to_vec(&json!({"kind":"emoji-send","action":"record", "scope":scope(&m).unwrap(),"targets":targets,"req_id":"limit"})).unwrap();
+        m.handle(
+            &Tick::Command(AppCommand::new(COMMAND, payload)),
+            0,
+            &mut sink,
+        )
+        .unwrap();
+        let result = drain(&mut m, &mut sink, &mut db, false);
+        assert_eq!(
+            result[0]["data"]["body"]["items"].as_array().unwrap().len(),
+            32
+        );
+        for (kind, target_type) in [
+            ("search", "emoji"),
+            ("emoji-send", "user"),
+            ("emoji-reaction", "channel"),
+        ] {
+            let payload = serde_json::to_vec(&json!({"kind":kind,"action":"record", "scope":scope(&m).unwrap(),"targets":[{"type":target_type,"id":"x"}],"req_id":"invalid"})).unwrap();
+            assert!(m
+                .handle(
+                    &Tick::Command(AppCommand::new(COMMAND, payload)),
+                    0,
+                    &mut sink
+                )
+                .is_err());
+            assert!(sink.is_empty());
+            assert!(m.state.corr_map.is_empty());
+        }
     }
 }

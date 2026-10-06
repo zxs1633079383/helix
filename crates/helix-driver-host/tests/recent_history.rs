@@ -21,13 +21,22 @@ async fn command(
     action: &str,
     targets: Value,
 ) -> Value {
+    command_kind(storage, module, "forward", action, targets).await
+}
+async fn command_kind(
+    storage: &HostStorage,
+    module: &mut ImModule,
+    kind: &str,
+    action: &str,
+    targets: Value,
+) -> Value {
     let mut sink = EffectSink::new();
     module
         .handle(
             &Tick::Command(AppCommand::new(
                 "im_recent_history",
                 serde_json::to_vec(&json!({
-                    "kind":"forward", "action":action, "targets":targets, "req_id":"test",
+                    "kind":kind, "action":action, "targets":targets, "req_id":"test",
                     "scope":json!(["https://im.test","company","actor"]).to_string()
                 }))
                 .unwrap(),
@@ -108,4 +117,55 @@ async fn sqlite_history_upsert_restart_clear_and_scope_isolation() {
         command(&storage, &mut restarted, "import", target).await["items"],
         json!([])
     );
+}
+
+#[tokio::test]
+async fn sqlite_emoji_history_recency_restart_and_separate_kinds() {
+    let storage = HostStorage::open_sqlite_url("file:emoji-history-test?mode=memory&cache=shared")
+        .await
+        .unwrap();
+    for sql in IM_SCHEMA {
+        storage.execute_raw(sql).await.unwrap();
+    }
+    let mut im = module("actor");
+    for (kind, id) in [
+        ("emoji-send", "heart"),
+        ("emoji-send", "heart"),
+        ("emoji-send", "joy"),
+        ("emoji-reaction", "+1"),
+    ] {
+        let result = command_kind(
+            &storage,
+            &mut im,
+            kind,
+            "record",
+            json!([{"type":"emoji","id":id}]),
+        )
+        .await;
+        assert_eq!(result["items"][0]["id"], id);
+    }
+    let mut restarted = module("actor");
+    let send = command_kind(&storage, &mut restarted, "emoji-send", "read", json!([])).await;
+    assert_eq!(
+        send["items"],
+        json!([{"type":"emoji","id":"joy"},{"type":"emoji","id":"heart"}])
+    );
+    let reaction = command_kind(
+        &storage,
+        &mut restarted,
+        "emoji-reaction",
+        "read",
+        json!([]),
+    )
+    .await;
+    assert_eq!(reaction["items"], json!([{"type":"emoji","id":"+1"}]));
+    let other = command_kind(
+        &storage,
+        &mut module("other"),
+        "emoji-send",
+        "read",
+        json!([]),
+    )
+    .await;
+    assert_eq!(other["items"], json!([]));
 }

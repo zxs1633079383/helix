@@ -1,3 +1,5 @@
+🎯 EXPECT 取消最后一个回应的空数组会随 cursor 原子持久化；HTTP失败能按 req_id 回传；不新增命令、表或版本。 | 赌注 中 | 可逆 是 | @2026-10-06
+- 本任务交接：docs/交接/reaction-feedback-20261006.md
 🎯 EXPECT 表情历史复用 im_recent_history，发送/回应独立、最近使用优先、重启恢复；不新增表、不改版本、不发布。| 赌注 中 | 可逆 是 | @2026-10-06
 - 本任务交接：docs/交接/emoji-history-20261006.md
 ✅ DONE 本仓实现：公开回放4项、真实SQLite2项、crate check、局部fmt/diff通过；全包历史路径缺口与桌面/发布状态分别记录于交接。

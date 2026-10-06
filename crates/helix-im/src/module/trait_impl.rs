@@ -320,8 +320,8 @@ impl ImModule {
                         }
                     };
                     // spec06 缺陷A：读族注册回灌上下文（PortReply 透传 `im:read:result{req_id,body}`；写族
-                    // fire-and-forget 不注册）。S7：byIds 成员快照走 OutboundMembersByIds（额外 emit im:channel:members）。
-                    if crate::commands::is_read(name) {
+                    // fire-and-forget 不注册；quickReply 复用关联回包，只确认 HTTP 结果而非 durable 回应）。S7：byIds 成员快照走 OutboundMembersByIds（额外 emit im:channel:members）。
+                    if crate::commands::is_read(name) || name == "im_quick_reply" {
                         let explicit_req_id = crate::read_relay::read_req_id(cmd.payload.as_ref());
                         let increment_hydration = name == "im_channel_load_increment_by_channel_id";
                         if increment_hydration && self.config.auth_user_id.is_empty() {

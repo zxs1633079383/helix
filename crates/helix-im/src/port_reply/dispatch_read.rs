@@ -848,6 +848,17 @@ impl ImModule {
         match outcome {
             PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
                 Ok(raw_body) => {
+                    if command == "im_quick_reply" {
+                        let body = serde_json::from_slice::<serde_json::Value>(&raw_body);
+                        if !matches!(&body, Ok(value) if value.get("status").and_then(serde_json::Value::as_str) == Some("SUCCESS"))
+                        {
+                            out.push(crate::read_relay::emit_read_error(
+                                req_id,
+                                "QUICK_REPLY_FAILED",
+                            ));
+                            return Ok(());
+                        }
+                    }
                     if command == "im_channel_query" {
                         // 频道目录行是明确的 channel schema；不要让 id/teamId 简化形状
                         // 绕过公司围栏，也不要把通用成员行的 teamId 误当频道公司。

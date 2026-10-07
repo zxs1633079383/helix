@@ -1306,3 +1306,271 @@ fn global_bookmarks_timeout_and_stop_settle_once() {
         assert!(emit_json(&h.sink).is_none());
     }
 }
+
+/// Go 信封仅作为 Port 输入；所有输出必须由公开 Module seam 生成。
+fn bookmark_reply(corr: u64, data: serde_json::Value) -> Tick {
+    port_reply_with_body(
+        corr,
+        enveloped(bytes::Bytes::from(
+            serde_json::to_vec(&serde_json::json!({"status":"SUCCESS","data":data})).unwrap(),
+        )),
+    )
+}
+/// 固定认证作用域，只由测试宿主注入。
+fn bookmark_data(total: u64) -> serde_json::Value {
+    serde_json::json!({"userId":READ_RELAY_VIEWER,"companyId":READ_RELAY_COMPANY,"total":total})
+}
+/// 连续计数请求合并为一次 HTTP；写回只增量维护，重复回包不重复加数。
+#[test]
+fn bookmark_count_cache_and_delta() {
+    let mut h = scoped_read_harness(&["c1"]);
+    h.step(
+        outbound_cmd("im_bookmark_count", serde_json::json!({"req_id":"count1"})),
+        1000,
+    );
+    let corr = http_corr(&h.sink).expect("count command must issue HTTP");
+    h.step(
+        outbound_cmd("im_bookmark_count", serde_json::json!({"req_id":"count2"})),
+        1001,
+    );
+    assert!(http_corr(&h.sink).is_none());
+    h.step(bookmark_reply(corr, bookmark_data(5)), 1002);
+    assert_eq!(emit_jsons(&h.sink).len(), 2);
+    for e in emit_jsons(&h.sink) {
+        assert_eq!(e["data"]["body"]["data"]["total"], 5);
+    }
+    for (command, delta, want) in [
+        ("im_bookmark_create", 2_i64, 7),
+        ("im_bookmark_create", 0, 7),
+        ("im_bookmark_delete", -1, 6),
+    ] {
+        let args = if delta < 0 {
+            serde_json::json!({"channel_id":"c1","post_id":"p","req_id":"write"})
+        } else {
+            serde_json::json!({"channel_id":"c1","post_ids":["p","p2"],"req_id":"write"})
+        };
+        h.step(outbound_cmd(command, args), 1003);
+        let corr = http_corr(&h.sink).unwrap();
+        let mut data = bookmark_data(0);
+        data["countDelta"] = serde_json::json!(delta);
+        data["affectedCount"] = serde_json::json!(delta.abs());
+        h.step(bookmark_reply(corr, data.clone()), 1004);
+        h.step(bookmark_reply(corr, data), 1005);
+        assert!(emit_json(&h.sink).is_none(), "duplicate reply ignored");
+        h.step(
+            outbound_cmd("im_bookmark_count", serde_json::json!({"req_id":"cached"})),
+            1006,
+        );
+        assert!(http_corr(&h.sink).is_none(), "page switches read cache");
+        assert_eq!(
+            emit_json(&h.sink).unwrap()["data"]["body"]["data"]["total"],
+            want
+        );
+    }
+    h.step(
+        outbound_cmd("im_bookmark_count", serde_json::json!({"req_id":"expired"})),
+        301003,
+    );
+    assert!(
+        http_corr(&h.sink).is_some(),
+        "bounded fallback corrects other-device changes"
+    );
+}
+/// 校准与写入交错时旧 count 不可覆盖；全部写回后只重新校准一次。
+#[test]
+fn bookmark_count_discards_overlapping_snapshot() {
+    for count_first in [true, false] {
+        let mut h = scoped_read_harness(&["c1"]);
+        h.step(
+            outbound_cmd("im_bookmark_count", serde_json::json!({"req_id":"read"})),
+            1,
+        );
+        let read = http_corr(&h.sink).unwrap();
+        h.step(
+            outbound_cmd(
+                "im_bookmark_create",
+                serde_json::json!({"channel_id":"c1","post_ids":["p"],"req_id":"write"}),
+            ),
+            2,
+        );
+        let write = http_corr(&h.sink).unwrap();
+        let mut data = bookmark_data(0);
+        data["countDelta"] = serde_json::json!(1);
+        data["affectedCount"] = serde_json::json!(1);
+        let count_reply = bookmark_reply(read, bookmark_data(9));
+        let write_reply = bookmark_reply(write, data);
+        let (first, second) = if count_first {
+            (count_reply, write_reply)
+        } else {
+            (write_reply, count_reply)
+        };
+        h.step(first, 3);
+        assert!(http_corr(&h.sink).is_none());
+        h.step(second, 4);
+        let fresh = http_corr(&h.sink).expect("fresh calibration");
+        assert!(emit_jsons(&h.sink)
+            .iter()
+            .all(|e| e["data"]["req_id"] != "read"));
+        h.step(bookmark_reply(fresh, bookmark_data(10)), 5);
+        assert_eq!(
+            emit_json(&h.sink).unwrap()["data"]["body"]["data"]["total"],
+            10
+        );
+    }
+}
+/// 网络、业务、字段、作用域失败统一 unknown；失败后退避，stop 清理全部 coalesced 等待者。
+#[test]
+fn bookmark_count_failure_scope_and_cancel() {
+    use helix_core::Module;
+    for case in [
+        "network", "timeout", "business", "scope", "negative", "stop",
+    ] {
+        let mut h = scoped_read_harness(&[]);
+        h.step(
+            outbound_cmd("im_bookmark_count", serde_json::json!({"req_id":"a"})),
+            1,
+        );
+        let corr = http_corr(&h.sink).unwrap();
+        h.step(
+            outbound_cmd("im_bookmark_count", serde_json::json!({"req_id":"b"})),
+            2,
+        );
+        if case == "stop" {
+            h.sink.clear();
+            h.module.on_stop(&mut h.sink).unwrap();
+        } else if case == "network" {
+            h.step(port_reply_err(corr), 3);
+        } else if case == "timeout" {
+            h.step(
+                Tick::PortReply {
+                    corr: helix_core::Correlation::from_raw(corr),
+                    outcome: helix_core::tick::PortOutcome::Err(
+                        helix_core::tick::PortError::Timeout,
+                    ),
+                },
+                3,
+            );
+        } else if case == "business" {
+            h.step(
+                port_reply_with_body(
+                    corr,
+                    enveloped(bytes::Bytes::from_static(
+                        br#"{"status":"failed","message":"denied"}"#,
+                    )),
+                ),
+                3,
+            );
+        } else {
+            let mut data = bookmark_data(2);
+            match case {
+                "scope" => data["companyId"] = serde_json::json!("other"),
+                "negative" => data["total"] = serde_json::json!(-1),
+                _ => data = serde_json::Value::Null,
+            }
+            h.step(bookmark_reply(corr, data), 3);
+        }
+        let events = emit_jsons(&h.sink);
+        for id in ["a", "b"] {
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|e| e["data"]["req_id"] == id && e["data"].get("error").is_some())
+                    .count(),
+                1
+            );
+        }
+        h.step(bookmark_reply(corr, bookmark_data(100)), 4);
+        assert!(emit_json(&h.sink).is_none());
+        if case != "stop" {
+            h.step(
+                outbound_cmd("im_bookmark_count", serde_json::json!({"req_id":"retry"})),
+                5,
+            );
+            assert!(http_corr(&h.sink).is_none());
+            assert!(emit_json(&h.sink).unwrap()["data"].get("error").is_some());
+            h.step(
+                outbound_cmd("im_bookmark_count", serde_json::json!({"req_id":"retry2"})),
+                30004,
+            );
+            assert!(http_corr(&h.sink).is_some());
+        }
+    }
+}
+/// 写请求结果不确定时不猜增量；同一租户重连与账号切换都必须重新校准。
+#[test]
+fn bookmark_count_uncertain_write_and_identity_reset() {
+    let mut h = scoped_read_harness(&["c1"]);
+    h.step(
+        outbound_cmd("im_bookmark_count", serde_json::json!({"req_id":"initial"})),
+        1,
+    );
+    let read = http_corr(&h.sink).unwrap();
+    h.step(bookmark_reply(read, bookmark_data(5)), 2);
+    h.step(
+        outbound_cmd(
+            "im_bookmark_delete",
+            serde_json::json!({"channel_id":"c1","post_id":"p","req_id":"write"}),
+        ),
+        3,
+    );
+    let write = http_corr(&h.sink).unwrap();
+    h.step(port_reply_err(write), 4);
+    h.step(
+        outbound_cmd(
+            "im_bookmark_count",
+            serde_json::json!({"req_id":"after-error"}),
+        ),
+        5,
+    );
+    let read = http_corr(&h.sink).unwrap();
+    h.step(bookmark_reply(read, bookmark_data(4)), 6);
+    h.step(
+        Tick::Disconnected(helix_core::effect::TransportId::from_raw(0)),
+        6,
+    );
+    h.step(
+        outbound_cmd(
+            "im_bookmark_count",
+            serde_json::json!({"req_id":"reconnect"}),
+        ),
+        7,
+    );
+    let reconnect = http_corr(&h.sink).expect("disconnect invalidates cached count");
+    h.step(bookmark_reply(reconnect, bookmark_data(4)), 8);
+    h.step(
+        outbound_cmd(
+            "__helix_runtime_identity",
+            serde_json::json!({"auth_user_id":"other","company_id":"other-team"}),
+        ),
+        7,
+    );
+    h.step(
+        outbound_cmd(
+            "im_bookmark_count",
+            serde_json::json!({"req_id":"other-account"}),
+        ),
+        8,
+    );
+    let read = http_corr(&h.sink).unwrap();
+    h.step(bookmark_reply(read, bookmark_data(4)), 9);
+    assert!(
+        emit_json(&h.sink).unwrap()["data"].get("error").is_some(),
+        "old scope cannot leak"
+    );
+}
+
+/// count 不接受 renderer 注入身份或缺失 req_id；输入失败不能发 HTTP。
+#[test]
+fn bookmark_count_rejects_invalid_input() {
+    use helix_core::Module;
+    for payload in [
+        serde_json::json!({}),
+        serde_json::json!({"req_id":""}),
+        serde_json::json!({"req_id":"r","user_id":"other"}),
+    ] {
+        let mut h = scoped_read_harness(&[]);
+        let cmd = outbound_cmd("im_bookmark_count", payload);
+        assert!(h.module.handle(&cmd, 1, &mut h.sink).is_err());
+        assert!(http_corr(&h.sink).is_none());
+    }
+}

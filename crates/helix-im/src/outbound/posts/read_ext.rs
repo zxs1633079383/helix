@@ -498,3 +498,14 @@ read_cmd!(
         ))
     }
 );
+
+// 缓存校准 HTTP 真源；公开命令先由 ImModule 检查会话缓存。
+read_cmd!(
+    BookmarkCountCommand,
+    BOOKMARK_COUNT_REG,
+    "im_bookmark_count",
+    |args, cmd| {
+        require_bookmark_keys(args, &["req_id"], cmd)?;
+        Ok(("post/bookmark/count", json!({})))
+    }
+);

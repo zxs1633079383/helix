@@ -80,6 +80,9 @@ impl ImModule {
             }
         }
         self.diagnostics.now_ms = now_ms;
+        if matches!(tick, Tick::Disconnected(_)) {
+            self.bookmark_count.invalidate();
+        }
         let effect_start = out.as_slice().len();
         let corr_floor = self.next_corr;
         let recovery_reply = self.observe_sync_reply(tick);
@@ -93,6 +96,13 @@ impl ImModule {
             }
 
             Tick::Command(cmd) => match cmd.name.as_ref() {
+                crate::bookmark_count::COMMAND => {
+                    self.bookmark_count_read(cmd.payload.as_ref(), out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
+                }
                 RUNTIME_IDENTITY_COMMAND => {
                     let identity: RuntimeIdentityPatch =
                         serde_json::from_slice(cmd.payload.as_ref()).map_err(|error| {
@@ -474,6 +484,9 @@ impl ImModule {
                                 }
                             };
                             self.state.corr_map.insert(corr, ctx);
+                            if matches!(name, "im_bookmark_create" | "im_bookmark_delete") {
+                                self.bookmark_count.write_started();
+                            }
                         }
                     } else if name == "im_create_schedule" {
                         if let Ok(args) =
@@ -793,6 +806,7 @@ impl ImModule {
 
     /// 账号切换与停止共用读请求终态；先删除 corr，迟到回包不可重新发布。
     fn cancel_pending_reads(&mut self, out: &mut EffectSink) {
+        self.cancel_bookmark_count(out);
         let mut cancelled_reads: Vec<_> = self
             .state
             .corr_map
@@ -809,7 +823,9 @@ impl ImModule {
         cancelled_reads.sort_unstable_by_key(|(corr, _)| corr.raw());
         for (corr, req_id) in cancelled_reads {
             self.state.corr_map.remove(&corr);
-            out.push(crate::read_relay::emit_read_error(&req_id, "CANCELLED"));
+            if req_id != "bookmark-count-calibration" {
+                out.push(crate::read_relay::emit_read_error(&req_id, "CANCELLED"));
+            }
         }
     }
 

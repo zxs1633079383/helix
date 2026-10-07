@@ -837,6 +837,12 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if command == crate::bookmark_count::COMMAND {
+            return self.bookmark_count_reply(outcome, out);
+        }
+        if matches!(command, "im_bookmark_create" | "im_bookmark_delete") {
+            self.bookmark_write_reply(command, outcome, out)?;
+        }
         // 某些读回只有公告正文/成员数组，没有 channelId；必须使用请求 correlation 冻结的频道。
         if channel_id.is_some_and(|id| !self.render_scope.visible(&self.config, id)) {
             out.push(crate::read_relay::emit_read_error(

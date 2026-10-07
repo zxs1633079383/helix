@@ -105,6 +105,7 @@ impl Default for ImConfig {
 
 /// IM 业务模块（实现 helix_core::Module trait）
 pub struct ImModule {
+    pub(crate) bookmark_count: crate::bookmark_count::CountCache,
     pub(crate) config: ImConfig,
     pub(crate) render_scope: crate::render_scope::RenderScope,
     pub(crate) scope_hydration: crate::scope_hydration::ScopeHydration,
@@ -161,6 +162,7 @@ impl ImModule {
     ) -> Self {
         Self {
             config,
+            bookmark_count: Default::default(),
             render_scope: Default::default(),
             scope_hydration: Default::default(),
             diagnostics: crate::diagnostics::Session::default(),

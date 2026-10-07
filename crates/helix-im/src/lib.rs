@@ -86,3 +86,5 @@ pub use schema::{SparseTableSpec, IM_SCHEMA, IM_SCHEMA_MIGRATIONS, IM_SPARSE_TAB
 pub const USER_SCOPED_STORE_RENDER_CONTRACT_VERSION: u32 = 1;
 
 pub mod recent_history;
+
+mod bookmark_count;

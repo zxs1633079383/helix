@@ -14,17 +14,14 @@
 
 ## 合并转发媒体投影
 
-`forward_shape::merged_post` 将来源行的媒体 props 保存在合并消息中；实时
-`event::post::authority_projection`、历史 `query::render_ready::core` 和旧同步 ACL
-统一调用 `query::render_ready::forward::detail`，避免查询与事件各维护一份详情转换。
-最多 100 条，非法媒体 props 或超量记录返回明确 unavailable。
+当前合并消息只交付有界 `props.forward` 卡片，不再保存或递归投影来源全文。
+详情由 `im_forward_detail` 按 root/path/offset 读取单页；媒体条目从该页的 props 投影，
+fileName 由 Helix 归一为 name，嵌套转发仍只输出子卡片。
+命令参数、取消边界与测试入口统一见 [`crate README`](../README.md#合并转发投影)，
+源码真源为 [`query/render_ready/forward.rs`](../src/query/render_ready/forward.rs) 和
+[`query/forward_detail.rs`](../src/query/forward_detail.rs)。
 
-RICH/IMAGE 的 files、图文 imagePosition，以及 VIDEO/FILE/AUDIO/VOICE 的 file
-通过条目 props 交付；fileName 在 Helix 归一为 name。原始 mergeMessage 不从媒体
-props 透传。UI 沿用普通媒体 Renderer，不从文字摘要补造媒体数据。
-
-此合同由 lib 投影测试与 G-05 sender/receiver PersistOk 回放覆盖；真实宿主、发布版本
-和 UI 显示结果必须另行取证，不能由这些回放结果推断。
+这些入口只说明当前实现，不代表本轮已运行回放、真实宿主或 UI 验收。
 
 下面的 V2 内容是硬切前历史索引，只用于追溯设计决策，不参与当前 MessageV3 实施或 Green 判定。
 

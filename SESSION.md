@@ -1,3 +1,7 @@
+🎯 EXPECT 本轮仅修改 Markdown；历史转发证据缺口单列不可复核，公共包示例与当前 manifest 对齐；修改文档路径/版本/索引检查及 diff check 通过，不宣称全库或运行态 Green。 | 赌注 中 | 可逆 是 | @2026-10-07
+- 本任务交接：docs/交接/Markdown日检-20261007/handoff.md
+✅ DONE 本轮独立文档对齐与聚焦检查通过；七项历史附件标为不可复核，旧 Strict Matrix checker 失败单列，不宣称全库或运行态通过。提交/推送结果见交接所指外部报告。
+
 🎯 EXPECT 全局书签新增独立只读命令，限定认证用户和企业；复用读回关联与失败结算，不改现有群内查询、版本或发布。 | 赌注 中 | 可逆 是 | @2026-10-06
 - 本任务交接：docs/交接/global-bookmarks-20261006.md
 ✅ DONE 本仓实现：75 项定向测试、五 crate check、core 测试、wasm build 通过；全量套件被历史绝对路径缺失阻塞，真实链未验证，未发布。
@@ -1068,7 +1072,7 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 
 分支 reactor/MessageV3-helix；基线 0143874b4c608e4e223561c7fa8512db0746e012；保留现有三个 artifacts 目录，不 commit/push、不提版。当前任务为源码实施，真实 Go/Native/Mobile/Web 与 100 条 UI 性能由主会话分别取证。
 
-✅ DONE Helix 本批源码：ID-only 意图、稳定 command_id 与 attempt req_id、bounded card、按层分页/逻辑取消、全部唯一 durable Post 结算、committed 权威回读均完成。公开 seam 3 项红测先失败；最终 461 库/定向通过，五 crate check/WASM/schema/hash 通过。完整 IM+Core 1554 passed、2 个范围外旧断言失败、12 ignored，未宣称全库 GREEN。真实 Go、Native/手机制品及 UI 性能未在本工作包验收；无 commit/push。证据与生命周期表：artifacts/forward-snapshot-20260916/REPORT.md。
+✅ DONE Helix 本批源码：ID-only 意图、稳定 command_id 与 attempt req_id、bounded card、按层分页/逻辑取消、全部唯一 durable Post 结算、committed 权威回读均完成。公开 seam 3 项红测先失败；最终 461 库/定向通过，五 crate check/WASM/schema/hash 通过。完整 IM+Core 1554 passed、2 个范围外旧断言失败、12 ignored，未宣称全库 GREEN。真实 Go、Native/手机制品及 UI 性能未在本工作包验收；无 commit/push。证据与生命周期表：artifacts/forward-snapshot-20260916/REPORT.md。 **2026-10-07 复核：报告所引七项附件不存在，上述验收结果为历史记载，证据无法复核，不作当前通过判定。**
 
 ⚡ DRIFT-PRED 收尾发现原 ledger 会在逐条转发第一条 echo 就结算，并漏清 WS-first 的 HTTP continuation；通用 lastPost 还需独立收紧。已补 100 条唯一 durable 回声和实际 channel Emit bytes 回归。Cargo 编译/测试共 7 次（含前置红测、两次最终定向及两次 WASM），高于 2–3 次目标；候选教训：冻结前先完成所有输出路径与异步终态审查，再一次性验证。未扩大到两个无关全量失败。
 

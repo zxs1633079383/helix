@@ -10,7 +10,7 @@
 
 ## 1. 当前结论
 
-2026-09-16 合并转发快照 Helix 源码已落地：删除递归 mergeMessage/forwardDetail，仅发送 ID 意图并按 rootPostId/path 分页读取，详情逻辑取消清理模块状态，底层 HTTP 沿现有超时回收。最终 461 项库/定向、五 crate check、WASM 和 G-05 producer schema 通过；全量有 2 项无关失败，未改变 Spec 047 Gate 分母。真实 Go/Native/Mobile/Web 与 UI 性能未在此批验收；详见[源码交接](../artifacts/forward-snapshot-20260916/REPORT.md)。
+2026-09-16 合并转发快照 Helix 源码已落地：删除递归 mergeMessage/forwardDetail，仅发送 ID 意图并按 rootPostId/path 分页读取，详情逻辑取消清理模块状态，底层 HTTP 沿现有超时回收。原报告记载最终 461 项库/定向、五 crate check、WASM 和 G-05 producer schema 通过，以及全量 2 项范围外失败；该报告的七项附件在当前仓库不存在，**证据无法复核，不作通过判定**。Spec 047 Gate 分母未改变。真实 Go/Native/Mobile/Web 与 UI 性能未在此批验收；详见[源码交接](../artifacts/forward-snapshot-20260916/REPORT.md)。
 
 `helix-im` 已从旧呈现套壳与旧 V1 compatibility 硬切到 MessageV3 Gate Event。
 唯一业务出站合同为 `Effect::Emit { event: DomainEventBytes }`，其中 bytes 载荷为 `{event,data}`；driver 只批量交付 bytes，平台不重建业务 reducer。
@@ -29,7 +29,7 @@ PC WDIO、Mobile GTest、Go 修改与跨仓 fixture 同步明确延期。
   的当前 checkout 产物状态为 `NOT_GENERATED`，不能把历史 hash 代替当前产物；
 - PC/Mobile canonical consumer、真实宿主、真实 Go/WS 与双用户证据仍为
   `NOT_SYNCED_BY_SCOPE` / `NOT_RUN`，不得据此宣称三端 TGCR Green。
-- 四个公共包的当前 Cargo manifest 版本统一为 `0.1.19`；workspace 内消费者以 Cargo manifest 的
+- 四个公共包的当前 Cargo manifest 版本统一为 `0.1.44`；workspace 内消费者以 Cargo manifest 的
   精确依赖为准。
 - 独立的 Native Phase1-5 真实链 runner 当前可执行分母为 83 Gate（32/16/15/12/8）；
   五个 `NOT_APPLICABLE` 与四个 `NOT_IMPLEMENTED` Gate 从 runner 选择集排除。变更前的
@@ -132,4 +132,4 @@ PC WDIO、Mobile GTest、Go 修改与跨仓 fixture 同步明确延期。
   不把某一运行 worktree 的分支/未跟踪文件写成所有 checkout 的当前事实。
 - 源 checkout 若存在未跟踪 `artifacts/` 或私仓 Prompt，文档对齐不纳入；具体文件以本轮 `git status` 为准。
 - 每个可独立验收的 Task/Phase 聚焦验证后立即 Conventional Commit，不自动 push。
-- Rust 编码全程遵守 Cargo 2-3 次纪律；不做改一行跑一次的编译循环。
+- Rust 验证遵守根 `AGENTS.md` §3.0.1/§3.1：按影响范围执行并复用相同代码/环境证据；次数不作为跳过必要验证的硬上限，不做改一行跑一次的宽范围编译循环。

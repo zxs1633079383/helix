@@ -85,6 +85,8 @@ node scripts/messagev3/phase1-5-real-chain.mjs --all
   不会自动跳版本掩盖断层。
 - `--bump minor|major` 可改变递增级别，`--version X.Y.Z` 可显式指定版本。真实发布始终要求
   tracked 工作树干净，且待发布 crate 内不存在未跟踪文件；脚本不执行 commit、tag 或 push。
+- 脚本发布成功后，按根 `AGENTS.md` §6 立即提交本次 manifest/lock 版本事务，并创建
+  `helix-v-<version>` 注释 Tag；两步未完成仍为 `PARTIAL`。push 须有当前任务授权。
 - 首个 crate 上传前失败会恢复 8 个事务 manifest 与 `Cargo.lock`；已有 crate 上传后失败会保留
   新版本并输出 `PARTIAL`，因为 crates.io 已发布版本不可覆盖。
 

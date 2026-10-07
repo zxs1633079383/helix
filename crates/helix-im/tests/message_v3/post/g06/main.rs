@@ -203,15 +203,23 @@ fn run_persona(viewer_id: &str, include_command: bool) -> TestResult<PersonaTrac
             },
             "now_ms": CREATE_AT
         }));
-        harness.step(port_reply_ok(http_corr.raw()), CREATE_AT as u64 + 1);
+        harness.step(
+            port_reply_with_body(
+                http_corr.raw(),
+                common::enveloped(Bytes::from_static(br#"{"status":"SUCCESS"}"#)),
+            ),
+            CREATE_AT as u64 + 1,
+        );
         ticks.push(json!({
             "kind": "PortReply",
             "value": {"correlation": http_corr.raw(), "outcome": {"variant": "Ok"}},
             "now_ms": CREATE_AT + 1
         }));
         assert!(
-            emitted_events(harness.sink.as_slice()).is_empty(),
-            "HTTP ack is not reaction authority"
+            emitted_events(harness.sink.as_slice())
+                .iter()
+                .all(|value| value["event"] == "im:read:result"),
+            "HTTP result is not reaction authority"
         );
     }
 
@@ -425,5 +433,88 @@ fn g06_writes_reviewable_dual_persona_artifacts() -> TestResult<()> {
     assert_eq!(trace.durable_row.len(), 5);
     artifact::write_bundle(std::path::Path::new(&output), &bundle)
         .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// 取消最后一个回应时完整 post_update 的空数组必须清除 durable quick_reply。
+#[test]
+fn g06_empty_reaction_snapshot_clears_the_durable_column() -> TestResult<()> {
+    let mut harness = Harness::new_with_identity(&[6], ACTOR_ID, "g06-company", "", "", "");
+    let mut authority = reaction_authority();
+    authority["data"]["quickReply"] = json!([]);
+    authority["data"]["expediteMap"] = json!({});
+    harness.step(
+        Tick::Inbound(InboundBytes(Bytes::from(
+            serde_json::to_vec(&authority).unwrap(),
+        ))),
+        CREATE_AT as u64,
+    );
+    let patch = harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| {
+            let Effect::PersistAtomic { ops, .. } = effect else {
+                return None;
+            };
+            ops.iter().find_map(|op| match op {
+                StorageOp::BatchUpdate(spec) if spec.table == "message" => Some(&spec.patch),
+                _ => None,
+            })
+        })
+        .ok_or("missing message patch")?;
+    assert!(
+        patch.iter().any(|(column, value)| column == "quick_reply"
+            && matches!(value, SqlValue::Text(raw) if raw == "[]")),
+        "empty authority must clear reaction column"
+    );
+    assert!(
+        emitted_events(harness.sink.as_slice()).is_empty(),
+        "no terminal before PersistOk"
+    );
+    let persist_corr = correlation(harness.sink.as_slice(), "atomic").ok_or("missing persist")?;
+    harness.step(port_reply_ok(persist_corr.raw()), CREATE_AT as u64 + 1);
+    let events = emitted_events(harness.sink.as_slice());
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "im:post:updated"
+                && event["data"]["quickReply"] == json!([])),
+        "persisted empty snapshot must reach UI"
+    );
+    Ok(())
+}
+
+/// 快捷回应的 HTTP 失败必须回传 req_id，避免客户端把 accepted 误当成功并悬挂。
+#[test]
+fn g06_http_business_failure_reaches_the_requester() -> TestResult<()> {
+    let mut harness = Harness::new_with_identity(&[6], ACTOR_ID, "g06-company", "", "", "");
+    harness.step(
+        command_json(
+            "im_quick_reply",
+            json!({"post_id": POST_ID, "emoji": EMOJI, "req_id": "g06-failure"}),
+        ),
+        CREATE_AT as u64,
+    );
+    let corr = correlation(harness.sink.as_slice(), "http").ok_or("missing HTTP")?;
+    harness.step(
+        port_reply_with_body(
+            corr.raw(),
+            common::enveloped(Bytes::from_static(
+                br#"{"status":"FAIL","message":"denied"}"#,
+            )),
+        ),
+        CREATE_AT as u64 + 1,
+    );
+    let events = emitted_events(harness.sink.as_slice());
+    assert!(
+        events.iter().any(|value| value["event"] == "im:read:result"
+            && value["data"]["req_id"] == "g06-failure"
+            && value["data"].get("error").is_some()),
+        "business failure must reach requester"
+    );
+    assert!(!events
+        .iter()
+        .any(|value| value["event"] == "im:post:updated"));
     Ok(())
 }

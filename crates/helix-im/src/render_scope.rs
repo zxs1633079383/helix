@@ -4,12 +4,14 @@ use helix_core::effect::{SqlValue, StorageOp};
 use helix_core::{Correlation, Effect, EffectSink, Tick};
 use serde::de::{DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
 pub(crate) struct RenderScope {
     // 归属只来自持久 channel 行；消息作者不是本地库所属用户。
     channels: HashMap<String, (String, String)>,
+    // 仅用于本轮已认证远端分页读；不写持久归属，发送该 req_id 后即消耗。
+    authority_reads: HashMap<String, HashSet<String>>,
     pending: HashMap<Correlation, Vec<(String, String, String)>>,
 }
 
@@ -26,6 +28,11 @@ struct CorrelatedRead<'a> {
 }
 
 impl RenderScope {
+    /// 权威全局读已验证账号与企业后，允许该单次结果中的未缓存频道通过渲染围栏。
+    pub(crate) fn authorize_read(&mut self, req_id: &str, channels: HashSet<String>) {
+        self.authority_reads.insert(req_id.to_owned(), channels);
+    }
+
     /// 按需离线查询可以早于启动扫描完成，仍从这次真实本地读回建立同一归属索引。
     pub(crate) fn observe_rows(&mut self, bytes: &[u8]) {
         if let Ok(rows) = serde_json::from_slice::<Vec<serde_json::Value>>(bytes) {
@@ -172,8 +179,17 @@ impl RenderScope {
                     | "im:channel:increment"
                     | "im:channel:topic-created"
             );
+            let authority_channels = if envelope.event == "im:read:result" {
+                serde_json::from_str::<CorrelatedRead<'_>>(envelope.data.get())
+                    .ok()
+                    .and_then(|read| read.req_id)
+                    .and_then(|req_id| self.authority_reads.remove(req_id))
+            } else {
+                None
+            };
             let mut visitor = ScopeVisitor {
                 scope: self,
+                authority_channels: authority_channels.as_ref(),
                 config,
                 row: channel_row,
                 valid: true,
@@ -212,6 +228,7 @@ impl RenderScope {
 
 struct ScopeVisitor<'a> {
     scope: &'a RenderScope,
+    authority_channels: Option<&'a HashSet<String>>,
     config: &'a ImConfig,
     row: bool,
     valid: bool,
@@ -238,7 +255,8 @@ impl<'de> Visitor<'de> for &mut ScopeVisitor<'_> {
                 let id = map.next_value::<Option<&str>>()?;
                 if let Some(id) = id.filter(|id| !id.is_empty()) {
                     self.seen = true;
-                    self.valid &= self.scope.visible(self.config, id);
+                    self.valid &= self.authority_channels.is_some_and(|ids| ids.contains(id))
+                        || self.scope.visible(self.config, id);
                 }
             } else if key == "id" {
                 // 列表里的频道行通常只携带 id；不要把成员/消息自身 id 当成频道。
@@ -246,7 +264,8 @@ impl<'de> Visitor<'de> for &mut ScopeVisitor<'_> {
                 let id = serde_json::from_str::<&str>(raw.get()).ok();
                 if let Some(id) = id.filter(|id| self.scope.channels.contains_key(*id)) {
                     self.seen = true;
-                    self.valid &= self.scope.visible(self.config, id);
+                    self.valid &= self.authority_channels.is_some_and(|ids| ids.contains(id))
+                        || self.scope.visible(self.config, id);
                 }
             } else if matches!(key, "teamId" | "team_id") {
                 let entity_team = map.next_value::<Option<&str>>()?;

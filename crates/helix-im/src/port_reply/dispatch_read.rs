@@ -848,6 +848,54 @@ impl ImModule {
         match outcome {
             PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
                 Ok(raw_body) => {
+                    if command == "im_bookmark_load_global" {
+                        let mut body: Value =
+                            serde_json::from_slice(&raw_body).unwrap_or(Value::Null);
+                        let page = &body["data"];
+                        let valid = body["status"] == "SUCCESS"
+                            && !self.config.auth_user_id.is_empty()
+                            && !self.config.company_id.is_empty()
+                            && page["userId"].as_str() == Some(self.config.auth_user_id.as_str())
+                            && page["companyId"].as_str() == Some(self.config.company_id.as_str())
+                            && page["hasMore"].is_boolean();
+                        let channels: Option<HashSet<String>> =
+                            page["data"].as_array().and_then(|rows| {
+                                rows.iter()
+                                    .map(|row| {
+                                        row["channelId"]
+                                            .as_str()
+                                            .filter(|id| !id.is_empty())
+                                            .map(str::to_owned)
+                                    })
+                                    .collect()
+                            });
+                        if let Some(channels) = channels.filter(|_| valid) {
+                            body["data"]["data"] =
+                                crate::render_ready::shape_message_rows_for_viewer(
+                                    &body["data"]["data"],
+                                    self.config.auth_user_id.as_str(),
+                                );
+                            self.render_scope.authorize_read(req_id, channels);
+                            out.push(crate::read_relay::emit_read_body(req_id, body));
+                        } else {
+                            out.push(crate::read_relay::emit_read_error(
+                                req_id,
+                                "BOOKMARK_GLOBAL_SCOPE_OR_RESPONSE_INVALID",
+                            ));
+                        }
+                        return Ok(());
+                    }
+                    if command == "im_quick_reply" {
+                        let body = serde_json::from_slice::<serde_json::Value>(&raw_body);
+                        if !matches!(&body, Ok(value) if value.get("status").and_then(serde_json::Value::as_str) == Some("SUCCESS"))
+                        {
+                            out.push(crate::read_relay::emit_read_error(
+                                req_id,
+                                "QUICK_REPLY_FAILED",
+                            ));
+                            return Ok(());
+                        }
+                    }
                     if command == "im_channel_query" {
                         // 频道目录行是明确的 channel schema；不要让 id/teamId 简化形状
                         // 绕过公司围栏，也不要把通用成员行的 teamId 误当频道公司。

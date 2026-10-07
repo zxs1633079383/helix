@@ -2,6 +2,15 @@
 - 交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/1006-群聊空值覆盖审查/handoff.md
 ✅ DONE 本地源码与定向验证完成：Helix 222 项（含 6 项真实 SQLite）通过；三仓证据、安装包接入与真实业务验收边界统一见交接。
 
+🎯 EXPECT 全局书签新增独立只读命令，限定认证用户和企业；复用读回关联与失败结算，不改现有群内查询、版本或发布。 | 赌注 中 | 可逆 是 | @2026-10-06
+- 本任务交接：docs/交接/global-bookmarks-20261006.md
+✅ DONE 本仓实现：75 项定向测试、五 crate check、core 测试、wasm build 通过；全量套件被历史绝对路径缺失阻塞，真实链未验证，未发布。
+⚡ DRIFT-PRED stop 未取消普通读关联，生命周期红测暴露后复用既有 identity-change 取消逻辑修复；详情见交接。
+🎯 EXPECT 取消最后一个回应的空数组会随 cursor 原子持久化；HTTP失败能按 req_id 回传；不新增命令、表或版本。 | 赌注 中 | 可逆 是 | @2026-10-06
+- 本任务交接：docs/交接/reaction-feedback-20261006.md
+🎯 EXPECT 表情历史复用 im_recent_history，发送/回应独立、最近使用优先、重启恢复；不新增表、不改版本、不发布。| 赌注 中 | 可逆 是 | @2026-10-06
+- 本任务交接：docs/交接/emoji-history-20261006.md
+✅ DONE 本仓实现：公开回放4项、真实SQLite2项、crate check、局部fmt/diff通过；全包历史路径缺口与桌面/发布状态分别记录于交接。
 🎯 EXPECT 指令优化只改规则、Skill和文档；生产代码、100%覆盖率、生产/发布/版本/指标批准不变；文档差异与技能元数据检查通过。 | 赌注 中 | 可逆 是 | @2026-09-23
 - 当前任务交接：/System/Volumes/Data/workspace/golang/cses-im-server/docs/交接/Token消耗与指令审阅/handoff.md
 ✅ DONE 指令优化：规则与Skill修改，9入口元数据检查及白名单diff检查通过；未改生产代码/版本/质量门禁，未push。详细证据见任务交接。

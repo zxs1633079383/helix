@@ -1190,3 +1190,119 @@ fn schedule_relay_get_failure_never_becomes_empty_success() {
         assert!(events[0]["data"].get("body").is_none());
     }
 }
+
+/// 全局书签必须通过公开命令收到跨频道结果，重复回复不重发，外企业响应拒绝。
+#[test]
+fn global_bookmarks_read_lifecycle() {
+    for (company, success) in [(READ_RELAY_COMPANY, true), ("other-company", false)] {
+        let mut h = scoped_read_harness(&[]);
+        h.step(
+            outbound_cmd(
+                "im_bookmark_load_global",
+                serde_json::json!({"page_number":1,"page_size":20,"req_id":"bookmarks-global"}),
+            ),
+            1000,
+        );
+        let corr = http_corr(&h.sink).expect("global bookmarks emits HTTP");
+        let body = bytes::Bytes::from(serde_json::to_vec(&serde_json::json!({
+            "status":"SUCCESS", "data": {"userId":READ_RELAY_VIEWER,"companyId":company,"hasMore":false,
+            "data":[{"id":"post-a","channelId":"channel-not-cached","userId":"sender"}]}
+        })).unwrap());
+        let reply = enveloped(body);
+        h.step(port_reply_with_body(corr, reply.clone()), 1001);
+        let event = emit_json(&h.sink).expect("read has terminal result");
+        assert_eq!(event["data"]["req_id"], "bookmarks-global");
+        if success {
+            assert_eq!(event["data"]["body"]["data"]["data"][0]["id"], "post-a");
+        } else {
+            assert!(event["data"].get("error").is_some());
+        }
+        h.step(port_reply_with_body(corr, reply), 1002);
+        assert!(emit_json(&h.sink).is_none(), "duplicate must not emit");
+    }
+}
+
+/// 全局权威许可只消费一次，不放宽后续群读；网络失败必须结算并释放关联。
+#[test]
+fn global_bookmarks_failure_and_scope_are_request_local() {
+    let mut h = scoped_read_harness(&[]);
+    h.step(
+        outbound_cmd(
+            "im_bookmark_load_global",
+            serde_json::json!({"page_number":1,"page_size":20,"req_id":"global-fail"}),
+        ),
+        1,
+    );
+    let corr = http_corr(&h.sink).unwrap();
+    h.step(port_reply_err(corr), 2);
+    assert!(emit_json(&h.sink).unwrap()["data"].get("error").is_some());
+    h.step(port_reply_err(corr), 3);
+    assert!(emit_json(&h.sink).is_none());
+    h.step(
+        outbound_cmd(
+            "im_bookmark_load_global",
+            serde_json::json!({"page_number":1,"page_size":20,"req_id":"global-ok"}),
+        ),
+        4,
+    );
+    let corr = http_corr(&h.sink).unwrap();
+    let body = serde_json::json!({"status":"SUCCESS","data":{"userId":READ_RELAY_VIEWER,"companyId":READ_RELAY_COMPANY,"hasMore":false,"data":[{"id":"p","channelId":"uncached"}]}});
+    h.step(
+        port_reply_with_body(
+            corr,
+            enveloped(bytes::Bytes::from(serde_json::to_vec(&body).unwrap())),
+        ),
+        5,
+    );
+    assert!(emit_json(&h.sink).unwrap()["data"].get("body").is_some());
+    h.step(outbound_cmd("im_bookmark_load", serde_json::json!({"channel_id":"uncached","page_number":1,"page_size":20,"req_id":"global-ok"})), 6);
+    let corr = http_corr(&h.sink).unwrap();
+    h.step(
+        port_reply_with_body(
+            corr,
+            enveloped(bytes::Bytes::from(serde_json::to_vec(&body).unwrap())),
+        ),
+        7,
+    );
+    assert_eq!(
+        emit_json(&h.sink).unwrap()["data"]["error"],
+        "RENDER_SCOPE_MISMATCH"
+    );
+}
+
+/// 超时与停止释放读关联；存储屏障对无缓存的远程只读结果不适用。
+#[test]
+fn global_bookmarks_timeout_and_stop_settle_once() {
+    use helix_core::Module;
+    for stop in [false, true] {
+        let mut h = scoped_read_harness(&[]);
+        h.step(
+            outbound_cmd(
+                "im_bookmark_load_global",
+                serde_json::json!({"page_number":1,"page_size":20,"req_id":"global-terminal"}),
+            ),
+            1,
+        );
+        let corr = http_corr(&h.sink).unwrap();
+        if stop {
+            h.sink.clear();
+            h.module.on_stop(&mut h.sink).unwrap();
+        } else {
+            h.step(
+                Tick::PortReply {
+                    corr: helix_core::Correlation::from_raw(corr),
+                    outcome: helix_core::tick::PortOutcome::Err(
+                        helix_core::tick::PortError::Timeout,
+                    ),
+                },
+                2,
+            );
+        }
+        assert!(emit_jsons(&h.sink)
+            .iter()
+            .any(|event| event["data"]["req_id"] == "global-terminal"
+                && event["data"].get("error").is_some()));
+        h.step(port_reply_err(corr), 3);
+        assert!(emit_json(&h.sink).is_none());
+    }
+}

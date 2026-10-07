@@ -1,6 +1,6 @@
 [package]
 name        = "helix-driver-native"
-version     = "0.1.41"
+version     = "0.1.44"
 edition     = "2021"
 authors     = ["CSES Team"]
 license     = "MIT OR Apache-2.0"
@@ -13,8 +13,8 @@ include     = ["/src/**", "/README.md"]
 # tokio::spawn 在此 crate 的 engine_loop.rs，不在 helix-core
 
 [dependencies]
-helix-core = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.41" }
-helix-driver-host = { path = "../helix-driver-host", version = "=0.1.41" }
+helix-core = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.44" }
+helix-driver-host = { path = "../helix-driver-host", version = "=0.1.44" }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
 thiserror   = { workspace = true }
@@ -37,7 +37,7 @@ criterion = "0.5"
 # 协议执行已迁 helix-driver-host，故这两条仅测试侧需要。
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
-helix-im = { path = "../helix-im", version = "=0.1.41" }
+helix-im = { path = "../helix-im", version = "=0.1.44" }
 sha2 = "0.10"
 
 [[bench]]

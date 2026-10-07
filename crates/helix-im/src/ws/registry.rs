@@ -73,6 +73,11 @@ fn build_registry(
     Ok(registry)
 }
 
+/// 已注册 action 使用静态键作为诊断来源，避免每条正常 WS 推送分配字符串。
+pub(crate) fn canonical_action(action: &str) -> Option<&'static str> {
+    registry().ok()?.get_key_value(action).map(|(key, _)| *key)
+}
+
 pub(crate) fn dispatch_ws(
     ctx: &mut ImWsContext<'_>,
     frame: &WsFrame,

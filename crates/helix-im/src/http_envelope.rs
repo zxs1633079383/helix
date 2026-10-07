@@ -11,6 +11,13 @@ use crate::error::ImError;
 ///
 /// 非 2xx、信封或 base64 畸形均返回 `Err`，不让失败响应进入成功/空结果解析。
 pub(crate) fn unwrap_sync_envelope(reply: &[u8]) -> Result<Vec<u8>, ImError> {
+    let body = unwrap_transport_envelope(reply)?;
+    validate_business_status(&body)?;
+    Ok(body)
+}
+
+/// 专用业务解码器可保留原有错误码合同，传输信封仍统一校验。
+pub(crate) fn unwrap_transport_envelope(reply: &[u8]) -> Result<Vec<u8>, ImError> {
     let env: serde_json::Value = serde_json::from_slice(reply)
         .map_err(|e| ImError::Parse(format!("sync envelope JSON parse error: {}", e)))?;
     let status = env
@@ -20,14 +27,23 @@ pub(crate) fn unwrap_sync_envelope(reply: &[u8]) -> Result<Vec<u8>, ImError> {
             ImError::Parse("sync envelope missing numeric `status` field".to_string())
         })?;
     if !(200..300).contains(&status) {
-        return Err(ImError::Parse(format!("sync HTTP status {status}")));
+        // 非 2xx 同时保留服务端显式业务失败；畸形错误体仍以 HTTP 状态为准。
+        let reason = env
+            .get("body")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|body| crate::base64::decode(body).ok())
+            .and_then(|body| validate_business_status(&body).err())
+            .map(|error| format!("; {error}"))
+            .unwrap_or_default();
+        return Err(ImError::Parse(format!("sync HTTP status {status}{reason}")));
     }
     let body_b64 = env
         .get("body")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| ImError::Parse("sync envelope missing string `body` field".to_string()))?;
-    crate::base64::decode(body_b64)
-        .map_err(|e| ImError::Parse(format!("sync envelope body base64 decode error: {}", e)))
+    let body = crate::base64::decode(body_b64)
+        .map_err(|e| ImError::Parse(format!("sync envelope body base64 decode error: {}", e)))?;
+    Ok(body)
 }
 
 /// 剥 HTTP 成功信封并校验 2xx；媒体 prepare/complete 等会推进状态机的写路径使用。
@@ -35,29 +51,44 @@ pub(crate) fn unwrap_sync_envelope(reply: &[u8]) -> Result<Vec<u8>, ImError> {
 /// `HttpRequester` 会把 4xx/5xx 也编码为 `PortOutcome::Ok`，因此业务层不能只解 body；
 /// 否则异常响应若碰巧带有形似成功的 JSON，就可能错误推进写状态。
 pub(crate) fn unwrap_success_envelope(reply: &[u8], operation: &str) -> Result<Vec<u8>, ImError> {
-    let env: serde_json::Value = serde_json::from_slice(reply)
-        .map_err(|e| ImError::Parse(format!("{operation} HTTP envelope JSON: {e}")))?;
-    let status = env
-        .get("status")
-        .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| {
-            ImError::Parse(format!(
-                "{operation} HTTP envelope missing numeric `status` field"
-            ))
-        })?;
-    if !(200..300).contains(&status) {
-        return Err(ImError::Parse(format!("{operation} HTTP status {status}")));
+    unwrap_sync_envelope(reply).map_err(|error| match error {
+        ImError::RemoteBusiness { .. } => error,
+        _ => ImError::Parse(format!("{operation}: {error}")),
+    })
+}
+
+/// 明确失败在业务读取 data 前返回；非信封的原始成功载荷保持兼容。
+fn validate_business_status(body: &[u8]) -> Result<(), ImError> {
+    #[derive(serde::Deserialize)]
+    struct BusinessReply<'a> {
+        #[serde(borrow)]
+        status: Option<std::borrow::Cow<'a, str>>,
+        #[serde(borrow)]
+        message: Option<&'a serde_json::value::RawValue>,
     }
-    let body_b64 = env
-        .get("body")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| {
-            ImError::Parse(format!(
-                "{operation} HTTP envelope missing string `body` field"
-            ))
-        })?;
-    crate::base64::decode(body_b64)
-        .map_err(|e| ImError::Parse(format!("{operation} HTTP envelope body base64: {e}")))
+    let Ok(reply) = serde_json::from_slice::<BusinessReply<'_>>(body) else {
+        return Ok(());
+    };
+    if let Some(status) = reply.status.filter(|s| {
+        ["failed", "failure", "error", "fail"]
+            .iter()
+            .any(|failed| s.eq_ignore_ascii_case(failed))
+    }) {
+        return Err(ImError::RemoteBusiness {
+            status: crate::failure_context::clean_text(&status, 32),
+            message: crate::failure_context::clean_text(
+                reply
+                    .message
+                    .and_then(|raw| {
+                        serde_json::from_str::<std::borrow::Cow<'_, str>>(raw.get()).ok()
+                    })
+                    .as_deref()
+                    .unwrap_or("remote request rejected"),
+                512,
+            ),
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]

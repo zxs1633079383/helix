@@ -319,7 +319,7 @@ fn emit_create_failure(
 
 /// 解包并校验channel/create权威对象，完整保留Go的业务拒绝文案。
 fn decode_created_channel(reply: &ReplyBytes) -> Result<serde_json::Value, CreateReplyFailure> {
-    let raw = crate::http_envelope::unwrap_sync_envelope(reply.0.as_ref())
+    let raw = crate::http_envelope::unwrap_transport_envelope(reply.0.as_ref())
         .map_err(invalid_create_reply)?;
     let response: serde_json::Value = serde_json::from_slice(&raw).map_err(invalid_create_reply)?;
     if let Some(status) = response.get("status").and_then(serde_json::Value::as_str) {

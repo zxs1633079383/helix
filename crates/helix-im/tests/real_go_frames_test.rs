@@ -95,9 +95,16 @@ fn production_inbound_unknown_action_returns_unsupported_ws_action() {
     match err {
         CoreError::ModuleError { module, source } => {
             assert_eq!(module, "helix-im");
-            let im_err = source
-                .downcast_ref::<ImError>()
-                .expect("source should be ImError");
+            assert!(source.to_string().contains("WS future_unknown_action"));
+            let mut current: &(dyn std::error::Error + 'static) = source.as_ref();
+            let im_err = loop {
+                if let Some(error) = current.downcast_ref::<ImError>() {
+                    break error;
+                }
+                current = current
+                    .source()
+                    .expect("source chain must preserve ImError");
+            };
             assert!(
                 matches!(im_err, ImError::UnsupportedWsAction(action) if action == "future_unknown_action"),
                 "expected UnsupportedWsAction(future_unknown_action), got {im_err:?}"

@@ -105,6 +105,7 @@ impl Default for ImConfig {
 
 /// IM 业务模块（实现 helix_core::Module trait）
 pub struct ImModule {
+    pub(crate) failure_context: crate::failure_context::FailureContext,
     pub(crate) bookmark_count: crate::bookmark_count::CountCache,
     pub(crate) config: ImConfig,
     pub(crate) render_scope: crate::render_scope::RenderScope,
@@ -162,6 +163,7 @@ impl ImModule {
     ) -> Self {
         Self {
             config,
+            failure_context: Default::default(),
             bookmark_count: Default::default(),
             render_scope: Default::default(),
             scope_hydration: Default::default(),
@@ -335,6 +337,7 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), CoreError> {
+        self.failure_context.websocket(frame);
         self.diagnose_inbound(frame);
         let module_name = self.name();
         let api_base_url = self.config.api_base_url.as_str();

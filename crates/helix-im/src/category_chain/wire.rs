@@ -106,7 +106,7 @@ pub(crate) fn wire_body(command: &str, args: &Value) -> Result<(&'static str, Va
 /// Go 业务失败仍可能通过 HTTP 200 返回；此时保留 data.code（或根 code）到稳定的
 /// CATEGORY_CHAIN_REJECTED:<code> 错误文本，供 runtime 区分业务拒绝和待对账故障。
 pub(crate) fn decode_response(reply: &[u8]) -> Result<Value, ImError> {
-    let raw = crate::http_envelope::unwrap_success_envelope(reply, "category_chain")?;
+    let raw = crate::http_envelope::unwrap_transport_envelope(reply)?;
     let response: Value = serde_json::from_slice(&raw)
         .map_err(|error| parse_error("category_chain", format!("response JSON: {error}")))?;
     let root = response

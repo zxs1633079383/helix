@@ -483,7 +483,10 @@ fn response_data_with_reason(outcome: &PortOutcome) -> Result<serde_json::Value,
         return Err("port_outcome_not_ok");
     };
     let raw = crate::http_envelope::unwrap_success_envelope(reply.0.as_ref(), "channel_settings")
-        .map_err(|_| "http_envelope_invalid_or_non_2xx")?;
+        .map_err(|error| match error {
+        crate::ImError::RemoteBusiness { .. } => "body_status_not_success",
+        _ => "http_envelope_invalid_or_non_2xx",
+    })?;
     let response: serde_json::Value =
         serde_json::from_slice(&raw).map_err(|_| "body_json_invalid")?;
     if response.get("status").and_then(serde_json::Value::as_str) != Some("SUCCESS") {

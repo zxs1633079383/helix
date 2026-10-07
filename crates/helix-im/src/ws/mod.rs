@@ -9,4 +9,4 @@ pub(crate) mod handlers;
 
 pub(crate) use context::ImWsContext;
 pub(crate) use frame::{WsFrame, PONG_ACTION};
-pub(crate) use registry::{dispatch_ws, WsHandlerRegistration, WsMessageHandler};
+pub(crate) use registry::{canonical_action, dispatch_ws, WsHandlerRegistration, WsMessageHandler};

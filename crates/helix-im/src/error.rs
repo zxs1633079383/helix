@@ -17,6 +17,10 @@ use thiserror::Error;
 /// 若需要包装外部错误，在 `module.rs` 的 `handle` 方法中显式 map_err 到 CoreError。
 #[derive(Debug, Clone, Error)]
 pub enum ImError {
+    /// 服务端明确拒绝业务请求，区别于成功载荷结构缺失。
+    #[error("remote business failure: status={status}; message={message}")]
+    RemoteBusiness { status: String, message: String },
+
     #[error("parse error: {0}")]
     Parse(String),
 

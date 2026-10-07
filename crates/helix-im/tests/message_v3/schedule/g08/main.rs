@@ -349,7 +349,7 @@ fn g08_http_failure_keeps_empty_schedule_state() -> TestResult<()> {
     assert_eq!(
         emitted_events(harness.sink.as_slice()),
         vec![json!({
-            "event": "im:read:result", "data": {"req_id": "g08-failed-request", "error": "SCHEDULE_REQUEST_FAILED"}
+            "event": "im:read:result", "data": {"req_id": "g08-failed-request", "error": "SCHEDULE_REQUEST_FAILED", "errorContext": format!("[command=im_create_schedule source=HTTP POST /posts/createSchedule stage=http req_id=g08-failed-request corr={}] SCHEDULE_REQUEST_FAILED; port failure: Http(500)", http_corr.raw())}
         })]
     );
     Ok(())

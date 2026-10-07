@@ -31,6 +31,7 @@ pub mod commands;
 mod diagnostics;
 pub mod draft;
 pub mod error;
+mod failure_context;
 pub mod event;
 mod forward;
 pub mod http_envelope;

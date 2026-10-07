@@ -391,7 +391,7 @@ fn g09_persist_failure_emits_no_terminal_event() -> TestResult<()> {
     assert_eq!(
         emitted_events(harness.sink.as_slice()),
         vec![json!({
-            "event": "im:read:result", "data": {"req_id": "g09-failed-request", "error": "SCHEDULE_PERSIST_FAILED"}
+            "event": "im:read:result", "data": {"req_id": "g09-failed-request", "error": "SCHEDULE_PERSIST_FAILED", "errorContext": format!("[command=im_cancel_schedule source=WS post_schedule_canceled stage=port req_id=g09-failed-request corr={}] SCHEDULE_PERSIST_FAILED; port failure: Http(500)", persist_corr.raw())}
         })]
     );
     Ok(())

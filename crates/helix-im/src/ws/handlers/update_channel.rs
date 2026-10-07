@@ -381,6 +381,10 @@ impl WsMessageHandler for UpdateChannelHandler {
                     .map(|seq| format!("update-channel-{}", seq.0))
             });
             let mut persisted_channel = channel.clone();
+            // PATCH 的 null 未写入数据库，不能作为清空事实透传给消费者。
+            if let Some(fields) = persisted_channel.as_object_mut() {
+                fields.retain(|_, value| !value.is_null());
+            }
             normalize_owner_projection(&mut persisted_channel);
             if let Some(object) = persisted_channel.as_object_mut() {
                 for key in ["settingVersion", "setting_version", "capabilitiesByRole"] {

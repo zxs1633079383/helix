@@ -268,7 +268,8 @@ fn rejoined_viewer_clears_local_left_state_after_atomic_persist() {
         .iter()
         .find_map(|effect| match effect {
             Effect::PersistAtomic { corr, ops } => ops.iter().find_map(|op| match op {
-                StorageOp::BatchUpdate(spec) if spec.table == "channel" => {
+                StorageOp::BatchUpdate(spec) if spec.table == "channel"
+                    && spec.patch.iter().any(|(column, _)| column == "is_remove") => {
                     Some((corr.raw(), spec.patch.clone()))
                 }
                 _ => None,

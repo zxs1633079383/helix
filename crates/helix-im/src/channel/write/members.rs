@@ -1,54 +1,28 @@
-//! S3 成员收集 — `collect_members`：increment_channel / channel_created / channel_member_update
-//! 帧的 `members/owner/adminUsers/boss` **四源** + `memberChange.join` 增量 → `channel_member`
-//! 行（复合 PK，三路径同口径）。
-//!
-//! 行为真源 = 现网 `repo/channel_member_repo.rs`：
-//! - 四源全量（`collect_members_from_channel_json:303`，`tables/channel.rs:333` upsert_channel_tx
-//!   内调用 → `replace_channel_members_tx`）：
-//!   - `members[]`   → 默认角色 `MEMBER`
-//!   - `adminUsers[]`→ 默认角色 `ADMIN`
-//!   - `boss[]`      → 默认角色 `BOSS`
-//!   - `owner{}`     → 角色 `OWNER`（单对象，非数组）
-//! - 增量 join（`apply_member_change_tx:247`）：`memberChange.join[]` 逐元素 upsert，
-//!   角色取元素 `role` ?? `MEMBER`；**跳过** `user_id == owner_id && normalize_role==MEMBER`
-//!   的条目（owner 已由四源 `owner{}` 以 OWNER 角色入集，不被降级为 MEMBER）。
-//!
-//! 每元素 `userId` ?? `id`（缺 / 空 → 跳该条，零信任）；显式 `role` 字段覆盖默认角色（经
-//! `normalize_role` 归一）；`teamId` / `nickName` 透传。dedup **保留最后出现**（owner/boss/admin
-//! /join 覆盖 member——对齐现网 `dedupe_members` rev 语义；join 排在四源后，相同 user_id 时
-//! join 的角色为准，与现网增量后到达即覆盖一致）。
-//!
-//! ⚠️ **A1 修复**：此前 `increment_channel.rs::apply_increment` 只读四源（`members[]` 等常缺省）
-//! → 真 Go 增量帧成员经 `memberChange.join` 增量交付时全丢（43 人群仅落 3 行）。三路径统一改走
-//! 本函数（四源 + join），消除 `channel_member_update.rs::parse_member_join`「只读 join 不读四源」
-//! 与本函数「只读四源不读 join」的同仓不一致。
-//!
-//! ✅ **memberChange.leave 物理删（已接通）**：现网 `apply_member_change_tx:270` 对 leave 走物理
-//! `DELETE FROM channel_member WHERE channel_id=? AND user_id IN(…)`。helix-core `StorageOp` 已加
-//! **`BatchDelete` 变体**（`effect.rs:101` + `BatchDeleteSpec`，scope 等值约束防跨群误删），三端
-//! driver 已适配。leave 删除**两路真接通**：`collect_member_leaves` 解析离场 user_id 集 →
-//! `acl::to_effect_s1::delete_channel_members` → `StorageOp::BatchDelete`，由 `increment_channel.rs:69`
-//! 与 `channel_member_update.rs:114` 两个 handler 调用。本函数（`collect_members`）只管**收集应在册
-//! 成员**（join + 四源 upsert）；离场删除是独立 `collect_member_leaves` 路径，二者分工互补。
+//! 成员来源按字段合并：当前 members > 当前角色摘要 > 历史 join。
+//! 未提供字段保留 presence；显式空昵称允许清空。离场只由明确 leave 表达。
 
 use crate::acl::to_effect_s1::MemberRow;
 
-/// 帧 data 的四源 + `memberChange.join` → 去重后的 `channel_member` 行（角色映射 + dedup）。
-///
-/// 顺序：members→adminUsers→boss→owner→memberChange.join，末尾去重保留后者（角色升级 / 增量覆盖
-/// 语义，对齐现网 `dedupe_members` rev + 「增量后到达即覆盖」）。空集 → 空 `Vec`（调用方据此跳过
-/// 写库）。复杂度 O(n)（n=四源 + join 元素总数；冷路径，非每事件热路径）。
-///
-/// leave 不在此处理（离场删除走独立 `collect_member_leaves` → `BatchDelete` 路径，见模块头）；
-/// 本函数只收集应在册成员（join + 四源 upsert）。
+/// 当前成员字段优先于精简角色摘要和历史 join；O(n) 按用户合并。
 pub fn collect_members(data: &serde_json::Value) -> Vec<MemberRow> {
-    let mut out: Vec<MemberRow> = Vec::new();
-    collect_array(data.get("members"), "MEMBER", &mut out);
-    collect_array(data.get("adminUsers"), "ADMIN", &mut out);
-    collect_boss_array(data.get("boss"), &mut out);
-    collect_owner(data.get("owner"), &mut out);
+    let mut out = Vec::new();
     collect_member_change_join(data, &mut out);
-    dedupe_keep_last(out)
+    collect_array(data.get("adminUsers"), "ADMIN", &mut out);
+    let mut boss_leaves = std::collections::HashSet::new();
+    collect_boss_array(data.get("boss"), &mut out, &mut boss_leaves);
+    collect_owner(data.get("owner"), &mut out);
+    let mut current = Vec::new();
+    collect_array(data.get("members"), "MEMBER", &mut current);
+    for member in &mut current {
+        // 明确撤销 BOSS + 仍在当前成员名单中：缺 role 表达降为普通成员。
+        // 当前名单显式 role 仍拥有最高优先级，不能凭 leave 创建新成员。
+        if boss_leaves.contains(&member.user_id) && member.omitted_fields.contains(&"role") {
+            member.role = "MEMBER".to_string();
+            member.omitted_fields.retain(|field| *field != "role");
+        }
+    }
+    out.extend(current);
+    merge_present_fields(out)
 }
 
 /// `memberChange.join[]` 增量成员 → MemberRow（真源 `apply_member_change_tx:247`）。
@@ -131,7 +105,11 @@ fn collect_array(value: Option<&serde_json::Value>, default_role: &str, out: &mu
 }
 
 /// boss 数组中的 leave 只撤销 BOSS 角色；成员是否仍在群由 members/其它权威源决定。
-fn collect_boss_array(value: Option<&serde_json::Value>, out: &mut Vec<MemberRow>) {
+fn collect_boss_array(
+    value: Option<&serde_json::Value>,
+    out: &mut Vec<MemberRow>,
+    leaves: &mut std::collections::HashSet<String>,
+) {
     let Some(value) = value else { return };
     let parsed;
     let value = match value.as_str() {
@@ -146,6 +124,13 @@ fn collect_boss_array(value: Option<&serde_json::Value>, out: &mut Vec<MemberRow
     let Some(arr) = value.as_array() else { return };
     for item in arr {
         if item.get("option").and_then(serde_json::Value::as_str) == Some("leave") {
+            if let Some(id) = item
+                .get("userId")
+                .or_else(|| item.get("id"))
+                .and_then(serde_json::Value::as_str)
+            {
+                leaves.insert(id.to_string());
+            }
             continue;
         }
         if let Some(row) = member_row_from_value(item, "BOSS") {
@@ -195,6 +180,15 @@ fn member_row_from_value(value: &serde_json::Value, default_role: &str) -> Optio
         .get("role")
         .and_then(|v| v.as_str())
         .unwrap_or(default_role);
+    if obj.get("role").is_some_and(|v| {
+        !v.is_null()
+            && !matches!(
+                v.as_str(),
+                Some("OWNER" | "CREATOR" | "ADMIN" | "MANAGER" | "MANGER" | "BOSS" | "MEMBER")
+            )
+    }) {
+        return None;
+    }
     let nick_name = obj
         .get("nickName")
         .and_then(|v| v.as_str())
@@ -205,6 +199,26 @@ fn member_row_from_value(value: &serde_json::Value, default_role: &str) -> Optio
         team_id,
         role: normalize_role(role).to_string(),
         nick_name,
+        omitted_fields: [
+            (
+                "team_id",
+                obj.get("teamId")
+                    .and_then(|v| v.as_str())
+                    .filter(|v| !v.is_empty())
+                    .is_none(),
+            ),
+            (
+                "nick_name",
+                obj.get("nickName").and_then(|v| v.as_str()).is_none(),
+            ),
+            (
+                "role",
+                default_role == "MEMBER" && obj.get("role").and_then(|v| v.as_str()).is_none(),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(field, omitted)| omitted.then_some(field))
+        .collect(),
     })
 }
 
@@ -213,28 +227,34 @@ fn member_row_from_value(value: &serde_json::Value, default_role: &str) -> Optio
 fn normalize_role(role: &str) -> &'static str {
     match role {
         "OWNER" | "CREATOR" => "OWNER",
-        "ADMIN" | "MANAGER" => "ADMIN",
+        "ADMIN" | "MANAGER" | "MANGER" => "ADMIN",
         "BOSS" => "BOSS",
         _ => "MEMBER",
     }
 }
 
-/// 去重 by user_id，**保留最后出现**（owner/boss/admin 覆盖 member 角色升级）。
-///
-/// 真源 `dedupe_members`：rev 遍历入 seen，再 reverse 恢复顺序——等价「同 user_id 取后者」。
-/// 复杂度 O(n)（HashSet 一遍）。
-fn dedupe_keep_last(members: Vec<MemberRow>) -> Vec<MemberRow> {
-    use std::collections::HashSet;
-    let mut seen: HashSet<String> = HashSet::with_capacity(members.len());
-    let mut result: Vec<MemberRow> = Vec::with_capacity(members.len());
-    for m in members.into_iter().rev() {
-        if seen.insert(m.user_id.clone()) {
-            result.push(m);
+/// 同一用户只覆盖来源实际提供的字段；稳定输入顺序、时间空间 O(n)。
+fn merge_present_fields(members: Vec<MemberRow>) -> Vec<MemberRow> {
+    let mut positions = std::collections::HashMap::new();
+    let mut result: Vec<MemberRow> = Vec::new();
+    for member in members {
+        if let Some(&index) = positions.get(&member.user_id) {
+            let current: &mut MemberRow = &mut result[index];
+            for field in ["team_id", "role", "nick_name"] {
+                if member.omitted_fields.contains(&field) {
+                    continue;
+                }
+                match field {
+                    "team_id" => current.team_id.clone_from(&member.team_id),
+                    "role" => current.role.clone_from(&member.role),
+                    _ => current.nick_name.clone_from(&member.nick_name),
+                }
+                current.omitted_fields.retain(|omitted| *omitted != field);
+            }
+        } else {
+            positions.insert(member.user_id.clone(), result.len());
+            result.push(member);
         }
     }
-    result.reverse();
     result
 }
-
-// 回归测试见 `tests/channel_member_collect_test.rs`（四源 + memberChange.join + leave；
-// 仅用公开 API `collect_members`/`collect_member_leaves`，移出 src 以守 ≤300 行硬顶）。

@@ -1,3 +1,7 @@
+🎯 EXPECT 按群聊空值红测完成三仓定向修复，保留明确清空；不提版或发布。@2026-10-07
+- 交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/1006-群聊空值覆盖审查/handoff.md
+✅ DONE 本地源码与定向验证完成：Helix 222 项（含 6 项真实 SQLite）通过；三仓证据、安装包接入与真实业务验收边界统一见交接。
+
 🎯 EXPECT 指令优化只改规则、Skill和文档；生产代码、100%覆盖率、生产/发布/版本/指标批准不变；文档差异与技能元数据检查通过。 | 赌注 中 | 可逆 是 | @2026-09-23
 - 当前任务交接：/System/Volumes/Data/workspace/golang/cses-im-server/docs/交接/Token消耗与指令审阅/handoff.md
 ✅ DONE 指令优化：规则与Skill修改，9入口元数据检查及白名单diff检查通过；未改生产代码/版本/质量门禁，未push。详细证据见任务交接。

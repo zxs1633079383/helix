@@ -220,9 +220,9 @@ fn channel_full_and_member_ops(
     // 四源（members/adminUsers/boss/owner）+ memberChange.join → channel_member 行（复合 PK upsert）。
     // 与 increment_channel / channel_created 三路径同口径（`channel_write::collect_members`）。
     let members = crate::channel_write::collect_members(data);
-    if let Some(op) = crate::acl::to_effect_s1::upsert_channel_members_op(channel_id, members) {
-        ops.push(op);
-    }
+    ops.extend(crate::acl::to_effect_s1::upsert_channel_members_ops(
+        channel_id, members,
+    ));
 
     // memberChange.leave → 从 channel_member 删离场成员（复合 PK 作用域删，scope=channel_id 不跨群）。
     let leaves = crate::channel_write::collect_member_leaves(data);

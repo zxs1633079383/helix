@@ -34,6 +34,8 @@ pub struct MemberRow {
     pub team_id: String,
     pub role: String,
     pub nick_name: String,
+    /// 未提供的字段不参与冲突更新；默认值只用于新行插入。
+    pub omitted_fields: Vec<&'static str>,
 }
 
 /// `channel_member_update` 的成员行批量 upsert（ON CONFLICT(channel_id,user_id)）→ `PersistFire`。
@@ -42,40 +44,56 @@ pub struct MemberRow {
 /// 由 driver ambient 时钟写穿——本工厂只产协议字段列；缺省靠表 DEFAULT。
 /// 空成员集 → None（无写意图）。复杂度 O(rows)（逐行单 upsert，每行 O(1)）。
 pub fn upsert_channel_members(channel_id: ChannelId, members: Vec<MemberRow>) -> Option<Effect> {
-    Some(Effect::PersistFire {
-        ops: vec![upsert_channel_members_op(channel_id, members)?],
-    })
+    let ops = upsert_channel_members_ops(channel_id, members);
+    (!ops.is_empty()).then_some(Effect::PersistFire { ops })
 }
 
-/// 返回可并入相关事务的成员批量 upsert，空 roster 保持 no-op。
-pub fn upsert_channel_members_op(
+/// 按 presence 分成最多 8 个固定形状批次；同事务写入，复杂度 O(n)。
+pub fn upsert_channel_members_ops(
     channel_id: ChannelId,
     members: Vec<MemberRow>,
-) -> Option<StorageOp> {
-    if members.is_empty() {
-        return None;
+) -> Vec<StorageOp> {
+    let mut groups: std::collections::BTreeMap<u8, Vec<Row>> = std::collections::BTreeMap::new();
+    for m in members {
+        let mask =
+            ["team_id", "role", "nick_name"]
+                .iter()
+                .enumerate()
+                .fold(0u8, |mask, (bit, key)| {
+                    mask | if m.omitted_fields.contains(key) {
+                        1 << bit
+                    } else {
+                        0
+                    }
+                });
+        groups.entry(mask).or_default().push(vec![
+            (
+                "channel_id".to_string(),
+                SqlValue::Text(channel_id.as_str().to_string()),
+            ),
+            ("user_id".to_string(), SqlValue::Text(m.user_id)),
+            ("team_id".to_string(), SqlValue::Text(m.team_id)),
+            ("role".to_string(), SqlValue::Text(m.role)),
+            ("nick_name".to_string(), SqlValue::Text(m.nick_name)),
+        ]);
     }
-    let cid = channel_id.as_str().to_string();
-    let rows: Vec<Row> = members
+    groups
         .into_iter()
-        .map(|m| {
-            vec![
-                ("channel_id".to_string(), SqlValue::Text(cid.clone())),
-                ("user_id".to_string(), SqlValue::Text(m.user_id)),
-                ("team_id".to_string(), SqlValue::Text(m.team_id)),
-                ("role".to_string(), SqlValue::Text(m.role)),
-                ("nick_name".to_string(), SqlValue::Text(m.nick_name)),
-            ]
+        .map(|(mask, rows)| {
+            StorageOp::BatchUpsert(UpsertSpec {
+                version_column: None,
+                update_guard: None,
+                table: "channel_member",
+                rows,
+                conflict_key: Some("channel_id,user_id"),
+                exclude_from_update: ["team_id", "role", "nick_name"]
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(bit, field)| (mask & (1 << bit) != 0).then_some(field))
+                    .collect(),
+            })
         })
-        .collect();
-    Some(StorageOp::BatchUpsert(UpsertSpec {
-        version_column: None,
-        update_guard: None,
-        table: "channel_member",
-        rows,
-        conflict_key: Some("channel_id,user_id"),
-        exclude_from_update: Vec::new(),
-    }))
+        .collect()
 }
 
 /// `memberChange.leave` 的成员离场批量删行（`DELETE FROM channel_member WHERE channel_id=?

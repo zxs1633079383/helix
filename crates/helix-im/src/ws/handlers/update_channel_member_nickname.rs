@@ -52,11 +52,13 @@ impl WsMessageHandler for NicknameHandler {
         else {
             return Ok(());
         };
-        let nick_name = data
+        let Some(nick_name) = data
             .get("nickName")
             .or_else(|| data.get("nick_name"))
             .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
+        else {
+            return Ok(());
+        }; // 未提供/null 不等于用户明确清空；空串仍合法。
 
         let event = crate::event::channel_member::nickname_updated(serde_json::json!({
             "channelId": channel_id.as_str(),

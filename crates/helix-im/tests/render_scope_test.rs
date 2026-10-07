@@ -197,7 +197,7 @@ fn foreign_hydration_completes_storage_lifecycle_without_projection() {
         })
         .unwrap();
     // Go ADR-007 fixture: company-g13b，当前 viewer 是真实成员，needSync=false。
-    let body="eyJkYXRhIjp7ImlkIjoiY2hmaXh4MDAwMDAwMDAwMDAwMDAwMDAwM2IiLCJ0ZWFtSWQiOiJjb21wYW55LWcxM2IiLCJkaXNwbGF5TmFtZSI6IkcxM2IiLCJsYXN0RXZlbnRTZXEiOjAsInVucmVhZENvdW50IjozLCJuZWVkU3luYyI6ZmFsc2UsIm1lbWJlckNvdW50IjoxLCJtZW1iZXJzIjpbeyJ1c2VySWQiOiJ2aWV3ZXItZzEzYiIsInJvbGUiOiJNRU1CRVIifV19fQ==";
+    let body="eyJkYXRhIjp7ImlkIjoiY2hmaXh4MDAwMDAwMDAwMDAwMDAwMDAwM2IiLCJ0ZWFtSWQiOiJjb21wYW55LWcxM2IiLCJkaXNwbGF5TmFtZSI6IkcxM2IiLCJsYXN0RXZlbnRTZXEiOjAsInVucmVhZENvdW50IjozLCJuZWVkU3luYyI6ZmFsc2UsIm1lbWJlckNvdW50IjoxLCJtZW1iZXJzIjpbeyJ1c2VySWQiOiJ2aWV3ZXItZzEzYiIsInJvbGUiOiJNRU1CRVIifV0sInR5cGUiOiJQIn19";
     sink.clear();
     module
         .handle(

@@ -93,7 +93,7 @@ fi
 | `crates/` | 全部 Rust 源码，按「业务模块层 / core 层 / 平台驱动层」三层组织（见上「Crate 结构」） |
 | `docs/` | 设计与工程文档：北极星 `GOAL.md`、当前活账 `ROADMAP.md`、提交规范、`harness/`（HX-C001~018 + ADR）、`reports/` / `review/`、`agents/` |
 | `specs/` | Spec Kit 需求、计划、任务、机器合同与分层验证记录；当前 MessageV3 真源为 Spec 047 |
-| `scripts/` | 工程验证与端到端脚本：本地 `gate-fast.sh`、CI/合并 `gate.sh`、`branch-sync-gate.sh`、`ddd-structure-gate.sh` + 一批 `host-cli-*-e2e.sh` 真链路用例 |
+| `scripts/` | 工程验证与端到端脚本：人工 `gate-fast.sh` / `gate.sh`、CI `messagev3/phase1-5-real-chain.mjs`、`branch-sync-gate.sh`、`ddd-structure-gate.sh` + 一批 `host-cli-*-e2e.sh` 真链路用例 |
 | `tools/` | `helix-perf` 性能工具与 `md2html.py` 文档转换脚本 |
 
 ## helix-im 内部业务模块
@@ -117,8 +117,8 @@ fi
 ## 关键设计决策（摘要）
 
 1. **helix-core 零运行时依赖**：`tokio::spawn` 在 driver，不在 core（审查意见1 P0）
-2. **port trait 无关联类型**：统一返回 `Result<_, PortError>`，dyn-safe（审查意见2 P2）
+2. **port trait 无关联类型**：Storage、HTTP、FrameSender 等 I/O 端口使用 `PortError` 表达失败；Clock/Random/EventSink 等端口按各自方法签名返回（见 [`ports/`](crates/helix-core/src/ports/)）
 3. **PortReply/Timer 定向路由**：`corr_map` 保证多模块并存时不误吞（审查意见2 P3）
-4. **Module trait 4 方法**：删除 `tick()`，周期心跳用 `ScheduleTimer` self-arm（审查意见2 S1）
+4. **Module trait 5 方法**：`name`、`accepts`、`handle`、`on_start`、`on_stop`；后两者有默认实现，周期心跳用 `ScheduleTimer` self-arm（见 [`module_host.rs`](crates/helix-core/src/module_host.rs)）
 5. **EffectSink 统一**：EffectBuffer/EffectBatch/EffectSink 三名字合一（审查意见2 S4）
 6. **写成功才推 cursor**：Persist{corr} → PortReply{Ok} → PersistFire{monotonic_upsert}（决策#2）

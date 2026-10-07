@@ -14,7 +14,7 @@ const COMPANY: &str = "company-g09d";
 const CHANNEL: &str = "chfixx0000000000000000003d";
 
 // ADR-007 no-sync fixture; explicit req_id selects the Phase 3 canonical result path.
-const INCREMENT_BODY_B64: &str = "eyJkYXRhIjp7ImlkIjoiY2hmaXh4MDAwMDAwMDAwMDAwMDAwMDAwM2QiLCJ0ZWFtSWQiOiJjb21wYW55LWcwOWQiLCJkaXNwbGF5TmFtZSI6IkcwOWQiLCJsYXN0RXZlbnRTZXEiOjAsIm5lZWRTeW5jIjpmYWxzZSwibWVtYmVyQ291bnQiOjQsIm1lbWJlcnMiOlt7ImlkIjoiYm9zcy1nMDlkIiwidGVhbUlkIjoiY29tcGFueS1nMDlkIiwicm9sZSI6IkJPU1MifSx7ImlkIjoidmlld2VyLWcwOWQiLCJ0ZWFtSWQiOiJjb21wYW55LWcwOWQiLCJyb2xlIjoiTUVNQkVSIn0seyJpZCI6Im93bmVyLWcwOWQiLCJ0ZWFtSWQiOiJjb21wYW55LWcwOWQiLCJyb2xlIjoiQ1JFQVRPUiJ9LHsiaWQiOiJhZG1pbi1nMDlkIiwidGVhbUlkIjoiY29tcGFueS1nMDlkIiwicm9sZSI6Ik1BTkFHRVIifV0sImFkbWluVXNlcnMiOlt7ImlkIjoiYWRtaW4tZzA5ZCIsInRlYW1JZCI6ImNvbXBhbnktZzA5ZCJ9XSwiYm9zcyI6W3siaWQiOiJib3NzLWcwOWQiLCJ0ZWFtSWQiOiJjb21wYW55LWcwOWQifV0sIm93bmVyIjp7ImlkIjoib3duZXItZzA5ZCIsInRlYW1JZCI6ImNvbXBhbnktZzA5ZCJ9fX0=";
+const INCREMENT_BODY_B64: &str = "eyJkYXRhIjp7ImlkIjoiY2hmaXh4MDAwMDAwMDAwMDAwMDAwMDAwM2QiLCJ0ZWFtSWQiOiJjb21wYW55LWcwOWQiLCJkaXNwbGF5TmFtZSI6IkcwOWQiLCJsYXN0RXZlbnRTZXEiOjAsIm5lZWRTeW5jIjpmYWxzZSwibWVtYmVyQ291bnQiOjQsIm1lbWJlcnMiOlt7ImlkIjoiYm9zcy1nMDlkIiwidGVhbUlkIjoiY29tcGFueS1nMDlkIiwicm9sZSI6IkJPU1MifSx7ImlkIjoidmlld2VyLWcwOWQiLCJ0ZWFtSWQiOiJjb21wYW55LWcwOWQiLCJyb2xlIjoiTUVNQkVSIn0seyJpZCI6Im93bmVyLWcwOWQiLCJ0ZWFtSWQiOiJjb21wYW55LWcwOWQiLCJyb2xlIjoiQ1JFQVRPUiJ9LHsiaWQiOiJhZG1pbi1nMDlkIiwidGVhbUlkIjoiY29tcGFueS1nMDlkIiwicm9sZSI6Ik1BTkFHRVIifV0sImFkbWluVXNlcnMiOlt7ImlkIjoiYWRtaW4tZzA5ZCIsInRlYW1JZCI6ImNvbXBhbnktZzA5ZCJ9XSwiYm9zcyI6W3siaWQiOiJib3NzLWcwOWQiLCJ0ZWFtSWQiOiJjb21wYW55LWcwOWQifV0sIm93bmVyIjp7ImlkIjoib3duZXItZzA5ZCIsInRlYW1JZCI6ImNvbXBhbnktZzA5ZCJ9LCJ0eXBlIjoiUCJ9fQ==";
 const NULL_BODY_B64: &str = "eyJkYXRhIjpudWxsfQ==";
 
 /// 通过真实 ImModule::handle 回放 G09d 的 HTTP、durable read-back 和终态 Effect。
@@ -124,6 +124,7 @@ impl Replay {
                 "channel" => json!([{
                     "id": CHANNEL,
                     "display_name": "G09d",
+                    "type": "P",
                     "team_id": COMPANY,
                     "user_id": VIEWER,
                     "members": "[]",
@@ -221,12 +222,12 @@ fn hydration_hit_emits_one_increment_before_one_result() -> Result<(), String> {
     assert_eq!(events[0]["data"]["memberCount"], 4);
     assert_eq!(
         events[0]["data"]["members"].as_array().map(Vec::len),
-        Some(4)
+        Some(1)
     );
-    assert_eq!(events[0]["data"]["members"][0]["userId"], "boss-g09d");
-    assert_eq!(events[0]["data"]["members"][1]["userId"], VIEWER);
-    assert_eq!(events[0]["data"]["members"][2]["userId"], "owner-g09d");
-    assert_eq!(events[0]["data"]["members"][3]["userId"], "admin-g09d");
+    // canonical projection 按四角色分桶；四个原始成员仍逐一核对，禁止漏人。
+    assert_eq!(events[0]["data"]["members"][0]["userId"], VIEWER);
+    assert_eq!(events[0]["data"]["boss"][0]["userId"], "boss-g09d");
+    assert_eq!(events[0]["data"]["adminUsers"][0]["userId"], "admin-g09d");
     assert_eq!(events[0]["data"]["owner"]["userId"], "owner-g09d");
     assert_eq!(
         events[0]["data"]["adminUsers"].as_array().map(Vec::len),

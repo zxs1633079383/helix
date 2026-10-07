@@ -7,8 +7,8 @@ use serde_json::{json, Value};
 
 const CHANNEL: &str = "chfixx00000000000000000001";
 const CLOSED_AT: i64 = 1789897616720;
-// 现场结构：SUCCESS、deleteAt>0、lastEventSeq=7、完整 roster，故意缺 needSync。
-const CLOSED_BODY: &str = "eyJzdGF0dXMiOiJTVUNDRVNTIiwiZGF0YSI6eyJpZCI6ImNoZml4eDAwMDAwMDAwMDAwMDAwMDAwMDAxIiwidGVhbUlkIjoiY29tcGFueS1hIiwiZGlzcGxheU5hbWUiOiJjbG9zZWQiLCJkZWxldGVBdCI6MTc4OTg5NzYxNjcyMCwibGFzdEV2ZW50U2VxIjo3LCJ1bnJlYWRDb3VudCI6MCwibWVtYmVyQ291bnQiOjEsIm1lbWJlcnMiOlt7InVzZXJJZCI6InNjb3BlLXVzZXIiLCJyb2xlIjoiTUVNQkVSIn1dfX0=";
+// 脱敏补水 fixture：完整频道含 type；保留关闭水位、完整 roster，故意缺 needSync。
+const CLOSED_BODY: &str = "eyJzdGF0dXMiOiJTVUNDRVNTIiwiZGF0YSI6eyJpZCI6ImNoZml4eDAwMDAwMDAwMDAwMDAwMDAwMDAxIiwidGVhbUlkIjoiY29tcGFueS1hIiwiZGlzcGxheU5hbWUiOiJjbG9zZWQiLCJkZWxldGVBdCI6MTc4OTg5NzYxNjcyMCwibGFzdEV2ZW50U2VxIjo3LCJ1bnJlYWRDb3VudCI6MCwibWVtYmVyQ291bnQiOjEsIm1lbWJlcnMiOlt7InVzZXJJZCI6InNjb3BlLXVzZXIiLCJyb2xlIjoiTUVNQkVSIn1dLCJ0eXBlIjoiUCJ9fQ==";
 
 /// 每步只经 Module 入口，并禁止关闭响应后的再次网络调用或计时器等待。
 fn reply(module: &mut ImModule, sink: &mut EffectSink, corr: Correlation, outcome: PortOutcome) {

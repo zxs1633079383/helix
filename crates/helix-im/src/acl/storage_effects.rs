@@ -154,12 +154,32 @@ pub fn upsert_channel_full(
     }
 }
 
-/// 返回可并入相关事务的 channel 全量 upsert。
+/// 完整频道可插入；缺类型的稀疏帧只更新既有行，不能生成默认空频道。
 pub fn upsert_channel_full_op(
     cols: Vec<(&'static str, helix_core::effect::SqlValue)>,
     exclude_from_update: Vec<&'static str>,
 ) -> StorageOp {
     let row: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    if exclude_from_update.contains(&"type")
+        || !row.iter().any(|(key, value)| {
+            key == "type"
+                && matches!(value, helix_core::effect::SqlValue::Text(value) if !value.is_empty())
+        })
+    {
+        let id = row
+            .iter()
+            .find(|(key, _)| key == "id")
+            .map(|(_, value)| value.clone());
+        return StorageOp::BatchUpdate(helix_core::effect::BatchUpdateSpec {
+            table: "channel",
+            key_col: "id",
+            key_vals: id.into_iter().collect(),
+            patch: row
+                .into_iter()
+                .filter(|(key, _)| key != "id" && !exclude_from_update.contains(&key.as_str()))
+                .collect(),
+        });
+    }
     StorageOp::BatchUpsert(UpsertSpec {
         version_column: None,
         update_guard: None,

@@ -86,6 +86,7 @@ fn increment_success(channel_num: u64, viewer: &str, company: &str) -> Bytes {
                 "id": cid(channel_num),
                 "teamId": company,
                 "displayName": "scope-hydration",
+                "type": "P",
                 "lastEventSeq": 0,
                 "needSync": false,
                 "memberCount": 1,

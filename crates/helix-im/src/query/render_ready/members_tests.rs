@@ -29,12 +29,14 @@ fn role_admin_rule_covers_raw_and_normalized() {
 fn members_from_rows_maps_admin_and_fields() {
     let rows = vec![
         MemberRow {
+            omitted_fields: Vec::new(),
             user_id: "u1".into(),
             team_id: "t".into(),
             role: "OWNER".into(),
             nick_name: "小王".into(),
         },
         MemberRow {
+            omitted_fields: Vec::new(),
             user_id: "u2".into(),
             team_id: "t".into(),
             role: "MEMBER".into(),

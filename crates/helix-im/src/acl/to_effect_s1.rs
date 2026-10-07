@@ -179,5 +179,5 @@ mod storage;
 pub use storage::{
     channel_set_cols, channel_set_cols_op, delete_channel_members, delete_channel_members_op,
     update_member_nickname, update_member_nickname_op, upsert_channel_members,
-    upsert_channel_members_op, MemberRow,
+    upsert_channel_members_ops, MemberRow,
 };

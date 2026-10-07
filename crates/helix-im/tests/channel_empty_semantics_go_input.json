@@ -1,0 +1,72 @@
+{
+  "action": "channel_member_update",
+  "data": {
+    "adminMaxCount": 0,
+    "adminUsers": [
+      {
+        "id": "manager",
+        "teamId": "team-a"
+      }
+    ],
+    "canChangePermissions": true,
+    "canCloseChannel": true,
+    "canConfirmUrgent": false,
+    "canEditChannelSettings": true,
+    "canLeaveChannel": false,
+    "canManageMembers": true,
+    "canManageSettings": true,
+    "canMentionAll": false,
+    "canPinMessage": false,
+    "canPublishNotice": false,
+    "companyId": "team-a",
+    "createAt": 0,
+    "deleteAt": 0,
+    "hasMore": false,
+    "hasUrgentPost": false,
+    "id": "chfixx00000000000000000001",
+    "memberChange": {
+      "join": [
+        {
+          "id": "manager",
+          "teamId": "team-a",
+          "role": "MEMBER",
+          "nickName": "管理员昵称"
+        }
+      ]
+    },
+    "memberCount": 3,
+    "members": [
+      {
+        "id": "owner",
+        "teamId": "team-a",
+        "role": "CREATOR",
+        "nickName": "群主昵称"
+      },
+      {
+        "id": "manager",
+        "teamId": "team-a",
+        "role": "MANAGER",
+        "nickName": "管理员昵称"
+      },
+      {
+        "id": "new-member",
+        "teamId": "team-a",
+        "role": "MEMBER",
+        "nickName": ""
+      }
+    ],
+    "owner": {
+      "id": "owner",
+      "teamId": "team-a"
+    },
+    "permissionRevision": 0,
+    "role": "CREATOR",
+    "rootId": "",
+    "rootPostId": "",
+    "settingVersion": 0,
+    "teamId": "team-a",
+    "topicMsgCount": 0,
+    "unReadPostId": "",
+    "updateAt": 0
+  }
+}

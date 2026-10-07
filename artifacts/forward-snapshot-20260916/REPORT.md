@@ -1,5 +1,11 @@
 # 合并转发快照：Helix 源码交接
 
+> **历史记录 · 证据无法复核（2026-10-07 核对）。** 本文保留 2026-09-16 工作包的实现与验收记录，不作为当前实现或通过判定的真源。
+> 当前仓库缺少本文引用的 `logs/full-im-core.log`、`logs/final-focused.log`、`logs/wasm.log`、
+> `logs/core-tree.log`、`G-05/generated/provenance.json`、`logs/canonical-schema.log` 和 `source-state.json`。
+> 下文全部测试数量、PASS、hash 与源码 digest 均为原报告记载，**证据无法复核**；缺少附件不证明历史测试未执行。
+> 当前实现以源码为准；新的运行证据须绑定新 revision 与运行窗口，不能用于补签旧记录。
+
 任务 `6aaa06ccba9349dc11743ae6`。本批源码及本地公开 seam 验证完成；真实 Go、手机制品和 UI 性能未在本工作包验收。分支 `reactor/MessageV3-helix`，基线 `0143874b4c608e4e223561c7fa8512db0746e012`，未 commit/push、未提版。原有三个 artifacts 目录未修改。
 
 合同：Client `artifacts/forward-nesting-audit-20260916/CONTRACT.md`，由主会话协调 Go/Helix/Client。收尾追加允许 `offset == itemCount` 的空终页（`nextOffset:null`）；其余空页拒绝。

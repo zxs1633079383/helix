@@ -169,7 +169,7 @@ pub fn program_full(
     }
     row.push(("source", SqlValue::Text(j("source", ""))));
     // target_users 仅 DM（type=="D"）写否则空串（真源 channel_state.rs:254-262）。
-    let target_users = if ch_type == "D" {
+    let target_users = if ch_type == "D" || ch_type.is_empty() {
         j("targetUsers", "")
     } else {
         String::new()
@@ -214,7 +214,7 @@ pub fn program_full(
     }
     row.push((
         "notify_props",
-        SqlValue::Text(s("notifyProps").unwrap_or_default()),
+        SqlValue::Text(s("notifyProps").or_else(|| s("notify")).unwrap_or_default()),
     ));
     row.push((
         "mention_permission",
@@ -287,6 +287,35 @@ pub fn program_full(
         }
     }
 
+    // 插入仍使用列默认值；既有行仅覆盖本帧提供且类型有效的字段。
+    // 固定 55 列有界比较；派生列沿用上面的专用不变量。
+    let provided = super::collect_present(data);
+    for &(column, _) in &row {
+        if [
+            "is_closed",
+            "unread_count",
+            "unread_post_id",
+            "last_post_at",
+            "topic_msg_count",
+        ]
+        .contains(&column)
+        {
+            continue;
+        }
+        if super::ALLOWED_COLUMNS.contains(&column)
+            && !provided.iter().any(|(key, _)| *key == column)
+            && !omit.contains(&column)
+        {
+            omit.push(column);
+        }
+    }
+    if i("topicMsgCount").is_none() && !(ch_type == "T" && i("totalMsgCount").is_some()) {
+        omit.push("topic_msg_count");
+    }
+    omit.push("mention_user");
+    if auth_user_id.is_empty() {
+        omit.push("user_id");
+    }
     Some((row, omit))
 }
 

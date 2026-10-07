@@ -37,10 +37,15 @@ impl MessageV3Event {
                 "{event} MessageV3 data must be an object"
             )));
         }
+        let observe = crate::failure_context::needs_observation(event, &data);
         let bytes = serde_json::to_vec(&MessageV3Envelope { event, data })
             .map_err(|error| crate::ImError::Parse(error.to_string()))?;
         Ok(Self {
-            bytes: DomainEventBytes(Bytes::from(bytes)),
+            bytes: if observe {
+                DomainEventBytes::observed(Bytes::from(bytes))
+            } else {
+                DomainEventBytes(Bytes::from(bytes))
+            },
         })
     }
 

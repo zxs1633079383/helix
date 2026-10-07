@@ -6,7 +6,7 @@ use helix_core::{CoreError, Correlation, Effect, EffectSink, Tick};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, OnceLock, Weak};
 
 #[derive(Default)]
 pub(crate) struct FailureContext {
@@ -22,8 +22,8 @@ pub(crate) struct FailureContext {
 
 #[derive(Default)]
 struct Origin {
-    command: Arc<str>,
-    req_id: Arc<str>,
+    command: Cow<'static, str>,
+    req_id: OnceLock<Arc<str>>,
 }
 
 #[derive(Clone, Default)]
@@ -62,21 +62,18 @@ struct FailureFields<'a> {
 }
 
 impl FailureContext {
-    /// O(1) 取本轮关联；owned 来源只在命令/I/O 注册时建立，不复制 wire payload。
+    /// 不读取Command payload；仅共享命令名称与owned关联，不把借用带到下一轮。
     pub(crate) fn enter(&mut self, tick: &Tick) {
         self.current = match tick {
             Tick::Command(cmd) => {
-                let id = serde_json::from_slice::<RequestId<'_>>(&cmd.payload)
-                    .ok()
-                    .and_then(|v| v.req_id.or(v.request_id));
                 let origin = Arc::new(Origin {
-                    command: Arc::from(clean_text(&cmd.name, 128)),
-                    req_id: Arc::from(clean_text(id.as_deref().unwrap_or(""), 128)),
+                    command: if cmd.name.len() > 512 {
+                        Cow::Owned(clean_text(&cmd.name, 128))
+                    } else {
+                        cmd.name.clone()
+                    },
+                    req_id: OnceLock::new(),
                 });
-                if !origin.req_id.is_empty() {
-                    self.requests
-                        .insert(Arc::clone(&origin.req_id), Arc::downgrade(&origin));
-                }
                 Source {
                     origin: Some(origin),
                     stage: "command",
@@ -92,6 +89,24 @@ impl FailureContext {
             }
             _ => Source::default(),
         };
+    }
+
+    /// 借用业务解码器已有的关联字段；OnceLock 只初始化一次，已发出的分支共享同一身份。
+    pub(crate) fn bind_request(&mut self, id: &str) {
+        // 超长标识仍由业务合同处理，诊断索引不复制无界外部字符串。
+        if id.is_empty() || id.len() > 512 {
+            return;
+        }
+        if self.current.origin.is_none() {
+            self.current.origin = self.origin(id);
+        }
+        if let Some(origin) = &self.current.origin {
+            if origin.req_id.get().is_none() {
+                let key = origin.req_id.get_or_init(|| Arc::from(id));
+                self.requests
+                    .insert(Arc::clone(key), Arc::downgrade(origin));
+            }
+        }
     }
 
     /// 使用已解析的 WS envelope；仅可信 tracing correlation 能关联已有 Command。
@@ -115,17 +130,28 @@ impl FailureContext {
         };
     }
 
-    /// 只处理本 step 后缀；成功字节保持原样，失败才解析并重编码错误信封。
-    pub(crate) fn finish(
+    /// 来源字段从已有 continuation 借用，仅在绑定时转成 owned；访问范围严格限于本轮后缀。
+    pub(crate) fn finish<'a>(
         &mut self,
         tick: Option<&Tick>,
         start: usize,
         out: &mut EffectSink,
         result: Result<(), CoreError>,
+        lookup: impl Fn(Correlation) -> Option<&'a str>,
     ) -> Result<(), CoreError> {
         let mut cause = None;
         let mut retired = Vec::new();
-        out.retain_mut_from(start, |effect| {
+        out.visit_mut_from(start, |effect| {
+            if let Effect::Http { corr, .. }
+            | Effect::Persist { corr, .. }
+            | Effect::PersistAtomic { corr, .. }
+            | Effect::Request { corr, .. }
+            | Effect::UploadFile { corr, .. } = effect
+            {
+                if let Some(id) = lookup(*corr) {
+                    self.bind_request(id);
+                }
+            }
             match effect {
                 Effect::Http { corr, req } => {
                     let mut source = self.current.clone();
@@ -137,9 +163,11 @@ impl FailureContext {
                     source.stage = "http";
                     source.corr = Some(corr.raw());
                     if let (Some(origin), Some(route)) = (&source.origin, &source.route) {
-                        if !origin.req_id.is_empty() {
-                            self.request_routes
-                                .insert(Arc::clone(&origin.req_id), Arc::clone(route));
+                        if !origin.request_id().is_empty() {
+                            self.request_routes.insert(
+                                Arc::clone(origin.req_id.get().expect("registered request id")),
+                                Arc::clone(route),
+                            );
                         }
                     }
                     self.pending.insert(*corr, source);
@@ -172,11 +200,11 @@ impl FailureContext {
                     }
                 }
                 Effect::Emit { event } => {
-                    if !error_event_candidate(&event.0) {
-                        return true;
+                    if !event.needs_observation() {
+                        return;
                     }
                     let Ok(envelope) = serde_json::from_slice::<Envelope<'_>>(&event.0) else {
-                        return true;
+                        return;
                     };
                     // 只检查错误出口；普通消息热路径不解析或序列化 payload。
                     if !matches!(
@@ -188,11 +216,11 @@ impl FailureContext {
                             | "im:operation:status"
                     ) && !envelope.event.ends_with("-failed")
                     {
-                        return true;
+                        return;
                     }
                     let Ok(fields) = serde_json::from_str::<FailureFields<'_>>(envelope.data.get())
                     else {
-                        return true;
+                        return;
                     };
                     let (field, message) = if let Some(error) = fields.error.as_deref() {
                         ("error", error)
@@ -204,12 +232,15 @@ impl FailureContext {
                             fields.message.as_deref().unwrap_or("operation failed"),
                         )
                     } else {
-                        return true;
+                        return;
                     };
                     let remote = cause.get_or_insert_with(|| reply_cause(tick, self.current.stage));
                     let requested = serde_json::from_str::<RequestId<'_>>(envelope.data.get())
                         .ok()
                         .and_then(|id| id.req_id.or(id.request_id));
+                    if let Some(id) = requested.as_deref() {
+                        self.bind_request(id);
+                    }
                     let mut source = self.current.clone();
                     if let Some(origin) = requested.as_deref().and_then(|id| self.origin(id)) {
                         source.origin = Some(origin);
@@ -231,17 +262,17 @@ impl FailureContext {
                     };
                     let diagnostic = source.describe(&reason);
                     // 所有失败都有结构化日志；机器原因码不改写，避免破坏消费者分支。
-                    tracing::warn!(command=source.command(), req_id=source.req_id(),
+                    tracing::warn!(command=%clean_text(source.command(), 128), req_id=%clean_text(source.req_id(), 128),
                         route=%RouteDisplay(&source), stage=source.stage,
                         corr=source.corr, error=%diagnostic,"IM operation failed");
                     // 固定的失败投影保持业务字段合同；来源写入统一结构化日志。
                     if envelope.event.ends_with("-failed") {
-                        return true;
+                        return;
                     }
                     let Ok(mut data) =
                         serde_json::from_str::<serde_json::Value>(envelope.data.get())
                     else {
-                        return true;
+                        return;
                     };
                     if is_reason_code(message)
                         || field == "failureCode"
@@ -265,7 +296,6 @@ impl FailureContext {
                 }
                 _ => {}
             }
-            true
         });
         let result = result.map_err(|error| CoreError::ModuleError {
             module: "helix-im",
@@ -302,27 +332,29 @@ impl FailureContext {
             if Arc::strong_count(origin) == 1
                 && self
                     .requests
-                    .get(origin.req_id.as_ref())
+                    .get(origin.request_id())
                     .is_some_and(|weak| weak.ptr_eq(&Arc::downgrade(origin)))
             {
                 // 仅保留最近已释放来源；超限淘汰不影响业务，未知来源明确为 server_push。
                 self.recent_order.push_back(Arc::clone(origin));
-                self.recent
-                    .insert(Arc::clone(&origin.req_id), source.clone());
+                self.recent.insert(
+                    Arc::clone(origin.req_id.get().expect("registered request id")),
+                    source.clone(),
+                );
                 if self.recent_order.len() > 256 {
                     if let Some(old) = self.recent_order.pop_front() {
                         if self
                             .recent
-                            .get(&old.req_id)
+                            .get(old.request_id())
                             .and_then(|s| s.origin.as_ref())
                             .is_some_and(|current| Arc::ptr_eq(current, &old))
                         {
-                            self.recent.remove(&old.req_id);
+                            self.recent.remove(old.request_id());
                         }
                     }
                 }
-                self.requests.remove(origin.req_id.as_ref());
-                self.request_routes.remove(origin.req_id.as_ref());
+                self.requests.remove(origin.request_id());
+                self.request_routes.remove(origin.request_id());
             }
         }
     }
@@ -341,6 +373,13 @@ impl FailureContext {
     }
 }
 
+impl Origin {
+    /// 返回已绑定关联或空值；借用不跨 Tick，不产生临时字符串。
+    fn request_id(&self) -> &str {
+        self.req_id.get().map(AsRef::as_ref).unwrap_or("")
+    }
+}
+
 impl Source {
     /// 无关联主动推送明确标为 server_push，其他未知来源不伪造 Command。
     fn command(&self) -> &str {
@@ -355,19 +394,16 @@ impl Source {
     }
     /// 外部请求 ID 仅取已登记的命令输入。
     fn req_id(&self) -> &str {
-        self.origin
-            .as_ref()
-            .map(|o| o.req_id.as_ref())
-            .unwrap_or("")
+        self.origin.as_ref().map(|o| o.request_id()).unwrap_or("")
     }
     /// 统一人类可读错误格式；不包含 URL 查询、鉴权头或完整响应体。
     fn describe(&self, reason: &str) -> String {
         format!(
             "[command={} source={} stage={} req_id={} corr={}] {}",
-            self.command(),
+            clean_text(self.command(), 128),
             RouteDisplay(self),
             self.stage,
-            self.req_id(),
+            clean_text(self.req_id(), 128),
             self.corr
                 .map(|c| c.to_string())
                 .unwrap_or_else(|| "none".into()),
@@ -390,24 +426,19 @@ impl std::fmt::Display for RouteDisplay<'_> {
     }
 }
 
-/// 项目 struct(event-first) / Value(event-last) 信封只查固定首尾，排除普通消息事件。
-fn error_event_candidate(bytes: &[u8]) -> bool {
-    let prefix = &bytes[..bytes.len().min(100)];
-    let suffix = &bytes[bytes.len().saturating_sub(100)..];
-    [
-        b"im:read:result".as_slice(),
-        b"im:posts:batch-result",
-        b"im:messages:query_result",
-        b"im:user:candidates",
-        b"im:operation:status",
-        b"-failed\"",
-    ]
-    .iter()
-    .any(|name| {
-        [prefix, suffix]
-            .iter()
-            .any(|part| part.windows(name.len()).any(|w| w == *name))
-    })
+/// 序列化前按已经解析的业务字段分类；成功事件不再在 Module 出口读 JSON。
+pub(crate) fn needs_observation(event: &str, data: &serde_json::Value) -> bool {
+    event.ends_with("-failed")
+        || match event {
+            "im:read:result"
+            | "im:posts:batch-result"
+            | "im:messages:query_result"
+            | "im:user:candidates" => data.get("error").is_some_and(serde_json::Value::is_string),
+            "im:operation:status" => data
+                .get("failureCode")
+                .is_some_and(serde_json::Value::is_string),
+            _ => false,
+        }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -454,43 +485,50 @@ fn request_path(url: &str) -> String {
 
 /// 外部错误只保留有限单行文本，并过滤常见凭据键值及 bearer 内容。
 pub(crate) fn clean_text(text: &str, limit: usize) -> String {
-    // 先限制输入，避免长错误文本在脱敏阶段产生无界临时分配。
-    let bounded: String = text.chars().take(limit.saturating_add(128)).collect();
+    let end = text
+        .char_indices()
+        .nth(limit.saturating_add(128))
+        .map(|(i, _)| i)
+        .unwrap_or(text.len());
+    let mut result = String::with_capacity(end.min(limit.saturating_mul(4)));
     let mut hide_next = false;
-    bounded
-        .split_whitespace()
-        .map(|word| {
-            let lower = word.to_ascii_lowercase();
-            if hide_next {
-                hide_next = false;
-                return "[redacted]";
-            }
-            if matches!(
-                lower.as_str(),
-                "bearer" | "authorization:" | "cookie:" | "password:" | "token:"
-            ) {
-                hide_next = true;
-                return "[redacted]";
-            }
-            if [
-                "token=",
-                "password=",
-                "secret=",
-                "authorization=",
-                "cookie=",
-            ]
+    let mut remaining = limit;
+    for word in text[..end].split_whitespace() {
+        let key = ["bearer", "authorization:", "cookie:", "password:", "token:"]
             .iter()
-            .any(|key| lower.contains(key))
-            {
-                return "[redacted]";
-            }
+            .any(|key| word.eq_ignore_ascii_case(key));
+        let value = [
+            "token=",
+            "password=",
+            "secret=",
+            "authorization=",
+            "cookie=",
+        ]
+        .iter()
+        .any(|key| {
+            word.as_bytes()
+                .windows(key.len())
+                .any(|part| part.eq_ignore_ascii_case(key.as_bytes()))
+        });
+        let shown = if hide_next || key || value {
+            "[redacted]"
+        } else {
             word
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(limit)
-        .collect()
+        };
+        hide_next = !hide_next && key;
+        if !result.is_empty() && remaining > 0 {
+            result.push(' ');
+            remaining -= 1;
+        }
+        for c in shown.chars().take(remaining) {
+            result.push(c);
+            remaining -= 1;
+        }
+        if remaining == 0 {
+            break;
+        }
+    }
+    result
 }
 
 #[cfg(test)]

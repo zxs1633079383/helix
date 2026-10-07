@@ -64,4 +64,40 @@ impl TransportId {
 /// 零拷贝事件字节。`bytes::Bytes` 引用计数，clone = O(1)。
 /// core 不解析内容，只搬运已序列化的字节。
 #[derive(Debug, Clone)]
-pub struct DomainEventBytes(pub Bytes);
+pub struct EncodedDomainEvent(pub Bytes, bool);
+
+/// 零拷贝事件载体；观测标记只在 Rust 内存中传递，不进入 wire bytes。
+/// 使用兼容构造函数 `DomainEventBytes(bytes)` 或 `DomainEventBytes::observed(bytes)`。
+pub type DomainEventBytes = EncodedDomainEvent;
+
+/// 保留既有字节构造调用；默认不需要模块层的额外观测。
+#[allow(non_snake_case)]
+pub fn DomainEventBytes(bytes: Bytes) -> DomainEventBytes {
+    EncodedDomainEvent(bytes, false)
+}
+
+impl EncodedDomainEvent {
+    /// producer 在编码前确定需要额外观测；core 不读取或判断业务内容。
+    pub fn observed(bytes: Bytes) -> Self {
+        Self(bytes, true)
+    }
+
+    /// 借用内部标记，无需重新解析 bytes；克隆和移动均保留标记。
+    pub fn needs_observation(&self) -> bool {
+        self.1
+    }
+}
+
+#[cfg(test)]
+mod observation_tests {
+    use super::*;
+    /// 标记随所有权移动和Bytes共享克隆保留，wire内容完全相同。
+    #[test]
+    fn observation_hint_is_private_metadata_not_wire() {
+        let plain = DomainEventBytes(Bytes::from_static(b"opaque"));
+        let observed = DomainEventBytes::observed(plain.0.clone());
+        assert!(!plain.needs_observation());
+        assert!(observed.clone().needs_observation());
+        assert_eq!(observed.0, plain.0);
+    }
+}

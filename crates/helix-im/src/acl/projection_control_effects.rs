@@ -32,7 +32,11 @@ pub fn emit_topic_operation_status(
             .expect("emit_topic_operation_status: static JSON shape must not fail to serialize"),
     );
     Effect::Emit {
-        event: DomainEventBytes(bytes),
+        event: if failure_code.is_some() {
+            DomainEventBytes::observed(bytes)
+        } else {
+            DomainEventBytes(bytes)
+        },
     }
 }
 

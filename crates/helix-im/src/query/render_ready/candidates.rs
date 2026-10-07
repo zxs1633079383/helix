@@ -60,10 +60,16 @@ fn string(value: &Value, key: &str) -> String {
 }
 
 fn emit_value(data: Value) -> Effect {
+    let observe = data.get("error").is_some_and(Value::is_string);
     let payload = json!({ "event": "im:user:candidates", "data": data });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload).expect("static candidates projection must serialize"),
+    );
     Effect::Emit {
-        event: DomainEventBytes(Bytes::from(
-            serde_json::to_vec(&payload).expect("static candidates projection must serialize"),
-        )),
+        event: if observe {
+            DomainEventBytes::observed(bytes)
+        } else {
+            DomainEventBytes(bytes)
+        },
     }
 }

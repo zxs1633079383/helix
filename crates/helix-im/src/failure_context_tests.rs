@@ -130,19 +130,79 @@ fn timer_cancel_releases_origin_without_scanning_other_requests() {
     let mut sink = EffectSink::new();
     let timer = TimerId::from_raw(42);
     context.enter(&command);
+    context.bind_request("timer-only");
     sink.push(Effect::ScheduleTimer {
         id: timer,
         after_ms: 10,
     });
     context
-        .finish(Some(&command), 0, &mut sink, Ok(()))
+        .finish(Some(&command), 0, &mut sink, Ok(()), |_| None)
         .unwrap();
     assert_eq!(context.requests.len(), 1);
     sink.clear();
     let other = Tick::Connected(helix_core::effect::TransportId::from_raw(1));
     context.enter(&other);
     sink.push(Effect::CancelTimer { id: timer });
-    context.finish(Some(&other), 0, &mut sink, Ok(())).unwrap();
+    context
+        .finish(Some(&other), 0, &mut sink, Ok(()), |_| None)
+        .unwrap();
     assert!(context.timers.is_empty());
     assert!(context.requests.is_empty());
+}
+
+/// 诊断入口不能解释业务载荷；没有任何Effect时不得建立请求索引。
+#[test]
+fn command_entry_does_not_parse_payload_or_register_request() {
+    let mut context = FailureContext::default();
+    context.enter(&Tick::Command(AppCommand::new(
+        "im_top20",
+        br#"{"req_id":"must-not-be-parsed"}"#.to_vec(),
+    )));
+    assert!(
+        context.requests.is_empty(),
+        "request identity must come from an existing typed continuation"
+    );
+}
+
+/// 未标记事件即便内容像错误也不能被猜测、解析或改写；分类权属于 producer。
+#[test]
+fn unobserved_bytes_are_never_reinterpreted_by_diagnostics() {
+    use helix_core::effect::DomainEventBytes;
+    let bytes = bytes::Bytes::from_static(
+        br#"{"event":"im:read:result","data":{"error":"payload is opaque"}}"#,
+    );
+    let mut sink = EffectSink::new();
+    sink.push(Effect::Emit {
+        event: DomainEventBytes(bytes.clone()),
+    });
+    FailureContext::default()
+        .finish(None, 0, &mut sink, Ok(()), |_| None)
+        .unwrap();
+    let Effect::Emit { event } = &sink.as_slice()[0] else {
+        panic!("emit")
+    };
+    assert_eq!(event.0, bytes);
+}
+
+/// HTTP 前创建的timer共享一次绑定的身份，而不复制或重新解析payload。
+#[test]
+fn origin_is_bound_once_and_shared_with_existing_timer() {
+    let mut context = FailureContext::default();
+    let command = Tick::Command(AppCommand::new("im_top20", b"opaque payload".to_vec()));
+    context.enter(&command);
+    let source = context.current.clone();
+    context.bind_request("first");
+    context.bind_request("different");
+    assert_eq!(source.req_id(), "first");
+    assert_eq!(context.current.req_id(), "first");
+}
+
+/// 外部超长req_id不进入诊断缓存，业务关联及payload由原有业务层处理。
+#[test]
+fn oversized_request_id_is_not_retained_by_diagnostics() {
+    let mut context = FailureContext::default();
+    context.enter(&Tick::Command(AppCommand::new("im_top20", Vec::new())));
+    context.bind_request(&"x".repeat(513));
+    assert!(context.requests.is_empty());
+    assert_eq!(context.current.req_id(), "");
 }

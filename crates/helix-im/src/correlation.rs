@@ -831,3 +831,62 @@ pub enum CorrelationContext {
         rows: Vec<serde_json::Value>,
     },
 }
+
+impl CorrelationContext {
+    /// 借用已有解码字段供诊断关联使用；不重新读取 Command payload。
+    pub(crate) fn diagnostic_request_id(&self) -> Option<&str> {
+        match self {
+            Self::ChannelSyncPage { req_id, .. } => req_id.as_deref(),
+            Self::ChannelSyncPageMemberSnapshot { req_id, .. } => req_id.as_deref(),
+            Self::RetrySendRehydrate { request_id, .. } => request_id.as_deref(),
+            Self::OutboundScheduleCreate { request_id, .. } => request_id.as_deref(),
+            Self::OutboundScheduleCancel { request_id, .. } => request_id.as_deref(),
+            Self::PinnedProjectionQuery { req_id, .. } => Some(req_id.as_str()),
+            Self::OutboundPinnedReply { req_id, .. } => Some(req_id.as_str()),
+            Self::PinnedProjectionPersist { req_id, .. } => Some(req_id.as_str()),
+            Self::OutboundReadReply { req_id, .. } => Some(req_id.as_str()),
+            Self::OutboundExactPosts { req_id, .. } => Some(req_id.as_str()),
+            Self::ExactPostsPersist { req_id, .. } => Some(req_id.as_str()),
+            Self::ExactPostsReadback { req_id, .. } => Some(req_id.as_str()),
+            Self::OutboundInitialWindow { req_id, .. } => Some(req_id.as_str()),
+            Self::InitialWindowPersist { req_id, .. } => Some(req_id.as_str()),
+            Self::InitialWindowReadback { req_id, .. } => Some(req_id.as_str()),
+            Self::OutboundChannelCreate { request_id, .. } => request_id.as_deref(),
+            Self::OutboundMakeTopic { req_id, .. } => Some(req_id.as_str()),
+            Self::OutboundIncrementHydration { req_id, .. } => Some(req_id.as_str()),
+            Self::IncrementHydrationPersist { req_id, .. } => Some(req_id.as_str()),
+            Self::HydrationChannelReadback { req_id, .. } => Some(req_id.as_str()),
+            Self::HydrationMemberReadback { req_id, .. } => Some(req_id.as_str()),
+            Self::HydrationMessagesReadback { req_id, .. } => Some(req_id.as_str()),
+            Self::HydrationCursorReadback { req_id, .. } => Some(req_id.as_str()),
+            Self::OutboundMembersByIds { req_id, .. } => Some(req_id.as_str()),
+            Self::OutboundContactCandidates { req_id, .. } => Some(req_id.as_str()),
+            Self::OutboundLocatePost { req_id, .. } => Some(req_id.as_str()),
+            Self::OutboundCreatePosts { req_id, .. } => Some(req_id.as_str()),
+            Self::OutboundPostReaders { req_id, .. } => Some(req_id.as_str()),
+            Self::ChainHttp { request }
+            | Self::ChainPersist { request, .. }
+            | Self::ChainMutationPersist { request, .. } => request
+                .payload
+                .get("req_id")
+                .and_then(serde_json::Value::as_str),
+            Self::RecentHistoryRead { command } | Self::RecentHistoryWrite { command, .. } => {
+                Some(&command.req_id)
+            }
+            Self::MessageV3DraftReadback { command } => command.req_id.as_deref(),
+            Self::CategoryChain { pending } => match pending.as_ref() {
+                crate::category_chain::Pending::Prepare { request, .. }
+                | crate::category_chain::Pending::Http { request, .. } => request.req_id.as_deref(),
+                crate::category_chain::Pending::Visibility(work)
+                | crate::category_chain::Pending::Head(work)
+                | crate::category_chain::Pending::MessageHead(work)
+                | crate::category_chain::Pending::MessageReadback(work)
+                | crate::category_chain::Pending::Persist(work)
+                | crate::category_chain::Pending::Readback(work) => work.request.req_id.as_deref(),
+            },
+            Self::ForwardDetail { request, .. } => Some(&request.req_id),
+            Self::OutboundReplies { request } => Some(&request.req_id),
+            _ => None,
+        }
+    }
+}

@@ -1,47 +1,55 @@
-# 统一错误来源交接
+# 统一错误来源与热路径优化交接
 更新时间：2026-10-07 Asia/Shanghai
 
-## 目标与边界
-- 用户要求失败能追溯 HTTP 路径/WS action、来源 Command 和请求，并保留原始业务原因。
-- 本仓实现与本地验证已授权；未提版、未发布、未 push，PRE/桌面未安装候选版本。
-- 共享 helix-im 收口；core/driver 无业务判断。成功事件不变；机器错误码保留。
+## 目标与授权
+- 失败保留具体HTTP路径/WS action、来源Command、req_id/corr及原始业务原因。
+- 本轮用户要求消除诊断的重复payload解析、成功结果重解析及Effect前缀扫描。
+- 本地实现/隔离验证/分类提交已授权；未提版、未发布、未push，未修改真实成员数据。
 
 ## 代码身份
-- 仓库：/System/Volumes/Data/workspace/angular/visual/helix
-- 分支：reactor/MessageV3-helix；基线 000d83a6312e90977526c36b43672e297e7a6b02。
-- 本批次身份以包含此文件的提交及其父提交 diff 为准；无关未跟踪文档/产物未纳入。
+- 仓库：/System/Volumes/Data/workspace/angular/visual/helix；分支reactor/MessageV3-helix。
+- 功能提交/优化基线：d2bbae39e8f91839792b4b5c42a674fa14b19613。
+- 当前优化身份由包含此文件的提交及父提交diff确定；无关未跟踪产物保留未提交。
 
-## 实现与生命周期
-- `src/failure_context.rs` 在 Module Command/PortReply/Timer/WS 边界保存元数据，关联后续 HTTP/Persist。
-- HTTP200 的显式 failed/failure/error/fail 在读取 data 前拒绝；非2xx保留状态及可解出的业务原因。
-- 普通 error 字符串增加 command/source/stage/req_id/corr；机器码增加 errorContext。
-- 固定字段的 `*-failed` 投影保持合同，来源进入统一结构化日志；建群/分类专用拒绝码保持。
-- HTTP 原因与原有领域错误同时保留；CoreError source 链保留可 downcast 的 ImError。
-- 活跃关联在回包/Timer触发或取消时释放；stop/身份切换清空。晚到 WS 可查最近256条诊断历史。
-- 历史仅保存有界来源，无 body/headers，不恢复业务请求；淘汰后不能证明来源则标 server_push。
-- URL 去 authority/query/fragment；错误文本限长并过滤常见凭据模式，不输出完整响应。
-- 入口/终态沿用既有 Command；无新增业务 Command。读错误不落库，写/WS仍等既有持久屏障。
-- 回放覆盖 HTTP业务/传输失败、Persist失败、乱序、重复/迟到、stop、timer取消、WS关联和历史容量。
+## 当前设计
+- Command入口不读payload；从已有CorrelationContext借用Option<&str>，仅首次绑定时转为owned。
+- Arc<Origin>跨Tick共享，Cow静态名称不复制；OnceLock只初始化一次req_id，让早发timer共享身份。
+- 内部状态不保存短生命周期借用；长于512字节的外部req_id不复制到诊断索引。
+- 业务producer利用已有Value决定观测标记，随DomainEventBytes移动/clone；core只搬运标记，不判断IM。
+- 标记不进入wire；普通成功Emit直接跳过诊断JSON解析。HTTP业务解析与render_scope原有校验仍存在。
+- EffectSink::visit_mut_from借用[start..]原地访问，不遍历前缀；仍按本轮新增Effect数量线性工作。
+- clean_text改单缓冲，在输出错误时清洗命令/req_id；不再在每次Command入口反复构造临时字符串。
+- HTTP显式失败在读取data前拒绝；原始原因与领域错误并存，机器码保留并附加errorContext。
+- 固定字段的*-failed投影保持合同，来源进入结构化日志；CoreError保留原source链。
+- 活跃关联在回包/timer结束时释放；stop/身份切换清空；最近诊断历史最多256条，不恢复业务请求。
+- 超出历史范围无法证明WS来源时标server_push；metadata无body/headers，URL不含authority/query。
 
-## 故障证据
-- PRE 16:54:43：HTTP200，业务 failed / ent: channel_member not found。
-- trace 18dc336a48c20d0d；query trace 18dc336a48be2273；req_id mv3-hydration-1791363283365-ahn2gm9a。
-- 请求 /api/cses/channel/load/incrementByChannelId；此修复改善错误诊断，不改变成员权限或修复成员数据。
+## Rust API边界
+- DomainEventBytes增加私有观测标记，以类型别名和同名函数保留DomainEventBytes(bytes)构造与.0读取。
+- 旧单字段tuple模式解构不再兼容；仓内及客户端当前调用检索未发现此用法。未发布，不宣称全生态源级兼容。
+- 新增visit_mut_from API；无Effect/Port/WS wire新变体，无DB/schema变更，无core运行时依赖。
+- cargo-public-api未安装，按现有gate规则跳过；未手工伪造自动生成的API baseline。
 
-## 本地验证
-- 公开 seam 红测4项先失败：/tmp/helix-failure-context-red.log。
-- 最终聚焦546项通过（含462 lib、10新集成、分类/转发/WS及受影响Gate）：/tmp/helix-failure-context-final-focused.log。
-- 五crate check、Web wasm build通过：/tmp/helix-failure-context-final-{check,wasm}.log。
-- core测试通过、runtime依赖匹配为空：/tmp/helix-failure-context-{core,core-tree}.log。
-- 热路径审计：/tmp/helix-failure-context-audit-all.log；新告警为Source元数据Arc/静态Cow克隆，非payload深拷贝。
-- 其余脚本告警位于未改动的既有函数；无新增SQL/存储结构或逐条跨平台回调。
-- 全量与Gate生成结果：见下一节；不会宣称仓库全绿或真实运行态通过。
+## 可复现性能证据
+- /tmp/helix-failure-perf/：Cargo.toml、src/main.rs、src/bin/before.rs与源码基线副本。
+- release opt-level=z/LTO/单codegen；锁定依赖，i7-13700K，7轮中位数；对照d2bbae39诊断源码与当前源码，共用当前core隔离组件成本。
+- paired-before.txt / paired-after.txt：小Command 1905→97ns，分配14→1；256KiB Command 40325→92ns。
+- 成功读Emit 16KiB 5083→22ns，256KiB 106227→33ns；普通Emit约1960→23ns。
+- HTTP登记/回包额外分配31→7次（扣除构造本来就有的2次），耗时约6.15→2.64us。
+- 1000前置Effect/无新增：359→24ns；空Tick 17→20ns，不宣称所有分支都变快。
+- 仅诊断组件微基准，带分配计数开销，未测完整IM/WS/UI或producer分类成本；系统调度有波动。
+- Command基准使用静态名称，动态名称仍需要owned复制；不可将上述数字当整条链路加速比。
 
-## 其余验证与未完成边界
-- 最终全量日志：/tmp/helix-failure-context-final-all-im.log。
-- 剩余失败：旧 phase1 MV3-G03a artifact 的 go字段不合schema；MV3-G01a/G01f期待HTTP readback；MV3-G07b公告摘要前缀。
-- 上述断言/对应业务逻辑未在本批次修改；未运行基线隔离回放，不把归因判断写成基线实测。
-- 30 Gate producer已运行并生成；整体生成被旧phase1 schema失败阻断：/tmp/helix-failure-context-gates.log。
-- cutover --require-generated --self-test通过；consumerSync=NOT_SYNCED_BY_SCOPE：/tmp/helix-failure-context-cutover.log。
-- 真实Go/Native/UI候选验收未运行；本轮用现场响应回放，不等同真实链。
-- 下一步：发布需单独授权；成员缺失本身需另行核查成员生命周期，不能靠此错误处理恢复访问权限。
+## 验证
+- 性能红测先失败：/tmp/helix-failure-perf/red.log（Command不应重新解析payload）。
+- 476项lib+来源集成通过：final-focused.log；最后边界调整复验8项诊断+10项来源：final-{resources,integration}.log。
+- 全量IM：1642通过/4失败（full-im.log）；随后仅命名、超长标识边界及日志清洗调整，已聚焦复验。
+- 四个失败目标与优化基线一致：artifact_schema、MV3-G01a、MV3-G01f、MV3-G07b，不扩张修复。
+- 五crate check、core测试、core wasm check、Web wasm build通过；证据final-check.log/core.log/core-wasm.log/final-wasm.log。
+- core-tree.log运行时依赖匹配为空；fmt/diff通过。audit.log的clone告警为Arc/静态Cow元数据共享，无payload深拷贝。
+- 上述日志均在/tmp/helix-failure-perf/；上一功能批次30Gate生成/cutover记录在/tmp/helix-failure-context-*。
+
+## 现场与未验证
+- PRE 16:54:43，/api/cses/channel/load/incrementByChannelId返回HTTP200+failed/ent: channel_member not found。
+- trace18dc336a48c20d0d；query trace18dc336a48be2273；req_id mv3-hydration-1791363283365-ahn2gm9a。
+- 真实Go/Native/UI未安装候选验收；没有修复成员缺失本身。后续发布需单独授权。

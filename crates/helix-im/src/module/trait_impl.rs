@@ -36,7 +36,13 @@ impl Module for ImModule {
         let result = self.handle_scoped_tick(tick, now_ms, out);
         // 包括提前 return 和错误路径在内，任何跨端 Emit 都必须经过同一个业务闸门。
         self.render_scope.guard_effects(&self.config, start, out);
-        self.failure_context.finish(Some(tick), start, out, result)
+        self.failure_context
+            .finish(Some(tick), start, out, result, |corr| {
+                self.state
+                    .corr_map
+                    .get(&corr)
+                    .and_then(CorrelationContext::diagnostic_request_id)
+            })
     }
 
     /// 启动：加载持久频道归属后才允许其渲染；I/O 仍全部由端口执行。
@@ -44,7 +50,13 @@ impl Module for ImModule {
         let start = out.as_slice().len();
         let result = self.start_scoped_module(out);
         self.render_scope.guard_effects(&self.config, start, out);
-        self.failure_context.finish(None, start, out, result)
+        self.failure_context
+            .finish(None, start, out, result, |corr| {
+                self.state
+                    .corr_map
+                    .get(&corr)
+                    .and_then(CorrelationContext::diagnostic_request_id)
+            })
     }
 
     /// 停止生命周期也不允许已失效公司投影穿过出口。
@@ -52,7 +64,14 @@ impl Module for ImModule {
         let start = out.as_slice().len();
         let result = self.stop_scoped_module(out);
         self.render_scope.guard_effects(&self.config, start, out);
-        let result = self.failure_context.finish(None, start, out, result);
+        let result = self
+            .failure_context
+            .finish(None, start, out, result, |corr| {
+                self.state
+                    .corr_map
+                    .get(&corr)
+                    .and_then(CorrelationContext::diagnostic_request_id)
+            });
         self.failure_context.clear();
         result
     }

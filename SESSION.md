@@ -1,3 +1,7 @@
+🎯 EXPECT 诊断不再解析Command payload或成功Emit JSON；只访问当前Effect后缀，保留全部来源回归；同基准小Command分配和大读结果开销下降。 | 赌注 中 | 可逆 是 | @2026-10-07
+- 延续交接：docs/交接/统一错误来源-20261007/handoff.md
+✅ DONE Command诊断不再读payload，成功Emit以私有标记跳过解析，仅访问新增Effect；分配14→1，256KiB读结果诊断106us→33ns。回归/三端通过范围、4项原有失败和API边界见交接，未发布/push。
+
 🎯 EXPECT 统一 IM 失败来源：HTTP 路径或 WS action、Command、req_id/corr 可追溯；业务失败保留原因，成功载荷不变，重复回包不重复终态；不改版本或发布。 | 赌注 中 | 可逆 是 | @2026-10-07
 - 本任务交接：docs/交接/统一错误来源-20261007/handoff.md
 ✅ DONE 统一来源与原始业务原因已实现，546项聚焦、五crate check及wasm通过；全量残留4项失败与真实链未验证单列交接，未发布/push。

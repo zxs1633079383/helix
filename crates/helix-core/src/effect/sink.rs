@@ -49,6 +49,15 @@ impl EffectSink {
         });
     }
 
+    /// 只借用本轮后缀进行原地访问；不遍历前缀、不移除元素、不分配缓冲。
+    pub fn visit_mut_from(&mut self, start: usize, visitor: impl FnMut(&mut Effect)) {
+        self.buf
+            .get_mut(start..)
+            .unwrap_or(&mut [])
+            .iter_mut()
+            .for_each(visitor);
+    }
+
     /// 是否有 Effect 产出
     #[inline]
     pub fn is_empty(&self) -> bool {

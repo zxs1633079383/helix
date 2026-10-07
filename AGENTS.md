@@ -11,6 +11,9 @@
 > 🧭 **北极星（设计理念不变量，不可偏离）→ [`docs/GOAL.md`](docs/GOAL.md)**　每次会话开局必读。
 > 任何改动若与 GOAL.md §1 设计理念 / §2 硬约束冲突 → **先停下问，不偏离**。
 
+> **多端 IM 与回执分发上下文 → [`IM多端运行与回执分发.mmd`](IM多端运行与回执分发.mmd)**　每次会话开局必读（含图首注释）。
+> 图示共享业务内核、平台 I/O、持久化屏障与三端事件出口；各端独立运行实例，driver/shell 不重建业务状态机。图不代表三端全部 Gate 已验收，行为以当前源码与 GOAL 为准。
+
 > 📋 **实现阶段待办 → [`docs/ROADMAP.md`](docs/ROADMAP.md) §3 P0-P7 活账**
 > （原「helix-架构评审-待办清单」已随 docs 熵管理缩减并入 ROADMAP：B 正确性 / C 约束 / D roadmap 项多已落地，剩余开放项见 ROADMAP P 列。Web 边界与路线以 ADR-014 和 [`docs/harness/decisions.md`](docs/harness/decisions.md) 为准。）**进实现阶段前先扫一眼 ROADMAP 活账。**
 

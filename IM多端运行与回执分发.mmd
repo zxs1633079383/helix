@@ -1,0 +1,39 @@
+%% IM 多端运行与回执分发：架构上下文，不作为三端 Gate 验收证据。
+%% 各平台各自运行 Helix 实例；共享的是 Rust 业务实现，不是一个实例向三端广播。
+%% 服务端负责跨设备传播；HTTP 受理不等于消息发送完成，WS 回声参与业务对账。
+%% durable 成功终态须经过 matching PersistOk；PersistErr 不得释放成功终态。
+%% Web Session 是受限页会话内存存储，Disabled 按业务合同走远端路径；均不等同 SQLite 持久化。
+%% 真源：docs/GOAL.md；crates/helix-core/src/engine.rs；crates/helix-im/src/module/trait_impl.rs。
+%% 出口：crates/helix-driver-native/src/event_sink.rs；crates/helix-driver-ffi/src/event_sink.rs；crates/helix-driver-web/src/api.rs。
+flowchart TB
+    SERVER["Go 服务端：HTTP 响应 / WS 消息回声 / 已读通知"]
+    subgraph INGRESS["平台 I/O：按当前运行平台选择"]
+        NI["Native / PC：Rust HTTP / WS"]
+        FI["FFI / Mobile：Rust HTTP / WS"]
+        WI["Web：Fetch / WebSocket bridge"]
+    end
+    SERVER --> NI & FI & WI
+    NI & FI & WI --> TICK["Tick::PortReply / Tick::Inbound"]
+    CMD["本端 UI 操作 → Tick::Command"] --> CORE
+    subgraph SHARED["共享实现：各端独立运行同一份 Rust 业务代码"]
+        CORE["helix-core：路由 Tick / 关联请求与定时器"]
+        IM["helix-im：回执解析 / 对账 / 已读与未读<br/>排序 / 权限 / 重试与恢复"]
+        EFFECT["Effect：存储 / 网络 / 定时器 / 事件"]
+        CORE --> IM --> EFFECT
+    end
+    TICK --> CORE
+    EFFECT -->|"Persist：提交事实"| STORE["平台 Storage<br/>Native / FFI：共享 host SQLite<br/>Web：Session / Disabled 合同"]
+    STORE -->|"PortReply：PersistOk / PersistErr"| CORE
+    EFFECT -->|"网络 / 定时器意图"| IO["当前平台 driver 执行 I/O 或定时器"]
+    IO -->|"PortReply / Inbound / Timer"| CORE
+    EFFECT -->|"达到业务输出条件；durable 成功须 matching PersistOk"| EMIT["Effect::Emit · DomainEventBytes<br/>{event,data}"]
+    subgraph EGRESS["平台分发：原样交付业务事件，不重建 reducer"]
+        NS["NativeEventSink：Tokio broadcast"]
+        FS["FfiEventSink：按 step 攒批 / C ABI 回调"]
+        WS["Web bridge：批量交付浏览器侧"]
+    end
+    EMIT --> NS & FS & WS
+    NS --> PC["Tauri / PC UI"]
+    FS --> MOBILE["Flutter / Mobile UI"]
+    WS --> WEB["Web UI"]
+    PC & MOBILE & WEB --> VIEW["平台负责组件、布局与本地交互<br/>统一业务事实由 helix-im 产生"]

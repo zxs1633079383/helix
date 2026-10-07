@@ -22,6 +22,7 @@
 //! ```
 
 pub mod auth;
+pub mod diagnostics;
 pub mod effect;
 pub mod engine;
 pub mod error;

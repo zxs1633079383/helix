@@ -206,3 +206,76 @@ fn oversized_request_id_is_not_retained_by_diagnostics() {
     assert!(context.requests.is_empty());
     assert_eq!(context.current.req_id(), "");
 }
+
+/// TraceId只由宿主注入；普通成功bytes不变，固定失败和机器码都保留原合同。
+#[test]
+fn trace_context_enriches_failure_variants_only() {
+    use helix_core::diagnostics::TraceId;
+    let trace = TraceId::from_hex("11111111111111111111111111111111").unwrap();
+    for (event_name, data) in [
+        (
+            "im:channel:create-failed",
+            serde_json::json!({"requestId":"create-1","reason":"business_rejected","message":"group limit"}),
+        ),
+        (
+            "im:read:result",
+            serde_json::json!({"req_id":"read-1","error":"SCHEDULE_PERSIST_FAILED"}),
+        ),
+        (
+            "im:read:result",
+            serde_json::json!({"req_id":"read-1","items":[]}),
+        ),
+    ] {
+        let tick = Tick::Command(AppCommand::new("im_top20", b"{}".to_vec()));
+        let encoded =
+            serde_json::to_vec(&serde_json::json!({"event":event_name,"data":data})).unwrap();
+        // 从真实ExecutionShell公开入口拿到注入诊断的sink在下面小模块中验证。
+        struct Fixture {
+            encoded: Vec<u8>,
+        }
+        impl helix_core::Module for Fixture {
+            fn name(&self) -> &'static str {
+                "fixture"
+            }
+            fn accepts(&self, _: &Tick) -> bool {
+                true
+            }
+            fn handle(
+                &mut self,
+                tick: &Tick,
+                _: u64,
+                out: &mut EffectSink,
+            ) -> Result<(), CoreError> {
+                let mut context = FailureContext::default();
+                context.enter(tick);
+                out.push(Effect::Emit {
+                    event: helix_core::effect::DomainEventBytes::observed(
+                        self.encoded.clone().into(),
+                    ),
+                });
+                context.finish(Some(tick), 0, out, Ok(()), |_| None)
+            }
+        }
+        let mut shell = helix_core::ExecutionShell::new();
+        shell.register(Fixture {
+            encoded: encoded.clone(),
+        });
+        let effects = shell.step_with_trace(tick, 1, Some(trace)).unwrap();
+        let Effect::Emit { event } = &effects[0] else {
+            panic!("emit")
+        };
+        let value: serde_json::Value = serde_json::from_slice(&event.0).unwrap();
+        if data.get("items").is_some() {
+            assert_eq!(event.0.as_ref(), encoded.as_slice());
+            assert!(shell.diagnostics().failures().is_empty());
+        } else {
+            assert!(value.to_string().contains(trace.as_str()));
+            if event_name.ends_with("-failed") {
+                assert_eq!(value["data"]["reason"], "business_rejected");
+            } else {
+                assert_eq!(value["data"]["error"], "SCHEDULE_PERSIST_FAILED");
+            }
+            assert_eq!(shell.diagnostics().failures().len(), 1);
+        }
+    }
+}

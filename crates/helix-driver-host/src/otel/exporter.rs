@@ -406,7 +406,25 @@ fn span_data_from_snapshot(
         end_time,
         attributes,
         dropped_attributes_count: 0,
-        events: SpanEvents::default(),
+        events: {
+            let mut events = SpanEvents::default();
+            events.events = snapshot
+                .failures
+                .iter()
+                .map(|failure| {
+                    opentelemetry::trace::Event::new(
+                        "exception",
+                        end_time,
+                        vec![
+                            KeyValue::new("exception.type", failure.kind),
+                            KeyValue::new("exception.message", failure.message.clone()),
+                        ],
+                        0,
+                    )
+                })
+                .collect();
+            events
+        },
         links: SpanLinks::default(),
         status: snapshot
             .attributes
@@ -428,6 +446,44 @@ fn span_kind_for_direction(direction: TraceDirection) -> SpanKind {
 #[cfg(test)]
 mod query_status_tests {
     use super::*;
+
+    /// 最终SDK SpanData同时具备Error与exception，TraceId与客户端保持一致。
+    #[test]
+    fn failure_diagnostic_becomes_otlp_exception() {
+        let snapshot = HostSpanSnapshot {
+            name: "helix.core.step".into(),
+            direction: TraceDirection::Internal,
+            trace_id: Some("0123456789abcdef0123456789abcdef".into()),
+            span_id: "0123456789abcdef".into(),
+            parent_span_id: None,
+            attributes: vec![("error.type".into(), "im.operation.failed".into())],
+            exported: false,
+            failures: vec![helix_core::diagnostics::FailureDiagnostic {
+                kind: "im.operation.failed",
+                message: "[command=im_top20 source=HTTP POST /posts/top20] denied".into(),
+            }],
+        };
+        let data = span_data_from_snapshot(
+            &snapshot,
+            None,
+            SystemTime::now(),
+            SystemTime::now(),
+            InstrumentationScope::builder("test").build(),
+        )
+        .unwrap();
+        assert!(matches!(data.status, Status::Error { .. }));
+        assert_eq!(
+            data.span_context.trace_id().to_string(),
+            snapshot.trace_id.unwrap()
+        );
+        assert_eq!(data.events.len(), 1);
+        assert_eq!(data.events[0].name, "exception");
+        assert!(data.events[0]
+            .attributes
+            .iter()
+            .any(|kv| kv.key.as_str() == "exception.message"
+                && kv.value.to_string().contains("/posts/top20")));
+    }
 
     #[test]
     fn trace_resource_contains_bounded_deployment_environment() {
@@ -463,6 +519,7 @@ mod query_status_tests {
                     .map(|e| vec![("error.type".into(), e.into())])
                     .unwrap_or_default(),
                 exported: false,
+                failures: Vec::new(),
             };
             let data = span_data_from_snapshot(
                 &snapshot,

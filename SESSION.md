@@ -1,3 +1,7 @@
+🎯 EXPECT 业务失败在当前OTel step/root标记Error并携带同一TraceId返回；成功事件bytes不变、无OTel时不伪造TraceId，core保持零运行时依赖。 | 赌注 中 | 可逆 是 | @2026-10-07
+- 延续交接：docs/交接/统一错误来源-20261007/handoff.md
+✅ DONE 当前step/root记录OTLP Error与exception；客户端TraceId已在PRE Jaeger同ID核对，三端编译/聚焦/本地泵回归通过，既有全量失败与发布边界见交接。
+
 🎯 EXPECT 诊断不再解析Command payload或成功Emit JSON；只访问当前Effect后缀，保留全部来源回归；同基准小Command分配和大读结果开销下降。 | 赌注 中 | 可逆 是 | @2026-10-07
 - 延续交接：docs/交接/统一错误来源-20261007/handoff.md
 ✅ DONE Command诊断不再读payload，成功Emit以私有标记跳过解析，仅访问新增Effect；分配14→1，256KiB读结果诊断106us→33ns。回归/三端通过范围、4项原有失败和API边界见交接，未发布/push。

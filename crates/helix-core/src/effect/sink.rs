@@ -12,12 +12,14 @@ use super::Effect;
 /// （审查意见2 S4 落实）。
 pub struct EffectSink {
     buf: Vec<Effect>,
+    diagnostics: crate::diagnostics::StepDiagnostics,
 }
 
 impl EffectSink {
     pub fn new() -> Self {
         Self {
             buf: Vec::with_capacity(8),
+            diagnostics: Default::default(),
         }
     }
 
@@ -31,6 +33,7 @@ impl EffectSink {
     #[inline]
     pub fn clear(&mut self) {
         self.buf.clear();
+        self.diagnostics.clear();
     }
 
     /// 读取本次 step 产出的全部 Effect
@@ -56,6 +59,27 @@ impl EffectSink {
             .unwrap_or(&mut [])
             .iter_mut()
             .for_each(visitor);
+    }
+
+    /// 借用当前轮诊断；与Effect缓冲同时清理，禁止跨轮串线。
+    pub fn diagnostics(&self) -> &crate::diagnostics::StepDiagnostics {
+        &self.diagnostics
+    }
+
+    /// 注入诊断上下文或上报失败，不改变业务Effect。
+    pub fn diagnostics_mut(&mut self) -> &mut crate::diagnostics::StepDiagnostics {
+        &mut self.diagnostics
+    }
+
+    /// 分离借用Effect后缀和诊断缓冲，失败可直接报告而无需临时集合。
+    pub fn visit_with_diagnostics_from(
+        &mut self,
+        start: usize,
+        mut visitor: impl FnMut(&mut Effect, &mut crate::diagnostics::StepDiagnostics),
+    ) {
+        for effect in self.buf.get_mut(start..).unwrap_or(&mut []) {
+            visitor(effect, &mut self.diagnostics);
+        }
     }
 
     /// 是否有 Effect 产出

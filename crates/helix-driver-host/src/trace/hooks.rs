@@ -26,16 +26,24 @@ pub trait TraceHooksImpl {
 
 pub struct TraceScope {
     end: Option<Box<dyn FnOnce() + Send>>,
+    root: Option<crate::otel::HostSpanScope>,
+    step: Option<crate::otel::HostSpanScope>,
 }
 
 impl TraceScope {
     pub fn noop() -> Self {
-        Self { end: None }
+        Self {
+            end: None,
+            root: None,
+            step: None,
+        }
     }
 
     pub fn new(end: impl FnOnce() + Send + 'static) -> Self {
         Self {
             end: Some(Box::new(end)),
+            root: None,
+            step: None,
         }
     }
 
@@ -44,6 +52,44 @@ impl TraceScope {
         G: Send + 'static,
     {
         Self::new(move || drop(guard))
+    }
+
+    /// 同步执行期间显式注入当前span身份；返回前将业务失败记入同一step/root。
+    pub fn step<'a>(
+        &mut self,
+        shell: &'a mut helix_core::ExecutionShell,
+        tick: Tick,
+        now_ms: u64,
+    ) -> Result<&'a [helix_core::Effect], helix_core::CoreError> {
+        let trace_id = self
+            .step
+            .as_ref()
+            .and_then(|span| span.trace_id())
+            .and_then(helix_core::diagnostics::TraceId::from_hex);
+        // 先结束返回切片的借用，检查诊断后再重新借用同一缓冲。
+        let result = shell.step_with_trace(tick, now_ms, trace_id).map(|_| ());
+        for failure in shell.diagnostics().failures() {
+            self.record_failure(failure);
+        }
+        if let Err(error) = &result {
+            if shell.diagnostics().failures().is_empty() {
+                self.record_failure(&helix_core::diagnostics::FailureDiagnostic {
+                    kind: "core.step.failed",
+                    message: error.to_string(),
+                });
+            }
+        }
+        result.map(|_| shell.effects())
+    }
+
+    /// 更新正在执行的span，不创建脱离当前链路的新trace。
+    fn record_failure(&mut self, failure: &helix_core::diagnostics::FailureDiagnostic) {
+        if let Some(step) = self.step.as_mut() {
+            step.record_failure(failure);
+        }
+        if let Some(root) = self.root.as_mut() {
+            root.record_failure(failure);
+        }
     }
 
     pub fn chain(self, other: Self) -> Self {
@@ -56,6 +102,9 @@ impl TraceScope {
 
 impl Drop for TraceScope {
     fn drop(&mut self) {
+        // 子span先结束，root最后结束；仅使用局部owned作用域，不跨await持有entered guard。
+        drop(self.step.take());
+        drop(self.root.take());
         if let Some(end) = self.end.take() {
             end();
         }
@@ -178,9 +227,11 @@ impl TraceHooks {
         );
         // core.step 是 T1 的内部观测节点；T2/T3/T4/T5 必须直接复用 T1 parent，保持同级。
         let updated_context = context.with_span_parent(root_child_parent);
-        let traced_scope = TraceScope::with_guard(root_scope)
-            .chain(TraceScope::with_guard(step_scope))
-            .chain(scope);
+        let traced_scope = TraceScope {
+            end: Some(Box::new(move || drop(scope))),
+            root: Some(root_scope),
+            step: Some(step_scope),
+        };
 
         // 入站 WebSocket 本身是 T3；T1 根使用稳定的 Tick 类型名称。
         if matches!(tick, Tick::Inbound(_)) {

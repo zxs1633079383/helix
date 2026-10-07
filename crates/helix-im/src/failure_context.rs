@@ -141,7 +141,7 @@ impl FailureContext {
     ) -> Result<(), CoreError> {
         let mut cause = None;
         let mut retired = Vec::new();
-        out.visit_mut_from(start, |effect| {
+        out.visit_with_diagnostics_from(start, |effect, diagnostics| {
             if let Effect::Http { corr, .. }
             | Effect::Persist { corr, .. }
             | Effect::PersistAtomic { corr, .. }
@@ -260,13 +260,15 @@ impl FailureContext {
                         Some(remote) if !message.contains(remote) => format!("{message}; {remote}"),
                         _ => message.to_owned(),
                     };
-                    let diagnostic = source.describe(&reason);
+                    let mut diagnostic = source.describe(&reason);
+                    append_trace_id(&mut diagnostic, diagnostics.trace_id());
+                    diagnostics.report("im.operation.failed", &diagnostic);
                     // 所有失败都有结构化日志；机器原因码不改写，避免破坏消费者分支。
                     tracing::warn!(command=%clean_text(source.command(), 128), req_id=%clean_text(source.req_id(), 128),
                         route=%RouteDisplay(&source), stage=source.stage,
                         corr=source.corr, error=%diagnostic,"IM operation failed");
-                    // 固定的失败投影保持业务字段合同；来源写入统一结构化日志。
-                    if envelope.event.ends_with("-failed") {
+                    // 固定失败保留原因码；未启用追踪时连原始bytes也不改写。
+                    if envelope.event.ends_with("-failed") && diagnostics.trace_id().is_none() {
                         return;
                     }
                     let Ok(mut data) =
@@ -274,7 +276,12 @@ impl FailureContext {
                     else {
                         return;
                     };
-                    if is_reason_code(message)
+                    if envelope.event.ends_with("-failed") {
+                        // 固定投影不新增字段；只在现有message上附上可查询的TraceId。
+                        let mut message = message.to_owned();
+                        append_trace_id(&mut message, diagnostics.trace_id());
+                        data["message"] = serde_json::Value::String(message);
+                    } else if is_reason_code(message)
                         || field == "failureCode"
                         || (field == "message" && envelope.event != "im:channel:create-failed")
                     {
@@ -297,16 +304,21 @@ impl FailureContext {
                 _ => {}
             }
         });
-        let result = result.map_err(|error| CoreError::ModuleError {
-            module: "helix-im",
-            source: Box::new(ContextualFailure {
-                context: self.current.describe(
-                    reply_cause(tick, self.current.stage)
-                        .as_deref()
-                        .unwrap_or(&error.to_string()),
-                ),
-                source: error,
-            }),
+        let result = result.map_err(|error| {
+            let mut context = self.current.describe(
+                reply_cause(tick, self.current.stage)
+                    .as_deref()
+                    .unwrap_or(&error.to_string()),
+            );
+            append_trace_id(&mut context, out.diagnostics().trace_id());
+            out.diagnostics_mut().report("im.module.failed", &context);
+            CoreError::ModuleError {
+                module: "helix-im",
+                source: Box::new(ContextualFailure {
+                    context,
+                    source: error,
+                }),
+            }
         });
         // 身份切换/取消是低频生命周期边界；清理不再等待的旧来源，不能串入新会话。
         if matches!(tick,Some(Tick::Command(cmd)) if cmd.name.as_ref()==crate::module::RUNTIME_IDENTITY_COMMAND)
@@ -534,3 +546,11 @@ pub(crate) fn clean_text(text: &str, limit: usize) -> String {
 #[cfg(test)]
 #[path = "failure_context_tests.rs"]
 mod tests;
+
+/// 只在错误字符串末尾附上宿主注入的合法标识；不读取线程全局状态。
+fn append_trace_id(message: &mut String, trace_id: Option<helix_core::diagnostics::TraceId>) {
+    if let Some(id) = trace_id {
+        use std::fmt::Write;
+        let _ = write!(message, " [trace_id={}]", id.as_str());
+    }
+}

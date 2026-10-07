@@ -1,55 +1,56 @@
-# 统一错误来源与热路径优化交接
+# 统一错误来源、热路径与 OTel 接入交接
 更新时间：2026-10-07 Asia/Shanghai
 
 ## 目标与授权
-- 失败保留具体HTTP路径/WS action、来源Command、req_id/corr及原始业务原因。
-- 本轮用户要求消除诊断的重复payload解析、成功结果重解析及Effect前缀扫描。
-- 本地实现/隔离验证/分类提交已授权；未提版、未发布、未push，未修改真实成员数据。
+- 失败保留HTTP路径/WS action、来源Command、req_id/corr及原始业务原因。
+- 用户要求低侵入接入当前OTel span；前端携带同一TraceId，并完成验证。
+- 本地实现/隔离测试/分类提交已授权；未提版、发布或push，未改真实业务数据。
 
 ## 代码身份
 - 仓库：/System/Volumes/Data/workspace/angular/visual/helix；分支reactor/MessageV3-helix。
-- 功能提交/优化基线：d2bbae39e8f91839792b4b5c42a674fa14b19613。
-- 当前优化身份由包含此文件的提交及父提交diff确定；无关未跟踪产物保留未提交。
+- 功能提交d2bbae39e8f91839792b4b5c42a674fa14b19613；优化提交ac378160b3377eee1e949d67dad8aa55296c3313。
+- 本次身份由包含此交接的提交与上述父提交diff确定；无关未跟踪文档保留。
 
 ## 当前设计
-- Command入口不读payload；从已有CorrelationContext借用Option<&str>，仅首次绑定时转为owned。
-- Arc<Origin>跨Tick共享，Cow静态名称不复制；OnceLock只初始化一次req_id，让早发timer共享身份。
-- 内部状态不保存短生命周期借用；长于512字节的外部req_id不复制到诊断索引。
-- 业务producer利用已有Value决定观测标记，随DomainEventBytes移动/clone；core只搬运标记，不判断IM。
-- 标记不进入wire；普通成功Emit直接跳过诊断JSON解析。HTTP业务解析与render_scope原有校验仍存在。
-- EffectSink::visit_mut_from借用[start..]原地访问，不遍历前缀；仍按本轮新增Effect数量线性工作。
-- clean_text改单缓冲，在输出错误时清洗命令/req_id；不再在每次Command入口反复构造临时字符串。
-- HTTP显式失败在读取data前拒绝；原始原因与领域错误并存，机器码保留并附加errorContext。
-- 固定字段的*-failed投影保持合同，来源进入结构化日志；CoreError保留原source链。
-- 活跃关联在回包/timer结束时释放；stop/身份切换清空；最近诊断历史最多256条，不恢复业务请求。
-- 超出历史范围无法证明WS来源时标server_push；metadata无body/headers，URL不含authority/query。
+- 诊断不解析Command payload，借用已有CorrelationContext，Arc<Origin>/OnceLock共享身份。
+- 成功Emit由私有标记跳过诊断JSON；只访问本轮Effect后缀，最近来源历史上限256。
+- HTTP显式业务失败在读取data前拒绝；普通error保留领域错误与原始业务原因。
+- core新增纯数据TraceId/StepDiagnostics，由宿主显式注入，不读取ambient OTel或引入SDK。
+- TraceId固定32字节Copy；诊断Vec跨step复用，最多16条、每条4096字符；无追踪不收集。
+- host TraceScope::step借用执行壳，回收诊断并更新现有core.step和当前Tick根span。
+- span设置error.type，既有后台exporter映射OTLP Error和exception.type/message；不新建脱链trace。
+- 普通error及机器码errorContext附trace_id；固定*-failed保留原因码，在message附TraceId。
+- 成功bytes不变；driver仍原样交付业务bytes，不在dispatch重新解析JSON。
+- 每轮/start/stop清空trace上下文，CoreError保留source链；不同WS carrier不串线。
+- Native/FFI共享host泵接入；Web完成编译，未新增Web OTel exporter。
+- OTel开启时诊断bytes取决于显式TraceId输入；普通step(None)行为兼容。
+- 前一批DomainEventBytes旧tuple解构的Rust源级兼容限制仍存在；本批新增纯诊断API及HostSpanSnapshot.failures。
 
-## Rust API边界
-- DomainEventBytes增加私有观测标记，以类型别名和同名函数保留DomainEventBytes(bytes)构造与.0读取。
-- 旧单字段tuple模式解构不再兼容；仓内及客户端当前调用检索未发现此用法。未发布，不宣称全生态源级兼容。
-- 新增visit_mut_from API；无Effect/Port/WS wire新变体，无DB/schema变更，无core运行时依赖。
-- cargo-public-api未安装，按现有gate规则跳过；未手工伪造自动生成的API baseline。
+## 本轮验证与证据
+- 红：/tmp/helix-otel-red.log，真实IM错误未带当前TraceId，断言失败。
+- Host定向：124通过（107库+4场景+13边界），host-final.log；增强同文案断言后4场景再次通过，final-scenarios.log。
+- IM诊断9项、来源10项通过：im.log/integration.log；core共26通过：core.log。
+- IM全量1644通过/4失败/11忽略：im-full.log；四个失败目标与ac378160前批证据一致。
+- 四目标：artifact_schema、MV3-G01a、MV3-G01f、MV3-G07b，不扩张修复。
+- Host全量在category_chain_storage遇到2失败；隔离ac378160复验相同失败，host-full.log/host-baseline.log。
+- 五crate check、Web wasm build通过：check.log/wasm.log；core-tree.log无运行时依赖。
+- release native stress_engine 4项、stress_storage 3项通过：native-regression.log；非生产负载验收。
+- rustfmt定向check、git diff --check通过；audit.log既有clone告警人工核对。
+- 新增exception消息复制只在失败与exporter后台发生；没有新增成功payload扫描、同步网络或全Effect扫描。
+- 上述本轮日志统一前缀/tmp/helix-otel-；临时基线worktree及本轮Collector端口转发已移除。
 
-## 可复现性能证据
-- /tmp/helix-failure-perf/：Cargo.toml、src/main.rs、src/bin/before.rs与源码基线副本。
-- release opt-level=z/LTO/单codegen；锁定依赖，i7-13700K，7轮中位数；对照d2bbae39诊断源码与当前源码，共用当前core隔离组件成本。
-- paired-before.txt / paired-after.txt：小Command 1905→97ns，分配14→1；256KiB Command 40325→92ns。
-- 成功读Emit 16KiB 5083→22ns，256KiB 106227→33ns；普通Emit约1960→23ns。
-- HTTP登记/回包额外分配31→7次（扣除构造本来就有的2次），耗时约6.15→2.64us。
-- 1000前置Effect/无新增：359→24ns；空Tick 17→20ns，不宣称所有分支都变快。
-- 仅诊断组件微基准，带分配计数开销，未测完整IM/WS/UI或producer分类成本；系统调度有波动。
-- Command基准使用静态名称，动态名称仍需要owned复制；不可将上述数字当整条链路加速比。
+## 真实 Collector / Jaeger 验证
+- 2026-10-07 18:52 CST，候选公开IM Command→合成HTTP200业务失败→真实PRE Collector→Jaeger。
+- 测试service=helix-error-verification，deployment.environment=test；未调用真实Go业务接口。
+- 客户端错误TraceId=000000000000000018dc39d4ab5393b2；Jaeger省略前导零为18dc39d4ab5393b2。
+- 同trace共4 span；port_reply=3d9d9eda31407f4b、core.step=b5ddcb7f43fc605f均error=true/status=ERROR。
+- 两span各一条exception，含im_channel_load_increment_by_channel_id、HTTP路径、req_id/corr及ent: channel_member not found，与客户端错误一致。
+- live.log和jaeger.json保存导出及MCP同ID查询证据；不是仅凭exporter ready判断成功。
+- 查询有child_outside_parent提示：跨Tick延续已结束的command parent，既有异步层级时窗现象；不作耗时关键路径判断。
+- 真实导出后仅修正noop测试快照读取语义及增强断言/格式，未改变真实export路径；证据按此diff影响复用。
 
-## 验证
-- 性能红测先失败：/tmp/helix-failure-perf/red.log（Command不应重新解析payload）。
-- 476项lib+来源集成通过：final-focused.log；最后边界调整复验8项诊断+10项来源：final-{resources,integration}.log。
-- 全量IM：1642通过/4失败（full-im.log）；随后仅命名、超长标识边界及日志清洗调整，已聚焦复验。
-- 四个失败目标与优化基线一致：artifact_schema、MV3-G01a、MV3-G01f、MV3-G07b，不扩张修复。
-- 五crate check、core测试、core wasm check、Web wasm build通过；证据final-check.log/core.log/core-wasm.log/final-wasm.log。
-- core-tree.log运行时依赖匹配为空；fmt/diff通过。audit.log的clone告警为Arc/静态Cow元数据共享，无payload深拷贝。
-- 上述日志均在/tmp/helix-failure-perf/；上一功能批次30Gate生成/cutover记录在/tmp/helix-failure-context-*。
-
-## 现场与未验证
-- PRE 16:54:43，/api/cses/channel/load/incrementByChannelId返回HTTP200+failed/ent: channel_member not found。
-- trace18dc336a48c20d0d；query trace18dc336a48be2273；req_id mv3-hydration-1791363283365-ahn2gm9a。
-- 真实Go/Native/UI未安装候选验收；没有修复成员缺失本身。后续发布需单独授权。
+## 之前的性能/现场证据
+- /tmp/helix-failure-perf/paired-{before,after}.txt：诊断组件小Command分配14→1，256KiB读结果约106us→33ns。
+- 仅组件微基准，带分配计数，不代表全链加速比；本轮不新增性能数字主张。
+- 原PRE失败：HTTP200/failed/ent: channel_member not found，trace18dc336a48c20d0d。
+- 未修复成员缺失根因；未安装候选客户端做对话框验收，未发布/push。

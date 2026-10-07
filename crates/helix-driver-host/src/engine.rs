@@ -327,10 +327,10 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
             .with_capability(LifecycleCapability::Effect, true)
             .with_capability(LifecycleCapability::Ws, !transports.is_empty());
         let context = context.with_span_parent(inherited_span_parent);
-        let (_trace_scope, context) = trace.start_tick_with_context(&tick, &context);
+        let (mut trace_scope, context) = trace.start_tick_with_context(&tick, &context);
         let now_ms = clock.now_ms();
         let step_started = perf_metrics.start_timer();
-        let batch = match shell.step(tick, now_ms) {
+        let batch = match trace_scope.step(&mut shell, tick, now_ms) {
             Ok(effects) => consume_effect_batch(effects),
             Err(e) => {
                 perf_metrics.on_step_error(&metric_context);

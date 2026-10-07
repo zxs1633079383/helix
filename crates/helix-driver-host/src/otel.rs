@@ -66,6 +66,8 @@ pub struct HostSpanSnapshot {
     pub parent_span_id: Option<String>,
     pub attributes: Vec<(String, String)>,
     pub exported: bool,
+    /// 有界失败事件；成功span保留空Vec，不分配。
+    pub failures: Vec<helix_core::diagnostics::FailureDiagnostic>,
 }
 
 #[derive(Clone, Debug)]
@@ -79,6 +81,7 @@ struct RuntimeInner {
     full_debug: bool,
     debug_identity: Mutex<Option<TraceIdentity>>,
     last_span: Mutex<Option<HostSpanSnapshot>>,
+    last_completed_span: Mutex<Option<HostSpanSnapshot>>,
     seq: AtomicU64,
     exporter: Option<Arc<OtlpExporter>>,
     slow_threshold: Duration,
@@ -160,6 +163,7 @@ impl HostOtelRuntime {
                 full_debug,
                 debug_identity: Mutex::new(None),
                 last_span: Mutex::new(None),
+                last_completed_span: Mutex::new(None),
                 seq: AtomicU64::new(1),
                 exporter,
                 slow_threshold,
@@ -251,6 +255,7 @@ impl HostOtelRuntime {
             parent_span_id,
             attributes: normalized_attributes,
             exported: self.inner.exporter.is_some(),
+            failures: Vec::new(),
         };
 
         if self.inner.config.enabled && self.inner.exporter.is_none() {
@@ -267,6 +272,11 @@ impl HostOtelRuntime {
 
     pub fn last_span_for_test(&self) -> Option<HostSpanSnapshot> {
         self.inner.last_span.lock().clone()
+    }
+
+    /// 仅noop测试运行时保留最后完成的span；不改变last_span的开始时语义。
+    pub fn last_completed_span_for_test(&self) -> Option<HostSpanSnapshot> {
+        self.inner.last_completed_span.lock().clone()
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -336,6 +346,9 @@ impl HostOtelRuntime {
         end_time: SystemTime,
     ) {
         let Some(exporter) = &self.inner.exporter else {
+            if self.inner.config.enabled {
+                *self.inner.last_completed_span.lock() = Some(snapshot);
+            }
             return;
         };
         let elapsed = end_time.duration_since(start_time).unwrap_or_default();
@@ -397,6 +410,26 @@ impl HostSpanScope {
                 snapshot
                     .attributes
                     .push(("error.type".into(), error_kind.into()));
+            }
+        }
+    }
+
+    /// 借用当前span的TraceId，不分配或创建新trace。
+    pub fn trace_id(&self) -> Option<&str> {
+        self.snapshot.as_ref()?.trace_id.as_deref()
+    }
+
+    /// 写入有界exception诊断，并标记当前span为Error；网络导出仍在既有worker。
+    pub fn record_failure(&mut self, failure: &helix_core::diagnostics::FailureDiagnostic) {
+        self.set_error(failure.kind);
+        if let Some(snapshot) = self.snapshot.as_mut() {
+            if snapshot.failures.len() < 16 {
+                snapshot
+                    .failures
+                    .push(helix_core::diagnostics::FailureDiagnostic {
+                        kind: failure.kind,
+                        message: failure.message.chars().take(4096).collect(),
+                    });
             }
         }
     }

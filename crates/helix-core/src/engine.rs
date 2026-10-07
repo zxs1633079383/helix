@@ -46,6 +46,16 @@ impl ExecutionShell {
         }
     }
 
+    /// 当前轮输出的借用视图，生命周期与step返回切片相同。
+    pub fn effects(&self) -> &[Effect] {
+        self.scratch.as_slice()
+    }
+
+    /// 包括返回Err的step也可读取诊断；下次step/start/stop自动清理。
+    pub fn diagnostics(&self) -> &crate::diagnostics::StepDiagnostics {
+        self.scratch.diagnostics()
+    }
+
     /// 注册业务模块（加模块不改此函数，开闭原则）
     pub fn register(&mut self, m: impl crate::module_host::Module + 'static) {
         self.host.register(m);
@@ -101,7 +111,18 @@ impl ExecutionShell {
     /// 这确保多模块场景中，Correlation/TimerId 被注册到正确的 module_index，
     /// 而不是错误地路由到 module[0]。
     pub fn step(&mut self, tick: Tick, now_ms: u64) -> Result<&[Effect], CoreError> {
+        self.step_with_trace(tick, now_ms, None)
+    }
+
+    /// 显式注入当前step的TraceId；未启用OTel的调用方继续使用step。
+    pub fn step_with_trace(
+        &mut self,
+        tick: Tick,
+        now_ms: u64,
+        trace_id: Option<crate::diagnostics::TraceId>,
+    ) -> Result<&[Effect], CoreError> {
         self.scratch.clear();
+        self.scratch.diagnostics_mut().trace_id = trace_id;
 
         match &tick {
             Tick::Inbound(_) | Tick::Command(_) | Tick::Connected(_) | Tick::Disconnected(_) => {

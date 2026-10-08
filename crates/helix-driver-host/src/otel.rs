@@ -67,7 +67,7 @@ pub struct HostSpanSnapshot {
     pub attributes: Vec<(String, String)>,
     pub exported: bool,
     /// 有界失败事件；成功span保留空Vec，不分配。
-    pub failures: Vec<helix_core::diagnostics::FailureDiagnostic>,
+    pub failures: helix_core::diagnostics::FailureBuffer,
 }
 
 #[derive(Clone, Debug)]
@@ -255,7 +255,7 @@ impl HostOtelRuntime {
             parent_span_id,
             attributes: normalized_attributes,
             exported: self.inner.exporter.is_some(),
-            failures: Vec::new(),
+            failures: Default::default(),
         };
 
         if self.inner.config.enabled && self.inner.exporter.is_none() {
@@ -423,14 +423,14 @@ impl HostSpanScope {
     pub fn record_failure(&mut self, failure: &helix_core::diagnostics::FailureDiagnostic) {
         self.set_error(failure.kind);
         if let Some(snapshot) = self.snapshot.as_mut() {
-            if snapshot.failures.len() < 16 {
-                snapshot
-                    .failures
-                    .push(helix_core::diagnostics::FailureDiagnostic {
-                        kind: failure.kind,
-                        message: failure.message.chars().take(4096).collect(),
-                    });
-            }
+            snapshot.failures.push(failure);
+        }
+    }
+
+    /// 将core因预算省略的数量保留到OTLP，不生成额外文本。
+    pub fn record_dropped_failures(&mut self, count: u32) {
+        if let Some(snapshot) = self.snapshot.as_mut() {
+            snapshot.failures.add_dropped(count);
         }
     }
 

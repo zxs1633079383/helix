@@ -104,3 +104,42 @@ fn host_query_metric_descriptors_are_stable() {
         assert_eq!(id.descriptor().unit, unit);
     }
 }
+
+/// 接入当前span只增加Arc引用，预算溢出仍保留Error且可观测省略数量。
+#[test]
+fn failure_text_is_shared_and_span_budget_is_bounded() {
+    use helix_core::diagnostics::FailureDiagnostic;
+    let runtime = HostOtelRuntime::new(HostOtelConfig {
+        enabled: true,
+        endpoint: "noop".into(),
+        protocol: "noop".into(),
+        ..Default::default()
+    });
+    let mut root = runtime.span("root", TraceDirection::Internal, None);
+    let mut step = runtime.span(
+        "step",
+        TraceDirection::Internal,
+        root.child_carrier().as_ref(),
+    );
+    let failure = FailureDiagnostic::new("business", &"🦀".repeat(4096));
+    root.record_failure(&failure);
+    step.record_failure(&failure);
+    for scope in [&root, &step] {
+        let entry = &scope.snapshot.as_ref().unwrap().failures[0];
+        assert!(Arc::ptr_eq(
+            entry.shared_message(),
+            failure.shared_message()
+        ));
+        assert_eq!(entry.message().len(), 4096);
+    }
+    for _ in 0..20 {
+        step.record_failure(&failure);
+    }
+    let snapshot = step.snapshot.as_ref().unwrap();
+    assert_eq!(snapshot.failures.len(), 1);
+    assert_eq!(snapshot.failures.dropped(), 20);
+    assert!(snapshot
+        .attributes
+        .iter()
+        .any(|(k, v)| k == "error.type" && v == "business"));
+}

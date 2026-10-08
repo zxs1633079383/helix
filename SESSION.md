@@ -1,3 +1,7 @@
+🎯 EXPECT 错误文本只在入口按UTF-8字节边界截断一次，跨span/SDK共享；单step/span诊断≤4KiB，成功三场景分配不增加，OTLP仍保留Error与TraceId。 | 赌注 中 | 可逆 是 | @2026-10-08
+- 延续交接：docs/交接/统一错误来源-20261007/handoff.md
+✅ DONE Arc共享与4KiB字节预算落地；成功分配不变，三端编译及真实Collector→Jaeger同Trace验证通过。详情见交接。 | @2026-10-08
+
 🎯 EXPECT 业务失败在当前OTel step/root标记Error并携带同一TraceId返回；成功事件bytes不变、无OTel时不伪造TraceId，core保持零运行时依赖。 | 赌注 中 | 可逆 是 | @2026-10-07
 - 延续交接：docs/交接/统一错误来源-20261007/handoff.md
 ✅ DONE 当前step/root记录OTLP Error与exception；客户端TraceId已在PRE Jaeger同ID核对，三端编译/聚焦/本地泵回归通过，既有全量失败与发布边界见交接。

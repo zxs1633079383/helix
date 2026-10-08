@@ -408,6 +408,7 @@ fn span_data_from_snapshot(
         dropped_attributes_count: 0,
         events: {
             let mut events = SpanEvents::default();
+            events.dropped_count = snapshot.failures.dropped();
             events.events = snapshot
                 .failures
                 .iter()
@@ -417,7 +418,10 @@ fn span_data_from_snapshot(
                         end_time,
                         vec![
                             KeyValue::new("exception.type", failure.kind),
-                            KeyValue::new("exception.message", failure.message.clone()),
+                            KeyValue::new(
+                                "exception.message",
+                                Arc::clone(failure.shared_message()),
+                            ),
                         ],
                         0,
                     )
@@ -458,11 +462,18 @@ mod query_status_tests {
             parent_span_id: None,
             attributes: vec![("error.type".into(), "im.operation.failed".into())],
             exported: false,
-            failures: vec![helix_core::diagnostics::FailureDiagnostic {
-                kind: "im.operation.failed",
-                message: "[command=im_top20 source=HTTP POST /posts/top20] denied".into(),
-            }],
+            failures: {
+                let mut failures = helix_core::diagnostics::FailureBuffer::default();
+                failures.push(&helix_core::diagnostics::FailureDiagnostic::new(
+                    "im.operation.failed",
+                    "[command=im_top20 source=HTTP POST /posts/top20] denied",
+                ));
+                failures
+            },
         };
+        let shared_message = Arc::clone(snapshot.failures[0].shared_message());
+        let mut snapshot = snapshot;
+        snapshot.failures.add_dropped(7);
         let data = span_data_from_snapshot(
             &snapshot,
             None,
@@ -477,6 +488,17 @@ mod query_status_tests {
             snapshot.trace_id.unwrap()
         );
         assert_eq!(data.events.len(), 1);
+        assert_eq!(data.events.dropped_count, 7);
+        let value = &data.events[0]
+            .attributes
+            .iter()
+            .find(|kv| kv.key.as_str() == "exception.message")
+            .unwrap()
+            .value;
+        let opentelemetry::Value::String(message) = value else {
+            panic!("string attribute")
+        };
+        assert_eq!(message.as_str().as_ptr(), shared_message.as_ptr());
         assert_eq!(data.events[0].name, "exception");
         assert!(data.events[0]
             .attributes
@@ -519,7 +541,7 @@ mod query_status_tests {
                     .map(|e| vec![("error.type".into(), e.into())])
                     .unwrap_or_default(),
                 exported: false,
-                failures: Vec::new(),
+                failures: Default::default(),
             };
             let data = span_data_from_snapshot(
                 &snapshot,

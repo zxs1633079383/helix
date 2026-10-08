@@ -71,12 +71,21 @@ impl TraceScope {
         for failure in shell.diagnostics().failures() {
             self.record_failure(failure);
         }
+        let dropped = shell.diagnostics().dropped_failures();
+        if dropped != 0 {
+            if let Some(step) = self.step.as_mut() {
+                step.record_dropped_failures(dropped);
+            }
+            if let Some(root) = self.root.as_mut() {
+                root.record_dropped_failures(dropped);
+            }
+        }
         if let Err(error) = &result {
             if shell.diagnostics().failures().is_empty() {
-                self.record_failure(&helix_core::diagnostics::FailureDiagnostic {
-                    kind: "core.step.failed",
-                    message: error.to_string(),
-                });
+                self.record_failure(&helix_core::diagnostics::FailureDiagnostic::new(
+                    "core.step.failed",
+                    &error.to_string(),
+                ));
             }
         }
         result.map(|_| shell.effects())

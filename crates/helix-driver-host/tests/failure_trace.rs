@@ -133,7 +133,7 @@ fn im_failure_carries_current_trace_id() {
     assert!(snapshot.attributes.iter().any(|(k, _)| k == "error.type"));
     assert_eq!(snapshot.failures.len(), 1);
     assert_eq!(
-        snapshot.failures[0].message,
+        snapshot.failures[0].message(),
         result["data"]["error"].as_str().unwrap()
     );
 }
@@ -237,4 +237,54 @@ fn live_otlp_business_failure() {
     println!("TRACE_ID={id}\nCLIENT_ERROR={}", result["data"]["error"]);
     // 给现有后台batch exporter完成一次发送；网络是否成功由Jaeger回查判定。
     std::thread::sleep(std::time::Duration::from_secs(2));
+}
+
+/// 连续业务失败通过生产step桥接保留Error，并把省略数量交给当前span。
+#[test]
+fn error_burst_preserves_status_and_propagates_dropped_count() {
+    struct Burst;
+    impl Module for Burst {
+        fn name(&self) -> &'static str {
+            "burst"
+        }
+        fn accepts(&self, _: &Tick) -> bool {
+            true
+        }
+        fn handle(
+            &mut self,
+            _: &Tick,
+            _: u64,
+            out: &mut EffectSink,
+        ) -> Result<(), helix_core::CoreError> {
+            let text = "x".repeat(1024);
+            for _ in 0..100 {
+                out.diagnostics_mut().report("burst.failed", &text);
+            }
+            Ok(())
+        }
+    }
+    let runtime = runtime();
+    let hooks = TraceHooks::noop().with_otel(runtime.clone());
+    let mut shell = ExecutionShell::new();
+    shell.register(Burst);
+    let tick = command("burst", json!({}));
+    let (mut scope, _) =
+        hooks.start_tick_with_context(&tick, &LifecycleContext::new(1, None, None));
+    scope.step(&mut shell, tick, 1).unwrap();
+    drop(scope);
+    let snapshot = runtime.last_completed_span_for_test().unwrap();
+    assert!(snapshot
+        .attributes
+        .iter()
+        .any(|(key, value)| key == "error.type" && value == "burst.failed"));
+    assert_eq!(snapshot.failures.len(), 4);
+    assert_eq!(snapshot.failures.dropped(), 96);
+    assert_eq!(
+        snapshot
+            .failures
+            .iter()
+            .map(|failure| failure.message().len())
+            .sum::<usize>(),
+        4096
+    );
 }

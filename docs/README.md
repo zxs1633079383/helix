@@ -3,10 +3,10 @@
 > `docs/` 的单一入口。本文只维护 canonical 路由、证据层级和熵管理规则，不复制任务
 > 流水或 Green 数字。
 >
-> 最近文档日检：2026-10-07，源码基线 `ff6292bb`。全库建立 Markdown 清单并扫描相对链接；
-> 本轮语义对账覆盖公共包版本、转发/书签/本机历史入口、Module trait、CI/发布脚本及索引。
+> 最近文档日检：2026-10-08，源码基线 `000d83a6`。全库建立 Markdown 清单并扫描相对链接；
+> 本轮语义对账覆盖公共包版本、书签计数、成员稀疏更新、Module trait、CI 入口及索引。
 > 历史转发附件无法复核，旧 Strict Matrix 生成文档 checker 失败；不代表全库 API 或运行态通过。
-> 范围、证据与未验证项见[本轮交接](交接/Markdown日检-20261007/handoff.md)。
+> 范围、证据与未验证项见[本轮交接](交接/Markdown日检-20261008/handoff.md)。
 
 ---
 
@@ -107,7 +107,7 @@ PC / Mobile / Web shell
 - host：`crates/helix-driver-host/`，提供共享 SQLite、HTTP、WS、timer、metrics 与执行驱动。
 - native/FFI/Web：`crates/helix-driver-{native,ffi,web}/`，只兑现平台边界并原样交付事件 bytes。
 - 当前四个 crates.io 公共包为 `cses-helix-core`、`helix-im`、`helix-driver-host`、
-  `helix-driver-native`；本轮 Cargo manifest 版本均为 `0.1.44`，registry 状态未重新查询。
+  `helix-driver-native`；本轮 Cargo manifest 版本均为 `0.1.46`，registry 状态未重新查询。
 
 ### PC / Mobile
 

@@ -58,4 +58,13 @@
 - 本轮端口转发已关闭；child_outside_parent为跨Tick延续已结束parent，不能作关键路径耗时依据。
 - 客户端源码helixTauriImGate.service.ts:2549包装为HELIX_HYDRATION_FAILED，message.component.ts:1050以externalMessageJump报告。
 - 普通error可见完整TraceId；机器码错误另有errorContext，但当前客户端此处只读取error，可能只显示机器码。
-- 弹窗仅源码推导，未安装候选做UI验收；未修复原PRE成员缺失业务根因，未发布/push。
+- 弹窗仅源码推导，未安装候选做UI验收；未修复原PRE成员缺失业务根因。
+
+## 0.1.47发布
+- 用户授权提交远端并发布；合并远端纯文档后fc560064已推送reactor/MessageV3-helix。
+- python3 scripts/publish_crates.py --version 0.1.47 --publish：RELEASE PASS。
+- cses-helix-core、helix-im、helix-driver-host、helix-driver-native均上传crates.io并逐包cargo info回读。
+- 八crate候选check、四包dry-run/打包编译通过；证据/tmp/helix-release-0.1.47.log。
+- 版本事务仅8份manifest+Cargo.lock，0.1.46→0.1.47，无其他依赖漂移。
+- 版本提交为包含本段的chore(release)，注释Tag helix-v-0.1.47；随后推送并核对远端SHA。
+- 无关未跟踪artifacts/与docs/交接/未暂存；客户端依赖未自动升级，TraceId生成算法未修改。

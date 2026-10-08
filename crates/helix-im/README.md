@@ -5,7 +5,7 @@
 
 ```toml
 [dependencies]
-helix-im = "=0.1.44"
+helix-im = "=0.1.46"
 ```
 
 本项目采用 `MIT OR Apache-2.0` 双许可证。
@@ -49,9 +49,31 @@ Host 可按提交前登记的请求匹配最近转发目标；不得把 `im:post
   `page_size <= 100`、`page_number <= 1000000`。参数与 wire 真源见
   [`outbound/posts/read_ext.rs`](src/outbound/posts/read_ext.rs)，结果/失败回灌见
   [`port_reply/dispatch_read.rs`](src/port_reply/dispatch_read.rs)。
+- `im_bookmark_count({req_id})` 返回当前认证用户/企业的可见书签总数，使用会话内缓存，
+  不写 SQLite。首次读取、断连失效后的读取或五分钟过期后的读取通过 `post/bookmark/count`
+  校准；并发等待合并为一次 HTTP，结果复用 `im:read:result`。
+  书签创建/删除按服务端 `affectedCount` / `countDelta` 更新已知总数；缺字段、身份不符或
+  不合法增量使缓存失效，不凭 `SUCCESS` 猜计数。与写入重叠的旧校准响应不覆盖新状态；
+  校准失败返回错误并退避 30 秒，身份切换/stop 取消等待者。实现见
+  [`bookmark_count.rs`](src/bookmark_count.rs)，回归入口为
+  `cargo test -p helix-im --test read_relay_test bookmark_count`。
 - `im_recent_history` 的 `kind` 支持 `search`、`forward`、`emoji-send`、`emoji-reaction`，
   `action` 支持 `read`、`record`、`remove`、`clear`、`import`；表情发送与回应历史分开保存。
   写请求回传 read 返回的 `scope`，身份由运行时生成；通过既有 `im_recent_history` 表持久化，
   写入成功后返回新状态。完整 payload 与校验见 [`recent_history.rs`](src/recent_history.rs)。
 
 以上为源码合同核对，不代表远端接口或客户端 UI 已在本轮验收。
+
+## 群成员稀疏更新与显式清空
+
+[`channel/write/members.rs`](src/channel/write/members.rs) 按字段合并成员来源：当前 `members`
+优先于角色摘要，角色摘要优先于历史 `memberChange.join`。缺省字段保留已有值；
+`nickName: ""` 明确清空昵称，缺少或 null 昵称不生成清空。`boss[].option=leave` 只撤销
+BOSS 角色，成员离场由 `memberChange.leave` 表达，不能从空角色摘要推断离场。
+
+[`acl/to_effect_s1/storage.rs`](src/acl/to_effect_s1/storage.rs) 根据 `omitted_fields` 将成员
+分为最多 8 个固定字段形状批次，通过 `exclude_from_update` 保留冲突行中的缺省字段；
+默认值只用于新行。定向回归入口：
+`cargo test -p helix-im --test channel_empty_semantics_regression_test`、
+`cargo test -p helix-driver-host --test channel_empty_semantics_sqlite`。
+上述测试入口已核对源码与 Cargo 注册，本次纯文档日检未执行 Rust 或真实业务链验收。

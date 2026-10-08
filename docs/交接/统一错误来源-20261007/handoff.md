@@ -4,7 +4,8 @@
 ## 目标与授权
 - 失败保留HTTP路径/WS action、来源Command、req_id/corr、原始原因与当前TraceId。
 - 本轮优化错误文本共享与字节预算，成功业务路径保持现状；说明客户端和Trace表现。
-- 已授权本地实现、测试、提交；未提版、发布、push或改真实业务数据。
+- 用户已追加授权提交远端并发布版本；目标四公共crate 0.1.47，完成版本提交/注释Tag/推送。
+- 发布前plan通过，合并远端纯文档310c9536，SESSION冲突保留双方记录；验证沿用代码身份5eb8fa03。
 
 ## 代码身份
 - 仓库：/System/Volumes/Data/workspace/angular/visual/helix；分支reactor/MessageV3-helix。

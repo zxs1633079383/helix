@@ -784,6 +784,16 @@ fn synthetic_post_echo_tick(
 /// 验证 RICH/FILE 通过本地 HTTP/echo 夹具共用管线并最终写入真实 SQLite。
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() {
+    run_media_pipeline("latest").await;
+}
+
+/// 真实客户端生成动态 window token，未携带 token 的发送仍须刷新当前附件窗口。
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn live_upload_progress_reaches_a_dynamic_timeline_window() {
+    run_media_pipeline("mv3-window-upload-regression").await;
+}
+
+async fn run_media_pipeline(window_token: &str) {
     let java_listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind local Java server");
@@ -931,7 +941,7 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
         .send(Tick::Command(helix_core::tick::AppCommand::new(
             "im_query_messages_by_channel",
             serde_json::to_vec(
-                &json!({ "channel_id": CHANNEL_ID, "pageSize": 20, "windowToken": "latest" }),
+                &json!({ "channel_id": CHANNEL_ID, "pageSize": 20, "windowToken": window_token }),
             )
             .unwrap(),
         )))

@@ -143,12 +143,19 @@ impl ImModule {
                 window_token,
                 causation_id,
             } = timeline_readback;
-            self.refresh_attached_timeline(
-                channel_id,
-                window_token.as_deref().unwrap_or("latest"),
-                causation_id,
-                out,
-            )?;
+            if let Some(window_token) = window_token {
+                // Explicit retry contexts remain bound to their original window.
+                self.refresh_attached_timeline(channel_id, &window_token, causation_id, out)?;
+            } else {
+                // Normal sends carry no window token. Resolve the actual attachment;
+                // "latest" is a literal token, not an alias for the active window.
+                self.refresh_attached_latest_timeline_with_deferred_send(
+                    channel_id,
+                    causation_id,
+                    None,
+                    out,
+                )?;
+            }
         }
         if let Some(percent) = next_percent {
             if let Some(state) = self.state.file_upload_progress.get_mut(&route.upload_corr) {

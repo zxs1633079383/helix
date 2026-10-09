@@ -20,6 +20,14 @@
 
 ## 未通过和未覆盖
 
+### 实机追查：动态窗口标识（2026-10-09 晚）
+
+用户在修复版发送 14,070,953 字节的 RICH MP4，OSS 于 22:51:19 至 22:51:32 上传成功，posts/create 返回 200，但界面没有中间进度。真实查询使用 `mv3-window-...`，普通 send 不传 window token；进度提交后的 `unwrap_or("latest")` 却把 latest 当作实际窗口名，`is_attached` 不匹配而静默跳过刷新。
+
+把宿主组合测试的窗口名从 latest 改为动态值后，原实现出现中间进度事件断言失败（`helix-progress-window-red.log`）。修复为：显式 token 保持原重试窗口约束；无 token 时复用现有频道活动窗口回读入口。同一宿主管线分别测试固定/动态窗口，2 项通过（`helix-progress-window-green.log`）。前一次只有 latest 的组合测试覆盖不足，不应作为生产默认窗口链路通过的证据。本次未改窗口附着、分页或锚点机制。
+
+后续真实界面进度仍需用户重试确认；此次日志已证实该文件可以上传，不能继续把它归为上传失败。
+
 首轮扩大到 post 的 G01A / G01F 时各遇到 1 条 HTTP admission readback 数量断言失败（期望 1，实际 0）；已停止无关范围扩张，未修改它们的断言或用例。它们不走本次媒体进度路由，疑似同类频道归属 fixture 缺失，尚未做基线 A/B，不能将其标记已解决。日志 `helix-progress-related.log`、`helix-progress-focused.log`。
 
 未执行真实 Tauri 发送、真实 OSS/Java/Go 验收、三端完整验收或发布。此前用户报告的“视频无法上传”尚缺具体失败日志，不等同于本次进度缺失；30 秒上传期限和 64 MiB 限制未改变。

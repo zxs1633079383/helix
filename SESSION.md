@@ -3,6 +3,8 @@
 ✅ DONE 六处版本入口对齐 0.1.48，补充邀请权限与接龙补全边界；本批聚焦检查通过，历史附件与旧 Matrix 漂移单列，整体 PARTIAL；发布结果见交接报告。
 ## 2026-10-09 RICH 上传实时进度
 
+🎯 EXPECT 修复真实动态窗口收不到进度：无 token 的发送回读当前 attached window，显式重试 token 保留隔离。动态窗口组合测试修复前失败、修复后与 latest 共 2 项通过；客户端重新构建及真实 UI 复测分别跟踪，见下方交接。
+
 🎯 EXPECT 单视频 RICH、混合图片/视频均有 5% 字节进度；逐文件/加权值在 PersistOk 后回读，并发不覆盖终态。基线 helix-v-0.1.48，分支 codex/rich-upload-progress，无 upstream；不改版本、不发布。实现和实机验收分别记录。 | 赌注 中 | 可逆 是
 
 ✅ DONE 本地实现、50 项上传回归、1 项实际 HTTP/SQLite/timeline 组合测试和两 crate check 通过。组合测试为合成服务端；真实 Tauri 验收与发布待执行，另两条 post 测试失败未扩修。交接：[RICH 上传进度](docs/交接/rich-upload-progress-20261009.md)。

@@ -1,6 +1,6 @@
 %% Phase3 / channel_member / MV3-G09b 增加 / 移除管理员
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel_member/mv3-g09b/contract.json
-%% UI owners: src/pages/message-v3/components/drawer/chat-settings/chat-settings.component.ts::updateManagerPerson；src/pages/message-v3/service/channelConfigAdapter.service.ts
+%% UI owners: packages/message/src/lib/components/drawer/chat-settings/chat-settings.component.ts:1；packages/message/src/lib/services/channelConfigAdapter.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：群主把某个成员设为管理员或撤销其管理员身份，成员列表上该成员的管理员标识出现/消失，群内出现系统提示。
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=implemented；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=implemented；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: changeManager(payload)
     Gate->>Native: invokeAccepted("im_channel_member_role", payload)
@@ -46,8 +46,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（channelMemberUpdated，INCREMENT_CHANNEL，im:channel:member-updated）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:channel:member-updated）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -58,4 +58,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：type='join' 时 adminUsers 追加对应成员对象；type='leave' 时按 userId 移除；重复操作后 adminUsers 内同一 userId 只出现一次；join 时优先复用 members 里已有成员对象（该项 nickName 与 members 内同一 userId 的 nickName 相等），members 内不存在时才新建 role='MANAGER' 的最小对象；Rust 入站 ADMIN 仅是现役 Go wire 枚举，不得进入业务投影
   Note over UI,Web: 关键负向：不得改动 members / memberCount（管理员变更只动 adminUsers；members.length 与 memberCount 调用前后必须相等）；重复设置同一人为管理员不得产生重复项（adminUsers 内 userId 唯一）
-  Note over E,Sink: 出站事件集合：channelMemberUpdated，INCREMENT_CHANNEL，im:channel:member-updated；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:channel:member-updated；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

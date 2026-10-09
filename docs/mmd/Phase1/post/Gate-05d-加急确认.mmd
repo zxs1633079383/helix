@@ -1,6 +1,6 @@
 %% Phase1 / post / MV3-G05d 加急确认
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g05d/contract.json
-%% UI owners: src/pages/message-v3/components/message-item/message-item.component.ts::onPostUrgentConfirm；src/pages/message-v3/service/message.service.ts::onPostUrgentConfirm
+%% UI owners: packages/message/src/lib/components/message-item/message-item.component.ts:1；packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -17,7 +17,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：被加急的成员点气泡上的「已读」，加急提示消失，对应待办转为已完成；加急发起人看到该成员已确认
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: urgentConfirm(payload)
     Gate->>Native: invokeAccepted("im_urgent_confirm", payload)
@@ -47,8 +47,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（postUpdated，POST_UPDATE，channelUpdate，UPDATE_CHANNEL）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:post:updated，im:channel:update）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -59,4 +59,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：当前登录用户在 expediteRecipients 中的 status 由 0 变 1（immutable map，换新对象引用）；props.urgentConfirmed = true；数组长度不变；所属频道 channel.urgentPostList 移除该 postId（当前用户视角不再被催）；列表清空时 channel.hasUrgentPost=false 且 channel.urgentCurrentName 清空串——会话列表闪电熄灭。已修（原为缺口）：mockImGate.service.ts::urgentConfirm 从 channel.urgentPostList filter 掉该 postId + emi；加急发起人侧读到该成员 status===1，isBeurged()（find status===0）不再命中该成员；触发 UPDATE_TODO_ITEM 更新同 id 待办为已完成
   Note over UI,Web: 关键负向：不得写 channel.urgentCount（死字段，会话列表不读——dialog-item 只读 urgentPostList，写入会造成双源；urgentConfirm 全程 urgentCount 保持 undefined）；不得改动其他成员的 status（逐项比对：非 self 项必须与确认前深度相等）；不得删除 expediteRecipients 中的项 —— isBeurged() 靠 find(status===0) 判定，删项会让加急历史丢失
-  Note over E,Sink: 出站事件集合：postUpdated，POST_UPDATE，channelUpdate，UPDATE_CHANNEL；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:post:updated，im:channel:update；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

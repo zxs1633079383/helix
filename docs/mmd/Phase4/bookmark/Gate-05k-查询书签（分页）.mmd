@@ -1,6 +1,6 @@
 %% Phase4 / bookmark / MV3-G05k 查询书签（分页）
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/bookmark/mv3-g05k/contract.json
-%% UI owners: src/pages/message-v3/message.component.ts::queryBookmark；src/pages/message-v3/components/windows/chat-independent-window/chat-independent-window.component.ts::queryBookmark
+%% UI owners: src/pages/message-v3/message.component.ts:1；src/app/message-host/windows/chat-independent-window/chat-independent-window.component.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,10 +16,10 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员打开书签抽屉，向下滚动能继续加载更早的收藏
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: queryBookmarks(payload)
-    Gate->>Native: invokeAccepted("im_bookmark_load", payload)
+    Gate->>Native: invokeReadResult("im_bookmark_load", payload)
     Native->>E: Tick::Command(AppCommand)
   else Flutter FFI 入口
     FFI->>E: helix_command("im_bookmark_load", payload)
@@ -33,15 +33,10 @@ sequenceDiagram
   Go-->>Host: HTTP response（2xx 只代表 admission/query response）
   Host->>E: Tick::PortReply(http)
   E->>IM: correlate req_id/corr_key
-  IM-->>E: Command Result {data}
-  E-->>Gate: PortReply(Result)
+  IM->>Sink: Effect::Emit im:read:result（请求关联结果）
+  Sink-->>Gate: im:__bus__ 按 req_id 或 requestId 结算等待者
   Gate-->>UI: render absolute snapshot or query result
-  alt HTTP / PortReply / Persist error
-    IM->>IM: keep prior durable state；attach structured error to corr_key
-    IM-->>E: Err or correlated error result
-    E-->>Gate: controlled failure
-    Gate-->>UI: error / empty state；不得伪造成功事件
-  end
-  Note over IM,DB: 关键效果：返回 data, hasMore：内部 offset=(pageNumber-1)*pageSize，data = session.currentUserId 在该频道的私有书签按稳定集合序 slice(offset,offset+pageSize)，hasMore = offset+data.length 小于；纯读取：本侧与对端书签集合均零变化，对端 events 为 []（不传播的证据）
+  Note over IM,Gate: HTTP或信封失败经 im:read:result.error 关联回灌；成功保留 Go 权威分页结果
+  Note over IM,DB: 关键效果：返回 data, hasMore：内部 offset=(pageNumber-1)*pageSize，data = session.currentUserId 在该频道的私有书签按稳定集合序 slice(offset,offset+pageSize)，hasMore 由 Go 权威查询给出，客户端不得按本页长度猜测；纯读取：本侧与对端书签集合均零变化，对端 events 为 []（不传播的证据）
   Note over UI,Web: 关键负向：目标固定 fail closed：请求体出现 userId 必须结构化拒绝；查询 actor 只能由 Go session.currentUserId 注入；越界页必须返回 data: [], hasMore: false 而非报错
-  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 结果出口：im:read:result；读结果与业务广播区分，不能把无广播理解为无 Effect::Emit

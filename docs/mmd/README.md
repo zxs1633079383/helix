@@ -3,15 +3,22 @@
 阅读或修改本目录前先看 [`AGENTS.md`](./AGENTS.md)；本 README 承载 92 Gate 的分母、
 Phase/Domain 索引和文件链接，具体 Gate 规则按局部 AGENTS 的渐进式披露顺序下钻。
 
+2026-10-09 源码对齐记录见 [本轮交接](../交接/三仓流程图对齐/handoff.md)。
+图首 contract 与覆盖字段是合同登记快照；实际命令、路径与终态以当前源码注释为准。
+`im:*` 是 Helix 原始事件；`postReceived` 等是客户端 adapter 的 kind，
+`POST` 等是客户端 action，不得混作 EventSink 原始出口。
+读结果同样可经 `Effect::Emit` 异步回传；无业务广播不代表无结果事件。
+
 本目录以客户端仓根 `/System/Volumes/Data/workspace/angular/visual/cses-client`
 的 Phase1～5 manifest 为机器真源：Phase1～4 为 80 Gate，Phase5 为 12 Gate，总计 **92 Gate**。
 按 `Phase → Domain → Gate` 组织 Mermaid 时序图。每张图都沿用
 [发送消息参考图](./发送消息.mmd)的逐跳粒度，描述 Angular/Port、Tauri/FFI/Web、Helix
 Tick/Effect/PortReply、SQLite/Go HTTP/WS 和最终 raw event 或 Command Result。
 
-说明：客户端合同仍保留完整 92 Gate；Helix Native real-chain runner 为独立的可执行子集，当前
-执行 83 个（32/16/15/12/8），其中 5 个 `NOT_APPLICABLE` 与 4 个 `NOT_IMPLEMENTED` 不进入
-real-chain/CI 选择集。两套分母不可互相替代。
+说明：客户端合同仍保留完整 92 Gate；Helix Native real-chain runner 为独立的可执行子集，既有选择表
+执行 83 个（32/16/15/12/8），历史选择表中 5 个 `NOT_APPLICABLE` 与 4 个 `NOT_IMPLEMENTED` 不进入
+real-chain/CI 选择集。两套分母不可互相替代。Category 当前已存在源码实现，不能从 runner 排除状态推导未实现；
+该选择表不构成本轮执行证据。
 
 ## 分母与领域
 
@@ -202,13 +209,13 @@ docs/mmd/
 - [CHAIN-TXT-G01 文字参与](<./Phase5/text_chain/Gate-TXT-G01-文字参与.mmd>)
 - [CHAIN-TXT-G02 文字窗口恢复](<./Phase5/text_chain/Gate-TXT-G02-文字窗口恢复.mmd>)
 
-#### category_chain（3 Gate，当前 NOT_IMPLEMENTED）
+#### category_chain（3 Gate，已有源码实现；本轮运行态未验）
 
 - [CHAIN-CAT-G01 分类模式](<./Phase5/category_chain/Gate-CAT-G01-分类模式.mmd>)
 - [CHAIN-CAT-G02 分类选项](<./Phase5/category_chain/Gate-CAT-G02-分类选项.mmd>)
 - [CHAIN-CAT-G03 分类统计](<./Phase5/category_chain/Gate-CAT-G03-分类统计.mmd>)
 
-#### acceptance（1 Gate，当前 NOT_IMPLEMENTED）
+#### acceptance（1 Gate，本轮 NOT_VERIFIED）
 
 - [CHAIN-ACC-G01 跨域验收](<./Phase5/acceptance/Gate-ACC-G01-跨域验收.mmd>)
 

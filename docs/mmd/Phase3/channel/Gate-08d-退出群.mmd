@@ -1,6 +1,6 @@
 %% Phase3 / channel / MV3-G08d 退出群
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel/mv3-g08d/contract.json
-%% UI owners: src/pages/message-v3/service/channelConfigBase.service.ts::leaveDialog；src/pages/message-v3/components/drawer/chat-settings/chat-settings.component.ts
+%% UI owners: packages/message/src/lib/services/channelConfigBase.service.ts:1；packages/message/src/lib/components/drawer/chat-settings/chat-settings.component.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员点「退出群聊」，自己的会话列表里这个群消失；群内其他人看到「X 退出了群聊」，成员列表少一人。
-  Note over UI,Web: 当前覆盖状态：mock=partial；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=partial；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: channelLeave(payload)
     Gate->>Native: invokeAccepted("im_channel_leave", payload)
@@ -46,8 +46,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（channelClosed，DELETE_DIALOG，channelMemberUpdated，INCREMENT_CHANNEL，im:channel:closed，im:channel:member-updated）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:channel:closed，im:channel:member-updated）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -58,4 +58,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：退群者侧频道从会话集合移除（channels.get(channelId) === undefined）；退群者侧该 channelId 的加急/@我待办项清零（cleanupTodoItemsForChannel → DELETE_TODO_ITEM）
   Note over UI,Web: 关键负向：退群不得触发群内其他成员的会话消失：其他成员侧 channels 集合必须仍含该 channelId（只有 MV3-G08c 关群才双侧移除）；不得新增 ImGateEvent left kind；必须复用 channelClosed，并以 terminalReason='left' 与解散群的 closed 区分
-  Note over E,Sink: 出站事件集合：channelClosed，DELETE_DIALOG，channelMemberUpdated，INCREMENT_CHANNEL，im:channel:closed，im:channel:member-updated；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:channel:closed，im:channel:member-updated；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

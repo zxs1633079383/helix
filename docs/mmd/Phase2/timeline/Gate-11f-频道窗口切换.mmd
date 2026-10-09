@@ -1,6 +1,6 @@
 %% Phase2 / timeline / MV3-G11f 频道窗口切换
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/timeline/mv3-g11f/contract.json
-%% UI owners: src/pages/message-v3/service/dialogSwitch.service.ts::SwitchPipeline 的 LoadDataSource / SetGlobalState 边界；src/pages/message-v3/components/chat-content/chat-content.component.ts::按 active channel 绑定该频道窗口
+%% UI owners: packages/message/src/lib/services/dialogSwitch.service.ts:1；packages/message/src/lib/components/chat-content/chat-content.component.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员切换会话时只看到目标频道已经存在的最新窗口，不闪现上一频道消息，也不破坏任何持久化游标
-  Note over UI,Web: 当前覆盖状态：mock=not_applicable；helix=not_applicable；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=not_applicable；helix=not_applicable；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   UI->>Gate: 频道窗口切换(payload)
   Gate-->>UI: 当前客户端路由结果或受控空结果
   Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件

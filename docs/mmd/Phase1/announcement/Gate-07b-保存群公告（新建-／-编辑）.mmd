@@ -1,6 +1,6 @@
 %% Phase1 / announcement / MV3-G07b 保存群公告（新建 / 编辑）
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/announcement/mv3-g07b/contract.json
-%% UI owners: src/pages/message-v3/components/drawer/chat-settings/group-announcement-section/group-announcement-section.component.ts::saveAnnouncement；src/pages/message-v3/service/message.service.ts::saveAnnouncement
+%% UI owners: packages/message/src/lib/components/drawer/chat-settings/group-announcement-section/group-announcement-section.component.ts:1；packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：有权限的成员在群设置里写一条公告并发布（或编辑已有公告），提交后公告区立刻出现/更新这条公告。
-  Note over UI,Web: 当前覆盖状态：mock=partial；helix=partial；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=partial；helix=partial；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: saveAnnouncement(payload)
     Gate->>Native: invokeAccepted("im_save_announcement", payload)
@@ -46,8 +46,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（postReceived，POST）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:post:received）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -58,4 +58,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：announcementId 为空串时公告集合 length +1；announcementId 非空时命中同 id 项被替换（集合 length 不变）；保存返回成功后按 G07a 重拉公告绝对列表；列表投影与 ANNOUNCEMENT Post 分别来自权威结果，Angular 不从其中一份补造另一份；ANNOUNCEMENT 消息以 postReceived 进入双侧时间线，会话摘要 lastPost 更新为公告摘要；接收者侧通过 announcementChanged 触发 G07a 重拉后绝对覆盖公告集合
   Note over UI,Web: 关键负向：不得由 Angular 组装完整 Post、temporaryId、userSnapshot、readBits、viewers、createAt 或发送生命周期；不得与 MV3-G10b（changeChannelSettings(notice)，改的是 channel.props.notice 字段）混为一谈：两者是不同 Gate、不同存储位、不同 Go 端点；无 noticePermission 的成员调用不得写入（权限判定见 MV3-G10g 的 hasPermission；只接受 EPermissionPerson 三值）
-  Note over E,Sink: 出站事件集合：postReceived，POST；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:post:received；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

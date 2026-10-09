@@ -1,6 +1,7 @@
 %% Phase4 / bookmark / MV3-G05j 删除书签
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/bookmark/mv3-g05j/contract.json
-%% UI owners: src/pages/message-v3/service/messageContainerShared.service.ts::removeBookmark；src/pages/message-v3/service/message.service.ts::deleteBookMark
+%% Helix 真源: crates/helix-im/src/port_reply/dispatch_read.rs::handle_outbound_read_reply；crates/helix-im/src/bookmark_count.rs::bookmark_write_reply
+%% UI owners: packages/message/src/lib/services/messageContainerShared.service.ts:1；packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,10 +17,10 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员在书签列表里移除一条收藏，列表随即少一项
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: deleteBookmark(payload)
-    Gate->>Native: invokeAccepted("im_bookmark_delete", payload)
+    Gate->>Native: invokeReadResult("im_bookmark_delete", payload)
     Native->>E: Tick::Command(AppCommand)
   else Flutter FFI 入口
     FFI->>E: helix_command("im_bookmark_delete", payload)
@@ -33,25 +34,11 @@ sequenceDiagram
   Go-->>Host: HTTP response（2xx 只代表 admission/query response）
   Host->>E: Tick::PortReply(http)
   E->>IM: correlate req_id/corr_key
-  IM->>Host: Effect::PersistAtomic(projection + cursor)
-  Host->>DB: transaction bookmark + post reference
-  DB-->>Host: PortReply(PersistOk)
-  Host->>E: Tick::PortReply(PersistOk)
-  E->>IM: release only matching authority corr
-  IM->>Host: Effect::Persist ScopedGet(readback)
-  Host->>DB: durable readback
-  DB-->>Host: PortReply(readback)
-  Host->>E: Tick::PortReply(readback)
-  E->>IM: readback is the projection source
-  IM-->>E: Command Result {data}
-  E-->>Gate: PortReply(Result)
+  IM->>IM: 按 affectedCount/countDelta 更新内存书签计数；无本地书签落库
+  IM->>Sink: Effect::Emit im:read:result（请求关联结果）
+  Sink-->>Gate: im:__bus__ 按 req_id 或 requestId 结算等待者
   Gate-->>UI: render absolute snapshot or query result
-  alt HTTP / PortReply / Persist error
-    IM->>IM: keep prior durable state；attach structured error to corr_key
-    IM-->>E: Err or correlated error result
-    E-->>Gate: controlled failure
-    Gate-->>UI: error / empty state；不得伪造成功事件
-  end
+  Note over IM,Gate: HTTP或信封失败经 im:read:result.error 关联回灌；业务失败由结果 body 保留，不伪造成功
   Note over IM,DB: 关键效果：仅从 session.currentUserId 在指定 channelId 下的私有书签集合移除 postId；不得扫描或修改其他频道集合，其余项顺序不变；Port 返回 status:'SUCCESS'；persona-local：同频道其他用户的书签集合零变化，对端 events 为 []
   Note over UI,Web: 关键负向：目标固定 fail closed：请求体出现 userId 必须结构化拒绝；删除 actor 只能由 Go session.currentUserId 注入；删除不存在的 (channelId,postId) 不得报错：幂等 resolve，当前用户所有频道集合内容与长度均不变
-  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 结果出口：im:read:result；读结果与业务广播区分，不能把无广播理解为无 Effect::Emit

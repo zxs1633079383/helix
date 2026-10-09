@@ -14,25 +14,34 @@ sequenceDiagram
   participant Bus as EventSink im:__bus__
   participant Store as Angular store / signal
   participant View as Message component
-  alt 任务卡或会议卡
-    UI->>Biz: POST /taskManage/task/create or /meeting/create
+  alt 普通文本、任务卡或会议卡
+    opt 任务卡或会议卡的业务对象前置
+      UI->>Biz: POST /taskManage/task/create or /meeting/create
     Biz-->>UI: business id
     UI->>Biz: POST /taskManage/task/detail or /meeting/getDetail
     Biz-->>UI: task or meeting detail
-    UI->>Port: sendMessage(TASK_CARD props.taskCard/taskCardBlock or TEXT props.meetingCardBlock)
+    end
+    UI->>Port: sendMessage(TEXT 文本或 TASK_CARD/meetingCardBlock)
     Port->>T: im_send_message
     T->>H: Tick::Command(im_send_message)
     H->>DB: Persist optimistic message(sending)
     DB-->>H: PortReply(PersistOk)
     H->>Bus: im:post:sending
+    opt 已 attach timeline 的普通发送
+      H->>DB: timeline 持久事实读回
+      DB-->>H: PortReply(readback)
+      H->>Bus: timeline 窗口投影
+    end
     H->>Go: Effect::Http POST /api/cses/posts/create
     Go->>PG: post/channel/channel_member/channel_event
     Go-->>H: HTTP 2xx admission
-    Go-->>WS: post
+    Go-->>WS: post（与 HTTP 回包先后不固定）
     WS->>H: Tick::Inbound(post)
     H->>DB: PersistAtomic canonical projection
     DB-->>H: PortReply(PersistOk)
-    H->>Bus: im:post:received
+    H->>DB: 权威事实读回
+    DB-->>H: PortReply(readback)
+    H->>Bus: 发送者 im:post:sent；接收者 im:post:received
   else 评分卡
     UI->>Port: publishAverageScore(AverageScore DTO)
     Port->>T: im_average_publish

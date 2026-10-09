@@ -1,6 +1,6 @@
 %% Phase2 / timeline / MV3-G11d 按 postId 定位（双向分页）
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/timeline/mv3-g11d/contract.json
-%% UI owners: src/pages/message-v3/components/chat-content/chat-content.component.ts::已知 channelId 的跳转链（目标：改走 queryMessages direction=locate）；src/pages/message-v3/enum/enum.ts::JUMP_TO_MESSAGE（跳转与高亮配置的派发口）
+%% UI owners: packages/message/src/lib/components/chat-content/chat-content.component.ts:1；packages/message/src/lib/enum/enum.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员从搜索结果 / @提醒 / 书签点进某条消息，列表定位到它并高亮
-  Note over UI,Web: 当前覆盖状态：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: queryMessages(payload)
     Gate->>Native: invokeAccepted("im_locate_message", payload)
@@ -43,8 +43,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM-->>E: Command Result {data}
-  E-->>Gate: PortReply(Result)
+  IM->>Sink: Effect::Emit im:read:result（请求关联结果）
+  Sink-->>Gate: im:__bus__ 按 req_id 或 requestId 结算等待者
   Gate-->>UI: render absolute snapshot or query result
   alt HTTP / PortReply / Persist error
     IM->>IM: keep prior durable state；attach structured error to corr_key
@@ -54,4 +54,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：返回包含 locatePostId 的权威上下文窗口，目标尽量位于 floor(limit/2)，边界不足时向另一侧补足；Angular 不扫描本地全量缓存制造定位窗口；一个 reqId 只返回一个 terminal QueryMessagesResult；hasOlder / hasNewer 与 opaque olderCursor / newerCursor 同时给出，供定位后双向翻页；定位完成后高亮该条并把它滚入视口（滚动与高亮配置见 enum.ts），高亮不得覆盖用户后续手动滚动；目标不在本地缓存时必须能从服务端拉取该消息所在窗口后再定位（不得空列表）
   Note over UI,Web: 关键负向：定位后不得自动滚底（滚底会立即丢失定位位置）；目标不在本地缓存时不得静默回落 latest 尾窗；必须回源目标上下文，权威返回不存在 / 不可见 / 已撤回时才允许关联失败或明确空态；limit 缺省必须是 20，显式值只允许 1..60；超过 60 不得产生 I/O
-  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 结果出口：im:read:result；读结果与业务广播区分，不能把无广播理解为无 Effect::Emit

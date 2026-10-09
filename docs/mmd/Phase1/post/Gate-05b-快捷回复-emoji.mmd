@@ -1,6 +1,6 @@
 %% Phase1 / post / MV3-G05b 快捷回复 emoji
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g05b/contract.json
-%% UI owners: src/pages/message-v3/service/toolbar-command/commands/emoji.command.ts::execute；src/pages/message-v3/components/message-item/message-item.component.ts::onQuickReplyClick；src/pages/message-v3/service/message.service.ts::sendQuickRelayMessage
+%% UI owners: packages/message/src/lib/services/toolbar-command/commands/emoji.command.ts:1；packages/message/src/lib/components/message-item/message-item.component.ts:1；packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -17,7 +17,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员点消息上的表情，气泡下方出现该 emoji 与人数；同一个人再点同一个 emoji 不重复计数
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: quickReply(payload)
     Gate->>Native: invokeAccepted("im_quick_reply", payload)
@@ -47,8 +47,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（postUpdated，POST_UPDATE）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:post:updated）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -59,4 +59,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：同 emoji 项已存在：把 self 追加进该项 userIds/users（已在其中则完全不变，长度不增）；不存在：push 新项 emoji, userIds:[self], users:[userId:self,userName]；已有项相对顺序保持先到先排；对端同一条消息的 quickReply 出现 self 项、该 emoji 计数 +1；sender 侧 channel.unreadCount 前后完全相等（贴表情不是新消息，不参与未读）；对端 getMemberUnread(channelId, receiverId).unreadCount 前后完全相等
   Note over UI,Web: 关键负向：不得产生新消息：messages 集合长度不变，且不得 emit postReceived（快捷回复不是「发一条 emoji 消息」）；不得更新 channel.lastPost / lastPostAt / unreadCount（inventory §5「快捷回复 emoji」整行为 —）；同一用户对同一 emoji 重复点击必须幂等：userIds 里 self 只出现一次，users 长度与 userIds 长度恒等
-  Note over E,Sink: 出站事件集合：postUpdated，POST_UPDATE；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:post:updated；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

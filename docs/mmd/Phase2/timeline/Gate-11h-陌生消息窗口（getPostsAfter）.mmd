@@ -1,6 +1,6 @@
 %% Phase2 / timeline / MV3-G11h 陌生消息窗口（getPostsAfter）
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/timeline/mv3-g11h/contract.json
-%% UI owners: src/pages/message-v3/service/message.service.ts:863::queryPostsById（返回 posts 形状，替代旧 imHttp /posts/getPostsAfterFromSegment）
+%% UI owners: packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员点外部通知 / 待办里的消息链接，即使从未加载过该会话也能直接定位到那条消息
-  Note over UI,Web: 当前覆盖状态：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: getPostsAfter(payload)
     Gate->>Native: invokeAccepted("im_get_posts_after_index", payload)
@@ -28,7 +28,7 @@ sequenceDiagram
   end
   E->>IM: ExecutionShell::step(Tick::Command)
   IM->>IM: 校验 只知 postId 时取其所在窗口 的入参，生成 corr_key/req_id
-  IM->>Host: Effect::Http POST /api/cses/posts/getPostsAfterIndex（已支持 V3 pageSize/direction/cursor；当前缺口：newer 排除目标）
+  IM->>Host: Effect::Http POST /api/cses/posts/getPostsAfterIndex（initial 窗口包含目标；与 direction=newer 的排除锚点分页分支区分）
   Host->>Go: HTTP request with tenant/auth/corr headers
   Go-->>Host: HTTP response（2xx 只代表 admission/query response）
   Host->>E: Tick::PortReply(http)
@@ -43,8 +43,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM-->>E: Command Result {data}
-  E-->>Gate: PortReply(Result)
+  IM->>Sink: Effect::Emit im:read:result（请求关联结果）
+  Sink-->>Gate: im:__bus__ 按 req_id 或 requestId 结算等待者
   Gate-->>UI: render absolute snapshot or query result
   alt HTTP / PortReply / Persist error
     IM->>IM: keep prior durable state；attach structured error to corr_key
@@ -54,4 +54,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：由 Helix/Go 定位 postId 所属频道并返回该频道初始窗口，窗口最多 limit 条且首条为目标消息；Angular 不扫描全频道缓存推导所属频道或窗口；返回窗口首条即为目标消息本身（idx 起），调用方据此直接定位 + 高亮，无需二次 getPosts；找不到目标时返回空数组（graceful），调用方据此展示「消息不存在 / 已撤回」而非报错弹窗；定位到的频道若不在会话集合内，须由调用方接着走 loadChannelIncrement（G13b）补齐会话后再打开（本 Gate 只给消息窗口，不负责建会话）
   Note over UI,Web: 关键负向：找不到目标时不得抛错，必须返回空数组（外部通知里的消息可能已被撤回 / 不可见）；不得要求调用方先知道 channelId（与 G11d 的唯一区别就是入参不带 channelId；一旦要求就退化成 G11d）；不得只返回目标单条（窗口语义：必须带上下文，否则跳过去是一条孤立消息）
-  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 结果出口：im:read:result；读结果与业务广播区分，不能把无广播理解为无 Effect::Emit

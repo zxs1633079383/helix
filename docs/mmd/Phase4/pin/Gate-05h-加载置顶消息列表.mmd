@@ -1,6 +1,6 @@
 %% Phase4 / pin / MV3-G05h 加载置顶消息列表
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/pin/mv3-g05h/contract.json
-%% UI owners: src/pages/message-v3/service/dialogSwitch.service.ts::loadTopMessages；src/pages/message-v3/service/messageGlobalBaseContext.service.ts::loadDialogData（置顶为必须加载项，不缓存）
+%% UI owners: packages/message/src/lib/services/dialogSwitch.service.ts:1；packages/message/src/lib/services/messageGlobalBaseContext.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员切进会话即看到顶部置顶条；点开置顶抽屉能看到全部置顶消息
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: getPinnedPosts(payload)
     Gate->>Native: invokeAccepted("im_channel_load_post_pinned", payload)
@@ -26,6 +26,7 @@ sequenceDiagram
   else Browser Web 入口
     Web->>E: invoke("im_channel_load_post_pinned", payload)
   end
+  Note over Gate,IM: 当前 getPinnedPosts 先探测 im_query_pinned_projection；缓存覆盖命中直接返回，以下 HTTP 只在未命中或查询失败后执行
   E->>IM: ExecutionShell::step(Tick::Command)
   IM->>IM: 校验 读回会话的全部置顶消息 的入参，生成 corr_key/req_id
   IM->>Host: Effect::Http POST /channel/load/postPinned
@@ -33,8 +34,8 @@ sequenceDiagram
   Go-->>Host: HTTP response（2xx 只代表 admission/query response）
   Host->>E: Tick::PortReply(http)
   E->>IM: correlate req_id/corr_key
-  IM-->>E: Command Result {data}
-  E-->>Gate: PortReply(Result)
+  IM->>Sink: Effect::Emit im:read:result（请求关联结果）
+  Sink-->>Gate: im:__bus__ 按 req_id 或 requestId 结算等待者
   Gate-->>UI: render absolute snapshot or query result
   alt HTTP / PortReply / Persist error
     IM->>IM: keep prior durable state；attach structured error to corr_key
@@ -44,4 +45,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：返回 post, operator[]：operator 是该条置顶动作 actor 的 currentUserId，来自持久化 post_pinned.pinned_by；顺序 = 置顶集合插入序；集合为空或频道未知时返回 []（graceful，不抛错）；不同成员查询同一频道时，同一 postId 返回完全相同的 operator actor userId；纯读取不改置顶集合、消息 props.pinned，且 events 为 []
   Note over UI,Web: 关键负向：纯读取不得 emit 任何出站事件：本次调用期间 events 长度恒为 0；置顶集合里查不到消息的 postId 必须跳过，禁止把 undefined 塞进返回数组（spread 前 filter undefined 雷区）
-  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 结果出口：im:read:result；读结果与业务广播区分，不能把无广播理解为无 Effect::Emit

@@ -1,6 +1,6 @@
 %% Phase1 / post / MV3-G02c 重发失败消息
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g02c/contract.json
-%% UI owners: src/pages/message-v3/components/message-item/message-item.component.ts::onReSendMsg；src/pages/message-v3/components/chat-input/chat-input.component.ts::onMessageReSend（RE_SEND_MESSAGE 监听）；src/pages/message-v3/components/windows/chat-container-standalone/chat-container-standalone.component.ts（同名监听）
+%% UI owners: packages/message/src/lib/components/message-item/message-item.component.ts:1；packages/message/src/lib/components/chat-input/chat-input.component.ts:1；packages/message/src/lib/components/chat-standalone/chat-container-standalone/chat-container-standalone.component.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -17,7 +17,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员点失败消息上的重发按钮，消息重新走一遍发送流程（含附件重新上传），成功后转为已发送
-  Note over UI,Web: 当前覆盖状态：mock=partial；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=partial；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: sendMessage(payload)
     Gate->>Native: invokeAccepted("im_retry_send + im_send_message", payload)
@@ -44,8 +44,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（postReceived，POST，channelUpdateByPost，UPDATE_CHANNEL）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:post:received，im:channel:update-by-post）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -55,5 +55,5 @@ sequenceDiagram
     Gate-->>UI: error / empty state；不得伪造成功事件
   end
   Note over IM,DB: 关键效果：发送成功后发送者侧 channel.unreadCount 绝对归零（== 0，不是递减）；频道内其它可见成员的 getMemberUnread(channelId, otherUserId).unreadCount 相比发送前恰好 +1（幂等累加）；该值必须各侧独立计算，禁止用发送者数值推导；message.readBits 长度 == channel.members.length，位序 == channel.members 顺序，发送者对应位 == '1'；接收者对应位在其调用 postRead 之前恒为 '0'，不得因发送者已读而被置 '1'
-  Note over UI,Web: 关键负向：禁止在 resendMessage 内部 dispatch RE_SEND_MESSAGE —— 会重入自身形成无限递归，每层再起一次 processMessageFiles 导致 /fileDrive/checkFiles_ 暴力裂变；复用原 temporaryId 时实现侧不得再 push 一条新记录（Mock 现状会重复入列，属已知缺口）；失败态不得用失败发生时刻改写 createAt，必须沿用 localCreateAt（否则破坏排序与底部锚点补偿）
-  Note over E,Sink: 出站事件集合：postReceived，POST，channelUpdateByPost，UPDATE_CHANNEL；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over UI,Web: 关键负向：重试入口提交 im_retry_send，沿用原 temporaryId；不得递归派发重试或新增重复消息；失败态不得用失败发生时刻改写 createAt，必须沿用 localCreateAt（否则破坏排序与底部锚点补偿）
+  Note over E,Sink: 原始事件名（按触发分支）：im:post:received，im:channel:update-by-post；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

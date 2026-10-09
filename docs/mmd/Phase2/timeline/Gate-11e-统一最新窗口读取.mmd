@@ -1,6 +1,6 @@
 %% Phase2 / timeline / MV3-G11e 统一最新窗口读取
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/timeline/mv3-g11e/contract.json
-%% UI owners: src/pages/message-v3/service/messageDialog.service.ts::会话摘要 / lastPost 候选（目标：queryMessages latest）；src/pages/message-v3/service/dialogSwitch.service.ts::切群首屏（目标：queryMessages latest）；src/pages/message-v3/service/chatContentShared.service.ts::末条与首屏窗口（目标：复用 latest 结果）
+%% UI owners: packages/message/src/lib/services/messageDialog.service.ts:1；packages/message/src/lib/services/dialogSwitch.service.ts:1；packages/message/src/lib/services/chatContentShared.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：会话摘要、切群首屏与独立窗口初始化统一读取该频道的有界最新窗口，不再依赖进程内全量缓存
-  Note over UI,Web: 当前覆盖状态：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: queryMessages(payload)
     Gate->>Native: invokeAccepted("im_query_messages_by_channel", payload)
@@ -43,8 +43,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM-->>E: Command Result {data}
-  E-->>Gate: PortReply(Result)
+  IM->>Sink: Effect::Emit im:read:result（请求关联结果）
+  Sink-->>Gate: im:__bus__ 按 req_id 或 requestId 结算等待者
   Gate-->>UI: render absolute snapshot or query result
   alt HTTP / PortReply / Persist error
     IM->>IM: keep prior durable state；attach structured error to corr_key
@@ -54,4 +54,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：返回 G11a 的有界 QueryMessagesResult，messages 按稳定时间线顺序升序；需要 lastPost 的调用方只取该权威 latest 窗口末条，不读取全频道缓存；未知或无可见消息的 channelId 返回关联空窗口 messages:[],hasOlder:false,hasNewer:false；是否补齐陌生频道由 G13b 处理；只读依赖：会话摘要可取 latest 窗口末条作 lastPost 候选，本 Gate 自身不写 channel.lastPost / lastPostAt；对端成员的 viewer-local 未读在本 Gate 前后完全相等（getMemberUnread(channelId, otherUserId).unreadCount 调用前后取值一致），读取动作绝不写对端未读
   Note over UI,Web: 关键负向：Port、实现、测试替身和业务调用方不得保留 queryCache 符号、兼容别名或动态字符串调用；任一可达命中即 Gate 失败；不得新增 im_query_cached_messages 或返回全频道进程缓存；窗口必须受默认 20 / 最大 60 约束；不得把 queryMessages(latest) 的关联结果发布为 ImGateEvent 业务广播，也不得逐条 emit postReceived
-  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 结果出口：im:read:result；读结果与业务广播区分，不能把无广播理解为无 Effect::Emit

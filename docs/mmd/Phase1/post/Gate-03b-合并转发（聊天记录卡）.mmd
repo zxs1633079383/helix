@@ -1,6 +1,6 @@
 %% Phase1 / post / MV3-G03b 合并转发（聊天记录卡）
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g03b/contract.json
-%% UI owners: src/pages/message-v3/components/chat-content/chat-content-base.component.ts::forwardMessage（:1425-1461，mode='merge'）
+%% UI owners: packages/message/src/lib/components/chat-content/chat-content-base.component.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -17,7 +17,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员多选消息选「合并转发」，目标群收到一条「聊天记录」卡片，点开可看到全部原消息
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: relayMessages(payload)
     Gate->>Native: invokeAccepted("im_relay_messages", payload)
@@ -47,8 +47,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（postReceived，POST，channelUpdateByPost，UPDATE_CHANNEL）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:post:received，im:channel:update-by-post）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -59,4 +59,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：转发者在目标频道 unreadCount 绝对归零；目标频道其它可见成员 getMemberUnread(channelId,userId).unreadCount 各 +1（merge 模式每目标只 1 条 MULTIPLY，故恒 +1；独立计算，禁止复制转发者数值）。已修（原为缺口）：relayMessages merge 分支每目标频道 push 单条 MULTIPLY 时调 applySendUnread（mockImGate.service.ts::relayMessages）；MULTIPLY 消息 readBits 长度 = 目标频道 members.length，转发者位 = '1'；接收者位在其 postRead 之前恒 '0'
   Note over UI,Web: 关键负向：旧本地 MergeForwardStrategy.buildForwardResult + sendRelayMessages 已退场（strategy 文件为死代码），不得再走该路径；dialog-item 摘要固定「转发：聊天记录」，不得取源消息正文（否则泄漏被合并消息内容到会话列表）；前端不得乐观插入合并卡（id 由实现侧生成）
-  Note over E,Sink: 出站事件集合：postReceived，POST，channelUpdateByPost，UPDATE_CHANNEL；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:post:received，im:channel:update-by-post；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

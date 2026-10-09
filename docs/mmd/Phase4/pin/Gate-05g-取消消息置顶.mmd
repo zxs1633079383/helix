@@ -1,6 +1,6 @@
 %% Phase4 / pin / MV3-G05g 取消消息置顶
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/pin/mv3-g05g/contract.json
-%% UI owners: src/pages/message-v3/components/drawer/chat-pin/chat-pin.component.ts::onRemoveTopMessage；src/pages/message-v3/components/top-message/top-message.component.ts::onRemoveTopMessage
+%% UI owners: packages/message/src/lib/components/drawer/chat-pin/chat-pin.component.ts:1；packages/message/src/lib/components/top-message/top-message.component.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员在顶部置顶条或置顶抽屉里点取消置顶，顶部条随即消失
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: unpinPost(payload)
     Gate->>Native: invokeAccepted("im_set_message_untop", payload)
@@ -46,8 +46,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（postUpdated，POST_UPDATE，postReceived，POST_RECEIVED，im:post:updated，im:post:received）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:post:updated，im:post:received）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -58,4 +58,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：该频道置顶集合移除该 postId；集合内其余项顺序不变；msg.props.pinned 复位为 false（不是 delete 键，保持字段存在便于对账）
   Note over UI,Web: 关键负向：对未置顶的消息调用取消置顶不得报错：幂等 resolve，集合保持原样（长度与内容都不变）；不得改 channel.lastPost / lastPostAt / unreadCount / createAt
-  Note over E,Sink: 出站事件集合：postUpdated，POST_UPDATE，postReceived，POST_RECEIVED，im:post:updated，im:post:received；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:post:updated，im:post:received；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

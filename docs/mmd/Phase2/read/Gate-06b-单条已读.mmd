@@ -1,6 +1,6 @@
 %% Phase2 / read / MV3-G06b 单条已读
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/read/mv3-g06b/contract.json
-%% UI owners: src/pages/message-v3/components/chat-content/chat-content-base.component.ts::inViewMsgRead；src/pages/message-v3/components/message-content/message-template-content/message-template-content.component.ts::onReceivedClick；src/pages/message-v3/components/windows/chat-drag-window/chat-drag.template.ts::onClose
+%% UI owners: packages/message/src/lib/components/chat-content/chat-content-base.component.ts:1；packages/message/src/lib/components/message-content/message-template-content/message-template-content.component.ts:1；packages/message/src/lib/components/windows/chat-drag-window/chat-drag.template.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员滚动看到某几条消息，这几条自动上报已读；发送这些消息的人看到已读人数 +1
-  Note over UI,Web: 当前覆盖状态：mock=partial；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=partial；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: postRead(payload)
     Gate->>Native: invokeAccepted("im_post_read", payload)
@@ -43,8 +43,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（postRead，POST_READ，channelUpdate，UPDATE_CHANNEL）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:post:read，im:channel:update）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -55,4 +55,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：Go 仅在 snapshotId 对应的 receiver 快照中命中当前用户时把该 receiver 位从 0 置 1；作者、非接收者、已为 1 的消息不变，Angular 事件与状态中不存在 bitmap；Go 按当前 reader（Phase 1 receiver）本事务实际 changedPosts 数量扣减并钳制非负，再从同一事务回读该 reader 的 channel_member；Angular 将 update_channel.unreadCount 绝对赋值，不执行 newlyRead 或 last_read_seq 计算；Go 只移除本批实际已读 post 对应的 mention，并在同一事务回读 mentionCount / mentionList / mentionUser 绝对值；Angular 原样替换；原发送者只按相同 snapshotId 合并 readerUserId；合并后 readUserIds 包含本读者、unreadUserIds 减少该用户，快照不匹配时 fail closed 并等待完整 receipt 投影
   Note over UI,Web: 关键负向：Angular 不得按 postIds.length、newlyRead 或本地 last_read_seq 推导 unreadCount；只能消费 Go update_channel 的绝对计数；Angular 只提交 channelId,postIds；字段归一化只能在一个 Adapter/Helix client_api 边界执行，进入 Core 时必须已是 channel_id,posts，Go wire 为 channelId,posts；Angular 的 ImGateEvent、ChatMessage receipt 投影和持久化状态不得出现 readBits / memberIds / readerIds；bitmap 只留在 Go 与 Helix 内部
-  Note over E,Sink: 出站事件集合：postRead，POST_READ，channelUpdate，UPDATE_CHANNEL；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:post:read，im:channel:update；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

@@ -1,4 +1,4 @@
-%% Phase5 / overview / 12 Gate；Common/Text 8 Gate 已接通，Category/Acceptance 4 Gate 如实 NOT_IMPLEMENTED
+%% Phase5 / overview / 12 Gate；Common/Text 与 Category 均有源码实现；跨域运行态本轮 NOT_VERIFIED
 flowchart LR
   UI["Angular MessageChainContentComponent"] --> F["ChainFacadeService / MessageV3ImGate"]
   F --> T["Tauri im_post_chain_*"]
@@ -11,4 +11,9 @@ flowchart LR
   SQ --> B["EventSink im:__bus__"]
   B --> S["ChainProjectionStore signals"]
   S --> UI
-  CAT["Category + cross-domain acceptance"] --> NI["NOT_IMPLEMENTED"]
+  CAT["CategoryChain facade / im_category_chain_*"] --> CH["Helix category_chain runtime"]
+  CH --> CG["Go post-chain?mode=CATEGORY"]
+  CG --> CF["Helix category_chain_head/fact 持久化与读回"]
+  CF --> CE["im:category_chain:operation / projection / im:read:result"]
+  CE --> CV["CategoryChain UI 绑定"]
+  CV --> NI["跨域真实验收 NOT_VERIFIED"]

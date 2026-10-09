@@ -1,0 +1,613 @@
+{
+  "time": "2026-10-09T09:33:17.668714+08:00",
+  "helix_source_revision": "3bbce901e3d725c0cb92fd5b39e7824fd4e4245c",
+  "client_revision": "46d0e13e3bc52ebd9b5b9759caca8c02d64c53bc",
+  "go_review_revision": "c75de9aedf21eff503dbb60de54acddd6f171c5a",
+  "go_final_revision": "86f5e38ba8dbe50e13c47152177d5631812129f5",
+  "go_revision_delta": "仅其他任务 handoff 文档，相关源码未变",
+  "mmd_diff_sha256": "040a3eb4fe2e17c49d5e050ca047cbbdc3c4ea63141d378eafd218e9a2fb3543",
+  "mermaid_cli": "11.3.0 renderMermaid SVG / Puppeteer",
+  "command": "node /tmp/validate_helix_mmd.mjs",
+  "structure": {
+    "phaseCoverage": [
+      {
+        "phase": 1,
+        "count": 33
+      },
+      {
+        "phase": 2,
+        "count": 20
+      },
+      {
+        "phase": 3,
+        "count": 15
+      },
+      {
+        "phase": 4,
+        "count": 12
+      },
+      {
+        "phase": 5,
+        "count": 12
+      }
+    ],
+    "sourceReferences": 224,
+    "errors": []
+  },
+  "focused_content_checks": {
+    "member_byids": true,
+    "send_pre_http_barrier": true,
+    "bookmark_no_local_write": true,
+    "reply_typed_thread": true,
+    "upload_java_and_oss": true,
+    "category_implemented": true,
+    "all_mmd_newline": true
+  },
+  "diagrams": [
+    {
+      "file": "docs/mmd/Phase1/announcement/Gate-07b-保存群公告（新建-／-编辑）.mmd",
+      "sha256": "9de15e6e7817154fb94ae92a9c49861512af0230167351b541acb54d7465b08f",
+      "status": "PASS",
+      "bytes": 58076
+    },
+    {
+      "file": "docs/mmd/Phase1/channel/Gate-08a-创建群聊.mmd",
+      "sha256": "2ab198860f51c00a03eae93786ec77f7878c83553bc9dfa79d8d889974face57",
+      "status": "PASS",
+      "bytes": 58042
+    },
+    {
+      "file": "docs/mmd/Phase1/draft/Gate-02e-草稿保存与恢复.mmd",
+      "sha256": "ab3a6f2c656a2045aa96fb9e6324b201fbb0622446bebd683883eb178e381e36",
+      "status": "PASS",
+      "bytes": 30825
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-01a-发送文本.mmd",
+      "sha256": "a7f3d38a54c5cbadca0f64d91add7619bab2802723c4314c6f8526843b693186",
+      "status": "PASS",
+      "bytes": 63717
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-01b-@所有人（TEMPLATE-壳-+-收到确认）.mmd",
+      "sha256": "b1caa4e1044020c44d1b6eabccb07165303d3af94e385608972a52f997e57327",
+      "status": "PASS",
+      "bytes": 63916
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-01f-发送文档.mmd",
+      "sha256": "ce6bc77d09dcee9313e2ea7d35542285524f6d438191dcebe6a7cac9e9da05a5",
+      "status": "PASS",
+      "bytes": 63614
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-01h-发送任务卡.mmd",
+      "sha256": "ea99ccaa6f32d97a94f2e9a7d3b50916dea27ae78c2be72f5863d0c877c1c72e",
+      "status": "PASS",
+      "bytes": 46112
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-01i-创建投票并落消息.mmd",
+      "sha256": "f1550d2eac4c2ddf5e4f28be4022125019d7e8671ece4860971c9f8e0b145302",
+      "status": "PASS",
+      "bytes": 40255
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-01j-创建评分活动并发送评分卡.mmd",
+      "sha256": "8f34c65a4f2b874ff4c43f45e4a725e9d52ce3bd62921cbb0e3f7f2453920b31",
+      "status": "PASS",
+      "bytes": 41989
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-01k-带回复发送.mmd",
+      "sha256": "7a3e42dabd8d79d0c5433654eed9c02a37ac30b1a2fa4c0c942aa7e2998fc9e4",
+      "status": "PASS",
+      "bytes": 63630
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-01l-定向可见发送（密聊-／-指定接收人）.mmd",
+      "sha256": "a164dae1b3f2b9282ed5d1ab1346757c3f687db184616cb73f93a33566cfb423",
+      "status": "PASS",
+      "bytes": 63972
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-02a-乐观三态回显.mmd",
+      "sha256": "d0e286575d7f04d50bc6118f955e5b1b0aa5c002c8ff0f97e52fc1922088a3e2",
+      "status": "PASS",
+      "bytes": 63638
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-02b-发送超时与失败态.mmd",
+      "sha256": "0bf79438d71ba75c3477675274f17f0be05a050d5826ad5e027344969cdeccbb",
+      "status": "PASS",
+      "bytes": 41360
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-02c-重发失败消息.mmd",
+      "sha256": "cddb6470fe20370e6d71ae7e2eba32a9868c7e1fcfcc4109b65e3812bb537236",
+      "status": "PASS",
+      "bytes": 57031
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-03a-逐条转发.mmd",
+      "sha256": "22d5f9a666d1989afd27c8025300a2bf33183f46d14cd1d13f94ea44e7765439",
+      "status": "PASS",
+      "bytes": 59153
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-03b-合并转发（聊天记录卡）.mmd",
+      "sha256": "d97882b53fc8f2ed3560912429b4fdaab88efe0d05bc7af3894e02faa13c942b",
+      "status": "PASS",
+      "bytes": 59181
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-05a-撤回消息.mmd",
+      "sha256": "65335acb0fdad6f1b436c7b1ae76427b65e4b293752c7c03ddffe91d1eb2595d",
+      "status": "PASS",
+      "bytes": 59263
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-05b-快捷回复-emoji.mmd",
+      "sha256": "610713708e268630fc36c7779ad28c195cda6c0649b6164a25e8986effe315cf",
+      "status": "PASS",
+      "bytes": 58982
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-05c-加急消息.mmd",
+      "sha256": "20475a57f7115758338312d4d41cea907d8ec036fb8167af6d90689355c71e4c",
+      "status": "PASS",
+      "bytes": 59471
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-05d-加急确认.mmd",
+      "sha256": "944e74f9402ac07af6d97789d2edf85a11eaa55d6c7078ab14df7b4ba6d235ea",
+      "status": "PASS",
+      "bytes": 59252
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-05e-模板已收到.mmd",
+      "sha256": "f7579121f8f3111df3fffaf4ff10999aacd60aa911622be7f14c5c548bfcadce",
+      "status": "PASS",
+      "bytes": 59151
+    },
+    {
+      "file": "docs/mmd/Phase1/post/Gate-05l-纯本地工具栏命令（多选-／-复制-／-提醒-／-协同-／-头脑风暴）.mmd",
+      "sha256": "8c0c2c7996845997d883fde783bf96a0fb6b317985745083fdd43ff4d11cc1b2",
+      "status": "PASS",
+      "bytes": 36774
+    },
+    {
+      "file": "docs/mmd/Phase1/schedule/Gate-04a-创建定时消息.mmd",
+      "sha256": "df759d308bddf4e2f18aab3d08aea241c62b4efe3d582374246c9587b711bed4",
+      "status": "PASS",
+      "bytes": 56896
+    },
+    {
+      "file": "docs/mmd/Phase1/schedule/Gate-04b-取消-／-删除定时消息.mmd",
+      "sha256": "3fa83f40cf74a62e8cf2f7870dd11b2e8dd916054f958a09fd6513cb91bf16b3",
+      "status": "PASS",
+      "bytes": 56650
+    },
+    {
+      "file": "docs/mmd/Phase1/schedule/Gate-04c-编辑定时消息（cancel-+-recreate）.mmd",
+      "sha256": "a342471821cc1103ba3841f7b40e214da5fa129dcb9a05f1493e9846d26e1be9",
+      "status": "PASS",
+      "bytes": 57078
+    },
+    {
+      "file": "docs/mmd/Phase1/schedule/Gate-04d-查询定时消息.mmd",
+      "sha256": "6280b6a9371ef0fb99723ee433b5a628fdb61548f0c9d3c2f3f26bddb0c386e8",
+      "status": "PASS",
+      "bytes": 30720
+    },
+    {
+      "file": "docs/mmd/Phase1/schedule/Gate-04e-定时消息立即发送.mmd",
+      "sha256": "60f6872f2699d31057b596a8d004edd849a24a4a01543bd3981ab620462ddca1",
+      "status": "PASS",
+      "bytes": 57204
+    },
+    {
+      "file": "docs/mmd/Phase1/upload/Gate-01c-发送图片（多图合并一条）.mmd",
+      "sha256": "8dfb71ed6add7dd35825026adc77324f955bae0ef091090bdbbb94a0fb889847",
+      "status": "PASS",
+      "bytes": 76250
+    },
+    {
+      "file": "docs/mmd/Phase1/upload/Gate-01d-发送文件.mmd",
+      "sha256": "54aa2d8647fde372b738c229755eed9f57798ce89299543c8a61fb49fe2a798a",
+      "status": "PASS",
+      "bytes": 76165
+    },
+    {
+      "file": "docs/mmd/Phase1/upload/Gate-01e-发送音频-／-视频.mmd",
+      "sha256": "7c5676427ab2e7efab5bb7b2410071a51a9b99a19edd84a79b91bfe342419f17",
+      "status": "PASS",
+      "bytes": 76170
+    },
+    {
+      "file": "docs/mmd/Phase1/upload/Gate-01g-发送模板图片.mmd",
+      "sha256": "ab09f71042f72ade233563e8e4265a891d708a0df0d6b739528060901a289a5e",
+      "status": "PASS",
+      "bytes": 76189
+    },
+    {
+      "file": "docs/mmd/Phase1/upload/Gate-02d-上传失败早退.mmd",
+      "sha256": "0e8873559b850ef272ab1a0cee05262de1c6ada6defad10f3fefacaa707d8feb",
+      "status": "PASS",
+      "bytes": 42664
+    },
+    {
+      "file": "docs/mmd/Phase1/upload/Gate-03c-图片预览内转发.mmd",
+      "sha256": "3bf04d6160c5493ed62771ef460a010a328c1551547f53b07445fa53981aa370",
+      "status": "PASS",
+      "bytes": 76162
+    },
+    {
+      "file": "docs/mmd/Phase2/read/Gate-06a-会话级已读.mmd",
+      "sha256": "64ee340e9fdd8b63a29650459896d99a90ea9fc8352d638446e9a1271f6e4dc5",
+      "status": "PASS",
+      "bytes": 56484
+    },
+    {
+      "file": "docs/mmd/Phase2/read/Gate-06b-单条已读.mmd",
+      "sha256": "fb33b93337973a17fc71a97ec55206fa416215d80d038e40affa17f75df6795b",
+      "status": "PASS",
+      "bytes": 56318
+    },
+    {
+      "file": "docs/mmd/Phase2/read/Gate-06c-激活频道切换通知.mmd",
+      "sha256": "c9168c6fdf0116c17f76212a62e714750d8002a8c7cead0eb0c46ccf7c89bba3",
+      "status": "PASS",
+      "bytes": 35766
+    },
+    {
+      "file": "docs/mmd/Phase2/read/Gate-06d-readBits-位图与未读成员列表.mmd",
+      "sha256": "87dcbf537029848fc8d1fac2f84e5f678af3296ce29a07da7383f6d6e8f45e05",
+      "status": "PASS",
+      "bytes": 56689
+    },
+    {
+      "file": "docs/mmd/Phase2/read/Gate-06e-未读总数投影与角标.mmd",
+      "sha256": "a838b7c994fdff7f08269fd2736038acf0002449fde4e2411b5c3cb5d05a9e8c",
+      "status": "PASS",
+      "bytes": 35781
+    },
+    {
+      "file": "docs/mmd/Phase2/sync/Gate-13a-hello-全量会话列表.mmd",
+      "sha256": "95097b7cd10dcf3ded03d05db5bf4787f5f0ddad9c9a3603d1c56016994cd4ee",
+      "status": "PASS",
+      "bytes": 49153
+    },
+    {
+      "file": "docs/mmd/Phase2/sync/Gate-13b-陌生频道兜底加载.mmd",
+      "sha256": "922b74f27ec805f4c273b5a314983730670f4ed670f3532e3612c8233477a80b",
+      "status": "PASS",
+      "bytes": 55888
+    },
+    {
+      "file": "docs/mmd/Phase2/sync/Gate-13c-同步-／-gap-补偿.mmd",
+      "sha256": "c14db9596a068c97cd1c43f5242fef5c72a349f4ce9759d07d7430d3758d8e65",
+      "status": "PASS",
+      "bytes": 54625
+    },
+    {
+      "file": "docs/mmd/Phase2/sync/Gate-13d-子话题查询.mmd",
+      "sha256": "0c4e9c646b4764d59584c6d8e4a079b703108303316e0bebbf3721bd56446e4b",
+      "status": "PASS",
+      "bytes": 28787
+    },
+    {
+      "file": "docs/mmd/Phase2/sync/Gate-13e-账号-Runtime-与-Renderer-释放.mmd",
+      "sha256": "0cc72bf18d86f535910eb6dc7053b3c95f6f6edc4890de6571150ec11d5c4c3d",
+      "status": "PASS",
+      "bytes": 36004
+    },
+    {
+      "file": "docs/mmd/Phase2/timeline/Gate-11a-切群首屏.mmd",
+      "sha256": "097096745fab0e54a39742a26d4d8d00c4c9c5441808a0842faf15e9e568c327",
+      "status": "PASS",
+      "bytes": 55351
+    },
+    {
+      "file": "docs/mmd/Phase2/timeline/Gate-11b-上拉更早历史.mmd",
+      "sha256": "d7a96a5528ef1e8b4a3d90ace03d9cd87d674d6121766a79062e284be68b9596",
+      "status": "PASS",
+      "bytes": 55362
+    },
+    {
+      "file": "docs/mmd/Phase2/timeline/Gate-11c-下拉加载更新消息.mmd",
+      "sha256": "179cdfa9a798cabbcc6bd3683f0d92552f2dc19cf290a19c68f40f4ddc62532b",
+      "status": "PASS",
+      "bytes": 55200
+    },
+    {
+      "file": "docs/mmd/Phase2/timeline/Gate-11d-按-postId-定位（双向分页）.mmd",
+      "sha256": "6f89193b3584adaa764797f34c43fec355adf4e67d217ae3ac17f87b501bccda",
+      "status": "PASS",
+      "bytes": 55334
+    },
+    {
+      "file": "docs/mmd/Phase2/timeline/Gate-11e-统一最新窗口读取.mmd",
+      "sha256": "b78fea0ae19ce3f81ef1104f842991432fd65c457c1ff4644c1d8944eb5c4a0a",
+      "status": "PASS",
+      "bytes": 55422
+    },
+    {
+      "file": "docs/mmd/Phase2/timeline/Gate-11f-频道窗口切换.mmd",
+      "sha256": "7ad0613d35c00f53bec1dc2c6ae63d7f8f0ad90b79170f761671d6f7ad70df17",
+      "status": "PASS",
+      "bytes": 36046
+    },
+    {
+      "file": "docs/mmd/Phase2/timeline/Gate-11g-按-postId-批量取消息.mmd",
+      "sha256": "97e275caf0457a81a7964f4d0dca1d031647f012d314530633c9e383265e7cb9",
+      "status": "PASS",
+      "bytes": 55321
+    },
+    {
+      "file": "docs/mmd/Phase2/timeline/Gate-11h-陌生消息窗口（getPostsAfter）.mmd",
+      "sha256": "5037bbecadb41f6ba9049f1bf7ee0c89300b435ce3c39b744b80e21b298c1789",
+      "status": "PASS",
+      "bytes": 55442
+    },
+    {
+      "file": "docs/mmd/Phase2/timeline/Gate-12a-回复列表.mmd",
+      "sha256": "99d4be5814cdcd108c1473f29e7353b98ab815c7443c178193cdfe748dd742a5",
+      "status": "PASS",
+      "bytes": 47052
+    },
+    {
+      "file": "docs/mmd/Phase2/timeline/Gate-12b-回复分支.mmd",
+      "sha256": "f6321381bdce1d311d172baec56a7ee78badd89bc58fdf96b4f5782c63ac13f1",
+      "status": "PASS",
+      "bytes": 47054
+    },
+    {
+      "file": "docs/mmd/Phase3/channel/Gate-08b-创建话题.mmd",
+      "sha256": "0d0c2ebfadad020b1f84e4fa47806d4f53f64a802ede965d9edefcbc05c5e81e",
+      "status": "PASS",
+      "bytes": 57681
+    },
+    {
+      "file": "docs/mmd/Phase3/channel/Gate-08c-关闭群.mmd",
+      "sha256": "2e3687d9dc7b20065ab1e0b382177d01597d40505bdf5d4ab0275945d072fe99",
+      "status": "PASS",
+      "bytes": 57624
+    },
+    {
+      "file": "docs/mmd/Phase3/channel/Gate-08d-退出群.mmd",
+      "sha256": "25d33cf4761783d6d8d476ba28372457882b9b4404530469fd66457f23ba5b7d",
+      "status": "PASS",
+      "bytes": 57624
+    },
+    {
+      "file": "docs/mmd/Phase3/channel/Gate-10a-改群名.mmd",
+      "sha256": "547e2db4ead01cda53c8e34b5d78cd61ea367dcd5f501d901ae9931666130836",
+      "status": "PASS",
+      "bytes": 57631
+    },
+    {
+      "file": "docs/mmd/Phase3/channel/Gate-10b-改群公告字段（channel.notice）.mmd",
+      "sha256": "fdda0c00a2ad37c3194d2063e1e1e18b62454104d1126ef34e66aeb32ca9593c",
+      "status": "PASS",
+      "bytes": 57719
+    },
+    {
+      "file": "docs/mmd/Phase3/channel/Gate-10c-改群简介.mmd",
+      "sha256": "9d88086bd1a01e3a9da31e342e6a3a0c8575aa01caabe2a18f93ea00cd4c592d",
+      "status": "PASS",
+      "bytes": 57408
+    },
+    {
+      "file": "docs/mmd/Phase3/channel/Gate-10d-会话置顶.mmd",
+      "sha256": "3f79e6e36e8334932153a5a43fe807b247f6ff383f1768e243c19e4c05e90efe",
+      "status": "PASS",
+      "bytes": 57520
+    },
+    {
+      "file": "docs/mmd/Phase3/channel/Gate-10e-免打扰.mmd",
+      "sha256": "6b5ca51ac212d981c85f66be40fe68666a2102e971e77ddee2a57f7dc4d15e53",
+      "status": "PASS",
+      "bytes": 55156
+    },
+    {
+      "file": "docs/mmd/Phase3/channel/Gate-10f-会话导向.mmd",
+      "sha256": "22ea847350b945dbe593fb4739c0fcfb69e8809c48b1b5408523cc6dc2f17e03",
+      "status": "PASS",
+      "bytes": 57532
+    },
+    {
+      "file": "docs/mmd/Phase3/channel/Gate-10g-群权限（@-／-发公告-／-置顶）.mmd",
+      "sha256": "7fae273410a8e7a2b4f2dd80db61852486120ab7c337346620c3add0695868c7",
+      "status": "PASS",
+      "bytes": 57952
+    },
+    {
+      "file": "docs/mmd/Phase3/channel_member/Gate-09a-拉人-／-踢人.mmd",
+      "sha256": "c9c5f39384ae557ae32dbe196c1bb3ed8a9302a06e0b7817852048e5c0d8d7a1",
+      "status": "PASS",
+      "bytes": 57737
+    },
+    {
+      "file": "docs/mmd/Phase3/channel_member/Gate-09b-增加-／-移除管理员.mmd",
+      "sha256": "ede0781b7832e1b99e45f689773dade3e15982d28f17b59f14cbc3a94cc20792",
+      "status": "PASS",
+      "bytes": 57855
+    },
+    {
+      "file": "docs/mmd/Phase3/channel_member/Gate-09c-改群成员昵称.mmd",
+      "sha256": "c807e2a5f951ef0ea26be27c3e17a259609a8e27c155ebdbd6300c42f8c3fa0b",
+      "status": "PASS",
+      "bytes": 57618
+    },
+    {
+      "file": "docs/mmd/Phase3/channel_member/Gate-09d-成员快照读取.mmd",
+      "sha256": "b2a7fa5cddc19d2a22e2f1fd1e2f4fca3394d57664a01d0f169a7f9429c763d5",
+      "status": "PASS",
+      "bytes": 48177
+    },
+    {
+      "file": "docs/mmd/Phase3/channel_member/Gate-09e-成员在线状态.mmd",
+      "sha256": "d8e5933dbbae5b8b8be5fae58b45f3ffc166866cc3736fc9454dbd502698f547",
+      "status": "PASS",
+      "bytes": 45492
+    },
+    {
+      "file": "docs/mmd/Phase4/announcement/Gate-07a-查询群公告列表.mmd",
+      "sha256": "5e90fb0066b65ffef2a6577db6bfe3de8f6f8eb9960d65d4e900e5a5bdec5f34",
+      "status": "PASS",
+      "bytes": 49099
+    },
+    {
+      "file": "docs/mmd/Phase4/announcement/Gate-07c-删除群公告.mmd",
+      "sha256": "e8bd0b1d1b34fab790f8341e1720b45768cac7b4b1e552e7d7e00b30b261c235",
+      "status": "PASS",
+      "bytes": 57075
+    },
+    {
+      "file": "docs/mmd/Phase4/announcement/Gate-07d-群公告确认收到.mmd",
+      "sha256": "f637911c9f851541636ec6d7992e46c6451b75cb1c85083d3aeca27c95131e7f",
+      "status": "PASS",
+      "bytes": 57872
+    },
+    {
+      "file": "docs/mmd/Phase4/bookmark/Gate-05i-创建书签.mmd",
+      "sha256": "a6313a3479a73bfd6c0dd354f525c071e387112ce2a7b25c19132d973e9e800c",
+      "status": "PASS",
+      "bytes": 45942
+    },
+    {
+      "file": "docs/mmd/Phase4/bookmark/Gate-05j-删除书签.mmd",
+      "sha256": "91ac0bdc5f0e4de602f9d091f20ac24e96dc5178758e5e20a8064d72218ac9e9",
+      "status": "PASS",
+      "bytes": 45960
+    },
+    {
+      "file": "docs/mmd/Phase4/bookmark/Gate-05k-查询书签（分页）.mmd",
+      "sha256": "2da4e93b2b32c309baaa9a2e47e05ba35960f97d218a39cc9944745daff2f0c5",
+      "status": "PASS",
+      "bytes": 45278
+    },
+    {
+      "file": "docs/mmd/Phase4/pin/Gate-05f-消息置顶.mmd",
+      "sha256": "efc9b84dfe2c9c80c4469fffdc5fc7e5ff39f82ac3a72807626b0e9a9bab6c4f",
+      "status": "PASS",
+      "bytes": 57549
+    },
+    {
+      "file": "docs/mmd/Phase4/pin/Gate-05g-取消消息置顶.mmd",
+      "sha256": "75f3ef1e91d1735a24367545237391e4786441e2476a371c8abdb50cc948edbd",
+      "status": "PASS",
+      "bytes": 57362
+    },
+    {
+      "file": "docs/mmd/Phase4/pin/Gate-05h-加载置顶消息列表.mmd",
+      "sha256": "75d19adc45e3073af0b6deb239003213a5837c637c8d4ef666e66dd2579cf335",
+      "status": "PASS",
+      "bytes": 48939
+    },
+    {
+      "file": "docs/mmd/Phase4/search/Gate-14a-全局搜索（会话-／-联系人-／-消息三段）.mmd",
+      "sha256": "63ba6b0181610502141b0c53ab8822fb355638bc2c043fab152b3903ef9e3732",
+      "status": "PASS",
+      "bytes": 35357
+    },
+    {
+      "file": "docs/mmd/Phase4/search/Gate-14b-会话内分类搜索（5-tab）.mmd",
+      "sha256": "91d46d99dcf775f576e08205b3c2ae0ff195fc3260c64ad14f3061f4b0c84da5",
+      "status": "PASS",
+      "bytes": 32668
+    },
+    {
+      "file": "docs/mmd/Phase4/search/Gate-14c-跨会话消息搜索并分组.mmd",
+      "sha256": "a42b32ffe11f2f3d4156760195cebbd8bf08bcf39e9a87a97df43dd36bdad1ea",
+      "status": "PASS",
+      "bytes": 32808
+    },
+    {
+      "file": "docs/mmd/Phase5/acceptance/Gate-ACC-G01-跨域验收.mmd",
+      "sha256": "dd1885c42a4080b107ba42267fe4d144e60053707c45e384bb43da62d54114ed",
+      "status": "PASS",
+      "bytes": 17932
+    },
+    {
+      "file": "docs/mmd/Phase5/category_chain/Gate-CAT-G01-分类模式.mmd",
+      "sha256": "37ff67838ad632e85657cbc67b0fcf3238cb5452bfe626fc9aee10005a5df895",
+      "status": "PASS",
+      "bytes": 42919
+    },
+    {
+      "file": "docs/mmd/Phase5/category_chain/Gate-CAT-G02-分类选项.mmd",
+      "sha256": "640aeca406e0ec763634db7b245842c54cadd7a8572d4e1889b1a9187fc66d1b",
+      "status": "PASS",
+      "bytes": 42891
+    },
+    {
+      "file": "docs/mmd/Phase5/category_chain/Gate-CAT-G03-分类统计.mmd",
+      "sha256": "384da06014cca3c4e831cd280dad2115251402375497377a7491d0025438cd0e",
+      "status": "PASS",
+      "bytes": 43014
+    },
+    {
+      "file": "docs/mmd/Phase5/chain/Gate-COM-G01-创建草稿并读取.mmd",
+      "sha256": "fccb3299c8b24d68889db588f3e6a04836bc1ed45b697e62daa91052afafc24f",
+      "status": "PASS",
+      "bytes": 34047
+    },
+    {
+      "file": "docs/mmd/Phase5/chain/Gate-COM-G02-编辑并发布.mmd",
+      "sha256": "d5df531be39d7d308baeb8813170715aa3b8c054a5e4b32d7c61c3caf79b160b",
+      "status": "PASS",
+      "bytes": 35598
+    },
+    {
+      "file": "docs/mmd/Phase5/chain/Gate-COM-G03-幂等追加与对账.mmd",
+      "sha256": "9dd7439bc8cfa5c5f48f5f6ece2bc7c53ca901138150e0dfabd10d4778386916",
+      "status": "PASS",
+      "bytes": 33900
+    },
+    {
+      "file": "docs/mmd/Phase5/chain/Gate-COM-G04-窗口展开.mmd",
+      "sha256": "c7ce86474e4afe2da818c6b4c52f8eb65ed488fcb4203c8f430f1c6f2f64e6dc",
+      "status": "PASS",
+      "bytes": 33078
+    },
+    {
+      "file": "docs/mmd/Phase5/chain/Gate-COM-G05-汇总计数.mmd",
+      "sha256": "99add49b36879661d664555762d18ad2560e14f7bebf2b493441806f1e447e5c",
+      "status": "PASS",
+      "bytes": 32951
+    },
+    {
+      "file": "docs/mmd/Phase5/chain/Gate-COM-G06-生命周期与已读.mmd",
+      "sha256": "a43df1669666a52e28607837748447447097276bdbff7571caa2c1c238a34f66",
+      "status": "PASS",
+      "bytes": 33151
+    },
+    {
+      "file": "docs/mmd/Phase5/text_chain/Gate-TXT-G01-文字参与.mmd",
+      "sha256": "8f989995ef8b3423cb814ffdef613c90828b2a409130fb4229a40362c9916312",
+      "status": "PASS",
+      "bytes": 33078
+    },
+    {
+      "file": "docs/mmd/Phase5/text_chain/Gate-TXT-G02-文字窗口恢复.mmd",
+      "sha256": "b2d5459414de3a65a702eece94eca277458e8166e762f7f23c95bae88beda6ea",
+      "status": "PASS",
+      "bytes": 33738
+    },
+    {
+      "file": "docs/mmd/Phase5/接龙总览.mmd",
+      "sha256": "e12edca9d619f638c4619020cbbc0508fe3c220b802c3fca881a2ab1868ff754",
+      "status": "PASS",
+      "bytes": 34285
+    },
+    {
+      "file": "docs/mmd/发送消息.mmd",
+      "sha256": "3068d74ff8f0374b90572e8babe9d7637081c963ae8e637d04f98af556ad7881",
+      "status": "PASS",
+      "bytes": 58891
+    }
+  ],
+  "runtime_acceptance": "NOT_RUN"
+}

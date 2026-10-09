@@ -1,6 +1,6 @@
 %% Phase1 / post / MV3-G05l 纯本地工具栏命令（多选 / 复制 / 提醒 / 协同 / 头脑风暴）
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g05l/contract.json
-%% UI owners: src/pages/message-v3/service/toolbar-command/commands/multiple.command.ts::execute（ctx.toggleSelectionMode('multiple')）；src/pages/message-v3/service/toolbar-command/commands/copy.command.ts::execute（ctx.render.info）；src/pages/message-v3/service/toolbar-command/commands/remind.command.ts::execute（ctx.render.info）
+%% UI owners: packages/message/src/lib/services/toolbar-command/commands/multiple.command.ts:1；packages/message/src/lib/services/toolbar-command/commands/copy.command.ts:1；packages/message/src/lib/services/toolbar-command/commands/remind.command.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -17,7 +17,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员点「多选」进入批量选择态；点「复制 / 提醒 / 协同 / 头脑风暴」只得到一条提示文案，会话数据没有任何变化
-  Note over UI,Web: 当前覆盖状态：mock=not_applicable；helix=not_applicable；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=not_applicable；helix=not_applicable；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   UI->>Gate: 纯本地工具栏命令（多选 / 复制 / 提醒 / 协同 / 头脑风暴）(payload)
   Gate-->>UI: 当前客户端路由结果或受控空结果
   Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件

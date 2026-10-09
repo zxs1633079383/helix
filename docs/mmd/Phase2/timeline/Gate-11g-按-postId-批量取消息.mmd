@@ -1,6 +1,6 @@
 %% Phase2 / timeline / MV3-G11g 按 postId 批量取消息
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/timeline/mv3-g11g/contract.json
-%% UI owners: src/pages/message-v3/service/message.service.ts::按 id 精确读取（G12a 改为单次 getReplies 后不再用本方法取 rootPost）；src/pages/message-v3/service/messageContainerShared.service.ts:106（定时回复消息按 postId 读取）；src/pages/message-v3/service/messageContainerShared.service.ts:762（按 replyId 取单条）
+%% UI owners: packages/message/src/lib/services/message.service.ts:1；packages/message/src/lib/services/messageContainerShared.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：（非用户可见）回复根消息、定时消息的引用消息、独立窗 / 拖拽窗初始化都需要按 id 精确取单条或多条
-  Note over UI,Web: 当前覆盖状态：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: getPosts(payload)
     Gate->>Native: invokeAccepted("im_get_posts", payload)
@@ -43,8 +43,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM-->>E: Command Result {data}
-  E-->>Gate: PortReply(Result)
+  IM->>Sink: Effect::Emit im:read:result（请求关联结果）
+  Sink-->>Gate: im:__bus__ 按 req_id 或 requestId 结算等待者
   Gate-->>UI: render absolute snapshot or query result
   alt HTTP / PortReply / Persist error
     IM->>IM: keep prior durable state；attach structured error to corr_key
@@ -54,4 +54,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：由 Helix/Go 按 postIds 精确读取可见消息，命中条件覆盖服务端 id 与可恢复的 temporaryId 对账键；命中条数 ≤ postIds.length，Angular 不执行跨频道全表扫描；返回顺序与请求顺序无强绑定，调用方必须自行按 id 建索引取值（不得按下标对位）；一个 reqId 只返回一个 terminal exact-by-id 结果；reqId / locate 不得改写返回消息的任何字段；对端成员的 viewer-local 未读在本 Gate 前后完全相等（getMemberUnread(channelId, otherUserId).unreadCount 调用前后取值一致），读取动作绝不写对端未读
   Note over UI,Web: 关键负向：未命中的 id 不得抛错，必须以「缺项」表达（返回数组长度小于请求长度是合法结果）；同一请求不得产生零个或多个 terminal 结果，也不得用其他 reqId 的 im:read:result 结算当前 Promise；调用方不得按下标对位消费（返回顺序不保证），否则会取到别人的消息
-  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 结果出口：im:read:result；读结果与业务广播区分，不能把无广播理解为无 Effect::Emit

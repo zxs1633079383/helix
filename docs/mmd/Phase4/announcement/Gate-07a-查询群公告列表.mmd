@@ -1,6 +1,6 @@
 %% Phase4 / announcement / MV3-G07a 查询群公告列表
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/announcement/mv3-g07a/contract.json
-%% UI owners: src/pages/message-v3/components/drawer/chat-settings/group-announcement-section/group-announcement-section.component.ts::loadAnnouncements；src/pages/message-v3/service/message.service.ts::queryAnnouncementList
+%% UI owners: packages/message/src/lib/components/drawer/chat-settings/group-announcement-section/group-announcement-section.component.ts:1；packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员打开群设置的公告区，看到该会话下的全部公告；一条都没有时看到空态而不是报错。
-  Note over UI,Web: 当前覆盖状态：mock=partial；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=partial；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: queryAnnouncements(payload)
     Gate->>Native: invokeAccepted("im_announcement_list", payload)
@@ -33,8 +33,8 @@ sequenceDiagram
   Go-->>Host: HTTP response（2xx 只代表 admission/query response）
   Host->>E: Tick::PortReply(http)
   E->>IM: correlate req_id/corr_key
-  IM->>Sink: Effect::Emit {event,data}（announcementListUpdated，ANNOUNCEMENT_LIST_UPDATED，im:announcement:list-updated）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:announcement:list-updated）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -45,4 +45,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：首次查询返回 channelId,version,announcements 权威快照；Angular 按 channelId+version 绝对覆盖，不得与旧数组增量拼接；未 seed 过公告的 channelId 返回 []（length === 0），且不抛错、不 emit
   Note over UI,Web: 关键负向：announcement version 的唯一 owner 是 Go：按 account/team + channelId 持久化单调版本，并只在 save/delete 事务真实改变公告集合时递增；announcementChanged audience 固定为变更后仍有频道可见权的成员；wire 只含 channelId/version，不得携带 legacy acceptList 或完整正文
-  Note over E,Sink: 出站事件集合：announcementListUpdated，ANNOUNCEMENT_LIST_UPDATED，im:announcement:list-updated；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:announcement:list-updated；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

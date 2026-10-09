@@ -1,6 +1,6 @@
 %% Phase2 / sync / MV3-G13b 陌生频道兜底加载
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/sync/mv3-g13b/contract.json
-%% UI owners: src/pages/message-v3/service/messageWindowGlabal.service.ts:122 / :151 / :201 / :293（独立窗口 hydrate 四处）；src/pages/message-v3/service/messageNotice.service.ts:106（系统通知取会话）；src/pages/message-v3/service/messageNotice.service.ts:196（待办生成取会话快照，G15a / G15c 的读侧）
+%% UI owners: packages/message/src/lib/services/messageWindowGlabal.service.ts:1；packages/message/src/lib/services/messageNotice.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员从通知 / 搜索 / 外链进入一个列表里还没有的会话，单次关联补齐频道、成员与最新消息窗口，并只在整批持久化成功后看到终态
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: loadChannelIncrement(payload)
     Gate->>Native: invokeAccepted("im_channel_load_increment_by_channel_id", payload)
@@ -43,8 +43,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM-->>E: Command Result {data}
-  E-->>Gate: PortReply(Result)
+  IM->>Sink: Effect::Emit im:read:result（请求关联结果）
+  Sink-->>Gate: im:__bus__ 按 req_id 或 requestId 结算等待者
   Gate-->>UI: render absolute snapshot or query result
   alt HTTP / PortReply / Persist error
     IM->>IM: keep prior durable state；attach structured error to corr_key
@@ -54,4 +54,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：返回 DialogItem 且拿到即 hydrate（会话集合内不存在则新增，存在则 merge），替代旧 ensure_channel_loaded 与 store:getItem ”channel”；当前频道成员展示快照（members / adminUsers / boss / owner / memberCount）由本 Gate 的返回值提供；它不是 receipt receiver snapshot，不得用于解析 readBits 或恢复历史已读位序；目标首次 Effect 精确为 POST /api/cses/channel/load/incrementByChannelId，JSON body 只能是 ”channelId”: channelId；reqId 由 Helix 生成并仅作为同一 Command/HTTP 关联信息，不得混入 Go body，成功响应 data 必须按 IncrementChannel 解析；频道与 channel_member 先确认持久化；随后仅当 needSync 缺失/为 true，或账号库 durable cursor 小于响应 lastEventSeq 时，条件调用 POST /api/cses/channel/sync/notify，body 精确为 ”cursors”:[”channelId”:channelId,”fromSeq”:durableCursor]；每次续拉的 fromS
   Note over UI,Web: 关键负向：未命中必须返回 null（graceful），不得抛错；不得因单频道加载失败而中断「打开窗口 / 展示通知 / 生成待办」的主流程（调用方必须 catch）；不得触发 hard-cut 8 项旧链路：imDataSource:* / store:getItem ”channel” / store:query ”channel” / ensure_channel_loaded / imHttp ”/channels/member/byIds” 等，禁止计数恒为 0
-  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 结果出口：im:read:result；读结果与业务广播区分，不能把无广播理解为无 Effect::Emit

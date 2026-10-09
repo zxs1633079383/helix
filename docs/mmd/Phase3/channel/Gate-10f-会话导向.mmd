@@ -1,6 +1,6 @@
 %% Phase3 / channel / MV3-G10f 会话导向
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel/mv3-g10f/contract.json
-%% UI owners: src/pages/message-v3/components/drawer/chat-settings/chat-settings.component.ts::openOrientDialog；src/pages/message-v3/service/message.service.ts::changeChannelState
+%% UI owners: packages/message/src/lib/components/drawer/chat-settings/chat-settings.component.ts:1；packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：有权限的成员在群设置里设置群的导向属性，保存后群设置页显示新的导向，群内其他人看到的也是同一个值。
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=implemented；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=implemented；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: changeChannelState(payload)
     Gate->>Native: invokeAccepted("im_channel_change_orient", payload)
@@ -46,8 +46,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（channelUpdate，UPDATE_CHANNEL，im:channel:update）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:channel:update）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -58,4 +58,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：channel.orient === 入参 orient；允许空串清空，非空内容长度为 1-30 字；channelIsTop / notifyProps（scalar）/ displayName / purpose 逐字段不变；会话列表排序与分组不变（导向不参与排序）
   Note over UI,Web: 关键负向：orient 缺失或超过 30 字必须显式报错；空串是合法清空，不得当作缺失字段忽略；不得顺带改写 top / notify；它们属于独立 viewer-local Command，绝不能被 orient 的全群广播覆盖
-  Note over E,Sink: 出站事件集合：channelUpdate，UPDATE_CHANNEL，im:channel:update；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:channel:update；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

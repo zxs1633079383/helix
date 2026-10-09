@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员登出或切换账号 / 公司后，旧账号 Runtime 与旧窗口订阅不再投递 IM 事件，新账号获得独立连接和账号库
-  Note over UI,Web: 当前覆盖状态：mock=partial；helix=not_applicable；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=partial；helix=not_applicable；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   UI->>Gate: 账号 Runtime 与 Renderer 释放(payload)
   Gate-->>UI: 当前客户端路由结果或受控空结果
   Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件

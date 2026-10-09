@@ -1,6 +1,6 @@
 %% Phase1 / post / MV3-G05a 撤回消息
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g05a/contract.json
-%% UI owners: src/pages/message-v3/service/toolbar-command/commands/withdraw.command.ts::execute；src/pages/message-v3/service/message.service.ts::revokeMessage
+%% UI owners: packages/message/src/lib/services/toolbar-command/commands/withdraw.command.ts:1；packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -17,7 +17,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员在消息工具栏点「撤回」，自己的气泡立即变成「已撤回」提示；其他成员也看不到原文，会话列表摘要同步不再显示原文
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: revoke(payload)
     Gate->>Native: invokeAccepted("im_revoke", payload)
@@ -47,8 +47,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（postRevoke，POST_UPDATE，channelUpdate，UPDATE_CHANNEL）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:post:revoke，im:channel:update）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -59,4 +59,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：目标消息 msg.revoke = true，消息对象仍留在时间线（气泡渲染「已撤回」占位），列表长度不变；被撤回消息命中 channel.lastPost 时：lastPost 退回「从尾部往前第一条 revoke !== true 的消息」，整频道全撤回则保留撤回态本条；lastPostAt = 新摘要 createAt；lastPost 必须换新对象引用（引用比较的渲染判定才能捕获）；对端同一条消息同步转撤回态（revoke=true），原文不可再读取；对端会话列表摘要同步退回（由 helix 侧 im:channel:update 驱动），不得停留在被撤回的原文
   Note over UI,Web: 关键负向：不得物理删除消息：撤回只置 revoke 标记，messages 集合长度前后一致，findMessage(postId) 仍能命中；不得改写 createAt / localCreateAt —— 撤回态沿用原时间戳，否则时间线排序与底部锚点补偿被破坏；换 channel.lastPost 新引用时不得把 undefined 字段并进去：spread 前先 filter undefined，防 partial patch 把本地已有字段清空
-  Note over E,Sink: 出站事件集合：postRevoke，POST_UPDATE，channelUpdate，UPDATE_CHANNEL；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:post:revoke，im:channel:update；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

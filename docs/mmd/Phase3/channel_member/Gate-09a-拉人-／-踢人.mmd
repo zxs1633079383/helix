@@ -1,6 +1,6 @@
 %% Phase3 / channel_member / MV3-G09a 拉人 / 踢人
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel_member/mv3-g09a/contract.json
-%% UI owners: src/pages/message-v3/components/drawer/chat-settings/chat-settings.component.ts；src/pages/message-v3/service/channelConfigAdapter.service.ts
+%% UI owners: packages/message/src/lib/components/drawer/chat-settings/chat-settings.component.ts:1；packages/message/src/lib/services/channelConfigAdapter.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：群主/管理员邀请或移除成员、成员主动退出时，群内出现唯一的持久化系统提示并同步成员列表；被移除者仍可只读查看移除前历史，但不能继续发送、编辑或接收移除后的普通频道事件。
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=implemented；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=implemented；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: changeMembers(payload)
     Gate->>Native: invokeAccepted("im_channel_member_change", payload)
@@ -46,8 +46,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（channelMemberUpdated，INCREMENT_CHANNEL，im:channel:member-updated）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:channel:member-updated）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -58,4 +58,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：不变量：memberCount === members.length（add 后 +N、remove 后 -N，逐次调用后恒等）；被移除成员同步从 adminUsers 与 boss 中剔除（三个容器内均查不到该 userId）
   Note over UI,Web: 关键负向：被移除成员不得残留在 adminUsers / boss —— 否则成员列表、@ 候选名单与管理员标识三处不一致；options[].userIds 内 undefined / 空串必须 filter 掉再遍历（spread 前 filter undefined 雷区），不得插入 userId=undefined 的幽灵成员
-  Note over E,Sink: 出站事件集合：channelMemberUpdated，INCREMENT_CHANNEL，im:channel:member-updated；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:channel:member-updated；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

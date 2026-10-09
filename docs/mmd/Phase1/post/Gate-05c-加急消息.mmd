@@ -1,6 +1,6 @@
 %% Phase1 / post / MV3-G05c 加急消息
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g05c/contract.json
-%% UI owners: src/pages/message-v3/service/toolbar-command/commands/expedited.command.ts::execute（派发 OPEN_EXPEDITED_USERS 打开选人弹窗）；src/pages/message-v3/message.component.ts::openExpeditedUsers；src/pages/message-v3/components/chat-standalone/chat-container-standalone/chat-container-standalone.component.ts::openExpeditedUsers
+%% UI owners: packages/message/src/lib/services/toolbar-command/commands/expedited.command.ts:1；src/pages/message-v3/message.component.ts:1；packages/message/src/lib/components/chat-standalone/chat-container-standalone/chat-container-standalone.component.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -17,7 +17,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员对自己发的消息点「加急」，从未读名单里勾人，被勾中的人收到强提醒和一条待办
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: urgentPost(payload)
     Gate->>Native: invokeAccepted("im_urgent_post", payload)
@@ -47,8 +47,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（postUpdated，POST_UPDATE，channelUpdate，UPDATE_CHANNEL）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:post:updated，im:channel:update）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -59,4 +59,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：msg.expediteRecipients = 过滤后 targetIds.map(id =大于 (id, name, status:0, teamId))；msg.expediteSender = id:self,...；props.urgent=true 且 props.urgentTargets = 过滤后 targetIds；所属频道 channel.urgentPostList 加入被加急 postId（去重）+ channel.urgentCurrentName = 加急发起人显示名 + channel.hasUrgentPost = true；这是会话列表闪电/头像红框/顶替未读角标的权威源（dialog-item.component.ts:35-40 只读 urgentPostList，不读 urgentCount）。已修（原为缺口）：mockImG；被加急的对端读到自己在 expediteRecipients 中且 status===0（isBeurged() 命中 → 气泡出现「已读」按钮）；只读依赖：加急弹窗的未读名单 = readBits 中为 '0' 的位 → 映射成员快照同位序元素；本 Gate 不改写任何位
   Note over UI,Web: 关键负向：不得写 channel.urgentCount（死字段，会话列表不读——dialog-item 只读 urgentPostList，写入会造成双源；urgentPost 全程 urgentCount 保持 undefined）；isUrgent() / isBeurged() 读 msg.expediteRecipients（数组，find status===0）而非 props.urgent —— 只写 props.urgent 不得视为加急生效，断言必须查 expediteRecipients；targetIds 中的 undefined / 空串必须在 map 前 filter，禁止把 undefined 展开进 expediteRecipients（spread 前 filter undefined 雷区）
-  Note over E,Sink: 出站事件集合：postUpdated，POST_UPDATE，channelUpdate，UPDATE_CHANNEL；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:post:updated，im:channel:update；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

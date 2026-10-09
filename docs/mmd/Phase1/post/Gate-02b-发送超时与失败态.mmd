@@ -1,6 +1,6 @@
 %% Phase1 / post / MV3-G02b 发送超时与失败态
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g02b/contract.json
-%% UI owners: src/pages/message-v3/service/message.service.ts::createSendTimeout（:217-241，sendMsg 调 Port 前无条件挂）；src/pages/message-v3/service/message.service.ts::clearSendTimeout
+%% UI owners: packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -18,7 +18,7 @@ sequenceDiagram
   participant Sink as EventSink raw bytes
   participant Ext as Other business host
   Note over UI,Gate: 用户目标：网络异常时成员在 15 秒后看到消息显示红色失败标，并可点重发；失败消息停在原来的位置不上跳
-  Note over UI,Web: 当前覆盖状态：mock=missing；helix=partial；dual=no；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=missing；helix=partial；dual=no；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   UI->>Gate: 发送超时与失败态(payload)
   Gate-->>UI: 当前客户端路由结果或受控空结果
   Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件

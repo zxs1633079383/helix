@@ -1,6 +1,6 @@
 %% Phase2 / timeline / MV3-G11a 切群首屏
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/timeline/mv3-g11a/contract.json
-%% UI owners: src/pages/message-v3/service/dialogSwitch.service.ts::切群首屏（目标：由 queryCache 改为 queryMessages direction=latest）；src/pages/message-v3/service/messageDialog.service.ts::频道最新窗口（目标：由 queryCache 改为 queryMessages direction=latest）；src/pages/message-v3/service/chatContentShared.service.ts::首屏与末条读取（目标：统一消费同一 latest 窗口结果）
+%% UI owners: packages/message/src/lib/services/dialogSwitch.service.ts:1；packages/message/src/lib/services/messageDialog.service.ts:1；packages/message/src/lib/services/chatContentShared.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员点开会话，立刻看到最新 20 条消息并停在底部
-  Note over UI,Web: 当前覆盖状态：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: queryMessages(payload)
     Gate->>Native: invokeAccepted("im_query_messages_by_channel", payload)
@@ -43,8 +43,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM-->>E: Command Result {data}
-  E-->>Gate: PortReply(Result)
+  IM->>Sink: Effect::Emit im:read:result（请求关联结果）
+  Sink-->>Gate: im:__bus__ 按 req_id 或 requestId 结算等待者
   Gate-->>UI: render absolute snapshot or query result
   alt HTTP / PortReply / Persist error
     IM->>IM: keep prior durable state；attach structured error to corr_key
@@ -54,4 +54,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：返回 Helix/Go 权威最新窗口，messages.length ≤ limit，按稳定时间线顺序升序，末条为当前已知最新消息；Angular 不扫描全频道缓存来制造窗口；一次 reqId 只返回一个 terminal QueryMessagesResult：reqId,messages,hasOlder,hasNewer,olderCursor?,newerCursor?；latest 的 hasNewer 恒为 false；满窗口 append 时头部淘汰；离底时锚点固定并出「新消息」提示（对齐 helix G-10c / G-10d，本端由 Virtuoso 虚拟列表承担）；首屏渲染完成后触发 inViewMsgRead（G06b）上报，读取者自侧 channel.unreadCount 归零（本 Gate 只负责触发，归零语义由 G06b 保证）
   Note over UI,Web: 关键负向：hasNewer 在 latest 方向必须恒为 false（为 true 即契约破损，UI 会误挂「向下还有更多」加载态）；limit 缺省必须是 20，显式值只允许 1..60；超过 60 不得出网、不得读库、不得截断后假成功；同一请求不得产生零个或多个 terminal 结果，也不得用其他 reqId 的结果结算当前 Promise
-  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 结果出口：im:read:result；读结果与业务广播区分，不能把无广播理解为无 Effect::Emit

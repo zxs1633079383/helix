@@ -1,6 +1,7 @@
 %% Phase1 / upload / MV3-G01d 发送文件
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/upload/mv3-g01d/contract.json
-%% UI owners: @ccc/cses-common/src/components/cses-message-input/cses-message-input.component.ts::createMessage（混合文件分支 :1258-1290）；src/pages/message-v3/service/messageSend.service.ts::processMessageFiles（uploadSingleFile）
+%% Helix 真源: crates/helix-im/src/send/flow.rs；crates/helix-im/src/port_reply/dispatch_core.rs；crates/helix-im/src/port_reply.rs
+%% UI owners: packages/message/src/lib/services/messageSend.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -13,11 +14,13 @@ sequenceDiagram
   participant PS as Pending or local state
   participant Host as driver-host
   participant DB as tenant SQLite
+  participant Java as Java 文件签名服务
+  participant OSS as 对象存储
   participant Go as Go IM Server
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员拖入或选择一个非媒体文件发送，对方看到文件卡片并可下载
-  Note over UI,Web: 当前覆盖状态：mock=partial；helix=partial；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=partial；helix=partial；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: sendMessage(payload)
     Gate->>Native: invokeAccepted("im_send_message", payload)
@@ -29,18 +32,44 @@ sequenceDiagram
   end
   E->>IM: ExecutionShell::step(Tick::Command)
   IM->>IM: 校验 单附件 FILE 消息 的入参，生成 corr_key/req_id
-  opt 媒体或附件前置阶段
-    IM->>Host: Effect::FileUpload prepare / put / complete
-    Host->>Go: 文件服务上传或签名地址请求
-    Go-->>Host: file reference / media URL
+  IM->>Host: Persist optimistic message；本地媒体另含 pending_media journal 的 PersistAtomic
+  Host->>DB: 提交 Sending 事实
+  DB-->>Host: PersistOk
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: 匹配 optimistic corr
+  opt 已 attach timeline 的普通发送
+    IM->>Host: 调度 timeline 持久事实读回
+    Host->>DB: 读取当前窗口
+    DB-->>Host: readback
+    Host->>E: Tick::PortReply(readback)
+    E->>IM: 发布窗口后才释放 posts/create
+  end
+  Note over IM,Host: P1 失败不得发 HTTP 或启动发送 timer；im:post:sending 与 timeline 事件交付发送中状态
+  opt 存在待上传的本地 mediaInput
+    IM->>Host: Effect::Http POST Java /oss/getPresignedUrl
+    Host->>Java: prepare 请求
+    Java-->>Host: 预签名 URL 与稳定 file reference
+    Host->>E: Tick::PortReply(prepare)
+    E->>IM: 校验响应并持久化待 PUT 阶段
+    IM->>Host: Effect::UploadFile
+    Host->>OSS: PUT 预签名 URL
+    OSS-->>Host: 上传结果
     Host->>E: Tick::PortReply(upload)
-    E->>IM: 继续发送或在失败时早退
+    E->>IM: 本地 Complete；同消息附件串行结算
+    IM->>Host: PersistAtomic 稳定引用与删除 pending_media journal
+    Host->>DB: 提交媒体完成事实
+    DB-->>Host: PersistOk
+    Host->>E: Tick::PortReply(PersistOk)
+    E->>IM: 全部附件完成且无失败后放行 posts/create
   end
   IM->>Host: Effect::Http POST /posts/create
   Host->>Go: HTTP request with tenant/auth/corr headers
   Go-->>Host: HTTP response（2xx 只代表 admission/query response）
   Host->>E: Tick::PortReply(http)
   E->>IM: correlate req_id/corr_key
+  Go-->>WS: post authority echo（与 HTTP 回包无固定先后）
+  WS->>E: Tick::Inbound(post)
+  E->>IM: 按 temporaryId 对账权威消息
   IM->>Host: Effect::PersistAtomic(projection + cursor)
   Host->>DB: transaction message/media + channel + viewer member + cursor
   DB-->>Host: PortReply(PersistOk)
@@ -51,16 +80,11 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（postReceived，POST，channelUpdateByPost，UPDATE_CHANNEL）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（发送者 im:post:sent；接收者 im:post:received；按分支发布频道与 timeline 投影）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
-  alt HTTP / PortReply / Persist error
-    IM->>IM: keep prior durable state；attach structured error to corr_key
-    IM-->>E: Err or correlated error result
-    E-->>Gate: controlled failure
-    Gate-->>UI: error / empty state；不得伪造成功事件
-  end
+  Note over IM,Sink: HTTP、超时、WS 与 Persist 失败各走对应内核分支；失败态也受持久化屏障约束，不能画成已 accepted 命令的同步返回
   Note over IM,DB: 关键效果：发送成功后发送者侧 channel.unreadCount 绝对归零（== 0，不是递减）；频道内其它可见成员的 getMemberUnread(channelId, otherUserId).unreadCount 相比发送前恰好 +1（幂等累加）；该值必须各侧独立计算，禁止用发送者数值推导；message.readBits 长度 == channel.members.length，位序 == channel.members 顺序，发送者对应位 == '1'；接收者对应位在其调用 postRead 之前恒为 '0'，不得因发送者已读而被置 '1'
-  Note over UI,Web: 关键负向：上传失败时 dispatch UPDATE_MESSAGE_WITH_SEND(sendStatus:'unSend') 后必须 return 早退，绝不调用 Port（服务端不得留半条脏消息）；success 到达时命中已有 temporaryId 不得裸替换消息对象，必须 mergePostIntoExisting（否则丢 sendStatus / uploadProgress / 高度缓存）；失败态不得用失败发生时刻改写 createAt，必须沿用 localCreateAt（否则破坏排序与底部锚点补偿）
-  Note over E,Sink: 出站事件集合：postReceived，POST，channelUpdateByPost，UPDATE_CHANNEL；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over UI,Web: 关键负向：本地附件暂存失败在 Gate 前中断；进入 Helix 后 prepare、PUT 或完成落库失败由内核结算失败态，不得继续 posts/create；权威成功由 Helix 按 temporaryId 对账；客户端绑定投影，不重建发送状态机；失败态不得用失败发生时刻改写 createAt，必须沿用 localCreateAt（否则破坏排序与底部锚点补偿）
+  Note over E,Sink: 发送生命周期原始事件：im:post:sending / im:post:sent / im:post:received / im:post:send-failed；频道与 timeline 投影由各自读回分支发布

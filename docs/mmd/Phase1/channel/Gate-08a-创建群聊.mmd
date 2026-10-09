@@ -1,6 +1,6 @@
 %% Phase1 / channel / MV3-G08a 创建群聊
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel/mv3-g08a/contract.json
-%% UI owners: src/pages/message-v3/components/dialog-search/dialog-search.component.ts；src/pages/message-v3/service/dialogSwitch.service.ts；src/pages/message-v3/service/message.service.ts::createGroupChat
+%% UI owners: packages/message/src/lib/components/dialog-search/dialog-search.component.ts:1；packages/message/src/lib/services/dialogSwitch.service.ts:1；packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员在通讯录勾选若干人建群，或点某个人发起单聊；会话列表立刻出现这个新会话并自动切入，被拉进来的人也在自己的会话列表看到它。
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: createChannel(payload)
     Gate->>Native: invokeAccepted("im_create_channel", payload)
@@ -46,8 +46,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（channelCreated，CREATE_DIALOG）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:channel:created）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -58,4 +58,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：channel.members 含创建者自己且整体去重；channel.memberCount === channel.members.length；owner 指向创建者；会话集合新增该 channel（channels.get(id) 非空），且 messages 表初始化为空数组（新频道无历史）；创建者侧 channel.unreadCount === 0 且 mentionCount === 0（新频道逐成员计数器独立初始化为 0）；被邀成员侧 channel.unreadCount === 0（各侧独立计算：接收侧的 0 必须来自自己的成员计数器初始化，禁止从创建者侧复制）
   Note over UI,Web: 关键负向：forceCreate 非 true 且已存在同人单聊时不得重复建：会话集合 size 不变，必须返回已有 channel；新频道不得带 rootId（rootId 是话题标记，createChannel 路径必须 undefined）—— 否则会被误当话题过滤出主会话列表；userIds 内 undefined / 空串必须 filter 掉再 spread（spread 前 filter undefined 雷区），否则 members 出现 userId=undefined 的幽灵成员，memberCount 与位图长度双双错位
-  Note over E,Sink: 出站事件集合：channelCreated，CREATE_DIALOG；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:channel:created；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

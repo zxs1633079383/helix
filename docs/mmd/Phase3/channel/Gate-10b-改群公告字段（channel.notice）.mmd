@@ -1,6 +1,6 @@
 %% Phase3 / channel / MV3-G10b 改群公告字段（channel.notice）
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel/mv3-g10b/contract.json
-%% UI owners: src/pages/message-v3/service/message.service.ts::setDialogNotice
+%% UI owners: packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：有权限的成员修改单值群提示后，群设置页和频道横幅显示同一段提示；公告列表仍由 ANNOUNCEMENT 独立管理。
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: changeChannelSettings(payload)
     Gate->>Native: invokeAccepted("im_channel_change_notice", payload)
@@ -46,8 +46,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（channelUpdate，UPDATE_CHANNEL，im:channel:update）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:channel:update）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -58,4 +58,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：channel.props.notice === 入参 notice，并作为单值群提示/频道横幅渲染；channel.props 内其他键逐键保留；ANNOUNCEMENT 列表条目、已读状态与排序均保持原值；修改 notice 不创建、更新或删除公告条目
   Note over UI,Web: 关键负向：不得与 MV3-G07（ANNOUNCEMENT 列表）混为一谈：本 Gate 只改 channel.props.notice 单值提示，不产生公告条目、不进公告列表；notice 与 ANNOUNCEMENT 不得互相同步：修改任一方时另一方的内容、条目数、已读态和排序必须逐值不变
-  Note over E,Sink: 出站事件集合：channelUpdate，UPDATE_CHANNEL，im:channel:update；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:channel:update；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

@@ -1,6 +1,42 @@
-%% Phase5 / CATEGORY_CHAIN / CHAIN-CAT-G02 分类选项
-%% 机器真源: phase5.manifest.json；append DTO has categoryIds but Go model/storage has no category option domain implementation
-flowchart LR
-  UI["Angular category-option observation"] --> DTO["append.categoryIds field"]
-  DTO --> NI["NOT_IMPLEMENTED: field presence is not category option persistence"]
-  NI --> X["No category table/route/event/store signal/component terminal"]
+%% Phase5 / category_chain / CHAIN-CAT-G02 分类选项
+%% 合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/scripts/message-v3/reference/phases/phase5.manifest.json
+%% UI owners: packages/message/src/lib/services/category-chain/category-chain-facade.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:4240
+%% Helix 真源: crates/helix-im/src/category_chain/wire.rs；crates/helix-im/src/category_chain/runtime.rs；crates/helix-im/src/category_chain/facts.rs
+%% Go 真源: internal/api/categorychain/handlers.go；internal/domain/categorychain
+sequenceDiagram
+  autonumber
+  participant UI as Angular CategoryChain facade
+  participant Gate as HelixTauriImGate
+  participant IM as Helix category_chain runtime
+  participant Go as Go categorychain
+  participant DB as SQLite category facts
+  participant Sink as EventSink
+  UI->>Gate: selections 分类选择；clientMutationId 幂等
+  Gate->>IM: im_health 核对本地 feature 与 wire version 3
+  Gate->>IM: im_category_chain_capabilities
+  IM->>Go: POST /api/cses/post-chain/capabilities?mode=CATEGORY
+  Go-->>IM: supported/schemaVersion
+  IM-->>Gate: req_id 关联查询结果
+  Gate->>IM: im_category_chain_set_participation
+  Note over Gate,IM: Host 转为 canonical category_chain_*；写返回 admission，读等待关联结果
+  IM->>Go: POST /api/cses/post-chain/append；query 与 body mode=CATEGORY
+  Go->>Go: 认证、可见性、权限、版本与业务校验
+  Go-->>IM: Tick::PortReply 权威响应
+  IM->>IM: 校验 scope/revision，准备权威文档
+  opt 有新版本持久事实
+    IM->>DB: PersistAtomic category_chain_head/fact 与相关事实
+    DB-->>IM: matching PersistOk
+  end
+  IM->>DB: 读取对应持久版本
+  DB-->>IM: PortReply readback
+  IM->>Sink: 查询 im:read:result；写操作 im:category_chain:operation
+  Sink-->>Gate: 按 req_id / mutation 结算
+  Gate-->>UI: 绑定权威数据
+  opt 服务端 WS 分类投影
+    Go-->>IM: Tick::Inbound 分类权威变化
+    IM->>DB: 匹配版本的持久化与读回屏障
+    DB-->>IM: PortReply
+    IM->>Sink: im:category_chain:projection
+    Sink-->>UI: 更新分类卡片
+  end
+  Note over UI,Sink: 当前三仓已有实现；本轮仅源码核对，不宣称三端或本 Gate 真实验收 Green

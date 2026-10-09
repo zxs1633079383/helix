@@ -1,6 +1,6 @@
 %% Phase2 / read / MV3-G06e 未读总数投影与角标
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/read/mv3-g06e/contract.json
-%% UI owners: src/pages/message-v3/service/message-unread-total.ts::calculateVisibleUnreadTotal；src/pages/message-v3/service/messageDialog.service.ts::unreadTotal$（groupedDialogs → map(calculateVisibleUnreadTotal) → distinctUntilChanged）
+%% UI owners: packages/message/src/lib/services/message-unread-total.ts:1；packages/message/src/lib/services/messageDialog.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员在任意页面都能从侧边栏菜单角标看到消息总未读数
-  Note over UI,Web: 当前覆盖状态：mock=not_applicable；helix=not_applicable；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=not_applicable；helix=not_applicable；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   UI->>Gate: 未读总数投影与角标(payload)
   Gate-->>UI: 当前客户端路由结果或受控空结果
   Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件

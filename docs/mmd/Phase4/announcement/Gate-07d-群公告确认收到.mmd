@@ -1,6 +1,6 @@
 %% Phase4 / announcement / MV3-G07d 群公告确认收到
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/announcement/mv3-g07d/contract.json
-%% UI owners: src/pages/message-v3/components/message-content/message-announcement-content/message-announcement-content.component.ts::onReadClick；src/pages/message-v3/service/message.service.ts::readAnnouncement
+%% UI owners: packages/message/src/lib/components/message-content/message-announcement-content/message-announcement-content.component.ts:1；packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -16,7 +16,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员点公告上的「确认收到」，按钮转为已确认态；发布者能看到谁确认了、谁还没确认。
-  Note over UI,Web: 当前覆盖状态：mock=missing；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=missing；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: postRead + getPostReaders(payload)
     Gate->>Native: invokeAccepted("im_post_read + im_post_read_list", payload)
@@ -46,8 +46,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（postRead，POST_READ，postReaders，POST_READERS，im:post:read，im:post:readers）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:post:read，im:post:readers）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -58,4 +58,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：成员点击「确认收到」只提交 postRead 意图；Go 按 snapshotId 幂等更新消息已读权威，Helix 投影绝对 readUserIds/unreadUserIds 与计数，重复点击或重复事件不得改变集合大小；Angular 以 readUserIds/unreadUserIds 为唯一确认与未确认名单，再通过现有 Ucenter 能力补全用户名、头像和部门；资料缺失时保留 userId 占位，不得从名单中删除该用户
   Note over UI,Web: 关键负向：断供必须写红灯用例：不得把 status:'SUCCESS' 断言为「确认已落地」—— 现状确认不落地、刷新即丢，用例必须显式证明 queryAnnouncements 前后无差异；不得新增公告专属确认表、确认名单、readBits 或 /post/announcement/read 作为目标权威；必须复用 Phase 1 postRead/postReaders
-  Note over E,Sink: 出站事件集合：postRead，POST_READ，postReaders，POST_READERS，im:post:read，im:post:readers；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:post:read，im:post:readers；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

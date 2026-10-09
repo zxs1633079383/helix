@@ -1,6 +1,6 @@
 %% Phase1 / post / MV3-G03a 逐条转发
 %% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g03a/contract.json
-%% UI owners: src/pages/message-v3/components/chat-content/chat-content-base.component.ts::forwardMessage（mode='item'）；src/pages/message-v3/components/windows/chooseSession-window/chooseSessionWindow（选目标）
+%% UI owners: packages/message/src/lib/components/chat-content/chat-content-base.component.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
 sequenceDiagram
   autonumber
   participant UI as Angular UI
@@ -17,7 +17,7 @@ sequenceDiagram
   participant WS as WS inbound
   participant Sink as EventSink raw bytes
   Note over UI,Gate: 用户目标：成员多选若干消息，选「逐条转发」和多个目标群，每条消息在每个目标群里单独出现一条
-  Note over UI,Web: 当前覆盖状态：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
   alt PC Tauri 入口
     UI->>Gate: relayMessages(payload)
     Gate->>Native: invokeAccepted("im_relay_messages", payload)
@@ -47,8 +47,8 @@ sequenceDiagram
   DB-->>Host: PortReply(readback)
   Host->>E: Tick::PortReply(readback)
   E->>IM: readback is the projection source
-  IM->>Sink: Effect::Emit {event,data}（postReceived，POST，channelUpdateByPost，UPDATE_CHANNEL）
-  Sink-->>UI: Native im:__bus__ raw event → Angular projection
+  IM->>Sink: Effect::Emit {event,data}（im:post:received，im:channel:update-by-post）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
   Sink-->>FFI: FFI batch raw {event,data}
   Sink-->>Web: Web EventBatch raw {event,data}
   alt HTTP / PortReply / Persist error
@@ -59,4 +59,4 @@ sequenceDiagram
   end
   Note over IM,DB: 关键效果：转发者在目标频道的 unreadCount 绝对归零；目标频道其它可见成员 getMemberUnread(channelId,userId).unreadCount 各 +N（item 模式 N=转发条数；独立计算，禁止复制转发者数值）。已修（原为缺口）：relayMessages 每往目标频道 push 一条转发消息即调 applySendUnread（mockImGate.service.ts::relayMessages），发送者归零 + 其它可见成员 +1；收尾 syncChan；created 消息 readBits 长度 = 目标频道 members.length，转发者位 = '1'；接收者位在其 postRead 之前恒 '0'
   Note over UI,Web: 关键负向：前端不得乐观插入（本地 temporaryId ≠ 实现侧新 id，无法去重，会出现重复消息）；不得复制源消息的 readBits / mentions（新消息的已读位图与 @ 必须按目标频道重算，否则未读成员索引错位）；spread / 遍历 postIds 与 targetChannelIds 前必须 filter 掉 undefined，否则会造出 channelId 为 undefined 的脏消息
-  Note over E,Sink: 出站事件集合：postReceived，POST，channelUpdateByPost，UPDATE_CHANNEL；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer
+  Note over E,Sink: 原始事件名（按触发分支）：im:post:received，im:channel:update-by-post；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

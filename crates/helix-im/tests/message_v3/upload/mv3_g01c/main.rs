@@ -178,7 +178,7 @@ fn prepare_outcome(file_id: &str, content_type: &str) -> helix_core::tick::PortO
     let data = json!({
         "isSuccess": true,
         "fileId": file_id,
-        "bucket": "picture",
+        "bucket": if content_type.starts_with("video/") { "attachment" } else { "picture" },
         "method": "PUT",
         "url": format!("https://oss.test/media/{file_id}?signature=short-lived"),
         "uri": format!("media/{file_id}"),
@@ -555,4 +555,183 @@ fn retry_while_upload_chain_is_live_does_not_duplicate_outbound() {
         http_with_suffix(&h, "/posts/create").is_empty(),
         "重发命令不得抢在剩余目标完成前发 posts/create"
     );
+}
+
+/// 回归：默认输入框的单视频和图视频混排必须真实请求字节进度。
+fn start_live_rich_uploads(h: &mut Harness, types: &[&str]) -> Vec<u64> {
+    let files: Vec<Value> = types.iter().enumerate().map(|(index, mime)| json!({
+        "mediaInput": image_input(PATH_A, "media.bin", mime, (index as u64 + 1) * 1024, SHA_A)
+    })).collect();
+    h.step(send_message_cmd_json(json!({
+        "channel_id": cid(1), "temporary_id": "rich-progress", "type": "RICH", "text": "",
+        "props": { "imagePosition": "bottom", "files": files }, "viewers": ["all"], "mentions": []
+    })), 100);
+    h.step(port_reply_ok(stage_corrs(h, "prepare")[0]), 101);
+    let prepares = http_with_suffix(h, "/oss/getPresignedUrl");
+    let mut uploads = Vec::new();
+    for (index, (corr, _)) in prepares.iter().enumerate() {
+        reply(
+            h,
+            *corr,
+            prepare_outcome(&format!("rich-file-{index}"), types[index]),
+            102,
+        );
+        h.step(port_reply_ok(stage_corrs(h, "put")[0]), 103);
+        for effect in h.sink.as_slice() {
+            if let Effect::UploadFile { corr, req } = effect {
+                assert_eq!(
+                    req.progress_policy(),
+                    helix_core::FileUploadProgressPolicy::PercentStep(5)
+                );
+                uploads.push(corr.raw());
+            }
+        }
+    }
+    uploads
+}
+
+/// 从公开 PortProgress seam 推进真实上传百分比，仍不伪造业务事件。
+fn live_progress(h: &mut Harness, corr: u64, percent: u64) {
+    h.step(
+        Tick::PortProgress {
+            corr: Correlation::from_raw(corr),
+            progress: helix_core::FileUploadProgress {
+                completed_bytes: percent,
+                total_bytes: 100,
+            },
+        },
+        104,
+    );
+}
+
+/// 取本轮写入 message 的进度事务，忽略 timeline 查询。
+fn progress_persist(h: &Harness) -> u64 {
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(|op| {
+                    matches!(op,
+            StorageOp::BatchUpsert(spec) if spec.table == "message")
+                }) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("rich progress must persist")
+}
+
+/// 单视频也是 RICH；上传中间进度必须进入附件与加权消息字段。
+#[test]
+fn rich_single_video_persists_live_progress() {
+    let mut h = Harness::new(&[1]);
+    let uploads = start_live_rich_uploads(&mut h, &["video/mp4"]);
+    live_progress(&mut h, uploads[0], 37);
+    let props = persisted_props(&h);
+    assert_eq!(props["files"][0]["uploadProgress"], 35);
+    assert_eq!(props["files"][0]["uploadStatus"], "uploading");
+    assert_eq!(props["uploadProgress"], 35);
+    assert!(
+        h.sink
+            .as_slice()
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Emit { .. })),
+        "no progress event before commit"
+    );
+    let persist = progress_persist(&h);
+    h.step(port_reply_ok(persist), 105);
+    live_progress(&mut h, uploads[0], 35);
+    assert!(
+        h.sink.as_slice().is_empty(),
+        "duplicate progress is a no-op"
+    );
+}
+
+/// 两附件并发进度必须串行提交并保留兄弟状态，失败写入不能释放成功投影。
+#[test]
+fn rich_mixed_progress_serializes_and_weights_committed_bytes() {
+    let mut h = Harness::new(&[1]);
+    let uploads = start_live_rich_uploads(&mut h, &["image/png", "video/mp4"]);
+    live_progress(&mut h, uploads[0], 50);
+    let first = progress_persist(&h);
+    live_progress(&mut h, uploads[1], 25);
+    assert!(
+        h.sink.as_slice().is_empty(),
+        "only one props write per message can be in flight"
+    );
+    live_progress(&mut h, uploads[1], 75);
+    h.step(port_reply_ok(first), 105);
+    let props = persisted_props(&h);
+    assert_eq!(props["files"][0]["uploadProgress"], 50);
+    assert_eq!(props["files"][1]["uploadProgress"], 75);
+    assert_eq!(props["uploadProgress"], 66);
+    assert!(!props.to_string().contains("signature"));
+    assert!(!props.to_string().contains(PATH_A));
+}
+
+/// 失败的进度事务不得污染下一个附件的快照或汇总值。
+#[test]
+fn rich_progress_persist_failure_does_not_publish_uncommitted_sibling() {
+    let mut h = Harness::new(&[1]);
+    let uploads = start_live_rich_uploads(&mut h, &["image/png", "video/mp4"]);
+    live_progress(&mut h, uploads[0], 50);
+    let first = progress_persist(&h);
+    live_progress(&mut h, uploads[1], 75);
+    h.step(port_reply_err(first), 105);
+    let props = persisted_props(&h);
+    assert_eq!(props["files"][0]["uploadProgress"], 0);
+    assert_eq!(props["files"][1]["uploadProgress"], 75);
+    assert_eq!(props["uploadProgress"], 50);
+}
+
+/// PUT 已完成也必须等待进度落盘，之后迟到进度不能覆盖终态。
+#[test]
+fn rich_put_completion_waits_for_progress_and_ignores_late_ticks() {
+    let mut h = Harness::new(&[1]);
+    let uploads = start_live_rich_uploads(&mut h, &["video/mp4"]);
+    live_progress(&mut h, uploads[0], 35);
+    let progress = progress_persist(&h);
+    h.step(port_reply_ok(uploads[0]), 105);
+    assert!(h.sink.as_slice().is_empty());
+    h.step(port_reply_ok(progress), 106);
+    let stage = stage_corrs(&h, "complete")[0];
+    h.step(port_reply_ok(stage), 107);
+    let commit = persist_atomic_corrs(&h)[0];
+    assert_eq!(persisted_props(&h)["files"][0]["uploadProgress"], 100);
+    h.step(port_reply_ok(commit), 108);
+    assert_eq!(http_with_suffix(&h, "/posts/create").len(), 1);
+    live_progress(&mut h, uploads[0], 60);
+    assert!(h.sink.as_slice().is_empty());
+    h.step(port_reply_ok(progress), 109);
+    assert!(
+        h.sink.as_slice().is_empty(),
+        "duplicate persist ACK is ignored"
+    );
+}
+
+/// 兄弟目标失败/完成与进度交错时，不得用旧 props 覆盖新状态。
+#[test]
+fn rich_failure_waits_for_sibling_progress_and_preserves_it() {
+    let mut h = Harness::new(&[1]);
+    let uploads = start_live_rich_uploads(&mut h, &["image/png", "video/mp4"]);
+    live_progress(&mut h, uploads[0], 40);
+    let progress = progress_persist(&h);
+    h.step(port_reply_err(uploads[1]), 105);
+    assert!(h.sink.as_slice().is_empty());
+    h.step(port_reply_ok(progress), 106);
+    let failure = progress_persist(&h);
+    let props = persisted_props(&h);
+    assert_eq!(props["files"][0]["uploadProgress"], 40);
+    assert_eq!(props["files"][1]["uploadStatus"], "failed");
+    live_progress(&mut h, uploads[0], 75);
+    assert!(
+        h.sink.as_slice().is_empty(),
+        "failure write owns the same barrier"
+    );
+    h.step(port_reply_ok(failure), 107);
+    assert_eq!(persisted_props(&h)["files"][1]["uploadStatus"], "failed");
+    assert_eq!(persisted_props(&h)["files"][0]["uploadProgress"], 75);
+    assert!(http_with_suffix(&h, "/posts/create").is_empty());
 }

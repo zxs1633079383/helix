@@ -35,7 +35,7 @@ impl ImModule {
         channel_id: ChannelId,
         target: &UploadTarget,
     ) {
-        if !matches!(target, UploadTarget::File) {
+        if matches!(target, UploadTarget::TemplateImage) {
             return;
         }
         let timeline_readback = self
@@ -47,6 +47,7 @@ impl ImModule {
         self.state.file_upload_progress.insert(
             upload_corr,
             FileUploadProgressState {
+                target: target.clone(),
                 temporary_id,
                 channel_id,
                 timeline_readback,
@@ -89,7 +90,10 @@ impl ImModule {
             return Ok(());
         }
 
-        self.persist_file_upload_progress(upload_corr, percent, out)
+        state.queued_latest = Some(percent);
+        let temporary_id = state.temporary_id.clone();
+        self.enqueue_media_progress(&temporary_id, upload_corr);
+        self.drain_media_writes(&temporary_id, out)
     }
 
     pub(crate) fn handle_file_upload_progress_persist_reply(
@@ -99,7 +103,7 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let (channel_id, timeline_readback, next_percent, committed) = {
+        let (temporary_id, channel_id, timeline_readback, next_percent, committed) = {
             let Some(state) = self.state.file_upload_progress.get_mut(&route.upload_corr) else {
                 return Ok(());
             };
@@ -116,6 +120,7 @@ impl ImModule {
                 .take()
                 .filter(|percent| *percent > state.committed_percent);
             (
+                state.temporary_id.clone(),
                 state.channel_id,
                 state.timeline_readback.clone(),
                 next_percent,
@@ -124,6 +129,16 @@ impl ImModule {
         };
 
         if committed {
+            if let Some(props) = route.props_after {
+                if let Some(body) = self
+                    .state
+                    .pending_sends
+                    .get_mut(&temporary_id)
+                    .and_then(|send| send.body.as_mut())
+                {
+                    body["props"] = props;
+                }
+            }
             let crate::pending_send::TimelineReadbackContext {
                 window_token,
                 causation_id,
@@ -136,7 +151,10 @@ impl ImModule {
             )?;
         }
         if let Some(percent) = next_percent {
-            self.persist_file_upload_progress(route.upload_corr, percent, out)?;
+            if let Some(state) = self.state.file_upload_progress.get_mut(&route.upload_corr) {
+                state.queued_latest = Some(percent);
+            }
+            self.enqueue_media_progress(&temporary_id, route.upload_corr);
         } else if let Some(pending) = self
             .state
             .media_put_after_progress
@@ -159,7 +177,7 @@ impl ImModule {
         }
     }
 
-    fn persist_file_upload_progress(
+    pub(super) fn persist_file_upload_progress(
         &mut self,
         upload_corr: Correlation,
         percent: u8,
@@ -171,7 +189,38 @@ impl ImModule {
             .get(&upload_corr)
             .map(|state| state.temporary_id.clone())
             .ok_or_else(|| ImError::Parse("missing file upload progress state".to_string()))?;
+        let target = self
+            .state
+            .file_upload_progress
+            .get(&upload_corr)
+            .map(|state| state.target.clone())
+            .ok_or_else(|| ImError::Parse("missing progress target".to_string()))?;
+        let mut props_after = None;
+        let op = if matches!(
+            target,
+            UploadTarget::RichImage { .. } | UploadTarget::RichVideo { .. }
+        ) {
+            let mut props = self
+                .state
+                .pending_sends
+                .get(&temporary_id)
+                .and_then(|send| send.body.as_ref())
+                .and_then(|body| body.get("props"))
+                .cloned()
+                .ok_or_else(|| ImError::Parse("missing rich upload props".to_string()))?;
+            target.apply_upload_state(&mut props, "uploading", Some(u64::from(percent)))?;
+            // Only accepted 5% steps reach this bounded (at most MAX_RICH_MEDIA) snapshot;
+            // raw byte callbacks and target lookup remain O(1).
+            let weighted = UploadTarget::message_upload_progress(&props)?;
+            props["uploadProgress"] = serde_json::json!(weighted);
+            let op = crate::pending_send::props_persist_op(&temporary_id, props.to_string());
+            props_after = Some(props);
+            op
+        } else {
+            crate::pending_send::upload_progress_persist_op(&temporary_id, percent)
+        };
         let persist_corr = self.alloc_corr_internal();
+        self.track_media_write(&temporary_id, persist_corr);
         let state = self
             .state
             .file_upload_progress
@@ -181,16 +230,14 @@ impl ImModule {
         self.state.file_upload_progress_persists.insert(
             persist_corr,
             FileUploadProgressPersist {
+                props_after,
                 upload_corr,
                 percent,
             },
         );
         out.push(Effect::Persist {
             corr: persist_corr,
-            ops: vec![crate::pending_send::upload_progress_persist_op(
-                &temporary_id,
-                percent,
-            )],
+            ops: vec![op],
         });
         Ok(())
     }

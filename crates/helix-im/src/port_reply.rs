@@ -18,6 +18,7 @@ mod message_v3_schedule;
 pub(crate) mod message_v3_template;
 pub(crate) mod message_v3_urgent;
 mod progress;
+mod media_write;
 
 impl ImModule {
     fn handle_too_long_reload_reply(
@@ -479,6 +480,7 @@ impl ImModule {
             corr: persist_corr,
             ops,
         });
+        self.track_media_write(&pending.temporary_id, persist_corr);
         self.state.pending_media_completion_persists.insert(
             persist_corr,
             crate::send::upload_props::PendingMediaCompletionCommit {
@@ -704,6 +706,7 @@ impl ImModule {
                 reset_progress,
             )],
         });
+        self.track_media_write(&pending_upload.temporary_id, persist_corr);
         self.state.corr_map.insert(
             persist_corr,
             crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {

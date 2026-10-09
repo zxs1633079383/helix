@@ -1,6 +1,11 @@
 🎯 EXPECT 仅改 Markdown；公共包 pin 与 manifest 0.1.48 一致，补充邀请权限与接龙补全源码边界；链接/索引/Spec 聚焦检查通过，历史缺口单列。 | 赌注 中 | 可逆 是 | @2026-10-10
 - 本任务交接：docs/交接/Markdown日检-20261010/handoff.md
 ✅ DONE 六处版本入口对齐 0.1.48，补充邀请权限与接龙补全边界；本批聚焦检查通过，历史附件与旧 Matrix 漂移单列，整体 PARTIAL；发布结果见交接报告。
+## 2026-10-09 RICH 上传实时进度
+
+🎯 EXPECT 单视频 RICH、混合图片/视频均有 5% 字节进度；逐文件/加权值在 PersistOk 后回读，并发不覆盖终态。基线 helix-v-0.1.48，分支 codex/rich-upload-progress，无 upstream；不改版本、不发布。实现和实机验收分别记录。 | 赌注 中 | 可逆 是
+
+✅ DONE 本地实现、50 项上传回归、1 项实际 HTTP/SQLite/timeline 组合测试和两 crate check 通过。组合测试为合成服务端；真实 Tauri 验收与发布待执行，另两条 post 测试失败未扩修。交接：[RICH 上传进度](docs/交接/rich-upload-progress-20261009.md)。
 
 🎯 EXPECT 接龙 canonical 缺消息体时先读取完整服务端 post，再持久化；非法已读 ID 被过滤，严格 evt 空白迁移幂等且不删真实/临时消息。 | 赌注 中 | 可逆 是 | @2026-10-09
 - 交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/1009-文字接龙已读修复/handoff.md

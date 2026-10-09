@@ -24,7 +24,18 @@ pub use correlation::{
     HydrationPersistSnapshot, MakeTopicProjection, PendingSendReconciliation, SyncTrigger,
 };
 
+/// 同一消息的媒体 props 写入屏障；回包按到达顺序，进度按目标合并。
+#[derive(Default)]
+pub(crate) struct MediaWriteGate {
+    pub owner: Option<helix_core::Correlation>,
+    pub replies: VecDeque<(helix_core::Correlation, helix_core::tick::PortOutcome, u64)>,
+    pub reply_keys: HashSet<helix_core::Correlation>,
+    pub progress: VecDeque<helix_core::Correlation>,
+    pub progress_keys: HashSet<helix_core::Correlation>,
+}
+
 pub(crate) struct FileUploadProgressState {
+    pub target: UploadTarget,
     pub temporary_id: TemporaryId,
     pub channel_id: ChannelId,
     /// PUT 启动时冻结的 readback 上下文；多附件并发时不受后续 retry attempt 覆盖。
@@ -36,6 +47,7 @@ pub(crate) struct FileUploadProgressState {
 }
 
 pub(crate) struct FileUploadProgressPersist {
+    pub props_after: Option<serde_json::Value>,
     pub upload_corr: helix_core::Correlation,
     pub percent: u8,
 }
@@ -68,7 +80,11 @@ pub struct ImState {
         HashMap<helix_core::Correlation, crate::schedule_media::PendingScheduleMedia>,
     pub pending_media_ops: HashMap<helix_core::Correlation, PendingMediaOp>,
 
-    /// 文件 PUT 的 5% 进度合并器；图片不注册。每个 upload corr 至多一条落库在途。
+    /// 同消息的进度/完成/失败写串行化，避免不同存储 worker 交错覆盖 props。
+    pub(crate) media_write_gates: HashMap<TemporaryId, MediaWriteGate>,
+    pub(crate) media_write_owners: HashMap<helix_core::Correlation, TemporaryId>,
+
+    /// 媒体 PUT 的 5% 进度合并器；每目标最多保留一个最新待提交值。
     pub(crate) file_upload_progress: HashMap<helix_core::Correlation, FileUploadProgressState>,
 
     /// 文件 PUT 已成功、但仍有进度 Persist 未回执时暂存终态推进。
@@ -362,6 +378,8 @@ impl ImState {
             pending_uploads: HashMap::new(),
             pending_schedule_media: HashMap::new(),
             pending_media_ops: HashMap::new(),
+            media_write_gates: HashMap::new(),
+            media_write_owners: HashMap::new(),
             file_upload_progress: HashMap::new(),
             media_put_after_progress: HashMap::new(),
             file_upload_progress_persists: HashMap::new(),

@@ -235,11 +235,11 @@ pub fn file_upload_request(
     })
 }
 
-/// 富媒体共用消息级进度，单文件消息保留 5% 的宿主进度回调。
+/// 图片/视频与普通单文件均请求 5% 字节进度；模板保留现有完成态流程。
 fn progress_policy(target: &UploadTarget) -> FileUploadProgressPolicy {
     match target {
-        UploadTarget::RichImage { .. } => FileUploadProgressPolicy::Disabled,
-        UploadTarget::RichVideo { .. } => FileUploadProgressPolicy::Disabled,
+        UploadTarget::RichImage { .. } => FileUploadProgressPolicy::PercentStep(5),
+        UploadTarget::RichVideo { .. } => FileUploadProgressPolicy::PercentStep(5),
         UploadTarget::File => FileUploadProgressPolicy::PercentStep(5),
         UploadTarget::TemplateImage => FileUploadProgressPolicy::Disabled,
     }

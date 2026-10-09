@@ -58,7 +58,7 @@ impl ImModule {
     /// `channel.on_persist_ok` 推 cursor / `OptimisticSend` 找 PendingSend / `ScanCursors`（E4）解析
     /// on_start cursor rows（channel_id TEXT + last_event_seq INTEGER）→ register_channel；随后由
     /// `ScanChannelProjections` 过滤删除/关闭频道后才允许 proactive sync。
-    pub(crate) fn handle_port_reply(
+    pub(super) fn dispatch_port_reply(
         &mut self,
         corr: helix_core::Correlation,
         outcome: &helix_core::tick::PortOutcome,

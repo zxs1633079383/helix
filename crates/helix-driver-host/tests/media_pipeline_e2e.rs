@@ -31,8 +31,8 @@ const RICH_TEMPORARY_ID: &str = "tmp-media-pipeline-rich";
 const FILE_TEMPORARY_ID: &str = "tmp-media-pipeline-file";
 const AUTH_USER_ID: &str = "usfixx00000000000000000001";
 const AUTH_DEVICE_ID: &str = "device-media-pipeline";
-const IMAGE_BODY: &[u8] = b"rich-image-body";
-const IMAGE_SHA256: &str = "f00b8dba93aa1833104e65662acf6a5da7c5d52431e4d70646d6a1c1dde6f291";
+const IMAGE_BODY: &[u8] = &[b'i'; FILE_SIZE];
+const IMAGE_SHA256: &str = "6caf6df341219ac7387e3293f1820ddddf0768412976bfe1560589a54c5f8126";
 const FILE_SIZE: usize = 20 * 64 * 1024;
 const FILE_SHA256: &str = "4f934f8b92b4e461b9ad1a7989c2317fd245b275394c4363d891d8998fcf16c6";
 
@@ -167,14 +167,28 @@ fn progress_from_upsert(spec: &UpsertSpec) -> Vec<PersistedProgress> {
                         _ => None,
                     })
             })?;
-            let percent = row.iter().find_map(|(column, value)| {
-                (column == "upload_progress_percent")
-                    .then_some(value)
-                    .and_then(|value| match value {
-                        SqlValue::Integer(value) => Some(*value),
-                        _ => None,
+            let percent = row
+                .iter()
+                .find_map(|(column, value)| {
+                    (column == "upload_progress_percent")
+                        .then_some(value)
+                        .and_then(|value| match value {
+                            SqlValue::Integer(value) => Some(*value),
+                            _ => None,
+                        })
+                })
+                .or_else(|| {
+                    row.iter().find_map(|(column, value)| {
+                        if column != "props" {
+                            return None;
+                        }
+                        let SqlValue::Text(text) = value else {
+                            return None;
+                        };
+                        let props: Value = serde_json::from_str(text).ok()?;
+                        props.get("uploadProgress").and_then(Value::as_i64)
                     })
-            })?;
+                })?;
             Some(PersistedProgress {
                 temporary_id,
                 percent,
@@ -277,13 +291,19 @@ impl FileUploader for RecordingUploader {
     }
 }
 
-struct NoopSink;
+#[derive(Default)]
+struct RecordingEvents(Mutex<Vec<Value>>);
 
-impl EventSink for NoopSink {
-    fn emit(&self, _: DomainEventBytes) {}
+impl EventSink for RecordingEvents {
+    /// 只记录内核真实 emit 的业务事件，不构造界面进度。
+    fn emit(&self, event: DomainEventBytes) {
+        if let Ok(value) = serde_json::from_slice(&event.0) {
+            self.0.lock().expect("event recorder").push(value);
+        }
+    }
 }
 
-impl BatchSink for NoopSink {}
+impl BatchSink for RecordingEvents {}
 
 #[derive(Clone)]
 struct FixedClock;
@@ -509,10 +529,22 @@ async fn run_oss_server(
 
 async fn run_go_server(listener: TcpListener, post_tx: mpsc::UnboundedSender<usize>) -> Vec<Value> {
     let mut posts = Vec::with_capacity(2);
-    for ordinal in 1..=2 {
+    while posts.len() < 2 {
         let (mut stream, _) = listener.accept().await.expect("accept Go request");
         let request = read_http_request(&mut stream).await;
         assert_eq!(request.method, "POST");
+        // 0.1.48 的权威发送对账可触发增量补水；此隔离服务明确返回空增量。
+        if request.target == "/go/channel/load/incrementByChannelId" {
+            write_json_response(&mut stream, &json!({ "status": "SUCCESS", "data": [] })).await;
+            continue;
+        }
+        if request.target == "/go/posts/getLatestPost" {
+            write_json_response(&mut stream, &json!({
+                "status": "SUCCESS", "data": { "posts": [], "hasOlder": false, "hasNewer": false }
+            })).await;
+            continue;
+        }
+        let ordinal = posts.len() + 1;
         assert_eq!(request.target, "/go/posts/create");
         assert_eq!(
             request.headers.get("cookieid").map(String::as_str),
@@ -583,8 +615,8 @@ fn rich_command(local_path: &str) -> Tick {
                 "height": 600 + index,
                 "mediaInput": {
                     "localPath": local_path,
-                    "fileName": format!("image-{index}.png"),
-                    "contentType": "image/png",
+                    "fileName": format!("media-{index}.bin"),
+                    "contentType": if index % 2 == 0 { "image/png" } else { "video/mp4" },
                     "size": IMAGE_BODY.len(),
                     "sha256": IMAGE_SHA256
                 }
@@ -595,7 +627,7 @@ fn rich_command(local_path: &str) -> Tick {
         "channel_id": CHANNEL_ID,
         "allocated_temporary_id": RICH_TEMPORARY_ID,
         "type": "rich",
-        "text": "nine images",
+        "text": "nine mixed media files",
         "props": {
             "imagePosition": "bottom",
             "files": files
@@ -706,14 +738,15 @@ fn assert_media_go_body(body: &Value) {
         )],
         other => panic!("unexpected Go media type: {other:?}"),
     };
-    let expected_bucket = if body["type"] == "RICH" {
-        "picture"
-    } else {
-        "attachment"
-    };
-    assert!(references
-        .iter()
-        .all(|(bucket, uri)| *bucket == expected_bucket && uri.starts_with("media/file-")));
+    for (index, (bucket, uri)) in references.iter().enumerate() {
+        let expected = if body["type"] == "RICH" && index % 2 == 0 {
+            "picture"
+        } else {
+            "attachment"
+        };
+        assert_eq!(*bucket, expected);
+        assert!(uri.starts_with("media/file-"));
+    }
     assert!(!serialized.contains("\"url\""));
 }
 
@@ -797,6 +830,25 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
         .await
         .expect("open media pipeline SQLite");
     apply_im_schema(&host_storage).await;
+    // 与真实客户端启动扫描相同：先有当前用户/公司的持久频道归属，事件才可出渲染围栏。
+    host_storage
+        .batch_upsert(UpsertSpec::new(
+            "channel",
+            vec![vec![
+                ("id".to_string(), SqlValue::Text(CHANNEL_ID.to_string())),
+                (
+                    "team_id".to_string(),
+                    SqlValue::Text("tmfixx00000000000000000001".to_string()),
+                ),
+                (
+                    "user_id".to_string(),
+                    SqlValue::Text(AUTH_USER_ID.to_string()),
+                ),
+            ]],
+            Some("id"),
+        ))
+        .await
+        .expect("seed durable channel scope");
     let storage = RecordingStorage::new(host_storage.clone()); // hot-path-audit: ignore -- shared test handle
 
     let shared_http = SharedHttpClient::new(
@@ -811,7 +863,7 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
         .expect("inject platform device identity");
     let auth = AuthTokenRegistry::new();
     auth.set_session("cookieId", AUTH_USER_ID);
-    let event_sink = Arc::new(NoopSink);
+    let event_sink = Arc::new(RecordingEvents::default());
     let http = CrossCuttingHttp::new(
         shared_http,
         Arc::clone(&event_sink),
@@ -854,7 +906,7 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
         storage: Arc::new(storage.clone()), // hot-path-audit: ignore -- recorder handle
         http: Arc::new(http),
         uploader: Arc::new(uploader.clone()), // hot-path-audit: ignore -- recorder handle
-        event_sink,
+        event_sink: Arc::clone(&event_sink),
         clock: FixedClock,
         trace: TraceHooks::noop(),
         metrics: Arc::new(NoopMetricSink),
@@ -875,6 +927,32 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
         .await;
     });
 
+    tick_tx
+        .send(Tick::Command(helix_core::tick::AppCommand::new(
+            "im_query_messages_by_channel",
+            serde_json::to_vec(
+                &json!({ "channel_id": CHANNEL_ID, "pageSize": 20, "windowToken": "latest" }),
+            )
+            .unwrap(),
+        )))
+        .await
+        .expect("attach real timeline query");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if event_sink
+                .0
+                .lock()
+                .expect("timeline readiness")
+                .iter()
+                .any(|event| event["event"] == "im:timeline:ready")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("timeline must attach before sending media");
     tick_tx
         .send(rich_command(
             image_path.to_str().expect("UTF-8 rich image fixture path"),
@@ -897,16 +975,58 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
         ))
         .await
         .expect("send rich authoritative echo");
-    assert!(
-        uploader.progress_snapshot().is_empty(),
-        "rich image uploads must not install a progress reporter"
+    let rich_bytes = uploader.progress_snapshot();
+    let reported_targets = rich_bytes
+        .iter()
+        .map(|(key, _)| key)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        reported_targets.len(),
+        9,
+        "each image/video must register a byte reporter"
     );
+    assert!(rich_bytes
+        .iter()
+        .any(|(_, progress)| progress.completed_bytes < progress.total_bytes));
+    let rich_progress = storage
+        .progress_snapshot()
+        .into_iter()
+        .filter(|progress| progress.temporary_id == RICH_TEMPORARY_ID)
+        .map(|progress| progress.percent)
+        .collect::<Vec<_>>();
     assert!(
-        storage
-            .progress_snapshot()
+        rich_progress
             .iter()
-            .all(|progress| progress.temporary_id != RICH_TEMPORARY_ID || progress.percent == 0),
-        "rich image completion must not create percentage progress writes"
+            .any(|percent| (1..100).contains(percent)),
+        "RICH SQLite must record intermediate weighted progress: {rich_progress:?}"
+    );
+    assert_eq!(rich_progress.last(), Some(&100));
+    assert!(
+        rich_progress.windows(2).all(|pair| pair[0] <= pair[1]),
+        "RICH progress must not regress: {rich_progress:?}"
+    );
+    let recorded_events = event_sink.0.lock().expect("recorded events").clone();
+    assert!(
+        recorded_events.iter().any(|event| {
+            matches!(
+                event["event"].as_str(),
+                Some("im:timeline:ready" | "im:timeline:update")
+            ) && event["data"]["messages"]
+                .as_array()
+                .is_some_and(|messages| {
+                    messages.iter().any(|message| {
+                        message["temporaryId"] == RICH_TEMPORARY_ID
+                            && message["props"]["files"].as_array().is_some_and(|files| {
+                                files.iter().any(|file| {
+                                    file["uploadProgress"]
+                                        .as_u64()
+                                        .is_some_and(|value| value > 0 && value < 100)
+                                })
+                            })
+                    })
+                })
+        }),
+        "actual timeline readback must deliver intermediate per-file progress: {recorded_events:?}"
     );
 
     tick_tx
@@ -1024,7 +1144,7 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
         raw_file_progress
             .iter()
             .all(|(object_key, _)| object_key.starts_with("media/file-")),
-        "only the FILE upload may install the progress reporter"
+        "all media reporters use their own object identity"
     );
 
     let file_progress = storage

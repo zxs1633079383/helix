@@ -303,6 +303,12 @@ fn insert_viewer_capabilities(output: &mut Map<String, Value>, row: &Value) {
         persisted_bool(row, &["can_manage_settings", "canManageSettings"]).unwrap_or(can_edit);
     let can_manage_members =
         persisted_bool(row, &["can_manage_members", "canManageMembers"]).unwrap_or(derived_members);
+    // 邀请与移除独立：从服务端字段或持久化的已确认角色生成，Angular 不推导角色。
+    let ordinary_group = matches!(pick(row, &["type"]).as_str(), Some("P" | "G"));
+    let invite_role = matches!(role.as_deref(), Some("CREATOR" | "MANAGER" | "MEMBER" | "BOSS"));
+    let can_invite_members = ordinary_group
+        && persisted_bool(row, &["can_invite_members", "canInviteMembers"])
+            .unwrap_or(invite_role);
     let can_mention_all =
         persisted_bool(row, &["can_mention_all", "canMentionAll"]).unwrap_or(derived_mention);
     let can_publish_notice =
@@ -312,6 +318,7 @@ fn insert_viewer_capabilities(output: &mut Map<String, Value>, row: &Value) {
             .unwrap_or(change_role);
     let can_pin_message = pick(row, &["type"]).as_str() != Some("D")
         && persisted_bool(row, &["can_pin_message", "canPinMessage"]).unwrap_or(derived_top);
+    output.insert("canInviteMembers".to_string(), Value::Bool(can_invite_members));
     output.insert("canEditChannelSettings".to_string(), Value::Bool(can_edit));
     output.insert(
         "canManageSettings".to_string(),
@@ -787,6 +794,20 @@ mod tests {
         assert_eq!(shaped[7]["urgentCount"], 0);
         assert_eq!(shaped[6]["urgentCount"], 6);
         assert_eq!(shaped[19]["urgentCount"], 19);
+    }
+
+    /// 普通成员的邀请与移除能力必须独立，旧持久化角色也能生成邀请投影。
+    #[test]
+    fn invitation_is_independent_from_member_management() {
+        let member = shape_channel_row(&json!({"id":"c", "type":"P", "role":"MEMBER"}));
+        assert_eq!(member["canInviteMembers"], true);
+        assert_eq!(member["canManageMembers"], false);
+        for kind in ["O", "D", "T"] {
+            let row = shape_channel_row(&json!({"type":kind,"role":"MEMBER"}));
+            assert_eq!(row["canInviteMembers"], false);
+        }
+        let denied = shape_channel_row(&json!({"type":"P","role":"MEMBER","canInviteMembers":false}));
+        assert_eq!(denied["canInviteMembers"], false);
     }
 
     /// Channel pages expose the Go-equivalent absolute capabilities for every persisted viewer role.

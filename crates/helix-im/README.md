@@ -5,7 +5,7 @@
 
 ```toml
 [dependencies]
-helix-im = "=0.1.46"
+helix-im = "=0.1.47"
 ```
 
 本项目采用 `MIT OR Apache-2.0` 双许可证。
@@ -77,3 +77,14 @@ BOSS 角色，成员离场由 `memberChange.leave` 表达，不能从空角色�
 `cargo test -p helix-im --test channel_empty_semantics_regression_test`、
 `cargo test -p helix-driver-host --test channel_empty_semantics_sqlite`。
 上述测试入口已核对源码与 Cargo 注册，本次纯文档日检未执行 Rust 或真实业务链验收。
+
+## 统一失败来源
+
+[`failure_context.rs`](src/failure_context.rs) 在 Module 边界关联命令、HTTP 路径或 WS action、
+阶段、`req_id` 与 `corr`；只保存来源元数据，已释放请求的最近来源最多保留 256 项，
+stop/身份切换清空关联。成功事件跳过失败解析，失败保留机器原因码，按事件合同补充
+错误文本或 `errorContext`；固定 `-failed` 事件不新增字段，只在已有 `message` 中附加
+宿主注入的 `[trace_id=…]`，没有 TraceId 时保留其原始 bytes。
+
+TraceId 来自 core 的当前 step 诊断，不由业务模块创建；HTTP/WS/业务错误回归入口为
+`cargo test -p helix-im --test failure_context_test`。本次核对实现与测试入口，未重跑测试或验收远端失败链。

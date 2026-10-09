@@ -29,7 +29,7 @@
 ## Storage 约定
 
 - HostStorage：一个 writer 连接（N=1）+ 目标支持共享 reader 时的 ReadPool（N=4），共享 WAL；Persist per-table-set 保持 N=1，batch_upsert 整批一事务（E2，写放大 ~1.0x）。
-- 本 crate 是 SystemTime/线程等 ambient API 的**唯一合法落点**（clippy 在此 allow）
+- SystemTime/线程等 ambient API 位于平台驱动边缘；本 crate 与共享 `helix-driver-host` 均可使用，core/业务模块仍只接收注入值（如 host 的 `src/otel.rs` 与 `src/engine.rs`）。
 - rows→bytes / HTTP envelope JSON 约定真源在 `helix-driver-host`（`codec` / `http_envelope`）；本 crate engine_loop 仅 re-export 转出，helix-im 反序列化端必须对齐
 
 ## 改动验收

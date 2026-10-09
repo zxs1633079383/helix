@@ -1,3 +1,7 @@
+🎯 EXPECT 本轮只改 Markdown；公共包示例对齐 0.1.47，补充源码已存在的有界失败诊断；版本/链接/索引/Spec 和 diff 聚焦检查通过，历史缺口单列。 | 赌注 中 | 可逆 是 | @2026-10-09
+- 本任务交接：docs/交接/Markdown日检-20261009/handoff.md
+✅ DONE 四公共包版本、失败诊断 API/配置和 Native ambient 边界已对齐；聚焦检查通过，历史附件与旧 Matrix 漂移单列，整体 PARTIAL；发布结果见交接所指报告。
+
 🎯 EXPECT 仅修正文档中的三仓流程漂移；92 Gate ID/Phase/Domain 保持匹配，94 张 Mermaid 均可解析，已迁移客户端路径引用清零（保留现存 message.component.ts）。 | 赌注 中 | 可逆 是 | @2026-10-09
 - 交接：docs/交接/三仓流程图对齐/handoff.md
 ✅ DONE 85 张图修正；92 Gate 分母/领域与224处源码引用通过，最终94图渲染通过；源码与真实验收边界见交接，未push。 | @2026-10-09

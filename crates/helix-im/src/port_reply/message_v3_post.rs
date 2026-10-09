@@ -165,6 +165,11 @@ impl ImModule {
             ));
         }
         let corr = self.alloc_corr_internal();
+        if crate::ws::handlers::channel_stream_event::requires_chain_post_hydration(&event) {
+            return crate::ws::handlers::channel_stream_event::queue_or_hydrate_stream_commit(
+                &mut self.state, corr, event, self.config.api_base_url.as_str(), out,
+            );
+        }
         if !requires_viewer {
             crate::ws::handlers::channel_stream_event::queue_stream_commit(
                 &mut self.state,

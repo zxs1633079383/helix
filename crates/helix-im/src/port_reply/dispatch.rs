@@ -276,6 +276,9 @@ impl ImModule {
             } => {
                 self.handle_message_v3_post_persist_reply(*event, *received_data, outcome, out)?;
             }
+            CorrelationContext::CanonicalChainPostHydration { event } => {
+                self.handle_chain_post_hydration_reply(*event, outcome, out)?;
+            }
             CorrelationContext::CanonicalStreamPersist { event } => {
                 self.handle_canonical_stream_persist_reply(*event, outcome, out)?;
             }

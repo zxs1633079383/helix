@@ -134,6 +134,9 @@ pub struct ImState {
 
     /// 已通过 durable projection 的 chain eventId；重复 WS authority 不再重放。
     pub(crate) seen_chain_event_ids: HashSet<String>,
+    /// 接龙完整消息投影与专用 chain 投影独立去重，避免双路到达顺序影响消息补全。
+    pub(crate) seen_chain_post_event_ids: HashSet<String>,
+    pub(crate) pending_chain_post_event_ids: HashSet<String>,
 
     /// 已进入 PersistAtomic 但尚未收到 PersistOk 的 chain eventId；拦截 HTTP/WS 竞态重复写入。
     pub(crate) pending_chain_event_ids: HashSet<String>,
@@ -379,6 +382,8 @@ impl ImState {
             category_chain: crate::category_chain::State::default(),
             chain_mutations: HashMap::new(),
             seen_chain_event_ids: HashSet::new(),
+            seen_chain_post_event_ids: HashSet::new(),
+            pending_chain_post_event_ids: HashSet::new(),
             pending_chain_event_ids: HashSet::new(),
             chain_revisions: HashMap::new(),
             reply_projection_revisions: HashMap::new(),
@@ -474,6 +479,8 @@ impl ImState {
         self.reply_projection_revisions.clear();
         self.reply_projection_seen_ids.clear();
         self.seen_chain_event_ids.clear();
+        self.seen_chain_post_event_ids.clear();
+        self.pending_chain_post_event_ids.clear();
         self.pending_chain_event_ids.clear();
         self.chain_revisions.clear();
         self.reset_transport_query_session();
@@ -550,6 +557,8 @@ impl ImState {
         self.committed_post_reads.clear();
         self.chain_mutations.clear();
         self.seen_chain_event_ids.clear();
+        self.seen_chain_post_event_ids.clear();
+        self.pending_chain_post_event_ids.clear();
         self.pending_chain_event_ids.clear();
         self.chain_revisions.clear();
         self.announcement_versions.clear();
@@ -603,6 +612,7 @@ impl ImState {
                     | CorrelationContext::MemberProjectionPersist { .. }
                     | CorrelationContext::MemberProjectionReadback { .. }
                     | CorrelationContext::CanonicalStreamPersist { .. }
+                    | CorrelationContext::CanonicalChainPostHydration { .. }
                     | CorrelationContext::NotifyChannelPersist { .. }
                     | CorrelationContext::DialogListQuery { .. }
                     | CorrelationContext::SubtopicsQuery { .. }

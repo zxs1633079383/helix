@@ -13,6 +13,18 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        // 普通消息只借用 eventId；仅旧接龙缺 eventId 的边界才分配复合去重键。
+        let hydration_key = if event.event_id.is_empty() && event.fields.msg_type == "TEXT_CHAIN" {
+            std::borrow::Cow::Owned(
+                crate::ws::handlers::channel_stream_event::chain_post_event_key(&event),
+            )
+        } else {
+            std::borrow::Cow::Borrowed(event.event_id.as_str())
+        };
+        let hydrated = self
+            .state
+            .pending_chain_post_event_ids
+            .remove(hydration_key.as_ref());
         self.diagnose(crate::diagnostics::Observation {
             event: "delivery_stage",
             stage: "persist_terminal",
@@ -36,6 +48,11 @@ impl ImModule {
             return Ok(());
         }
 
+        if hydrated {
+            self.state
+                .seen_chain_post_event_ids
+                .insert(hydration_key.into_owned());
+        }
         let terminal = matches!(
             &event.kind,
             crate::sync_session::EventKind::ChannelTerminalClosed
@@ -63,16 +80,17 @@ impl ImModule {
                 .unwrap_or((false, None));
             if let Some(next) = next {
                 let corr = self.alloc_corr_internal();
-                crate::ws::handlers::channel_stream_event::queue_stream_commit(
+                crate::ws::handlers::channel_stream_event::queue_or_hydrate_stream_commit(
                     &mut self.state,
                     corr,
                     next,
+                    self.config.api_base_url.as_str(),
                     out,
-                );
+                )?;
             }
             committed
         };
-        if !committed {
+        if !committed && !hydrated {
             return Ok(());
         }
         self.diagnose_checkpoint(event.channel_id, "persist_committed");
@@ -85,6 +103,74 @@ impl ImModule {
             && !matches!(&event.kind, crate::sync_session::EventKind::Other(_))
         {
             out.push(crate::channel::emit_for_canonical_kind(&event));
+        }
+        Ok(())
+    }
+
+    /// 验证 posts/get 的业务状态、消息身份、频道与可见性，成功后提交同一事件的完整消息。
+    pub(super) fn handle_chain_post_hydration_reply(
+        &mut self,
+        mut event: crate::sync_session::EventEnvelope,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let result = (|| {
+            let PortOutcome::Ok(reply) = outcome else {
+                return Err(ImError::Parse(
+                    "chain post hydration transport failed".to_string(),
+                ));
+            };
+            let body =
+                crate::http_envelope::unwrap_success_envelope(reply.0.as_ref(), "posts/get")?;
+            let posts = super::dispatch_read::parse_exact_posts_body(&body)?;
+            let post_id = event.msg_id.as_deref().unwrap_or_default();
+            let fields = posts
+                .iter()
+                .map(crate::ws::parser::extract_post_fields)
+                .find(|fields| fields.id == post_id)
+                .ok_or_else(|| {
+                    ImError::Parse("chain post hydration missing requested post".to_string())
+                })?;
+            if self.config.auth_user_id.is_empty()
+                || fields.channel_id != event.channel_id.as_str()
+                || fields.msg_type != "TEXT_CHAIN"
+                || fields.user_id.is_empty()
+                || fields.create_at <= 0
+                || !crate::channel_write::post_updates_from_fields(
+                    event.channel_id,
+                    &fields,
+                    self.config.auth_user_id.as_str(),
+                )
+                .visible
+            {
+                return Err(ImError::Parse(
+                    "chain post hydration invalid scope or body".to_string(),
+                ));
+            }
+            Ok(fields)
+        })();
+        match result {
+            Ok(fields) => {
+                event.fields = fields;
+                let corr = self.alloc_corr_internal();
+                crate::ws::handlers::channel_stream_event::queue_stream_commit(
+                    &mut self.state,
+                    corr,
+                    event,
+                    out,
+                );
+            }
+            Err(error) => {
+                self.state.pending_chain_post_event_ids.remove(
+                    &crate::ws::handlers::channel_stream_event::chain_post_event_key(&event),
+                );
+                tracing::warn!(error = ?error, "chain post hydration rejected; recover through channel sync");
+                if let Some(channel) = self.state.channels.get_mut(&event.channel_id) {
+                    if event.seq > channel.cursor.value() {
+                        channel.restore_message_v3_post(event, out);
+                    }
+                }
+            }
         }
         Ok(())
     }

@@ -26,8 +26,28 @@ impl WsMessageHandler for ChannelStreamEventHandler {
         let Some(event) = parse_stream_event(frame.data_required()?, ctx.auth_user_id)? else {
             return Ok(());
         };
+        let needs_hydration = requires_chain_post_hydration(&event);
+        if needs_hydration {
+            let key = chain_post_event_key(&event);
+            if ctx.state.pending_chain_post_event_ids.contains(&key)
+                || ctx.state.seen_chain_post_event_ids.contains(&key)
+            {
+                return Ok(());
+            }
+        }
         let channel_id = event.channel_id;
         let seq = event.seq;
+        // 专用接龙投影可能先推进共享 cursor；完整 message 事实仍须独立补全。
+        if needs_hydration
+            && ctx
+                .state
+                .channels
+                .get(&channel_id)
+                .is_some_and(|channel| channel.cursor.value() >= seq)
+        {
+            let corr = ctx.alloc_corr();
+            return queue_or_hydrate_stream_commit(ctx.state, corr, event, ctx.api_base_url, out);
+        }
         let admitted = ctx
             .state
             .channels
@@ -36,11 +56,77 @@ impl WsMessageHandler for ChannelStreamEventHandler {
             .admit_message_v3_post(event, out)?;
         if let Some(event) = admitted {
             let corr = ctx.alloc_corr();
-            queue_stream_commit(ctx.state, corr, event, out);
+            queue_or_hydrate_stream_commit(ctx.state, corr, event, ctx.api_base_url, out)?;
         }
         super::gate::trigger_backfill_if_large_gap(ctx, channel_id, seq, out);
         Ok(())
     }
+}
+
+/// 只为没有完整 post 的文字接龙 type1 获取消息事实；普通消息、redacted 和终态保持原路径。
+pub(crate) fn requires_chain_post_hydration(event: &EventEnvelope) -> bool {
+    !event.redacted
+        && matches!(event.kind, EventKind::PostUpsert)
+        && event.fields.id.is_empty()
+        && serde_json::from_str::<serde_json::Value>(&event.event_payload)
+            .ok()
+            .and_then(|payload| {
+                payload
+                    .get("action")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            })
+            .is_some_and(|action| action.starts_with("im:post_chain:"))
+}
+
+/// 去重键只关联当前事件，不能充当消息主键。
+pub(crate) fn chain_post_event_key(event: &EventEnvelope) -> String {
+    if event.event_id.is_empty() {
+        format!("{}:{}", event.channel_id.as_str(), event.seq.0)
+    } else {
+        event.event_id.clone()
+    }
+}
+
+/// 复用 posts/get 的出站协议，完整消息读取成功前不生成空白 upsert 或 cursor commit。
+pub(crate) fn queue_or_hydrate_stream_commit(
+    state: &mut ImState,
+    corr: Correlation,
+    event: EventEnvelope,
+    api_base_url: &str,
+    out: &mut EffectSink,
+) -> Result<(), ImError> {
+    if !requires_chain_post_hydration(&event) {
+        queue_stream_commit(state, corr, event, out);
+        return Ok(());
+    }
+    let post_id = event
+        .msg_id
+        .as_deref()
+        .filter(|id| crate::state::is_canonical_post_id(id))
+        .ok_or_else(|| ImError::Parse("chain stream requires canonical msg_id".to_string()))?;
+    let effects = crate::commands::handle_outbound(
+        "im_get_posts",
+        &serde_json::to_vec(&serde_json::json!({"post_ids":[post_id]}))
+            .map_err(|error| ImError::Serialize(error.to_string()))?,
+        api_base_url,
+        "",
+        state.connection_id.as_deref(),
+        corr,
+    )?;
+    state
+        .pending_chain_post_event_ids
+        .insert(chain_post_event_key(&event));
+    state.corr_map.insert(
+        corr,
+        CorrelationContext::CanonicalChainPostHydration {
+            event: Box::new(event),
+        },
+    );
+    for effect in effects {
+        out.push(effect);
+    }
+    Ok(())
 }
 
 pub(crate) fn queue_stream_commit(

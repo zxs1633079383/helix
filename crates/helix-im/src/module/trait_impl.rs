@@ -828,6 +828,24 @@ impl ImModule {
 
     /// 账号切换与停止共用读请求终态；先删除 corr，迟到回包不可重新发布。
     fn cancel_pending_reads(&mut self, out: &mut EffectSink) {
+        // 接龙消息补全没有 UI req_id；停止/切换身份时撤销私有读取及连续槽位，迟到回包无副作用。
+        let pending_chain_posts = &mut self.state.pending_chain_post_event_ids;
+        let channels = &mut self.state.channels;
+        self.state.corr_map.retain(|_, context| {
+            if let CorrelationContext::CanonicalChainPostHydration { event } = context {
+                pending_chain_posts.remove(
+                    &crate::ws::handlers::channel_stream_event::chain_post_event_key(event),
+                );
+                if let Some(channel) = channels.get_mut(&event.channel_id) {
+                    if channel.pending_stream_seq == Some(event.seq) {
+                        channel.pending_stream_seq = None;
+                    }
+                }
+                false
+            } else {
+                true
+            }
+        });
         self.cancel_bookmark_count(out);
         let mut cancelled_reads: Vec<_> = self
             .state

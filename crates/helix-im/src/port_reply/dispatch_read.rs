@@ -2165,7 +2165,7 @@ fn durable_row_matches_readback_key(
 }
 
 /// 解析 Go `posts/get` 的 SUCCESS 信封业务体；只接受数组，空数组表示合法零命中。
-fn parse_exact_posts_body(raw: &[u8]) -> Result<Vec<Value>, ImError> {
+pub(super) fn parse_exact_posts_body(raw: &[u8]) -> Result<Vec<Value>, ImError> {
     let root: Value = serde_json::from_slice(raw)
         .map_err(|error| ImError::Parse(format!("posts/get body: {error}")))?;
     let status = root

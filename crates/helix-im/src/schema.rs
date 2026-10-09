@@ -635,4 +635,6 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     clean_message_identity_column!("channel_member", "last_post"),
     clean_message_identity_column!("channel_pinned_projection", "body"),
     "CREATE TABLE IF NOT EXISTS im_recent_history (scope TEXT NOT NULL, kind TEXT NOT NULL, items TEXT NOT NULL DEFAULT '[]', PRIMARY KEY (scope, kind))",
+    // 旧接龙通用帧产生的纯空白事件行；精确键和空内容限制保护真实消息及在途发送。
+    "DELETE FROM message WHERE id = '' AND channel_id <> '' AND event_seq > 0 AND temporary_id = 'evt:' || channel_id || ':' || event_seq AND type = 'TEXT' AND send_status = 'sent' AND user_id = '' AND team_id = '' AND message = '' AND simple_message = '' AND create_at = 0 AND update_at = 0 AND props IN ('', '{}') AND read_bits = '' AND snapshot_id = '' AND user_snapshot = '' AND reply_count = 0 AND revoke = 0",
 ];

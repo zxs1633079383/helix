@@ -217,6 +217,11 @@ pub enum CorrelationContext {
 
     /// Canonical WS stream event write barrier. The event is released only after its
     /// message/cursor (or terminal tombstone/cursor) transaction commits.
+    /// 接龙通用帧缺少完整 post 时，按服务端 msg_id 补全后才进入消息写屏障。
+    CanonicalChainPostHydration {
+        event: Box<crate::sync_session::EventEnvelope>,
+    },
+
     CanonicalStreamPersist {
         event: Box<crate::sync_session::EventEnvelope>,
     },

@@ -246,3 +246,64 @@ fn canonical_stream_projection_and_cursor_share_one_atomic_write() {
             | StorageOp::Scan(_)
     )));
 }
+
+/// 离线重放仍从 messages 快照取完整 post，并在同一事务保存 chain 事实和 cursor。
+#[test]
+fn chain_sync_replay_persists_complete_message_and_chain_facts() {
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    let corr = drive_sync_pull(&mut h);
+    let summary = serde_json::json!({"chainId":"chain-one", "channelId":cid(1), "mode":"TEXT",
+        "status":"PUBLISHED", "title":"吃饭啦", "creatorId":"author", "teamId":"tenant-1", "revision":2});
+    let raw = serde_json::to_vec(&serde_json::json!({"status":"SUCCESS", "data":{"entries":[{
+        "channelId":cid(1), "kind":"events", "nextSeq":1, "membershipState":"active", "epochStartSeq":1,
+        "memberProjection":{"channelId":cid(1), "userId":"viewer-444", "projectionRevision":2,
+            "effectId":"chain-effect-1", "unreadCount":1, "unreadPostId":sid(1), "lastReadSeq":0},
+        "streamEvents":[{"channelId":cid(1), "streamSeq":1, "eventId":"chain-sync-1", "eventType":1,
+            "msgId":sid(1), "actorId":"author", "redacted":false,
+            "payload":{"action":"im:post_chain:upsert", "channelId":cid(1), "chainSummary":summary,
+                "chainEntry":{"entryId":"entry-one", "chainId":"chain-one", "channelId":cid(1),
+                    "postId":sid(1), "authorId":"author", "teamId":"tenant-1", "text":"小胡不吃", "seq":1, "createdAt":100}}}],
+        "messages":{sid(1):{"id":sid(1), "channelId":cid(1), "userId":"author", "teamId":"tenant-1",
+            "type":"TEXT_CHAIN", "message":"小胡不吃", "viewers":["all"], "createAt":100,
+            "props":{"chain":{"chainId":"chain-one", "mode":"TEXT", "messageRole":"PARTICIPANT"}}}}
+    }]}})).unwrap();
+    let effects = h.step(port_reply_with_body(corr, enveloped(raw.into())), 3000);
+    let persist = effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::PersistAtomic(c) = e {
+                Some(*c)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let writes = format!("{:?}", h.sink.as_slice());
+    assert!(
+        writes.contains("chain_summary")
+            && writes.contains("chain_entry")
+            && writes.contains("TEXT_CHAIN")
+            && writes.contains("小胡不吃"),
+        "{writes}"
+    );
+    assert!(!writes.contains("evt:"));
+    assert!(!effects.contains(&EffectKind::Emit));
+    h.step(port_reply_ok(persist), 3001);
+    let events: Vec<serde_json::Value> = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|e| {
+            if let helix_core::Effect::Emit { event } = e {
+                Some(serde_json::from_slice(&event.0).unwrap())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(
+        events.iter().any(|e| e["event"] == "im:post_chain:upsert"),
+        "{events:?}"
+    );
+    assert_eq!(h.module.cursor_for(channel_id(1)), Some(1));
+}

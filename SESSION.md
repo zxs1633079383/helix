@@ -1,3 +1,7 @@
+🎯 EXPECT 接龙 canonical 缺消息体时先读取完整服务端 post，再持久化；非法已读 ID 被过滤，严格 evt 空白迁移幂等且不删真实/临时消息。 | 赌注 中 | 可逆 是 | @2026-10-09
+- 交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/1009-文字接龙已读修复/handoff.md
+✅ DONE 本地实现与47前端、15流/sync、2真实SQLite及三端编译检查通过；5条历史空白行已备份清理。真实Tauri/部署/发布未执行，代码身份和证据见交接。 | @2026-10-09
+
 🎯 EXPECT 本轮只改 Markdown；公共包示例对齐 0.1.47，补充源码已存在的有界失败诊断；版本/链接/索引/Spec 和 diff 聚焦检查通过，历史缺口单列。 | 赌注 中 | 可逆 是 | @2026-10-09
 - 本任务交接：docs/交接/Markdown日检-20261009/handoff.md
 ✅ DONE 四公共包版本、失败诊断 API/配置和 Native ambient 边界已对齐；聚焦检查通过，历史附件与旧 Matrix 漂移单列，整体 PARTIAL；发布结果见交接所指报告。

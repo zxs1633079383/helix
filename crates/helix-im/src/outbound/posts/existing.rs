@@ -77,6 +77,10 @@ impl OutboundCommand for RevokeCommand {
     fn name(&self) -> &'static str {
         "im_revoke"
     }
+    // 写请求也需要关联 HTTP 结果；撤回事实仍由持久化 WS 回声提供。
+    fn is_read(&self) -> bool {
+        true
+    }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         let post_id = require_str(args, "post_id", self.name())?;
         Ok(("posts/revoke", json!({ "postId": post_id })))

@@ -6,7 +6,7 @@
 //! 1. 读命令（`is_read=true`，含 Search Gate 四件套）dispatch 后注册
 //!    `CorrelationContext::OutboundReadReply{req_id}` → HTTP 回报时 emit `im:read:result{req_id,body}`
 //!    **透传后端响应体**（后端返回什么吐什么）。
-//! 2. 写命令（`is_read=false`）**不**注册回灌上下文 → HTTP 回报无 corr 命中 → 静默 no-op（数据走 WS 回声）。
+//! 2. 撤回写请求复用 `is_read=true` 回传 HTTP 结果；消息撤回事实仍由 WS 持久化确认。
 //! 3. HTTP 失败 / 信封畸形 → emit `im:read:result{req_id,error}`（不丢 req_id 关联，前端 reject）。
 //!
 //! ## 可证伪性（HX-C011）
@@ -473,35 +473,68 @@ fn locate_post_without_attached_timeline_emits_no_raw_projection() {
 
 // ─── 不变量 2：写命令不注册回灌（fire-and-forget）────────────────────────────────
 
+/// 撤回需要服务端业务结果，HTTP 受理不生成本地撤回事实；重复回包不重复终态。
 #[test]
-fn write_command_does_not_register_relay() {
-    // 前置：revoke 是写族（撤回，数据更新走 WS 回声）。
-    assert!(
-        commands::is_outbound("im_revoke"),
-        "im_revoke 必为 outbound"
-    );
-    assert!(!commands::is_read("im_revoke"), "im_revoke 必非读族（写）");
+fn revoke_relays_authoritative_result_once() {
+    assert!(commands::is_read("im_revoke"));
+    for status in ["SUCCESS", "FAILURE"] {
+        let mut h = Harness::new(&[]);
+        h.step(
+            outbound_cmd(
+                "im_revoke",
+                serde_json::json!({
+                    "post_id": "p1", "req_id": "rq-revoke"
+                }),
+            ),
+            1000,
+        );
+        let corr = http_corr(&h.sink).expect("revoke Http");
+        assert!(emit_json(&h.sink).is_none());
+        let body = serde_json::json!({"status": status, "message": "消息发送已满两分钟，不能撤回"});
+        let raw = bytes::Bytes::from(serde_json::to_vec(&body).unwrap());
+        h.step(port_reply_with_body(corr, enveloped(raw.clone())), 1001);
+        let events = emit_jsons(&h.sink);
+        let result = events
+            .iter()
+            .find(|v| v["event"] == "im:read:result")
+            .expect("correlated reply");
+        assert_eq!(result["data"]["req_id"], "rq-revoke");
+        if status == "SUCCESS" {
+            assert_eq!(result["data"]["body"], body);
+        } else {
+            assert!(result["data"]["error"]
+                .to_string()
+                .contains("消息发送已满两分钟，不能撤回"));
+        }
+        assert!(!h
+            .sink
+            .as_slice()
+            .iter()
+            .any(|e| matches!(e, Effect::Persist { .. })));
+        h.step(port_reply_with_body(corr, enveloped(raw)), 1002);
+        assert!(emit_json(&h.sink).is_none());
+    }
+}
 
+/// 网络错误也必须结束同一撤回请求，不伪造撤回成功。
+#[test]
+fn revoke_transport_failure_relays_error_once() {
     let mut h = Harness::new(&[]);
-
-    // ① 喂写命令（即使带 req_id，写族也不注册回灌）。
-    let cmd = outbound_cmd(
-        "im_revoke",
-        serde_json::json!({ "post_id": "p1", "req_id": "rq-w" }),
+    h.step(
+        outbound_cmd(
+            "im_revoke",
+            serde_json::json!({"post_id": "p1", "req_id": "rq-revoke"}),
+        ),
+        1000,
     );
-    h.step(cmd, 1000);
-    let corr = http_corr(&h.sink).expect("写命令 dispatch 必产 Effect::Http");
-
-    // ② HTTP 回报：corr 未注册回灌上下文 → handle_port_reply 单次 remove 查不到 → 静默 no-op。
-    let raw = bytes::Bytes::from(br#"{"status":"SUCCESS"}"#.to_vec());
-    let kinds = h.step(port_reply_with_body(corr, enveloped(raw)), 1001);
-
-    // ③ 断言：无任何 emit（写族 ack 可丢，数据走 WS 回声，不回灌）。
-    assert!(
-        !kinds.iter().any(|k| matches!(k, EffectKind::Emit)),
-        "写命令 HTTP 回报不应 emit（fire-and-forget）"
-    );
-    assert!(emit_json(&h.sink).is_none(), "写命令 HTTP 回报零 Emit");
+    let corr = http_corr(&h.sink).expect("revoke Http");
+    h.step(port_reply_err(corr), 1001);
+    let v = emit_json(&h.sink).expect("error result");
+    assert_eq!(v["event"], "im:read:result");
+    assert_eq!(v["data"]["req_id"], "rq-revoke");
+    assert!(v["data"]["error"].is_string());
+    h.step(port_reply_err(corr), 1002);
+    assert!(emit_json(&h.sink).is_none());
 }
 
 // ─── 不变量 3：HTTP 失败 / 信封畸形 → emit error（不丢 req_id）─────────────────────
@@ -763,7 +796,6 @@ fn is_read_marks_read_family_only() {
     }
     // 写族 / 排除项 → 非读。
     for name in [
-        "im_revoke",
         "im_urgent_post",
         "im_team_upsert",
         "im_team_member_add",

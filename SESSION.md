@@ -1,3 +1,7 @@
+🎯 EXPECT im_revoke 复用结构化 HTTP 结果回传，成功/拒绝/传输失败均关联 req_id，重复响应不重复终态；不改版本或发布。 | 赌注 中 | 可逆 是 | @2026-10-10
+- 交接：docs/交接/revoke-deadline-20261010.md
+✅ DONE 37项读回、9项registry与crate check通过；真实桌面/Go部署单列未验证，已授权发布0.1.51，发布对账见交接。
+
 🎯 EXPECT 仅改 Markdown；公共包 pin 与 manifest 0.1.48 一致，补充邀请权限与接龙补全源码边界；链接/索引/Spec 聚焦检查通过，历史缺口单列。 | 赌注 中 | 可逆 是 | @2026-10-10
 - 本任务交接：docs/交接/Markdown日检-20261010/handoff.md
 ✅ DONE 六处版本入口对齐 0.1.48，补充邀请权限与接龙补全边界；本批聚焦检查通过，历史附件与旧 Matrix 漂移单列，整体 PARTIAL；发布结果见交接报告。

@@ -1,3 +1,7 @@
+🎯 EXPECT 仅改 Markdown；公共包 pin 与 manifest 0.1.48 一致，补充邀请权限与接龙补全源码边界；链接/索引/Spec 聚焦检查通过，历史缺口单列。 | 赌注 中 | 可逆 是 | @2026-10-10
+- 本任务交接：docs/交接/Markdown日检-20261010/handoff.md
+✅ DONE 六处版本入口对齐 0.1.48，补充邀请权限与接龙补全边界；本批聚焦检查通过，历史附件与旧 Matrix 漂移单列，整体 PARTIAL；发布结果见交接报告。
+
 🎯 EXPECT 接龙 canonical 缺消息体时先读取完整服务端 post，再持久化；非法已读 ID 被过滤，严格 evt 空白迁移幂等且不删真实/临时消息。 | 赌注 中 | 可逆 是 | @2026-10-09
 - 交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/1009-文字接龙已读修复/handoff.md
 ✅ DONE 本地实现与47前端、15流/sync、2真实SQLite及三端编译检查通过；5条历史空白行已备份清理。真实Tauri/部署/发布未执行，代码身份和证据见交接。 | @2026-10-09

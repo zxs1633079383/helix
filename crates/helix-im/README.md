@@ -5,7 +5,7 @@
 
 ```toml
 [dependencies]
-helix-im = "=0.1.47"
+helix-im = "=0.1.48"
 ```
 
 本项目采用 `MIT OR Apache-2.0` 双许可证。
@@ -88,3 +88,27 @@ stop/身份切换清空关联。成功事件跳过失败解析，失败保留机
 
 TraceId 来自 core 的当前 step 诊断，不由业务模块创建；HTTP/WS/业务错误回归入口为
 `cargo test -p helix-im --test failure_context_test`。本次核对实现与测试入口，未重跑测试或验收远端失败链。
+
+## 邀请与成员管理权限
+
+[`query/render_ready/channel.rs`](src/query/render_ready/channel.rs) 独立输出
+`canInviteMembers` 与 `canManageMembers`。邀请只面向 `P` / `G` 类型：优先读取
+`can_invite_members` / `canInviteMembers` 显式值；缺省时由已确认的
+`CREATOR` / `MANAGER` / `MEMBER` / `BOSS` 角色生成。显式 false 保留，
+`O` / `D` / `T` 类型不开放该邀请能力；普通 MEMBER 可邀请不等于可管理成员。
+定向回归入口：`cargo test -p helix-im --lib invitation_is_independent_from_member_management`。
+
+## 文字接龙消息补全
+
+[`channel_stream_event.rs`](src/ws/handlers/channel_stream_event.rs) 对未 redacted、
+`PostUpsert` 且缺完整 post ID 的 `im:post_chain:*` 事件，通过 `im_get_posts`
+读取权威消息；事件 ID 只作去重键，不能替代消息主键。即使专用接龙投影已推进 cursor，
+完整消息仍可独立补全。
+
+[`dispatch_core.rs`](src/port_reply/dispatch_core.rs) 校验 `posts/get` 业务状态、请求消息 ID、
+频道、`TEXT_CHAIN` 类型、作者、创建时间及可见性后才进入原持久化路径；读取失败不提交
+空白消息，恢复交给频道同步。成功 Emit 仍受 matching PersistOk 约束。
+定向回归入口：`cargo test -p helix-im --test stream_persist_barrier`、
+`cargo test -p helix-im --test http6_sync_reply_unwrap_test chain_sync_replay`。
+
+以上两节仅核对当前实现及回归测试源码；本轮未执行 Rust 测试、真实 Go 或客户端 UI 验收。

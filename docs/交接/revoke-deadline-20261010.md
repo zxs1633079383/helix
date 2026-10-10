@@ -21,3 +21,7 @@
 - Go 定向数据库回归通过，采用本任务独立本机 cses_im_test；主 Go checkout 原有书签重复定义阻塞编译，测试使用 HEAD 加本批文件的隔离源码快照。
 - 客户端 107 项定向 Jest、18 项 native command、类型/lint/包边界通过；真实桌面服务端拒绝场景尚未验证。
 - 用户已授权 patch 发布；发布结果继续追加。未部署 Go 服务端，未 push。
+
+## 发布对账
+
+四公共crate 0.1.51均上传crates.io并可解析。版本提交d61ff5931499b534e33f902ce1cc3c4cc845375d，与注释Tag helix-v-0.1.51指向相同；源码提交2ffeffc2。客户端manifest/lock均接入0.1.51。八crate check、wasm build、core测试通过。未push。

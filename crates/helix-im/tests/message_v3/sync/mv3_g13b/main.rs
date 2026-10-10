@@ -1,9 +1,13 @@
 //! MV3-G13b：单频道 hydration 的唯一终态、持久屏障和 RuntimeAuth 隔离。
 
+#[path = "../../../common.rs"]
+mod common;
+
 use bytes::Bytes;
 use helix_core::effect::{Effect, SqlValue, StorageOp};
 use helix_core::tick::{AppCommand, PortError, PortOutcome, ReplyBytes};
 use helix_core::{Correlation, EffectSink, Module, Tick};
+use helix_im::state::ChannelId;
 use helix_im::{ImConfig, ImModule};
 use serde_json::{json, Value};
 
@@ -17,6 +21,45 @@ const INCREMENT_NEEDS_SYNC_BODY_B64: &str = "eyJkYXRhIjp7ImlkIjoiY2hmaXh4MDAwMDA
 const NULL_BODY_B64: &str = "eyJkYXRhIjpudWxsfQ==";
 const SYNC_NO_CHANGE_BODY_B64: &str = "eyJzdGF0dXMiOiJTVUNDRVNTIiwiZGF0YSI6eyJlbnRyaWVzIjpbeyJjaGFubmVsSWQiOiJjaGZpeHgwMDAwMDAwMDAwMDAwMDAwMDAzYiIsImtpbmQiOiJub19jaGFuZ2UiLCJldmVudHMiOltdLCJuZXh0U2VxIjoyfV19fQ==";
 const SYNC_EVENTS_BODY_B64: &str = "eyJzdGF0dXMiOiJTVUNDRVNTIiwiZGF0YSI6eyJlbnRyaWVzIjpbeyJjaGFubmVsSWQiOiJjaGZpeHgwMDAwMDAwMDAwMDAwMDAwMDAzYiIsImtpbmQiOiJldmVudHMiLCJldmVudHMiOlt7ImlkIjoiZXZ0MSIsImNoYW5uZWxJZCI6ImNoZml4eDAwMDAwMDAwMDAwMDAwMDAwMDNiIiwiZXZlbnRTZXEiOjEsImV2ZW50VHlwZSI6MSwibXNnSWQiOiJtc2cxIiwiYWN0b3JJZCI6ImF1dGhvciIsImNyZWF0ZUF0IjoxNzAwMDAwMDAwMDAwLCJtZXNzYWdlIjoiaGVsbG8iLCJ1c2VySWQiOiJhdXRob3IifV0sIm5leHRTZXEiOjEsIm1lc3NhZ2VzIjp7Im1zZzEiOnsiaWQiOiJtc2cxIiwiY2hhbm5lbElkIjoiY2hmaXh4MDAwMDAwMDAwMDAwMDAwMDAwM2IiLCJ1c2VySWQiOiJhdXRob3IiLCJtZXNzYWdlIjoiaGVsbG8iLCJjcmVhdGVBdCI6MTcwMDAwMDAwMDAwMH19fV19fQ==";
+
+/// 按 Go wire 构造的合成 `too_long` 响应；通过 ADR-007 envelope 回灌到公开 PortReply seam。
+fn too_long_body() -> Bytes {
+    Bytes::from(
+        serde_json::to_vec(&json!({
+            "status": "SUCCESS",
+            "data": {
+                "entries": [{
+                    "channelId": CHANNEL,
+                    "kind": "too_long",
+                    "events": [],
+                    "nextSeq": Value::Null,
+                    "resetTo": 100
+                }]
+            }
+        }))
+        .expect("too_long fixture must serialize"),
+    )
+}
+
+/// 权威首屏窗口；eventSeq=100 用于验证 reset cursor 与窗口同批落库。
+fn latest_posts_body() -> Bytes {
+    Bytes::from(
+        serde_json::to_vec(&json!({
+            "status": "SUCCESS",
+            "data": { "posts": [{
+                "id": "g13b-post-100",
+                "channelId": CHANNEL,
+                "eventSeq": 100,
+                "userId": "author",
+                "type": "TEXT",
+                "message": "authoritative hydration window",
+                "createAt": 1_700_000_100_i64,
+                "viewers": [VIEWER]
+            }] }
+        }))
+        .expect("latest-post fixture must serialize"),
+    )
+}
 
 /// 驱动真实 `ImModule::handle`，不旁路 outbound 或 PortReply owner。
 struct Replay {
@@ -104,10 +147,26 @@ impl Replay {
         })
     }
 
+    /// 回灌裸 Go body；sync 与 latest-post 均经过真实 ADR-007 解层。
+    fn reply_http_body(&mut self, corr: Correlation, body: Bytes) -> Result<(), String> {
+        self.step(Tick::PortReply {
+            corr,
+            outcome: PortOutcome::Ok(ReplyBytes(common::enveloped(body))),
+        })
+    }
+
     /// 返回当前 batch 中的 sync/notify HTTP correlation。
     fn sync_corr(&self) -> Option<Correlation> {
         self.sink.as_slice().iter().find_map(|effect| match effect {
             Effect::Http { corr, req } if req.url.ends_with("/channel/sync/notify") => Some(*corr),
+            _ => None,
+        })
+    }
+
+    /// 返回 TooLong 后 Helix 主动发起的权威 latest-post HTTP correlation。
+    fn latest_reload_corr(&self) -> Option<Correlation> {
+        self.sink.as_slice().iter().find_map(|effect| match effect {
+            Effect::Http { corr, req } if req.url.ends_with("/posts/getLatestPost") => Some(*corr),
             _ => None,
         })
     }
@@ -168,6 +227,11 @@ impl Replay {
 
     /// 顺序回放 channel/member/message/cursor 四段 durable read-back。
     fn complete_readback(&mut self) -> Result<(), String> {
+        self.complete_readback_with_cursor(0)
+    }
+
+    /// 使用指定的 durable cursor 完成 hydration 读回，覆盖 TooLong 提交后的窗口。
+    fn complete_readback_with_cursor(&mut self, cursor: i64) -> Result<(), String> {
         for _ in 0..4 {
             let (corr, table) = self
                 .sink
@@ -211,7 +275,7 @@ impl Replay {
                 "message" => json!([]),
                 "channel_event_cursor" => json!([{
                     "channel_id": CHANNEL,
-                    "last_event_seq": 0,
+                    "last_event_seq": cursor,
                 }]),
                 other => return Err(format!("unexpected hydration read-back table {other}")),
             };
@@ -580,5 +644,171 @@ fn concurrent_hydration_preserves_primary_on_persist_failure_and_readback_join(
         assert_eq!(events[0]["data"]["req_id"], "first");
         assert!(events.iter().all(|e| e["data"]["error"].is_null()));
     }
+    Ok(())
+}
+
+/// TooLong hydration 必须保持请求 pending，拉权威窗口并把窗口与 cursor 放入同一屏障。
+#[test]
+fn hydration_too_long_waits_for_latest_window_and_matching_persist_ok() -> Result<(), String> {
+    let mut replay = Replay::new();
+    let increment = replay.start(CHANNEL)?;
+    replay.reply_http(increment, INCREMENT_NEEDS_SYNC_BODY_B64)?;
+    replay.reply_persist_ok(replay.persist_corr().expect("increment persist"))?;
+    let sync = replay.sync_corr().expect("hydration sync");
+
+    replay.reply_http_body(sync, too_long_body())?;
+    assert!(
+        replay
+            .events()
+            .iter()
+            .all(|event| event["event"] != "im:read:result"),
+        "TooLong hydration must remain pending without a user read error; got {:?}",
+        replay.events()
+    );
+    let reload = replay
+        .latest_reload_corr()
+        .expect("TooLong hydration must issue posts/getLatestPost");
+    let reload_request = replay
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, req } if *corr == reload => Some(req),
+            _ => None,
+        })
+        .expect("latest-post request must be present");
+    let reload_body: Value = serde_json::from_slice(
+        reload_request
+            .body
+            .as_ref()
+            .expect("latest-post request body")
+            .as_ref(),
+    )
+    .expect("latest-post request body must be JSON");
+    assert_eq!(reload_body["channelId"], CHANNEL);
+    assert_eq!(reload_body["timestamp"], 0);
+
+    replay.reply_http_body(reload, latest_posts_body())?;
+    assert!(
+        replay
+            .events()
+            .iter()
+            .all(|event| event["event"] != "im:read:result"),
+        "latest window admission must not complete hydration before PersistOk"
+    );
+    let reload_persist = replay.persist_corr().expect("latest window PersistAtomic");
+    let ops = replay
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, ops } if *corr == reload_persist => Some(ops),
+            _ => None,
+        })
+        .expect("matching latest window PersistAtomic");
+    assert!(
+        ops.iter().any(|op| matches!(
+            op,
+            StorageOp::BatchUpsert(spec) if spec.table == "message"
+        )),
+        "latest window and cursor must persist the authoritative message"
+    );
+    assert!(
+        ops.iter().any(|op| matches!(
+            op,
+            StorageOp::MonotonicUpsert(spec) if spec.table == "channel_event_cursor"
+        )),
+        "latest window and cursor must share one PersistAtomic"
+    );
+    assert_eq!(
+        replay
+            .module
+            .cursor_for(ChannelId::from_str(CHANNEL).expect("channel fixture")),
+        Some(0),
+        "PersistOk 前不得提交 hydration cursor"
+    );
+
+    replay.reply_persist_ok(reload_persist)?;
+    assert_eq!(
+        replay
+            .module
+            .cursor_for(ChannelId::from_str(CHANNEL).expect("channel fixture")),
+        Some(100),
+        "matching PersistOk 后才提交 authoritative cursor"
+    );
+    assert!(replay.events().is_empty(), "readback 前不得完成 hydration");
+    replay.complete_readback_with_cursor(100)?;
+    let terminal: Vec<_> = replay
+        .events()
+        .into_iter()
+        .filter(|event| event["event"] == "im:read:result")
+        .collect();
+    assert_eq!(terminal.len(), 1, "hydration 必须只有一个成功终态");
+    assert!(terminal[0]["data"]["error"].is_null());
+    assert_eq!(terminal[0]["data"]["body"]["cursor"], 100);
+
+    replay.reply_persist_ok(reload_persist)?;
+    assert!(
+        replay.events().is_empty(),
+        "旧/重复 PersistOk 不得越过 hydration 屏障再次完成"
+    );
+    Ok(())
+}
+
+/// TooLong 权威窗口 PersistErr 必须保留旧 cursor，且只释放一次真实失败终态。
+#[test]
+fn hydration_too_long_persist_error_fails_once_without_commit() -> Result<(), String> {
+    let mut replay = Replay::new();
+    let increment = replay.start(CHANNEL)?;
+    replay.reply_http(increment, INCREMENT_NEEDS_SYNC_BODY_B64)?;
+    replay.reply_persist_ok(replay.persist_corr().expect("increment persist"))?;
+    let sync = replay.sync_corr().expect("hydration sync");
+    replay.reply_http_body(sync, too_long_body())?;
+    assert!(
+        replay
+            .events()
+            .iter()
+            .all(|event| event["event"] != "im:read:result"),
+        "TooLong hydration must not fail before latest-window persistence"
+    );
+    let reload = replay
+        .latest_reload_corr()
+        .expect("TooLong hydration must issue posts/getLatestPost");
+
+    replay.reply_http_body(reload, latest_posts_body())?;
+    let reload_persist = replay.persist_corr().expect("latest window PersistAtomic");
+    assert!(replay.events().is_empty());
+    assert_eq!(
+        replay
+            .module
+            .cursor_for(ChannelId::from_str(CHANNEL).expect("channel fixture")),
+        Some(0),
+        "PersistErr 前不得提交 authoritative cursor"
+    );
+
+    replay.reply_err(reload_persist)?;
+    let terminal: Vec<_> = replay
+        .events()
+        .into_iter()
+        .filter(|event| event["event"] == "im:read:result")
+        .collect();
+    assert_eq!(
+        terminal.len(),
+        1,
+        "PersistErr 必须只释放一次 hydration error"
+    );
+    assert!(terminal[0]["data"]["error"].is_string());
+    assert_eq!(
+        replay
+            .module
+            .cursor_for(ChannelId::from_str(CHANNEL).expect("channel fixture")),
+        Some(0),
+        "PersistErr 不得提交 authoritative cursor"
+    );
+    replay.reply_err(reload_persist)?;
+    assert!(
+        replay.events().is_empty(),
+        "旧/重复 PersistErr 不得再次释放 hydration error"
+    );
     Ok(())
 }

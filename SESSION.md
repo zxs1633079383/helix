@@ -263,6 +263,10 @@ PARTIAL：源码硬闸门/自动补水/用户库迁移已落地；render13、内
 
 ## 0909 分类开发合并候选
 
+🎯 EXPECT Hydration TooLong不提前read error且PersistOk后唯一完成；客户端取消不弹错/不回写，现有代码在focused行为断言失败。仅红测。 | 赌注 中 | 可逆 是 | @2026-10-10
+- 交接：/Users/xpa-12/.codex/worktrees/hydration-cancel-red/cses-client/docs/交接/1010-会话恢复红测/handoff.md
+✅ DONE 红测34项中8个预期失败、26通过；Hydration提前read error及客户端取消/回写/弹错缺口已定位，仅修改测试。未修复/发布，证据与屏障未执行边界见交接。 | @2026-10-10
+
 本地隔离候选合并开发 11cbbaf8 与分类 32eec39c。五 crate check、IM lib 414、分类 39、重连 6、stress 3、Host 分类 6/guard 3、FFI parity 4 通过。保留开发发送终态、成员投影与事件序列守卫，保留分类版本守卫和事件读回。H3、新增非法 revision 回归与 Native 分类真实链仍须继续合入验收；未推送。
 
 ✅ DONE 消息摘要统一归 Helix，补齐系统通知末条及有界嵌套 forwardDetail；客户端已接入本地 0.1.16 修复副本。摘要、发送、频道与嵌套定向回归及 Native 实测通过；按用户授权提交源码，不提版、不推送、不发布。超大嵌套字节限制与按需展开暂缓。 | @2026-09-10

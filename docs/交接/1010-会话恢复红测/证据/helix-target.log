@@ -1,0 +1,98 @@
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `project_page` is never used
+   --> crates/helix-im/src/channel_sync.rs:321:15
+    |
+321 | pub(crate) fn project_page(
+    |               ^^^^^^^^^^^^
+
+warning: function `carry_into` is never used
+   --> crates/helix-im/src/outbound/posts/read.rs:102:15
+    |
+102 | pub(super) fn carry_into(
+    |               ^^^^^^^^^^
+
+warning: function `timeline_navigation_direction` is never used
+    --> crates/helix-im/src/port_reply/dispatch_read.rs:1990:4
+     |
+1990 | fn timeline_navigation_direction(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `dialog_member_scan_spec` is never used
+   --> crates/helix-im/src/query/core.rs:245:15
+    |
+245 | pub(crate) fn dialog_member_scan_spec(auth_user_id: &str) -> ScanSpec {
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DIALOG_MEMBER_QUERY_ORDER` is never used
+   --> crates/helix-im/src/query/core.rs:306:7
+    |
+306 | const DIALOG_MEMBER_QUERY_ORDER: &[ScanOrder] = &[];
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `emit_timeline_navigation_page` is never used
+    --> crates/helix-im/src/query/local_first.rs:1001:19
+     |
+ 160 | impl ImModule {
+     | ------------- method in this implementation
+...
+1001 |     pub(crate) fn emit_timeline_navigation_page(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `merge_recent_rows` is never used
+   --> crates/helix-im/src/query/local_first/data.rs:534:15
+    |
+534 | pub(super) fn merge_recent_rows(
+    |               ^^^^^^^^^^^^^^^^^
+
+warning: function `shape_channel_rows` is never used
+   --> crates/helix-im/src/query/render_ready/channel.rs:661:15
+    |
+661 | pub(crate) fn shape_channel_rows(rows: &Value) -> Value {
+    |               ^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 9 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.04s
+     Running tests/message_v3/sync/mv3_g13b/main.rs (/System/Volumes/Data/workspace/angular/visual/helix/target/debug/deps/message_v3_mv3_g13b-0b20e7ad01f799c9)
+
+running 14 tests
+test hydration_http_failure_is_single_terminal_error ... ok
+test hydration_terminal_is_idempotent_for_late_reply ... ok
+test hydration_missing_channel_is_one_null_result_without_storage_write ... ok
+test hydration_increment_persists_viewer_unread_authority_before_history ... ok
+test hydration_http_waits_for_channel_member_persist_and_has_no_legacy_emit ... ok
+test hydration_channel_member_failure_preserves_terminal_boundary ... ok
+
+thread 'hydration_too_long_persist_error_fails_once_without_commit' (1452528) panicked at crates/helix-im/tests/message_v3/sync/mv3_g13b/main.rs:767:5:
+TooLong hydration must not fail before latest-window persistence
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'hydration_too_long_waits_for_latest_window_and_matching_persist_ok' (1452529) panicked at crates/helix-im/tests/message_v3/sync/mv3_g13b/main.rs:660:5:
+TooLong hydration must remain pending without a user read error; got [Object {"data": Object {"error": String("[command=im_channel_load_increment_by_channel_id source=HTTP POST /api/cses/channel/sync/notify stage=http req_id=increment-hydration-1 corr=3] hydration sync requires TooLong recovery"), "req_id": String("increment-hydration-1")}, "event": String("im:read:result")}]
+test hydration_sync_failure_is_single_terminal_error ... ok
+test hydration_too_long_waits_for_latest_window_and_matching_persist_ok ... FAILED
+test hydration_too_long_persist_error_fails_once_without_commit ... FAILED
+test hydration_need_sync_waits_for_sync_then_readback ... ok
+test hydration_no_sync_releases_one_typed_result_only ... ok
+test concurrent_hydration_resolves_every_request ... ok
+test hydration_events_use_atomic_history_cursor_without_business_events ... ok
+test concurrent_hydration_preserves_primary_on_persist_failure_and_readback_join ... ok
+
+failures:
+
+failures:
+    hydration_too_long_persist_error_fails_once_without_commit
+    hydration_too_long_waits_for_latest_window_and_matching_persist_ok
+
+test result: FAILED. 12 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p helix-im --test message_v3_mv3_g13b`

@@ -1,3 +1,10 @@
+🎯 EXPECT 合并仅引入 Markdown，保留撤回源码与 0.1.51 版本事务；分支及发布 Tag 推送后远端 SHA 一致。分支 reactor/MessageV3-helix，upstream origin/reactor/MessageV3-helix；本轮不删除分支。 | 赌注 低 | 可逆 是 | @2026-10-11
+- 交接：docs/交接/revoke-deadline-20261010.md
+
+🎯 EXPECT 仅修改 Markdown；六处版本入口对齐 manifest 0.1.50，补充上传进度持久化与窗口回读边界；链接/索引/Spec 聚焦检查通过，历史缺口单列。 | 赌注 中 | 可逆 是 | @2026-10-11
+- 本任务交接：docs/交接/Markdown日检-20261011/handoff.md
+✅ DONE 六处版本入口与 RICH 上传进度说明已对齐；聚焦检查通过，历史缺口单列，整体 PARTIAL；最终发布结果见交接所指报告。
+
 🎯 EXPECT im_revoke 复用结构化 HTTP 结果回传，成功/拒绝/传输失败均关联 req_id，重复响应不重复终态；不改版本或发布。 | 赌注 中 | 可逆 是 | @2026-10-10
 - 交接：docs/交接/revoke-deadline-20261010.md
 ✅ DONE 37项读回、9项registry与crate check通过；真实桌面/Go部署单列未验证，已授权发布0.1.51，发布对账见交接。

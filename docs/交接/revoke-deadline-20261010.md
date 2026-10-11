@@ -25,3 +25,7 @@
 ## 发布对账
 
 四公共crate 0.1.51均上传crates.io并可解析。版本提交d61ff5931499b534e33f902ce1cc3c4cc845375d，与注释Tag helix-v-0.1.51指向相同；源码提交2ffeffc2。客户端manifest/lock均接入0.1.51。八crate check、wasm build、core测试通过。未push。
+
+## 2026-10-11 远端同步
+
+用户明确授权合并远端文档提交、push，并要求发布新版供客户端应用（交付范围待确认）。合并 `8c193292`，保留双方任务记录；六处当前版本入口对齐现有 manifest 的 0.1.51。合并不更改业务源码、Cargo manifest 或 Cargo.lock；推送结果在本轮证据目录独立记录。既有注释 Tag `helix-v-0.1.51` 保留原发布提交，不移动。

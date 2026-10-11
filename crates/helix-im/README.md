@@ -5,7 +5,7 @@
 
 ```toml
 [dependencies]
-helix-im = "=0.1.48"
+helix-im = "=0.1.50"
 ```
 
 本项目采用 `MIT OR Apache-2.0` 双许可证。
@@ -112,3 +112,20 @@ TraceId 来自 core 的当前 step 诊断，不由业务模块创建；HTTP/WS/�
 `cargo test -p helix-im --test http6_sync_reply_unwrap_test chain_sync_replay`。
 
 以上两节仅核对当前实现及回归测试源码；本轮未执行 Rust 测试、真实 Go 或客户端 UI 验收。
+
+## RICH 图片与视频上传进度
+
+[`send/upload_props/request.rs`](src/send/upload_props/request.rs) 对普通文件、RICH 图片与视频
+请求 `PercentStep(5)` 字节进度；模板图片仍为 `Disabled`。RICH 逐文件进度写入对应
+`files[]` 节点，消息级 `uploadProgress` 按文件 `size` 加权，规则见
+[`send/upload_props/state.rs`](src/send/upload_props/state.rs)。
+
+[`port_reply/media_write.rs`](src/port_reply/media_write.rs) 按 temporary id 串行化同消息的
+媒体进度、完成与失败写入；在途写入期间保留最新进度，排队的终态回包优先处理。
+[`port_reply/progress.rs`](src/port_reply/progress.rs) 仅在匹配的持久化成功回执后更新已提交
+进度并触发 timeline 回读。普通发送未携带 window token 时解析当前实际附着窗口；
+显式重试 token 仍绑定原窗口，不能把字面值 `latest` 当作当前窗口别名。
+
+定向入口为 `cargo test -p helix-im --test message_v3_mv3_g01c` 与
+`cargo test -p helix-driver-host --test media_pipeline_e2e`；本轮仅核对源码和测试入口，
+未执行测试，也不据此宣称真实 Tauri UI 上传进度已验收。

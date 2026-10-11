@@ -5,7 +5,7 @@ timer、事件投递与执行循环适配器。
 
 ```toml
 [dependencies]
-helix-driver-host = "=0.1.48"
+helix-driver-host = "=0.1.50"
 ```
 
 本项目采用 `MIT OR Apache-2.0` 双许可证。

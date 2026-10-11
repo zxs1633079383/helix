@@ -1,5 +1,6 @@
 🎯 EXPECT patch 0.1.52 四公共包发布并可解析，九份 manifest/lock 完整提交且注释 Tag 与远端一致；客户端四个精确依赖/lock 接入同版，不纳入其他脏文件。 | 赌注 中 | 可逆 上传否 | @2026-10-11
 - 交接：docs/交接/helix-0.1.52/handoff.md
+✅ DONE 四公共包 0.1.52 已发布并可解析；发布 commit 与注释 Tag 建立，制品源码/校验和已核对。客户端接入验证与最终 push 回执见交接；真实桌面未验收。
 
 🎯 EXPECT 合并仅引入 Markdown，保留撤回源码与 0.1.51 版本事务；分支及发布 Tag 推送后远端 SHA 一致。分支 reactor/MessageV3-helix，upstream origin/reactor/MessageV3-helix；本轮不删除分支。 | 赌注 低 | 可逆 是 | @2026-10-11
 - 交接：docs/交接/revoke-deadline-20261010.md

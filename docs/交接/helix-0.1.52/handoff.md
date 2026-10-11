@@ -12,13 +12,17 @@
 
 ## 当前状态
 
-PREPARED：合并与发布计划检查通过，0.1.52 尚未上传。发布后立即精确提交九份 manifest/lock 并建立注释 Tag，再核对 registry、远端分支和 Tag SHA。
+RELEASED：四公共包 0.1.52 均上传 crates.io 并可解析。发布脚本完成八 crate check 和四包 dry-run；九份 manifest/lock 已提交为 `7a953edac69cad7fbcfd00416629cb960a4c475f`，注释 Tag `helix-v-0.1.52` 指向该提交。四包归档的源码、README 与原始 manifest 逐字节对应发布提交，制品 SHA 已保存。分支及新 Tag 的最终远端核验在本轮推送回执记录。
 
 客户端只更新四个精确依赖及对应 Cargo.lock；保护工作区已有撤回实现、未跟踪的动态库实验和其他任务文件。客户端源码接入、定向验证、真实桌面验收与桌面制品分别记录。
 
 ## 验证与证据
 
 - 合并：Markdown-only、无冲突、六处当前版本入口和新增本地链接断言、git diff --cached --check 通过。Rust 源码和依赖未变，复用已有撤回定向证据。
-- 发布脚本执行八 crate check、逐包 dry-run、依赖顺序上传及 registry 可解析核验；最终结果待追加。
+- 发布脚本执行八 crate check、逐包 dry-run、依赖顺序上传及 registry 可解析核验；四包均通过，日志见 `release-0.1.52.log`。
 - 本轮命令、registry 与推送响应在本仓 `artifacts/helix-merge-publish-20261011/`。
 - 当前未证明真实 Tauri 到已部署 Go 的撤回链路，也未构建桌面安装包。
+
+## 客户端接入
+
+客户端四个精确依赖和 lock 已升级为 0.1.52，四个 registry checksum 与本轮上传 `.crate` 的 SHA-256 相同；其他 lock 依赖及此前待提交源码均保持不变。客户端定向 native 验证正在执行，最终结果和独立依赖提交另行记录。未生成桌面安装包。

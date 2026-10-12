@@ -167,7 +167,11 @@ impl ImModule {
         let corr = self.alloc_corr_internal();
         if crate::ws::handlers::channel_stream_event::requires_chain_post_hydration(&event) {
             return crate::ws::handlers::channel_stream_event::queue_or_hydrate_stream_commit(
-                &mut self.state, corr, event, self.config.api_base_url.as_str(), out,
+                &mut self.state,
+                corr,
+                event,
+                self.config.api_base_url.as_str(),
+                out,
             );
         }
         if !requires_viewer {
@@ -233,7 +237,8 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let channel = match channel_update_from_member_readback(outcome) {
+        let channel = match channel_update_from_member_readback(outcome, &self.config.auth_user_id)
+        {
             Ok(Some(channel)) => channel,
             other => {
                 if let Some(req_id) = causation_id.as_deref() {
@@ -291,7 +296,9 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if let Some(channel) = channel_update_from_member_readback(outcome)? {
+        if let Some(channel) =
+            channel_update_from_member_readback(outcome, &self.config.auth_user_id)?
+        {
             out.push(channel.into_effect());
         }
         Ok(())
@@ -451,6 +458,7 @@ mod buffered_event_tests {
 /// 从当前 viewer 的复合键读回构造唯一 channel 绝对态事件。
 pub(super) fn channel_update_from_member_readback(
     outcome: &PortOutcome,
+    auth_user_id: &str,
 ) -> Result<Option<crate::event::MessageV3Event>, ImError> {
     let PortOutcome::Ok(reply) = outcome else {
         return Ok(None);
@@ -469,12 +477,60 @@ pub(super) fn channel_update_from_member_readback(
     else {
         return Ok(None);
     };
-    crate::event::channel::update(serde_json::json!({
+    let user_id = text_column(row, "user_id");
+    if user_id.is_some_and(|viewer| viewer != auth_user_id) {
+        return Err(ImError::Parse(
+            "channel member readback viewer mismatch".into(),
+        ));
+    }
+    // 一个持久 viewer snapshot 的版本、摘要和计数必须一起交付；不从 post seq/时间生成版本。
+    let mut data = serde_json::json!({
+        "id": channel_id,
         "channelId": channel_id,
         "lastPost": last_post,
         "unreadCount": unread_count,
-    }))
-    .map(Some)
+    });
+    let Some(object) = data.as_object_mut() else {
+        return Ok(None);
+    };
+    for (column, field) in [
+        ("user_id", "userId"),
+        ("effect_id", "effectId"),
+        ("unread_post_id", "unreadPostId"),
+        ("mention_user", "mentionUser"),
+        ("urgent_mention_user", "urgentMentionUser"),
+    ] {
+        if let Some(value) = text_column(row, column) {
+            object.insert(field.into(), serde_json::Value::String(value.into()));
+        }
+    }
+    for (column, field) in [
+        ("projection_revision", "projectionRevision"),
+        ("last_post_at", "lastPostAt"),
+        ("last_root_post_at", "lastRootPostAt"),
+        ("last_read_seq", "lastReadSeq"),
+        ("mention_count", "mentionCount"),
+        ("mention_count_root", "mentionCountRoot"),
+        ("urgent_count", "urgentCount"),
+        ("msg_count", "msgCount"),
+        ("msg_count_root", "msgCountRoot"),
+        ("msg_count_private", "msgCountPrivate"),
+    ] {
+        if let Some(value) = integer_column(row, column) {
+            object.insert(field.into(), value.into());
+        }
+    }
+    for (column, field) in [
+        ("mention_list", "mentionList"),
+        ("urgent_post_list", "urgentPostList"),
+    ] {
+        if let Some(value) = text_column(row, column) {
+            let values: Vec<String> = serde_json::from_str(value)
+                .map_err(|error| ImError::Parse(format!("channel member {column}: {error}")))?;
+            object.insert(field.into(), serde_json::json!(values));
+        }
+    }
+    crate::event::channel::update(data).map(Some)
 }
 
 /// 从 driver row 读取文本列，不接受隐式类型转换。

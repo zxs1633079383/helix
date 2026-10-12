@@ -307,7 +307,8 @@ pub(crate) fn message_v3_post_mutation_ops(
         ],
         guard_col: "last_unread_event_seq",
         guard_val: event_seq,
-        additional_guard: None,
+        // 服务端已版本化的成员行只能由 member_projection 推进；POST 不改写同 revision 的摘要/计数。
+        additional_guard: Some(("projection_revision", SqlValue::Integer(0))),
     }));
     ops
 }

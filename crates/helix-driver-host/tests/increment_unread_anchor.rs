@@ -487,8 +487,14 @@ async fn deleted_channel_pages_continue_to_live_tail_without_zero_revision_items
 async fn closed_marker_survives_restart_and_late_increment_in_channel_page() {
     let (storage, mut module) = setup().await;
     persist_increment(&storage, &mut module, versioned_frame(1, 0, "", 151)).await;
-    let marker = helix_im::acl::to_effect::terminal_tombstone_and_cursor_op(ChannelId::from_str(CHANNEL).unwrap(), helix_im::state::Seq(152));
-    assert!(matches!(execute_storage_ops_atomic(&storage, &[marker]).await, PortOutcome::Ok(_)));
+    let marker = helix_im::acl::to_effect::terminal_tombstone_and_cursor_op(
+        ChannelId::from_str(CHANNEL).unwrap(),
+        helix_im::state::Seq(152),
+    );
+    assert!(matches!(
+        execute_storage_ops_atomic(&storage, &[marker]).await,
+        PortOutcome::Ok(_)
+    ));
     // 重放升级迁移，模拟现场 delete_at=0、terminal_event_seq>0 的历史库。
     for sql in IM_SCHEMA_MIGRATIONS {
         if let Err(error) = storage.execute_raw(sql).await {
@@ -559,4 +565,92 @@ async fn live_terminal_persists_closed_channel_projection() {
         .unwrap();
     assert!(matches!(column(&row, "is_closed"), SqlValue::Integer(1)));
     assert!(matches!(column(&row, "delete_at"), SqlValue::Integer(0)));
+}
+
+/// 回归锚: 1012 摘要版本衔接。SQLite 中的正版本成员事实不被无版本 POST 改写。
+#[tokio::test]
+async fn post_preserves_versioned_member_summary_but_bootstraps_legacy_row() {
+    for revision in [0, 13] {
+        let (storage, mut module) = setup().await;
+        storage
+            .batch_upsert(UpsertSpec {
+                table: "channel_member",
+                version_column: None,
+                update_guard: None,
+                conflict_key: Some("channel_id,user_id"),
+                exclude_from_update: vec![],
+                rows: vec![vec![
+                    ("channel_id".into(), SqlValue::Text(CHANNEL.into())),
+                    ("user_id".into(), SqlValue::Text(VIEWER.into())),
+                    ("projection_revision".into(), SqlValue::Integer(revision)),
+                    ("effect_id".into(), SqlValue::Text("server-effect".into())),
+                    ("unread_count".into(), SqlValue::Integer(7)),
+                    ("unread_post_id".into(), SqlValue::Text("stored".into())),
+                    (
+                        "last_post".into(),
+                        SqlValue::Text(json!({"id":"stored"}).to_string()),
+                    ),
+                    ("last_post_at".into(), SqlValue::Integer(100)),
+                    ("last_root_post_at".into(), SqlValue::Integer(100)),
+                    ("last_unread_event_seq".into(), SqlValue::Integer(0)),
+                ]],
+            })
+            .await
+            .unwrap();
+        let post = json!({ "action": "post", "data": { "channelId": CHANNEL, "event_seq": 152, "post": {
+            "id": "newfix00000000000000000001", "temporaryId": "tmpfix00000000000000000001", "channelId": CHANNEL,
+            "userId": "other-viewer", "type": "TEXT", "message": "new", "simpleMessage": "new",
+            "viewers": ["all"], "props": {}, "createAt": 200, "updateAt": 200
+        } } });
+        let mut sink = EffectSink::new();
+        module
+            .handle(
+                &Tick::Inbound(InboundBytes(serde_json::to_vec(&post).unwrap().into())),
+                200,
+                &mut sink,
+            )
+            .unwrap();
+        let ops = sink
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::PersistAtomic { ops, .. } => Some(ops),
+                _ => None,
+            })
+            .expect("post atomic write");
+        assert!(matches!(
+            execute_storage_ops_atomic(&storage, ops).await,
+            PortOutcome::Ok(_)
+        ));
+        let member = storage
+            .scoped_get(ScopedGetSpec {
+                table: "channel_member",
+                scope_col: "channel_id",
+                scope_val: SqlValue::Text(CHANNEL.into()),
+                key_col: "user_id",
+                key_val: SqlValue::Text(VIEWER.into()),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(column(&member, "projection_revision"), SqlValue::Integer(value) if *value == revision)
+        );
+        let expected_count = if revision == 0 { 8 } else { 7 };
+        assert!(
+            matches!(column(&member, "unread_count"), SqlValue::Integer(value) if *value == expected_count)
+        );
+        let SqlValue::Text(last_post) = column(&member, "last_post") else {
+            panic!("last_post JSON")
+        };
+        let last_post: Value = serde_json::from_str(last_post).unwrap();
+        assert_eq!(
+            last_post["id"],
+            if revision == 0 {
+                "newfix00000000000000000001"
+            } else {
+                "stored"
+            }
+        );
+    }
 }

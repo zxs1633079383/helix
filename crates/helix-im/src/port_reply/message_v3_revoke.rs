@@ -36,8 +36,10 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if let Some(channel) = super::message_v3_post::channel_update_from_member_readback(outcome)?
-        {
+        if let Some(channel) = super::message_v3_post::channel_update_from_member_readback(
+            outcome,
+            &self.config.auth_user_id,
+        )? {
             out.push(channel.into_effect());
         }
         Ok(())

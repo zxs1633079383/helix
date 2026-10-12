@@ -103,6 +103,19 @@ fn member_reply(user_id: &str, unread_count: i64, last_post: &Value) -> ReplyByt
         ),
         ("user_id".to_string(), SqlValue::Text(user_id.to_string())),
         ("unread_count".to_string(), SqlValue::Integer(unread_count)),
+        ("projection_revision".to_string(), SqlValue::Integer(13)),
+        (
+            "effect_id".to_string(),
+            SqlValue::Text("server-effect-13".to_string()),
+        ),
+        (
+            "unread_post_id".to_string(),
+            SqlValue::Text(if unread_count == 0 {
+                String::new()
+            } else {
+                POST_ID.to_string()
+            }),
+        ),
         (
             "last_post".to_string(),
             SqlValue::Text(last_post.to_string()),
@@ -145,6 +158,11 @@ fn run_persona(viewer_id: &str, initial_unread: i64) -> TestResult<PersonaTrace>
         .any(|effect| matches!(effect, Effect::Emit { .. })));
     let (persist_corr, writes) = correlated_persist(harness.sink.as_slice(), true)
         .ok_or_else(|| "missing G-01 atomic persistence".to_string())?;
+    // POST 只可在 legacy revision=0 引导摘要；已有 server revision 的行必须保留同版本事实。
+    assert!(writes.iter().any(|op| matches!(op,
+        StorageOp::ScopedGuardedBump(spec) if spec.table == "channel_member"
+            && matches!(&spec.additional_guard, Some(("projection_revision", SqlValue::Integer(0))))
+    )));
     let tables = write_tables(writes);
     for required in [
         "message",
@@ -263,6 +281,10 @@ fn g01_emits_committed_post_and_persona_channel_absolute_state() -> TestResult<(
         assert_eq!(trace.events[0]["data"]["sendStatus"], "sent");
         assert!(trace.events[0]["data"].get("props").is_none());
         assert_eq!(trace.events[1]["data"]["channelId"], CHANNEL_ID);
+        assert_eq!(trace.events[1]["data"]["projectionRevision"], 13);
+        assert!(trace.events[1]["data"]["userId"].is_string());
+        assert_eq!(trace.events[1]["data"]["lastPostAt"], CREATE_AT);
+        assert_eq!(trace.events[1]["data"]["lastRootPostAt"], CREATE_AT);
         assert_eq!(trace.events[1]["data"]["lastPost"]["id"], POST_ID);
         assert!(trace.events[1]["data"]["lastPost"].get("props").is_none());
         assert_eq!(trace.events[1]["data"]["unreadCount"], trace.final_unread);

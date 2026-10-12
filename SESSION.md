@@ -1,3 +1,7 @@
+🎯 EXPECT 完整 member 摘要携带持久版本；稀疏 POST 不改写正版本成员行；严格同版冲突检查与真实离场保持。| 赌注 中 | 可逆 是 | @2026-10-12
+- 交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/1012-会话摘要与群成员投影/handoff.md
+✅ DONE 本地实现与公开 Gate、隔离真实 SQLite、双视角 Host/IPC 回放通过；真实 PRE/Tauri 未验证，未提版、未发布、未 push。具体检查与代码身份见交接。
+
 🎯 EXPECT patch 0.1.52 四公共包发布并可解析，九份 manifest/lock 完整提交且注释 Tag 与远端一致；客户端四个精确依赖/lock 接入同版，不纳入其他脏文件。 | 赌注 中 | 可逆 上传否 | @2026-10-11
 - 交接：docs/交接/helix-0.1.52/handoff.md
 ✅ DONE 四公共包 0.1.52 已发布并可解析；发布 commit 与注释 Tag 建立，制品源码/校验和已核对，37项读回与9项registry测试通过。客户端四依赖已独立提交，native完整串行18项通过；既有并行测试竞争及远端对账见交接，真实桌面未验收。

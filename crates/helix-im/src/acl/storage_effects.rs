@@ -245,7 +245,7 @@ pub fn upsert_channel_member_channel_op(row: Row) -> Option<StorageOp> {
 }
 
 /// Canonical member projection persistence: create the composite-key row if needed,
-/// then replace absolute fields only when the server revision moves forward.
+/// then advance the revision, or atomically heal a same-revision row with an empty effect identity.
 pub fn canonical_member_projection_ops(
     channel_id: ChannelId,
     user_id: &str,
@@ -268,26 +268,66 @@ pub fn canonical_member_projection_ops(
         conflict_key: Some("channel_id,user_id"),
         exclude_from_update: vec!["channel_id", "user_id"],
     });
+    // Only a complete authoritative row may heal the old partial-snapshot cache.
+    let complete = [
+        "effect_id",
+        "projection_revision",
+        "unread_count",
+        "reaction_unread_count",
+        "unread_post_id",
+        "last_post",
+        "last_read_seq",
+        "mention_list",
+        "mention_count",
+        "mention_count_root",
+        "mention_user",
+        "urgent_mention_count",
+        "urgent_post_list",
+        "urgent_mention_user",
+        "msg_count",
+        "msg_count_root",
+        "msg_count_private",
+        "last_post_at",
+        "last_root_post_at",
+    ]
+    .iter()
+    .all(|required| {
+        row.iter().any(|(column, value)| {
+            column == required
+                && match value {
+                    SqlValue::Text(value) => *required != "effect_id" || !value.trim().is_empty(),
+                    SqlValue::Integer(value) => *value >= 0,
+                    _ => false,
+                }
+        })
+    });
     let set_cols = row
         .into_iter()
         .filter(|(column, _)| !matches!(column.as_str(), "channel_id" | "user_id" | "updated_at"))
         .collect();
-    vec![
-        baseline,
-        StorageOp::ScopedGuardedBump(ScopedGuardedBumpSpec {
-            table: "channel_member",
-            scope_col: "channel_id",
-            scope_val: SqlValue::Text(channel_id.as_str().to_string()),
-            key_col: "user_id",
-            key_val: SqlValue::Text(user_id.to_string()),
-            bump_col: "updated_at",
-            bump_delta: 0,
-            set_cols,
-            guard_col: "projection_revision",
-            guard_val: revision.min(i64::MAX as u64) as i64,
-            additional_guard: None,
-        }),
-    ]
+    let advance = ScopedGuardedBumpSpec {
+        comparison: helix_core::effect::GuardComparison::Greater,
+        table: "channel_member",
+        scope_col: "channel_id",
+        scope_val: SqlValue::Text(channel_id.as_str().to_string()),
+        key_col: "user_id",
+        key_val: SqlValue::Text(user_id.to_string()),
+        bump_col: "updated_at",
+        bump_delta: 0,
+        set_cols,
+        guard_col: "projection_revision",
+        guard_val: revision.min(i64::MAX as u64) as i64,
+        additional_guard: None,
+    };
+    let mut ops = vec![baseline];
+    if complete && revision > 0 && revision <= i64::MAX as u64 {
+        let mut repair = advance.clone();
+        repair.comparison = helix_core::effect::GuardComparison::Equal;
+        repair.additional_guard = Some(("effect_id", SqlValue::Text(String::new())));
+        ops.push(StorageOp::ScopedGuardedBump(repair));
+    }
+    ops.push(StorageOp::ScopedGuardedBump(advance));
+    ops
 }
 
 /// S3 path3：新消息触发 channel 写——未读 +1 SQL 自增 + lastPost 组。

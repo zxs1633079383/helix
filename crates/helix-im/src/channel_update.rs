@@ -64,7 +64,7 @@ pub(crate) fn require_member_projection_identity(
 ) -> Result<(u64, String), ImError> {
     let revision = projection
         .projection_revision
-        .filter(|value| *value > 0)
+        .filter(|value| *value > 0 && *value <= i64::MAX as u64)
         .ok_or_else(|| ImError::Parse(format!("{context} missing revision")))?;
     let effect_id = projection
         .effect_id
@@ -73,6 +73,69 @@ pub(crate) fn require_member_projection_identity(
         .ok_or_else(|| ImError::Parse(format!("{context} missing effectId")))?
         .to_string();
     Ok((revision, effect_id))
+}
+
+/// 完整冷快照使用 Go canonical DTO；稀疏显示态不可借用它的版本水位。
+pub(crate) fn complete_member_projection(
+    data: &Value,
+    channel_id: ChannelId,
+    auth_user_id: &str,
+    now_ms: u64,
+) -> Option<(Row, MemberChannelUpdate)> {
+    if auth_user_id.is_empty()
+        || data["channelId"].as_str() != Some(channel_id.as_str())
+        || data["userId"].as_str() != Some(auth_user_id)
+        || !data["effectId"]
+            .as_str()
+            .is_some_and(|value| !value.trim().is_empty())
+        || !data["projectionRevision"]
+            .as_i64()
+            .is_some_and(|value| value > 0)
+    {
+        return None;
+    }
+    for key in [
+        "unreadCount",
+        "reactionUnreadCount",
+        "lastReadSeq",
+        "mentionCount",
+        "mentionCountRoot",
+        "urgentCount",
+        "msgCount",
+        "msgCountRoot",
+        "msgCountPrivate",
+        "lastPostAt",
+        "lastRootPostAt",
+    ] {
+        if !data[key].as_i64().is_some_and(|value| value >= 0) {
+            return None;
+        }
+    }
+    for key in [
+        "unreadPostId",
+        "lastPost",
+        "mentionUser",
+        "urgentMentionUser",
+    ] {
+        data[key].as_str()?;
+    }
+    for key in ["mentionList", "urgentPostList"] {
+        if !data[key].as_array()?.iter().all(Value::is_string) {
+            return None;
+        }
+    }
+    if data["unreadCount"].as_i64()? > 0 && data["unreadPostId"].as_str()?.is_empty() {
+        return None;
+    }
+    let (mut row, mut projection) =
+        member_channel_from_update_channel(data, channel_id, auth_user_id, now_ms)?;
+    if projection.unread_count == Some(0) {
+        projection.unread_post_id = Some(String::new());
+        if let Some((_, value)) = row.iter_mut().find(|(key, _)| key == "unread_post_id") {
+            *value = SqlValue::Text(String::new());
+        }
+    }
+    Some((row, projection))
 }
 
 impl PendingChannelUpdate {
@@ -263,7 +326,10 @@ pub fn member_channel_from_update_channel(
         ));
         projection.mention_list = Some(json_list_value(v));
     }
-    if let Some(v) = pick_text(channel, data, &["mentionUser", "mention_user"]) {
+    if let Some(v) = pick_value(channel, data, &["mentionUser", "mention_user"])
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    {
         row.push(("mention_user".to_string(), SqlValue::Text(v.clone())));
         projection.mention_user = Some(v);
     }
@@ -288,7 +354,7 @@ pub fn member_channel_from_update_channel(
         ));
         projection.urgent_post_list = Some(json_list_value(v));
     }
-    if let Some(v) = pick_text(
+    if let Some(v) = pick_value(
         channel,
         data,
         &[
@@ -297,7 +363,10 @@ pub fn member_channel_from_update_channel(
             "urgentCurrentName",
             "urgent_current_name",
         ],
-    ) {
+    )
+    .and_then(Value::as_str)
+    .map(str::to_owned)
+    {
         row.push(("urgent_mention_user".to_string(), SqlValue::Text(v.clone())));
         projection.urgent_mention_user = Some(v);
     }

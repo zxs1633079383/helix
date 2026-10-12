@@ -596,9 +596,18 @@ fn overlay_viewer_unread_projection(channel: &mut Value, member: &Value) -> Resu
         channel_object.insert("last_read_seq".to_string(), Value::from(read_seq));
         channel_object.insert("lastReadSeq".to_string(), Value::from(read_seq));
     }
-    if let Some(revision) = revision {
+    // A legacy partial cache has no effect identity: do not let UI claim its revision
+    // before a complete authority response repairs the same durable row.
+    if let Some(revision) = revision.filter(|value| *value > 0).filter(|_| {
+        first_value(member_object, &["effect_id", "effectId"])
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    }) {
         channel_object.insert("projection_revision".to_string(), Value::from(revision));
         channel_object.insert("projectionRevision".to_string(), Value::from(revision));
+    } else {
+        channel_object.remove("projection_revision");
+        channel_object.remove("projectionRevision");
     }
     Ok(())
 }
@@ -1111,7 +1120,8 @@ mod tests {
                 "reaction_unread_count": 2,
                 "unread_post_id": anchor,
                 "last_read_seq": 41,
-                "projection_revision": 7
+                "projection_revision": 7,
+                "effect_id": "complete-7"
             }])
         };
 

@@ -205,6 +205,14 @@ pub struct GuardedBumpSpec {
     pub guard_val: i64,
 }
 
+/// 数值守卫比较；默认保持单调推进，Equal 用于有额外身份条件的 CAS。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum GuardComparison {
+    #[default]
+    Greater,
+    Equal,
+}
+
 /// 复合作用域守卫式自增规格，避免复合主键热路径退化为应用层 read-modify-write。
 #[derive(Debug, Clone)]
 pub struct ScopedGuardedBumpSpec {
@@ -226,7 +234,9 @@ pub struct ScopedGuardedBumpSpec {
     pub set_cols: Row,
     /// 前进守卫列。
     pub guard_col: &'static str,
-    /// 仅严格大于当前守卫值时更新。
+    /// 比较输入值与当前守卫值的方式。
+    pub comparison: GuardComparison,
+    /// 与当前守卫值比较的输入值。
     pub guard_val: i64,
     /// 可选的附加等值谓词；仅所有守卫同时满足时更新。
     ///

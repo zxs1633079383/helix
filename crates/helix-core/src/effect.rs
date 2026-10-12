@@ -25,7 +25,8 @@ pub use io::{FileUploadRequest, FileUploadResponse, HttpRequest, HttpResponse};
 pub use operation::Effect;
 pub use sink::EffectSink;
 pub use storage::{
-    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row,
-    ScanOrder, ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec, ScopedMaxSpec, ScopedScanSpec,
-    SortDirection, SparseTableSpec, SqlValue, StorageOp, UpsertGuard, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardComparison, GuardedBumpSpec,
+    MonotonicUpsertSpec, Row, ScanOrder, ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec,
+    ScopedMaxSpec, ScopedScanSpec, SortDirection, SparseTableSpec, SqlValue, StorageOp,
+    UpsertGuard, UpsertSpec,
 };

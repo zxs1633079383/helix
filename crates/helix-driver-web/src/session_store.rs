@@ -498,7 +498,10 @@ impl WebSessionStore {
             }
         }
         let current_guard = integer_or_zero(row_value(&stored.values, spec.guard_col))?;
-        if spec.guard_val <= current_guard {
+        if !match spec.comparison {
+            helix_core::effect::GuardComparison::Greater => spec.guard_val > current_guard,
+            helix_core::effect::GuardComparison::Equal => spec.guard_val == current_guard,
+        } {
             return Ok(());
         }
         bump_column(&mut stored.values, spec.bump_col, spec.bump_delta)?;
@@ -1178,6 +1181,7 @@ mod tests {
                 .unwrap();
             store
                 .scoped_guarded_bump_sync(ScopedGuardedBumpSpec {
+                    comparison: helix_core::effect::GuardComparison::Greater,
                     table: "channel_member",
                     scope_col: "channel_id",
                     scope_val: text("channel-a"),
@@ -1204,6 +1208,65 @@ mod tests {
             let expected = if revision == 0 { 9 } else { 4 };
             assert!(
                 matches!(row_value(&row, "unread_count"), Some(SqlValue::Integer(value)) if *value == expected)
+            );
+        }
+    }
+
+    #[test]
+    fn equal_guard_repairs_only_same_revision_empty_identity() {
+        for (revision, effect, expected) in [
+            (61, "", 30),
+            (60, "", 0),
+            (62, "", 0),
+            (61, "other", 0),
+            (i64::MAX, "", 0),
+        ] {
+            let store = new_store(limits());
+            store
+                .batch_upsert_sync(UpsertSpec::new(
+                    "channel_member",
+                    vec![vec![
+                        ("channel_id".into(), text("channel-a")),
+                        ("user_id".into(), text("viewer")),
+                        ("projection_revision".into(), SqlValue::Integer(revision)),
+                        ("effect_id".into(), text(effect)),
+                        ("updated_at".into(), SqlValue::Integer(0)),
+                        ("msg_count".into(), SqlValue::Integer(0)),
+                    ]],
+                    Some("channel_id,user_id"),
+                ))
+                .unwrap();
+            store
+                .scoped_guarded_bump_sync(ScopedGuardedBumpSpec {
+                    comparison: helix_core::effect::GuardComparison::Equal,
+                    table: "channel_member",
+                    scope_col: "channel_id",
+                    scope_val: text("channel-a"),
+                    key_col: "user_id",
+                    key_val: text("viewer"),
+                    bump_col: "updated_at",
+                    bump_delta: 0,
+                    set_cols: vec![
+                        ("msg_count".into(), SqlValue::Integer(30)),
+                        ("effect_id".into(), text("filled")),
+                    ],
+                    guard_col: "projection_revision",
+                    guard_val: 61,
+                    additional_guard: Some(("effect_id", text(""))),
+                })
+                .unwrap();
+            let row = store
+                .scoped_get_sync(ScopedGetSpec {
+                    table: "channel_member",
+                    scope_col: "channel_id",
+                    scope_val: text("channel-a"),
+                    key_col: "user_id",
+                    key_val: text("viewer"),
+                })
+                .unwrap()
+                .unwrap();
+            assert!(
+                matches!(row_value(&row,"msg_count"),Some(SqlValue::Integer(value)) if *value == expected)
             );
         }
     }

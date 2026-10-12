@@ -47,6 +47,7 @@ fn active_module(cursor: u64) -> ImModule {
     let mut module = ImModule::new(ImConfig {
         auth_user_id: VIEWER.into(),
         company_id: COMPANY.into(),
+        api_base_url: "http://cold-recovery.invalid/api/cses".into(),
         ..Default::default()
     });
     // 消息游标已追平服务端；本例只验证频道快照，不触发冷启动消息补偿。
@@ -289,6 +290,11 @@ fn versioned_frame(revision: i64, count: i64, anchor: &str, read_seq: i64) -> Va
     frame["data"]["unReadPostId"] = json!(anchor);
     frame["data"]["lastReadSeq"] = json!(read_seq);
     frame["data"]["projectionRevision"] = json!(revision);
+    let mut member = complete_member(revision, &format!("effect-{revision}"));
+    member["unreadCount"] = json!(count);
+    member["unreadPostId"] = json!(anchor);
+    member["lastReadSeq"] = json!(read_seq);
+    frame["data"]["memberProjection"] = member;
     frame["data"]["lastEventSeq"] = json!(151);
     frame
 }
@@ -653,4 +659,407 @@ async fn post_preserves_versioned_member_summary_but_bootstraps_legacy_row() {
             }
         );
     }
+}
+
+fn complete_member(revision: i64, effect: &str) -> Value {
+    json!({"channelId":CHANNEL,"userId":VIEWER,"projectionRevision":revision,
+        "effectId":effect,"unreadCount":0,"reactionUnreadCount":2,"unreadPostId":"",
+        "lastPost":"","lastReadSeq":77,"mentionList":[],"mentionCount":0,
+        "mentionCountRoot":0,"mentionUser":"","urgentCount":0,"urgentPostList":[],
+        "urgentMentionUser":"","msgCount":30,"msgCountRoot":30,"msgCountPrivate":0,
+        "lastPostAt":12345,"lastRootPostAt":12345})
+}
+
+#[tokio::test]
+async fn cold_snapshot_persists_complete_projection() {
+    let (storage, mut module) = setup().await;
+    let mut frame = versioned_frame(61, 0, "", 77);
+    frame["data"]["memberProjection"] = complete_member(61, "full-61");
+    persist_increment(&storage, &mut module, frame).await;
+    let row = storage
+        .scoped_get(ScopedGetSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text(CHANNEL.into()),
+            key_col: "user_id",
+            key_val: SqlValue::Text(VIEWER.into()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(column(&row,"effect_id"),SqlValue::Text(value) if value == "full-61"));
+    assert!(matches!(column(&row, "msg_count"), SqlValue::Integer(30)));
+    assert!(matches!(
+        column(&row, "reaction_unread_count"),
+        SqlValue::Integer(2)
+    ));
+}
+
+#[tokio::test]
+async fn cold_legacy_snapshot_cannot_claim_canonical_revision() {
+    let (storage, mut module) = setup().await;
+    let mut legacy = versioned_frame(61, 0, "", 77);
+    legacy["data"]
+        .as_object_mut()
+        .unwrap()
+        .remove("memberProjection");
+    persist_increment(&storage, &mut module, legacy).await;
+    let row = storage
+        .scoped_get(ScopedGetSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text(CHANNEL.into()),
+            key_col: "user_id",
+            key_val: SqlValue::Text(VIEWER.into()),
+        })
+        .await
+        .unwrap();
+    assert!(row
+        .as_ref()
+        .is_none_or(|row| matches!(column(row, "projection_revision"), SqlValue::Integer(0))));
+}
+
+#[tokio::test]
+async fn cold_same_revision_empty_effect_is_repaired_without_overwriting_conflicts() {
+    for (stored_revision, stored_effect, expected_effect, expected_count) in [
+        (61, "", "full-61", 30),
+        (60, "", "full-61", 30),
+        (62, "", "", 0),
+        (61, "different", "different", 0),
+        (i64::MAX, "", "full-max", 30),
+    ] {
+        let (storage, mut module) = setup().await;
+        storage
+            .batch_upsert(UpsertSpec::new(
+                "channel_member",
+                vec![vec![
+                    ("channel_id".into(), SqlValue::Text(CHANNEL.into())),
+                    ("user_id".into(), SqlValue::Text(VIEWER.into())),
+                    (
+                        "projection_revision".into(),
+                        SqlValue::Integer(stored_revision),
+                    ),
+                    ("effect_id".into(), SqlValue::Text(stored_effect.into())),
+                ]],
+                Some("channel_id,user_id"),
+            ))
+            .await
+            .unwrap();
+        let revision = if stored_revision == i64::MAX {
+            i64::MAX
+        } else {
+            61
+        };
+        let effect = if revision == i64::MAX {
+            "full-max"
+        } else {
+            "full-61"
+        };
+        let wire = json!({"action":"member_projection","data":complete_member(revision,effect)});
+        let mut sink = EffectSink::new();
+        module
+            .handle(
+                &Tick::Inbound(InboundBytes(serde_json::to_vec(&wire).unwrap().into())),
+                1000,
+                &mut sink,
+            )
+            .unwrap();
+        drain(&storage, &mut module, sink).await;
+        let row = storage
+            .scoped_get(ScopedGetSpec {
+                table: "channel_member",
+                scope_col: "channel_id",
+                scope_val: SqlValue::Text(CHANNEL.into()),
+                key_col: "user_id",
+                key_val: SqlValue::Text(VIEWER.into()),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(column(&row,"effect_id"),SqlValue::Text(value) if value == expected_effect),
+            "{row:?}"
+        );
+        assert!(
+            matches!(column(&row,"msg_count"),SqlValue::Integer(value) if *value == expected_count),
+            "{row:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn cold_snapshot_rejects_missing_fields_and_foreign_identity() {
+    let full = complete_member(61, "effect-61");
+    let mut invalid: Vec<Value> = full
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(|key| {
+            let mut member = full.clone();
+            member.as_object_mut().unwrap().remove(key);
+            member
+        })
+        .collect();
+    for (key, value) in [
+        ("userId", json!("another-user")),
+        ("channelId", json!("another-channel")),
+        ("projectionRevision", json!(62)),
+        ("effectId", json!("")),
+        ("mentionList", json!("[]")),
+        ("msgCount", json!(-1)),
+        ("lastReadSeq", json!(78)),
+    ] {
+        let mut member = full.clone();
+        member[key] = value;
+        invalid.push(member);
+    }
+    for member in invalid {
+        let (storage, mut module) = setup().await;
+        let mut frame = versioned_frame(61, 0, "", 77);
+        frame["data"]["memberProjection"] = member.clone();
+        persist_increment(&storage, &mut module, frame).await;
+        let row = storage
+            .scoped_get(ScopedGetSpec {
+                table: "channel_member",
+                scope_col: "channel_id",
+                scope_val: SqlValue::Text(CHANNEL.into()),
+                key_col: "user_id",
+                key_val: SqlValue::Text(VIEWER.into()),
+            })
+            .await
+            .unwrap();
+        assert!(
+            row.as_ref().is_none_or(|row| matches!(
+                column(row, "projection_revision"),
+                SqlValue::Integer(0)
+            )),
+            "{member}"
+        );
+    }
+}
+
+async fn reaction_http_effects(module: &mut ImModule, member: Value, ack: bool) -> EffectSink {
+    let mut sink = EffectSink::new();
+    let mut args = json!({"channel_id":CHANNEL,"req_id":"cold-reaction"});
+    if ack {
+        args["post_id"] = json!("reacted-post");
+        args["observed_revision"] = json!("61");
+    }
+    module
+        .handle(
+            &Tick::Command(AppCommand::new(
+                if ack {
+                    "im_reaction_unread_ack"
+                } else {
+                    "im_reaction_unread"
+                },
+                serde_json::to_vec(&args).unwrap(),
+            )),
+            1001,
+            &mut sink,
+        )
+        .unwrap();
+    let corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("authorized reaction HTTP");
+    sink.clear();
+    let count = member["reactionUnreadCount"].clone();
+    let body = json!({"status":"SUCCESS","data":{"count":count,"nextTarget":if count == 0 {Value::Null} else {json!({"postId":"reacted-post","revision":"61"})},"memberProjection":member}});
+    let reply = json!({"status":200,"headers":{},"body":helix_driver_host::base64_encode(&serde_json::to_vec(&body).unwrap())});
+    module
+        .handle(
+            &Tick::PortReply {
+                corr,
+                outcome: PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    serde_json::to_vec(&reply).unwrap().into(),
+                )),
+            },
+            1002,
+            &mut sink,
+        )
+        .unwrap();
+    sink
+}
+
+#[tokio::test]
+async fn cold_query_and_ack_heal_legacy_cache_and_reject_newer_readback() {
+    for ack in [false, true] {
+        for newer_race in [false, true] {
+            let (storage, mut module) = setup().await;
+            persist_increment(&storage, &mut module, increment_frame()).await;
+            let mut query = EffectSink::new();
+            module
+                .handle(
+                    &Tick::Command(AppCommand::new("im_query_dialog_list", b"{}".to_vec())),
+                    1000,
+                    &mut query,
+                )
+                .unwrap();
+            drain(&storage, &mut module, query).await;
+            storage
+                .batch_upsert(UpsertSpec::new(
+                    "channel_member",
+                    vec![vec![
+                        ("channel_id".into(), SqlValue::Text(CHANNEL.into())),
+                        ("user_id".into(), SqlValue::Text(VIEWER.into())),
+                        ("projection_revision".into(), SqlValue::Integer(61)),
+                        ("effect_id".into(), SqlValue::Text(String::new())),
+                    ]],
+                    Some("channel_id,user_id"),
+                ))
+                .await
+                .unwrap();
+            let mut member = complete_member(61, "query-61");
+            if ack {
+                member["reactionUnreadCount"] = json!(0);
+            }
+            let pending = reaction_http_effects(&mut module, member, ack).await;
+            let (corr, ops) = pending
+                .as_slice()
+                .iter()
+                .find_map(|effect| match effect {
+                    Effect::PersistAtomic { corr, ops } => Some((*corr, ops)),
+                    _ => None,
+                })
+                .expect("durable projection write");
+            let outcome = execute_storage_ops_atomic(&storage, ops).await;
+            let mut readback = EffectSink::new();
+            module
+                .handle(&Tick::PortReply { corr, outcome }, 1003, &mut readback)
+                .unwrap();
+            assert!(readback
+                .as_slice()
+                .iter()
+                .all(|effect| !matches!(effect, Effect::Emit { .. })));
+            if newer_race {
+                let mut newer = EffectSink::new();
+                module.handle(&Tick::Inbound(InboundBytes(serde_json::to_vec(&json!({"action":"member_projection","data":complete_member(62,"newer-62")})).unwrap().into())),1004,&mut newer).unwrap();
+                drain(&storage, &mut module, newer).await;
+            }
+            let events = drain(&storage, &mut module, readback).await;
+            let result = events
+                .iter()
+                .find(|event| event["event"] == "im:read:result")
+                .expect("one terminal");
+            if newer_race {
+                assert_eq!(
+                    result["data"]["error"],
+                    "REACTION_UNREAD_PROJECTION_CHANGED"
+                );
+            } else {
+                assert!(result["data"].get("error").is_none(), "{result}");
+                assert_eq!(
+                    result["data"]["body"]["data"]["count"],
+                    if ack { 0 } else { 2 }
+                );
+            }
+        }
+    }
+}
+
+async fn cold_page(storage: &HostStorage, module: &mut ImModule, session: &str) -> Value {
+    let mut sink = EffectSink::new();
+    module
+        .handle(
+            &Tick::Command(AppCommand::new(
+                "im_query_channel_sync_page",
+                serde_json::to_vec(
+                    &json!({"channel_sync_session_id":session,"req_id":"cold-page"}),
+                )
+                .unwrap(),
+            )),
+            1002,
+            &mut sink,
+        )
+        .unwrap();
+    let events = drain(storage, module, sink).await;
+    events
+        .iter()
+        .find(|e| e["event"] == "im:read:result")
+        .expect("page")["data"]["body"]["items"][0]
+        .clone()
+}
+
+#[tokio::test]
+async fn cold_page_never_claims_incomplete_revision_and_repair_exposes_canonical_count() {
+    let (storage, mut module) = setup().await;
+    let mut frame = versioned_frame(61, 0, "", 77);
+    frame["data"]
+        .as_object_mut()
+        .unwrap()
+        .remove("memberProjection");
+    let session = persist_increment(&storage, &mut module, frame).await;
+    let page = cold_page(&storage, &mut module, &session).await;
+    assert!(!page.is_null());
+    assert!(page.get("projectionRevision").is_none(), "{page}");
+    storage
+        .batch_upsert(UpsertSpec::new(
+            "channel_member",
+            vec![vec![
+                ("channel_id".into(), SqlValue::Text(CHANNEL.into())),
+                ("user_id".into(), SqlValue::Text(VIEWER.into())),
+                ("projection_revision".into(), SqlValue::Integer(61)),
+                ("effect_id".into(), SqlValue::Text(String::new())),
+            ]],
+            Some("channel_id,user_id"),
+        ))
+        .await
+        .unwrap();
+    let page = cold_page(&storage, &mut module, &session).await;
+    assert!(page.get("projectionRevision").is_none(), "{page}");
+    let pending = reaction_http_effects(&mut module, complete_member(61, "query-61"), false).await;
+    let events = drain(&storage, &mut module, pending).await;
+    assert!(
+        events.iter().any(|e| e["event"] == "im:channel:update"
+            && e["data"]["projectionRevision"] == 61
+            && e["data"]["reactionUnreadCount"] == 2),
+        "{events:?}"
+    );
+    let page = cold_page(&storage, &mut module, &session).await;
+    assert_eq!(page["projectionRevision"], 61);
+    assert_eq!(page["reactionUnreadCount"], 2);
+}
+
+#[tokio::test]
+async fn cold_legacy_display_counts_do_not_claim_or_overwrite_canonical_state() {
+    let (storage, mut module) = setup().await;
+    let mut legacy = versioned_frame(61, 7, "legacy-anchor", 70);
+    legacy["data"]
+        .as_object_mut()
+        .unwrap()
+        .remove("memberProjection");
+    legacy["data"]["reactionUnreadCount"] = json!(2);
+    legacy["data"]["msgCount"] = json!(900);
+    let session = persist_increment(&storage, &mut module, legacy.clone()).await;
+    let page = cold_page(&storage, &mut module, &session).await;
+    assert_eq!(page["unreadCount"], 7);
+    assert_eq!(page["reactionUnreadCount"], 2);
+    assert!(page.get("projectionRevision").is_none());
+    module = active_module(151);
+    persist_increment(&storage, &mut module, versioned_frame(62, 0, "", 77)).await;
+    module = active_module(160);
+    legacy["data"]["lastEventSeq"] = json!(160);
+    legacy["data"]["reactionUnreadCount"] = json!(99);
+    let session = persist_increment(&storage, &mut module, legacy).await;
+    let page = cold_page(&storage, &mut module, &session).await;
+    assert_eq!(page["unreadCount"], 0);
+    assert_eq!(page["reactionUnreadCount"], 2);
+    assert_eq!(page["projectionRevision"], 62);
+    let row = storage
+        .scoped_get(ScopedGetSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text(CHANNEL.into()),
+            key_col: "user_id",
+            key_val: SqlValue::Text(VIEWER.into()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(column(&row, "msg_count"), SqlValue::Integer(30)));
 }

@@ -1,3 +1,7 @@
+🎯 EXPECT 冷快照只以完整成员投影推进水位；同版空 effect 原子修复通过真实 SQLite，旧版和同版非空冲突不覆盖；不改版本或提交。| 赌注 中 | 可逆 是 | @2026-10-12
+- 交接：docs/交接/member-projection-cold-recovery-20261012.md
+✅ DONE 冷快照、legacy显示态和同版空effect修复的真实SQLite回归通过，三端编译/Web存储通过；2项无关失败在隔离HEAD复现，全量非绿色。按用户授权整理提交，未push/提版/发布；新Go上线后完整冷恢复仍待复验。
+
 🎯 EXPECT 完整 member 摘要携带持久版本；稀疏 POST 不改写正版本成员行；严格同版冲突检查与真实离场保持。| 赌注 中 | 可逆 是 | @2026-10-12
 - 交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/1012-会话摘要与群成员投影/handoff.md
 ✅ DONE 本地实现与公开 Gate、隔离真实 SQLite、双视角 Host/IPC 回放通过；真实 PRE/Tauri 未验证，未提版、未发布、未 push。具体检查与代码身份见交接。

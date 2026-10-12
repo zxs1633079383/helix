@@ -291,3 +291,7 @@ Five canonical roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-fo
 ### Domain docs
 
 Single-context. ADRs live in `docs/harness/decisions.md` (not `docs/adr/`); domain language in `docs/GOAL.md` + `docs/harness/`. See `docs/agents/domain.md`.
+
+## CSES 三仓规模与性能基线
+
+本仓消息相关 Prompt、答复、方案和代码以单群 5000 人、每群 5 消息 RPS、多个大群并行、消息 1 秒内可达为目标；必须遵守 [全局规模与性能规则](/Users/xpa-12/.codex/rules/CSES消息规模与性能基线.md)，不得默认按 Demo 规模设计。目标不等于已验证能力。

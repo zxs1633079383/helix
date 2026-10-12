@@ -529,3 +529,70 @@ fn personal_account_hydrates_company_channel_after_terminal_readback() {
     assert_eq!(events[0]["data"]["id"], cid(7));
     assert_eq!(events[0]["data"]["teamId"], "scope-company");
 }
+
+/// TooLong恢复失败也清理自动补水owner，不能泄漏内部read error或永久阻断后续补水。
+#[test]
+fn auto_hydration_too_long_reload_failure_releases_owner_for_retry() {
+    let mut h = Harness::new_with_identity(&[], "scope-viewer", "scope-company", "", "", "");
+    h.step(post_frame(7, 1), 1000);
+    let first = persist_atomic_corr(&h);
+    h.step(port_reply_ok(first), 1001);
+    let increment = hydration_http_corr(&h);
+    let body = enveloped(Bytes::from(
+        serde_json::to_vec(&json!({"data":{
+            "id":cid(7),"teamId":"scope-company","displayName":"recovery","type":"P",
+            "lastEventSeq":6206,"needSync":true,"memberCount":1,
+            "members":[{"userId":"scope-viewer","role":"MEMBER"}]
+        }}))
+        .unwrap(),
+    ));
+    h.step(port_reply_with_body(increment, body), 1002);
+    let persist = persist_atomic_corr(&h);
+    h.step(port_reply_ok(persist), 1003);
+    let sync = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|fx| match fx {
+            Effect::Http { corr, req } if req.url.ends_with("/channel/sync/notify") => {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .unwrap();
+    let body = enveloped(Bytes::from(
+        serde_json::to_vec(&json!({"status":"SUCCESS","data":{"entries":[{
+            "channelId":cid(7),"kind":"too_long","resetTo":6206,"events":[]
+        }]}}))
+        .unwrap(),
+    ));
+    h.step(port_reply_with_body(sync, body), 1004);
+    let reload = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|fx| match fx {
+            Effect::Http { corr, req } if req.url.ends_with("/posts/getLatestPost") => {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("automatic hydration reload");
+    h.step(port_reply_err(reload), 1005);
+    assert!(
+        !h.sink
+            .as_slice()
+            .iter()
+            .any(|fx| matches!(fx, Effect::Emit { .. })),
+        "内部恢复失败不发布UI read result"
+    );
+    h.seed_channel_scope(&cid(7), "other-company", "other-viewer");
+    h.step(post_frame(7, 2), 1006);
+    let persist = persist_atomic_corr(&h);
+    h.step(port_reply_ok(persist), 1007);
+    assert_eq!(
+        hydration_http_count(&h),
+        1,
+        "恢复失败必须释放旧auto owner并允许新补水"
+    );
+}

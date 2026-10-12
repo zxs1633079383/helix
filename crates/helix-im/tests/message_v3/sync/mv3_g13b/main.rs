@@ -812,3 +812,191 @@ fn hydration_too_long_persist_error_fails_once_without_commit() -> Result<(), St
     );
     Ok(())
 }
+
+/// 公开入口进入覆盖恢复，返回真实 reload correlation供成功/失败剧本复用。
+fn start_too_long_recovery(replay: &mut Replay) -> Result<Correlation, String> {
+    let increment = replay.start(CHANNEL)?;
+    replay.reply_http(increment, INCREMENT_NEEDS_SYNC_BODY_B64)?;
+    replay.reply_persist_ok(replay.persist_corr().expect("increment persist"))?;
+    replay.reply_http_body(replay.sync_corr().expect("hydration sync"), too_long_body())?;
+    assert!(replay.events().is_empty());
+    Ok(replay.latest_reload_corr().expect("authoritative reload"))
+}
+
+/// 恢复后再调用相同加载命令，所有sync请求必须使用持久提交的新cursor；no_change停止补拉。
+#[test]
+fn hydration_too_long_followup_uses_committed_cursor_and_no_change_stops() -> Result<(), String> {
+    let mut replay = Replay::new();
+    let reload = start_too_long_recovery(&mut replay)?;
+    replay.reply_http_body(reload, latest_posts_body())?;
+    let persist = replay.persist_corr().expect("recovery persist");
+    let ops = replay
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|fx| match fx {
+            Effect::PersistAtomic { ops, .. } => Some(ops),
+            _ => None,
+        })
+        .unwrap();
+    assert!(
+        !format!("{ops:?}").contains("ScopedGuardedBump"),
+        "历史窗口不得重复累加authority未读"
+    );
+    replay.reply_persist_ok(persist)?;
+    let catchup = replay.sync_corr().expect("bounded catchup after recovery");
+    assert_sync_from(&replay, 100);
+    replay.complete_readback_with_cursor(100)?;
+    assert_eq!(replay.events()[0]["data"]["body"]["cursor"], 100);
+    replay.reply_http_body(catchup, Bytes::from(serde_json::to_vec(&json!({
+        "status":"SUCCESS", "data":{"entries":[{"channelId":CHANNEL,"kind":"no_change","nextSeq":100}]}
+    })).unwrap()))?;
+    assert!(replay.sync_corr().is_none());
+    assert!(replay.latest_reload_corr().is_none());
+    assert!(replay.events().is_empty());
+    let next = replay.start(CHANNEL)?;
+    replay.reply_http(next, INCREMENT_NEEDS_SYNC_BODY_B64)?;
+    replay.reply_persist_ok(replay.persist_corr().expect("second increment"))?;
+    assert_sync_from(&replay, 100);
+    let sync = replay.sync_corr().expect("second hydration sync");
+    replay.reply_http_body(sync, Bytes::from(serde_json::to_vec(&json!({
+        "status":"SUCCESS", "data":{"entries":[{"channelId":CHANNEL,"kind":"no_change","nextSeq":100}]}
+    })).unwrap()))?;
+    replay.complete_readback_with_cursor(100)?;
+    assert_eq!(replay.events().len(), 1);
+    assert!(replay.events()[0]["data"]["error"].is_null());
+    assert!(replay.latest_reload_corr().is_none());
+    Ok(())
+}
+
+/// 从实际Helix生成的wire断言fromSeq，不能用手写请求替代调度器。
+fn assert_sync_from(replay: &Replay, cursor: u64) {
+    let body = replay
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|fx| match fx {
+            Effect::Http { req, .. } if req.url.ends_with("/channel/sync/notify") => {
+                req.body.as_ref()
+            }
+            _ => None,
+        })
+        .expect("sync HTTP body");
+    let wire: Value = serde_json::from_slice(body).unwrap();
+    assert_eq!(wire["cursors"][0]["fromSeq"], cursor);
+}
+
+/// 恢复期间新增事件通过新cursor续拉并再次原子提交；不重拉已覆盖的旧跨度。
+#[test]
+fn hydration_too_long_catches_event_created_during_window_reload() -> Result<(), String> {
+    let mut replay = Replay::new();
+    let reload = start_too_long_recovery(&mut replay)?;
+    replay.reply_http_body(reload, latest_posts_body())?;
+    replay.reply_persist_ok(replay.persist_corr().expect("recovery persist"))?;
+    let catchup = replay.sync_corr().expect("catchup");
+    assert_sync_from(&replay, 100);
+    replay.complete_readback_with_cursor(100)?;
+    let body = json!({"status":"SUCCESS","data":{"entries":[{
+        "channelId":CHANNEL,"kind":"events","nextSeq":101,
+        "events":[{"id":"evt101","channelId":CHANNEL,"eventSeq":101,"eventType":1,"msgId":"msg101","actorId":"author","createAt":1700000000000_i64}],
+        "messages":{"msg101":{"id":"msg101","channelId":CHANNEL,"userId":"author","message":"during recovery","createAt":1700000000000_i64}}
+    }]}});
+    replay.reply_http_body(catchup, Bytes::from(serde_json::to_vec(&body).unwrap()))?;
+    assert_eq!(
+        replay
+            .module
+            .cursor_for(ChannelId::from_str(CHANNEL).unwrap()),
+        Some(100)
+    );
+    let persist = replay.persist_corr().expect("new event atomic barrier");
+    replay.reply_persist_ok(persist)?;
+    assert_eq!(
+        replay
+            .module
+            .cursor_for(ChannelId::from_str(CHANNEL).unwrap()),
+        Some(101)
+    );
+    assert!(replay.latest_reload_corr().is_none());
+    assert!(replay.sync_corr().is_none());
+    Ok(())
+}
+
+/// 网络/timeout/业务失败/畸形窗口均结算一次失败，保留旧cursor且允许重新加载。
+#[test]
+fn hydration_too_long_reload_failures_release_pending_without_cursor_commit() -> Result<(), String>
+{
+    for failure in 0..5 {
+        let mut replay = Replay::new();
+        let reload = start_too_long_recovery(&mut replay)?;
+        match failure {
+            0 => replay.reply_err(reload)?,
+            1 => replay.step(Tick::PortReply {
+                corr: reload,
+                outcome: PortOutcome::Err(PortError::Timeout),
+            })?,
+            2 => replay.reply_http_body(
+                reload,
+                Bytes::from_static(br#"{"status":"failed","message":"reload rejected"}"#),
+            )?,
+            3 => replay.reply_http_body(
+                reload,
+                Bytes::from_static(br#"{"status":"SUCCESS","data":{}}"#),
+            )?,
+            _ => replay.reply_http_body(
+                reload,
+                Bytes::from_static(br#"{"status":"SUCCESS","data":{"posts":[{}]}}"#),
+            )?,
+        }
+        assert_eq!(replay.events().len(), 1);
+        assert!(replay.events()[0]["data"]["error"].is_string());
+        assert_eq!(
+            replay
+                .module
+                .cursor_for(ChannelId::from_str(CHANNEL).unwrap()),
+            Some(0)
+        );
+        assert!(replay.persist_corr().is_none());
+        replay.reply_http_body(reload, latest_posts_body())?;
+        assert!(
+            replay.sink.as_slice().is_empty(),
+            "迟到成功不能推进失败请求"
+        );
+        let next = replay.start(CHANNEL)?;
+        replay.reply_http(next, INCREMENT_NEEDS_SYNC_BODY_B64)?;
+        replay.reply_persist_ok(replay.persist_corr().expect("retry increment"))?;
+        assert_sync_from(&replay, 0);
+    }
+    Ok(())
+}
+
+/// RuntimeAuth切换清掉旧恢复correlation，旧窗口及PersistOk都不能提交到新作用域。
+#[test]
+fn hydration_too_long_old_scope_replies_are_noop() -> Result<(), String> {
+    for after_window in [false, true] {
+        let mut replay = Replay::new();
+        let reload = start_too_long_recovery(&mut replay)?;
+        let old_corr = if after_window {
+            replay.reply_http_body(reload, latest_posts_body())?;
+            replay.persist_corr().expect("old persist")
+        } else {
+            reload
+        };
+        replay.step(Tick::Command(AppCommand::new(
+            helix_im::module::RUNTIME_IDENTITY_COMMAND,
+            serde_json::to_vec(
+                &json!({"auth_user_id":"other-viewer","company_id":"other-company"}),
+            )
+            .unwrap(),
+        )))?;
+        if after_window {
+            replay.reply_persist_ok(old_corr)?;
+        } else {
+            replay.reply_http_body(old_corr, latest_posts_body())?;
+        }
+        assert!(
+            replay.sink.as_slice().is_empty(),
+            "旧scope回执不能产生落库、终态或补拉"
+        );
+    }
+    Ok(())
+}

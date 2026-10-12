@@ -588,3 +588,75 @@ fn large_gap_echo_triggers_immediate_backfill_then_flushes_buffered_echo() {
         "buffered seq=5 持久成功后必须请求 viewer channel 绝对态读回"
     );
 }
+
+/// buffer溢出升级为覆盖恢复后，旧sync响应在恢复前后都不能重拉旧跨度或拆掉新守卫。
+#[test]
+fn proactive_too_long_ignores_superseded_sync_replies() {
+    let mut h = Harness::new_with_identity(&[7], "viewer-444", "tenant-1", "", "", "");
+    let mut old_sync = None;
+    let mut reload = None;
+    for seq in 2..(16_384_u64 + 4) {
+        h.step(inbound_event(7, seq, 1), 1000 + seq);
+        for fx in h.sink.as_slice() {
+            if let helix_core::Effect::Http { corr, req } = fx {
+                if req.url.ends_with("/channel/sync/notify") {
+                    old_sync = Some(corr.raw());
+                }
+                if req.url.ends_with("/posts/getLatestPost") {
+                    reload = Some(corr.raw());
+                }
+            }
+        }
+        if reload.is_some() {
+            break;
+        }
+    }
+    let old_sync = old_sync.expect("original sync request");
+    let reload = reload.expect("overflow recovery reload");
+    h.step(
+        port_reply_with_body(old_sync, enveloped(sync_reply_too_long(7, 100))),
+        30000,
+    );
+    assert!(h.sink.as_slice().is_empty(), "旧sync不能打断覆盖恢复");
+    h.step(
+        port_reply_with_body(
+            reload,
+            enveloped(bytes::Bytes::from_static(
+                br#"{"status":"SUCCESS","data":{"posts":[]}}"#,
+            )),
+        ),
+        30001,
+    );
+    let persist = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|fx| match fx {
+            helix_core::Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .unwrap();
+    h.step(port_reply_ok(persist), 30002);
+    let catchup = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|fx| match fx {
+            helix_core::Effect::Http { corr, req } if req.url.ends_with("/channel/sync/notify") => {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("post-recovery catchup");
+    h.step(port_reply_with_body(catchup,enveloped(bytes::Bytes::from(serde_json::to_vec(&serde_json::json!({
+        "status":"SUCCESS","data":{"entries":[{"channelId":cid(7),"kind":"no_change","nextSeq":1}]}
+    })).unwrap()))),30003);
+    h.step(
+        port_reply_with_body(old_sync, enveloped(sync_reply_too_long(7, 100))),
+        30004,
+    );
+    assert!(
+        h.sink.as_slice().is_empty(),
+        "恢复完成后旧sync也不能再次触发TooLong"
+    );
+}

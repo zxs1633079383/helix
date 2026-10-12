@@ -805,27 +805,22 @@ impl ImModule {
                     reset_to = reset_to.0,
                     "sync/notify response requires snapshot recovery"
                 );
-                if trigger == SyncTrigger::Hydration {
-                    self.fail_hydration_for_channel(
-                        channel_id,
-                        "hydration sync requires TooLong recovery",
-                        out,
-                    );
-                    return Ok(());
-                }
                 // 覆盖式恢复不先修改内存 cursor、清 buffer 或清 dialog：若窗口拉取/持久化
                 // 失败，旧历史与旧 cursor 必须仍可读；成功回包由 TooLongReloadPersist
                 // 在同一 PersistAtomic 回执后一次提交。
-                out.push(crate::acl::to_effect::emit_sync_too_long(
-                    channel_id, reset_to,
-                ));
+                // hydration 保留原请求，窗口提交后通过本地读回完成；不发布刷新指令。
+                if trigger != SyncTrigger::Hydration {
+                    out.push(crate::acl::to_effect::emit_sync_too_long(
+                        channel_id, reset_to,
+                    ));
+                }
                 let reload_corr = self.alloc_corr_internal();
                 let payload = serde_json::json!({
                     "channel_id": channel_id.as_str(),
                     "timestamp": 0,
                 });
                 let payload_bytes = serde_json::to_vec(&payload).unwrap_or_default();
-                if let Ok(effects) = crate::commands::handle_outbound(
+                match crate::commands::handle_outbound(
                     "im_get_latest_post",
                     payload_bytes.as_ref(),
                     self.config.api_base_url.as_str(),
@@ -833,16 +828,28 @@ impl ImModule {
                     self.state.connection_id.as_deref(),
                     reload_corr,
                 ) {
-                    self.state.corr_map.insert(
-                        reload_corr,
-                        CorrelationContext::TooLongReload {
-                            channel_id,
-                            reset_to,
-                        },
-                    );
-                    for effect in effects {
-                        out.push(effect);
+                    Ok(effects) => {
+                        self.state.corr_map.insert(
+                            reload_corr,
+                            CorrelationContext::TooLongReload {
+                                channel_id,
+                                reset_to,
+                                trigger,
+                            },
+                        );
+                        // 覆盖恢复期间禁止调度器以旧游标重复发起同步；此守卫不占 HTTP sync 窗口。
+                        if let Some(channel) = self.state.channels.get_mut(&channel_id) {
+                            channel.inflight_sync = Some(crate::state::InflightSync(reload_corr));
+                        }
+                        for effect in effects {
+                            out.push(effect);
+                        }
                     }
+                    Err(error) => self.fail_hydration_for_channel(
+                        channel_id,
+                        &format!("too_long reload dispatch failed: {error}"),
+                        out,
+                    ),
                 }
             }
             SyncResponse::Snapshot(snap) => {

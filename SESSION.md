@@ -1170,3 +1170,6 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 - 分支 reactor/MessageV3-helix；本地记录命令生命周期见 crates/helix-im/src/recent_history.rs。
 - 定向证据：/tmp/history-unit-final.log（2 通过）、/tmp/history-sqlite-final.log（1 通过）；PRE UI 未验证。
 ✅ DONE 0.1.36 四个 crate 已发布 crates.io 并可解析；release workspace check 与逐包 dry-run 通过。未跑全量测试，未升级客户端依赖，PRE UI 未验证。发布日志 /tmp/helix-0136-publish.log。
+
+🎯 EXPECT hydration TooLong 经权威窗口与cursor原子提交完成原命令，后续fromSeq使用新cursor、不重复旧恢复；失败不推进。证据见 docs/交接/1012-TooLong恢复/handoff.md。 | @2026-10-12
+✅ DONE hydration TooLong窗口/cursor原子恢复及新cursor补拉已实现；54 focused+2 buffer回归、真实Go HTTP/PostgreSQL副本/Native SQLite/EventSink两组通过。全套IM受无关G03a参考schema阻断；Tauri/发布未运行。详见 docs/交接/1012-TooLong恢复/handoff.md。

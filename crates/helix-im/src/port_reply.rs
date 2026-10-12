@@ -9,6 +9,7 @@ mod dispatch_channel_create;
 mod dispatch_core;
 mod dispatch_projection;
 mod dispatch_read;
+mod media_write;
 pub(crate) mod message_v3_chain;
 pub(crate) mod message_v3_post;
 pub(crate) mod message_v3_reaction;
@@ -18,13 +19,13 @@ mod message_v3_schedule;
 pub(crate) mod message_v3_template;
 pub(crate) mod message_v3_urgent;
 mod progress;
-mod media_write;
 
 impl ImModule {
     fn handle_too_long_reload_reply(
         &mut self,
         channel_id: ChannelId,
         reset_to: crate::state::Seq,
+        trigger: crate::state::SyncTrigger,
         reply: &helix_core::tick::ReplyBytes,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -36,10 +37,23 @@ impl ImModule {
                     error = ?e,
                     "too_long getLatestPost reply envelope decode failed"
                 );
+                self.clear_too_long_recovery(channel_id);
+                self.fail_hydration_for_channel(
+                    channel_id,
+                    &format!("too_long reload response invalid: {e}"),
+                    out,
+                );
                 return Ok(());
             }
         };
-        let mut posts = extract_latest_posts(raw_body.as_ref());
+        let mut posts = match extract_latest_posts(raw_body.as_ref()) {
+            Ok(posts) => posts,
+            Err(error) => {
+                self.clear_too_long_recovery(channel_id);
+                self.fail_hydration_for_channel(channel_id, &error.to_string(), out);
+                return Ok(());
+            }
+        };
         posts.sort_by_key(|post| {
             post_event_seq(post).unwrap_or_else(|| {
                 post.get("createAt")
@@ -54,6 +68,18 @@ impl ImModule {
         let mut channel_updates = Vec::new();
         for post in posts {
             let mut fields = crate::ws::parser::extract_post_fields(&post);
+            // 只接受本频道的有效权威帖子；畸形窗口不能被当作空窗口并推进cursor。
+            if fields.id.is_empty()
+                || (!fields.channel_id.is_empty() && fields.channel_id != channel_id.as_str())
+            {
+                self.clear_too_long_recovery(channel_id);
+                self.fail_hydration_for_channel(
+                    channel_id,
+                    "too_long latest window post identity invalid",
+                    out,
+                );
+                return Ok(());
+            }
             if fields.channel_id.is_empty() {
                 fields.channel_id = channel_id.as_str().to_string();
             }
@@ -80,14 +106,17 @@ impl ImModule {
             .with_msg_id(Some(msg_id.clone()));
             // too-long HTTP 窗口可能晚于在线 type=6 回执，按 sync 策略禁止空 read_bits 倒退。
             ops.push(crate::channel::event_to_sync_upsert_op(&ev));
-            channel_updates.push(crate::channel_update::PendingChannelUpdate::new(
-                channel_id,
-                seq,
-                msg_id.as_str(),
-                &fields,
-                &update,
-                "too_long_reload",
-            ));
+            // hydration 的未读已由 increment authority 落库；历史窗口不再按消息逐条累加。
+            if trigger != crate::state::SyncTrigger::Hydration {
+                channel_updates.push(crate::channel_update::PendingChannelUpdate::new(
+                    channel_id,
+                    seq,
+                    msg_id.as_str(),
+                    &fields,
+                    &update,
+                    "too_long_reload",
+                ));
+            }
         }
 
         for pending in &channel_updates {
@@ -121,7 +150,17 @@ impl ImModule {
                 channel_updates: emit_channel_updates,
             },
         );
+        if let Some(channel) = self.state.channels.get_mut(&channel_id) {
+            channel.inflight_sync = Some(crate::state::InflightSync(persist_corr));
+        }
         Ok(())
+    }
+
+    /// 释放覆盖恢复的单频道守卫；HTTP sync 的全局窗口已在原响应到达时释放。
+    fn clear_too_long_recovery(&mut self, channel_id: ChannelId) {
+        if let Some(channel) = self.state.channels.get_mut(&channel_id) {
+            channel.inflight_sync = None;
+        }
     }
 
     fn handle_media_port_reply(
@@ -726,10 +765,9 @@ impl ImModule {
     }
 }
 
-fn extract_latest_posts(raw_body: &[u8]) -> Vec<serde_json::Value> {
-    let Ok(root) = serde_json::from_slice::<serde_json::Value>(raw_body) else {
-        return Vec::new();
-    };
+fn extract_latest_posts(raw_body: &[u8]) -> Result<Vec<serde_json::Value>, ImError> {
+    let root = serde_json::from_slice::<serde_json::Value>(raw_body)
+        .map_err(|error| ImError::Parse(format!("too_long latest window invalid JSON: {error}")))?;
     for candidate in [
         root.pointer("/data/posts"),
         root.pointer("/data/items"),
@@ -739,14 +777,21 @@ fn extract_latest_posts(raw_body: &[u8]) -> Vec<serde_json::Value> {
         root.get("items"),
     ] {
         if let Some(serde_json::Value::Array(items)) = candidate {
-            return items
+            if items.iter().any(|item| !item.is_object()) {
+                return Err(ImError::Parse(
+                    "too_long latest window contains invalid post".to_string(),
+                ));
+            }
+            return Ok(items
                 .iter()
                 .filter(|item| item.is_object())
                 .cloned()
-                .collect();
+                .collect());
         }
     }
-    Vec::new()
+    Err(ImError::Parse(
+        "too_long latest window missing posts array".to_string(),
+    ))
 }
 
 fn post_event_seq(post: &serde_json::Value) -> Option<u64> {

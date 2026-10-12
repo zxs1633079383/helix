@@ -147,6 +147,19 @@ pub(super) fn schedule_reload_if_recent_too_long(
     };
     if !recent_effects_emitted_sync_too_long(recent, channel_id)
         || recent_effects_already_request_latest_post(recent, channel_id)
+        || ctx
+            .state
+            .channels
+            .get(&channel_id)
+            .and_then(|channel| channel.inflight_sync)
+            .and_then(|inflight| ctx.state.corr_map.get(&inflight.0))
+            .is_some_and(|context| {
+                matches!(
+                    context,
+                    crate::state::CorrelationContext::TooLongReload { .. }
+                        | crate::state::CorrelationContext::TooLongReloadPersist { .. }
+                )
+            })
     {
         return Ok(());
     }
@@ -174,13 +187,32 @@ pub(super) fn schedule_reload_if_recent_too_long(
         connection_id.as_deref(),
         corr,
     )?;
+    // buffer 溢出升级为覆盖恢复时撤销旧sync路由；其迟到响应不得在恢复完成后重拉旧跨度。
+    if let Some(previous) = ctx
+        .state
+        .channels
+        .get(&channel_id)
+        .and_then(|channel| channel.inflight_sync)
+    {
+        if matches!(
+            ctx.state.corr_map.get(&previous.0),
+            Some(crate::state::CorrelationContext::SyncPull { .. })
+        ) {
+            ctx.state.corr_map.remove(&previous.0);
+            ctx.state.sync_scheduler.release_window();
+        }
+    }
     ctx.state.corr_map.insert(
         corr,
         crate::state::CorrelationContext::TooLongReload {
             channel_id,
             reset_to,
+            trigger: crate::state::SyncTrigger::Routine,
         },
     );
+    if let Some(channel) = ctx.state.channels.get_mut(&channel_id) {
+        channel.inflight_sync = Some(crate::state::InflightSync(corr));
+    }
     for effect in effects {
         out.push(effect);
     }

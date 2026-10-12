@@ -314,3 +314,25 @@ fn duplicate_protocol_frame_is_rejected_while_stream_seq_is_inflight() {
         "失败回执必须释放在途水位，允许同序号补偿重试"
     );
 }
+
+/// 回归锚: hydration TooLong——覆盖窗口只能删除已覆盖前缀，保留恢复期间到达的新事件。
+#[test]
+fn too_long_atomic_commit_preserves_events_above_recovery_head() {
+    let mut channel = Channel::new(crate::state::test_channel_id(1), 0);
+    channel.buffer.insert(Seq(99), gapped_ev(1, 99));
+    channel.buffer.insert(Seq(101), gapped_ev(1, 101));
+    assert!(channel.commit_too_long_after_atomic(Seq(100)));
+    assert_eq!(channel.cursor.value(), Seq(100));
+    assert!(!channel.buffer.contains_key(&Seq(99)));
+    assert!(channel.buffer.contains_key(&Seq(101)));
+}
+
+/// 回归锚: hydration TooLong——已提交的在线更高水位不能被迟到恢复窗口倒退或误报失败。
+#[test]
+fn too_long_atomic_commit_keeps_newer_live_cursor() {
+    let mut channel = Channel::new(crate::state::test_channel_id(1), 101);
+    channel.buffer.insert(Seq(103), gapped_ev(1, 103));
+    assert!(channel.commit_too_long_after_atomic(Seq(100)));
+    assert_eq!(channel.cursor.value(), Seq(101));
+    assert!(channel.buffer.contains_key(&Seq(103)));
+}

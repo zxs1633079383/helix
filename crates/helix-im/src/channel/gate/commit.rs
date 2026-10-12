@@ -52,11 +52,16 @@ impl Channel {
     /// 调用前旧窗口、gate 与 cursor 均保持不变；调用方必须已在同一事务写入替换消息和
     /// `channel_event_cursor`，失败路径不得调用本方法。
     pub(crate) fn commit_too_long_after_atomic(&mut self, target_seq: Seq) -> bool {
-        if self.is_terminal() || target_seq < self.cursor.value() {
+        if self.is_terminal() {
             return false;
         }
+        // 在线提交可能先于窗口回执推进到更高水位；保留已提交的新事实，不倒退也不误报失败。
+        if target_seq < self.cursor.value() {
+            return true;
+        }
         self.cursor.try_advance(target_seq);
-        self.buffer.clear();
+        // resetTo 之后收到的事件尚未被恢复窗口覆盖，保留到后续增量提交。
+        self.buffer.retain(|seq, _| *seq > target_seq);
         self.gate = None;
         self.last_sync_from_seq = None;
         true

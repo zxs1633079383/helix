@@ -1678,6 +1678,17 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        // buffer 溢出可能已把旧 sync 升级为覆盖恢复；旧响应只释放自己的全局窗口，不能拆掉新守卫。
+        let superseded = self.state.channels.get(&channel_id).is_some_and(|channel| {
+            channel
+                .inflight_sync
+                .is_some_and(|inflight| inflight.0 != corr)
+        });
+        if superseded {
+            self.state.sync_scheduler.release_window();
+            self.drain_sync_queue(out);
+            return Ok(());
+        }
         if let Some(ch) = self.state.channels.get_mut(&channel_id) {
             ch.inflight_sync = None;
         }

@@ -1544,3 +1544,142 @@ async fn real_go_gap_projects_first_unread_then_recovers_second() {
     ws_cleanup.expect("observer WS cleanup");
     channel_cleanup.expect("run-owned channel cleanup");
 }
+
+/// 真实Go router+独占PostgreSQL夹具：HTTP/SQLite/EventSink对账；不替代Tauri或在线WS验收。
+#[tokio::test]
+#[ignore = "requires run-owned loopback Go/PostgreSQL fixture and HELIX_TOOLONG_FIXTURE_BASE"]
+async fn real_go_hydration_too_long_advances_durable_cursor_and_stops_old_replay() {
+    use helix_core::ports::HttpRequester;
+    use helix_core::tick::AppCommand;
+    use helix_driver_host::HostNetworkConfig;
+    use serde_json::{json, Value};
+    let base = std::env::var("HELIX_TOOLONG_FIXTURE_BASE").expect("isolated fixture base");
+    assert!(
+        base.starts_with("http://127.0.0.1:"),
+        "夹具仅允许本机独占server"
+    );
+    let channel_text = std::env::var("HELIX_TOOLONG_FIXTURE_CHANNEL").expect("fixture channel");
+    let user = std::env::var("HELIX_TOOLONG_FIXTURE_USER").expect("fixture user");
+    let company = std::env::var("HELIX_TOOLONG_FIXTURE_COMPANY").expect("fixture company");
+    let head: u64 = std::env::var("HELIX_TOOLONG_FIXTURE_HEAD")
+        .expect("fixture head")
+        .parse()
+        .unwrap();
+    let inject_event = std::env::var("HELIX_TOOLONG_FIXTURE_ADVANCE").as_deref() == Ok("1");
+    let http = NativeHttp::with_config(HostNetworkConfig::new(&base, "ws://127.0.0.1:1"))
+        .expect("NativeHttp");
+    for (key, value) in [
+        ("Cookieid", user.as_str()),
+        ("userId", user.as_str()),
+        ("companyId", company.as_str()),
+        ("teamId", company.as_str()),
+    ] {
+        http.set_global_header(key, value)
+            .await
+            .expect("fixture identity header");
+    }
+    let (storage, path) = open_storage().await;
+    let (event_sink, mut receiver) = NativeEventSink::new();
+    let channel = ChannelId::from_str(&channel_text).expect("canonical channel id");
+    let mut module = ImModule::new(ImConfig {
+        auth_user_id: user,
+        company_id: company,
+        api_base_url: base.clone(),
+        default_api_base_url: base.clone(),
+        ..ImConfig::default()
+    });
+    module.register_channel(channel, 0);
+    let mut ledger = Vec::<Value>::new();
+    let result:Result<(),String>=async {
+        let mut injected=false;
+        for attempt in 0..2 {
+            let request_id=format!("toolong-native-{attempt}");
+            let command=Tick::Command(AppCommand::new("im_channel_load_increment_by_channel_id",serde_json::to_vec(&json!({"channel_id":channel_text,"req_id":request_id})).unwrap()));
+            let mut pending=VecDeque::from([command]);
+            let mut effects=EffectSink::new();
+            let mut steps=0;
+            let mut terminals=0;
+            while let Some(tick)=pending.pop_front() {
+                steps+=1;
+                if steps>64 { return Err("recovery exceeded bounded 64-step chain".into()); }
+                effects.clear();
+                module.handle(&tick,1700000000000+steps,&mut effects).map_err(|e|e.to_string())?;
+                for effect in effects.as_slice() {
+                    match effect {
+                        Effect::Http{corr,req}=>{
+                            let response=http.request(req.clone()).await.map_err(|e|format!("HTTP {e:?}"))?;
+                            let body:Value=serde_json::from_slice(&response.body).map_err(|e|e.to_string())?;
+                            if body["status"]!="SUCCESS" {return Err(format!("remote business failure at {}: {}",req.url,body["message"]));}
+                            if req.url.ends_with("/channel/sync/notify") {
+                                let input:Value=serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
+                                ledger.push(json!({"attempt":attempt,"hop":"sync","corr":corr.raw(),"fromSeq":input["cursors"][0]["fromSeq"],"kind":body["data"]["entries"][0]["kind"],"resetTo":body["data"]["entries"][0]["resetTo"],"nextSeq":body["data"]["entries"][0]["nextSeq"]}));
+                            }
+                            if req.url.ends_with("/posts/getLatestPost") && inject_event && !injected {
+                                let mut inject=req.clone(); inject.url=base.trim_end_matches("/api/cses").to_string()+"/fixture/advance";inject.method="POST".into();inject.body=None;
+                                let advanced=http.request(inject).await.map_err(|e|format!("fixture advance: {e:?}"))?;
+                                if advanced.status!=200 { return Err("fixture advance failed".into()); }
+                                injected=true;
+                                ledger.push(json!({"hop":"authority_advanced_during_reload","seq":head+1}));
+                            }
+                            pending.push_back(Tick::PortReply{corr:*corr,outcome:PortOutcome::Ok(ReplyBytes(Bytes::from(serde_json::to_vec(&json!({"status":response.status,"headers":[],"body":base64_encode(&response.body)})).unwrap())))});
+                        }
+                        Effect::PersistAtomic{corr,ops}=>{
+                            let before=module.cursor_for(channel);
+                            let outcome=execute_storage_ops_atomic(&storage,ops).await;
+                            if let PortOutcome::Err(ref error)=outcome {return Err(format!("atomic persistence {error:?}"));}
+                            ledger.push(json!({"hop":"atomic_write","corr":corr.raw(),"memoryCursorBeforeReceipt":before}));
+                            pending.push_back(Tick::PortReply{corr:*corr,outcome});
+                        }
+                        Effect::Persist{corr,ops}=>pending.push_back(Tick::PortReply{corr:*corr,outcome:execute_storage_ops(&storage,ops).await}),
+                        Effect::Emit{event}=>{
+                            event_sink.emit(event.clone());
+                            let event:Value=serde_json::from_slice(&event.0).unwrap();
+                            if event["event"]=="im:read:result" && event["data"]["req_id"]==request_id {
+                                if event["data"]["error"].is_string() {return Err(format!("hydration error {}",event["data"]["error"]));}
+                                terminals+=1;
+                                ledger.push(json!({"hop":"read_result","attempt":attempt,"cursor":event["data"]["body"]["cursor"],"messageCount":event["data"]["body"]["messages"].as_array().map(Vec::len)}));
+                            }
+                        }
+                        Effect::PersistFire{ops}=>{if let PortOutcome::Err(e)=execute_storage_ops(&storage,ops).await{return Err(format!("fire {e:?}"));}},
+                        other=>return Err(format!("unexpected recovery effect {other:?}")),
+                    }
+                }
+            }
+            assert_eq!(terminals,1,"每次加载唯一成功终态");
+            let expected=head+u64::from(inject_event);
+            assert_eq!(module.cursor_for(channel),Some(expected));
+            let row=storage.get(GetSpec{table:"channel_event_cursor",key_col:"channel_id",key_val:SqlValue::Text(channel_text.clone())}).await.map_err(|e|e.to_string())?.expect("durable cursor row");
+            assert!(row.iter().any(|(key,value)|key=="last_event_seq" && matches!(value,SqlValue::Integer(seq) if *seq==expected as i64)));
+            ledger.push(json!({"hop":"durable_readback","attempt":attempt,"cursor":expected}));
+            let mut received=0;
+            while let Ok(event)=receiver.try_recv() {
+                let value:Value=serde_json::from_slice(&event.0).unwrap();
+                if value["event"]=="im:read:result" {received+=1;}
+            }
+            assert_eq!(received,1,"NativeEventSink唯一完成");
+        }
+        let syncs:Vec<_>=ledger.iter().filter(|v|v["hop"]=="sync").collect();
+        assert_eq!(syncs[0]["fromSeq"],0);
+        assert_eq!(syncs[0]["kind"],"too_long");
+        assert_eq!(syncs[0]["resetTo"],head);
+        assert_eq!(syncs[1]["fromSeq"],head);
+        assert_eq!(syncs[1]["kind"],if inject_event {"events"} else {"no_change"});
+        assert_eq!(syncs.last().unwrap()["fromSeq"],head+u64::from(inject_event));
+        assert_eq!(syncs.last().unwrap()["kind"],"no_change");
+        assert_eq!(syncs.iter().filter(|v|v["kind"]=="too_long").count(),1);
+        Ok(())
+    }.await;
+    drop(storage);
+    for suffix in ["", "-wal", "-shm"] {
+        let file = std::path::PathBuf::from(format!("{}{suffix}", path.display()));
+        if file.exists() {
+            std::fs::remove_file(&file).expect("run-owned SQLite cleanup");
+        }
+        assert!(!file.exists());
+    }
+    println!(
+        "TOOLONG_NATIVE_LEDGER {}",
+        serde_json::to_string(&ledger).unwrap()
+    );
+    assert!(result.is_ok(), "{}", result.unwrap_err());
+}

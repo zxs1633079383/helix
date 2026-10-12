@@ -789,11 +789,18 @@ impl ImModule {
             CorrelationContext::TooLongReload {
                 channel_id,
                 reset_to,
+                trigger,
             } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    self.handle_too_long_reload_reply(channel_id, reset_to, reply, out)?;
+                    self.handle_too_long_reload_reply(channel_id, reset_to, trigger, reply, out)?;
                 }
                 PortOutcome::Err(e) => {
+                    self.clear_too_long_recovery(channel_id);
+                    self.fail_hydration_for_channel(
+                        channel_id,
+                        &format!("too_long reload failed: {e:?}"),
+                        out,
+                    );
                     tracing::warn!(
                         channel_id = channel_id.as_str(),
                         reset_to = reset_to.0,
@@ -809,6 +816,7 @@ impl ImModule {
                 channel_updates,
             } => match outcome {
                 PortOutcome::Ok(reply) => {
+                    self.clear_too_long_recovery(channel_id);
                     let committed = self
                         .state
                         .channels
@@ -823,15 +831,37 @@ impl ImModule {
                             }
                         }
                         self.finish_increment_hydration(channel_id, out)?;
+                        // resetTo 只覆盖原响应时刻；再从已提交cursor有界补拉，接住恢复期间的新事件。
+                        let api_base_url = self.config.api_base_url.clone();
+                        self.with_state_and_corr_allocator(|state, alloc| {
+                            crate::sync_scheduler::enqueue_and_drain(
+                                state,
+                                &api_base_url,
+                                &[channel_id],
+                                alloc,
+                                out,
+                            );
+                        });
                     } else {
                         tracing::warn!(
                             channel_id = channel_id.as_str(),
                             reset_to = reset_to.0,
                             "too_long reload receipt no longer matches channel generation"
                         );
+                        self.fail_hydration_for_channel(
+                            channel_id,
+                            "too_long recovery superseded",
+                            out,
+                        );
                     }
                 }
                 PortOutcome::Err(e) => {
+                    self.clear_too_long_recovery(channel_id);
+                    self.fail_hydration_for_channel(
+                        channel_id,
+                        &format!("too_long reload persist failed: {e:?}"),
+                        out,
+                    );
                     tracing::warn!(
                         channel_id = channel_id.as_str(),
                         error = ?e,

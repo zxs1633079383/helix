@@ -680,7 +680,14 @@ impl ImModule {
         let Some(req_id) = self.state.hydration_req_ids.get(&channel_id).cloned() else {
             return;
         };
+        let auto_hydration = self.scope_hydration.is_active(channel_id, &req_id);
+        let effect_start = out.as_slice().len();
         self.finish_hydration_error(&req_id, channel_id, reason, out);
+        // 恢复的网络/持久化失败也必须释放自动补水去重状态，允许后续入站重试。
+        if auto_hydration {
+            self.scope_hydration.clear(channel_id);
+            crate::scope_hydration::drop_auto_read_emits(out, effect_start, &req_id);
+        }
     }
 
     /// Decode hydration replies; diagnostics do not change the existing Result contract.

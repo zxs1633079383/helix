@@ -119,3 +119,25 @@ emit_proactive_resync_for(channel_id);
 
 - drafting → active：2026-06-16 第一次命中（B3 修复 + 用户 challenge 触发实证核对）。
 - 待办（未来若服务端契约变）：若 `messages` phantom map 投影（B5）落地，复核 nextSeq vs events 数组的关系是否仍恒等。
+
+
+## Hydration TooLong 恢复屏障（2026-10-12）
+
+`too_long` 是回放预算信号，hydration 必须继续既有权威窗口恢复并保持原读请求，不能直接以
+`hydration sync requires TooLong recovery` 结算失败。最新窗口与 `channel_event_cursor` 同一
+`PersistAtomic` 成功后才提交内存并读回加载结果；历史窗口不得再次累加已提交的成员未读。
+恢复期间的单频道守卫阻止旧游标重复同步；buffer 只移除恢复水位以内的前缀。
+
+恢复提交后，通过全局有界调度器从已提交游标补拉一次，处理窗口拉取期间产生的新事件；
+短批或 `no_change` 停止，后续加载继续使用新游标。更长离线期间再次超过回放预算仍可正常
+进入恢复协议；不通过禁止正常同步、提高阈值或手工改游标隐藏问题。
+网络、业务拒绝、畸形窗口及持久失败保留旧游标，结算一次真实失败并释放自动补水owner。
+重复/旧RuntimeAuth回执不能重复完成；buffer溢出升级恢复时撤销旧sync路由，迟到响应不能
+在恢复成功后再次请求旧跨度。
+
+回归入口：`message_v3_mv3_g13b` 的 `hydration_too_long_*`、`scope_hydration_test` 的
+`auto_hydration_too_long_*`、`gate_test` 的 `proactive_too_long_ignores_superseded_sync_replies`、
+channel unit 的 `too_long_atomic_commit_*`。
+真实 Go HTTP/PostgreSQL副本/Native SQLite/EventSink 验证入口为
+`message_v3_sync_native::real_go_hydration_too_long_advances_durable_cursor_and_stops_old_replay`；
+夹具、命令与验收边界见 [本轮交接](../交接/1012-TooLong恢复/handoff.md)。这不替代真实Tauri及发布验收。

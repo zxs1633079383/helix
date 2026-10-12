@@ -317,6 +317,7 @@ pub enum CorrelationContext {
     TooLongReload {
         channel_id: ChannelId,
         reset_to: crate::state::Seq,
+        trigger: SyncTrigger,
     },
 
     /// too_long 首屏重拉落库 + channel 写后读回。

@@ -19,7 +19,8 @@ use helix_core::ports::HttpRequester;
 use helix_core::PortError;
 use helix_driver_host::{
     AsyncMetricSink, AuthTokenRegistry, CrossCuttingHttp, HostHeaderRegistry, HostNetworkConfig,
-    HostOtelRuntime, HttpOutcomeObserver, SharedHttpClient,
+    HostOtelRuntime, HttpOutcomeObserver, SharedHttpClient, TranslationHttpClient,
+    TranslationHttpConfig,
 };
 
 use crate::event_sink::NativeEventSink;
@@ -59,6 +60,7 @@ fn consume_wdio_post_create_fault(req: &HttpRequest) -> bool {
 pub struct NativeHttp {
     inner: HttpInner,
     headers: HostHeaderRegistry,
+    translation: Option<TranslationHttpClient>,
 }
 
 #[derive(Clone)]
@@ -90,6 +92,7 @@ impl NativeHttp {
         Self {
             inner: HttpInner::Plain(inner),
             headers,
+            translation: None,
         }
     }
 
@@ -112,6 +115,7 @@ impl NativeHttp {
                 outcome_observer,
             )),
             headers,
+            translation: None,
         }
     }
 
@@ -129,7 +133,19 @@ impl NativeHttp {
                 CrossCuttingHttp::new(client, event_sink, auth, outcome_observer).with_otel(otel),
             ),
             headers,
+            translation: None,
         }
+    }
+
+    /// Attach a dedicated translation client.  Its endpoint, credential and header registry are
+    /// isolated from the main IM client; the reserved `service:translation` URL is the only route
+    /// that can reach it.
+    pub fn with_translation(
+        mut self,
+        config: TranslationHttpConfig,
+    ) -> Result<Self, PortError> {
+        self.translation = Some(TranslationHttpClient::new(config)?);
+        Ok(self)
     }
 
     pub async fn set_global_header(&self, name: &str, value: &str) -> Result<(), PortError> {
@@ -155,6 +171,16 @@ impl HttpRequester for NativeHttp {
             return Err(PortError::Transport(
                 "wdio coarse-real injected posts/create failure".to_string(),
             ));
+        }
+        if req.url == "service:translation" {
+            return self
+                .translation
+                .as_ref()
+                .ok_or_else(|| {
+                    PortError::Other("translation endpoint is not configured".into())
+                })?
+                .request(req)
+                .await;
         }
         match &self.inner {
             HttpInner::Plain(c) => c.request(req).await,
@@ -197,6 +223,21 @@ mod tests {
         };
         let result = http.request(req).await;
         assert!(result.is_err(), "invalid method should return Err");
+    }
+
+    #[tokio::test]
+    async fn translation_route_is_explicitly_disabled_without_dedicated_config() {
+        let http = NativeHttp::with_config(test_config()).expect("build client");
+        let req = HttpRequest {
+            method: "POST".to_string(),
+            url: "service:translation".to_string(),
+            headers: vec![],
+            body: Some(bytes::Bytes::from_static(br#"{}"#)),
+        };
+        assert!(matches!(
+            http.request(req).await,
+            Err(PortError::Other(message)) if message.contains("translation endpoint is not configured")
+        ));
     }
 
     #[tokio::test]

@@ -1,3 +1,6 @@
+🎯 EXPECT 在服务验证通过前仅冻结翻译公开 Tick seam 并保留红测；实现 `im_translate_message` / `im_cancel_translation` 前完成隔离 HTTP、非持久终态与 stop/cancel/timeout 迟到回包合同对账。| 赌注 中 | 可逆 是 | @2026-10-12
+✅ DONE 服务验证后完成 Helix 翻译公开 Tick、隔离 Native HTTP、非持久终态与生命周期清理；focused red→green、三端 Rust 编译目标与当前 Docker Native 真链均有证据。交接由主会话维护：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/1012-右键翻译/handoff.md。
+
 🎯 EXPECT 完整 member 摘要携带持久版本；稀疏 POST 不改写正版本成员行；严格同版冲突检查与真实离场保持。| 赌注 中 | 可逆 是 | @2026-10-12
 - 交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/1012-会话摘要与群成员投影/handoff.md
 ✅ DONE 本地实现与公开 Gate、隔离真实 SQLite、双视角 Host/IPC 回放通过；真实 PRE/Tauri 未验证，未提版、未发布、未 push。具体检查与代码身份见交接。

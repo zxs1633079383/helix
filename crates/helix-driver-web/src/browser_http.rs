@@ -20,6 +20,8 @@ use helix_core::{apply_auth_intent, AuthKind, PortError, AUTH_KIND_HEADER};
 
 use crate::event_sink::WebEventSink;
 
+const TRANSLATION_SERVICE_URL: &str = "service:translation";
+
 #[derive(Clone, Default)]
 struct RequestLifecycle {
     stopped: Arc<AtomicBool>,
@@ -256,6 +258,11 @@ impl BrowserHttpRequester {
 impl HttpRequester for BrowserHttpRequester {
     async fn request(&self, request: HttpRequest) -> Result<HttpResponse, PortError> {
         self.lifecycle.ensure_active()?;
+        if request.url == TRANSLATION_SERVICE_URL {
+            return Err(PortError::Other(
+                "translation endpoint is not configured for Web".into(),
+            ));
+        }
         let request = self.prepare_request(request)?;
         let url = request.url.clone();
         let (request_id, controller) = self.lifecycle.begin()?;
@@ -271,8 +278,13 @@ impl HttpRequester for BrowserHttpRequester {
 #[cfg(not(target_arch = "wasm32"))]
 #[async_trait::async_trait]
 impl HttpRequester for BrowserHttpRequester {
-    async fn request(&self, _request: HttpRequest) -> Result<HttpResponse, PortError> {
+    async fn request(&self, request: HttpRequest) -> Result<HttpResponse, PortError> {
         self.lifecycle.ensure_active()?;
+        if request.url == TRANSLATION_SERVICE_URL {
+            return Err(PortError::Other(
+                "translation endpoint is not configured for Web".into(),
+            ));
+        }
         Err(PortError::Other(
             "Browser Fetch is only available on wasm32".into(),
         ))

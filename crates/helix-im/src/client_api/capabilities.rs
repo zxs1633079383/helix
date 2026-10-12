@@ -60,6 +60,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:post_chain:retract",
     "im:post_chain:read_cursor",
     "im:health:result",
+    "im:translation:result",
     "im:net:reconnect_requested",
     EVENT_HTTP_UNAUTHORIZED,
     EVENT_NET_OFFLINE,
@@ -73,6 +74,8 @@ pub fn capabilities_json() -> Vec<u8> {
     commands.push("im_send_message");
     commands.push("im_retry_send");
     commands.push("im_reconnect");
+    commands.push("im_translate_message");
+    commands.push("im_cancel_translation");
     commands.extend_from_slice(crate::query::query_command_names());
     commands.sort_unstable();
     commands.dedup();

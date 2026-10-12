@@ -34,6 +34,9 @@ pub use config::{HostHeaderRegistry, HostNetworkConfig};
 mod http;
 pub use http::{PreparedHttpRequest, SharedHttpClient};
 
+mod translation;
+pub use translation::{TranslationHttpClient, TranslationHttpConfig};
+
 const WS_FRAME_BUFFER: usize = 64;
 
 #[derive(Clone)]

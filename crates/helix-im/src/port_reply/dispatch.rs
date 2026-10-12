@@ -221,6 +221,9 @@ impl ImModule {
         };
 
         match ctx {
+            CorrelationContext::Translation { request, timer } => {
+                self.translation_reply(*request, timer, outcome, out)?;
+            }
             CorrelationContext::CategoryChain { pending } => {
                 self.handle_category_reply(*pending, outcome, out)?
             }

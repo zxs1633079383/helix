@@ -89,6 +89,11 @@ pub enum CorrelationContext {
         request: Box<crate::query::forward_detail::Request>,
         timer: helix_core::TimerId,
     },
+    /// Non-durable translation HTTP reply; no message projection or websocket side effect.
+    Translation {
+        request: Box<crate::translation::Request>,
+        timer: helix_core::TimerId,
+    },
     /// 分类接龙HTTP/持久化/读回的独立 continuation。
     CategoryChain {
         pending: Box<crate::category_chain::Pending>,
@@ -891,6 +896,7 @@ impl CorrelationContext {
                 | crate::category_chain::Pending::Readback(work) => work.request.req_id.as_deref(),
             },
             Self::ForwardDetail { request, .. } => Some(&request.req_id),
+            Self::Translation { request, .. } => Some(&request.req_id),
             Self::OutboundReplies { request } => Some(&request.req_id),
             _ => None,
         }

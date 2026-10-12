@@ -273,7 +273,9 @@ fn phase1_schema(file: &str) -> Value {
                 "required": ["angular", "helix"],
                 "properties": {
                     "angular": {"type": "array", "items": {"type": "string"}},
-                    "helix": {"type": "array", "items": {"type": "string"}}
+                    "helix": {"type": "array", "items": {"type": "string"}},
+                    // 转发参考生成器记录服务端权威职责；保留旧双职责材料兼容。
+                    "go": {"type": "array", "items": {"type": "string"}}
                 }
             });
             properties["shared_invariants"] = json!({"type": "array", "items": {"type": "string"}});
@@ -873,5 +875,40 @@ fn phase1_schemas_reject_corrupted_artifacts() {
         "provenance.json",
         &wrong_namespace,
         "helix gate id namespace",
+    );
+}
+
+/// 已提交的转发参考声明 Go 权威职责；它是显式可选字段，未知职责和错误类型仍须拒绝。
+#[test]
+fn phase1_inbound_field_ownership_accepts_go_and_rejects_unknown_roles() {
+    let schema = phase1_schema("inbound-contract.json");
+    let validator = jsonschema::validator_for(&schema).expect("phase 1 schema compiles");
+    let mut inbound = phase1_artifact("post/mv3-g03a", "inbound-contract.json");
+    assert!(
+        validator.is_valid(&inbound),
+        "current forward ownership must be valid"
+    );
+    inbound["field_ownership"]["go"] = json!("invalid scalar");
+    assert!(
+        !validator.is_valid(&inbound),
+        "Go ownership must remain an array"
+    );
+    inbound["field_ownership"]["go"] = json!(["来源授权"]);
+    inbound["field_ownership"]["unknown_runtime"] = json!([]);
+    assert!(
+        !validator.is_valid(&inbound),
+        "unknown ownership must fail closed"
+    );
+    inbound["field_ownership"]
+        .as_object_mut()
+        .expect("ownership object")
+        .remove("unknown_runtime");
+    inbound["field_ownership"]
+        .as_object_mut()
+        .expect("ownership object")
+        .remove("go");
+    assert!(
+        validator.is_valid(&inbound),
+        "older two-role references remain valid"
     );
 }

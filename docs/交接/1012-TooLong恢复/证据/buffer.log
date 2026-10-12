@@ -1,0 +1,60 @@
+   Compiling helix-im v0.1.53 (/System/Volumes/Data/workspace/angular/visual/helix/crates/helix-im)
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `carry_into` is never used
+   --> crates/helix-im/src/outbound/posts/read.rs:102:15
+    |
+102 | pub(super) fn carry_into(
+    |               ^^^^^^^^^^
+
+warning: function `timeline_navigation_direction` is never used
+    --> crates/helix-im/src/port_reply/dispatch_read.rs:1990:4
+     |
+1990 | fn timeline_navigation_direction(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `dialog_member_scan_spec` is never used
+   --> crates/helix-im/src/query/core.rs:245:15
+    |
+245 | pub(crate) fn dialog_member_scan_spec(auth_user_id: &str) -> ScanSpec {
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DIALOG_MEMBER_QUERY_ORDER` is never used
+   --> crates/helix-im/src/query/core.rs:306:7
+    |
+306 | const DIALOG_MEMBER_QUERY_ORDER: &[ScanOrder] = &[];
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `emit_timeline_navigation_page` is never used
+    --> crates/helix-im/src/query/local_first.rs:1001:19
+     |
+ 160 | impl ImModule {
+     | ------------- method in this implementation
+...
+1001 |     pub(crate) fn emit_timeline_navigation_page(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `merge_recent_rows` is never used
+   --> crates/helix-im/src/query/local_first/data.rs:534:15
+    |
+534 | pub(super) fn merge_recent_rows(
+    |               ^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib test) generated 7 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.63s
+     Running unittests src/lib.rs (target/debug/deps/helix_im-42c679b5df6da517)
+
+running 2 tests
+test channel::gate::tests::too_long_atomic_commit_preserves_events_above_recovery_head ... ok
+test channel::gate::tests::too_long_atomic_commit_keeps_newer_live_cursor ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 468 filtered out; finished in 0.00s

@@ -1,0 +1,258 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on artifact directory
+warning: method `attach_window` is never used
+   --> crates/helix-im/src/channel/older_context.rs:140:19
+    |
+ 74 | impl LoadOlderState {
+    | ------------------- method in this implementation
+...
+140 |     pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `project_page` is never used
+   --> crates/helix-im/src/channel_sync.rs:321:15
+    |
+321 | pub(crate) fn project_page(
+    |               ^^^^^^^^^^^^
+
+warning: function `carry_into` is never used
+   --> crates/helix-im/src/outbound/posts/read.rs:102:15
+    |
+102 | pub(super) fn carry_into(
+    |               ^^^^^^^^^^
+
+warning: function `timeline_navigation_direction` is never used
+    --> crates/helix-im/src/port_reply/dispatch_read.rs:1990:4
+     |
+1990 | fn timeline_navigation_direction(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `dialog_member_scan_spec` is never used
+   --> crates/helix-im/src/query/core.rs:245:15
+    |
+245 | pub(crate) fn dialog_member_scan_spec(auth_user_id: &str) -> ScanSpec {
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DIALOG_MEMBER_QUERY_ORDER` is never used
+   --> crates/helix-im/src/query/core.rs:306:7
+    |
+306 | const DIALOG_MEMBER_QUERY_ORDER: &[ScanOrder] = &[];
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `emit_timeline_navigation_page` is never used
+    --> crates/helix-im/src/query/local_first.rs:1001:19
+     |
+ 160 | impl ImModule {
+     | ------------- method in this implementation
+...
+1001 |     pub(crate) fn emit_timeline_navigation_page(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `merge_recent_rows` is never used
+   --> crates/helix-im/src/query/local_first/data.rs:534:15
+    |
+534 | pub(super) fn merge_recent_rows(
+    |               ^^^^^^^^^^^^^^^^^
+
+warning: function `shape_channel_rows` is never used
+   --> crates/helix-im/src/query/render_ready/channel.rs:661:15
+    |
+661 | pub(crate) fn shape_channel_rows(rows: &Value) -> Value {
+    |               ^^^^^^^^^^^^^^^^^^
+
+warning: `helix-im` (lib) generated 9 warnings
+   Compiling helix-im v0.1.53 (/System/Volumes/Data/workspace/angular/visual/helix/crates/helix-im)
+warning: unused variable: `first`
+   --> crates/helix-im/tests/scope_hydration_test.rs:250:9
+    |
+250 |     let first = harness.step(post_frame(7, 1), 1_000);
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_first`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `second`
+   --> crates/helix-im/tests/scope_hydration_test.rs:256:9
+    |
+256 |     let second = harness.step(post_frame(7, 2), 1_003);
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_second`
+
+warning: unused variable: `first`
+   --> crates/helix-im/tests/scope_hydration_test.rs:270:9
+    |
+270 |     let first = harness.step(post_frame(7, 1), 1_000);
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_first`
+
+warning: unused variable: `second`
+   --> crates/helix-im/tests/scope_hydration_test.rs:276:9
+    |
+276 |     let second = harness.step(post_frame(7, 2), 1_003);
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_second`
+
+warning: unused variable: `first`
+   --> crates/helix-im/tests/scope_hydration_test.rs:290:9
+    |
+290 |     let first = harness.step(post_frame(7, 1), 1_000);
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_first`
+
+warning: unused variable: `second`
+   --> crates/helix-im/tests/scope_hydration_test.rs:311:9
+    |
+311 |     let second = harness.step(post_frame(7, 2), 1_003);
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_second`
+
+warning: unused variable: `first`
+   --> crates/helix-im/tests/scope_hydration_test.rs:325:9
+    |
+325 |     let first = harness.step(post_frame(7, 1), 1_000);
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_first`
+
+warning: unused variable: `second`
+   --> crates/helix-im/tests/scope_hydration_test.rs:353:9
+    |
+353 |     let second = harness.step(post_frame(7, 2), 1_004);
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_second`
+
+warning: unused variable: `first`
+   --> crates/helix-im/tests/scope_hydration_test.rs:368:9
+    |
+368 |     let first = harness.step(post_frame(7, 1), 1_000);
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_first`
+
+warning: unused variable: `first`
+   --> crates/helix-im/tests/scope_hydration_test.rs:383:9
+    |
+383 |     let first = harness.step(post_frame(7, 1), 1_000);
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_first`
+
+warning: unused variable: `first`
+   --> crates/helix-im/tests/scope_hydration_test.rs:397:9
+    |
+397 |     let first = harness.step(post_frame(7, 1), 1_000);
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_first`
+
+warning: unused variable: `first`
+   --> crates/helix-im/tests/scope_hydration_test.rs:430:9
+    |
+430 |     let first = harness.step(post_frame(7, 1), 1_000);
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_first`
+
+warning: unused variable: `first`
+   --> crates/helix-im/tests/scope_hydration_test.rs:451:9
+    |
+451 |     let first = harness.step(post_frame(7, 1), 1_000);
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_first`
+
+warning: unused variable: `second`
+   --> crates/helix-im/tests/scope_hydration_test.rs:461:9
+    |
+461 |     let second = harness.step(post_frame(7, 2), 1_006);
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_second`
+
+warning: unused variable: `first`
+   --> crates/helix-im/tests/scope_hydration_test.rs:476:9
+    |
+476 |     let first = harness.step(post_frame(7, 1), 1_000);
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_first`
+
+warning: unused variable: `second`
+   --> crates/helix-im/tests/scope_hydration_test.rs:490:9
+    |
+490 |     let second = harness.step(post_frame(7, 1), 1_004);
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_second`
+
+warning: unused variable: `first`
+   --> crates/helix-im/tests/scope_hydration_test.rs:505:9
+    |
+505 |     let first = harness.step(post_frame(7, 1), 1_000);
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_first`
+
+warning: `helix-im` (test "scope_hydration_test") generated 17 warnings (run `cargo fix --test "scope_hydration_test" -p helix-im` to apply 17 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.36s
+     Running tests/gate_test.rs (target/debug/deps/gate_test-d988bf7069a78518)
+
+running 14 tests
+test gate_contiguous_ws_applies_immediately ... ok
+test gate_out_of_order_arms_timer ... ok
+test gate_single_missing_seq_triggers_immediate_backfill ... ok
+test gate_timer_fires_sync_http ... ok
+test gate_second_out_of_order_no_double_arm ... ok
+test gate_dup_drop_silently ... ok
+test gate_buffer_flush_on_contiguous_arrival ... ok
+test sync_success_path_peek_then_commit_cursor ... ok
+test cursor_never_decreases_under_any_input ... ok
+test sync_cursor_anchors_to_next_seq_not_max_event ... ok
+test sync_too_long_resets_cursor_and_emits ... ok
+test large_gap_echo_triggers_immediate_backfill_then_flushes_buffered_echo ... ok
+test proactive_too_long_requests_latest_post_reload_e6 ... ok
+test proactive_too_long_ignores_superseded_sync_replies ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+     Running tests/message_v3/sync/mv3_g13b/main.rs (target/debug/deps/message_v3_mv3_g13b-22362906b40558b4)
+
+running 18 tests
+test hydration_terminal_is_idempotent_for_late_reply ... ok
+test hydration_http_failure_is_single_terminal_error ... ok
+test hydration_missing_channel_is_one_null_result_without_storage_write ... ok
+test hydration_increment_persists_viewer_unread_authority_before_history ... ok
+test hydration_http_waits_for_channel_member_persist_and_has_no_legacy_emit ... ok
+test hydration_channel_member_failure_preserves_terminal_boundary ... ok
+test hydration_sync_failure_is_single_terminal_error ... ok
+test hydration_too_long_persist_error_fails_once_without_commit ... ok
+test hydration_too_long_old_scope_replies_are_noop ... ok
+test hydration_need_sync_waits_for_sync_then_readback ... ok
+test hydration_no_sync_releases_one_typed_result_only ... ok
+test hydration_too_long_waits_for_latest_window_and_matching_persist_ok ... ok
+test hydration_events_use_atomic_history_cursor_without_business_events ... ok
+test hydration_too_long_catches_event_created_during_window_reload ... ok
+test concurrent_hydration_resolves_every_request ... ok
+test hydration_too_long_followup_uses_committed_cursor_and_no_change_stops ... ok
+test concurrent_hydration_preserves_primary_on_persist_failure_and_readback_join ... ok
+test hydration_too_long_reload_failures_release_pending_without_cursor_commit ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/message_v3/sync/mv3_g13c/main.rs (target/debug/deps/message_v3_mv3_g13c-3d929ccf789824c4)
+
+running 6 tests
+test too_long_failure_preserves_old_window_and_cursor ... ok
+test too_long_generation_is_dropped_on_identity_reset ... ok
+test too_long_success_is_atomic_and_late_reply_is_ignored ... ok
+test duplicate_and_out_of_order_events_are_idempotent_per_channel ... ok
+test five_hundred_batch_continues_only_after_atomic_commit ... ok
+test five_thousand_replay_budget_is_not_retention_reset ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/s6_sync_internal_test.rs (target/debug/deps/s6_sync_internal_test-0124c3e610f796c1)
+
+running 3 tests
+test s6_increment_end_fanout_preserves_delivery_order ... ok
+test s6_too_long_reload_failure_keeps_message_history ... ok
+test s6_too_long_preserves_messages_and_emits_reload ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/scope_hydration_test.rs (target/debug/deps/scope_hydration_test-e51d1c1514b4aef9)
+
+running 13 tests
+test known_external_channel_does_not_trigger_scope_hydration ... ok
+test wrong_owner_channel_triggers_scope_hydration ... ok
+test unknown_scope_hydration_deduplicates_same_channel_until_terminal ... ok
+test scope_hydration_http_failure_clears_inflight_for_retry ... ok
+test scope_hydration_timeout_clears_inflight_for_retry ... ok
+test identity_switch_drops_old_scope_hydration_and_allows_new_session_retry ... ok
+test scope_hydration_business_failure_clears_inflight_without_ui_read_result ... ok
+test scope_hydration_disconnect_clears_inflight_for_retry ... ok
+test scope_hydration_persist_failure_clears_inflight_for_retry ... ok
+test auto_hydration_too_long_reload_failure_releases_owner_for_retry ... ok
+test auto_hydration_external_scope_never_emits_increment ... ok
+test auto_hydration_current_scope_emits_increment_after_terminal_readback ... ok
+test personal_account_hydrates_company_channel_after_terminal_readback ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

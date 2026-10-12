@@ -1,0 +1,35 @@
+package main
+import (
+ "context"
+ "database/sql"
+ "fmt"
+ "net/http"
+ "os"
+ "time"
+ "cses-im-server/internal/api"
+ "cses-im-server/internal/app"
+ "cses-im-server/internal/config"
+ "cses-im-server/internal/store/sqlstore"
+ _ "github.com/lib/pq"
+)
+// 本轮独占数据库上的真实Go router；不装配共享Redis/Pulsar/发布者，不处理在线写。
+func main() {
+ dsn := os.Getenv("TOOLONG_FIXTURE_DSN")
+ ss,err := sqlstore.NewSqlStore(dsn); if err != nil {panic("fixture store init failed")}; defer ss.Close()
+ db,err := sql.Open("postgres",dsn); if err != nil {panic("fixture database init failed")}; defer db.Close()
+ mux:=http.NewServeMux()
+ mux.Handle("/", api.NewRouter(&config.Config{}, api.NewHandlers(app.New(ss))))
+ // 只修改此测试的数据库副本，以真实channel_event+head事务模拟恢复期间增加的事实。
+ mux.HandleFunc("/fixture/advance",func(w http.ResponseWriter,r *http.Request){
+  ctx,cancel:=context.WithTimeout(r.Context(),3*time.Second);defer cancel()
+  tx,err:=db.BeginTx(ctx,nil); if err!=nil {http.Error(w,"fixture tx",500);return};defer tx.Rollback()
+  _,err=tx.ExecContext(ctx,`INSERT INTO channel_event(id,channel_id,event_seq,event_type,msg_id,actor_id,payload,create_at,update_at,create_by,update_by)
+   SELECT 'helix-toolong-1012-next',channel_id,6207,2,msg_id,actor_id,payload,create_at+1,update_at+1,create_by,update_by
+   FROM channel_event WHERE channel_id='xp49s9c3qty37yfkogz1efs1ty' ORDER BY event_seq DESC LIMIT 1`)
+  if err==nil {_,err=tx.ExecContext(ctx,`UPDATE channel_event_head SET committed_seq=6207 WHERE channel_id='xp49s9c3qty37yfkogz1efs1ty'`)}
+  if err!=nil {http.Error(w,"fixture advance",500);return}; if tx.Commit()!=nil {http.Error(w,"fixture commit",500);return};fmt.Fprint(w,`{"seq":6207}`)
+ })
+ fmt.Println("TOOLONG_FIXTURE_READY loopback=18067 independent_postgres=yes publisher=disabled")
+ srv:=http.Server{Addr:"127.0.0.1:18067", Handler:mux,ReadHeaderTimeout:3*time.Second}
+ if err=srv.ListenAndServe();err!=nil {panic("fixture HTTP server stopped")}
+}

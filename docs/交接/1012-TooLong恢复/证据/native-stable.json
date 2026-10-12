@@ -1,0 +1,76 @@
+[
+  {
+    "corr": 2,
+    "hop": "atomic_write",
+    "memoryCursorBeforeReceipt": 0
+  },
+  {
+    "attempt": 0,
+    "corr": 3,
+    "fromSeq": 0,
+    "hop": "sync",
+    "kind": "too_long",
+    "nextSeq": null,
+    "resetTo": 6206
+  },
+  {
+    "corr": 5,
+    "hop": "atomic_write",
+    "memoryCursorBeforeReceipt": 0
+  },
+  {
+    "attempt": 0,
+    "corr": 7,
+    "fromSeq": 6206,
+    "hop": "sync",
+    "kind": "no_change",
+    "nextSeq": 6206,
+    "resetTo": null
+  },
+  {
+    "corr": 9,
+    "hop": "atomic_write",
+    "memoryCursorBeforeReceipt": 6206
+  },
+  {
+    "attempt": 0,
+    "cursor": 6206,
+    "hop": "read_result",
+    "messageCount": 20
+  },
+  {
+    "attempt": 0,
+    "cursor": 6206,
+    "hop": "durable_readback"
+  },
+  {
+    "corr": 14,
+    "hop": "atomic_write",
+    "memoryCursorBeforeReceipt": 6206
+  },
+  {
+    "attempt": 1,
+    "corr": 15,
+    "fromSeq": 6206,
+    "hop": "sync",
+    "kind": "no_change",
+    "nextSeq": 6206,
+    "resetTo": null
+  },
+  {
+    "corr": 16,
+    "hop": "atomic_write",
+    "memoryCursorBeforeReceipt": 6206
+  },
+  {
+    "attempt": 1,
+    "cursor": 6206,
+    "hop": "read_result",
+    "messageCount": 20
+  },
+  {
+    "attempt": 1,
+    "cursor": 6206,
+    "hop": "durable_readback"
+  }
+]

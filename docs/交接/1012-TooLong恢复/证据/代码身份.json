@@ -1,0 +1,14 @@
+{
+  "helix_head": "cc4e5cca1c9a65f6f81b52806c510e50a7ecf965",
+  "relevant_diff_sha256": "043b187f3288198374aba4a4d52371c433482ae78ba5ebc69c417d27e2643105",
+  "date": "2026-10-12 Asia/Shanghai",
+  "rust": "rustc 1.95.0 (59807616e 2026-04-14)",
+  "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+  "fixture": "独占PostgreSQL副本，既有频道事件seq与head+6000；Go实际router无Redis/Pulsar/WS；不代表共享Go当前数据或Tauri验收",
+  "go_head": "d0b70facbca03ca2f8f9440fe23c38935a0c5511",
+  "go_current_dirty_sha256": "9b604a6e9cc7ce52d19c1210038ad9ff66eecc2657206862fcf6823348ca3c7d",
+  "go": "go version go1.27.0 darwin/amd64",
+  "implementation_commit": "b7a0ab51557f7076c609aaab1679fc2c658345f3",
+  "checks_identity": "focused/check/native-stable/native-race绑定源码指纹；buffer只依赖commit.rs与gate_tests.rs，后续未改；im-suite-partial为最终post identity校验前诊断，不能冒称最终全套通过",
+  "cleanup": "run-owned listener18067、独占PG库、SQLite与wal/shm、Go scratch与snapshot dump已删除；共享频道head仍206"
+}

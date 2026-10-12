@@ -195,6 +195,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
         is_remove INTEGER NOT NULL DEFAULT 0,\
         is_top INTEGER NOT NULL DEFAULT 0,\
         unread_count INTEGER NOT NULL DEFAULT 0,\
+        reaction_unread_count INTEGER NOT NULL DEFAULT 0,\
         unread_post_id TEXT NOT NULL DEFAULT '',\
         mention_count INTEGER NOT NULL DEFAULT 0,\
         mention_list TEXT NOT NULL DEFAULT '',\
@@ -566,6 +567,7 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE pending_media ADD COLUMN last_error TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE pending_media ADD COLUMN stable_object_ref TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel_member ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN reaction_unread_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN unread_post_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel_member ADD COLUMN last_post TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel_member ADD COLUMN last_post_at INTEGER NOT NULL DEFAULT 0",

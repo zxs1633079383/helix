@@ -852,7 +852,8 @@ impl ImModule {
             .corr_map
             .iter()
             .filter_map(|(corr, context)| match context {
-                CorrelationContext::OutboundReadReply { req_id, .. }
+                CorrelationContext::ReactionUnreadProjection { req_id, .. }
+                | CorrelationContext::OutboundReadReply { req_id, .. }
                 | CorrelationContext::OutboundMembersByIds { req_id }
                 | CorrelationContext::OutboundContactCandidates { req_id } => {
                     Some((*corr, req_id.clone()))

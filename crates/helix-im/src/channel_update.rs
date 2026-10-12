@@ -39,6 +39,7 @@ pub struct MemberChannelUpdate {
     pub channel_is_top: Option<bool>,
     pub projection_revision: Option<u64>,
     pub unread_count: Option<i64>,
+    pub reaction_unread_count: Option<i64>,
     pub unread_post_id: Option<String>,
     pub last_post: Option<Value>,
     pub last_post_at: Option<i64>,
@@ -155,6 +156,7 @@ pub fn member_channel_from_update_channel(
         channel_is_top: None,
         projection_revision: projection_revision(channel, data),
         unread_count: None,
+        reaction_unread_count: None,
         unread_post_id: None,
         last_post: None,
         last_post_at: None,
@@ -197,6 +199,27 @@ pub fn member_channel_from_update_channel(
     if let Some(v) = pick_int(channel, data, &["unreadCount", "unread_count"]) {
         row.push(("unread_count".to_string(), SqlValue::Integer(v)));
         projection.unread_count = Some(v);
+    }
+    if pick_value(
+        channel,
+        data,
+        &["reactionUnreadCount", "reaction_unread_count"],
+    )
+    .is_some()
+    {
+        let count = pick_int(
+            channel,
+            data,
+            &["reactionUnreadCount", "reaction_unread_count"],
+        )?;
+        if count < 0 {
+            return None;
+        }
+        row.push((
+            "reaction_unread_count".to_string(),
+            SqlValue::Integer(count),
+        ));
+        projection.reaction_unread_count = Some(count);
     }
     // 与 increment 的 Go wire 对齐；空串是清除锚点，不能被通用 pick_text 当作缺失。
     if let Some(v) = pick_value(
@@ -345,6 +368,7 @@ pub fn member_projection_matches(
         && matches_optional!(channel_is_top)
         && matches_optional!(projection_revision)
         && matches_optional!(unread_count)
+        && matches_optional!(reaction_unread_count)
         && matches_optional!(unread_post_id)
         && matches_optional!(last_post)
         && matches_optional!(last_post_at)
@@ -446,6 +470,46 @@ fn json_list_value(value: &Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reaction counts accept both transports, keep old sparse frames, and reject malformed authority.
+    #[test]
+    fn reaction_unread_count_wire_presence_and_validation() {
+        let id = crate::state::test_channel_id(91);
+        for key in ["reactionUnreadCount", "reaction_unread_count"] {
+            for count in [0, 3] {
+                let mut wire = serde_json::json!({"userId":"viewer","unreadCount":7});
+                wire[key] = count.into();
+                let (row, projection) =
+                    member_channel_from_update_channel(&wire, id, "viewer", 1).unwrap();
+                assert_eq!(projection.reaction_unread_count, Some(count));
+                assert!(row
+                    .iter()
+                    .any(|(column, value)| column == "reaction_unread_count"
+                        && matches!(value, SqlValue::Integer(actual) if *actual == count)));
+            }
+            for bad in [
+                serde_json::json!(-1),
+                serde_json::json!(1.5),
+                Value::Null,
+                serde_json::json!({}),
+            ] {
+                let mut wire = serde_json::json!({"userId":"viewer","unreadCount":7});
+                wire[key] = bad;
+                assert!(member_channel_from_update_channel(&wire, id, "viewer", 1).is_none());
+            }
+        }
+        let (row, projection) = member_channel_from_update_channel(
+            &serde_json::json!({"userId":"viewer","unreadCount":7}),
+            id,
+            "viewer",
+            1,
+        )
+        .unwrap();
+        assert_eq!(projection.reaction_unread_count, None);
+        assert!(!row
+            .iter()
+            .any(|(column, _)| column == "reaction_unread_count"));
+    }
 
     /// Construct the smallest post update needed to exercise channel read-back projection.
     fn pending_update() -> PendingChannelUpdate {

@@ -19,6 +19,7 @@ mod message_v3_schedule;
 pub(crate) mod message_v3_template;
 pub(crate) mod message_v3_urgent;
 mod progress;
+mod reaction_unread;
 
 impl ImModule {
     fn handle_too_long_reload_reply(

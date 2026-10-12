@@ -368,7 +368,12 @@ fn g13_has_no_frame_or_surface_payload() -> TestResult<()> {
 /// Rust producer 在生成模式下写出 G-13 sender 与空 receiver canonical artifact。
 #[test]
 fn artifact_test() -> TestResult<()> {
-    let trace = run_success()?;
+    let mut trace = run_success()?;
+    for ack in [false, true] {
+        let reaction = run_reaction_success(ack)?;
+        trace.events.extend(reaction.events);
+        trace.ticks.extend(reaction.ticks);
+    }
     let Some(output) = std::env::var_os("HELIX_GATE_ARTIFACT_DIR") else {
         return Ok(());
     };
@@ -378,11 +383,331 @@ fn artifact_test() -> TestResult<()> {
         trace.ticks,
         trace.events,
         Vec::new(),
-        json!([{"table":"channel_member","columns":["channel_id","user_id","unread_count","mention_count","urgent_mention_count","last_read_seq"]}]),
-        json!([{"table":"channel_member","columns":["channel_id","user_id","unread_count","mention_count","urgent_mention_count","last_read_seq"]}]),
-        json!([{"table":"channel_member","columns":["channel_id","user_id","unread_count","mention_count","urgent_mention_count","last_read_seq"]}]),
+        json!([{"table":"channel_member","columns":["channel_id","user_id","unread_count","mention_count","urgent_mention_count","last_read_seq","reaction_unread_count"]}]),
+        json!([{"table":"channel_member","columns":["channel_id","user_id","unread_count","mention_count","urgent_mention_count","last_read_seq","reaction_unread_count"]}]),
+        json!([{"table":"channel_member","columns":["channel_id","user_id","unread_count","mention_count","urgent_mention_count","last_read_seq","reaction_unread_count"]}]),
     );
     artifact::write_bundle(std::path::Path::new(&output), &bundle)
         .map_err(|error| error.to_string())
         .map(|_| ())
+}
+
+/// 回归：个人未读回应必须持久化后输出，并拒绝同版本不同计数的读回。
+#[test]
+fn reaction_unread_member_projection_requires_matching_durable_count() -> TestResult<()> {
+    for stored_count in [3, 4] {
+        let mut replay = Replay::new();
+        let query_corr = replay.command_corr("im_query_dialog_list", json!({}))?;
+        replay.reply(
+            query_corr,
+            serde_json::to_vec(&vec![dialog_row(7, 0, 0)]).map_err(|error| error.to_string())?,
+            CREATED_AT as u64,
+        )?;
+        let wire = json!({"action":"member_projection","data":{
+            "channel_id":CHANNEL_ID,"user_id":ACTOR_ID,
+            "projection_revision":19,"effect_id":"reaction-effect-19",
+            "unread_count":7,"last_read_seq":41,"reaction_unread_count":3
+        }});
+        replay.step(
+            Tick::Inbound(InboundBytes(Bytes::from(wire.to_string()))),
+            CREATED_AT as u64,
+        )?;
+        let persist_corr = replay.only_corr()?;
+        assert!(replay.events()?.is_empty());
+        let operations = format!("{:?}", replay.sink.as_slice());
+        assert!(
+            operations.contains("reaction_unread_count"),
+            "reaction count was not persisted: {operations}"
+        );
+        assert!(
+            !operations.contains("channel_event_cursor"),
+            "private projection changed shared cursor"
+        );
+        replay.reply(persist_corr, Vec::new(), CREATED_AT as u64 + 1)?;
+        assert!(replay.events()?.is_empty());
+        let read_corr = replay.only_corr()?;
+        replay.reply(
+            read_corr,
+            serde_json::to_vec(&json!([{
+                "channel_id":CHANNEL_ID,"user_id":ACTOR_ID,
+                "projection_revision":19,"effect_id":"reaction-effect-19",
+                "unread_count":7,"last_read_seq":41,"reaction_unread_count":stored_count
+            }]))
+            .map_err(|error| error.to_string())?,
+            CREATED_AT as u64 + 2,
+        )?;
+        let events = replay.events()?;
+        if stored_count == 3 {
+            assert!(
+                events
+                    .iter()
+                    .any(|event| event["event"] == "im:channel:update"
+                        && event["data"]["reactionUnreadCount"] == 3),
+                "{events:?}"
+            );
+        } else {
+            assert!(
+                events.is_empty(),
+                "conflicting durable count emitted success: {events:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Construct the Go HTTP authority fixture, including a revision beyond JS integer precision.
+fn reaction_response(count: i64) -> Value {
+    json!({"status":"SUCCESS","data":{
+        "count":count,
+        "nextTarget":if count > 0 {json!({"postId":"reaction-post","revision":"9007199254740993"})} else {Value::Null},
+        "memberProjection":{
+            "channelId":CHANNEL_ID,"userId":ACTOR_ID,
+            "projectionRevision":19,"effectId":"reaction-effect-19",
+            "unreadCount":7,"lastReadSeq":41,"reactionUnreadCount":count
+        }
+    }})
+}
+
+/// Authorize the visible channel through the public dialog read before requesting personal state.
+fn reaction_request(replay: &mut Replay, ack: bool) -> TestResult<Correlation> {
+    let query = replay.command_corr("im_query_dialog_list", json!({}))?;
+    replay.reply(
+        query,
+        serde_json::to_vec(&vec![dialog_row(7, 0, 0)]).map_err(|e| e.to_string())?,
+        CREATED_AT as u64,
+    )?;
+    replay.command_corr(if ack {"im_reaction_unread_ack"} else {"im_reaction_unread"},
+        if ack {json!({"channel_id":CHANNEL_ID,"req_id":"reaction-request","post_id":"reaction-post","observed_revision":"9007199254740993"})}
+        else {json!({"channel_id":CHANNEL_ID,"req_id":"reaction-request"})})
+}
+
+/// Use the real driver HTTP envelope at the public PortReply boundary.
+fn reaction_http(body: &Value) -> TestResult<Vec<u8>> {
+    Ok(json!({"status":200,"headers":{},"body":base64_std(&serde_json::to_vec(body).map_err(|e|e.to_string())?)}).to_string().into_bytes())
+}
+
+/// Query and ack return only after durable matching readback and finish exactly once.
+#[test]
+fn reaction_commands_wait_for_matching_persistence_and_ignore_duplicate_replies() -> TestResult<()>
+{
+    for ack in [false, true] {
+        let mut replay = Replay::new();
+        let http = reaction_request(&mut replay, ack)?;
+        let body = reaction_response(if ack { 0 } else { 1 });
+        replay.reply(http, reaction_http(&body)?, CREATED_AT as u64 + 1)?;
+        assert!(replay.events()?.is_empty());
+        let persist = replay.only_corr()?;
+        assert!(!format!("{:?}", replay.sink.as_slice()).contains("channel_event_cursor"));
+        replay.reply(persist, Vec::new(), CREATED_AT as u64 + 2)?;
+        assert!(replay.events()?.is_empty());
+        let readback = replay.only_corr()?;
+        let row = json!([body["data"]["memberProjection"]]);
+        replay.reply(
+            readback,
+            row.to_string().into_bytes(),
+            CREATED_AT as u64 + 3,
+        )?;
+        let events = replay.events()?;
+        let result = events
+            .iter()
+            .find(|e| e["event"] == "im:read:result")
+            .ok_or("missing reaction terminal")?;
+        assert_eq!(result["data"]["req_id"], "reaction-request");
+        assert_eq!(result["data"]["body"], body);
+        assert!(events.iter().any(|e| e["event"] == "im:channel:update"
+            && e["data"]["reactionUnreadCount"] == body["data"]["count"]));
+        for corr in [http, persist, readback] {
+            replay.reply(corr, reaction_http(&body)?, CREATED_AT as u64 + 4)?;
+            assert!(replay.events()?.is_empty());
+            assert!(replay.sink.as_slice().is_empty());
+        }
+    }
+    Ok(())
+}
+
+/// Every failed async stage emits one correlated error and rejects late success.
+#[test]
+fn reaction_commands_fail_closed_at_every_async_stage() -> TestResult<()> {
+    for stage in 0..3 {
+        for error in [
+            PortError::Timeout,
+            PortError::Network,
+            PortError::Http(503),
+            PortError::Storage(500),
+        ] {
+            let mut replay = Replay::new();
+            let mut corr = reaction_request(&mut replay, true)?;
+            let body = reaction_response(0);
+            if stage >= 1 {
+                replay.reply(corr, reaction_http(&body)?, CREATED_AT as u64 + 1)?;
+                corr = replay.only_corr()?;
+            }
+            if stage >= 2 {
+                replay.reply(corr, Vec::new(), CREATED_AT as u64 + 2)?;
+                corr = replay.only_corr()?;
+            }
+            replay.reply_error(corr, error, CREATED_AT as u64 + 3)?;
+            let events = replay.events()?;
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0]["event"], "im:read:result");
+            assert!(events[0]["data"]["error"].is_string(), "{events:?}");
+            replay.reply(corr, reaction_http(&body)?, CREATED_AT as u64 + 4)?;
+            assert!(replay.sink.as_slice().is_empty());
+        }
+    }
+    Ok(())
+}
+
+/// Stop cancels HTTP, persist and readback correlations; late replies cannot publish.
+#[test]
+fn reaction_commands_cancel_all_stages() -> TestResult<()> {
+    for stage in 0..3 {
+        let mut replay = Replay::new();
+        let mut corr = reaction_request(&mut replay, false)?;
+        let body = reaction_response(1);
+        if stage >= 1 {
+            replay.reply(corr, reaction_http(&body)?, CREATED_AT as u64 + 1)?;
+            corr = replay.only_corr()?;
+        }
+        if stage >= 2 {
+            replay.reply(corr, Vec::new(), CREATED_AT as u64 + 2)?;
+            corr = replay.only_corr()?;
+        }
+        replay.sink.clear();
+        replay
+            .module
+            .on_stop(&mut replay.sink)
+            .map_err(|e| e.to_string())?;
+        let events = replay.events()?;
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| e["event"] == "im:read:result"
+                    && e["data"]["req_id"] == "reaction-request"
+                    && e["data"]["error"] == "CANCELLED")
+                .count(),
+            1
+        );
+        replay.reply(corr, reaction_http(&body)?, CREATED_AT as u64 + 4)?;
+        assert!(replay.sink.as_slice().is_empty());
+    }
+    Ok(())
+}
+
+/// Business errors, malformed counts/versions and another viewer's state never reach storage.
+#[test]
+fn reaction_commands_reject_untrusted_http_authority() -> TestResult<()> {
+    let paths = [
+        ("/status", json!("FAILED")),
+        ("/data/count", json!(-1)),
+        ("/data/nextTarget", Value::Null),
+        ("/data/nextTarget/revision", json!(9007199254740993_u64)),
+        ("/data/nextTarget/revision", json!("9223372036854775808")),
+        ("/data/memberProjection/userId", json!("another-user")),
+        ("/data/memberProjection/channelId", json!("another-channel")),
+        ("/data/memberProjection/reactionUnreadCount", json!(2)),
+        ("/data/memberProjection/effectId", json!("")),
+    ];
+    for (path, value) in paths {
+        let mut replay = Replay::new();
+        let corr = reaction_request(&mut replay, false)?;
+        let mut body = reaction_response(1);
+        *body.pointer_mut(path).ok_or("missing fixture pointer")? = value;
+        replay.reply(corr, reaction_http(&body)?, CREATED_AT as u64 + 1)?;
+        assert!(
+            replay.only_corr().is_err(),
+            "{path}: bad authority persisted"
+        );
+        let events = replay.events()?;
+        assert_eq!(events.len(), 1);
+        assert!(events[0]["data"]["error"].is_string(), "{path}: {events:?}");
+    }
+    Ok(())
+}
+
+/// A newer private WS projection may win before HTTP readback; never emit the stale count.
+#[test]
+fn reaction_commands_reject_superseded_durable_projection() -> TestResult<()> {
+    let mut replay = Replay::new();
+    let corr = reaction_request(&mut replay, true)?;
+    let body = reaction_response(0);
+    replay.reply(corr, reaction_http(&body)?, CREATED_AT as u64 + 1)?;
+    let persist = replay.only_corr()?;
+    replay.reply(persist, Vec::new(), CREATED_AT as u64 + 2)?;
+    let readback = replay.only_corr()?;
+    let mut row = body["data"]["memberProjection"].clone();
+    row["projectionRevision"] = json!(20);
+    row["effectId"] = json!("new-reaction");
+    row["reactionUnreadCount"] = json!(1);
+    replay.reply(
+        readback,
+        json!([row]).to_string().into_bytes(),
+        CREATED_AT as u64 + 3,
+    )?;
+    let events = replay.events()?;
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0]["data"]["error"],
+        "REACTION_UNREAD_PROJECTION_CHANGED"
+    );
+    Ok(())
+}
+
+/// Input validation protects the string revision and session-derived identity contract.
+#[test]
+fn reaction_commands_reject_invalid_input_without_http() -> TestResult<()> {
+    for patch in [
+        json!({"observed_revision":1}),
+        json!({"observed_revision":"0"}),
+        json!({"observed_revision":"-1"}),
+        json!({"observed_revision":"1.2"}),
+        json!({"observed_revision":"9223372036854775808"}),
+        json!({"req_id":""}),
+        json!({"post_id":""}),
+        json!({"user_id":"forged"}),
+        json!({"channel_id":""}),
+    ] {
+        let mut replay = Replay::new();
+        let mut args = json!({"channel_id":CHANNEL_ID,"req_id":"reaction-request","post_id":"reaction-post","observed_revision":"9007199254740993"});
+        args.as_object_mut()
+            .ok_or("args object")?
+            .extend(patch.as_object().ok_or("patch object")?.clone());
+        let result = replay.step(
+            Tick::Command(AppCommand::new(
+                "im_reaction_unread_ack",
+                args.to_string().into_bytes(),
+            )),
+            CREATED_AT as u64,
+        );
+        assert!(result.is_err(), "invalid request accepted: {args}");
+        assert!(replay.sink.as_slice().is_empty());
+    }
+    Ok(())
+}
+
+/// Produce reaction canonical events from the public command and all durable replies.
+fn run_reaction_success(ack: bool) -> TestResult<PersonaTrace> {
+    let mut replay = Replay::new();
+    let http = reaction_request(&mut replay, ack)?;
+    let body = reaction_response(if ack { 0 } else { 1 });
+    replay.reply(http, reaction_http(&body)?, CREATED_AT as u64 + 1)?;
+    let persist = replay.only_corr()?;
+    replay.reply(persist, Vec::new(), CREATED_AT as u64 + 2)?;
+    let readback = replay.only_corr()?;
+    replay.reply(
+        readback,
+        json!([body["data"]["memberProjection"]])
+            .to_string()
+            .into_bytes(),
+        CREATED_AT as u64 + 3,
+    )?;
+    Ok(PersonaTrace {
+        events: replay.events()?,
+        ticks: vec![
+            json!({"kind":"Command","value":{"name":if ack {"im_reaction_unread_ack"} else {"im_reaction_unread"},"payload":if ack {json!({"channel_id":CHANNEL_ID,"req_id":"reaction-request","post_id":"reaction-post","observed_revision":"9007199254740993"})} else {json!({"channel_id":CHANNEL_ID,"req_id":"reaction-request"})}},"now_ms":CREATED_AT}),
+            json!({"kind":"PortReply","value":{"correlation":http.raw(),"outcome":{"variant":"Ok"}},"now_ms":CREATED_AT + 1}),
+            json!({"kind":"PortReply","value":{"correlation":persist.raw(),"outcome":{"variant":"Ok"}},"now_ms":CREATED_AT + 2}),
+            json!({"kind":"PortReply","value":{"correlation":readback.raw(),"outcome":{"variant":"Ok"}},"now_ms":CREATED_AT + 3}),
+        ],
+    })
 }

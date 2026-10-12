@@ -16,7 +16,7 @@ pub fn channel_from_member_projection(
     projection: &Value,
 ) -> Result<MessageV3Event, crate::ImError> {
     let row = projection.get("dialogPatch").unwrap_or(projection);
-    channel(serde_json::json!({
+    let mut data = serde_json::json!({
         "channelId": channel_id,
         "userId": row.get("userId").cloned().unwrap_or(Value::Null),
         "state": "read",
@@ -35,7 +35,11 @@ pub fn channel_from_member_projection(
         "msgCount": row.get("msgCount").cloned().unwrap_or(Value::Null),
         "msgCountRoot": row.get("msgCountRoot").cloned().unwrap_or(Value::Null),
         "msgCountPrivate": row.get("msgCountPrivate").cloned().unwrap_or(Value::Null),
-    }))
+    });
+    if let Some(count) = row.get("reactionUnreadCount") {
+        data["reactionUnreadCount"] = count.clone();
+    }
+    channel(data)
 }
 
 /// 从 dialog 本地查询行恢复当前 viewer 的频道未读绝对态。
@@ -72,7 +76,7 @@ pub(crate) fn channels_from_dialog_rows(
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             let unread_count = integer(&row, "unread_count", "unreadCount");
-            channel(serde_json::json!({
+            let mut data = serde_json::json!({
                 "channelId": channel_id,
                 "userId": viewer_user_id,
                 "state": if unread_count == 0 { "read" } else { "unread" },
@@ -81,7 +85,14 @@ pub(crate) fn channels_from_dialog_rows(
                 "urgentCount": integer(&row, "urgent_count", "urgentCount"),
                 "lastReadSeq": integer(&row, "last_read_seq", "lastReadSeq"),
                 "projectionRevision": integer(&row, "projection_revision", "projectionRevision"),
-            }))
+            });
+            if let Some(count) = row
+                .get("reaction_unread_count")
+                .or_else(|| row.get("reactionUnreadCount"))
+            {
+                data["reactionUnreadCount"] = count.clone();
+            }
+            channel(data)
         })
         .collect()
 }

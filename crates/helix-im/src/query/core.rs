@@ -710,6 +710,7 @@ fn render_dialog_row(row: serde_json::Value) -> serde_json::Value {
         ("root_post_id", "rootPostId"),
         ("member_count", "memberCount"),
         ("unread_count", "unreadCount"),
+        ("reaction_unread_count", "reactionUnreadCount"),
         ("mention_count", "mentionCount"),
         ("mention_count_root", "mentionCountRoot"),
         ("last_post", "lastPost"),

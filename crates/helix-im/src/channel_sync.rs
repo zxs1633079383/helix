@@ -514,6 +514,17 @@ fn overlay_viewer_unread_projection(channel: &mut Value, member: &Value) -> Resu
     let Some(member_object) = member.as_object() else {
         return Err(());
     };
+    if let Some(value) = first_value(
+        member_object,
+        &["reaction_unread_count", "reactionUnreadCount"],
+    ) {
+        let count = projection_i64(value)
+            .filter(|count| *count >= 0)
+            .ok_or(())?;
+        let object = channel.as_object_mut().ok_or(())?;
+        object.insert("reactionUnreadCount".to_string(), count.into());
+        object.insert("reaction_unread_count".to_string(), count.into());
+    }
     let has_projection = [
         "unread_count",
         "unreadCount",
@@ -1097,6 +1108,7 @@ mod tests {
                 "team_id": "company-a",
                 "role": "MEMBER",
                 "unread_count": count,
+                "reaction_unread_count": 2,
                 "unread_post_id": anchor,
                 "last_read_seq": 41,
                 "projection_revision": 7
@@ -1111,6 +1123,8 @@ mod tests {
         )
         .expect("valid member authority");
         assert_eq!(page[0]["unreadCount"], 3);
+        assert_eq!(page[0]["reactionUnreadCount"], 2);
+        assert!(page[0]["members"][0].get("reaction_unread_count").is_none());
         assert_eq!(page[0]["unreadPostId"], "member-anchor");
         assert_eq!(page[0]["lastReadSeq"], 41);
         assert_eq!(page[0]["projectionRevision"], 7);

@@ -492,7 +492,7 @@ fn optimistic_row_is_authored_by_helix_and_keyed_by_temporary_id() {
 /// `sending` → HTTP 2xx **仍是 sending**（只是 admission）→ WS echo 才结算 `sent`（INV-03）。
 ///
 /// 三个观察点各自独立：
-/// - HTTP 回执只启动权威 readback、零 Emit，`pending_send_status` 仍是 `Sending`；
+/// - HTTP 回执零额外查询、零 Persist/Emit，`pending_send_status` 仍是 `Sending`；
 /// - echo 到达才取消 15s timer 并进入原子提交，`pending_send` 出队；
 /// - 读回落定后才发布 `im:post:received{sendStatus:"sent"}`，且 `id` 是服务端 postId、
 ///   `temporaryId` 仍是本地对账键（INV-02 二者不互换）。
@@ -515,14 +515,9 @@ fn http_admission_stays_sending_until_the_ws_echo_settles_sent() {
         ),
         NOW_MS + 2,
     );
-    assert_eq!(
-        admitted.len(),
-        1,
-        "HTTP admission 只能启动一次权威 readback，实测 {admitted:?}"
-    );
     assert!(
-        matches!(admitted[0], EffectKind::Http(_)),
-        "HTTP admission 不得写终态或取消 echo timer，实测 {admitted:?}"
+        admitted.is_empty(),
+        "HTTP admission 不得额外查询、写终态或取消 echo timer，实测 {admitted:?}"
     );
     assert_eq!(
         harness.module.pending_send_status(&temporary_id),

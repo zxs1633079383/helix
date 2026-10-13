@@ -510,7 +510,10 @@ fn attach_member_projection(
 /// count/anchor pair is validated together: positive counts require a non-empty string anchor,
 /// while zero explicitly clears it. Malformed authority fails the whole page instead of falling
 /// back to a stale channel column.
-fn overlay_viewer_unread_projection(channel: &mut Value, member: &Value) -> Result<(), ()> {
+pub(crate) fn overlay_viewer_unread_projection(
+    channel: &mut Value,
+    member: &Value,
+) -> Result<(), ()> {
     let Some(member_object) = member.as_object() else {
         return Err(());
     };

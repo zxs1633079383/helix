@@ -149,6 +149,12 @@ channel unit 的 `too_long_atomic_commit_*`。
 - 处理 HTTP 响应只释放网络槽，不解除该频道的持久屏障。
   只有对应 `PersistOk` 才提交游标并释放排队意图；失败保留旧游标，
   无关/迟到回执不得释放其他提交的屏障。
+- `too_long` 的 Host `PersistAtomic` 只允许写入，不能夹带 Get/Rows。
+  最新窗口落库成功后单独发出读回，避免整个原子批次被驱动拒绝后重复同步。
+- RuntimeAuth 重置必须取消对应同步、频道写回和话题活动 owner；
+  旧身份的迟到 HTTP/Persist 回执不得再次调度或发布结果。
 
-回归入口：`explicit_sync_command_test`、`p4_sync_scheduler_test`、`gate_test`。
-不替代下游 App/浏览器的真实网络与卡顿验收。
+回归入口：`explicit_sync_command_test`、`p4_sync_scheduler_test`、`gate_test`、
+`s6_sync_internal_test` 与 `helix-driver-host::too_long_reload_atomic`。
+这些测试覆盖并发上限、提交前无重复拉取、提交后新游标、失败/迟到回执、
+纯写原子恢复；不替代下游 App/浏览器的真实网络与性能验收。

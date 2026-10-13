@@ -41,6 +41,8 @@ pub struct PendingSend {
     pub timeout_timer: TimerId,
     /// 用于写入数据库的 Persist corr（可选，发送时可能尚未落库）
     pub persist_corr: Option<Correlation>,
+    /// 当前 attempt 的 posts/create corr，对账或显式重试时按它 O(1) 撤销旧回包路由。
+    pub outbound_http_corr: Option<Correlation>,
     /// 发送时的 connectionId（M1 重连去重维度）。
     ///
     /// 重连后服务端 `increment` 会把本会话已发但未收 echo 的 post 整批补回——届时按
@@ -79,6 +81,7 @@ impl PendingSend {
             status: SendStatus::Local,
             timeout_timer,
             persist_corr: None,
+            outbound_http_corr: None,
             connection_id,
             timeline_readback: TimelineReadbackContext::default(),
             body: None,

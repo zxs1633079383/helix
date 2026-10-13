@@ -117,12 +117,12 @@ pub(super) fn reconcile_post_echo(
         })
         .transpose()?;
     let reconcile_corr = ctx.alloc_corr();
-    // R4-retain：取出该 send 的 P1 Persist corr（send 时回填），用于 O(1) 清路由。
-    let persist_corr = ctx
+    // R4-retain：取出该 send 的 P1 / H1 corr（send 时回填），用于 O(1) 清路由。
+    let (persist_corr, outbound_http_corr) = ctx
         .state
         .pending_sends
         .get(&tmp)
-        .map(|ps| ps.persist_corr)
+        .map(|ps| (ps.persist_corr, ps.outbound_http_corr))
         .unwrap_or_default();
     if let Some(ps) = ctx.state.pending_sends.get_mut(&tmp) {
         ps.reconcile(server_id, reconcile_corr, out);
@@ -130,8 +130,11 @@ pub(super) fn reconcile_post_echo(
     // 对账落定后移除（防 PendingSend / corr_map 泄漏；late timer 已被 CancelTimer 撤销，
     // 即便竞态到达也因 status==Sent 幂等无害）。
     ctx.state.pending_sends.remove(&tmp);
-    // 对账落定后移除该 send 的 OptimisticSend 路由（防 corr_map 泄漏）。
+    // 对账落定后移除该 send 的路由，迟到的 HTTP Err 不得覆盖权威成功。
     if let Some(corr) = persist_corr {
+        ctx.state.corr_map.remove(&corr);
+    }
+    if let Some(corr) = outbound_http_corr {
         ctx.state.corr_map.remove(&corr);
     }
     // 发送终态等待自己的 PersistOk；频道 gate 的 received 仍独立等待连续提交。

@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use helix_core::effect::Effect;
+use helix_core::effect::{Effect, Row, SqlValue, StorageOp};
 use helix_core::tick::InboundBytes;
 use helix_core::Tick;
 use helix_im::state::SendStatus;
@@ -10,8 +10,8 @@ mod common;
 mod phase1_reference;
 
 use common::{
-    enveloped, port_reply_ok, port_reply_with_body, send_message_cmd, timer_tick, EffectKind,
-    Harness,
+    command_json, enveloped, port_reply_err, port_reply_ok, port_reply_with_body, send_message_cmd,
+    timer_tick, EffectKind, Harness,
 };
 
 /// 返回指定 effect 类别的 correlation。
@@ -250,4 +250,456 @@ fn out_of_order_echo_defers_commit_until_the_missing_sequence_arrives() {
         "缺口补齐后乱序 echo 才结算到权威水位"
     );
     assert_eq!(harness.module.pending_send_status(gapped), None);
+}
+
+const SEND_STATE_REGRESSION_START: u64 = 1_700_000_000_000;
+const SEND_STATE_REGRESSION_TEXT: &str = "发送状态回归正文";
+
+/// 从真实发送入口取得内核分配的 temporaryId、HTTP correlation 与实际超时 timer。
+fn begin_send_state_regression(harness: &mut Harness) -> (String, u64, u64) {
+    let initial = harness.step(
+        command_json(
+            "im_send_message",
+            serde_json::json!({
+                "channel_id": common::cid(1),
+                "text": SEND_STATE_REGRESSION_TEXT
+            }),
+        ),
+        SEND_STATE_REGRESSION_START,
+    );
+    let admitted = harness.step(
+        port_reply_ok(correlation_of(&initial, "persist")),
+        SEND_STATE_REGRESSION_START + 1,
+    );
+    let body = harness.last_http_body().expect("real posts/create body");
+    let temporary_id = body["temporaryId"]
+        .as_str()
+        .filter(|id| !id.is_empty())
+        .expect("send must allocate a temporaryId")
+        .to_string();
+    assert_eq!(body["channelId"], common::cid(1));
+    assert_eq!(body["message"], SEND_STATE_REGRESSION_TEXT);
+    assert_eq!(
+        harness.module.pending_send_status(&temporary_id),
+        Some(SendStatus::Sending)
+    );
+    let timer = admitted
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::ScheduleTimer(timer) => Some(*timer),
+            _ => None,
+        })
+        .expect("actual posts/create must schedule its timeout");
+    (temporary_id, correlation_of(&admitted, "http"), timer)
+}
+
+/// 严格解析生产 Emit；无效 JSON 不得被过滤后伪装成没有事件。
+fn send_state_regression_events(harness: &Harness) -> Vec<serde_json::Value> {
+    harness
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Emit { event } => Some(
+                serde_json::from_slice(event.0.as_ref()).expect("production Emit must be JSON"),
+            ),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 对账写必须唯一、只更新原 temporaryId，并携带精确终态及必要的 server identity。
+fn assert_send_state_regression_persist(
+    harness: &Harness,
+    temporary_id: &str,
+    status: &str,
+    server_id: Option<&str>,
+) -> u64 {
+    let has_text = |row: &Row, key: &str, expected: &str| {
+        row.iter().any(|(column, value)| {
+            column == key && matches!(value, SqlValue::Text(actual) if actual == expected)
+        })
+    };
+    let mut writes = Vec::new();
+    for effect in harness.sink.as_slice() {
+        if let Effect::Persist { corr, ops } = effect {
+            for op in ops {
+                if let StorageOp::BatchUpsert(spec) = op {
+                    if spec.table == "message"
+                        && spec
+                            .rows
+                            .iter()
+                            .any(|row| has_text(row, "temporary_id", temporary_id))
+                    {
+                        writes.push((corr.raw(), spec));
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(
+        writes.len(),
+        1,
+        "expected one original-identity terminal write"
+    );
+    let (corr, spec) = writes[0];
+    assert_eq!(spec.conflict_key, Some("temporary_id"));
+    assert_eq!(spec.rows.len(), 1);
+    let row = &spec.rows[0];
+    assert_eq!(row.len(), if server_id.is_some() { 3 } else { 2 });
+    assert!(has_text(row, "temporary_id", temporary_id));
+    assert!(has_text(row, "send_status", status));
+    if let Some(server_id) = server_id {
+        assert!(has_text(row, "id", server_id));
+    }
+    corr
+}
+
+/// 真实失败只能发布一次精确 failed，并持久化 UnSend、撤销该 attempt 的 timer。
+fn assert_send_state_regression_failed(harness: &Harness, temporary_id: &str, timer: u64) -> u64 {
+    assert_eq!(
+        harness.module.pending_send_status(temporary_id),
+        Some(SendStatus::UnSend)
+    );
+    assert_eq!(
+        send_state_regression_events(harness),
+        vec![serde_json::json!({
+            "event": "im:post:send-failed",
+            "data": {
+                "channelId": common::cid(1),
+                "temporaryId": temporary_id,
+                "sendStatus": "failed"
+            }
+        })]
+    );
+    assert_eq!(
+        harness
+            .sink
+            .as_slice()
+            .iter()
+            .filter(|effect| matches!(effect, Effect::CancelTimer { id } if id.raw() == timer))
+            .count(),
+        1
+    );
+    assert!(!harness.sink.as_slice().iter().any(|effect| matches!(
+        effect,
+        Effect::Http { .. } | Effect::HttpFire { .. } | Effect::ScheduleTimer { .. }
+    )));
+    assert_send_state_regression_persist(harness, temporary_id, "unsend", None)
+}
+
+/// echo 自己的普通 Persist 才承载 sent 闸；频道 PersistAtomic 不得替代该回执。
+fn observe_send_state_regression_echo(
+    harness: &mut Harness,
+    temporary_id: &str,
+    timer: u64,
+    now_ms: u64,
+) -> u64 {
+    let server_id = common::sid(1);
+    let effects = harness.step(echo_frame(1, temporary_id, &server_id), now_ms);
+    assert_eq!(harness.module.pending_send_status(temporary_id), None);
+    assert!(send_state_regression_events(harness).is_empty());
+    assert_eq!(
+        effects
+            .iter()
+            .filter(|effect| matches!(effect, EffectKind::CancelTimer(id) if *id == timer))
+            .count(),
+        1
+    );
+    let corr =
+        assert_send_state_regression_persist(harness, temporary_id, "sent", Some(&server_id));
+    assert_ne!(
+        corr,
+        atomic_correlation(&effects).expect("in-order echo must enter the channel gate")
+    );
+    corr
+}
+
+/// 成功必须由该 echo 的 PersistOk 发布唯一正确 sent，保留原正文与双 identity。
+fn confirm_send_state_regression_echo(
+    harness: &mut Harness,
+    temporary_id: &str,
+    corr: u64,
+    now_ms: u64,
+) {
+    harness.step(port_reply_ok(corr), now_ms);
+    let events = send_state_regression_events(harness);
+    assert_eq!(events.len(), 1, "only one sent terminal may be released");
+    assert_eq!(events[0].as_object().expect("event envelope").len(), 2);
+    assert_eq!(events[0]["event"], "im:post:sent");
+    let data = &events[0]["data"];
+    assert_eq!(data["channelId"], common::cid(1));
+    assert_eq!(data["temporaryId"], temporary_id);
+    assert_eq!(data["id"], common::sid(1));
+    assert_eq!(data["serverId"], common::sid(1));
+    assert_eq!(data["sendStatus"], "sent");
+    assert_eq!(data["userId"], "user-actor-444");
+    assert_eq!(data["message"], SEND_STATE_REGRESSION_TEXT);
+    assert_eq!(data["type"], "TEXT");
+    assert_eq!(data["createAt"], SEND_STATE_REGRESSION_START);
+    assert_eq!(harness.module.pending_send_status(temporary_id), None);
+    harness.step(port_reply_ok(corr), now_ms + 1);
+    assert!(
+        harness.sink.is_empty(),
+        "duplicate sent PersistOk must be inert"
+    );
+}
+
+/// 晚到或重复回报不得发布任何事件、重写状态、再起 HTTP 或触碰 timer。
+fn assert_send_state_regression_inert(harness: &Harness) {
+    assert!(
+        harness.sink.is_empty(),
+        "stale response must be inert, got {:?}",
+        harness.sink.as_slice()
+    );
+}
+
+/// 回归锚：echo 已持久确认后，旧 HTTP Err 不能把 sent 重新投影为 failed。
+#[test]
+fn send_state_regression_confirmed_echo_ignores_late_http_error() {
+    let mut harness =
+        Harness::new_with_identity(&[1], "user-actor-444", "company-phase1", "", "", "");
+    let (temporary_id, http_corr, timer) = begin_send_state_regression(&mut harness);
+    let sent_corr = observe_send_state_regression_echo(
+        &mut harness,
+        &temporary_id,
+        timer,
+        SEND_STATE_REGRESSION_START + 2,
+    );
+    confirm_send_state_regression_echo(
+        &mut harness,
+        &temporary_id,
+        sent_corr,
+        SEND_STATE_REGRESSION_START + 3,
+    );
+    harness.step(port_reply_err(http_corr), SEND_STATE_REGRESSION_START + 5);
+    assert_send_state_regression_inert(&harness);
+    assert_eq!(harness.module.pending_send_status(&temporary_id), None);
+    harness.step(timer_tick(timer), SEND_STATE_REGRESSION_START + 15_001);
+    assert_send_state_regression_inert(&harness);
+}
+
+/// 回归锚：echo 已移除 pending 但尚未收到自己的 PersistOk 时，HTTP Err 也不能发 failed。
+#[test]
+fn send_state_regression_observed_echo_ignores_error_before_sent_persist() {
+    let mut harness =
+        Harness::new_with_identity(&[1], "user-actor-444", "company-phase1", "", "", "");
+    let (temporary_id, http_corr, timer) = begin_send_state_regression(&mut harness);
+    let sent_corr = observe_send_state_regression_echo(
+        &mut harness,
+        &temporary_id,
+        timer,
+        SEND_STATE_REGRESSION_START + 2,
+    );
+    harness.step(port_reply_err(http_corr), SEND_STATE_REGRESSION_START + 3);
+    assert_send_state_regression_inert(&harness);
+    assert_eq!(harness.module.pending_send_status(&temporary_id), None);
+    confirm_send_state_regression_echo(
+        &mut harness,
+        &temporary_id,
+        sent_corr,
+        SEND_STATE_REGRESSION_START + 4,
+    );
+}
+
+/// 回归锚：无 echo 的真实 HTTP Err 必须保留原身份的可重试失败态。
+#[test]
+fn send_state_regression_unconfirmed_http_error_still_fails() {
+    let mut harness =
+        Harness::new_with_identity(&[1], "user-actor-444", "company-phase1", "", "", "");
+    let (temporary_id, http_corr, timer) = begin_send_state_regression(&mut harness);
+    harness.step(port_reply_err(http_corr), SEND_STATE_REGRESSION_START + 2);
+    let failed_corr = assert_send_state_regression_failed(&harness, &temporary_id, timer);
+    harness.step(port_reply_ok(failed_corr), SEND_STATE_REGRESSION_START + 3);
+    assert_send_state_regression_inert(&harness);
+    assert_eq!(
+        harness.module.pending_send_status(&temporary_id),
+        Some(SendStatus::UnSend)
+    );
+}
+
+/// 回归锚：同一 HTTP Err 重复投递及已撤销 timer 回灌，都不能重复失败。
+#[test]
+fn send_state_regression_duplicate_http_error_is_inert() {
+    let mut harness =
+        Harness::new_with_identity(&[1], "user-actor-444", "company-phase1", "", "", "");
+    let (temporary_id, http_corr, timer) = begin_send_state_regression(&mut harness);
+    harness.step(port_reply_err(http_corr), SEND_STATE_REGRESSION_START + 2);
+    let failed_corr = assert_send_state_regression_failed(&harness, &temporary_id, timer);
+    harness.step(port_reply_ok(failed_corr), SEND_STATE_REGRESSION_START + 3);
+    assert_send_state_regression_inert(&harness);
+    harness.step(port_reply_err(http_corr), SEND_STATE_REGRESSION_START + 4);
+    assert_send_state_regression_inert(&harness);
+    harness.step(timer_tick(timer), SEND_STATE_REGRESSION_START + 15_001);
+    assert_send_state_regression_inert(&harness);
+    assert_eq!(
+        harness.module.pending_send_status(&temporary_id),
+        Some(SendStatus::UnSend)
+    );
+}
+
+/// 回归锚：真实 Timer 已失败后，迟到 HTTP Err 不可再失败，迟到 echo 仍恢复原身份。
+#[test]
+fn send_state_regression_timeout_then_error_then_echo_recovers_once() {
+    let mut harness =
+        Harness::new_with_identity(&[1], "user-actor-444", "company-phase1", "", "", "");
+    let (temporary_id, http_corr, timer) = begin_send_state_regression(&mut harness);
+    harness.step(timer_tick(timer), SEND_STATE_REGRESSION_START + 15_001);
+    let failed_corr = assert_send_state_regression_failed(&harness, &temporary_id, timer);
+    harness.step(
+        port_reply_ok(failed_corr),
+        SEND_STATE_REGRESSION_START + 15_002,
+    );
+    assert_send_state_regression_inert(&harness);
+    harness.step(
+        port_reply_err(http_corr),
+        SEND_STATE_REGRESSION_START + 15_003,
+    );
+    assert_send_state_regression_inert(&harness);
+    assert_eq!(
+        harness.module.pending_send_status(&temporary_id),
+        Some(SendStatus::UnSend)
+    );
+    let sent_corr = observe_send_state_regression_echo(
+        &mut harness,
+        &temporary_id,
+        timer,
+        SEND_STATE_REGRESSION_START + 15_004,
+    );
+    confirm_send_state_regression_echo(
+        &mut harness,
+        &temporary_id,
+        sent_corr,
+        SEND_STATE_REGRESSION_START + 15_005,
+    );
+}
+
+/// 回归锚：真实 Timer 后晚 echo 已确认成功，迟到 HTTP Err 不可再降级投影。
+#[test]
+fn send_state_regression_timeout_then_echo_ignores_late_http_error() {
+    let mut harness =
+        Harness::new_with_identity(&[1], "user-actor-444", "company-phase1", "", "", "");
+    let (temporary_id, http_corr, timer) = begin_send_state_regression(&mut harness);
+    harness.step(timer_tick(timer), SEND_STATE_REGRESSION_START + 15_001);
+    let failed_corr = assert_send_state_regression_failed(&harness, &temporary_id, timer);
+    harness.step(
+        port_reply_ok(failed_corr),
+        SEND_STATE_REGRESSION_START + 15_002,
+    );
+    assert_send_state_regression_inert(&harness);
+    let sent_corr = observe_send_state_regression_echo(
+        &mut harness,
+        &temporary_id,
+        timer,
+        SEND_STATE_REGRESSION_START + 15_003,
+    );
+    confirm_send_state_regression_echo(
+        &mut harness,
+        &temporary_id,
+        sent_corr,
+        SEND_STATE_REGRESSION_START + 15_004,
+    );
+    harness.step(
+        port_reply_err(http_corr),
+        SEND_STATE_REGRESSION_START + 15_006,
+    );
+    assert_send_state_regression_inert(&harness);
+    assert_eq!(harness.module.pending_send_status(&temporary_id), None);
+}
+
+/// 回归锚：真实 retry 复用原身份；旧 H1 Err 不得失败新 attempt，新 H1 的真实失败仍有效。
+#[test]
+fn send_state_regression_retry_ignores_old_attempt_error() {
+    let mut harness =
+        Harness::new_with_identity(&[1], "user-actor-444", "company-phase1", "", "", "");
+    let (temporary_id, old_http_corr, old_timer) = begin_send_state_regression(&mut harness);
+    let original_body = harness.last_http_body().expect("original wire body");
+    harness.step(timer_tick(old_timer), SEND_STATE_REGRESSION_START + 15_001);
+    let failed_corr = assert_send_state_regression_failed(&harness, &temporary_id, old_timer);
+    harness.step(
+        port_reply_ok(failed_corr),
+        SEND_STATE_REGRESSION_START + 15_002,
+    );
+    assert_send_state_regression_inert(&harness);
+
+    let retry = harness.step(
+        command_json(
+            "im_retry_send",
+            serde_json::json!({"message_id": temporary_id}),
+        ),
+        SEND_STATE_REGRESSION_START + 15_003,
+    );
+    assert!(!retry
+        .iter()
+        .any(|effect| matches!(effect, EffectKind::Http(_))));
+    assert_eq!(
+        harness.module.pending_send_status(&temporary_id),
+        Some(SendStatus::Local)
+    );
+    let retried = harness.step(
+        port_reply_ok(correlation_of(&retry, "persist")),
+        SEND_STATE_REGRESSION_START + 15_004,
+    );
+    let new_http_corr = correlation_of(&retried, "http");
+    let new_timer = retried
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::ScheduleTimer(timer) => Some(*timer),
+            _ => None,
+        })
+        .expect("retry must arm its own timer");
+    assert_ne!(new_http_corr, old_http_corr);
+    assert_ne!(new_timer, old_timer);
+    assert_eq!(
+        harness.last_http_body().expect("retry wire body"),
+        original_body
+    );
+    assert_eq!(
+        harness.module.pending_send_status(&temporary_id),
+        Some(SendStatus::Sending)
+    );
+
+    harness.step(
+        port_reply_err(old_http_corr),
+        SEND_STATE_REGRESSION_START + 15_005,
+    );
+    assert_send_state_regression_inert(&harness);
+    assert_eq!(
+        harness.module.pending_send_status(&temporary_id),
+        Some(SendStatus::Sending)
+    );
+    harness.step(
+        port_reply_err(old_http_corr),
+        SEND_STATE_REGRESSION_START + 15_006,
+    );
+    assert_send_state_regression_inert(&harness);
+    harness.step(
+        port_reply_err(new_http_corr),
+        SEND_STATE_REGRESSION_START + 15_007,
+    );
+    let failed_corr = assert_send_state_regression_failed(&harness, &temporary_id, new_timer);
+    harness.step(
+        port_reply_ok(failed_corr),
+        SEND_STATE_REGRESSION_START + 15_008,
+    );
+    assert_send_state_regression_inert(&harness);
+
+    let sent_corr = observe_send_state_regression_echo(
+        &mut harness,
+        &temporary_id,
+        new_timer,
+        SEND_STATE_REGRESSION_START + 15_009,
+    );
+    confirm_send_state_regression_echo(
+        &mut harness,
+        &temporary_id,
+        sent_corr,
+        SEND_STATE_REGRESSION_START + 15_010,
+    );
+    harness.step(
+        port_reply_err(new_http_corr),
+        SEND_STATE_REGRESSION_START + 15_012,
+    );
+    assert_send_state_regression_inert(&harness);
+    assert_eq!(harness.module.pending_send_status(&temporary_id), None);
 }

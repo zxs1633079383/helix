@@ -4,7 +4,7 @@ use bytes::Bytes;
 use helix_core::effect::{Effect, Row, SqlValue, StorageOp};
 use helix_core::port_codec::rows_to_reply_bytes;
 use helix_core::tick::{InboundBytes, PortOutcome, ReplyBytes};
-use helix_core::{Correlation, Tick};
+use helix_core::{Correlation, Tick, TimerId};
 use serde_json::{json, Value};
 
 #[path = "../../support/artifact.rs"]
@@ -109,15 +109,15 @@ fn acceptance_reply() -> TestResult<Bytes> {
     Ok(enveloped(Bytes::from(raw)))
 }
 
-/// 驱动一个 individual/merged command 到 HTTP admission，并返回实际发送的 post。
-fn run_command(
+/// 驱动 ID-only command，并保留 HTTP correlation 供乱序 authority 回放。
+fn start_command(
     harness: &mut Harness,
     mode: &str,
     source_rows: &[Value],
     req_id: &str,
     now_ms: u64,
     ticks: &mut Vec<Value>,
-) -> TestResult<(Value, Value)> {
+) -> TestResult<(Value, Correlation)> {
     let source_ids = source_rows
         .iter()
         .filter_map(|row| row["id"].as_str())
@@ -152,6 +152,19 @@ fn run_command(
     });
     let corr = correlation(harness.sink.as_slice(), "http")
         .ok_or_else(|| format!("{mode} forward missing HTTP correlation"))?;
+    Ok((post, corr))
+}
+
+/// 驱动一个 individual/merged command 到 HTTP admission，并返回 authority post。
+fn run_command(
+    harness: &mut Harness,
+    mode: &str,
+    source_rows: &[Value],
+    req_id: &str,
+    now_ms: u64,
+    ticks: &mut Vec<Value>,
+) -> TestResult<(Value, Value)> {
+    let (post, corr) = start_command(harness, mode, source_rows, req_id, now_ms, ticks)?;
     harness.step(
         port_reply_with_body(corr.raw(), acceptance_reply()?),
         now_ms + source_rows.len() as u64 + 2,
@@ -638,5 +651,276 @@ fn g05_merged_media_survives_sender_and_receiver_projection() -> TestResult<()> 
         assert_eq!(received["data"]["props"]["forward"], expected);
         assert!(received["data"].get("forwardDetail").is_none());
     }
+    Ok(())
+}
+
+/// 复用既有 Go snapshot fixture，留下真实 relay HTTP 与 timer 等待者。
+fn pending_merged() -> TestResult<(Harness, Value, Correlation, TimerId)> {
+    let mut sender = Harness::new_with_identity(&[5], SENDER_ID, "g05-company", "Sender", "", "");
+    let rows = [
+        source_row(
+            SOURCE_A,
+            "source-user-a",
+            "Actor",
+            "Forwarded message A",
+            CREATE_AT - 20,
+        ),
+        source_row(
+            SOURCE_B,
+            "source-user-b",
+            "Observer",
+            "Forwarded message B",
+            CREATE_AT - 10,
+        ),
+    ];
+    let (post, http) = start_command(
+        &mut sender,
+        "merged",
+        &rows,
+        MERGED_REQ,
+        CREATE_AT as u64,
+        &mut Vec::new(),
+    )?;
+    let timer = sender
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::ScheduleTimer { id, .. } => Some(*id),
+            _ => None,
+        })
+        .ok_or("missing forward timer")?;
+    Ok((
+        sender,
+        target_authority(post, MERGED_REQ, TARGET_MERGED, 1, CREATE_AT + 2),
+        http,
+        timer,
+    ))
+}
+
+/// 重试只更换本地 attempt ID，保留同一个 stable command ID。
+fn retry_merged(req_id: &str) -> TestResult<Tick> {
+    let payload = json!({
+        "post_ids": [SOURCE_A, SOURCE_B], "target_channel_ids": [TARGET_CHANNEL],
+        "mode": "merge", "req_id": req_id, "command_id": format!("command-{MERGED_REQ}"),
+    });
+    helix_im::client_api::build_command("im_relay_messages", payload.to_string().as_bytes())
+        .map(Tick::Command)
+        .map_err(|error| error.to_string())
+}
+
+/// HTTP admission 的精确 req/target/count 不可由已收到的 WS 成功代替。
+fn assert_single_batch(effects: &[Effect], status: &str) -> Value {
+    let events = emitted_events(effects);
+    assert_eq!(
+        events.len(),
+        1,
+        "admission must emit exactly one batch, without replaying delivery"
+    );
+    let batch = &events[0];
+    assert_eq!(batch["event"], "im:posts:batch-result");
+    assert_eq!(batch["data"]["reqId"], MERGED_REQ);
+    assert_eq!(batch["data"]["batchStatus"], status);
+    assert_eq!(batch["data"]["deliveryAuthority"], "ws-post");
+    assert_eq!(
+        batch["data"]["acceptedCount"],
+        if status == "success" { 1 } else { 0 }
+    );
+    assert_eq!(
+        batch["data"]["failedCount"],
+        if status == "success" { 0 } else { 1 }
+    );
+    assert_eq!(batch["data"]["targets"].as_array().unwrap().len(), 1);
+    assert_eq!(batch["data"]["targets"][0]["channelId"], TARGET_CHANNEL);
+    assert_eq!(
+        batch["data"]["targets"][0]["acceptanceStatus"],
+        if status == "success" {
+            "accepted"
+        } else {
+            "failed"
+        }
+    );
+    assert_eq!(
+        batch["data"]["targets"][0]["deliveryStatus"],
+        if status == "success" {
+            "pending"
+        } else {
+            "not-applicable"
+        }
+    );
+    batch.clone()
+}
+
+/// 两种顺序均保留独立 admission；已 WS 的 committed HTTP 不重复读取或 ACK。
+#[test]
+fn g05_http_and_ws_first_emit_one_admission_without_duplicate_delivery() -> TestResult<()> {
+    for (ws_first, status) in [(false, "accepted"), (true, "accepted"), (true, "committed")] {
+        let (mut sender, frame, http, timer) = pending_merged()?;
+        let reply = if status == "accepted" {
+            acceptance_reply()?
+        } else {
+            enveloped(Bytes::from(
+                json!({"status":"SUCCESS","data":{"targets":[{
+                    "channelId":TARGET_CHANNEL,"status":"committed","postIds":[TARGET_MERGED],
+                    "temporaryIds":[format!("target-{MERGED_REQ}")]
+                }]}})
+                .to_string(),
+            ))
+        };
+        if !ws_first {
+            sender.step(
+                port_reply_with_body(http.raw(), reply.clone()),
+                CREATE_AT as u64 + 3,
+            );
+            assert_single_batch(sender.sink.as_slice(), "success");
+            assert!(!sender
+                .sink
+                .as_slice()
+                .iter()
+                .any(|effect| matches!(effect, Effect::CancelTimer { id } if *id == timer)));
+            sender.step(
+                port_reply_with_body(http.raw(), reply.clone()),
+                CREATE_AT as u64 + 4,
+            );
+            assert!(sender.sink.as_slice().is_empty());
+        }
+        let delivery = apply_target(
+            &mut sender,
+            SENDER_ID,
+            &frame,
+            0,
+            CREATE_AT as u64 + 10,
+            &mut Vec::new(),
+        )?;
+        assert_eq!(
+            delivery
+                .iter()
+                .map(|event| event["event"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["im:post:received", "im:channel:update"]
+        );
+        assert_eq!(delivery[0]["data"]["id"], TARGET_MERGED);
+        assert_eq!(delivery[0]["data"]["requestId"], MERGED_REQ);
+        assert_eq!(sender.sink.as_slice().iter().filter(|effect| matches!(effect, Effect::Http { req, .. } if req.url.ends_with("/post/clientAck"))).count(), 1);
+        let delivery_canceled = sender
+            .sink
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::CancelTimer { id } if *id == timer));
+        if ws_first {
+            sender.step(
+                retry_merged("retry-before-admission")?,
+                CREATE_AT as u64 + 19,
+            );
+            assert!(
+                correlation(sender.sink.as_slice(), "http").is_none(),
+                "stable command must remain pending until admission"
+            );
+            let conflict = emitted_events(sender.sink.as_slice());
+            assert_eq!(conflict.len(), 1);
+            assert_eq!(conflict[0]["data"]["reqId"], "retry-before-admission");
+            assert!(conflict[0]["data"]["error"]
+                .as_str()
+                .unwrap()
+                .contains("FORWARD_IN_PROGRESS"));
+            sender.step(
+                port_reply_with_body(http.raw(), reply.clone()),
+                CREATE_AT as u64 + 20,
+            );
+            assert_single_batch(sender.sink.as_slice(), "success");
+            assert!(
+                correlation(sender.sink.as_slice(), "http").is_none(),
+                "already durable committed identities must not trigger readback or a second ACK"
+            );
+        }
+        assert_eq!(
+            delivery_canceled, !ws_first,
+            "timer must cover both admission and durable delivery"
+        );
+        assert_eq!(
+            sender
+                .effect_log
+                .iter()
+                .flatten()
+                .filter(|effect| **effect == common::EffectKind::CancelTimer(timer.raw()))
+                .count(),
+            1
+        );
+        for tick in [
+            port_reply_with_body(http.raw(), reply),
+            Tick::Inbound(InboundBytes(Bytes::from(frame.to_string()))),
+            Tick::Timer(timer),
+        ] {
+            sender.step(tick, CREATE_AT as u64 + 30);
+            assert!(
+                sender.sink.as_slice().is_empty(),
+                "terminal replay must not emit, persist or ACK again"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// WS 已持久投递不吞 HTTP 拒绝/端口失败，也不改写既有投递事实。
+#[test]
+fn g05_ws_first_preserves_late_http_rejection_and_port_failure() -> TestResult<()> {
+    for outcome in [
+        PortOutcome::Ok(ReplyBytes(enveloped(Bytes::from(json!({"status":"REJECTED"}).to_string())))),
+        PortOutcome::Ok(ReplyBytes(enveloped(Bytes::from(json!({"status":"SUCCESS","data":{"targets":[{"channelId":TARGET_CHANNEL,"status":"failed","error":"DENIED"}]}}).to_string())))),
+        PortOutcome::Err(helix_core::tick::PortError::Network),
+        PortOutcome::Err(helix_core::tick::PortError::Timeout),
+    ] {
+        let (mut sender, frame, http, timer) = pending_merged()?;
+        let delivery = apply_target(&mut sender, SENDER_ID, &frame, 0, CREATE_AT as u64 + 10, &mut Vec::new())?;
+        assert_eq!(delivery[0]["data"]["requestId"], MERGED_REQ);
+        let reply = Tick::PortReply { corr: http, outcome };
+        sender.step(reply.clone(), CREATE_AT as u64 + 20);
+        assert_single_batch(sender.sink.as_slice(), "failed");
+        assert!(sender.sink.as_slice().iter().any(|effect| matches!(effect, Effect::CancelTimer { id } if *id == timer)));
+        for tick in [reply, Tick::Timer(timer), Tick::Inbound(InboundBytes(Bytes::from(frame.to_string())))] {
+            sender.step(tick, CREATE_AT as u64 + 30);
+            assert!(sender.sink.as_slice().is_empty());
+        }
+        sender.step(retry_merged("retry-after-http-failure")?, CREATE_AT as u64 + 40);
+        assert!(correlation(sender.sink.as_slice(), "http").is_some());
+    }
+    Ok(())
+}
+
+/// 等待晚到 admission 的 timer 仍有界失败，且携带原目标并释放重试。
+#[test]
+fn g05_ws_first_admission_timeout_keeps_target_scope_and_cleans_replay() -> TestResult<()> {
+    let (mut sender, frame, http, timer) = pending_merged()?;
+    let delivery = apply_target(
+        &mut sender,
+        SENDER_ID,
+        &frame,
+        0,
+        CREATE_AT as u64 + 10,
+        &mut Vec::new(),
+    )?;
+    assert_eq!(delivery[0]["data"]["requestId"], MERGED_REQ);
+    sender.step(Tick::Timer(timer), CREATE_AT as u64 + 20_000);
+    let batch = assert_single_batch(sender.sink.as_slice(), "failed");
+    assert_eq!(batch["data"]["error"], "FORWARD_TIMEOUT");
+    assert_eq!(batch["data"]["targets"][0]["error"], "FORWARD_TIMEOUT");
+    assert!(sender
+        .sink
+        .as_slice()
+        .iter()
+        .any(|effect| matches!(effect, Effect::CancelTimer { id } if *id == timer)));
+    for tick in [
+        Tick::Timer(timer),
+        port_reply_with_body(http.raw(), acceptance_reply()?),
+        Tick::Inbound(InboundBytes(Bytes::from(frame.to_string()))),
+    ] {
+        sender.step(tick, CREATE_AT as u64 + 20_001);
+        assert!(sender.sink.as_slice().is_empty());
+    }
+    sender.step(
+        retry_merged("retry-after-admission-timeout")?,
+        CREATE_AT as u64 + 20_002,
+    );
+    assert!(correlation(sender.sink.as_slice(), "http").is_some());
     Ok(())
 }

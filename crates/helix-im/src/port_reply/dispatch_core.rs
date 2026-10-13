@@ -1662,14 +1662,14 @@ impl ImModule {
                             causation_id,
                         },
                     );
+                    out.push(
+                        crate::event::post::send_failed_for_identity(
+                            channel_id.as_str(),
+                            temporary_id.0.as_str(),
+                        )?
+                        .into_effect(),
+                    );
                 }
-                out.push(
-                    crate::event::post::send_failed_for_identity(
-                        channel_id.as_str(),
-                        temporary_id.0.as_str(),
-                    )?
-                    .into_effect(),
-                );
             }
         }
         Ok(())

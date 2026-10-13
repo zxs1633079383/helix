@@ -20,3 +20,10 @@
 - 发布脚本通过八个 workspace 包/消费者检查、四包 package dry-run/验证与按依赖顺序上传。
 - 版本事务含四公共 manifest、四 workspace 消费者 manifest 与 Cargo.lock；版本提交随后建立注释 Tag `helix-v-0.1.60`，普通 push 后独立核验远端 SHA。
 - 制品记录 source commit 为 `0cffba91` 加发布版本事务（发布脚本在版本提交前打包，dirty=true 为预期）。实际 registry checksum/包内源码与候选内容另行核验，未修改客户端。
+
+## 最终核验
+
+- 版本提交：`57b16868f763f722e6154be395104ab812c8fa21`，已普通 push 至 `reactor/MessageV3-helix`。注释 Tag `helix-v-0.1.60` 已推送，其 peeled commit 与版本提交完全一致；`git ls-remote` 独立回读确认。
+- crates.io API 四包 checksum 均与本地上传 `.crate` SHA-256 一致，见 [registry-verification.json](registry-verification.json)。helix-im 包内 presence、module 接线、metadata 查询与公开事件源码逐字匹配发布候选。
+- 包内 VCS：源码提交 `0cffba9176582acb61d4bc8d38f22846d79b3db2`，dirty=true 对应脚本版本事务；版本提交随后保存该事务，不把 VCS 字段伪称为最终版本提交。
+- 本证据文档随后独立提交；Tag 继续指向不可变版本提交。原主工作区保持原 HEAD 与既有改动，发布 worktree 保留；客户端未升级。

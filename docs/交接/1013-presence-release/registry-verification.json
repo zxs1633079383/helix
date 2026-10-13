@@ -1,0 +1,54 @@
+[
+  {
+    "crate": "cses-helix-core",
+    "version": "0.1.60",
+    "checksum": "faead51d771bb605a8a31dc20fd521a83a9d9c30e11694384b90cd459673f7e9",
+    "registry_checksum_matches": true,
+    "vcs": {
+      "git": {
+        "sha1": "0cffba9176582acb61d4bc8d38f22846d79b3db2",
+        "dirty": true
+      },
+      "path_in_vcs": "crates/helix-core"
+    }
+  },
+  {
+    "crate": "helix-im",
+    "version": "0.1.60",
+    "checksum": "deb603da7c273e2c789cdbc3f9df9fd500f5207658bf52038feb5ce7313a6efb",
+    "registry_checksum_matches": true,
+    "vcs": {
+      "git": {
+        "sha1": "0cffba9176582acb61d4bc8d38f22846d79b3db2",
+        "dirty": true
+      },
+      "path_in_vcs": "crates/helix-im"
+    }
+  },
+  {
+    "crate": "helix-driver-host",
+    "version": "0.1.60",
+    "checksum": "654a93c5cd8638a02c54ca4f057065bb40942ab8ec284c3e62639f87f446b0de",
+    "registry_checksum_matches": true,
+    "vcs": {
+      "git": {
+        "sha1": "0cffba9176582acb61d4bc8d38f22846d79b3db2",
+        "dirty": true
+      },
+      "path_in_vcs": "crates/helix-driver-host"
+    }
+  },
+  {
+    "crate": "helix-driver-native",
+    "version": "0.1.60",
+    "checksum": "85afce702bf4664b9867006c8793a5e48a5c4f4a39da09c5efcaf0b711c17ab8",
+    "registry_checksum_matches": true,
+    "vcs": {
+      "git": {
+        "sha1": "0cffba9176582acb61d4bc8d38f22846d79b3db2",
+        "dirty": true
+      },
+      "path_in_vcs": "crates/helix-driver-native"
+    }
+  }
+]

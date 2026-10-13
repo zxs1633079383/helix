@@ -1,3 +1,4 @@
+✅ DONE 0.1.62四包已发布，分支与Tag远端回读一致，registry制品checksum及presence源码核验通过；客户端接入与实机待验范围见 docs/交接/1013-presence-release/handoff.md。
 🎯 EXPECT 用户批准续发patch：保留远端0.1.61历史引用修复，发布0.1.62四包并核验registry、版本Tag和远端；客户端精确依赖接入同版，真实绿点回归单独记验收。| 赌注 中 | 可逆 发布否 | @2026-10-13
 🎯 EXPECT 普通与重点观察切换保留有效状态，刷新仍在线不发unknown；仍即时查询，失败不延长有效期、权威离线/撤权立即生效。公开Tick回归先红后绿；本轮不发布或修改版本。| 赌注 低 | 可逆 是 | @2026-10-13
 ✅ DONE 公开Tick新增2项先红后绿，presence共19项通过；五crate检查与WASM构建通过。修复及失败/过期边界见presence_test；真实Tauri回归待新候选，未发布或提版。

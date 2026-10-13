@@ -1,0 +1,26 @@
+[
+  {
+    "name": "cses-helix-core",
+    "version": "0.1.62",
+    "sha256": "719f193a769a728639a0874f60f7671f236dfbdd4775b99f4a0264ec8e25aaa8",
+    "registry_matches": true
+  },
+  {
+    "name": "helix-im",
+    "version": "0.1.62",
+    "sha256": "1ef16c5efb253a637b8c6455c5d1ebada992a5e41604451acd524820ee5f143a",
+    "registry_matches": true
+  },
+  {
+    "name": "helix-driver-host",
+    "version": "0.1.62",
+    "sha256": "67c79707bcdb82b346d9576b3a98470998c812d2c84e6c5f7c4534e4e13ac122",
+    "registry_matches": true
+  },
+  {
+    "name": "helix-driver-native",
+    "version": "0.1.62",
+    "sha256": "3b410be10e7f66a16d555494fd520c6faaf6b5e3125b27ce34cfdcab6eab9cc0",
+    "registry_matches": true
+  }
+]

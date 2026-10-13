@@ -27,3 +27,11 @@
 - crates.io API 四包 checksum 均与本地上传 `.crate` SHA-256 一致，见 [registry-verification.json](registry-verification.json)。helix-im 包内 presence、module 接线、metadata 查询与公开事件源码逐字匹配发布候选。
 - 包内 VCS：源码提交 `0cffba9176582acb61d4bc8d38f22846d79b3db2`，dirty=true 对应脚本版本事务；版本提交随后保存该事务，不把 VCS 字段伪称为最终版本提交。
 - 本证据文档随后独立提交；Tag 继续指向不可变版本提交。原主工作区保持原 HEAD 与既有改动，发布 worktree 保留；客户端未升级。
+
+## 0.1.62 绿点闪烁修复追加发布
+
+- 根因：普通/focused 观察切换清除了仍有效的缓存并发出 unknown；现在保留有效状态并立即刷新，晋升 focused 的旧状态最多保留15秒且不延长原到期时间。权威离线、撤权与到期仍正常生效。
+- 修复提交 `de01b0a7`，合入远端0.1.61历史引用修复后为 `b957b453`；版本提交 `20535dceddbb4e418ccd59986bd2abb267d12cc7`。四公共包0.1.62已正式发布，分支及 `helix-v-0.1.62` peeled SHA 已通过 ls-remote 独立核对。
+- 19项presence回归通过，含两项先红后绿的focus切换回归；五crate检查、WASM构建及合入后的真实SQLite历史引用定向测试通过。发布脚本workspace/消费者检查、四包dry-run和registry解析通过。
+- 四包registry下载制品SHA-256与crates.io API一致，见 `registry-0.1.62.json`；helix-im制品presence.rs逐字匹配已发布源码。
+- 客户端精确依赖与lock接入0.1.62。真实Tauri绿点及真实Go全链路仍为NOT_VERIFIED；本轮未构建或发布桌面安装包，无SQL变更。

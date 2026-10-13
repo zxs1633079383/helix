@@ -2252,6 +2252,14 @@ fn exact_json_object(raw: &str) -> Value {
         .unwrap_or_else(|| serde_json::json!({}))
 }
 
+/// 被引用消息是可空对象；无引用不能借用 props 等扩展字段的空对象默认值。
+fn exact_replied_message(raw: &str) -> Value {
+    serde_json::from_str::<Value>(raw)
+        .ok()
+        .filter(Value::is_object)
+        .unwrap_or(Value::Null)
+}
+
 /// 生成 G11g 严格消息投影；排除 readBits、eventSeq、cursor 与 expedite 原始位图。
 fn project_exact_posts(accepted_keys: &[String], rows: Vec<Value>) -> Vec<Value> {
     let accepted = accepted_keys.iter().collect::<HashSet<_>>();
@@ -2290,7 +2298,7 @@ fn project_exact_posts(accepted_keys: &[String], rows: Vec<Value>) -> Vec<Value>
             "replyRootId": fields.reply_root_id,
             "replyFirstLevelId": fields.reply_first_level_id,
             "replyCount": fields.reply_count,
-            "repliedMessage": exact_json_object(&fields.replied_message),
+            "repliedMessage": exact_replied_message(&fields.replied_message),
             "replyMessages": exact_json_object(&fields.reply_messages),
             "revoke": row.get("revoke").cloned().unwrap_or(Value::Bool(false)),
         });

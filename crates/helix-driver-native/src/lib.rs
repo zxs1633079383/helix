@@ -45,6 +45,7 @@ pub use helix_driver_host::AuthTokenRegistry;
 // 共享 HTTP client 句柄：host 装配 NativeHttp::with_crosscut 需先 SharedHttpClient::new(config)，
 // 再连同 event_sink + AuthTokenRegistry 包进横切层（re-export 免直依 driver-host）。
 pub use helix_driver_host::SharedHttpClient;
+pub use helix_driver_host::{TranslationHttpClient, TranslationHttpConfig};
 // 共享本地文件上传器：host-cli / shell 通过 native 装配 `EngineConfig.uploader`，免直依 driver-host。
 pub use helix_driver_host::SharedFileUploader;
 pub use helix_driver_host::{

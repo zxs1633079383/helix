@@ -55,3 +55,7 @@ path = "tests/message_v3_phase1_real_go.rs"
 [[test]]
 name = "message_v3_domain"
 path = "tests/message_v3_domain.rs"
+
+[[test]]
+name = "translation_real"
+path = "tests/translation_real.rs"

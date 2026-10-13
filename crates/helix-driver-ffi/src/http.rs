@@ -9,6 +9,8 @@ use helix_driver_host::{
 
 use crate::event_sink::FfiEventSink;
 
+const TRANSLATION_SERVICE_URL: &str = "service:translation";
+
 pub struct FfiHttpRequester {
     inner: CrossCuttingHttp<SharedHttpClient, FfiEventSink>,
 }
@@ -34,6 +36,11 @@ impl FfiHttpRequester {
 #[async_trait::async_trait]
 impl HttpRequester for FfiHttpRequester {
     async fn request(&self, req: HttpRequest) -> Result<HttpResponse, PortError> {
+        if req.url == TRANSLATION_SERVICE_URL {
+            return Err(PortError::Other(
+                "translation endpoint is not configured for FFI".into(),
+            ));
+        }
         self.inner.request(req).await
     }
 }

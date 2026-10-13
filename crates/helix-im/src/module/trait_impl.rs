@@ -180,6 +180,13 @@ impl ImModule {
                             .begin(self.config.auth_user_id.as_str());
                     }
                 }
+                name if crate::translation::is_command(name) => {
+                    self.translation_command(name, cmd.payload.as_ref(), out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
+                }
                 name if crate::query::forward_detail::is_command(name) => {
                     self.forward_detail_command(name, cmd.payload.as_ref(), out)
                         .map_err(|e| CoreError::ModuleError {
@@ -695,6 +702,15 @@ impl ImModule {
             }
 
             Tick::Timer(id) => {
+                if self
+                    .translation_timeout(*id, out)
+                    .map_err(|e| CoreError::ModuleError {
+                        module: self.name(),
+                        source: Box::new(e),
+                    })?
+                {
+                    return Ok(());
+                }
                 if self.forward_detail_timeout(*id, out) {
                     return Ok(());
                 }
@@ -847,6 +863,9 @@ impl ImModule {
             }
         });
         self.cancel_bookmark_count(out);
+        // Lifecycle cleanup suppresses terminal events, so this branch cannot fail on event
+        // serialization; retain the helper's fallible API for user initiated cancellation.
+        let _ = self.cancel_translations(None, false, out);
         let mut cancelled_reads: Vec<_> = self
             .state
             .corr_map

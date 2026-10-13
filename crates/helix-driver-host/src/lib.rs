@@ -56,7 +56,7 @@ pub use metrics::{
 };
 pub use network::{
     HostHeaderRegistry, HostNetworkConfig, PreparedHttpRequest, SharedHttpClient, SharedWsClient,
-    WsConnectionActivation,
+    TranslationHttpClient, TranslationHttpConfig, WsConnectionActivation,
 };
 pub use ops::{
     classify_port_error, execute_storage_ops, execute_storage_ops_atomic, table_set_key,

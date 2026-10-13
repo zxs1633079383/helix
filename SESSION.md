@@ -1,3 +1,5 @@
+🎯 EXPECT 在服务验证通过前仅冻结翻译公开 Tick seam 并保留红测；实现 `im_translate_message` / `im_cancel_translation` 前完成隔离 HTTP、非持久终态与 stop/cancel/timeout 迟到回包合同对账。| 赌注 中 | 可逆 是 | @2026-10-12
+✅ DONE 服务验证后完成 Helix 翻译公开 Tick、隔离 Native HTTP、非持久终态与生命周期清理；focused red→green、三端 Rust 编译目标与当前 Docker Native 真链均有证据。交接由主会话维护：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/1012-右键翻译/handoff.md。
 🎯 EXPECT 冷快照只以完整成员投影推进水位；同版空 effect 原子修复通过真实 SQLite，旧版和同版非空冲突不覆盖；不改版本或提交。| 赌注 中 | 可逆 是 | @2026-10-12
 - 交接：docs/交接/member-projection-cold-recovery-20261012.md
 ✅ DONE 冷快照、legacy显示态和同版空effect修复的真实SQLite回归通过，三端编译/Web存储通过；2项无关失败在隔离HEAD复现，全量非绿色。按用户授权整理提交，未push/提版/发布；新Go上线后完整冷恢复仍待复验。

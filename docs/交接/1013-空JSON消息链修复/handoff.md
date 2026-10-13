@@ -1,22 +1,26 @@
 # 空JSON消息链修复交接
+更新时间：2026-10-13，Asia/Shanghai
 ## 目标与授权
-- 修复成员last_post、update_channel.lastPost、post_update.expediteMap三处空值中断链路。
-- 用户授权提交、发布Helix新patch、客户端更新依赖提交、双仓push；明确不构建应用。
-- 保留viewer、权威版本、读回/Persist屏障和损坏JSON校验；无虚构摘要或吞掉所有解析错误。
-- 5000人/群、5RPS/群、多群并行、1秒可达是目标，非容量证据。
-## 代码身份与当前阶段
-- 起始Helix reactor/MessageV3-helix，0e3f1eb87ce22dd4423d29c28733ff50f3f67c70，0.1.58。
-- 三处实现与回归已完成，候选patch0.1.59预检通过；当前准备修复commit及发布。
-- 客户端dev-message已快进4个远端commit到f2e4b46488faea14f438e8d01a08e5c9e8957600。
-- 保留客户端release.json原改动及双仓所有无关untracked；只暂存精确本任务文件。
-## 证据
-- 红绿、正式7项真实Tick/SQLite、十消息逐IDACK/接收唯一、负向/乱序等见[验证记录](验证记录.md)。
-- 三端Rust检查、core/WASM通过；全量1690通过/3失败/11 ignored，三个范围外失败已有干净基线证据，不扩张修复。
-- 源码指纹、日志在.v1/空JSON修复-20261013/；本轮无真实Go/WS/账户库操作。
+- 三处修复、先红后绿、公开Tick/实际SQLite验证、发布四公共包、客户端依赖接入及双仓push已完成。
+- 用户明确不构建应用；不构建/打包/安装、不修改应用版本。
+- 保留viewer、权威revision/计数、读回与Persist屏障；空摘要不伪造消息，非法JSON显式拒绝。
+- 5000人/群、5RPS/群、多群并行、1秒可达是设计目标，非容量证据。
+## 当前代码身份
+- Helix分支reactor/MessageV3-helix；修复ba86ab89265b8676fda65fc9f056e767fe8f6e2a。
+- 四公共包0.1.59发布commit bde7a0b5b451d73bff79d0b30fd639ddb4dee3ae。
+- 注释Tag helix-v-0.1.59，object b9a0c26e38fddc4855c14721ce220afd0e8aa785，远端peel到发布commit。
+- 本仓最后仅补交接文档，最新文档身份见git log；source/版本身份以上述commit为准。
+- 客户端dev-message依赖commit f5ddd7cb390f43a1321018cddb50463e43ff539b；先快进同步4个远端commit。
+- 客户端只提交src-tauri/Cargo.toml和Cargo.lock；release.json原改动与双仓无关untracked保留。
+## 验证与发布
+- 详细证据见[验证记录](验证记录.md)；正式Tick/SQLite 7项通过、最小回放十消息逐ID唯一。
+- 相关库/Gate、三端Rust/core/WASM通过；全量1690通过/3失败/11 ignored，失败有干净基线证据，未扩张修复或放宽断言。
+- scripts/publish_crates.py发布成功：八crate check、四包dry-run/上传/registry可解析通过。
+- registry helix-im四个改动源码与本地字节一致；客户端四精确pin/lock同版，四制品archive SHA256与lock checksum一致。
+- 客户端locked metadata与diff check通过；release.json哈希未变。
+- 双仓分支与版本tag已push，ls-remote回读SHA/tag peel匹配；证据.v1/空JSON修复-20261013/。
+## 未验证与边界
+- 未验收真实Go/WS、Native/Tauri/UI、系统通知与容量，不把本地验证晋级为运行态验收。
+- 依赖提交不会更新已安装应用；现场13错误不能直接等同八漏通知，历史cursor消息不自动补通知。
 ## 下一步
-- 修复提交后发布四公共包；立即版本commit与注释tag。
-- 客户端四pin与lock更新，metadata/checksum校验后提交；双仓push并回读远端SHA/tag。
-## 未验证边界
-- 用户取消实机通知验收，不构建/打包/安装客户端，不改应用版本。
-- PRE/Native/UI/通知中心与容量未验收；不能将13次旧错误等同八漏通知。
-- 历史已推进cursor消息不会自动补发通知。
+- 本轮授权范围内无剩余操作；应用构建/安装与通知验收待用户另行要求。

@@ -228,7 +228,8 @@ pub(crate) fn page_scan_effect(
 ///
 /// 成员所属公司 (`channel_member.team_id`) 不是频道可见性的拒绝条件：同一用户可
 /// 作为外部公司的成员出现在当前公司的频道中。频道公司先由 channel rows 约束，viewer
-/// membership 再由投影阶段判断；这里不得退化为全表或按成员公司扫描。
+/// membership 再由存储层 `user_id` 等值条件和投影阶段共同判断；这里不得退化为全表或按
+/// 成员公司扫描。
 pub(crate) fn member_scan_effect(
     corr: Correlation,
     channel_rows: &[Value],
@@ -267,6 +268,7 @@ pub(crate) fn member_scan_effect(
             table: "channel_member",
             scope_col: "channel_id",
             scope_values: channel_ids,
+            filter: Some(("user_id", SqlValue::Text(user_id.to_string()))),
             limit: MEMBER_SCAN_LIMIT,
         })],
     })

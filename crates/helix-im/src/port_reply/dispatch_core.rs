@@ -511,6 +511,8 @@ impl ImModule {
                         self.refresh_attached_latest_timeline(channel_id, None, out)?;
                     }
                 }
+                // matching 回执解除该写屏障后，兑现期间合并的新意图，使用已提交 cursor。
+                self.drain_sync_queue(out);
                 self.try_finalize_pong_gap(Some(corr), out)?;
             }
             PortOutcome::Err(e) => {
@@ -532,10 +534,13 @@ impl ImModule {
                         out,
                     );
                 }
-                // persist 失败：清除 last_sync_from_seq 避免遗留脏状态
+                // 仅释放 matching 写屏障；失败不推进 cursor，后续同步仍可从旧水位重试。
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
+                    ch.pending_commits.remove(&corr);
                     ch.last_sync_from_seq = None;
                 }
+                // matching 失败仅解除本 corr；留队重试仍从未推进的旧 cursor 开始。
+                self.drain_sync_queue(out);
                 if self
                     .state
                     .recovery_session

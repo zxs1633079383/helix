@@ -21,6 +21,7 @@
 //! enqueue = O(1) push_back + O(1) HashSet 去重；drain 单步 = O(1) pop_front。窗口释放 O(1)。
 //! 不读 / 不改 channel 消息体——纯调度元数据（HX-C005 热路径友好）。
 
+use crate::channel::Channel;
 use crate::state::{ChannelId, CorrelationContext, ImState, InflightSync, SyncTrigger};
 use helix_core::{Correlation, EffectSink};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -82,7 +83,7 @@ impl SyncScheduler {
 
     /// 入队一个待 sync channel（已在队则幂等忽略）。返回 true=新入队 / false=已在队去重。
     ///
-    /// 注：调用方负责跳过「已在途」channel（`inflight_sync.is_some()`）——本结构只防**队内**重复。
+    /// 注：调用方跳过 HTTP 仍在途的 channel；待持久化意图留队，本结构防**队内**重复。
     pub fn enqueue(&mut self, channel_id: ChannelId) -> bool {
         self.enqueue_with_trigger(channel_id, SyncTrigger::Routine)
     }
@@ -133,9 +134,7 @@ impl SyncScheduler {
         self.inflight = self.inflight.saturating_sub(1);
     }
 
-    /// 直接占用 1 个全局窗口（不经队列）——续拉链（`maybe_continue_sync`）复用：同一 channel 刚在
-    /// SyncPull 回报释放了窗口，续拉立即再起一次 sync，须重新占窗，保持 `inflight` = 真在途数。
-    /// 续拉是 per-channel 串行链（非 fan-out 风暴源），故允许直接占窗不排队（仍计入全局上限可观测）。
+    /// 直接占用 1 个全局窗口；请求调度通过队列的 next_dispatch 取得窗口。
     pub fn acquire_window(&mut self) {
         self.inflight += 1;
     }
@@ -165,6 +164,11 @@ impl SyncScheduler {
         self.inflight = 0;
         self.pong_throttle.clear();
     }
+}
+
+/// HTTP 回包与原子写回执之间仍归当前批次所有，不能重拉尚未提交的 cursor。
+fn channel_can_sync(channel: &Channel) -> bool {
+    !channel.is_terminal() && channel.inflight_sync.is_none() && channel.pending_commits.is_empty()
 }
 
 /// 入队一批待 sync channel（跳过已在途的），随后 drain 至满窗（B4 风暴闸门入口）。
@@ -199,7 +203,7 @@ pub fn enqueue_and_drain_with_trigger(
     out: &mut EffectSink,
 ) {
     for &channel_id in targets {
-        // 跳过已在途（per-channel 守卫）/ 已注销 channel：与旧 emit_proactive_resync_for 同口径。
+        // HTTP 在途仍沿用原合并口径；HTTP 已结束的待持久化意图必须留队，不能丢弃。
         match state.channels.get(&channel_id) {
             // A type7 tombstone is terminal for this local channel. Do not issue another sync that could
             // replay late nonterminal events into an already closed surface.
@@ -234,7 +238,7 @@ pub fn prioritize_and_drain_with_trigger(
             state
                 .channels
                 .get(channel_id)
-                .is_some_and(|channel| !channel.is_terminal() && channel.inflight_sync.is_none())
+                .is_some_and(|ch| !ch.is_terminal() && ch.inflight_sync.is_none())
         })
         .collect();
     state
@@ -246,7 +250,7 @@ pub fn prioritize_and_drain_with_trigger(
 /// drain：在途未满窗且队非空时，逐个取队首 dispatch `sync/notify`（每次占 1 窗口）。
 ///
 /// 不变量：单次 drain 后全局在途 ≤ `MAX_INFLIGHT_SYNC`（`next_dispatch` 满窗即返回 None）。
-/// 队首 channel 若在入队后被注销 / 已另起在途 → 跳过并归还窗口（不空转占窗）。
+/// 已注销项丢弃；HTTP/持久化屏障项保留触发源和队序，不占窗口且不堵无关频道。
 pub fn drain(
     state: &mut ImState,
     api_base_url: &str,
@@ -254,15 +258,32 @@ pub fn drain(
     out: &mut EffectSink,
 ) {
     let conn_id = state.connection_id.clone();
-    while let Some((channel_id, trigger)) = state.sync_scheduler.next_dispatch() {
+    let queued = state.sync_scheduler.pending_len();
+    let mut blocked = 0;
+    // 每项每轮最多检查一次；所有项被屏障阻挡时也必须返回，而非重复空转。
+    for _ in 0..queued {
+        let Some((channel_id, trigger)) = state.sync_scheduler.next_dispatch() else {
+            break;
+        };
         let sync_corr = alloc_corr();
         // 队首在入队后可能被注销 / 已另起在途 → 跳过并归还本次占的窗口（避免窗口泄漏）。
         // 单次 get_mut 同时读 cursor + 写 inflight 守卫（消除二次 get 的不可达 None 防御分支）：
         // 守卫态 / 注销态 → 撤回本次 alloc 的 corr 路由 + 归还窗口；否则原子占位 + 发 sync。
         let from_seq = match state.channels.get_mut(&channel_id) {
-            Some(ch) if ch.inflight_sync.is_none() => {
+            Some(ch) if channel_can_sync(ch) => {
                 ch.inflight_sync = Some(InflightSync(sync_corr));
-                ch.cursor.value()
+                // 留队期间 cursor 可继续提交；水位只记录这次实际请求的起点。
+                let from_seq = ch.cursor.value();
+                ch.last_sync_from_seq = Some(from_seq);
+                from_seq
+            }
+            Some(ch) if !ch.is_terminal() => {
+                state.sync_scheduler.release_window();
+                state
+                    .sync_scheduler
+                    .enqueue_with_trigger(channel_id, trigger);
+                blocked += 1;
+                continue;
             }
             _ => {
                 state.sync_scheduler.release_window();
@@ -295,6 +316,8 @@ pub fn drain(
             conn_id.as_deref(),
         ));
     }
+    // 满窗可能留下未检查的 backlog；恢复原先被阻挡项的优先顺序（包括 PongGap）。
+    state.sync_scheduler.pending.rotate_right(blocked);
 }
 
 #[cfg(test)]

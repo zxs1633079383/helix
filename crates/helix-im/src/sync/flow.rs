@@ -110,10 +110,10 @@ fn prepare_sync_projection(
 
 impl ImModule {
     /// E3 续拉：Persist 落库成功后，若上批 sync 标记了 needs_continuation，
-    /// 以推进后的 cursor（新 fromSeq）发出下一批 sync Http。
+    /// 将下一批意图留队，取得窗口时以最新已提交 cursor 发出 sync Http。
     ///
     /// 终止保证（双重）：
-    /// 1. fromSeq（= cursor after commit）必须严格 > last_sync_from_seq（上次发出续拉时的 fromSeq）
+    /// 1. cursor after commit 必须严格 > last_sync_from_seq（上次实际请求的 fromSeq）
     ///    这保证每次续拉都在推进位置；若 cursor 未前进，说明所有事件均是幂等 dup → 停止
     /// 2. B1 gate_inflight 守卫：同 channel 同时只允许一个在途 sync
     pub(crate) fn maybe_continue_sync(
@@ -123,8 +123,6 @@ impl ImModule {
         out: &mut EffectSink,
     ) {
         let trace_enabled = self.config.offline_sync_diagnostics.trace;
-        // A3b：connectionId 身份头（clone 一次，避免后续 &mut self.state 借用冲突）。
-        let conn_id = self.state.connection_id.clone();
         // 读取 cursor 和 last_sync_from_seq（不可变借用）
         let (cursor_seq, prev_from_seq, has_inflight, is_terminal) =
             match self.state.channels.get(&channel_id) {
@@ -169,43 +167,29 @@ impl ImModule {
             }
         }
 
-        // 记录本次续拉的 fromSeq（下一批检查时用）
-        if let Some(ch) = self.state.channels.get_mut(&channel_id) {
-            ch.last_sync_from_seq = Some(cursor_seq);
-        }
-
-        let sync_corr = self.alloc_corr_internal();
-        self.state.corr_map.insert(
-            sync_corr,
-            CorrelationContext::SyncPull {
-                channel_id,
-                trigger,
-            },
-        );
-        if let Some(ch) = self.state.channels.get_mut(&channel_id) {
-            ch.inflight_sync = Some(crate::state::InflightSync(sync_corr));
-        }
-        // B4：续拉重新占 1 个全局窗口（SyncPull 回报已 release），保持 inflight = 真在途数。
-        self.state.sync_scheduler.acquire_window();
-        out.push(crate::acl::to_effect::sync_notify(
-            &self.config.api_base_url,
-            channel_id,
-            cursor_seq,
-            sync_corr,
-            conn_id.as_deref(),
-        ));
-        crate::offline_sync_info!(trace_enabled,
-            hop = "sync.dispatch",
-            corr = sync_corr.raw(),
-            track_id = crate::acl::sync_http_effects::sync_track_id(sync_corr),
-            channel_id = channel_id.as_str(),
-            from_seq = cursor_seq.0,
-            trigger = ?trigger,
-            continuation = true,
-            scheduler_inflight = self.state.sync_scheduler.inflight(),
-            scheduler_pending = self.state.sync_scheduler.pending_len(),
-            "sync/notify continuation dispatched"
-        );
+        // 续拉复用全局窗口与写屏障；Pong 沿既有优先路径升级已排队 Routine。
+        let api_base_url = self.config.api_base_url.clone();
+        self.with_state_and_corr_allocator(|state, alloc_corr| {
+            if trigger == SyncTrigger::PongGap {
+                crate::sync_scheduler::prioritize_and_drain_with_trigger(
+                    state,
+                    &api_base_url,
+                    &[channel_id],
+                    trigger,
+                    alloc_corr,
+                    out,
+                );
+            } else {
+                crate::sync_scheduler::enqueue_and_drain_with_trigger(
+                    state,
+                    &api_base_url,
+                    &[channel_id],
+                    trigger,
+                    alloc_corr,
+                    out,
+                );
+            }
+        });
     }
 
     /// 处理 sync/notify HTTP 响应

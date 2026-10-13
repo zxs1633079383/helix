@@ -69,9 +69,9 @@ pub struct Channel {
     /// Some(InflightSync(corr)) 表示有在途 sync；续拉发出时置 Some，PortReply 到达后清 None。
     /// 防止 needs_continuation 并发自踩（连续触发多个相同 channel 的 sync）。
     pub inflight_sync: Option<InflightSync>,
-    /// E3 续拉：记录发出续拉 sync 时的 fromSeq（上一批请求的起点）
+    /// 最近实际 dispatch 的 sync fromSeq（已提交 cursor；留队时不改写）。
     ///
-    /// 终止保证：若 persist ok 后 cursor == sync_from_seq（cursor 未前进），
+    /// E3 终止保证：若 persist ok 后 cursor <= sync_from_seq（cursor 未前进），
     /// 停止续拉 + log warn（意味着服务端返回的所有事件都低于 fromSeq，幂等丢弃）。
     pub last_sync_from_seq: Option<Seq>,
     /// 已确认的 closed tombstone 水位，或从本地 channel 投影恢复的删除终态水位。

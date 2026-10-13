@@ -228,13 +228,39 @@ pub(crate) fn page_scan_effect(
 ///
 /// 成员所属公司 (`channel_member.team_id`) 不是频道可见性的拒绝条件：同一用户可
 /// 作为外部公司的成员出现在当前公司的频道中。频道公司先由 channel rows 约束，viewer
-/// membership 再由存储层 `user_id` 等值条件和投影阶段共同判断；这里不得退化为全表或按
-/// 成员公司扫描。
+/// membership 由投影阶段判断；完整同步页仍需其他成员生成 roster/memberCount。
 pub(crate) fn member_scan_effect(
     corr: Correlation,
     channel_rows: &[Value],
     company_id: &str,
     user_id: &str,
+) -> Result<Effect, crate::ImError> {
+    member_scan_effect_with_filter(corr, channel_rows, company_id, user_id, None)
+}
+
+/// Dialog只读当前viewer绝对态，不读取用于同步页的完整成员集合。
+pub(crate) fn dialog_member_scan_effect(
+    corr: Correlation,
+    channel_rows: &[Value],
+    company_id: &str,
+    user_id: &str,
+) -> Result<Effect, crate::ImError> {
+    member_scan_effect_with_filter(
+        corr,
+        channel_rows,
+        company_id,
+        user_id,
+        Some(("user_id", SqlValue::Text(user_id.to_owned()))),
+    )
+}
+
+/// 两条查询共享频道租户与集合约束，成员过滤按调用方的实际投影需求选择。
+fn member_scan_effect_with_filter(
+    corr: Correlation,
+    channel_rows: &[Value],
+    company_id: &str,
+    user_id: &str,
+    filter: Option<(&'static str, SqlValue)>,
 ) -> Result<Effect, crate::ImError> {
     if user_id.is_empty() {
         return Err(crate::ImError::Parse(
@@ -268,7 +294,7 @@ pub(crate) fn member_scan_effect(
             table: "channel_member",
             scope_col: "channel_id",
             scope_values: channel_ids,
-            filter: Some(("user_id", SqlValue::Text(user_id.to_string()))),
+            filter,
             limit: MEMBER_SCAN_LIMIT,
         })],
     })
@@ -882,6 +908,61 @@ mod tests {
         let other = ChannelSyncSession::new("session-b".to_string(), 7, "user-a", "company-a");
         assert!(decode_cursor(&cursor, &other).is_err());
         assert!(decode_cursor("nope", &current).is_err());
+    }
+
+    /// 同步分页还要生成完整 roster/memberCount，dialog 的 viewer 过滤不得污染此入口。
+    #[test]
+    fn channel_sync_page_keeps_full_roster_scan() {
+        use helix_core::tick::{AppCommand, PortOutcome, ReplyBytes};
+        use helix_core::{EffectSink, Module, Tick};
+        let mut module = crate::ImModule::new(crate::ImConfig {
+            auth_user_id: "user-a".into(),
+            company_id: "company-a".into(),
+            ..Default::default()
+        });
+        module.state.channel_sync_session = Some(session());
+        let mut out = EffectSink::new();
+        module
+            .handle(
+                &Tick::Command(AppCommand::new(
+                    "im_query_channel_sync_page",
+                    serde_json::to_vec(&serde_json::json!({
+                        "channel_sync_session_id":"session-a", "req_id":"roster-page"
+                    }))
+                    .unwrap(),
+                )),
+                1000,
+                &mut out,
+            )
+            .unwrap();
+        let corr = out
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Persist { corr, .. } => Some(*corr),
+                _ => None,
+            })
+            .expect("channel scan");
+        out.clear();
+        module.handle(&Tick::PortReply { corr, outcome: PortOutcome::Ok(ReplyBytes(
+            serde_json::to_vec(&serde_json::json!([{
+                "id":"01hq0000000000000000000000", "team_id":"company-a", "user_id":"user-a"
+            }])).unwrap().into())) }, 1001, &mut out).unwrap();
+        let spec = out
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Persist { ops, .. } => ops.iter().find_map(|op| match op {
+                    StorageOp::ScopedScan(spec) => Some(spec),
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .expect("roster member scan");
+        assert!(
+            spec.filter.is_none(),
+            "sync page needs all members for roster/memberCount"
+        );
     }
 
     #[test]

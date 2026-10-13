@@ -1207,7 +1207,7 @@ impl ImModule {
                         return Ok(());
                     }
                     let member_corr = self.alloc_corr_internal();
-                    let member_effect = crate::channel_sync::member_scan_effect(
+                    let member_effect = crate::channel_sync::dialog_member_scan_effect(
                         member_corr,
                         &channel_rows,
                         &company_id,

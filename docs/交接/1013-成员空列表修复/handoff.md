@@ -2,28 +2,32 @@
 更新时间：2026-10-13，Asia/Shanghai
 
 ## 目标与边界
-- 精确空串列表中断 post 读回、ACK 和接收事件的修复已完成。
-- 用户取消真实PRE十消息/安装版通知验收，要求公开真实Tick验证即可；当前已授权Helix打包发布、客户端应用依赖、双仓push；后续明确不构建应用。
-- 严格解析非空损坏数据、viewer校验与Persist屏障保留。5000人/群、5RPS/群、多群并行、1秒可达为目标，非实测结论。
+- 空字符串列表中断post读回、ACK/接收事件的修复与发布、客户端依赖接入、双仓push已完成。
+- 用户取消PRE十消息/通知中心验收，要求真实Tick验证；后续授权打包发布与双仓push，再明确客户端只改Helix依赖直接提交，不构建应用。
+- 严格非空损坏数据校验、viewer校验、Persist屏障保留。5000人/群、5RPS/群、多群并行、1秒可达为目标，非实测结论。
 
 ## 当前代码身份
-- Helix，`reactor/MessageV3-helix`；起始 `08732e4003f826cd3a6c81fc65883650d016b109`。
-- 当前修复提交：见本文件最近修改对应的 `git log -1`（避免提交自引用SHA）。
-- manifest仍0.1.57，未提版/发布/客户端接入；无关初始untracked目录未暂存。
-- diff指纹、完整命令与环境见 [验证记录](验证记录.md)。日志 `.v1/成员空列表-20261013/证据/` 本地保留。
+- Helix：`reactor/MessageV3-helix`；修复`52cda2a65159e478b452c8793aa8490b190f8dd2`。
+- 四公共包0.1.58发布commit：`f2bef81aac7eda2c9abe220f15b5313202b98865`；注释Tag `helix-v-0.1.58`已push，远端peel到同一发布commit。
+- 客户端：`/System/Volumes/Data/workspace/angular/visual/cses-client`，`dev-message`；依赖接入`8f69f8085763db6882714e7bdc446374d8e1f556`，已push且远端回读一致。
+- 客户端先快进同步11个已有远端commit；本次只提交src-tauri/Cargo.toml与Cargo.lock。原有release.json本地修改、所有初始untracked保留。
+- Helix最终仅补交接文档，最近文档提交身份见git log；无关初始untracked未暂存。
 
 ## 已完成与验证
-- 公开Tick与真实SQLite两处均取得EOF红测；旧迁移/空写另有红测。
-- 空串兼容、默认值/写入规范化、精确幂等迁移及旧默认兼容触发器落地。
-- G01 4项、真实SQLite 2项通过；十消息逐ID持久化/ACK/接收/频道更新/ACK终态唯一。
-- helix-im库472项、五crate check、core测试、WASM build、core零runtime、diff check通过。
-- 两项扩大回归失败在干净起始SHA复现，详见验证记录；不声称全套Green。
+- 原始EOF、迁移和空写红测；G01 4项、真实SQLite 2项通过，十消息逐ID持久化/ACK/接收/频道更新/ACK终态唯一。
+- helix-im库472项、五crate check、core测试、WASM build、core零runtime、rustfmt/diff check通过。两项扩大回归失败在干净起始SHA复现，见[验证记录](验证记录.md)。
+- `python3 scripts/publish_crates.py --publish`：八crate check、四包dry-run/上传/registry可解析均通过。
+- registry下载helix-im制品的六个修复源文件与本地字节一致。
+- 客户端四个精确pin/lock均0.1.58，四包registry制品checksum逐包一致；cargo metadata --locked --no-deps和diff check通过；未构建应用。
+- 双仓分支/版本Tag push成功且真实远端SHA回读一致；发布提交与注释Tag完整。
+- 完整本地日志、制品校验、发布接入结果：`.v1/成员空列表-20261013/`，不随Git上传。
 
-## 阻断与未验证
-- 错误次数不等于漏通知条数。历史已推进cursor的消息不会自动补发通知。
-- 真实Go、Native/Tauri/Angular、系统通知、容量、客户端安装版未验证，按用户最新范围不执行。
-- 旧默认兼容通过PK触发器修复，不重建既有SQLite表；启动扫描与逐消息写复杂度分开。
+## 未验证与边界
+- 已安装应用不会仅因Git依赖更新而改变；本轮未编译/打包/安装客户端，未更新应用版本。
+- 真实Go/WS、Native/Tauri/Angular、系统通知与容量未验收；不将Tick/SQLite或crate发布晋级为运行态验收。
+- 错误次数不等于漏通知条数；历史已推进cursor的消息不会自动补发通知。
+- 旧默认兼容使用PK触发器，不重建既有SQLite表；启动扫描与逐消息复杂度分开。
 
 ## 下一步
-- 当前阶段：执行patch版本事务、registry发布、版本提交/注释tag；客户端仅依赖/lock更新直接提交，不构建应用，然后双仓push。
-- 验证按代码/依赖/环境身份复用，不机械重跑；全套既有失败属于独立修复范围。
+- 本轮授权范围内无剩余操作；应用构建/安装及通知逐ID验收按用户后续要求另行执行。
+- 同代码/依赖/环境证据复用；既有全量失败属于独立修复范围。

@@ -154,6 +154,36 @@ fn offline_dialog_query_filters_mixed_user_company_rows() {
             &mut sink,
         )
         .unwrap();
+    assert!(sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Emit { .. })));
+    let member_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("filtered channel must read viewer member state");
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: member_corr,
+                outcome: PortOutcome::Ok(ReplyBytes(
+                    serde_json::to_vec(&json!([{
+                        "channel_id": CHANNEL, "user_id": "viewer", "channel_is_top": 0,
+                        "unread_count": 0, "last_read_seq": 0
+                    }]))
+                    .unwrap()
+                    .into(),
+                )),
+            },
+            2,
+            &mut sink,
+        )
+        .unwrap();
     let event: Value = sink
         .as_slice()
         .iter()

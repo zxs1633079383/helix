@@ -93,8 +93,10 @@ impl ImModule {
             if matches!(
                 self.state.corr_map.get(corr),
                 Some(
-                    CorrelationContext::DialogListQuery { .. }
-                        | CorrelationContext::ChannelViewSnapshotQuery { .. }
+                    CorrelationContext::DialogListQuery {
+                        channel_rows: None,
+                        ..
+                    } | CorrelationContext::ChannelViewSnapshotQuery { .. }
                         | CorrelationContext::ChannelSyncPage { .. }
                 )
             ) {

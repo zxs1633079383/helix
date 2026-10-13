@@ -66,6 +66,32 @@ impl Replay {
         })
     }
 
+    /// 频道回读后通过实际 ScopedScan owner 回灌成员绝对态，发布前保持无 Emit。
+    fn reply_dialog_members(&mut self, unread: i64) -> Result<(), String> {
+        assert!(
+            self.events().is_empty(),
+            "member readback must precede Result"
+        );
+        let [Effect::Persist { corr, ops }] = self.sink.as_slice() else {
+            return Err("channel read must produce one member scan".into());
+        };
+        let [StorageOp::ScopedScan(spec)] = ops.as_slice() else {
+            return Err("member read must be channel-scoped".into());
+        };
+        assert_eq!(spec.table, "channel_member");
+        assert_eq!(spec.scope_values.len(), 1);
+        assert!(matches!(&spec.scope_values[0], SqlValue::Text(id) if id == CHANNEL_VISIBLE));
+        self.reply_ok(
+            *corr,
+            json!([{
+                "channel_id": CHANNEL_VISIBLE, "user_id": VIEWER,
+                "channel_is_top": 0, "unread_count": unread,
+                "unread_post_id": if unread > 0 { "g13a-anchor" } else { "" },
+                "last_read_seq": 0
+            }]),
+        )
+    }
+
     /// 回灌本地 Scan 失败结果。
     fn reply_err(&mut self, corr: Correlation) -> Result<(), String> {
         self.step(Tick::PortReply {
@@ -174,6 +200,7 @@ fn query_dialog_list_emits_one_scoped_result_without_legacy_events() -> Result<(
         ]),
     )?;
 
+    replay.reply_dialog_members(3)?;
     let events = replay.events();
     assert_eq!(events.len(), 1, "one command must have one terminal Result");
     assert_eq!(events[0]["event"], "im:read:result");
@@ -217,6 +244,7 @@ fn query_dialog_list_returns_archived_channel_with_delete_at() -> Result<(), Str
              "is_closed": 0, "delete_at": 1789974402636_i64, "is_remove": 1}
         ]),
     )?;
+    replay.reply_dialog_members(0)?;
     let events = replay.events();
     assert_eq!(events.len(), 1);
     let items = events[0]["data"]["body"]["items"]

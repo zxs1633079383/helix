@@ -1,3 +1,5 @@
+🎯 EXPECT 三处空JSON先红后绿；真实Tick/SQLite中空摘要保留权威revision且十消息唯一ACK/received，空加急普通编辑不丢正文，损坏值拒绝；发布新patch、客户端仅依赖更新、双仓push，不构建应用。| 赌注 中 | 可逆 发布否 | @2026-10-13
+- 交接：docs/交接/1013-空JSON消息链修复/handoff.md
 🎯 EXPECT 发布四公共包patch版本并立即版本提交/注释Tag；客户端只更新四个精确依赖和lock，双仓push后远端SHA一致；用户明确不构建应用。| 赌注 中 | 可逆 上传否 | @2026-10-13
 - 交接：docs/交接/1013-成员空列表修复/handoff.md
 ✅ DONE 四公共包0.1.58发布并可解析，版本commit与注释Tag已push；客户端四pin/lock直接提交并push，registry checksum与远端SHA一致。用户明确不构建应用；当前身份见交接。

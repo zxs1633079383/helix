@@ -142,6 +142,8 @@ pub(crate) fn extract_post_fields_with_event_seq(
         .or_else(|| post.get("expedite_map"))
         .or_else(|| root.get("expediteMap"))
         .or_else(|| root.get("expedite_map"))
+        // Go 的 null 与历史精确空串表示无加急数据；归一化覆盖即时与缓冲重放路径。
+        .filter(|value| !value.is_null() && !value.as_str().is_some_and(str::is_empty))
         .map(serde_json::Value::to_string)
         .unwrap_or_default();
     let quick_reply = post

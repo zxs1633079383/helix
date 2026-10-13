@@ -470,8 +470,17 @@ pub(super) fn channel_update_from_member_readback(
     };
     let channel_id = text_column(row, "channel_id");
     let unread_count = integer_column(row, "unread_count");
+    // 权威成员快照允许精确空串表示无摘要；保留该事实，非空损坏 JSON 必须显式失败。
     let last_post = text_column(row, "last_post")
-        .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok());
+        .map(|value| {
+            if value.is_empty() {
+                Ok(serde_json::Value::String(String::new()))
+            } else {
+                serde_json::from_str::<serde_json::Value>(value)
+                    .map_err(|error| ImError::Parse(format!("channel member last_post: {error}")))
+            }
+        })
+        .transpose()?;
     let (Some(channel_id), Some(unread_count), Some(last_post)) =
         (channel_id, unread_count, last_post)
     else {

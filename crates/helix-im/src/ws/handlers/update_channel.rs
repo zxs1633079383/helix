@@ -214,11 +214,24 @@ fn revoke_last_post(data: &serde_json::Value) -> Result<Option<serde_json::Value
         return Ok(None);
     };
     let post = match raw {
+        // 合法空摘要不属于撤回对象；仍走普通频道/成员权威写入及 Persist 屏障。
+        serde_json::Value::String(encoded) if encoded.is_empty() => return Ok(None),
         serde_json::Value::String(encoded) => serde_json::from_str(encoded)
             .map_err(|error| ImError::Parse(format!("update_channel lastPost: {error}")))?,
         serde_json::Value::Object(_) => raw.clone(),
-        _ => return Ok(None),
+        // 普通 PATCH 的 null 不写入数据库，保留原有稀疏更新语义。
+        serde_json::Value::Null => return Ok(None),
+        _ => {
+            return Err(ImError::Parse(
+                "update_channel lastPost must be an object".into(),
+            ))
+        }
     };
+    if !post.is_object() {
+        return Err(ImError::Parse(
+            "update_channel lastPost must be an object".into(),
+        ));
+    }
     if !post
         .get("revoke")
         .and_then(serde_json::Value::as_bool)

@@ -38,8 +38,7 @@ impl WsMessageHandler for PostUpdateHandler {
         let Ok(data) = frame.data_required() else {
             return Ok(());
         };
-        apply_post_update(ctx, frame, data, out);
-        Ok(())
+        apply_post_update(ctx, frame, data, out)
     }
 }
 
@@ -53,7 +52,7 @@ pub(super) fn apply_post_update(
     frame: &WsFrame,
     data: &serde_json::Value,
     out: &mut EffectSink,
-) {
+) -> Result<(), ImError> {
     let post = data.get("post").unwrap_or(data);
     let Some(channel_id) = post
         .get("channelId")
@@ -63,7 +62,7 @@ pub(super) fn apply_post_update(
         .and_then(serde_json::Value::as_str)
         .and_then(ChannelId::from_str)
     else {
-        return;
+        return Ok(());
     };
     let msg_id = post
         .get("id")
@@ -74,11 +73,22 @@ pub(super) fn apply_post_update(
         .map(str::to_string);
 
     // type=2 fields 取自该 post 子树；经 gate ingest（落库 patch + emit + cursor 一并 kind-aware）。
+    // 直接检查借用 wire 值，避免序列化后再次解析；错误类型必须在 gate/游标提交前拒绝。
+    if let Some(expedite) = post.get("expediteMap").or_else(|| post.get("expedite_map")) {
+        if !expedite.is_object()
+            && !expedite.is_null()
+            && !expedite.as_str().is_some_and(str::is_empty)
+        {
+            return Err(ImError::Parse(
+                "post_update expediteMap must be an object".into(),
+            ));
+        }
+    }
     let fields = extract_post_fields(post);
     // CATEGORY_CHAIN authority must be rejected before gate admission, otherwise a malformed
     // edit can become an admitted event without a correlated durable commit.
     if crate::category_chain::post::validate_fields(&fields).is_err() {
-        return;
+        return Ok(());
     }
     // 投票/平均分只记录结构形状，验证完整帧是否在 Helix parser 前仍保留；不输出正文、成员姓名或凭证。
     if matches!(fields.msg_type.as_str(), "VOTE" | "AVERAGE_SCORE") {
@@ -112,10 +122,10 @@ pub(super) fn apply_post_update(
         );
     }
     let Some(target_seq) = frame.event_seq() else {
-        return;
+        return Ok(());
     };
     if ctx.auth_user_id.is_empty() || i64::try_from(target_seq.0).is_err() {
-        return;
+        return Ok(());
     }
     if fields.msg_type == "CATEGORY_CHAIN" {
         let event = crate::sync_session::EventEnvelope::new(
@@ -127,14 +137,14 @@ pub(super) fn apply_post_update(
         .with_msg_id(msg_id)
         .with_viewer_user_id(ctx.auth_user_id);
         let Some(channel) = ctx.state.channels.get_mut(&channel_id) else {
-            return;
+            return Ok(());
         };
         if let Ok(Some(event)) = channel.admit_message_v3_post(event, out) {
             let corr = ctx.alloc_corr();
             crate::category_chain::post::queue_edit(ctx.state, corr, event, out);
         }
         super::gate::trigger_backfill_if_large_gap(ctx, channel_id, target_seq, out);
-        return;
+        return Ok(());
     }
     let has_template_confirmation =
         crate::event::post::has_template_confirmation(fields.props.as_str());
@@ -148,10 +158,10 @@ pub(super) fn apply_post_update(
         .with_msg_id(msg_id)
         .with_viewer_user_id(ctx.auth_user_id);
         let Some(channel) = ctx.state.channels.get_mut(&channel_id) else {
-            return;
+            return Ok(());
         };
         let Ok(admitted) = channel.admit_message_v3_post(event, out) else {
-            return;
+            return Ok(());
         };
         if let Some(event) = admitted {
             let corr = ctx.alloc_corr();
@@ -164,7 +174,7 @@ pub(super) fn apply_post_update(
             }
         }
         super::gate::trigger_backfill_if_large_gap(ctx, channel_id, target_seq, out);
-        return;
+        return Ok(());
     }
     let event = crate::sync_session::EventEnvelope::new(
         channel_id,
@@ -175,10 +185,10 @@ pub(super) fn apply_post_update(
     .with_msg_id(msg_id)
     .with_viewer_user_id(ctx.auth_user_id);
     let Some(channel) = ctx.state.channels.get_mut(&channel_id) else {
-        return;
+        return Ok(());
     };
     let Ok(admitted) = channel.admit_message_v3_post(event, out) else {
-        return;
+        return Ok(());
     };
     if let Some(event) = admitted {
         let corr = ctx.alloc_corr();
@@ -191,6 +201,7 @@ pub(super) fn apply_post_update(
         );
     }
     super::gate::trigger_backfill_if_large_gap(ctx, channel_id, target_seq, out);
+    Ok(())
 }
 
 /// 判断 post_update 是否应走 reaction/urgent/template 的精简持久化路径。

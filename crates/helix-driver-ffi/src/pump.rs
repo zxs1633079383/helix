@@ -257,7 +257,9 @@ pub fn run(args: PumpArgs) {
             storage: Arc::clone(&storage),
             http: Arc::new(http),
             uploader: Arc::new(
-                SharedFileUploader::default().with_timeout(args.config.timeout),
+                SharedFileUploader::default()
+                    .with_timeout(args.config.timeout)
+                    .with_observer(event_sink.clone()),
             ),
             event_sink,
             clock,

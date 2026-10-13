@@ -26,6 +26,8 @@
 - **engine 泵（F4 ✅）**：`pump.rs` 起专用 `std::thread` + current_thread tokio runtime，`block_on` host `run_engine_loop`（复用 `helix-driver-host` 泛型泵核）；装配 storage/http/ws/eventsink/clock + `register(ImModule)`（FFI 身兼 composition root）。
 - **共享 host ports**：pump 直接装配 `HostStorage`（StorageOp 单一真源，含 BatchDelete）、`SharedWsClient`、`FfiHttpRequester(SharedHttpClient)`、`FfiEventSink`。
 - **egress 批处理（F4.3 ✅，HX-C007）**：`FfiEventSink impl EventSink + BatchSink`，每 step `flush` 整批编码成单 buffer（`batch.rs` len-prefixed）→ **一次** `CppHostVtable::on_domain_events_batch`，绝不逐条过边界。
+- **PUT 实测诊断**：`pump.rs` 仅给共享 uploader 装配 `Arc<FfiEventSink>` observer，不发异步 callback。`event_sink.rs` 独立诊断队列最多 128 项、每项最多 1024 字节，入队前限制借用 objectKey 长度；业务 Emit 保留独立原文 buffer。step flush 将两者合并进既有长度前缀 batch，一次 callback；全空不回调，无 callback 不清空诊断/不宣称交付。
+  固定信封 `{event:"helix:diagnostic:upload-response",data:{version:1,kind:"response"|"loss",method:"PUT",httpStatus,objectKey,fileSize,durationUs,sequence,droppedCount}}`。response 只含真实测量，无 HTTP response 时 status 为 null；sequence 每尝试递增、droppedCount 累计。队列溢出或编码超长产生 loss，HTTP/对象/长度/耗时均为 null、sequence 为最新被丢弃尝试；flush 按 sequence 将累计 loss 合入 accepted 记录，批内及跨批诊断序列递增，无 accepted response 时仍可单独输出 loss。不经过 core DomainEvent，也不代表持久化业务终态。
 - **C++ vtable**：`CppHostVtable { on_domain_events_batch, now_ms, ctx }`，事件按 step 批量回调（HX-C007）。
 - **FFI 内存安全（HX-C006）**：opaque ptr 单 owner + panic=abort + C 侧 buffer 立即拷贝（ACL-3）+ null / invalid-utf8 拒绝。
 

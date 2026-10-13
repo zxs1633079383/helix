@@ -7,18 +7,25 @@ use tokio::sync::{mpsc, oneshot};
 
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, DomainEventBytes, FileUploadRequest, FileUploadResponse,
-    GetSpec, GuardedBumpSpec, HttpRequest, HttpResponse, MonotonicUpsertSpec, Row, ScanSpec,
-    TransportId, UpsertSpec,
+    FileUploadUrls, GetSpec, GuardedBumpSpec, HttpRequest, HttpResponse, MonotonicUpsertSpec, Row,
+    ScanSpec, TransportId, UpsertSpec,
 };
 use helix_core::ports::{Clock, EventSink, FileUploader, FrameSender, HttpRequester, Storage};
-use helix_core::{CoreError, Effect, EffectSink, ExecutionShell, Module, PortError, Tick};
+use helix_core::{
+    CoreError, Correlation, Effect, EffectSink, ExecutionShell, Module, PortError, Tick,
+};
 use helix_driver_host::engine::{
     register_transport, run_engine_loop, EngineDeps, TransportLifecycleEvent,
     TransportRegistration, TransportTraceEvent, TransportTraceSink,
 };
+use helix_driver_host::upload::{
+    SharedFileUploader, UploadResponseObservation, UploadResponseObserver,
+};
 use helix_driver_host::{
     AsyncMetricSink, BatchSink, MetricEvent, MetricId, NoopMetricSink, RecordOutcome, TraceHooks,
 };
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 #[derive(Clone, Default)]
 struct RecordingMetricSink(Arc<Mutex<Vec<MetricEvent>>>);
@@ -305,4 +312,242 @@ async fn registration_ack_makes_sender_visible_to_connected_effect() {
         .await
         .expect("engine loop should stop after shutdown")
         .expect("engine loop task should not panic");
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UploadFact {
+    method: &'static str,
+    status: Option<u16>,
+    key: String,
+    bytes: u64,
+}
+
+#[derive(Default)]
+struct UploadDeliveryState {
+    observed: Vec<UploadFact>,
+    pending: Vec<UploadFact>,
+    delivered: Vec<UploadFact>,
+    flush_calls: usize,
+    observed_at_flush: Vec<usize>,
+}
+
+#[derive(Default)]
+struct UploadDiagnosticSink(Mutex<UploadDeliveryState>);
+
+impl UploadResponseObserver for UploadDiagnosticSink {
+    fn observe(&self, observation: UploadResponseObservation<'_>) {
+        let fact = UploadFact {
+            method: observation.method,
+            status: observation.http_status,
+            key: observation.object_key.to_owned(),
+            bytes: observation.file_size,
+        };
+        let mut state = self.0.lock().unwrap();
+        let flush_calls = state.flush_calls;
+        state.observed_at_flush.push(flush_calls);
+        state.observed.push(fact.clone());
+        state.pending.push(fact);
+    }
+}
+
+impl EventSink for UploadDiagnosticSink {
+    fn emit(&self, _: DomainEventBytes) {
+        unreachable!("this lifecycle emits only upload diagnostics");
+    }
+}
+
+impl BatchSink for UploadDiagnosticSink {
+    fn flush(&self) {
+        let mut state = self.0.lock().unwrap();
+        state.flush_calls += 1;
+        let pending = std::mem::take(&mut state.pending);
+        state.delivered.extend(pending);
+    }
+}
+
+struct UploadOnStart {
+    request: FileUploadRequest,
+    replies: Arc<Mutex<usize>>,
+}
+
+impl Module for UploadOnStart {
+    fn name(&self) -> &'static str {
+        "shutdown-upload"
+    }
+
+    fn accepts(&self, tick: &Tick) -> bool {
+        matches!(tick, Tick::PortReply { corr, .. } if corr.raw() == 91)
+    }
+
+    fn on_start(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
+        out.push(Effect::UploadFile {
+            corr: Correlation::from_raw(91),
+            req: self.request.clone(),
+        });
+        Ok(())
+    }
+
+    fn handle(&mut self, _: &Tick, _: u64, _: &mut EffectSink) -> Result<(), CoreError> {
+        *self.replies.lock().unwrap() += 1;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn shutdown_drain_flushes_upload_response_diagnostics() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let payload = b"shutdown payload";
+    let (request_tx, request_rx) = oneshot::channel();
+    let (response_tx, response_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut chunk = [0; 4096];
+        let header_end = loop {
+            let read = socket.read(&mut chunk).await.unwrap();
+            assert_ne!(read, 0, "PUT must contain its full request");
+            request.extend_from_slice(&chunk[..read]);
+            if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                break end + 4;
+            }
+        };
+        let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+        assert!(headers.starts_with("PUT /shutdown-upload HTTP/1.1"));
+        let length: usize = headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse().unwrap())
+            })
+            .unwrap();
+        assert_eq!(length, payload.len());
+        while request.len() < header_end + length {
+            let read = socket.read(&mut chunk).await.unwrap();
+            assert_ne!(read, 0, "PUT body must reach the local server");
+            request.extend_from_slice(&chunk[..read]);
+        }
+        assert_eq!(&request[header_end..], payload);
+        request_tx.send(()).unwrap();
+        response_rx.await.unwrap();
+        socket
+            .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+    });
+    let local_path = std::env::temp_dir().join(format!(
+        "helix-shutdown-upload-{}-{}.bin",
+        std::process::id(),
+        address.port()
+    ));
+    tokio::fs::write(&local_path, payload).await.unwrap();
+    let sink = Arc::new(UploadDiagnosticSink::default());
+    let replies = Arc::new(Mutex::new(0));
+    let mut shell = ExecutionShell::new();
+    shell.register(UploadOnStart {
+        request: FileUploadRequest {
+            local_path: local_path.to_string_lossy().into_owned(),
+            object_key: "shutdown/object.bin".to_owned(),
+            method: "PUT".to_owned(),
+            urls: FileUploadUrls::new(
+                format!("http://{address}/shutdown-upload"),
+                "https://cdn.example.test/shutdown/object.bin".to_owned(),
+            )
+            .unwrap(),
+            headers: vec![],
+            content_type: None,
+            size: Some(payload.len() as u64),
+        },
+        replies: replies.clone(),
+    });
+    let (tick_tx, tick_rx) = mpsc::channel(8);
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (_transport_tx, transport_rx) = mpsc::unbounded_channel();
+    let deps = EngineDeps {
+        storage: Arc::new(UnusedStorage),
+        http: Arc::new(UnusedHttp),
+        uploader: Arc::new(
+            SharedFileUploader::new(reqwest::Client::builder().no_proxy().build().unwrap())
+                .with_observer(sink.clone()),
+        ),
+        event_sink: sink.clone(),
+        clock: FixedClock,
+        trace: TraceHooks::noop(),
+        metrics: Arc::new(NoopMetricSink),
+        max_http_inflight: 1,
+        transport_lifecycle_tx: None,
+        transport_trace_tx: None,
+    };
+    let engine = run_engine_loop::<_, _, _, _, UnusedFrameSender, _>(
+        shell,
+        tick_rx,
+        tick_tx.clone(),
+        deps,
+        shutdown_rx,
+        HashMap::new(),
+        transport_rx,
+    );
+    tokio::pin!(engine);
+    tokio::select! {
+        _ = engine.as_mut() => panic!("engine must stay alive while PUT is held"),
+        request = tokio::time::timeout(Duration::from_secs(3), request_rx) => {
+            request.expect("real PUT should reach server").unwrap();
+        }
+    }
+    tick_tx
+        .send(Tick::Connected(TransportId::from_raw(99)))
+        .await
+        .unwrap();
+    shutdown_tx.send(()).unwrap();
+    // One synchronous poll consumes the ready shutdown and reaches the held upload drain.
+    assert!(futures_util::poll!(engine.as_mut()).is_pending());
+    assert_eq!(
+        tick_tx.capacity(),
+        7,
+        "shutdown must win over queued ingress"
+    );
+    let flushes_before_response = {
+        let state = sink.0.lock().unwrap();
+        assert!(state.observed.is_empty());
+        assert!(state.delivered.is_empty());
+        state.flush_calls
+    };
+    response_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(2), engine.as_mut())
+        .await
+        .expect("engine should drain the completed PUT");
+    server.await.expect("real PUT server should finish");
+    tokio::fs::remove_file(local_path).await.unwrap();
+
+    let state = sink.0.lock().unwrap();
+    let expected = vec![UploadFact {
+        method: "PUT",
+        status: Some(204),
+        key: "shutdown/object.bin".to_owned(),
+        bytes: payload.len() as u64,
+    }];
+    assert_eq!(
+        *replies.lock().unwrap(),
+        0,
+        "drain must not run a reply step"
+    );
+    assert_eq!(
+        state.observed, expected,
+        "observer must see the actual PUT response"
+    );
+    assert_eq!(state.observed_at_flush, vec![flushes_before_response]);
+    assert_eq!(
+        state.delivered, expected,
+        "drain diagnostics must reach the sink before return"
+    );
+    assert!(
+        state.pending.is_empty(),
+        "no upload diagnostic may remain queued"
+    );
+    assert_eq!(
+        state.flush_calls,
+        flushes_before_response + 1,
+        "drain adds exactly one final boundary"
+    );
 }

@@ -19,7 +19,8 @@ impl Module for ImModule {
     /// 正是「query 族被 accepts 闸静默丢弃」旧事故的成因，本族不重复该反模式。
     fn accepts(&self, tick: &Tick) -> bool {
         if let Tick::Command(cmd) = tick {
-            if cmd.name.as_ref() == crate::recent_history::COMMAND
+            if cmd.name.as_ref() == crate::presence::COMMAND
+                || cmd.name.as_ref() == crate::recent_history::COMMAND
                 || crate::draft::is_draft_command(cmd.name.as_ref())
             {
                 return true;
@@ -62,6 +63,7 @@ impl Module for ImModule {
     /// 停止生命周期也不允许已失效公司投影穿过出口。
     fn on_stop(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
         let start = out.as_slice().len();
+        self.presence_clear(true, 0, out);
         let result = self.stop_scoped_module(out);
         self.render_scope.guard_effects(&self.config, start, out);
         let result = self
@@ -85,6 +87,15 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), CoreError> {
+        if self
+            .presence_tick(tick, now_ms, out)
+            .map_err(|e| CoreError::ModuleError {
+                module: self.name(),
+                source: Box::new(e),
+            })?
+        {
+            return Ok(());
+        }
         if let Tick::PortReply {
             corr,
             outcome: helix_core::tick::PortOutcome::Ok(reply),
@@ -104,6 +115,7 @@ impl ImModule {
         self.diagnostics.now_ms = now_ms;
         if matches!(tick, Tick::Disconnected(_)) {
             self.bookmark_count.invalidate();
+            self.presence_clear(false, now_ms, out);
         }
         let effect_start = out.as_slice().len();
         let corr_floor = self.next_corr;
@@ -145,6 +157,7 @@ impl ImModule {
                     if auth_user_id != self.config.auth_user_id
                         || company_id != self.config.company_id
                     {
+                        self.presence_clear(true, now_ms, out);
                         self.scope_hydration.reset();
                         // 原始 HTTP 读体可能不带频道/公司字段；切换身份时显式结束旧请求，
                         // A→B→A 后的迟到回包也不能重新晋升为当前公司的投影。

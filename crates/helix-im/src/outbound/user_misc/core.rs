@@ -88,7 +88,17 @@ misc_cmd!(
     true,
     |args, cmd| {
         let user_ids = require_str_array(args, "user_ids", cmd)?;
-        Ok(("users/status/ids", json!({ "userIds": user_ids })))
+        let mut body = json!({ "userIds": user_ids });
+        match args.get("include_metadata") {
+            Some(serde_json::Value::Bool(true)) => body["includeMetadata"] = json!(true),
+            Some(serde_json::Value::Bool(false)) | None => {}
+            _ => {
+                return Err(crate::error::ImError::Parse(format!(
+                    "{cmd}: include_metadata must be boolean"
+                )))
+            }
+        }
+        Ok(("users/status/ids", body))
     }
 );
 

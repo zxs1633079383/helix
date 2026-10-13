@@ -25,7 +25,8 @@ pub(crate) struct WsHandlerRegistration {
 
 inventory::collect!(WsHandlerRegistration);
 
-const EXPECTED_WS_HANDLER_COUNT: usize = 32;
+// Presence is module-owned because its leases and HTTP replies share one ephemeral state.
+const EXPECTED_WS_HANDLER_COUNT: usize = 31;
 
 static WS_HANDLER_MAP: OnceLock<
     Result<HashMap<&'static str, &'static dyn WsMessageHandler>, ImError>,
@@ -430,12 +431,7 @@ mod tests {
 
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
         let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
-        let ignored_actions = [
-            "status_change",
-            "multiple_channels_viewed",
-            "typing",
-            "presence",
-        ];
+        let ignored_actions = ["status_change", "multiple_channels_viewed", "typing"];
 
         for action in ignored_actions {
             let frame = frame_from_json(serde_json::json!({

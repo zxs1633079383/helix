@@ -1,3 +1,5 @@
+🎯 EXPECT 独立worktree接入12个presence文件，17项presence回放通过；四公共包统一发布下一patch，版本提交与注释Tag推送后远端SHA一致；不修改客户端。分支codex/presence-release-20261013，upstream origin/reactor/MessageV3-helix；本轮保留worktree与分支。| 赌注 中 | 可逆 发布否 | @2026-10-13
+- 交接：docs/交接/1013-presence-release/handoff.md
 🎯 EXPECT 三处空JSON先红后绿；真实Tick/SQLite中空摘要保留权威revision且十消息唯一ACK/received，空加急普通编辑不丢正文，损坏值拒绝；发布新patch、客户端仅依赖更新、双仓push，不构建应用。| 赌注 中 | 可逆 发布否 | @2026-10-13
 - 交接：docs/交接/1013-空JSON消息链修复/handoff.md
 ✅ DONE 三处空JSON红→绿，Tick/SQLite 7项及三端Rust验证通过；四包0.1.59发布、版本commit/注释Tag、客户端pin/lock提交与双仓push已完成，远端回读一致；不构建应用。全量3项既有失败保留基线证据。

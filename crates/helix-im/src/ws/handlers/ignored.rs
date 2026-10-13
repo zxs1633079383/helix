@@ -7,7 +7,6 @@ use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler
 const STATUS_CHANGE_ACTION: &str = "status_change";
 const MULTIPLE_CHANNELS_VIEWED_ACTION: &str = "multiple_channels_viewed";
 const TYPING_ACTION: &str = "typing";
-const PRESENCE_ACTION: &str = "presence";
 
 struct IgnoredHandler {
     action: &'static str,
@@ -37,16 +36,12 @@ static MULTIPLE_CHANNELS_VIEWED_HANDLER: IgnoredHandler = IgnoredHandler {
 static TYPING_HANDLER: IgnoredHandler = IgnoredHandler {
     action: TYPING_ACTION,
 };
-static PRESENCE_HANDLER: IgnoredHandler = IgnoredHandler {
-    action: PRESENCE_ACTION,
-};
 #[cfg(target_arch = "wasm32")]
 pub(super) fn inventory_link_anchor() {
     std::hint::black_box((
         &STATUS_CHANGE_HANDLER,
         &MULTIPLE_CHANNELS_VIEWED_HANDLER,
         &TYPING_HANDLER,
-        &PRESENCE_HANDLER,
     ));
 }
 
@@ -68,12 +63,5 @@ inventory::submit! {
     WsHandlerRegistration {
         action: TYPING_ACTION,
         handler: &TYPING_HANDLER,
-    }
-}
-
-inventory::submit! {
-    WsHandlerRegistration {
-        action: PRESENCE_ACTION,
-        handler: &PRESENCE_HANDLER,
     }
 }

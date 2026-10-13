@@ -255,12 +255,16 @@ pub(super) async fn scoped_guarded_bump(
             .map(|(column, _)| format!(" AND {column} = ?"))
             .unwrap_or_default();
         let sql = format!(
-            "UPDATE {table} SET {set} WHERE {scope_col} = ? AND {key_col} = ? AND ? > {guard}{additional_guard}",
+            "UPDATE {table} SET {set} WHERE {scope_col} = ? AND {key_col} = ? AND ? {comparison} {guard}{additional_guard}",
             table = spec.table,
             set = set_parts.join(", "),
             scope_col = spec.scope_col,
             key_col = spec.key_col,
             guard = spec.guard_col,
+            comparison = match spec.comparison {
+                helix_core::effect::GuardComparison::Greater => ">",
+                helix_core::effect::GuardComparison::Equal => "=",
+            },
         );
         let mut params = sql_values(std::iter::once(&SqlValue::Integer(spec.bump_delta)));
         params.extend(sql_values(spec.set_cols.iter().map(|(_, value)| value)));
@@ -600,12 +604,16 @@ fn atomic_scoped_guarded_bump(
         .map(|(column, _)| format!(" AND {column} = ?"))
         .unwrap_or_default();
     let sql = format!(
-        "UPDATE {table} SET {set} WHERE {scope_col} = ? AND {key_col} = ? AND ? > {guard}{additional_guard}",
+        "UPDATE {table} SET {set} WHERE {scope_col} = ? AND {key_col} = ? AND ? {comparison} {guard}{additional_guard}",
         table = spec.table,
         set = set_parts.join(", "),
         scope_col = spec.scope_col,
         key_col = spec.key_col,
         guard = spec.guard_col,
+        comparison = match spec.comparison {
+            helix_core::effect::GuardComparison::Greater => ">",
+            helix_core::effect::GuardComparison::Equal => "=",
+        },
     );
     let mut params = sql_values(std::iter::once(&SqlValue::Integer(spec.bump_delta)));
     params.extend(sql_values(spec.set_cols.iter().map(|(_, value)| value)));

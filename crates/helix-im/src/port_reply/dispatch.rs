@@ -1329,6 +1329,17 @@ impl ImModule {
             CorrelationContext::ForwardDetail { request, timer } => {
                 self.forward_detail_reply(*request, timer, outcome, out);
             }
+            CorrelationContext::ReactionUnreadProjection {
+                req_id,
+                channel_id,
+                body,
+                expected,
+                readback,
+            } => {
+                self.reaction_unread_projection_reply(
+                    req_id, channel_id, body, expected, readback, outcome, now_ms, out,
+                )?;
+            }
             CorrelationContext::OutboundReadReply {
                 req_id,
                 command,
@@ -1339,6 +1350,7 @@ impl ImModule {
                     command.as_str(),
                     channel_id.as_deref(),
                     outcome,
+                    now_ms,
                     out,
                 )?;
             }

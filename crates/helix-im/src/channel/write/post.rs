@@ -275,6 +275,7 @@ pub(crate) fn message_v3_post_mutation_ops(
         exclude_from_update: vec!["unread_count", "last_unread_event_seq"],
     }));
     ops.push(StorageOp::ScopedGuardedBump(ScopedGuardedBumpSpec {
+        comparison: helix_core::effect::GuardComparison::Greater,
         table: "channel_member",
         scope_col: "channel_id",
         scope_val: SqlValue::Text(channel_id),

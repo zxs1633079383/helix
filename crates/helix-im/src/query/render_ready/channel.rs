@@ -305,10 +305,12 @@ fn insert_viewer_capabilities(output: &mut Map<String, Value>, row: &Value) {
         persisted_bool(row, &["can_manage_members", "canManageMembers"]).unwrap_or(derived_members);
     // 邀请与移除独立：从服务端字段或持久化的已确认角色生成，Angular 不推导角色。
     let ordinary_group = matches!(pick(row, &["type"]).as_str(), Some("P" | "G"));
-    let invite_role = matches!(role.as_deref(), Some("CREATOR" | "MANAGER" | "MEMBER" | "BOSS"));
+    let invite_role = matches!(
+        role.as_deref(),
+        Some("CREATOR" | "MANAGER" | "MEMBER" | "BOSS")
+    );
     let can_invite_members = ordinary_group
-        && persisted_bool(row, &["can_invite_members", "canInviteMembers"])
-            .unwrap_or(invite_role);
+        && persisted_bool(row, &["can_invite_members", "canInviteMembers"]).unwrap_or(invite_role);
     let can_mention_all =
         persisted_bool(row, &["can_mention_all", "canMentionAll"]).unwrap_or(derived_mention);
     let can_publish_notice =
@@ -318,7 +320,10 @@ fn insert_viewer_capabilities(output: &mut Map<String, Value>, row: &Value) {
             .unwrap_or(change_role);
     let can_pin_message = pick(row, &["type"]).as_str() != Some("D")
         && persisted_bool(row, &["can_pin_message", "canPinMessage"]).unwrap_or(derived_top);
-    output.insert("canInviteMembers".to_string(), Value::Bool(can_invite_members));
+    output.insert(
+        "canInviteMembers".to_string(),
+        Value::Bool(can_invite_members),
+    );
     output.insert("canEditChannelSettings".to_string(), Value::Bool(can_edit));
     output.insert(
         "canManageSettings".to_string(),
@@ -401,6 +406,12 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
         row,
         "unreadCount",
         &["unread_count", "unreadCount"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "reactionUnreadCount",
+        &["reaction_unread_count", "reactionUnreadCount"],
     );
     insert_alias(
         &mut output,
@@ -806,7 +817,8 @@ mod tests {
             let row = shape_channel_row(&json!({"type":kind,"role":"MEMBER"}));
             assert_eq!(row["canInviteMembers"], false);
         }
-        let denied = shape_channel_row(&json!({"type":"P","role":"MEMBER","canInviteMembers":false}));
+        let denied =
+            shape_channel_row(&json!({"type":"P","role":"MEMBER","canInviteMembers":false}));
         assert_eq!(denied["canInviteMembers"], false);
     }
 
@@ -943,11 +955,11 @@ mod tests {
     fn direct_channels_never_grant_pin_capability() {
         for role in ["CREATOR", "MANAGER", "MEMBER"] {
             for key in ["canPinMessage", "can_pin_message"] {
-                let mut row = json!({"id":"direct","type":"D","role":role,"topPermission":"MEMBER"});
+                let mut row =
+                    json!({"id":"direct","type":"D","role":role,"topPermission":"MEMBER"});
                 row[key] = json!(true);
                 assert_eq!(shape_channel_row(&row)["canPinMessage"], false);
             }
         }
     }
-
 }

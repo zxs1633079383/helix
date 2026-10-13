@@ -39,6 +39,7 @@ pub struct MemberChannelUpdate {
     pub channel_is_top: Option<bool>,
     pub projection_revision: Option<u64>,
     pub unread_count: Option<i64>,
+    pub reaction_unread_count: Option<i64>,
     pub unread_post_id: Option<String>,
     pub last_post: Option<Value>,
     pub last_post_at: Option<i64>,
@@ -63,7 +64,7 @@ pub(crate) fn require_member_projection_identity(
 ) -> Result<(u64, String), ImError> {
     let revision = projection
         .projection_revision
-        .filter(|value| *value > 0)
+        .filter(|value| *value > 0 && *value <= i64::MAX as u64)
         .ok_or_else(|| ImError::Parse(format!("{context} missing revision")))?;
     let effect_id = projection
         .effect_id
@@ -72,6 +73,69 @@ pub(crate) fn require_member_projection_identity(
         .ok_or_else(|| ImError::Parse(format!("{context} missing effectId")))?
         .to_string();
     Ok((revision, effect_id))
+}
+
+/// 完整冷快照使用 Go canonical DTO；稀疏显示态不可借用它的版本水位。
+pub(crate) fn complete_member_projection(
+    data: &Value,
+    channel_id: ChannelId,
+    auth_user_id: &str,
+    now_ms: u64,
+) -> Option<(Row, MemberChannelUpdate)> {
+    if auth_user_id.is_empty()
+        || data["channelId"].as_str() != Some(channel_id.as_str())
+        || data["userId"].as_str() != Some(auth_user_id)
+        || !data["effectId"]
+            .as_str()
+            .is_some_and(|value| !value.trim().is_empty())
+        || !data["projectionRevision"]
+            .as_i64()
+            .is_some_and(|value| value > 0)
+    {
+        return None;
+    }
+    for key in [
+        "unreadCount",
+        "reactionUnreadCount",
+        "lastReadSeq",
+        "mentionCount",
+        "mentionCountRoot",
+        "urgentCount",
+        "msgCount",
+        "msgCountRoot",
+        "msgCountPrivate",
+        "lastPostAt",
+        "lastRootPostAt",
+    ] {
+        if !data[key].as_i64().is_some_and(|value| value >= 0) {
+            return None;
+        }
+    }
+    for key in [
+        "unreadPostId",
+        "lastPost",
+        "mentionUser",
+        "urgentMentionUser",
+    ] {
+        data[key].as_str()?;
+    }
+    for key in ["mentionList", "urgentPostList"] {
+        if !data[key].as_array()?.iter().all(Value::is_string) {
+            return None;
+        }
+    }
+    if data["unreadCount"].as_i64()? > 0 && data["unreadPostId"].as_str()?.is_empty() {
+        return None;
+    }
+    let (mut row, mut projection) =
+        member_channel_from_update_channel(data, channel_id, auth_user_id, now_ms)?;
+    if projection.unread_count == Some(0) {
+        projection.unread_post_id = Some(String::new());
+        if let Some((_, value)) = row.iter_mut().find(|(key, _)| key == "unread_post_id") {
+            *value = SqlValue::Text(String::new());
+        }
+    }
+    Some((row, projection))
 }
 
 impl PendingChannelUpdate {
@@ -155,6 +219,7 @@ pub fn member_channel_from_update_channel(
         channel_is_top: None,
         projection_revision: projection_revision(channel, data),
         unread_count: None,
+        reaction_unread_count: None,
         unread_post_id: None,
         last_post: None,
         last_post_at: None,
@@ -198,6 +263,27 @@ pub fn member_channel_from_update_channel(
         row.push(("unread_count".to_string(), SqlValue::Integer(v)));
         projection.unread_count = Some(v);
     }
+    if pick_value(
+        channel,
+        data,
+        &["reactionUnreadCount", "reaction_unread_count"],
+    )
+    .is_some()
+    {
+        let count = pick_int(
+            channel,
+            data,
+            &["reactionUnreadCount", "reaction_unread_count"],
+        )?;
+        if count < 0 {
+            return None;
+        }
+        row.push((
+            "reaction_unread_count".to_string(),
+            SqlValue::Integer(count),
+        ));
+        projection.reaction_unread_count = Some(count);
+    }
     // 与 increment 的 Go wire 对齐；空串是清除锚点，不能被通用 pick_text 当作缺失。
     if let Some(v) = pick_value(
         channel,
@@ -240,7 +326,10 @@ pub fn member_channel_from_update_channel(
         ));
         projection.mention_list = Some(json_list_value(v));
     }
-    if let Some(v) = pick_text(channel, data, &["mentionUser", "mention_user"]) {
+    if let Some(v) = pick_value(channel, data, &["mentionUser", "mention_user"])
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    {
         row.push(("mention_user".to_string(), SqlValue::Text(v.clone())));
         projection.mention_user = Some(v);
     }
@@ -265,7 +354,7 @@ pub fn member_channel_from_update_channel(
         ));
         projection.urgent_post_list = Some(json_list_value(v));
     }
-    if let Some(v) = pick_text(
+    if let Some(v) = pick_value(
         channel,
         data,
         &[
@@ -274,7 +363,10 @@ pub fn member_channel_from_update_channel(
             "urgentCurrentName",
             "urgent_current_name",
         ],
-    ) {
+    )
+    .and_then(Value::as_str)
+    .map(str::to_owned)
+    {
         row.push(("urgent_mention_user".to_string(), SqlValue::Text(v.clone())));
         projection.urgent_mention_user = Some(v);
     }
@@ -345,6 +437,7 @@ pub fn member_projection_matches(
         && matches_optional!(channel_is_top)
         && matches_optional!(projection_revision)
         && matches_optional!(unread_count)
+        && matches_optional!(reaction_unread_count)
         && matches_optional!(unread_post_id)
         && matches_optional!(last_post)
         && matches_optional!(last_post_at)
@@ -446,6 +539,46 @@ fn json_list_value(value: &Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reaction counts accept both transports, keep old sparse frames, and reject malformed authority.
+    #[test]
+    fn reaction_unread_count_wire_presence_and_validation() {
+        let id = crate::state::test_channel_id(91);
+        for key in ["reactionUnreadCount", "reaction_unread_count"] {
+            for count in [0, 3] {
+                let mut wire = serde_json::json!({"userId":"viewer","unreadCount":7});
+                wire[key] = count.into();
+                let (row, projection) =
+                    member_channel_from_update_channel(&wire, id, "viewer", 1).unwrap();
+                assert_eq!(projection.reaction_unread_count, Some(count));
+                assert!(row
+                    .iter()
+                    .any(|(column, value)| column == "reaction_unread_count"
+                        && matches!(value, SqlValue::Integer(actual) if *actual == count)));
+            }
+            for bad in [
+                serde_json::json!(-1),
+                serde_json::json!(1.5),
+                Value::Null,
+                serde_json::json!({}),
+            ] {
+                let mut wire = serde_json::json!({"userId":"viewer","unreadCount":7});
+                wire[key] = bad;
+                assert!(member_channel_from_update_channel(&wire, id, "viewer", 1).is_none());
+            }
+        }
+        let (row, projection) = member_channel_from_update_channel(
+            &serde_json::json!({"userId":"viewer","unreadCount":7}),
+            id,
+            "viewer",
+            1,
+        )
+        .unwrap();
+        assert_eq!(projection.reaction_unread_count, None);
+        assert!(!row
+            .iter()
+            .any(|(column, _)| column == "reaction_unread_count"));
+    }
 
     /// Construct the smallest post update needed to exercise channel read-back projection.
     fn pending_update() -> PendingChannelUpdate {

@@ -154,71 +154,49 @@ pub(crate) fn compile_increment_effects(
             }
             let versioned_revision = inc.projection_revision.filter(|revision| *revision > 0);
             if let Some(revision) = versioned_revision {
-                // SQLite stores projection_revision as INTEGER. An out-of-range revision must
-                // not collapse to i64::MAX and accidentally become a legacy write.
-                let valid_revision = revision <= i64::MAX as u64;
-                let parsed = crate::channel_update::member_channel_from_update_channel(
-                    &data,
-                    channel_id,
-                    ctx.auth_user_id,
-                    ctx.now_ms,
-                );
-                if let Some((mut row, projection)) = parsed.filter(|_| {
-                    valid_revision
-                        && unread_count >= 0
-                        && !ctx.auth_user_id.is_empty()
-                        && projection_revision_read_seq_is_valid(&data)
-                }) {
-                    let anchor = if unread_count == 0 {
-                        Some(String::new())
-                    } else {
-                        projection
-                            .unread_post_id
-                            .clone()
-                            .filter(|value| !value.is_empty())
-                    };
-                    if let Some(anchor) = anchor {
-                        if let Some((_, user_id)) =
-                            row.iter_mut().find(|(column, _)| column == "user_id")
-                        {
-                            *user_id =
-                                helix_core::effect::SqlValue::Text(ctx.auth_user_id.to_string());
-                        }
-                        row.retain(|(column, _)| column != "projection_revision");
-                        row.push((
-                            "projection_revision".to_string(),
-                            helix_core::effect::SqlValue::Integer(revision as i64),
-                        ));
-                        row.retain(|(column, _)| column != "unread_post_id");
-                        row.push((
-                            "unread_post_id".to_string(),
-                            helix_core::effect::SqlValue::Text(anchor),
-                        ));
-                        effects.push(Effect::PersistFire {
-                            ops: crate::acl::to_effect::canonical_member_projection_ops(
-                                channel_id,
-                                ctx.auth_user_id,
-                                revision,
-                                row,
-                            ),
-                        });
-                    }
+                if let Some((row, _)) = data
+                    .get("memberProjection")
+                    .and_then(|member| {
+                        crate::channel_update::complete_member_projection(
+                            member,
+                            channel_id,
+                            ctx.auth_user_id,
+                            ctx.now_ms,
+                        )
+                    })
+                    .filter(|(_, projection)| {
+                        projection.projection_revision == Some(revision)
+                            && projection.unread_count == Some(unread_count)
+                            && projection.last_read_seq == inc.last_read_seq
+                    })
+                {
+                    effects.push(Effect::PersistFire {
+                        ops: crate::acl::to_effect::canonical_member_projection_ops(
+                            channel_id,
+                            ctx.auth_user_id,
+                            revision,
+                            row,
+                        ),
+                    });
                 }
-            } else if let Some((mut row, projection)) =
-                crate::channel_update::member_channel_from_update_channel(
-                    &data,
-                    channel_id,
-                    ctx.auth_user_id,
-                    ctx.now_ms,
-                )
-                .filter(|_| !ctx.auth_user_id.is_empty())
-            {
+            }
+            // Older Go snapshots can initialize display fields without claiming a canonical
+            // revision. Once complete authority exists, every such field stays fenced out.
+            if let Some((mut row, _)) = crate::channel_update::member_channel_from_update_channel(
+                &data,
+                channel_id,
+                ctx.auth_user_id,
+                ctx.now_ms,
+            )
+            .filter(|_| {
+                !ctx.auth_user_id.is_empty()
+                    && unread_count >= 0
+                    && data.get("memberProjection").is_none()
+                    && versioned_revision.is_none_or(|revision| revision <= i64::MAX as u64)
+            }) {
                 if let Some((_, user_id)) = row.iter_mut().find(|(column, _)| column == "user_id") {
                     *user_id = helix_core::effect::SqlValue::Text(ctx.auth_user_id.to_string());
                 }
-                // A missing member row is created by the seed before the guarded patch runs.
-                // Normalize count=0 in that seed too; otherwise the seed carries a stale alias
-                // and the same-event guard (`event_seq > event_seq`) correctly no-ops.
                 if unread_count == 0 {
                     row.retain(|(column, _)| column != "unread_post_id");
                     row.push((
@@ -230,55 +208,35 @@ pub(crate) fn compile_increment_effects(
                     "last_unread_event_seq".to_string(),
                     helix_core::effect::SqlValue::Integer(event_seq),
                 ));
-                let mut guarded_set = vec![
-                    (
-                        "unread_count".to_string(),
-                        helix_core::effect::SqlValue::Integer(unread_count),
-                    ),
-                    (
-                        "last_unread_event_seq".to_string(),
-                        helix_core::effect::SqlValue::Integer(event_seq),
-                    ),
-                ];
-                if unread_count == 0 {
-                    guarded_set.push((
-                        "unread_post_id".to_string(),
-                        helix_core::effect::SqlValue::Text(String::new()),
-                    ));
-                } else if let Some(anchor) = projection.unread_post_id {
-                    guarded_set.push((
-                        "unread_post_id".to_string(),
-                        helix_core::effect::SqlValue::Text(anchor),
-                    ));
-                }
-                if let Some(read_seq) = projection.last_read_seq {
-                    guarded_set.push((
-                        "last_read_seq".to_string(),
-                        helix_core::effect::SqlValue::Integer(read_seq),
-                    ));
-                }
+                let keys: helix_core::effect::Row = row
+                    .iter()
+                    .filter(|(column, _)| matches!(column.as_str(), "channel_id" | "user_id"))
+                    .cloned()
+                    .collect();
+                row.retain(|(column, _)| {
+                    !matches!(
+                        column.as_str(),
+                        "channel_id"
+                            | "user_id"
+                            | "projection_revision"
+                            | "effect_id"
+                            | "updated_at"
+                    )
+                });
                 let seed =
                     helix_core::effect::StorageOp::BatchUpsert(helix_core::effect::UpsertSpec {
                         version_column: None,
                         update_guard: None,
                         table: "channel_member",
-                        rows: vec![row],
+                        rows: vec![keys],
                         conflict_key: Some("channel_id,user_id"),
-                        // Every legacy absolute projection field is patched below under both
-                        // the event-sequence and revision-zero guards. The seed may create a
-                        // missing row but must never clobber a newer versioned row.
-                        exclude_from_update: vec![
-                            "unread_count",
-                            "unread_post_id",
-                            "last_read_seq",
-                            "projection_revision",
-                            "last_unread_event_seq",
-                        ],
+                        exclude_from_update: vec!["channel_id", "user_id"],
                     });
                 // `last_post_at + 0` 只充当通用 ScopedGuardedBump 的中性载体；真正写入的是
                 // unread 绝对值与 per-viewer sequence guard，旧/重放快照因严格 `>` 不会回退。
                 let guarded_set = helix_core::effect::StorageOp::ScopedGuardedBump(
                     helix_core::effect::ScopedGuardedBumpSpec {
+                        comparison: helix_core::effect::GuardComparison::Greater,
                         table: "channel_member",
                         scope_col: "channel_id",
                         scope_val: helix_core::effect::SqlValue::Text(
@@ -288,7 +246,7 @@ pub(crate) fn compile_increment_effects(
                         key_val: helix_core::effect::SqlValue::Text(ctx.auth_user_id.to_string()),
                         bump_col: "last_post_at",
                         bump_delta: 0,
-                        set_cols: guarded_set,
+                        set_cols: row,
                         guard_col: "last_unread_event_seq",
                         guard_val: event_seq,
                         additional_guard: Some((
@@ -323,22 +281,6 @@ pub(crate) fn compile_increment_effects(
     }
 
     effects
-}
-
-/// Validate versioned read-boundary input before compiling it into the i64-backed member row.
-fn projection_revision_read_seq_is_valid(data: &serde_json::Value) -> bool {
-    let Some(value) = data
-        .get("lastReadSeq")
-        .or_else(|| data.get("last_read_seq"))
-    else {
-        // A positive revision is a four-field snapshot; omitting its read watermark would
-        // permit a newer unread count/anchor to be paired with an older durable boundary.
-        return false;
-    };
-    value
-        .as_i64()
-        .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()))
-        .is_some_and(|read_seq| read_seq >= 0)
 }
 
 /// 判断 increment 投影是否已经是删除/关闭终态，兼容 Go/SQLite 的字段形态。

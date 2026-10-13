@@ -1183,6 +1183,7 @@ async fn scoped_guarded_bump_and_get_isolate_channel_member_row(
 
     storage
         .scoped_guarded_bump(ScopedGuardedBumpSpec {
+            comparison: helix_core::effect::GuardComparison::Greater,
             table: "channel_member",
             scope_col: "channel_id",
             scope_val: SqlValue::Text("c1".to_string()),

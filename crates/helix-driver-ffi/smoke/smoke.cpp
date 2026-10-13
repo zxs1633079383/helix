@@ -1,13 +1,11 @@
 // 真 C++ → cdylib → C++ batch callback；Node fixture 校验 wire/JSON 与真实 HTTP。
 #include "helix.hpp"
 #include <cerrno>
-#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <poll.h>
 #include <string>
-#include <thread>
 #include <unistd.h>
 #include <utility>
 #include <vector>
@@ -65,10 +63,10 @@ bool forward_batches(BatchCapture& capture) {
     return std::fflush(stdout) == 0;
 }
 
-// Node 的 SEND/SENDING/DONE 握手；非阻塞读取，EOF/错误走正常 RAII 退出。
+// Node 的 SEND/SENDING/DONE 握手；poll 只等待控制事件，不以固定 sleep 推断业务终态。
 struct ControlInput {
     std::string pending;
-    int read_line(std::string& line) {
+    int read_line(std::string& line, int timeout_ms) {
         auto take_line = [&]() {
             const auto end = pending.find('\n');
             if (end == std::string::npos) return false;
@@ -78,7 +76,7 @@ struct ControlInput {
         };
         if (take_line()) return 1;
         pollfd input{STDIN_FILENO, POLLIN, 0};
-        const int ready = ::poll(&input, 1, 0);
+        const int ready = ::poll(&input, 1, timeout_ms);
         if (ready < 0) return errno == EINTR ? 0 : -1;
         if (ready == 0) return 0;
         char bytes[64];
@@ -91,14 +89,13 @@ struct ControlInput {
 };
 
 bool wait_for_control(BatchCapture& capture, ControlInput& input, const char* expected) {
-    // 保留原 sending callback 的 200×10ms 上界；hydration/HTTP 各有独立同等上界。
-    for (int i = 0; i < 200; ++i) {
+    // 每个控制阶段有 2s 有界 deadline；完成条件来自 Node 的事件/断言。
+    for (int i = 0; i < 40; ++i) {
         if (!forward_batches(capture)) return false;
         std::string line;
-        const int status = input.read_line(line);
+        const int status = input.read_line(line, 50);
         if (status < 0) return false;
         if (status == 1) return line == expected;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     std::fprintf(stderr, "FAIL: timeout waiting for typed fixture %s\n", expected);
     return false;
@@ -116,14 +113,13 @@ bool command(HelixHandle* handle, const char* name, const char* payload) {
         reinterpret_cast<const uint8_t*>(payload), std::strlen(payload)), name);
 }
 
-bool run(BatchCapture& capture, const char* go_api) {
+bool run(BatchCapture& capture, const char* go_api, const char* ws_url) {
     CppHostVtable vtable{on_batch, fixed_now_ms, &capture};
     const char* java_api = "https://java.example.test";
-    const char* ws = "wss://go.example.test/api/v4/websocket";
     HelixHandle* handle = helix_create_with_endpoints(
         reinterpret_cast<const uint8_t*>(go_api), std::strlen(go_api),
         reinterpret_cast<const uint8_t*>(java_api), std::strlen(java_api),
-        reinterpret_cast<const uint8_t*>(ws), std::strlen(ws), vtable);
+        reinterpret_cast<const uint8_t*>(ws_url), std::strlen(ws_url), vtable);
     if (!handle) {
         std::fprintf(stderr, "FAIL: helix_create_with_endpoints returned null\n");
         return false;
@@ -149,12 +145,12 @@ bool run(BatchCapture& capture, const char* go_api) {
 }
 
 int main(int argc, char** argv) {
-    if (argc != 2) {
-        std::fprintf(stderr, "usage: helix_smoke <fixture-go-api>\n");
+    if (argc != 3) {
+        std::fprintf(stderr, "usage: helix_smoke <fixture-go-api> <fixture-ws-url>\n");
         return 1;
     }
     BatchCapture capture; // ctx 比 run() 中的 HandleGuard 更长寿，包括全部失败分支。
-    const bool passed = run(capture, argv[1]);
+    const bool passed = run(capture, argv[1], argv[2]);
     const bool forwarded = forward_batches(capture); // destroy 的最后一批仍交 typed oracle。
     return passed && forwarded ? 0 : 1;
 }

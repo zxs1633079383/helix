@@ -7,6 +7,8 @@ use ffi::api::{
 use ffi::vtable::CppHostVtable;
 use std::sync::Mutex as StdMutex;
 
+const SERVER_POST_ID: &str = "01hq0000000000000000000001";
+
 /// 录批回调收到的「解码后各条 DomainEvent 原文」。ctx 指向它。
 pub(super) type Recorder = StdMutex<Vec<Vec<u8>>>;
 
@@ -51,6 +53,110 @@ struct HttpFixture {
     worker: Option<std::thread::JoinHandle<()>>,
 }
 
+struct WsFixture {
+    url: String,
+    echo_tx: tokio::sync::mpsc::UnboundedSender<String>,
+    stopping: Option<tokio::sync::oneshot::Sender<()>>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl WsFixture {
+    fn new(channel_id: &str) -> Self {
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let (echo_tx, mut echo_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel();
+        let channel_id = channel_id.to_owned();
+        let worker = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+                let accepted = tokio::select! {
+                    result = listener.accept() => result.ok(),
+                    _ = &mut stop_rx => None,
+                };
+                let Some((stream, _)) = accepted else { return };
+                let mut websocket = accept_async(stream).await.unwrap();
+                let temporary_id = tokio::select! {
+                    temporary_id = echo_rx.recv() => temporary_id,
+                    _ = &mut stop_rx => None,
+                };
+                let Some(temporary_id) = temporary_id else {
+                    return;
+                };
+                let frame = serde_json::json!({
+                    "v": 1,
+                    "action": "post",
+                    "data": {
+                        "id": SERVER_POST_ID,
+                        "temporaryId": temporary_id,
+                        "channelId": channel_id,
+                        "event_seq": 1,
+                        "userId": "viewer-1",
+                        "teamId": "team-1",
+                        "type": "TEXT",
+                        "message": "hi",
+                        "simpleMessage": "hi",
+                        "props": {},
+                        "viewers": ["all"],
+                        "createAt": 1_700_000_000_000_u64,
+                        "updateAt": 1_700_000_000_000_u64,
+                    },
+                });
+                websocket
+                    .send(Message::Text(serde_json::to_string(&frame).unwrap().into()))
+                    .await
+                    .unwrap();
+                tokio::select! {
+                    _ = &mut stop_rx => {},
+                    _ = websocket.next() => {},
+                }
+            });
+        });
+        Self {
+            url: format!("ws://{addr}/api/v4/websocket"),
+            echo_tx,
+            stopping: Some(stop_tx),
+            worker: Some(worker),
+        }
+    }
+
+    fn send_echo(&self, temporary_id: &str) {
+        self.echo_tx
+            .send(temporary_id.to_owned())
+            .expect("WS fixture handshake worker must be alive");
+    }
+
+    fn finish(&mut self) {
+        if let Some(stopping) = self.stopping.take() {
+            stopping.send(()).ok();
+        }
+        self.worker
+            .take()
+            .unwrap()
+            .join()
+            .expect("WS fixture worker failed");
+    }
+}
+
+impl Drop for WsFixture {
+    fn drop(&mut self) {
+        if let Some(stopping) = self.stopping.take() {
+            stopping.send(()).ok();
+        }
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
 impl HttpFixture {
     fn new(channel_id: &str) -> Self {
         use std::io::{Read, Write};
@@ -79,6 +185,7 @@ impl HttpFixture {
                     }
                     Err(error) => panic!("HTTP fixture accept failed: {error}"),
                 };
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(2)))
                     .unwrap();
@@ -120,8 +227,11 @@ impl HttpFixture {
                 let response = match path.as_str() {
                     "/api/cses/channel/load/incrementByChannelId" => increment.clone(),
                     "/api/cses/posts/create" => serde_json::json!({
-                        "status": "SUCCESS", "data": { "id": "01hq0000000000000000000001" }
+                        "status": "SUCCESS", "data": { "id": SERVER_POST_ID }
                     }),
+                    "/api/cses/post/clientAck" => {
+                        serde_json::json!({ "status": "SUCCESS", "data": {} })
+                    }
                     _ => panic!("unexpected HTTP fixture path: {path}"),
                 };
                 request_tx
@@ -196,8 +306,9 @@ pub(super) fn assert_owned_channel_send() {
     };
 
     let mut fixture = HttpFixture::new(CHANNEL);
+    let mut ws_fixture = WsFixture::new(CHANNEL);
     let api = fixture.api.as_bytes();
-    let ws = b"wss://ws.example.test/socket";
+    let ws = ws_fixture.url.as_bytes();
     // SAFETY: endpoint bytes, callbacks and recorder ctx remain valid through guard destruction.
     let handle = unsafe {
         helix_create_with_network(api.as_ptr(), api.len(), ws.as_ptr(), ws.len(), vtable)
@@ -343,12 +454,32 @@ pub(super) fn assert_owned_channel_send() {
     assert_eq!(post_request.body["message"], data["message"]);
     assert_eq!(post_request.body["type"], data["type"]);
     assert_eq!(post_request.body["createAt"], data["createAt"]);
+    ws_fixture.send_echo(temporary_id);
+    let sent = wait_for_event(&recorder, callback_start, |event| {
+        event["event"] == "im:post:sent"
+            && event["data"]["temporaryId"] == temporary_id
+            && event["data"]["sendStatus"] == "sent"
+    })
+    .expect("real localhost WS echo must publish im:post:sent");
+    assert_eq!(sent["data"]["channelId"], CHANNEL);
+    assert_eq!(sent["data"]["id"], SERVER_POST_ID);
+    assert_eq!(sent["data"]["serverId"], SERVER_POST_ID);
+    let sent_count = recorder.lock().unwrap()[callback_start..]
+        .iter()
+        .filter(|bytes| {
+            let event: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+            event["event"] == "im:post:sent" && event["data"]["temporaryId"] == temporary_id
+        })
+        .count();
+    assert_eq!(sent_count, 1, "durable send terminal is unique");
     println!("FFI durable hydration: {hydrated}");
     println!("FFI post-seed sending callback: {sending}");
     println!(
         "FFI correlated real posts/create body: {}",
         post_request.body
     );
+    println!("FFI durable send terminal: {sent}");
     drop(handle);
     fixture.finish();
+    ws_fixture.finish();
 }

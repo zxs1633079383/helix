@@ -575,3 +575,97 @@ fn server_clock_jump_is_capped_by_local_freshness() {
         "unknown"
     );
 }
+
+// Opening/closing a focused surface must not turn an unchanged valid sample into unknown.
+#[test]
+fn focus_switch_preserves_status_while_refreshing() {
+    for initial in ["online", "offline"] {
+        let mut m = module();
+        hello(&mut m, "c1", 0);
+        let list = observe(&mut m, "list", vec!["u1".into()], vec![], 100);
+        reply(&mut m, corr(&list), json!({"u1":initial}), 200);
+        let focused = observe(&mut m, "card", vec![], vec!["u1".into()], 300);
+        assert_eq!(
+            statuses(&focused)["u1"],
+            initial,
+            "promotion must preserve the visible status"
+        );
+        let refresh = corr(&focused);
+        assert!(statuses(&reply(&mut m, refresh, json!({"u1":initial}), 400)).is_null());
+        let ordinary = observe(&mut m, "card", vec![], vec![], 500);
+        assert_eq!(
+            statuses(&ordinary)["u1"],
+            initial,
+            "demotion must preserve the visible status"
+        );
+        assert!(statuses(&reply(&mut m, corr(&ordinary), json!({"u1":initial}), 600)).is_null());
+        let focused = observe(&mut m, "card", vec![], vec!["u1".into()], 700);
+        assert_eq!(statuses(&focused)["u1"], initial);
+        assert_eq!(
+            statuses(&reply(&mut m, corr(&focused), json!({"u1":"offline"}), 800))["u1"],
+            if initial == "online" {
+                json!("offline")
+            } else {
+                Value::Null
+            }
+        );
+        let g = generation(&focused);
+        let revoked = inbound(
+            &mut m,
+            json!({"action":"presence","data":{"generation":g,"checkedAt":900,"statuses":{}}}),
+            900,
+        );
+        assert_eq!(
+            statuses(&revoked)["u1"],
+            "unknown",
+            "authoritative omission still revokes the sample"
+        );
+    }
+}
+
+// Mode changes and failed refreshes cannot keep a stale green dot alive indefinitely.
+#[test]
+fn focus_switch_failed_refresh_keeps_but_never_extends_expiry() {
+    for focus_at in [20_100, 44_100, 46_100] {
+        let mut m = module();
+        let list = observe(&mut m, "list", vec!["u1".into()], vec![], 100);
+        let t = timer(&list);
+        reply(&mut m, corr(&list), json!({"u1":"online"}), 200);
+        let focused = observe(&mut m, "card", vec![], vec!["u1".into()], focus_at);
+        let expected = if focus_at < 45_100 {
+            "online"
+        } else {
+            "unknown"
+        };
+        assert_eq!(statuses(&focused)["u1"], expected);
+        let failed = step(
+            &mut m,
+            Tick::PortReply {
+                corr: corr(&focused),
+                outcome: PortOutcome::Err(PortError::Network),
+            },
+            focus_at + 1,
+        );
+        assert!(statuses(&failed).is_null());
+        if expected == "unknown" {
+            continue;
+        }
+        let demoted = observe(&mut m, "card", vec![], vec![], focus_at + 2);
+        assert_eq!(statuses(&demoted)["u1"], "online");
+        step(
+            &mut m,
+            Tick::PortReply {
+                corr: corr(&demoted),
+                outcome: PortOutcome::Err(PortError::Network),
+            },
+            focus_at + 3,
+        );
+        let promoted = observe(&mut m, "card", vec![], vec!["u1".into()], focus_at + 4);
+        assert_eq!(statuses(&promoted)["u1"], "online");
+        let expires = (focus_at + 15_000).min(45_100);
+        let before = step(&mut m, Tick::Timer(t), expires - 1);
+        assert!(statuses(&before).is_null());
+        let expired = step(&mut m, Tick::Timer(timer(&before)), expires);
+        assert_eq!(statuses(&expired)["u1"], "unknown");
+    }
+}

@@ -116,7 +116,8 @@ impl Presence {
             .filter(|id| snapshot || !self.focused.contains(*id))
             .filter(|id| {
                 !snapshot
-                    || (!self.cache.get(*id).is_some_and(|c| c.expires > now)
+                    || ((!self.cache.get(*id).is_some_and(|c| c.expires > now)
+                        || !self.last_attempt.contains_key(*id))
                         && !self
                             .last_attempt
                             .get(*id)
@@ -238,10 +239,14 @@ impl Presence {
         });
         self.last_attempt.retain(|id, _| users.contains(id));
         self.cache.retain(|id, _| users.contains(id));
-        // A query sample cannot establish a newly promoted fast observation's freshness.
+        // Refresh mode changes without blanking a still-valid sample or extending its lifetime.
         for id in focused.symmetric_difference(&self.focused) {
-            self.cache.remove(id);
             self.last_attempt.remove(id);
+        }
+        for id in focused.difference(&self.focused) {
+            if let Some(cached) = self.cache.get_mut(id) {
+                cached.expires = cached.expires.min(now.saturating_add(15_000));
+            }
         }
         self.users = users;
         self.focused = focused;

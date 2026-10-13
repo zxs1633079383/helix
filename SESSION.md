@@ -1,3 +1,5 @@
+🎯 EXPECT 普通与重点观察切换保留有效状态，刷新仍在线不发unknown；仍即时查询，失败不延长有效期、权威离线/撤权立即生效。公开Tick回归先红后绿；本轮不发布或修改版本。| 赌注 低 | 可逆 是 | @2026-10-13
+✅ DONE 公开Tick新增2项先红后绿，presence共19项通过；五crate检查与WASM构建通过。修复及失败/过期边界见presence_test；真实Tauri回归待新候选，未发布或提版。
 🎯 EXPECT 独立worktree接入12个presence文件，17项presence回放通过；四公共包统一发布下一patch，版本提交与注释Tag推送后远端SHA一致；不修改客户端。分支codex/presence-release-20261013，upstream origin/reactor/MessageV3-helix；本轮保留worktree与分支。| 赌注 中 | 可逆 发布否 | @2026-10-13
 - 交接：docs/交接/1013-presence-release/handoff.md
 ✅ DONE 独立worktree84项定向回放与五crate检查通过；四公共包0.1.60已发布并可解析，版本提交/注释Tag已push且远端SHA回读一致；四包registry checksum匹配本地制品，真实链与容量保持NOT_VERIFIED。

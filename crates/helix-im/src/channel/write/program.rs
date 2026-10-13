@@ -32,7 +32,14 @@ pub fn program_full(
     let j = |k: &str, dflt: &str| -> String {
         data.get(k)
             .filter(|v| !v.is_null())
-            .map(|v| v.to_string())
+            .map(|v| {
+                // 旧列表空串不得重新进入持久行；其余字段和非空数据不改写。
+                if matches!(k, "mentionList" | "urgentPostList") && v.as_str() == Some("") {
+                    "[]".into()
+                } else {
+                    v.to_string()
+                }
+            })
             .unwrap_or_else(|| dflt.to_string())
     };
 

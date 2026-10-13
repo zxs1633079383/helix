@@ -1,3 +1,6 @@
+🎯 EXPECT 精确空串列表兼容恢复 ACK/接收事件，非法 JSON 仍拒绝；SQLite 迁移幂等且保留有效列表，无逐消息全表扫描。 | 赌注 中 | 可逆 是 | @2026-10-13 15:02
+- 交接：docs/交接/1013-成员空列表修复/handoff.md
+✅ DONE 空串读写兼容、幂等迁移/旧默认触发器已修复；公开Tick/隔离SQLite红→绿、十消息逐ID唯一、库472项与三端Rust编译通过。两项既有失败在干净基线复现；用户取消真实通知验收，未提版/发布/push。
 🎯 EXPECT 在服务验证通过前仅冻结翻译公开 Tick seam 并保留红测；实现 `im_translate_message` / `im_cancel_translation` 前完成隔离 HTTP、非持久终态与 stop/cancel/timeout 迟到回包合同对账。| 赌注 中 | 可逆 是 | @2026-10-12
 ✅ DONE 服务验证后完成 Helix 翻译公开 Tick、隔离 Native HTTP、非持久终态与生命周期清理；focused red→green、三端 Rust 编译目标与当前 Docker Native 真链均有证据。交接由主会话维护：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/1012-右键翻译/handoff.md。
 🎯 EXPECT 冷快照只以完整成员投影推进水位；同版空 effect 原子修复通过真实 SQLite，旧版和同版非空冲突不覆盖；不改版本或提交。| 赌注 中 | 可逆 是 | @2026-10-12

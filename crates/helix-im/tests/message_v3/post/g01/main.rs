@@ -335,3 +335,141 @@ fn g01_writes_reviewable_dual_persona_artifacts() -> TestResult<()> {
         .map_err(|error| error.to_string())?;
     Ok(())
 }
+
+/// 从公开 Inbound 经 PersistOk 到成员读回；损坏列表不得释放 ACK 或业务终态。
+#[test]
+fn member_list_readback_preserves_ack_and_received_lifecycle() {
+    use helix_core::Module;
+    for (mention, urgent, viewer, valid) in [
+        ("", "", RECEIVER_ID, true),
+        ("", "", "foreign-viewer", false),
+        ("[\"mention-1\"]", "[\"urgent-1\"]", RECEIVER_ID, true),
+        ("[]", "[]", RECEIVER_ID, true),
+        ("broken", "[]", RECEIVER_ID, false),
+        ("[]", "broken", RECEIVER_ID, false),
+        ("null", "[]", RECEIVER_ID, false),
+        ("[1]", "[]", RECEIVER_ID, false),
+        (" ", "[]", RECEIVER_ID, false),
+    ] {
+        let mut h = Harness::new_with_identity(&[1], RECEIVER_ID, "g01-company", "", "", "");
+        h.step(
+            Tick::Inbound(InboundBytes(
+                serde_json::to_vec(&authority()).unwrap().into(),
+            )),
+            1,
+        );
+        let persist = correlated_persist(h.sink.as_slice(), true).unwrap().0;
+        assert!(emitted_events(h.sink.as_slice()).is_empty());
+        assert!(correlated_client_ack(h.sink.as_slice()).is_none());
+        h.step(
+            Tick::PortReply {
+                corr: persist,
+                outcome: PortOutcome::Ok(ReplyBytes::default()),
+            },
+            2,
+        );
+        let readback = correlated_persist(h.sink.as_slice(), false).unwrap().0;
+        let reply = member_reply(viewer, 1, &json!({"id":POST_ID}));
+        let mut rows = helix_core::port_codec::rows_from_reply_bytes(&reply.0).unwrap();
+        rows[0].push(("mention_list".into(), SqlValue::Text(mention.into())));
+        rows[0].push(("urgent_post_list".into(), SqlValue::Text(urgent.into())));
+        h.sink.clear();
+        let result = h.module.handle(
+            &Tick::PortReply {
+                corr: readback,
+                outcome: PortOutcome::Ok(ReplyBytes(rows_to_reply_bytes(&rows))),
+            },
+            3,
+            &mut h.sink,
+        );
+        let events = emitted_events(h.sink.as_slice());
+        if valid {
+            assert!(result.is_ok(), "{mention:?}/{urgent:?}: {result:?}");
+            let ack = correlated_client_ack(h.sink.as_slice())
+                .expect("durable ACK")
+                .1;
+            assert_eq!(ack["postId"], POST_ID);
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|e| e["event"] == "im:post:received")
+                    .count(),
+                1
+            );
+            let channel = events
+                .iter()
+                .find(|e| e["event"] == "im:channel:update")
+                .unwrap();
+            assert_eq!(
+                channel["data"]["mentionList"],
+                if mention.is_empty() {
+                    json!([])
+                } else {
+                    serde_json::from_str::<Value>(mention).unwrap()
+                }
+            );
+            assert_eq!(
+                channel["data"]["urgentPostList"],
+                if urgent.is_empty() {
+                    json!([])
+                } else {
+                    serde_json::from_str::<Value>(urgent).unwrap()
+                }
+            );
+        } else {
+            assert!(result.is_err(), "corrupt list must fail closed");
+            assert!(correlated_client_ack(h.sink.as_slice()).is_none());
+            assert!(events.is_empty());
+        }
+        h.sink.clear();
+        h.module
+            .handle(
+                &Tick::PortReply {
+                    corr: readback,
+                    outcome: PortOutcome::Ok(reply),
+                },
+                4,
+                &mut h.sink,
+            )
+            .unwrap();
+        assert!(
+            emitted_events(h.sink.as_slice()).is_empty(),
+            "late reply cannot emit twice"
+        );
+        assert!(correlated_client_ack(h.sink.as_slice()).is_none());
+    }
+}
+
+/// PersistErr/读回失败不释放 ACK 或接收终态，不能因空串兼容削弱持久屏障。
+#[test]
+fn post_storage_failure_remains_fail_closed() {
+    for fail_readback in [false, true] {
+        let mut h = Harness::new_with_identity(&[1], RECEIVER_ID, "g01-company", "", "", "");
+        h.step(
+            Tick::Inbound(InboundBytes(
+                serde_json::to_vec(&authority()).unwrap().into(),
+            )),
+            1,
+        );
+        let mut corr = correlated_persist(h.sink.as_slice(), true).unwrap().0;
+        if fail_readback {
+            h.step(
+                Tick::PortReply {
+                    corr,
+                    outcome: PortOutcome::Ok(ReplyBytes::default()),
+                },
+                2,
+            );
+            corr = correlated_persist(h.sink.as_slice(), false).unwrap().0;
+        }
+        h.step(
+            Tick::PortReply {
+                corr,
+                outcome: PortOutcome::Err(helix_core::tick::PortError::Storage(1)),
+            },
+            3,
+        );
+        assert!(correlated_client_ack(h.sink.as_slice()).is_none());
+        assert!(emitted_events(h.sink.as_slice()).is_empty());
+    }
+}

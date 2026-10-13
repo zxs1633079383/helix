@@ -198,10 +198,10 @@ pub const IM_SCHEMA: &[&'static str] = &[
         reaction_unread_count INTEGER NOT NULL DEFAULT 0,\
         unread_post_id TEXT NOT NULL DEFAULT '',\
         mention_count INTEGER NOT NULL DEFAULT 0,\
-        mention_list TEXT NOT NULL DEFAULT '',\
+        mention_list TEXT NOT NULL DEFAULT '[]',\
         mention_user TEXT NOT NULL DEFAULT '',\
         urgent_count INTEGER NOT NULL DEFAULT 0,\
-        urgent_post_list TEXT NOT NULL DEFAULT '',\
+        urgent_post_list TEXT NOT NULL DEFAULT '[]',\
         last_post TEXT NOT NULL DEFAULT '',\
         last_post_at INTEGER NOT NULL DEFAULT 0,\
         delete_at INTEGER NOT NULL DEFAULT 0,\
@@ -293,10 +293,10 @@ END",
         last_unread_event_seq INTEGER NOT NULL DEFAULT 0,\
         mention_count INTEGER NOT NULL DEFAULT 0,\
         mention_count_root INTEGER NOT NULL DEFAULT 0,\
-        mention_list TEXT NOT NULL DEFAULT '',\
+        mention_list TEXT NOT NULL DEFAULT '[]',\
         mention_user TEXT NOT NULL DEFAULT '',\
         urgent_mention_count INTEGER NOT NULL DEFAULT 0,\
-        urgent_post_list TEXT NOT NULL DEFAULT '',\
+        urgent_post_list TEXT NOT NULL DEFAULT '[]',\
         urgent_mention_user TEXT NOT NULL DEFAULT '',\
         msg_count INTEGER NOT NULL DEFAULT 0,\
         msg_count_root INTEGER NOT NULL DEFAULT 0,\
@@ -639,4 +639,15 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "CREATE TABLE IF NOT EXISTS im_recent_history (scope TEXT NOT NULL, kind TEXT NOT NULL, items TEXT NOT NULL DEFAULT '[]', PRIMARY KEY (scope, kind))",
     // 旧接龙通用帧产生的纯空白事件行；精确键和空内容限制保护真实消息及在途发送。
     "DELETE FROM message WHERE id = '' AND channel_id <> '' AND event_seq > 0 AND temporary_id = 'evt:' || channel_id || ':' || event_seq AND type = 'TEXT' AND send_status = 'sent' AND user_id = '' AND team_id = '' AND message = '' AND simple_message = '' AND create_at = 0 AND update_at = 0 AND props IN ('', '{}') AND read_bits = '' AND snapshot_id = '' AND user_snapshot = '' AND reply_count = 0 AND revoke = 0",
+    // 启动一次性精确空串迁移；不解析/覆盖有效或损坏的非空列表。
+    "UPDATE channel SET mention_list = '[]' WHERE mention_list = ''",
+    "UPDATE channel SET urgent_post_list = '[]' WHERE urgent_post_list = ''",
+    // 旧库仍可能拥有空串 DEFAULT；兼容写只更新当前 PK，不引入热路径全表扫描。
+    "CREATE TRIGGER IF NOT EXISTS channel_empty_lists_insert AFTER INSERT ON channel WHEN NEW.mention_list = '' OR NEW.urgent_post_list = '' BEGIN UPDATE channel SET mention_list = CASE WHEN NEW.mention_list = '' THEN '[]' ELSE NEW.mention_list END, urgent_post_list = CASE WHEN NEW.urgent_post_list = '' THEN '[]' ELSE NEW.urgent_post_list END WHERE id = NEW.id; END",
+    "CREATE TRIGGER IF NOT EXISTS channel_empty_lists_update AFTER UPDATE OF mention_list, urgent_post_list ON channel WHEN NEW.mention_list = '' OR NEW.urgent_post_list = '' BEGIN UPDATE channel SET mention_list = CASE WHEN NEW.mention_list = '' THEN '[]' ELSE NEW.mention_list END, urgent_post_list = CASE WHEN NEW.urgent_post_list = '' THEN '[]' ELSE NEW.urgent_post_list END WHERE id = NEW.id; END",
+    "UPDATE channel_member SET mention_list = '[]' WHERE mention_list = ''",
+    "UPDATE channel_member SET urgent_post_list = '[]' WHERE urgent_post_list = ''",
+    // 旧库仍可能拥有空串 DEFAULT；兼容写只更新当前 PK，不引入热路径全表扫描。
+    "CREATE TRIGGER IF NOT EXISTS channel_member_empty_lists_insert AFTER INSERT ON channel_member WHEN NEW.mention_list = '' OR NEW.urgent_post_list = '' BEGIN UPDATE channel_member SET mention_list = CASE WHEN NEW.mention_list = '' THEN '[]' ELSE NEW.mention_list END, urgent_post_list = CASE WHEN NEW.urgent_post_list = '' THEN '[]' ELSE NEW.urgent_post_list END WHERE channel_id = NEW.channel_id AND user_id = NEW.user_id; END",
+    "CREATE TRIGGER IF NOT EXISTS channel_member_empty_lists_update AFTER UPDATE OF mention_list, urgent_post_list ON channel_member WHEN NEW.mention_list = '' OR NEW.urgent_post_list = '' BEGIN UPDATE channel_member SET mention_list = CASE WHEN NEW.mention_list = '' THEN '[]' ELSE NEW.mention_list END, urgent_post_list = CASE WHEN NEW.urgent_post_list = '' THEN '[]' ELSE NEW.urgent_post_list END WHERE channel_id = NEW.channel_id AND user_id = NEW.user_id; END",
 ];

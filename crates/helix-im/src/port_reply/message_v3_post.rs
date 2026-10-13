@@ -525,8 +525,13 @@ pub(super) fn channel_update_from_member_readback(
         ("urgent_post_list", "urgentPostList"),
     ] {
         if let Some(value) = text_column(row, column) {
-            let values: Vec<String> = serde_json::from_str(value)
-                .map_err(|error| ImError::Parse(format!("channel member {column}: {error}")))?;
+            // 历史 schema 用精确空串表示空列表；其余值仍须通过 Vec<String> 权威校验。
+            let values: Vec<String> = if value.is_empty() {
+                Vec::new()
+            } else {
+                serde_json::from_str(value)
+                    .map_err(|error| ImError::Parse(format!("channel member {column}: {error}")))?
+            };
             object.insert(field.into(), serde_json::json!(values));
         }
     }

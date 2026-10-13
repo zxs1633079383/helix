@@ -102,7 +102,14 @@ pub fn collect_present(data: &serde_json::Value) -> Vec<ChannelCol> {
     ];
     for (col, key) in JSON_MAP {
         if let Some(v) = data.get(key).filter(|v| !v.is_null()) {
-            cols.push((col, SqlValue::Text(v.to_string())));
+            // 仅两个历史列表的精确空串规范化，其余 JSON 字段保持原合同。
+            let encoded =
+                if matches!(*col, "mention_list" | "urgent_post_list") && v.as_str() == Some("") {
+                    "[]".into()
+                } else {
+                    v.to_string()
+                };
+            cols.push((col, SqlValue::Text(encoded)));
         }
     }
 

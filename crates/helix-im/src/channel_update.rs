@@ -322,7 +322,7 @@ pub fn member_channel_from_update_channel(
     if let Some(v) = pick_value(channel, data, &["mentionList", "mention_list"]) {
         row.push((
             "mention_list".to_string(),
-            SqlValue::Text(value_storage_text(v)),
+            SqlValue::Text(list_storage_text(v)),
         ));
         projection.mention_list = Some(json_list_value(v));
     }
@@ -350,7 +350,7 @@ pub fn member_channel_from_update_channel(
     if let Some(v) = pick_value(channel, data, &["urgentPostList", "urgent_post_list"]) {
         row.push((
             "urgent_post_list".to_string(),
-            SqlValue::Text(value_storage_text(v)),
+            SqlValue::Text(list_storage_text(v)),
         ));
         projection.urgent_post_list = Some(json_list_value(v));
     }
@@ -507,6 +507,15 @@ fn projection_revision(primary: &Value, fallback: &Value) -> Option<u64> {
         .max()
 }
 
+/// 空列表写成合法 JSON；非空文本原样保留，使损坏数据在严格读回处仍可见。
+fn list_storage_text(value: &Value) -> String {
+    if value.as_str() == Some("") {
+        "[]".into()
+    } else {
+        value_storage_text(value)
+    }
+}
+
 fn value_storage_text(value: &Value) -> String {
     match value {
         Value::String(s) => s.clone(),
@@ -538,6 +547,35 @@ fn json_list_value(value: &Value) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// 成员与频道写入仅规范化空列表，损坏非空文本保持可被严格读回拒绝。
+    #[test]
+    fn member_list_empty_writes_are_canonical() {
+        use helix_core::effect::StorageOp;
+        let id = crate::state::test_channel_id(1);
+        let data = serde_json::json!({"id":id.as_str(),"userId":"viewer","mentionList":"","urgentPostList":""});
+        let (member, _) = member_channel_from_update_channel(&data, id, "viewer", 1).unwrap();
+        let (channel, _) = crate::channel_write::program_full(&data, "viewer", 1).unwrap();
+        let patch = crate::channel_write::collect_present(&data);
+        for column in ["mention_list", "urgent_post_list"] {
+            assert!(member
+                .iter()
+                .any(|(k, v)| k == column && matches!(v,SqlValue::Text(s) if s=="[]")));
+            for row in [&channel, &patch] {
+                assert!(row
+                    .iter()
+                    .any(|(k, v)| *k == column && matches!(v,SqlValue::Text(s) if s=="[]")));
+            }
+            let StorageOp::BatchUpdate(reset) = crate::acl::to_effect::reset_channel_dialog_op(id)
+            else {
+                panic!("reset patch")
+            };
+            assert!(reset
+                .patch
+                .iter()
+                .any(|(k, v)| k == column && matches!(v,SqlValue::Text(s) if s=="[]")));
+        }
+    }
+
     use super::*;
 
     /// Reaction counts accept both transports, keep old sparse frames, and reject malformed authority.

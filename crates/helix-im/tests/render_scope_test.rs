@@ -8,6 +8,7 @@ use helix_im::{event::MessageV3Event, ImConfig, ImModule};
 use serde_json::{json, Value};
 
 const CHANNEL: &str = "j519p4hif7di7xibc9p6a1189r";
+const UNLOADED_TOPIC: &str = "t519p4hif7di7xibc9p6a1189r";
 
 /// 通过公共提交入口冻结真实频道归属，完成持久回执后检查渲染结果。
 fn committed_events(company: &str, event: &'static str, data: Value) -> Vec<Value> {
@@ -553,6 +554,363 @@ fn members_by_ids_checks_channel_keys_not_member_company() {
             assert!(events
                 .iter()
                 .any(|event| event["event"] == "im:channel:members"));
+        }
+    }
+}
+
+/// 话题是消息行的独立元数据，父频道授权不要求先加载它的频道归属。
+fn independent_topic_metadata() -> Value {
+    json!({
+        "parentChannelId": CHANNEL,
+        "channelId": UNLOADED_TOPIC,
+        "topicChannelId": UNLOADED_TOPIC,
+        "latestReply": {"preview": {"text": "durable topic reply"}},
+        "replyCount": 3
+    })
+}
+
+/// 只解码真实 ImModule Emit；测试不构造可见成功事件。
+fn scope_emitted_events(harness: &common::Harness) -> Vec<Value> {
+    harness
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Emit { event } => Some(serde_json::from_slice(event.0.as_ref()).unwrap()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 回放真正的导航 HTTP → cache PersistOk → exact Scan；三种操作都由内核产生查询 body。
+fn timeline_topic_query_events(operation: &str, channel_company: &str) -> Vec<Value> {
+    let mut harness = common::Harness {
+        module: ImModule::new_with_local_store(
+            ImConfig {
+                auth_user_id: "viewer".into(),
+                company_id: "company-a".into(),
+                api_base_url: "http://scope.invalid/api".into(),
+                default_api_base_url: "http://scope.invalid/api".into(),
+                ..Default::default()
+            },
+            helix_im::query::LocalStoreMode::Session,
+        ),
+        sink: EffectSink::new(),
+        effect_log: Vec::new(),
+    };
+    harness
+        .module
+        .register_channel(helix_im::state::ChannelId::from_str(CHANNEL).unwrap(), 0);
+    harness.seed_channel_scope(CHANNEL, channel_company, "viewer");
+    harness.sink.clear();
+    harness.effect_log.clear();
+    let req_id = format!("scope-topic-{operation}");
+    let server_id = common::sid(1);
+    let temporary_id = "scope-topic-durable-1";
+    let (command, payload, endpoint) = match operation {
+        "older" => (
+            "im_load_older_context",
+            json!({"channel_id": CHANNEL, "anchor_post_id": common::sid(99), "page_size": 4, "req_id": req_id}),
+            "/posts/getPostsAfterIndex",
+        ),
+        "newer" => (
+            "im_load_newer_context",
+            json!({"channel_id": CHANNEL, "anchor_post_id": common::sid(99), "page_size": 4, "req_id": req_id}),
+            "/posts/getPostsAfterIndex",
+        ),
+        "locate" => (
+            "im_locate_context",
+            json!({"channel_id": CHANNEL, "message_id": server_id, "page_size": 4, "req_id": req_id}),
+            "/posts/postContext",
+        ),
+        other => panic!("unsupported test operation: {other}"),
+    };
+    harness.step(common::command_json(command, payload), 1);
+    let http: Vec<_> = harness
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Http { corr, req } => {
+                assert!(req.url.ends_with(endpoint));
+                Some(*corr)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        http.len(),
+        1,
+        "one navigation must have one HTTP correlation"
+    );
+    assert!(
+        scope_emitted_events(&harness).is_empty(),
+        "command is not a terminal"
+    );
+    let wire = json!({
+        "status": "SUCCESS",
+        "data": {
+            "posts": [{
+                "id": server_id, "temporaryId": temporary_id, "channelId": CHANNEL,
+                "userId": "author", "type": "TEXT", "message": "wire text must not win",
+                "simpleMessage": "wire text must not win", "viewers": ["all"],
+                "createAt": 1_790_001_000_000_i64, "eventSeq": 1,
+                "topic": independent_topic_metadata()
+            }],
+            "hasMore": false, "hasOlder": false, "hasNewer": false, "targetIndex": 0
+        }
+    });
+    harness.step(
+        common::port_reply_with_body(
+            http[0].raw(),
+            common::enveloped(serde_json::to_vec(&wire).unwrap().into()),
+        ),
+        2,
+    );
+    assert!(
+        scope_emitted_events(&harness).is_empty(),
+        "HTTP 200 is not a terminal"
+    );
+    let cache: Vec<_> = harness
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(
+                    |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"),
+                ) =>
+            {
+                Some(*corr)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        cache.len(),
+        1,
+        "authority rows require one durable cache write"
+    );
+    harness.step(
+        common::port_reply_with_body(cache[0].raw(), Bytes::new()),
+        3,
+    );
+    assert!(
+        scope_emitted_events(&harness).is_empty(),
+        "PersistOk precedes exact readback"
+    );
+    let scans: Vec<_> = harness
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Persist { corr, ops } => ops.iter().find_map(|op| {
+                let StorageOp::Scan(spec) = op else {
+                    return None;
+                };
+                if spec.table != "message" {
+                    return None;
+                }
+                assert_eq!(spec.limit, Some(1));
+                assert!(spec.order_by.is_empty());
+                match &spec.filter {
+                    Some((column, SqlValue::Text(identity))) => {
+                        assert_eq!(*column, "temporary_id");
+                        assert_eq!(identity, temporary_id);
+                    }
+                    other => panic!("exact temporary identity required, got {other:?}"),
+                }
+                Some(*corr)
+            }),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        scans.len(),
+        1,
+        "query must read back its exact authority identity"
+    );
+    let durable = json!([{
+        "id": server_id, "temporary_id": temporary_id, "channel_id": CHANNEL,
+        "user_id": "author", "type": "TEXT", "message": "durable scope text",
+        "simple_message": "durable scope text", "viewers": ["all"],
+        "create_at": 1_790_001_000_000_i64, "event_seq": 1, "send_status": "sent",
+        "topic": independent_topic_metadata()
+    }]);
+    let readback =
+        common::port_reply_with_body(scans[0].raw(), serde_json::to_vec(&durable).unwrap().into());
+    harness.step(readback, 4);
+    let events = scope_emitted_events(&harness);
+    assert_eq!(
+        events.len(),
+        1,
+        "one correlated terminal and no timeline broadcast"
+    );
+    assert_eq!(events[0]["event"], "im:read:result");
+    assert_eq!(events[0]["data"]["req_id"], req_id);
+    harness.step(
+        common::port_reply_with_body(scans[0].raw(), serde_json::to_vec(&durable).unwrap().into()),
+        5,
+    );
+    assert!(
+        scope_emitted_events(&harness).is_empty(),
+        "duplicate readback cannot emit twice"
+    );
+    harness.step(
+        common::port_reply_with_body(
+            http[0].raw(),
+            common::enveloped(serde_json::to_vec(&wire).unwrap().into()),
+        ),
+        6,
+    );
+    assert!(
+        scope_emitted_events(&harness).is_empty(),
+        "late HTTP cannot resurrect a settled query"
+    );
+    events
+}
+
+/// 正例逐字段检查真实 QueryMessagesResult，独立话题元数据必须完整保留。
+fn assert_timeline_topic_query(operation: &str) {
+    let events = timeline_topic_query_events(operation, "company-a");
+    assert!(
+        events[0]["data"].get("error").is_none(),
+        "{operation}: authorized parent must not be rejected for an unloaded topic"
+    );
+    let body = &events[0]["data"]["body"];
+    assert_eq!(body["operation"], operation);
+    assert_eq!(body["channelId"], CHANNEL);
+    assert_eq!(body["messages"].as_array().map(Vec::len), Some(1));
+    assert_eq!(body["messages"][0]["channelId"], CHANNEL);
+    assert_eq!(body["messages"][0]["text"], "durable scope text");
+    assert_eq!(body["messages"][0]["topic"], independent_topic_metadata());
+    if operation == "locate" {
+        assert_eq!(body["targetIndex"], 0);
+        assert_eq!(body["targetPostId"], common::sid(1));
+    }
+}
+
+/// RED 回归：older HTTP 页合法，topic 子频道未加载不能导致整页 scope 拒绝。
+#[test]
+fn timeline_older_read_keeps_independent_topic_metadata() {
+    assert_timeline_topic_query("older");
+}
+
+/// newer 与 older 使用同一真实公开 seam 和 topic 字段合同。
+#[test]
+fn timeline_newer_read_keeps_independent_topic_metadata() {
+    assert_timeline_topic_query("newer");
+}
+
+/// locate 必须保留 durable 目标与其 topic，不能靠 HTTP 内容伪造成功。
+#[test]
+fn timeline_locate_read_keeps_independent_topic_metadata() {
+    assert_timeline_topic_query("locate");
+}
+
+/// 对恶意或畸形候选投影走既有公开 PersistOk scope seam；不冒充正常 query producer。
+fn assert_scope_read_rejected(body: Value) {
+    let events = committed_events(
+        "company-a",
+        "im:read:result",
+        json!({"req_id": "scope-negative", "body": body}),
+    );
+    assert_eq!(
+        events.len(),
+        1,
+        "rejected read must still settle its correlation"
+    );
+    assert_eq!(events[0]["event"], "im:read:result");
+    assert_eq!(events[0]["data"]["req_id"], "scope-negative");
+    assert_eq!(events[0]["data"]["error"], "RENDER_SCOPE_MISMATCH");
+    assert!(
+        events[0]["data"].get("body").is_none(),
+        "rejection cannot leak a partial body"
+    );
+}
+
+/// topic 例外不授权父频道或其他消息行；混合页必须整体 fail-closed。
+#[test]
+fn timeline_topic_read_still_rejects_foreign_parent_and_message_routes() {
+    for operation in ["older", "newer", "locate"] {
+        assert_scope_read_rejected(
+            json!({"operation": operation, "channelId": UNLOADED_TOPIC, "messages": [{"channelId": CHANNEL, "topic": independent_topic_metadata()}]}),
+        );
+        assert_scope_read_rejected(
+            json!({"operation": operation, "channelId": CHANNEL, "messages": [{"channelId": CHANNEL, "topic": independent_topic_metadata()}, {"channelId": UNLOADED_TOPIC, "topic": {"channelId": CHANNEL}}]}),
+        );
+        let events = timeline_topic_query_events(operation, "company-b");
+        assert_eq!(events[0]["data"]["error"], "RENDER_SCOPE_MISMATCH");
+        assert!(events[0]["data"].get("body").is_none());
+    }
+}
+
+/// 只有正规非空字符串父路由才可启用例外，不能依靠消息行的合法频道补齐。
+#[test]
+fn timeline_topic_read_missing_empty_or_nonstring_parent_has_no_exemption() {
+    for operation in ["older", "newer", "locate"] {
+        for parent in [None, Some(json!("")), Some(Value::Null), Some(json!(17))] {
+            let mut body = json!({"operation": operation, "messages": [{"channelId": CHANNEL, "topic": independent_topic_metadata()}]});
+            if let Some(parent) = parent {
+                body["channelId"] = parent;
+            }
+            assert_scope_read_rejected(body);
+        }
+    }
+}
+
+/// topic 例外不补齐消息自身授权：父频道合法且同页正常行含 topic，坏行仍须整页拒绝。
+#[test]
+fn timeline_topic_read_rejects_missing_invalid_or_nonobject_message_routes() {
+    let invalid_rows = [
+        json!({"id": "missing-route", "topic": independent_topic_metadata()}),
+        json!({"channelId": "", "topic": independent_topic_metadata()}),
+        json!({"channelId": null, "topic": independent_topic_metadata()}),
+        json!({"channelId": 17, "topic": independent_topic_metadata()}),
+        json!({"channel_id": "", "topic": independent_topic_metadata()}),
+        json!({"channel_id": null, "topic": independent_topic_metadata()}),
+        json!({"channel_id": 17, "topic": independent_topic_metadata()}),
+        json!({"channelId": CHANNEL, "channel_id": null, "topic": independent_topic_metadata()}),
+        json!({"channel_id": CHANNEL, "channelId": "", "topic": independent_topic_metadata()}),
+        Value::Null,
+        json!(17),
+        json!("not-a-message-object"),
+        json!(true),
+        json!([]),
+        json!([{"channelId": CHANNEL, "topic": independent_topic_metadata()}]),
+    ];
+    for operation in ["older", "newer", "locate"] {
+        for invalid_row in &invalid_rows {
+            assert_scope_read_rejected(json!({
+                "operation": operation,
+                "channelId": CHANNEL,
+                "messages": [
+                    {"channelId": CHANNEL, "topic": independent_topic_metadata()},
+                    invalid_row
+                ]
+            }));
+        }
+    }
+}
+
+/// 导航读必须携带消息数组；topic 元数据不能补齐缺失或错误形状的 messages。
+#[test]
+fn timeline_topic_read_rejects_missing_or_nonarray_messages() {
+    for operation in ["older", "newer", "locate"] {
+        for messages in [
+            None,
+            Some(Value::Null),
+            Some(json!({"channelId": CHANNEL})),
+            Some(json!(17)),
+        ] {
+            let mut body = json!({
+                "operation": operation, "channelId": CHANNEL,
+                "topic": independent_topic_metadata()
+            });
+            if let Some(messages) = messages {
+                body["messages"] = messages;
+            }
+            assert_scope_read_rejected(body);
         }
     }
 }

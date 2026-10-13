@@ -549,7 +549,10 @@ pub fn parse_locate_request_for_command(
     }
     let value: Value = serde_json::from_slice(payload)
         .map_err(|error| ImError::Parse(format!("{command} payload: {error}")))?;
-    let navigation_token = match value.get("navigationToken") {
+    let navigation_token = match value
+        .get("navigation_token")
+        .or_else(|| value.get("navigationToken"))
+    {
         Some(Value::String(value)) if !value.is_empty() => Some(value.clone()),
         Some(_) => {
             return Err(ImError::Parse(format!(
@@ -691,6 +694,7 @@ fn parse_request(
                 | "targetPostId"
                 | "target_post_id"
                 | "anchor"
+                | "navigation_token"
                 | "navigationToken"
         )
     }) {

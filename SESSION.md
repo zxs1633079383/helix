@@ -1,3 +1,4 @@
+✅ DONE 历史引用 null 修复 513157ad；Helix 0.1.61 已发布 f587445c；客户端回归与依赖提交通过，不构建应用；双仓影响见 docs/交接/1013-历史引用空值修复/handoff.md。
 🎯 EXPECT 历史exact/initial-window无引用保持null，真实引用对象保留，其他默认值不变；先红后绿Tick/SQLite+客户端回归，审查双仓影响后发布新patch、双仓push，不构建应用。| 赌注 中 | 可逆 发布否 | @2026-10-13
 - 交接：docs/交接/1013-历史引用空值修复/handoff.md
 🎯 EXPECT 独立worktree接入12个presence文件，17项presence回放通过；四公共包统一发布下一patch，版本提交与注释Tag推送后远端SHA一致；不修改客户端。分支codex/presence-release-20261013，upstream origin/reactor/MessageV3-helix；本轮保留worktree与分支。| 赌注 中 | 可逆 发布否 | @2026-10-13

@@ -104,8 +104,10 @@ impl ImModule {
             if matches!(
                 self.state.corr_map.get(corr),
                 Some(
-                    CorrelationContext::DialogListQuery { .. }
-                        | CorrelationContext::ChannelViewSnapshotQuery { .. }
+                    CorrelationContext::DialogListQuery {
+                        channel_rows: None,
+                        ..
+                    } | CorrelationContext::ChannelViewSnapshotQuery { .. }
                         | CorrelationContext::ChannelSyncPage { .. }
                 )
             ) {
@@ -748,6 +750,32 @@ impl ImModule {
                 if self.schedule_media_timeout(*id, out) {
                     return Ok(());
                 }
+                if self.schedule_multipart_timeout(*id, now_ms, out) {
+                    return Ok(());
+                }
+                if let Some(key) = self.state.schedule_multipart_retry_timers.remove(id) {
+                    self.schedule_multipart_retry(&key, out).map_err(|error| {
+                        CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(error),
+                        }
+                    })?;
+                    return Ok(());
+                }
+                if let Some(pending) = self.state.multipart_retry_timers.remove(id) {
+                    self.emit_multipart_init(
+                        pending.channel_id,
+                        pending.temporary_id,
+                        pending.target,
+                        pending.input,
+                        out,
+                    )
+                    .map_err(|error| CoreError::ModuleError {
+                        module: self.name(),
+                        source: Box::new(error),
+                    })?;
+                    return Ok(());
+                }
                 self.handle_timer(*id, now_ms, out)
                     .map_err(|e| CoreError::ModuleError {
                         module: self.name(),
@@ -852,6 +880,19 @@ impl ImModule {
             )],
         });
         self.state.pending_media_rehydrate_corr = Some(corr);
+        let schedule_corr = self.alloc_corr_internal();
+        out.push(helix_core::Effect::Persist {
+            corr: schedule_corr,
+            ops: vec![helix_core::effect::StorageOp::Scan(
+                helix_core::effect::ScanSpec {
+                    table: "schedule_media_intent",
+                    limit: None,
+                    filter: None,
+                    order_by: &[],
+                },
+            )],
+        });
+        self.state.schedule_media_rehydrate_corr = Some(schedule_corr);
         Ok(())
     }
 
@@ -904,10 +945,25 @@ impl ImModule {
 
     /// 停止时释放读关联、发送与频道计时器。
     fn stop_scoped_module(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
+        self.clear_all_multipart_runtime();
+        // HashMap 的 drain 顺序不稳定；停止时按 TimerId 排序，保证同一输入产生确定性的
+        // CancelTimer Effect 序列，避免回放/跨端证据因迭代顺序漂移。
+        let mut multipart_retry_timers: Vec<_> = self
+            .state
+            .multipart_retry_timers
+            .drain()
+            .map(|(timer, _)| timer)
+            .collect();
+        multipart_retry_timers.sort_unstable_by_key(|timer| timer.raw());
+        for timer in multipart_retry_timers {
+            out.push(helix_core::Effect::CancelTimer { id: timer });
+        }
+        self.state.multipart_retry_attempts.clear();
         self.cancel_pending_reads(out);
         self.finish_sync_observation(crate::sync_observation::SyncResult::Cancelled);
         self.cancel_category(out);
         self.stop_schedule_media(out);
+        self.stop_schedule_multipart(out);
         self.cancel_forward_details(None, "CANCELLED", out);
         self.cancel_forwards(out)
             .map_err(|e| CoreError::ModuleError {

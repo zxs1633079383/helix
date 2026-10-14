@@ -590,6 +590,14 @@ impl WebSessionStore {
             if scoped_values
                 .binary_search_by(|value| sql_value_cmp(Some(*value), Some(scope)))
                 .is_ok()
+                && spec.filter.as_ref().is_none_or(|(column, expected)| {
+                    row_value(&stored.values, column)
+                        // Host uses SQL `=` for this additive predicate, where NULL never
+                        // equals NULL. Keep the Web mirror on that same WHERE semantics;
+                        // the existing sql_value_eq helper intentionally remains null-aware
+                        // for legacy `IS`-style paths elsewhere in this store.
+                        .is_some_and(|value| sql_where_eq(value, expected))
+                })
             {
                 rows.push(&stored.values);
                 if rows.len() > spec.limit {
@@ -1100,6 +1108,15 @@ fn sql_value_eq(left: &SqlValue, right: &SqlValue) -> bool {
         (SqlValue::Null, SqlValue::Null) => true,
         _ => false,
     }
+}
+
+/// Match a SQLite `WHERE column = ?` predicate: SQL NULL is never equal, including to NULL.
+/// Keep this separate from the store's legacy null-aware equality used by `IS`-style paths.
+fn sql_where_eq(left: &SqlValue, right: &SqlValue) -> bool {
+    if matches!(left, SqlValue::Null) || matches!(right, SqlValue::Null) {
+        return false;
+    }
+    sql_value_eq(left, right)
 }
 
 /// Apply the same null-aware equality as SQLite `IS` to a sparse row column.
@@ -1969,6 +1986,7 @@ mod tests {
                 table: "message",
                 scope_col: "channel_id",
                 scope_values: vec![text("channel-a"), text("channel-a")],
+                filter: None,
                 limit: 4,
             })
             .expect("scoped scan");
@@ -1981,6 +1999,7 @@ mod tests {
                 table: "message",
                 scope_col: "channel_id",
                 scope_values: vec![text("channel-a")],
+                filter: None,
                 limit: 1,
             })
             .is_err());
@@ -1989,10 +2008,72 @@ mod tests {
                 table: "missing_table",
                 scope_col: "channel_id",
                 scope_values: Vec::new(),
+                filter: None,
                 limit: 1,
             })
             .expect("empty scope must not touch table")
             .is_empty());
+    }
+
+    #[test]
+    fn scoped_scan_applies_optional_filter_before_limit() {
+        let store = new_store(limits());
+        store
+            .batch_upsert_sync(UpsertSpec {
+                table: "channel_member",
+                rows: vec![
+                    vec![
+                        ("channel_id".into(), text("channel-a")),
+                        ("user_id".into(), text("viewer")),
+                        ("role".into(), text("member")),
+                    ],
+                    vec![
+                        ("channel_id".into(), text("channel-a")),
+                        ("user_id".into(), text("other")),
+                        ("role".into(), text("member")),
+                    ],
+                    vec![
+                        ("channel_id".into(), text("channel-b")),
+                        ("user_id".into(), text("viewer")),
+                        ("role".into(), text("member")),
+                    ],
+                    vec![
+                        ("channel_id".into(), text("channel-b")),
+                        ("user_id".into(), SqlValue::Null),
+                        ("role".into(), text("null-user")),
+                    ],
+                ],
+                conflict_key: Some("channel_id,user_id"),
+                exclude_from_update: Vec::new(),
+                version_column: None,
+                update_guard: None,
+            })
+            .expect("members");
+
+        let rows = store
+            .scoped_scan_sync(ScopedScanSpec {
+                table: "channel_member",
+                scope_col: "channel_id",
+                scope_values: vec![text("channel-a"), text("channel-b")],
+                filter: Some(("user_id", text("viewer"))),
+                limit: 2,
+            })
+            .expect("filtered member scan");
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|row| {
+            matches!(row_value(row, "user_id"), Some(SqlValue::Text(user)) if user == "viewer")
+        }));
+
+        let null_rows = store
+            .scoped_scan_sync(ScopedScanSpec {
+                table: "channel_member",
+                scope_col: "channel_id",
+                scope_values: vec![text("channel-b")],
+                filter: Some(("user_id", SqlValue::Null)),
+                limit: 1,
+            })
+            .expect("SQL equality with NULL is valid but matches no row");
+        assert!(null_rows.is_empty(), "WHERE user_id = NULL must not match");
     }
 
     #[test]

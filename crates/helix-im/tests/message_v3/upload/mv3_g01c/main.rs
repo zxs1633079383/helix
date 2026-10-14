@@ -59,6 +59,17 @@ fn two_image_tick(temporary_id: &str) -> Tick {
     }))
 }
 
+/// 在同一公开 `im_send_message` seam 上注入请求因果，验证媒体失败终态仍能回收该绑定。
+fn two_image_tick_with_request(temporary_id: &str, request_id: &str) -> Tick {
+    let Tick::Command(command) = two_image_tick(temporary_id) else {
+        unreachable!("two_image_tick must produce a Command tick")
+    };
+    let mut payload: Value =
+        serde_json::from_slice(command.payload.as_ref()).expect("two-image command payload");
+    payload["req_id"] = json!(request_id);
+    send_message_cmd_json(payload)
+}
+
 fn http_with_suffix(h: &Harness, suffix: &str) -> Vec<(u64, Value)> {
     h.sink
         .as_slice()
@@ -519,6 +530,43 @@ fn second_image_failure_blocks_posts_create_and_isolates_failed_target() {
         props["files"][0]["id"], "file-image-001",
         "已完成目标的服务端引用必须保留，重试只补失败目标"
     );
+}
+
+/// 媒体 UploadFile PortErr 必须把公开发送命令的 request causation 带进失败终态。
+#[test]
+fn media_upload_failure_preserves_request_id_in_failed_projection() {
+    let mut h = Harness::new_with_identity(&[1], "upload-viewer", "upload-company", "", "", "");
+    h.step(
+        two_image_tick_with_request("tmp-mv3-g01c-request", "media-failure-request"),
+        1_700_000_000_000,
+    );
+    let prepare_stage = stage_corrs(&h, "prepare");
+    assert_eq!(prepare_stage.len(), 1);
+    h.step(port_reply_ok(prepare_stage[0]), 1_700_000_000_001);
+
+    let prepares = http_with_suffix(&h, "/oss/getPresignedUrl");
+    assert_eq!(prepares.len(), 2);
+    reply(
+        &mut h,
+        prepares[0].0,
+        prepare_outcome("file-image-request", "image/png"),
+        1_700_000_000_002,
+    );
+    let put_stage = stage_corrs(&h, "put");
+    assert_eq!(put_stage.len(), 1);
+    h.step(port_reply_ok(put_stage[0]), 1_700_000_000_003);
+    let uploads = upload_corrs(&h);
+    assert_eq!(uploads.len(), 1);
+
+    h.step(port_reply_err(uploads[0]), 1_700_000_000_004);
+
+    let failures = emitted(&h, "im:post:send-failed");
+    assert_eq!(
+        failures.len(),
+        1,
+        "media PortErr must emit one failure fact"
+    );
+    assert_eq!(failures[0]["data"]["requestId"], "media-failure-request");
 }
 
 /// 失败后立刻重发：上传仍在链路内（未进 UnSend 终态）时，`im_retry_send` 不得并发再发一轮

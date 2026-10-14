@@ -35,11 +35,11 @@ fn reference_package_is_complete() {
     phase1_reference::assert_reference_gate("MV3-G02d", "upload/mv3-g02d");
 }
 
-/// 64 MiB 边界值可进入唯一 optimistic Persist，且未提前上传或发送 HTTP。
+/// 1 GiB 边界值可进入唯一 optimistic Persist，且未提前上传或发送 HTTP。
 #[test]
-fn exact_64_mib_is_accepted_by_the_helix_media_boundary() {
+fn exact_1_gib_is_accepted_by_the_helix_media_boundary() {
     let mut harness = Harness::new(&[1]);
-    let effects = harness.step(file_send(64 << 20), 1_700_000_000_000);
+    let effects = harness.step(file_send(1 << 30), 1_700_000_000_000);
 
     assert_eq!(
         effects
@@ -58,12 +58,12 @@ fn exact_64_mib_is_accepted_by_the_helix_media_boundary() {
     )));
 }
 
-/// 64 MiB+1 在 Helix 规划前失败，保持 Persist/HTTP/Upload/Event/Timer 五项为零。
+/// 1 GiB+1 在 Helix 规划前失败，保持 Persist/HTTP/Upload/Event/Timer 五项为零。
 #[test]
-fn over_64_mib_is_rejected_with_five_zero_side_effect_classes() {
+fn over_1_gib_is_rejected_with_five_zero_side_effect_classes() {
     let mut harness = Harness::new(&[1]);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        harness.step(file_send((64 << 20) + 1), 1_700_000_000_000)
+        harness.step(file_send((1 << 30) + 1), 1_700_000_000_000)
     }));
 
     assert!(result.is_err(), "oversize media command must fail closed");

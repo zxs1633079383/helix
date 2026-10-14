@@ -22,9 +22,8 @@
 //!
 //! ## HX-C011 可证伪性
 //!
-//! 若 break FfiEventSink flush（如注释掉 flush 调用）→ FFI Vec 为空 → parity FAIL。
-//! 若 break batch decode（如 off-by-one len）→ decode 内容错位 → parity FAIL。
-//! commit body 附破坏证明（见提交记录）。
+//! callback 丢失、batch 解码错误或 opaque 业务字节变化均由结果断言检测。
+//! 验证期间保持生产源码冻结；只通过测试夹具及正向/负向场景验证。
 //!
 //! ## 注意（runtime）
 //!
@@ -48,9 +47,11 @@
 //!    M2 Tauri 接 `EventReceiver` 时验收，避免 native 升级后 parity 静默失效。
 
 use bytes::Bytes;
-use helix_core::effect::{DomainEventBytes, StorageOp, TransportId};
+use helix_core::effect::{
+    DomainEventBytes, GetSpec, ScopedGetSpec, SqlValue, StorageOp, TransportId,
+};
 use helix_core::ports::EventSink;
-use helix_core::tick::{AppCommand, InboundBytes, PortOutcome, ReplyBytes};
+use helix_core::tick::{AppCommand, InboundBytes, PortOutcome};
 use helix_core::{Effect, ExecutionShell, Tick};
 use helix_driver_ffi::batch::decode_batch;
 use helix_driver_ffi::event_sink::FfiEventSink;
@@ -119,9 +120,32 @@ fn build_shell_with_mode(local_store_mode: LocalStoreMode) -> ExecutionShell {
     shell
 }
 
-/// 兑现本轮 SQLite Effect 并按原 corr 回灌；不伪造 HTTP 成功或业务 Emit。
+/// Shell 和 Web executor 共用同一真实存储回灌循环。
 async fn drain_storage(
     shell: &mut ExecutionShell,
+    storage: &HostStorage,
+    initial: Vec<WebOwnedEffect>,
+    now_ms: u64,
+) -> Vec<DomainEventBytes> {
+    drain_storage_with(
+        |tick, now| {
+            shell
+                .step(tick, now)
+                .expect("storage PortReply")
+                .iter()
+                .map(WebOwnedEffect::from)
+                .collect()
+        },
+        storage,
+        initial,
+        now_ms,
+    )
+    .await
+}
+
+/// 兑现本轮 SQLite Effect 并按原 corr 回灌；不伪造 HTTP 成功或业务 Emit。
+async fn drain_storage_with(
+    mut step: impl FnMut(Tick, u64) -> Vec<WebOwnedEffect>,
     storage: &HostStorage,
     initial: Vec<WebOwnedEffect>,
     now_ms: u64,
@@ -157,17 +181,14 @@ async fn drain_storage(
                 matches!(&outcome, PortOutcome::Ok(_)),
                 "SQLite reply: {outcome:?}"
             );
-            let next = shell
-                .step(Tick::PortReply { corr, outcome }, now_ms + steps)
-                .expect("storage PortReply");
-            queue.extend(next.iter().map(WebOwnedEffect::from));
+            queue.extend(step(Tick::PortReply { corr, outcome }, now_ms + steps));
         }
     }
     events
 }
 
-/// 用真实 SQLite 回灌启动、乐观写、post 原子提交与成员读回，收集生产 Emit。
-async fn collect_source_emits(shell: &mut ExecutionShell) -> Vec<DomainEventBytes> {
+/// 夹具的频道归属先真实落库，启动扫描才能恢复可信 scope；不直接写 module 状态。
+async fn owned_storage(seed_watermark: bool) -> HostStorage {
     let storage = HostStorage::open_sqlite_url("sqlite::memory:")
         .await
         .expect("isolated SQLite");
@@ -182,6 +203,85 @@ async fn collect_source_emits(shell: &mut ExecutionShell) -> Vec<DomainEventByte
             );
         }
     }
+    for sql in [
+        "INSERT INTO channel (id, user_id, team_id, last_event_seq) VALUES ('rmibkwkjwidhdx5xy8pyse6a3r', 'f5-viewer', 'f5-company', 40113)",
+        "INSERT INTO channel_member (channel_id, user_id, team_id, role, mention_list, urgent_post_list) VALUES ('rmibkwkjwidhdx5xy8pyse6a3r', 'f5-viewer', 'f5-company', 'MEMBER', '[]', '[]')",
+        "INSERT INTO channel_event_cursor (channel_id, last_event_seq) VALUES ('rmibkwkjwidhdx5xy8pyse6a3r', 40113)",
+    ] {
+        storage.execute_raw(sql).await.expect("persist owned fixture");
+    }
+    let channel = sqlite_rows(
+        &storage,
+        StorageOp::Get(GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text("rmibkwkjwidhdx5xy8pyse6a3r".into()),
+        }),
+    )
+    .await;
+    assert_eq!(channel.len(), 1);
+    assert_eq!(channel[0]["id"], "rmibkwkjwidhdx5xy8pyse6a3r");
+    assert_eq!(channel[0]["user_id"], "f5-viewer");
+    assert_eq!(channel[0]["team_id"], "f5-company");
+    let member = sqlite_rows(
+        &storage,
+        StorageOp::ScopedGet(ScopedGetSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text("rmibkwkjwidhdx5xy8pyse6a3r".into()),
+            key_col: "user_id",
+            key_val: SqlValue::Text("f5-viewer".into()),
+        }),
+    )
+    .await;
+    assert_eq!(member.len(), 1);
+    assert_eq!(member[0]["channel_id"], "rmibkwkjwidhdx5xy8pyse6a3r");
+    assert_eq!(member[0]["user_id"], "f5-viewer");
+    assert_eq!(member[0]["team_id"], "f5-company");
+    assert_eq!(member[0]["role"], "MEMBER");
+    assert_eq!(member[0]["mention_list"], "[]");
+    assert_eq!(member[0]["urgent_post_list"], "[]");
+    let cursor = sqlite_rows(
+        &storage,
+        StorageOp::Get(GetSpec {
+            table: "channel_event_cursor",
+            key_col: "channel_id",
+            key_val: SqlValue::Text("rmibkwkjwidhdx5xy8pyse6a3r".into()),
+        }),
+    )
+    .await;
+    assert_eq!(cursor.len(), 1);
+    assert_eq!(cursor[0]["last_event_seq"], 40113);
+    if seed_watermark {
+        storage.execute_raw("INSERT INTO message (temporary_id, channel_id, user_id, team_id, create_at) VALUES ('a4-watermark', 'rmibkwkjwidhdx5xy8pyse6a3r', 'f5-viewer', 'f5-company', 1234)").await.expect("persist watermark");
+        let message = sqlite_rows(
+            &storage,
+            StorageOp::Get(GetSpec {
+                table: "message",
+                key_col: "temporary_id",
+                key_val: SqlValue::Text("a4-watermark".into()),
+            }),
+        )
+        .await;
+        assert_eq!(message.len(), 1);
+        assert_eq!(message[0]["channel_id"], "rmibkwkjwidhdx5xy8pyse6a3r");
+        assert_eq!(message[0]["create_at"], 1234);
+    }
+    println!("owned SQLite readback: channel/team/user verified, member MEMBER, cursor 40113; watermark={seed_watermark}");
+    storage
+}
+
+async fn sqlite_rows(storage: &HostStorage, op: StorageOp) -> Vec<serde_json::Value> {
+    let outcome = execute_storage_ops(storage, &[op]).await;
+    let PortOutcome::Ok(reply) = outcome else {
+        panic!("SQLite readback: {outcome:?}")
+    };
+    serde_json::from_slice(reply.0.as_ref()).expect("actual SQLite rows JSON")
+}
+
+/// 用真实 SQLite 回灌启动、乐观写、post 原子提交与成员读回，收集生产 Emit。
+async fn collect_source_emits(shell: &mut ExecutionShell) -> Vec<DomainEventBytes> {
+    let storage = owned_storage(false).await;
     let start = shell
         .start()
         .expect("start")
@@ -491,21 +591,66 @@ fn contains_event(effects: &[Effect], expected: &str) -> bool {
 /// 逐 step 业务 Effect 必须一致。
 ///
 /// 这是共享业务核的确定性契约，不是三端物理连接 adapter parity 测试。
-#[test]
-fn a4_identical_injected_lifecycle_script_is_three_platform_equivalent() {
+#[tokio::test]
+async fn a4_identical_injected_lifecycle_script_is_three_platform_equivalent() {
     let mut native_shell = build_shell();
     let mut ffi_shell = build_shell();
     let mut web_executor = WebExecutor::new(build_shell_with_mode(LocalStoreMode::Session));
-    let native_start = effect_fingerprints(native_shell.start().expect("native start"));
+    let native_storage = owned_storage(true).await;
+    let ffi_storage = owned_storage(true).await;
+    let web_storage = owned_storage(true).await;
+    let native_start = native_shell.start().expect("native start");
+    let native_fingerprint = effect_fingerprints(native_start);
+    let native_start: Vec<_> = native_start.iter().map(WebOwnedEffect::from).collect();
+    let ffi_start = ffi_shell.start().expect("ffi start");
     assert_eq!(
-        native_start,
-        effect_fingerprints(ffi_shell.start().expect("ffi start")),
+        native_fingerprint,
+        effect_fingerprints(ffi_start),
         "native/FFI 独立 shell 的启动 Effect 必须一致"
     );
+    let ffi_start: Vec<_> = ffi_start.iter().map(WebOwnedEffect::from).collect();
+    let web_start = web_executor.start().expect("Web start");
     assert_eq!(
-        native_start,
-        web_effect_fingerprints(&web_executor.start().expect("Web start")),
+        native_fingerprint,
+        web_effect_fingerprints(&web_start),
         "Web executor 的启动 Effect 必须与 native/FFI 一致"
+    );
+    let native_started = drain_storage(
+        &mut native_shell,
+        &native_storage,
+        native_start,
+        FIXED_NOW_MS,
+    )
+    .await;
+    let ffi_started = drain_storage(&mut ffi_shell, &ffi_storage, ffi_start, FIXED_NOW_MS).await;
+    let web_started = drain_storage_with(
+        |tick, now| web_executor.step(tick, now).expect("Web startup reply"),
+        &web_storage,
+        web_start,
+        FIXED_NOW_MS,
+    )
+    .await;
+    assert_eq!(
+        native_started
+            .iter()
+            .map(|event| event.0.clone())
+            .collect::<Vec<Bytes>>(),
+        ffi_started
+            .iter()
+            .map(|event| event.0.clone())
+            .collect::<Vec<Bytes>>(),
+        "startup storage replies must resolve the same Emits"
+    );
+    assert_eq!(
+        native_started
+            .iter()
+            .map(|event| event.0.clone())
+            .collect::<Vec<Bytes>>(),
+        web_started
+            .iter()
+            .map(|event| event.0.clone())
+            .collect::<Vec<Bytes>>(),
+        "Web startup storage replies must resolve the same Emits"
     );
 
     let script = [
@@ -521,7 +666,7 @@ fn a4_identical_injected_lifecycle_script_is_three_platform_equivalent() {
             .step(lifecycle_tick(step), now_ms)
             .expect("native lifecycle step");
         let native_fingerprint = effect_fingerprints(native);
-        let watermark_corr = native.iter().find_map(|effect| match effect {
+        let watermark_scan = native.iter().find_map(|effect| match effect {
             Effect::Persist { corr, ops }
                 if ops.iter().any(|op| {
                     matches!(
@@ -531,7 +676,7 @@ fn a4_identical_injected_lifecycle_script_is_three_platform_equivalent() {
                     )
                 }) =>
             {
-                Some(*corr)
+                Some((*corr, ops.clone()))
             }
             _ => None,
         });
@@ -565,13 +710,20 @@ fn a4_identical_injected_lifecycle_script_is_three_platform_equivalent() {
             "生命周期剧本第 {index} 步 Web 业务 Effect 漂移"
         );
         if matches!(step, LifecycleStep::Hello(_)) {
-            let corr = watermark_corr.expect("hello must request a message watermark scan");
-            let reply = || Tick::PortReply {
-                corr,
-                outcome: PortOutcome::Ok(ReplyBytes(Bytes::from_static(b"[{\"create_at\":1234}]"))),
-            };
+            let (corr, ops) = watermark_scan.expect("hello must request a message watermark scan");
+            let native_outcome = execute_storage_ops(&native_storage, &ops).await;
+            let ffi_outcome = execute_storage_ops(&ffi_storage, &ops).await;
+            let web_outcome = execute_storage_ops(&web_storage, &ops).await;
+            for outcome in [&native_outcome, &ffi_outcome, &web_outcome] {
+                let PortOutcome::Ok(reply) = outcome else {
+                    panic!("watermark SQLite: {outcome:?}")
+                };
+                let rows: serde_json::Value = serde_json::from_slice(reply.0.as_ref()).unwrap();
+                assert_eq!(rows, serde_json::json!([{ "create_at": 1234 }]));
+            }
+            let reply = |outcome| Tick::PortReply { corr, outcome };
             let native = native_shell
-                .step(reply(), now_ms)
+                .step(reply(native_outcome), now_ms)
                 .expect("native watermark reply");
             let requests: Vec<_> = native
                 .iter()
@@ -596,11 +748,11 @@ fn a4_identical_injected_lifecycle_script_is_three_platform_equivalent() {
             let expected = effect_fingerprints(native);
             assert_eq!(
                 expected,
-                effect_fingerprints(ffi_shell.step(reply(), now_ms).unwrap())
+                effect_fingerprints(ffi_shell.step(reply(ffi_outcome), now_ms).unwrap())
             );
             assert_eq!(
                 expected,
-                web_effect_fingerprints(&web_executor.step(reply(), now_ms).unwrap())
+                web_effect_fingerprints(&web_executor.step(reply(web_outcome), now_ms).unwrap())
             );
         }
     }

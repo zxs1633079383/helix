@@ -310,7 +310,8 @@ where
 {
     let progress_reply_tx = feedback.clone();
     BoundedSpawner::new_with_feedback(
-        concurrency,
+        // Uploads have an independent ceiling even when the HTTP pool is much wider.
+        concurrency.clamp(1, 6),
         HTTP_QUEUE_CAP,
         overflow,
         feedback,
@@ -367,4 +368,50 @@ where
             }
         },
     )
+}
+
+#[cfg(test)]
+mod upload_budget_tests {
+    use super::*;
+    use crate::metrics::{MetricEvent, MetricId, RecordOutcome};
+    use helix_core::effect::FileUploadResponse;
+    use helix_core::PortError;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct Facts(Mutex<Vec<MetricEvent>>);
+    impl AsyncMetricSink for Facts {
+        /// Capture the constructed pool's worker facts, without a live exporter.
+        fn try_record(&self, event: MetricEvent) -> RecordOutcome {
+            self.0.lock().unwrap().push(event);
+            RecordOutcome::Accepted
+        }
+    }
+    struct IdleUploader;
+    #[async_trait::async_trait]
+    impl FileUploader for IdleUploader {
+        /// No jobs are submitted; only construction and shutdown are exercised.
+        async fn upload(&self, _: FileUploadRequest) -> Result<FileUploadResponse, PortError> {
+            Err(PortError::Other("unexpected job".into()))
+        }
+    }
+
+    /// High HTTP concurrency must never expand the independent upload worker budget.
+    #[tokio::test]
+    async fn upload_pool_caps_workers_without_changing_http_budget() {
+        let facts = Arc::new(Facts::default());
+        let (tx, _) = mpsc::unbounded_channel();
+        let pool = spawn_upload_pool_with_feedback(
+            40,
+            Arc::new(IdleUploader),
+            FeedbackSink::Raw(tx),
+            Overflow::Block,
+            facts.clone(),
+        );
+        pool.shutdown().await;
+        let records = facts.0.lock().unwrap();
+        assert!(records
+            .iter()
+            .any(|event| event.id == MetricId::PoolWorkers && event.value == 6.0));
+    }
 }

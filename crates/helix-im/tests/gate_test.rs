@@ -197,6 +197,145 @@ fn gate_timer_fires_sync_http() {
     );
 }
 
+/// 回归锚：真实 gap timer 必须保留意图，等待 matching 同步原子写后再从提交 cursor 发出。
+#[test]
+fn gate_timer_waits_for_matching_sync_persist_ack() {
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    let gap = h.step(inbound_event(1, 3, 1), 1000);
+    let timer = gap
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::ScheduleTimer(id) => Some(*id),
+            _ => None,
+        })
+        .expect("real gap must arm timer");
+    let initial = sync_notify_requests(&h);
+    assert_eq!(initial.len(), 1);
+    assert_eq!(initial[0].1["cursors"][0]["fromSeq"], 0);
+
+    let writes = h.step(
+        port_reply_with_body(initial[0].0, enveloped(sync_reply_events(1, &[1, 2, 3]))),
+        1500,
+    );
+    let persist = writes
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::PersistAtomic(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("real sync reply must produce an atomic write");
+    assert_eq!(h.module.cursor_for(channel_id(1)), Some(0));
+    assert_eq!(h.module.sync_inflight(), 0);
+    assert!(sync_notify_requests(&h).is_empty());
+
+    // 保持原子写未确认；Timer 只能排队，不能越过持久屏障再读旧 cursor。
+    h.step(timer_tick(timer), 2001);
+    let fired = sync_notify_requests(&h);
+    eprintln!(
+        "gate_pending_commit: notify={} cursor={:?} inflight={} queued={} from_seqs={:?}",
+        fired.len(),
+        h.module.cursor_for(channel_id(1)),
+        h.module.sync_inflight(),
+        h.module.sync_pending_len(),
+        fired
+            .iter()
+            .map(|(_, body)| &body["cursors"][0]["fromSeq"])
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(h.module.cursor_for(channel_id(1)), Some(0));
+    assert_eq!(
+        fired.len(),
+        0,
+        "unacknowledged sync write must block gate notify"
+    );
+    assert_eq!(
+        h.module.sync_pending_len(),
+        1,
+        "gate intent must survive the barrier"
+    );
+
+    h.step(port_reply_ok(persist), 2100);
+    let resumed = sync_notify_requests(&h);
+    assert_eq!(h.module.cursor_for(channel_id(1)), Some(3));
+    assert_eq!(resumed.len(), 1);
+    assert_eq!(resumed[0].1["cursors"][0]["channelId"], cid(1));
+    assert_eq!(resumed[0].1["cursors"][0]["fromSeq"], 3);
+    assert_eq!(h.module.sync_inflight(), 1);
+    assert_eq!(h.module.sync_pending_len(), 0);
+}
+
+/// 回归锚：真实 Timer 的请求数减完成数必须与八窗口计数一致，不能无占窗发第九请求。
+#[test]
+fn gate_timer_waits_for_available_sync_window() {
+    use helix_im::sync_scheduler::MAX_INFLIGHT_SYNC;
+    let k = MAX_INFLIGHT_SYNC;
+    let channels: Vec<u64> = (1..=(k as u64 + 1)).collect();
+    let mut h = Harness::new_with_identity(&channels, "viewer-444", "tenant-1", "", "", "");
+    let gap = h.step(inbound_event(1, 2, 1), 1000);
+    let timer = gap
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::ScheduleTimer(id) => Some(*id),
+            _ => None,
+        })
+        .expect("real gap must arm timer");
+    let initial = sync_notify_requests(&h);
+    assert_eq!(initial.len(), 1);
+    h.step(port_reply_err(initial[0].0), 1500);
+    assert_eq!(h.module.sync_inflight(), 0);
+
+    let mut requests = Vec::new();
+    for &channel in &channels[1..] {
+        h.step(
+            command_json(
+                "im_sync_channels",
+                serde_json::json!({"channel_id": cid(channel)}),
+            ),
+            1600 + channel,
+        );
+        let emitted = sync_notify_requests(&h);
+        assert_eq!(emitted.len(), 1);
+        requests.push((channel, emitted[0].0));
+    }
+    let mut dispatched = 1 + requests.len();
+    let mut completed = 1;
+    assert_eq!(dispatched - completed, k);
+    assert_eq!(h.module.sync_inflight(), k);
+
+    h.step(timer_tick(timer), 2001);
+    let fired = sync_notify_requests(&h);
+    dispatched += fired.len();
+    eprintln!(
+        "gate_full_window: actual={} inflight={} notify={} queued={}",
+        dispatched - completed,
+        h.module.sync_inflight(),
+        fired.len(),
+        h.module.sync_pending_len()
+    );
+    assert_eq!(
+        dispatched - completed,
+        k,
+        "gate timer must not emit a ninth actual request"
+    );
+    assert_eq!(h.module.sync_inflight(), dispatched - completed);
+    assert_eq!(h.module.sync_pending_len(), 1);
+
+    let (channel, corr) = requests[0];
+    h.step(
+        port_reply_with_body(corr, enveloped(sync_reply_no_change(channel, 0))),
+        2100,
+    );
+    completed += 1;
+    let resumed = sync_notify_requests(&h);
+    dispatched += resumed.len();
+    assert_eq!(resumed.len(), 1);
+    assert_eq!(resumed[0].1["cursors"][0]["channelId"], cid(1));
+    assert_eq!(resumed[0].1["cursors"][0]["fromSeq"], 0);
+    assert_eq!(dispatched - completed, k);
+    assert_eq!(h.module.sync_inflight(), dispatched - completed);
+    assert_eq!(h.module.sync_pending_len(), 0);
+}
+
 // ─── sync 成功 → peek/commit 三阶段 ──────────────────────────────────────────
 
 #[test]

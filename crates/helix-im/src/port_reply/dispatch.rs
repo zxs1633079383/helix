@@ -3,22 +3,6 @@ use crate::module::ImModule;
 use crate::state::CorrelationContext;
 use helix_core::EffectSink;
 
-/// 以明确失败状态结束 dialog 两段式回读，避免无身份或畸形回包静默成功。
-fn emit_dialog_list_failed(
-    out: &mut EffectSink,
-    causation_id: Option<String>,
-) -> Result<(), ImError> {
-    out.push(
-        crate::event::channel::list(serde_json::json!({
-            "channels": [],
-            "requestId": causation_id,
-            "state": "failed",
-        }))?
-        .into_effect(),
-    );
-    Ok(())
-}
-
 /// Decode the channel row returned after a notify write; sparse WS input is never used as the
 /// final event payload, so absent fields retain the durable values already in SQLite.
 fn notify_channel_update_from_reply(
@@ -66,8 +50,20 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         use helix_core::tick::PortOutcome;
+        if let Some(pending) = self.state.pending_schedule_multipart.remove(&corr) {
+            return self.schedule_multipart_reply(pending, outcome, now_ms, out);
+        }
         if let Some(pending) = self.state.pending_schedule_media.remove(&corr) {
             return self.schedule_media_reply(pending, outcome, now_ms, out);
+        }
+
+        if self.state.schedule_media_rehydrate_corr == Some(corr) {
+            self.state.schedule_media_rehydrate_corr = None;
+            if let PortOutcome::Ok(reply) = outcome {
+                return self.rehydrate_schedule_media(reply.0.as_ref(), now_ms, out);
+            }
+            tracing::warn!("schedule media intent recovery scan failed; recovery remains closed");
+            return Ok(());
         }
 
         if self.state.pending_media_rehydrate_corr == Some(corr) {
@@ -194,6 +190,7 @@ impl ImModule {
             if matches!(
                 &pending_media,
                 crate::send::upload_props::PendingMediaOp::Put(_)
+                    | crate::send::upload_props::PendingMediaOp::MultipartPut(_)
             ) {
                 if matches!(outcome, PortOutcome::Ok(_))
                     && self.defer_media_put_until_progress_commits(corr, &pending_media)
@@ -818,7 +815,7 @@ impl ImModule {
                 reset_to,
                 channel_updates,
             } => match outcome {
-                PortOutcome::Ok(reply) => {
+                PortOutcome::Ok(_) => {
                     self.clear_too_long_recovery(channel_id);
                     let committed = self
                         .state
@@ -827,11 +824,16 @@ impl ImModule {
                         .is_some_and(|channel| channel.commit_too_long_after_atomic(reset_to));
                     if committed {
                         for pending in channel_updates {
-                            if let Some(data) =
-                                pending.event_data_from_channel_reply(reply.0.as_ref())
-                            {
-                                out.push(crate::event::channel::update(data)?.into_effect());
-                            }
+                            // 原子写不返回行；提交成功后再读回绝对未读值，复用统一频道投影。
+                            let read_corr = self.alloc_corr_internal();
+                            out.push(helix_core::Effect::Persist {
+                                corr: read_corr,
+                                ops: vec![crate::acl::to_effect::get_channel_row_op(channel_id)],
+                            });
+                            self.state.corr_map.insert(
+                                read_corr,
+                                CorrelationContext::ChannelUpdateByPost { pending },
+                            );
                         }
                         self.finish_increment_hydration(channel_id, out)?;
                         // resetTo 只覆盖原响应时刻；再从已提交cursor有界补拉，接住恢复期间的新事件。
@@ -931,6 +933,11 @@ impl ImModule {
                 channel_id,
                 request_id,
             } => {
+                let multipart_submission = self
+                    .state
+                    .schedule_media_submitting
+                    .get(&channel_id)
+                    .cloned();
                 let succeeded = match outcome {
                     PortOutcome::Ok(reply) => {
                         crate::http_envelope::unwrap_success_envelope(reply.0.as_ref(), "schedule")
@@ -948,6 +955,41 @@ impl ImModule {
                         self.state.pending_schedule_requests.get(&channel_id) == Some(request_id)
                     }) {
                         self.state.pending_schedule_requests.remove(&channel_id);
+                        if multipart_submission.is_some() {
+                            let (stage, message) = match outcome {
+                                PortOutcome::Err(error) => (
+                                    crate::schedule_media::SCHEDULE_INTENT_STAGE_UNKNOWN,
+                                    format!("schedule HTTP outcome unknown: {error:?}"),
+                                ),
+                                PortOutcome::Ok(_) => (
+                                    crate::schedule_media::SCHEDULE_INTENT_STAGE_FAILED,
+                                    "schedule HTTP returned business failure".to_string(),
+                                ),
+                            };
+                            // A transport error leaves the submission outcome
+                            // unknown: keep the in-memory fence until a
+                            // creator/cancel authority resolves it.  An
+                            // explicit Java business rejection is terminal.
+                            if matches!(outcome, PortOutcome::Ok(_)) {
+                                self.state.schedule_media_submitting.remove(&channel_id);
+                            }
+                            let persist_corr = self.alloc_corr_internal();
+                            out.push(helix_core::Effect::PersistAtomic {
+                                corr: persist_corr,
+                                ops: vec![crate::schedule_media::schedule_intent_stage_update(
+                                    channel_id, stage, &message,
+                                )],
+                            });
+                            out.push(crate::read_relay::emit_read_error(
+                                &req_id,
+                                if stage == crate::schedule_media::SCHEDULE_INTENT_STAGE_UNKNOWN {
+                                    "SCHEDULE_REQUEST_UNKNOWN"
+                                } else {
+                                    "SCHEDULE_REQUEST_FAILED"
+                                },
+                            ));
+                            return Ok(());
+                        }
                         out.push(crate::read_relay::emit_read_error(
                             &req_id,
                             "SCHEDULE_REQUEST_FAILED",
@@ -1004,10 +1046,12 @@ impl ImModule {
                 channel_id,
                 revision,
                 causation_id,
+                multipart_submission_token,
             } => self.handle_message_v3_schedule_canceled_persist_reply(
                 channel_id,
                 revision,
                 causation_id,
+                multipart_submission_token,
                 outcome,
                 out,
             ),
@@ -1162,22 +1206,95 @@ impl ImModule {
                 self.forward_committed_readback(*read, outcome, out)?
             }
 
-            CorrelationContext::DialogListQuery { causation_id } => match outcome {
-                PortOutcome::Ok(reply) => {
-                    out.push(self.emit_dialog_list_result_for_runtime(
-                        causation_id.as_deref(),
-                        reply.0.as_ref(),
-                    ));
-                }
-                PortOutcome::Err(e) => {
-                    tracing::warn!(error = ?e, "dialog list scan failed");
+            CorrelationContext::DialogListQuery {
+                causation_id,
+                auth_user_id,
+                company_id,
+                channel_rows,
+            } => {
+                if self.config.auth_user_id != auth_user_id || self.config.company_id != company_id
+                {
+                    tracing::warn!("dialog list identity changed; refusing stale snapshot");
                     out.push(
                         self.emit_dialog_list_result_for_runtime(causation_id.as_deref(), b"[]"),
                     );
+                    return Ok(());
                 }
-            },
+                let PortOutcome::Ok(reply) = outcome else {
+                    tracing::warn!("dialog list channel/member scan failed");
+                    out.push(
+                        self.emit_dialog_list_result_for_runtime(causation_id.as_deref(), b"[]"),
+                    );
+                    return Ok(());
+                };
+                if let Some(channel_rows) = channel_rows {
+                    let mut merged_rows = crate::channel_sync::project_authority_rows(
+                        *channel_rows,
+                        reply.0.as_ref(),
+                        &crate::query::DialogListScope::new(&auth_user_id, &company_id),
+                    )
+                    .unwrap_or_default();
+                    // 保持列表按当前成员置顶、最后消息排序，不能使用频道占位摘要排序。
+                    merged_rows.sort_by(|left, right| {
+                        right["channelIsTop"]
+                            .as_bool()
+                            .cmp(&left["channelIsTop"].as_bool())
+                            .then_with(|| {
+                                right["lastPostAt"]
+                                    .as_i64()
+                                    .cmp(&left["lastPostAt"].as_i64())
+                            })
+                            .then_with(|| {
+                                right["createAt"].as_i64().cmp(&left["createAt"].as_i64())
+                            })
+                    });
+                    let bytes = serde_json::to_vec(&merged_rows)
+                        .map_err(|error| ImError::Serialize(error.to_string()))?;
+                    out.push(
+                        self.emit_dialog_list_result_for_runtime(causation_id.as_deref(), &bytes),
+                    );
+                } else {
+                    let channel_rows = crate::event::read::parse_dialog_rows(reply.0.as_ref())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|row| {
+                            crate::query::core::dialog_row_visible(
+                                row,
+                                &crate::query::DialogListScope::new(&auth_user_id, &company_id),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    if channel_rows.is_empty() {
+                        out.push(
+                            self.emit_dialog_list_result_for_runtime(
+                                causation_id.as_deref(),
+                                b"[]",
+                            ),
+                        );
+                        return Ok(());
+                    }
+                    let member_corr = self.alloc_corr_internal();
+                    let member_effect = crate::channel_sync::dialog_member_scan_effect(
+                        member_corr,
+                        &channel_rows,
+                        &company_id,
+                        &auth_user_id,
+                    )?;
+                    self.state.corr_map.insert(
+                        member_corr,
+                        CorrelationContext::DialogListQuery {
+                            causation_id,
+                            auth_user_id,
+                            company_id,
+                            channel_rows: Some(Box::new(channel_rows)),
+                        },
+                    );
+                    out.push(member_effect);
+                }
+            }
 
             CorrelationContext::ChannelViewSnapshotQuery {
+                channel_rows,
                 channel_id,
                 causation_id,
                 auth_user_id,
@@ -1188,14 +1305,39 @@ impl ImModule {
                         if self.config.auth_user_id == auth_user_id
                             && self.config.company_id == company_id =>
                     {
-                        crate::query::channel_view_snapshot::result_body(
-                            reply.0.as_ref(),
-                            &crate::query::DialogListScope::new(
-                                auth_user_id.as_str(),
-                                company_id.as_str(),
-                            ),
-                            channel_id,
-                        )
+                        let scope = crate::query::DialogListScope::new(&auth_user_id, &company_id);
+                        if let Some(rows) = channel_rows {
+                            let channel_bytes = serde_json::to_vec(rows.as_ref())
+                                .map_err(|error| ImError::Serialize(error.to_string()))?;
+                            crate::query::channel_view_snapshot::result_body(
+                                &channel_bytes,
+                                reply.0.as_ref(),
+                                &scope,
+                                channel_id,
+                            )
+                        } else {
+                            let rows = crate::event::read::parse_dialog_rows(reply.0.as_ref())
+                                .unwrap_or_default();
+                            let corr = self.alloc_corr_internal();
+                            let effect = crate::channel_sync::member_scan_effect(
+                                corr,
+                                &rows,
+                                &company_id,
+                                &auth_user_id,
+                            )?;
+                            self.state.corr_map.insert(
+                                corr,
+                                CorrelationContext::ChannelViewSnapshotQuery {
+                                    channel_rows: Some(Box::new(rows)),
+                                    channel_id,
+                                    causation_id,
+                                    auth_user_id,
+                                    company_id,
+                                },
+                            );
+                            out.push(effect);
+                            return Ok(());
+                        }
                     }
                     PortOutcome::Ok(_) => {
                         tracing::warn!("channel view snapshot identity changed; returning miss");
@@ -1211,53 +1353,6 @@ impl ImModule {
                     body,
                 ));
             }
-
-            // 兼容仍在迁移中的旧两段 dialog/member 绝对投影回读；生产入口已统一走 typed Result。
-            CorrelationContext::DialogListMemberSnapshot {
-                channel_rows,
-                causation_id,
-                auth_user_id,
-            } => match outcome {
-                PortOutcome::Ok(reply) => {
-                    if self.config.auth_user_id.as_str() != auth_user_id.as_str() {
-                        tracing::warn!(
-                            "dialog member readback identity changed; refusing stale snapshot"
-                        );
-                        emit_dialog_list_failed(out, causation_id)?;
-                        return Ok(());
-                    }
-                    let merged_rows = match crate::event::read::merge_dialog_rows_for_viewer(
-                        channel_rows.as_ref(),
-                        reply.0.as_ref(),
-                        auth_user_id.as_str(),
-                    ) {
-                        Ok(rows) => rows,
-                        Err(error) => {
-                            tracing::warn!(error = ?error, "dialog member readback rejected");
-                            emit_dialog_list_failed(out, causation_id)?;
-                            return Ok(());
-                        }
-                    };
-                    let read_events = crate::event::read::channels_from_dialog_rows(
-                        &merged_rows,
-                        auth_user_id.as_str(),
-                    )?;
-                    out.push(
-                        crate::event::channel::list(serde_json::json!({
-                            "channels": merged_rows,
-                            "requestId": causation_id,
-                        }))?
-                        .into_effect(),
-                    );
-                    for event in read_events {
-                        out.push(event.into_effect());
-                    }
-                }
-                PortOutcome::Err(error) => {
-                    tracing::warn!(error = ?error, "dialog member scan failed");
-                    emit_dialog_list_failed(out, causation_id)?;
-                }
-            },
 
             // G13d 本地 topic Scan 只发布一次 parent-scoped typed Result，不广播业务事件。
             CorrelationContext::SubtopicsQuery {

@@ -69,6 +69,11 @@ impl WsMessageHandler for ScheduleCanceledHandler {
             .pending_schedule_cancel_requests
             .get(&channel_id)
             .cloned();
+        let multipart_submission_token = ctx
+            .state
+            .schedule_media_submitting
+            .get(&channel_id)
+            .cloned();
         let corr = ctx.alloc_corr();
         ctx.state
             .inflight_schedule_revisions
@@ -79,12 +84,16 @@ impl WsMessageHandler for ScheduleCanceledHandler {
                 channel_id,
                 revision,
                 causation_id,
+                multipart_submission_token: multipart_submission_token.clone(),
             },
         );
-        out.push(Effect::PersistAtomic {
-            corr,
-            ops: fact.storage_ops(),
-        });
+        let mut ops = fact.storage_ops();
+        // An active upload keeps its original intent and routes.  Only a
+        // submitted/unknown fence owns a cancel-time durable delete.
+        if multipart_submission_token.is_some() {
+            ops.push(crate::schedule_media::schedule_intent_delete(channel_id));
+        }
+        out.push(Effect::PersistAtomic { corr, ops });
         Ok(())
     }
 }

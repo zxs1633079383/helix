@@ -1,13 +1,16 @@
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanOrder,
-    ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec, ScopedMaxSpec, ScopedScanSpec, SqlValue,
-    UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, Effect, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
+    ScanOrder, ScanSpec, ScopedGetSpec, ScopedGuardedBumpSpec, ScopedMaxSpec, ScopedScanSpec,
+    SqlValue, UpsertSpec,
 };
 use helix_core::ports::Storage;
-use helix_core::tick::PortOutcome;
+use helix_core::tick::{AppCommand, PortOutcome};
+use helix_core::{EffectSink, Module, Tick};
 use helix_driver_host::{
     execute_storage_ops, rows_from_reply_bytes, rows_to_reply_bytes, table_set_key, HostStorage,
 };
+use helix_im::{ImConfig, ImModule};
+use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static DB_SEQ: AtomicUsize = AtomicUsize::new(0);
@@ -314,6 +317,7 @@ async fn host_storage_scoped_scan_filters_before_limit_and_rejects_truncation() 
             table: "scoped_scan_rows",
             scope_col: "channel_id",
             scope_values,
+            filter: None,
             limit: 4,
         })
         .await
@@ -331,6 +335,7 @@ async fn host_storage_scoped_scan_filters_before_limit_and_rejects_truncation() 
             table: "scoped_scan_rows",
             scope_col: "channel_id",
             scope_values: vec![SqlValue::Text("channel-a".into())],
+            filter: None,
             limit: 1,
         })
         .await
@@ -340,11 +345,301 @@ async fn host_storage_scoped_scan_filters_before_limit_and_rejects_truncation() 
             table: "missing_table",
             scope_col: "channel_id",
             scope_values: Vec::new(),
+            filter: None,
             limit: 1,
         })
         .await
         .expect("empty scope must not touch table")
         .is_empty());
+}
+
+/// 三个 5000 人频道的成员快照必须先按 viewer 过滤，再应用 10000 行硬上限。
+///
+/// 这个用例故意保留每个频道的 4999 个其他成员，复现 dialogList 第二阶段只按
+/// channel_id 扫描时的 15000 行超限；成员所属公司允许与频道公司不同。
+#[tokio::test]
+async fn host_storage_dialog_member_scan_filters_viewer_before_limit() {
+    let storage = storage().await;
+    storage
+        .execute_raw(
+            "CREATE TABLE channel_member (
+             id INTEGER PRIMARY KEY, channel_id TEXT NOT NULL,
+             user_id TEXT NOT NULL, team_id TEXT NOT NULL)",
+        )
+        .await
+        .expect("create channel_member");
+
+    let mut member_rows = Vec::with_capacity(15_000);
+    for channel_index in 0..3_i64 {
+        let channel_id = format!("channel-{channel_index}");
+        for member_index in 0..5_000_i64 {
+            let user_id = if member_index == 0 {
+                "viewer".to_string()
+            } else {
+                format!("member-{channel_index}-{member_index}")
+            };
+            let team_id = if member_index == 0 {
+                "external-team".to_string()
+            } else {
+                format!("team-{channel_index}")
+            };
+            member_rows.push(vec![
+                (
+                    "id".to_string(),
+                    SqlValue::Integer(channel_index * 5_000 + member_index + 1),
+                ),
+                ("channel_id".to_string(), SqlValue::Text(channel_id.clone())),
+                ("user_id".to_string(), SqlValue::Text(user_id)),
+                ("team_id".to_string(), SqlValue::Text(team_id)),
+            ]);
+        }
+    }
+    storage
+        .batch_upsert(UpsertSpec {
+            table: "channel_member",
+            rows: member_rows,
+            conflict_key: Some("id"),
+            exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
+        })
+        .await
+        .expect("seed three 5000-member channels");
+
+    let rows = storage
+        .scoped_scan(ScopedScanSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_values: vec![
+                SqlValue::Text("channel-0".to_string()),
+                SqlValue::Text("channel-1".to_string()),
+                SqlValue::Text("channel-2".to_string()),
+            ],
+            filter: Some(("user_id", SqlValue::Text("viewer".to_string()))),
+            limit: 10_000,
+        })
+        .await
+        .expect("viewer filter must be applied before the scoped limit");
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().all(|row| {
+        row.iter().any(|(column, value)| {
+            column == "user_id" && matches!(value, SqlValue::Text(user_id) if user_id == "viewer")
+        })
+    }));
+}
+
+#[tokio::test]
+async fn host_scoped_scan_filter_null_matches_no_rows() {
+    let storage = storage().await;
+    storage
+        .execute_raw(
+            "CREATE TABLE nullable_member (
+             id INTEGER PRIMARY KEY, channel_id TEXT NOT NULL, user_id TEXT)",
+        )
+        .await
+        .expect("create nullable_member");
+    storage
+        .batch_upsert(UpsertSpec {
+            table: "nullable_member",
+            rows: vec![vec![
+                ("id".to_string(), SqlValue::Integer(1)),
+                (
+                    "channel_id".to_string(),
+                    SqlValue::Text("channel-0".to_string()),
+                ),
+                ("user_id".to_string(), SqlValue::Null),
+            ]],
+            conflict_key: Some("id"),
+            exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
+        })
+        .await
+        .expect("seed nullable member");
+
+    let rows = storage
+        .scoped_scan(ScopedScanSpec {
+            table: "nullable_member",
+            scope_col: "channel_id",
+            scope_values: vec![SqlValue::Text("channel-0".to_string())],
+            filter: Some(("user_id", SqlValue::Null)),
+            limit: 1,
+        })
+        .await
+        .expect("SQL equality with NULL is valid but matches no row");
+    assert!(rows.is_empty(), "WHERE user_id = NULL must not match");
+}
+
+/// 公开 `im_query_dialog_list` 经过 Host SQLite 的两阶段回放：旧实现会把三个
+/// 5000 人频道的 15000 行成员读回撞到 10000 上限并发布空列表；成员条件必须在
+/// 存储读取时生效，终态才保留三个当前 viewer 频道。
+#[tokio::test]
+async fn host_storage_dialog_command_filters_members_before_limit() {
+    let storage = storage().await;
+    storage
+        .execute_raw(
+            "CREATE TABLE channel (
+             id TEXT PRIMARY KEY, team_id TEXT NOT NULL, user_id TEXT,
+             is_top INTEGER NOT NULL DEFAULT 0, last_post_at INTEGER NOT NULL DEFAULT 0,
+             created_at INTEGER NOT NULL DEFAULT 0)",
+        )
+        .await
+        .expect("create channel");
+    storage
+        .execute_raw(
+            "CREATE TABLE channel_member (
+             id INTEGER PRIMARY KEY, channel_id TEXT NOT NULL,
+             user_id TEXT NOT NULL, team_id TEXT, channel_is_top INTEGER NOT NULL DEFAULT 0)",
+        )
+        .await
+        .expect("create channel_member");
+
+    let channels = (0..3_i64)
+        .map(|index| {
+            vec![
+                ("id".to_string(), SqlValue::Text(format!("channel-{index}"))),
+                ("team_id".to_string(), SqlValue::Text("company".to_string())),
+                ("user_id".to_string(), SqlValue::Text("viewer".to_string())),
+                ("is_top".to_string(), SqlValue::Integer(0)),
+                ("last_post_at".to_string(), SqlValue::Integer(0)),
+                ("created_at".to_string(), SqlValue::Integer(index)),
+            ]
+        })
+        .collect();
+    storage
+        .batch_upsert(UpsertSpec {
+            table: "channel",
+            rows: channels,
+            conflict_key: Some("id"),
+            exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
+        })
+        .await
+        .expect("seed channels");
+
+    let mut member_rows = Vec::with_capacity(15_000);
+    for channel_index in 0..3_i64 {
+        for member_index in 0..5_000_i64 {
+            member_rows.push(vec![
+                (
+                    "id".to_string(),
+                    SqlValue::Integer(channel_index * 5_000 + member_index + 1),
+                ),
+                (
+                    "channel_id".to_string(),
+                    SqlValue::Text(format!("channel-{channel_index}")),
+                ),
+                (
+                    "user_id".to_string(),
+                    SqlValue::Text(if member_index == 0 {
+                        "viewer".to_string()
+                    } else {
+                        format!("member-{channel_index}-{member_index}")
+                    }),
+                ),
+                (
+                    "team_id".to_string(),
+                    SqlValue::Text(if member_index == 0 {
+                        // Member company may differ from the channel tenant.
+                        "external-team".to_string()
+                    } else {
+                        format!("team-{channel_index}")
+                    }),
+                ),
+                ("channel_is_top".to_string(), SqlValue::Integer(0)),
+            ]);
+        }
+    }
+    storage
+        .batch_upsert(UpsertSpec {
+            table: "channel_member",
+            rows: member_rows,
+            conflict_key: Some("id"),
+            exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
+        })
+        .await
+        .expect("seed three 5000-member channels");
+
+    let mut module = ImModule::new(ImConfig {
+        auth_user_id: "viewer".to_string(),
+        company_id: "company".to_string(),
+        ..Default::default()
+    });
+    let mut sink = EffectSink::new();
+    module
+        .handle(
+            &Tick::Command(AppCommand::new(
+                "im_query_dialog_list",
+                serde_json::to_vec(&json!({"limit": 3, "req_id": "p1-host"})).unwrap(),
+            )),
+            1_000,
+            &mut sink,
+        )
+        .expect("public dialog command");
+
+    let (channel_corr, channel_ops) = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops } => Some((*corr, ops.clone())),
+            _ => None,
+        })
+        .expect("dialog command must issue channel scan");
+    let channel_outcome = execute_storage_ops(&storage, &channel_ops).await;
+    assert!(matches!(channel_outcome, PortOutcome::Ok(_)));
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: channel_corr,
+                outcome: channel_outcome,
+            },
+            1_001,
+            &mut sink,
+        )
+        .expect("channel scan reply");
+
+    let (member_corr, member_ops) = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops } => Some((*corr, ops.clone())),
+            _ => None,
+        })
+        .expect("channel reply must issue member scan");
+    let member_outcome = execute_storage_ops(&storage, &member_ops).await;
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: member_corr,
+                outcome: member_outcome,
+            },
+            1_002,
+            &mut sink,
+        )
+        .expect("member scan reply");
+
+    let result = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Emit { event } => {
+                serde_json::from_slice::<serde_json::Value>(event.0.as_ref()).ok()
+            }
+            _ => None,
+        })
+        .expect("dialog command must emit typed result");
+    assert_eq!(result["event"], "im:read:result");
+    assert_eq!(result["data"]["req_id"], "p1-host");
+    assert_eq!(
+        result["data"]["body"]["items"].as_array().map(Vec::len),
+        Some(3),
+        "three viewer rows must survive the member snapshot limit"
+    );
 }
 
 #[tokio::test]

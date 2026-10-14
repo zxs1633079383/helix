@@ -157,6 +157,14 @@ impl ImModule {
                 .map(crate::send::upload_props::PendingMediaOp::Prepare)
                 .collect::<Vec<_>>();
             optimistic_ops.push(crate::send::upload_props::durable_upsert_many(&operations)?);
+            for pending in planned_media
+                .iter()
+                .filter(|pending| pending.input.uses_multipart())
+            {
+                optimistic_ops.push(
+                    crate::send::upload_props::durable_multipart_prepare_session_upsert_op(pending),
+                );
+            }
         }
         if planned_media.is_empty() {
             out.push(Effect::Persist {
@@ -210,6 +218,9 @@ impl ImModule {
         input: crate::send::upload_props::MediaInput,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if input.uses_multipart() {
+            return self.emit_multipart_init(channel_id, temporary_id, target, input, out);
+        }
         let corr = self.alloc_corr_internal();
         let client_upload_id =
             crate::send::upload_props::client_upload_id(temporary_id.0.as_str(), &target);
@@ -225,6 +236,41 @@ impl ImModule {
         self.state.pending_media_ops.insert(
             corr,
             crate::send::upload_props::PendingMediaOp::Prepare(
+                crate::send::upload_props::PendingMediaPrepare {
+                    temporary_id,
+                    channel_id,
+                    target,
+                    input,
+                },
+            ),
+        );
+        out.push(Effect::Http { corr, req });
+        Ok(())
+    }
+
+    pub(crate) fn emit_multipart_init(
+        &mut self,
+        channel_id: ChannelId,
+        temporary_id: TemporaryId,
+        target: crate::send::upload_props::UploadTarget,
+        input: crate::send::upload_props::MediaInput,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let corr = self.alloc_corr_internal();
+        let client_upload_id =
+            crate::send::upload_props::client_upload_id(temporary_id.0.as_str(), &target);
+        let req = crate::send::upload_props::multipart_init_request(
+            &self.config.default_api_base_url,
+            &client_upload_id,
+            &input,
+            target.bucket(),
+            crate::acl::sync_http_effects::session_auth_headers(
+                self.state.connection_id.as_deref(),
+            ),
+        )?;
+        self.state.pending_media_ops.insert(
+            corr,
+            crate::send::upload_props::PendingMediaOp::MultipartInit(
                 crate::send::upload_props::PendingMediaPrepare {
                     temporary_id,
                     channel_id,

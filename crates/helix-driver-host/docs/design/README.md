@@ -28,6 +28,7 @@
 - **热路径 O(1)**（HX-C005）：batch_upsert 整批一事务（写放大 ~1x）；monotonic cursor 用 `&'static` SQL + MAX guard 防回退。
 - **spawn_blocking 隔离**（HX-C006/ADR-005）：所有同步 rusqlite C 调用包 `spawn_blocking`，不阻塞 tokio worker。
 - **文件上传边界**：`Effect::UploadFile` 由 host 的 `SharedFileUploader` 与独立 upload pool 兑现；上传进度经 `FileUploadProgressReporter` 回灌，关闭时与必达 HTTP 共用最长 3 秒 drain，上限后 abort 在途网络任务。
+- **上传 response 诊断**：`upload.rs` 的可选 `UploadResponseObserver` 在网络尝试结束、业务 2xx 判定前提供实际 `http_status: Option<u16>`、PUT 请求 key、metadata 文件字节数、durationUs；无 response 保持 null，借用 key，不复制 URL/header/cookie/path/body。`engine.rs` 每个 step 末 flush 一次（空 effects/错误 step 也可交付晚到诊断），shutdown drain 结束后再 final flush 一次，确保 drain 期间已完成上传的诊断在返回前交付；sink 自行跳过空 callback，上传 Result 与 core port 保持原合同。
 - **header 注入**（HTTP-4）：parking_lot RwLock 无 poison，HTTP/WS 共享 registry，client 只注入快照，鉴权在 Helix 之外。
 
 ## rows↔bytes codec（`codec.rs`，非图但同属本层契约）

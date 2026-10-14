@@ -511,6 +511,8 @@ impl ImModule {
                         self.refresh_attached_latest_timeline(channel_id, None, out)?;
                     }
                 }
+                // matching 回执解除该写屏障后，兑现期间合并的新意图，使用已提交 cursor。
+                self.drain_sync_queue(out);
                 self.try_finalize_pong_gap(Some(corr), out)?;
             }
             PortOutcome::Err(e) => {
@@ -532,10 +534,13 @@ impl ImModule {
                         out,
                     );
                 }
-                // persist 失败：清除 last_sync_from_seq 避免遗留脏状态
+                // 仅释放 matching 写屏障；失败不推进 cursor，后续同步仍可从旧水位重试。
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
+                    ch.pending_commits.remove(&corr);
                     ch.last_sync_from_seq = None;
                 }
+                // matching 失败仅解除本 corr；留队重试仍从未推进的旧 cursor 开始。
+                self.drain_sync_queue(out);
                 if self
                     .state
                     .recovery_session
@@ -794,9 +799,15 @@ impl ImModule {
             .and_then(|value| value.as_array().cloned())
             .ok_or_else(|| ImError::Parse("channel sync page rows are invalid".to_string()))?;
         let member_corr = self.alloc_corr_internal();
+        let page_rows = channel_rows
+            .iter()
+            .skip(offset)
+            .take(crate::channel_sync::PAGE_SIZE as usize)
+            .cloned()
+            .collect::<Vec<_>>();
         let member_effect = crate::channel_sync::member_scan_effect(
             member_corr,
-            &channel_rows,
+            &page_rows,
             self.config.company_id.as_str(),
             self.config.auth_user_id.as_str(),
         )?;
@@ -1546,10 +1557,14 @@ impl ImModule {
                 });
 
                 for media in &planned {
-                    self.state.failed_media_ops.insert(
-                        (temporary_id.clone(), media.target.clone()),
-                        crate::send::upload_props::FailedMediaOp::Prepare(media.clone()),
-                    );
+                    let failed = if media.input.uses_multipart() {
+                        crate::send::upload_props::FailedMediaOp::Multipart(media.clone())
+                    } else {
+                        crate::send::upload_props::FailedMediaOp::Prepare(media.clone())
+                    };
+                    self.state
+                        .failed_media_ops
+                        .insert((temporary_id.clone(), media.target.clone()), failed);
                 }
                 let media_compensation = !planned.is_empty();
                 if media_compensation {
@@ -1559,6 +1574,16 @@ impl ImModule {
                 }
 
                 if let Some((channel_id, body, timeline_readback, timeout_timer)) = terminal {
+                    let crate::pending_send::TimelineReadbackContext {
+                        window_token,
+                        causation_id,
+                    } = timeline_readback;
+                    let failed_event =
+                        crate::event::post::send_failed_for_identity_with_request_id(
+                            channel_id.as_str(),
+                            temporary_id.0.as_str(),
+                            causation_id.as_deref(),
+                        )?;
                     let terminal_corr = self.alloc_corr_internal();
                     let mut terminal_ops = vec![
                         crate::pending_send::optimistic_message_persist_op(
@@ -1589,25 +1614,19 @@ impl ImModule {
                         crate::state::CorrelationContext::MediaFailureCompensation {
                             temporary_id: temporary_id.clone(),
                             channel_id,
-                            window_token: timeline_readback.window_token,
-                            causation_id: timeline_readback.causation_id,
+                            window_token,
+                            causation_id,
                         }
                     } else {
                         crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
                             channel_id,
-                            window_token: timeline_readback.window_token,
-                            causation_id: timeline_readback.causation_id,
+                            window_token,
+                            causation_id,
                         }
                     };
                     self.state.corr_map.insert(terminal_corr, context);
                     out.push(Effect::CancelTimer { id: timeout_timer });
-                    out.push(
-                        crate::event::post::send_failed_for_identity(
-                            channel_id.as_str(),
-                            temporary_id.0.as_str(),
-                        )?
-                        .into_effect(),
-                    );
+                    out.push(failed_event.into_effect());
                 }
             }
         }
@@ -1649,6 +1668,12 @@ impl ImModule {
                     .get_mut(&temporary_id)
                     .is_some_and(|pending| pending.mark_failed_immediately(reconcile_corr, out))
                 {
+                    let failed_event =
+                        crate::event::post::send_failed_for_identity_with_request_id(
+                            channel_id.as_str(),
+                            temporary_id.0.as_str(),
+                            causation_id.as_deref(),
+                        )?;
                     self.state.corr_map.insert(
                         reconcile_corr,
                         crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
@@ -1657,14 +1682,8 @@ impl ImModule {
                             causation_id,
                         },
                     );
+                    out.push(failed_event.into_effect());
                 }
-                out.push(
-                    crate::event::post::send_failed_for_identity(
-                        channel_id.as_str(),
-                        temporary_id.0.as_str(),
-                    )?
-                    .into_effect(),
-                );
             }
         }
         Ok(())
@@ -2168,7 +2187,7 @@ mod channel_sync_contract_tests {
         let Some(helix_core::effect::StorageOp::ScopedScan(spec)) = member_scan else {
             panic!("channel page must schedule one scoped member scan");
         };
-        assert_eq!(spec.limit, 10_000usize);
+        assert_eq!(spec.limit, 10_001usize);
         let scoped_ids = spec
             .scope_values
             .iter()

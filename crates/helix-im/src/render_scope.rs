@@ -27,6 +27,30 @@ struct CorrelatedRead<'a> {
     req_id: Option<&'a str>,
 }
 
+#[derive(Deserialize)]
+struct TimelineRead<'a> {
+    #[serde(borrow)]
+    body: TimelineBody<'a>,
+}
+
+#[derive(Deserialize)]
+struct TimelineBody<'a> {
+    operation: &'a str,
+    #[serde(rename = "channelId")]
+    channel_id: Option<&'a str>,
+    #[serde(borrow)]
+    messages: Option<&'a serde_json::value::RawValue>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScopePath {
+    Data,
+    Body,
+    Messages,
+    MessageRow,
+    Other,
+}
+
 impl RenderScope {
     /// 权威全局读已验证账号与企业后，允许该单次结果中的未缓存频道通过渲染围栏。
     pub(crate) fn authorize_read(&mut self, req_id: &str, channels: HashSet<String>) {
@@ -187,12 +211,30 @@ impl RenderScope {
             } else {
                 None
             };
+            let timeline_read = if envelope.event == "im:read:result" {
+                serde_json::from_str::<TimelineRead<'_>>(envelope.data.get())
+                    .ok()
+                    .filter(|read| matches!(read.body.operation, "older" | "newer" | "locate"))
+            } else {
+                None
+            };
             let mut visitor = ScopeVisitor {
                 scope: self,
                 authority_channels: authority_channels.as_ref(),
                 config,
                 row: channel_row,
-                valid: true,
+                path: if timeline_read.is_some() {
+                    ScopePath::Data
+                } else {
+                    ScopePath::Other
+                },
+                valid: timeline_read.as_ref().map_or(true, |read| {
+                    read.body.channel_id.is_some_and(|id| !id.is_empty())
+                        && read
+                            .body
+                            .messages
+                            .is_some_and(|messages| messages.get().trim_start().starts_with('['))
+                }),
                 seen: false,
             };
             let parsed = (&mut visitor)
@@ -231,6 +273,7 @@ struct ScopeVisitor<'a> {
     authority_channels: Option<&'a HashSet<String>>,
     config: &'a ImConfig,
     row: bool,
+    path: ScopePath,
     valid: bool,
     seen: bool,
 }
@@ -238,7 +281,11 @@ struct ScopeVisitor<'a> {
 impl<'de> DeserializeSeed<'de> for &mut ScopeVisitor<'_> {
     type Value = ();
     fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<(), D::Error> {
-        d.deserialize_any(self)
+        if self.path == ScopePath::MessageRow {
+            d.deserialize_map(self)
+        } else {
+            d.deserialize_any(self)
+        }
     }
 }
 
@@ -249,10 +296,16 @@ impl<'de> Visitor<'de> for &mut ScopeVisitor<'_> {
     }
     fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<(), M::Error> {
         let row = self.row;
+        let path = self.path;
+        let mut message_route_seen = false;
         while let Some(key) = map.next_key::<&str>()? {
             if matches!(key, "channelId" | "channel_id" | "parentChannelId") || (row && key == "id")
             {
                 let id = map.next_value::<Option<&str>>()?;
+                if path == ScopePath::MessageRow && matches!(key, "channelId" | "channel_id") {
+                    message_route_seen = true;
+                    self.valid &= id.is_some_and(|id| !id.is_empty());
+                }
                 if let Some(id) = id.filter(|id| !id.is_empty()) {
                     self.seen = true;
                     self.valid &= self.authority_channels.is_some_and(|ids| ids.contains(id))
@@ -283,16 +336,39 @@ impl<'de> Visitor<'de> for &mut ScopeVisitor<'_> {
                 map.next_value::<IgnoredAny>()?;
             } else {
                 self.row = matches!(key, "channel" | "dialog" | "snapshot");
+                self.path = match (path, key) {
+                    (ScopePath::Data, "body") => ScopePath::Body,
+                    (ScopePath::Body, "messages") => ScopePath::Messages,
+                    _ => ScopePath::Other,
+                };
                 map.next_value_seed(&mut *self)?;
+                self.row = row;
+                self.path = path;
             }
+        }
+        if path == ScopePath::MessageRow {
+            self.valid &= message_route_seen;
         }
         // 任意成员 id 也可能是 Id26；只有明确 channel 行能把 teamId 当频道归属。
         // byIds 等 map-key 协议在对应 producer 按频道 key 审查，不在这里猜字段语义。
         self.row = row;
+        self.path = path;
         Ok(())
     }
     fn visit_seq<S: SeqAccess<'de>>(self, mut seq: S) -> Result<(), S::Error> {
-        while seq.next_element_seed(&mut *self)?.is_some() {}
+        let path = self.path;
+        loop {
+            self.path = if path == ScopePath::Messages {
+                ScopePath::MessageRow
+            } else {
+                ScopePath::Other
+            };
+            let next = seq.next_element_seed(&mut *self)?;
+            self.path = path;
+            if next.is_none() {
+                break;
+            }
+        }
         Ok(())
     }
     fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<(), E> {

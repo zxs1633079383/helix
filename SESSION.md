@@ -1,5 +1,9 @@
 ✅ DONE 可见回应过滤公开Tick先红后绿，G13 14项、五crate check、core、WASM通过；全量被既有合同路径缺失阻断。未提交发布；真实Go/Tauri待主任务，详见 docs/交接/1014-visible-reaction-query/handoff.md。
 🎯 EXPECT 可选 post_ids 最多100项映射HTTP postIds，targets经校验与持久屏障原样返回；原查询和ACK不变，公开Tick先红后绿，不提版提交发布。| 赌注 低 | 可逆 是 | @2026-10-14
+🎯 EXPECT ScopedScan遵守调用方显式上限且保留超限拒绝；真实HostStorage公开查询完整返回5000/15000人成员、管理员和权限，边界哨兵/并发/离线重开回归通过。用户授权下一个可用patch发布，无push。| 赌注 中 | 可逆 代码是/发布否 | @2026-10-14
+- 交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/1014-77管理员权限时序/handoff.md
+✅ DONE 独立读取修复批次真实HostStorage红0/5→绿5/5；三群并发/重开/降权/跨块哨兵通过，五crate检查/core29项/WASM通过。整仓305pass/8fail/1ignored；7项基线同样失败，媒体单独2项复验通过。下一阶段0.1.65发布、客户端更新及Native/UI实机待执行，完整证据见交接。
+✅ DONE 用户批准的MR !9→!15全部合入官方，组合代码五crate检查及147项定向回归通过，3项外部参考用例未执行；远端合并2e244758、本地快进同步，CI跳过。证据与发布边界见 docs/交接/1013-MR11与15定向修复/handoff.md。
 ✅ DONE 0.1.62四包已发布，分支与Tag远端回读一致，registry制品checksum及presence源码核验通过；客户端接入与实机待验范围见 docs/交接/1013-presence-release/handoff.md。
 🎯 EXPECT 用户批准续发patch：保留远端0.1.61历史引用修复，发布0.1.62四包并核验registry、版本Tag和远端；客户端精确依赖接入同版，真实绿点回归单独记验收。| 赌注 中 | 可逆 发布否 | @2026-10-13
 🎯 EXPECT 普通与重点观察切换保留有效状态，刷新仍在线不发unknown；仍即时查询，失败不延长有效期、权威离线/撤权立即生效。公开Tick回归先红后绿；本轮不发布或修改版本。| 赌注 低 | 可逆 是 | @2026-10-13
@@ -10,6 +14,10 @@
 🎯 EXPECT 独立worktree接入12个presence文件，17项presence回放通过；四公共包统一发布下一patch，版本提交与注释Tag推送后远端SHA一致；不修改客户端。分支codex/presence-release-20261013，upstream origin/reactor/MessageV3-helix；本轮保留worktree与分支。| 赌注 中 | 可逆 发布否 | @2026-10-13
 - 交接：docs/交接/1013-presence-release/handoff.md
 ✅ DONE 独立worktree84项定向回放与五crate检查通过；四公共包0.1.60已发布并可解析，版本提交/注释Tag已push且远端SHA回读一致；四包registry checksum匹配本地制品，真实链与容量保持NOT_VERIFIED。
+🎯 EXPECT 基于最新官方 b631366e 将本批补充拆为七个串联 MR，每个不超过十文件；逐段冻结源码并验证，不合并或推送官方目标分支。只保留共享 IM 与通用 Host/FFI 修复，WASM 产品打包由下游 helix-driver-ffi 项目负责。| 赌注 中 | 可逆 是 | @2026-10-13
+✅ DONE 已按依赖拆分，原整包 MR !8 关闭；本轮逐段检查与聚焦回归记录在 .perf/supplement-20261013/split，最终 Rust/C++ 和三端 Rust 检查另行对账。既有完整批次 Host 127、FFI 47、Native 37、C++ 冒烟、release 压力通过；全量 IM 非绿色：130 项依赖缺失外部参考，另两项已在干净官方基线复现，三项旧查询夹具补齐后 15 项定向通过。未伪造参考、放宽断言或宣称真实客户端和下游 FFI WASM 产品已验证。
+⚠️ BOUNDARY 本轮扩展 Native domain 跑批 35 通过、79 失败：78 项缺失外部账号/私有会话，草稿作用域失败在最新官方 b631366e 的独立源码副本上原样复现。失败日志及生成证据已保存；实际 Native 回归采用 lib、stress_engine、stress_storage，不宣称全量通过。
+
 🎯 EXPECT 三处空JSON先红后绿；真实Tick/SQLite中空摘要保留权威revision且十消息唯一ACK/received，空加急普通编辑不丢正文，损坏值拒绝；发布新patch、客户端仅依赖更新、双仓push，不构建应用。| 赌注 中 | 可逆 发布否 | @2026-10-13
 - 交接：docs/交接/1013-空JSON消息链修复/handoff.md
 ✅ DONE 三处空JSON红→绿，Tick/SQLite 7项及三端Rust验证通过；四包0.1.59发布、版本commit/注释Tag、客户端pin/lock提交与双仓push已完成，远端回读一致；不构建应用。全量3项既有失败保留基线证据。
@@ -1200,3 +1208,18 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 
 🎯 EXPECT hydration TooLong 经权威窗口与cursor原子提交完成原命令，后续fromSeq使用新cursor、不重复旧恢复；失败不推进。证据见 docs/交接/1012-TooLong恢复/handoff.md。 | @2026-10-12
 ✅ DONE hydration TooLong窗口/cursor原子恢复及新cursor补拉已实现；54 focused+2 buffer回归、真实Go HTTP/PostgreSQL副本/Native SQLite/EventSink两组通过。全套IM受无关G03a参考schema阻断；Tauri/发布未运行。详见 docs/交接/1012-TooLong恢复/handoff.md。
+
+🎯 EXPECT 仅修MR11当前viewer成员查询与MR15自有WS夹具；三群15000成员查询及CPP回声终态定向测试通过，不触发流水线 | 赌注 中 | 可逆 是 | @2026-10-13
+
+✅ DONE MR11成员读取先按viewer过滤；公开Tick→真实SQLite三群15000成员红→绿，Host26/P6查询14/Web过滤2及三端Rust验收通过；MR15仍独立验证。交接：docs/交接/1013-MR11与15定向修复/handoff.md。
+
+✅ DONE MR11/P1与MR15/P2分别隔离修复、本地定向验证并独立提交；PC导航适配器8项/UI逻辑40项通过，当前locate不发送navigationToken。未push或触发流水线。最终身份/边界见docs/交接/1013-MR11与15定向修复/handoff.md。
+
+🎯 EXPECT 四个隔离工作树完成<=1GiB分片与重试，旧PUT和MessageV3成功屏障保持；focused红绿与三端检查通过，禁止push。| 赌注 中 | 可逆 是 | @2026-10-14
+- 交接：docs/交接/1014-分片上传与续传/handoff.md
+
+✅ DONE <=1GiB普通消息分片/续传跨仓实现、TDD与最终本地集成/三端编译完成，已合入各自本地开发分支，未push/发布；真实验收交给用户，源码身份与限制见 docs/交接/1014-分片上传与续传/handoff.md。
+
+🎯 EXPECT 定时消息<=1GiB复用普通分片参数和durable恢复，全部附件稳定引用PersistOk前不发createSchedule，结果未知不自动重复创建；公开seam红绿及本地HTTP/SQLite/三端检查通过，分类提交合入开发分支不push。| 赌注 中 | 可逆 是 | @2026-10-14
+
+✅ DONE 定时分片/续传及1GiB边界实现、TDD和本地集成/三端编译通过，分类提交并合入本地开发分支，未push；旧普通进度测试偶发失败根因未确认，兼容诊断PARTIAL及真实验收边界见 docs/交接/1014-分片上传与续传/handoff.md。

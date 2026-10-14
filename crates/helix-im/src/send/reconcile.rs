@@ -26,6 +26,9 @@ pub(crate) fn register_outbound_send_http_corr(
     channel_id: crate::state::ChannelId,
     temporary_id: TemporaryId,
 ) {
+    if let Some(pending) = state.pending_sends.get_mut(&temporary_id) {
+        pending.outbound_http_corr = Some(h1_corr);
+    }
     state.corr_map.insert(
         h1_corr,
         CorrelationContext::OutboundSendHttp {
@@ -43,11 +46,11 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<bool, crate::ImError> {
         let temporary_id = reconciliation.temporary_id;
-        let Some(persist_corr) = self
+        let Some((persist_corr, outbound_http_corr)) = self
             .state
             .pending_sends
             .get(&temporary_id)
-            .map(|pending| pending.persist_corr)
+            .map(|pending| (pending.persist_corr, pending.outbound_http_corr))
         else {
             return Ok(false);
         };
@@ -75,6 +78,9 @@ impl ImModule {
         self.state.pending_sends.remove(&temporary_id);
         if let Some(persist_corr) = persist_corr {
             self.state.corr_map.remove(&persist_corr);
+        }
+        if let Some(outbound_http_corr) = outbound_http_corr {
+            self.state.corr_map.remove(&outbound_http_corr);
         }
         self.state.corr_map.insert(
             reconcile_corr,

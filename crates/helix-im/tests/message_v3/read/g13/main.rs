@@ -1,7 +1,7 @@
 // 回归锚: Spec 047/T064-T065，G-13 会话已读绝对态。
 
 use bytes::Bytes;
-use helix_core::effect::Effect;
+use helix_core::effect::{Effect, SqlValue, StorageOp};
 use helix_core::tick::{AppCommand, InboundBytes, PortError, PortOutcome, ReplyBytes};
 use helix_core::{Correlation, EffectSink, Module, Tick};
 use helix_im::{ImConfig, ImModule};
@@ -103,6 +103,46 @@ impl Replay {
         )
     }
 
+    /// 回灌查询第二阶段的 viewer 成员绝对态，终态必须等待真实 ScopedScan。
+    fn reply_dialog_members(
+        &mut self,
+        unread: i64,
+        mention: i64,
+        urgent: i64,
+        now_ms: u64,
+    ) -> TestResult<Correlation> {
+        assert!(
+            self.events()?.is_empty(),
+            "member readback must precede Result"
+        );
+        let [Effect::Persist { corr, ops }] = self.sink.as_slice() else {
+            return Err("channel read must produce one member scan".into());
+        };
+        let [StorageOp::ScopedScan(spec)] = ops.as_slice() else {
+            return Err("member read must be channel-scoped".into());
+        };
+        assert_eq!(spec.table, "channel_member");
+        assert_eq!(spec.scope_values.len(), 1);
+        assert!(matches!(&spec.scope_values[0], SqlValue::Text(id) if id == CHANNEL_ID));
+        let corr = *corr;
+        self.reply(
+            corr,
+            json!([{
+                "channel_id": CHANNEL_ID, "user_id": ACTOR_ID,
+                "channel_is_top": 0,
+                "unread_count": unread, "mention_count": mention,
+                "urgent_mention_count": urgent,
+                "unread_post_id": if unread > 0 { "g13-unread-anchor" } else { "" },
+                "last_read_seq": if unread == 0 { 41 } else { 38 },
+                "projection_revision": 9, "effect_id": "g13-member-effect-9"
+            }])
+            .to_string()
+            .into_bytes(),
+            now_ms,
+        )?;
+        Ok(corr)
+    }
+
     /// 回灌失败结果，验证失败不释放旧绝对投影。
     fn reply_error(&mut self, corr: Correlation, error: PortError, now_ms: u64) -> TestResult<()> {
         self.step(
@@ -163,6 +203,7 @@ fn run_success() -> TestResult<PersonaTrace> {
         serde_json::to_vec(&vec![dialog_row(3, 1, 1)]).map_err(|error| error.to_string())?,
         CREATED_AT as u64 + 1,
     )?;
+    let initial_member_corr = replay.reply_dialog_members(3, 1, 1, CREATED_AT as u64 + 1)?;
     let initial = replay.events()?;
 
     let view_corr = replay.command_corr(
@@ -197,6 +238,7 @@ fn run_success() -> TestResult<PersonaTrace> {
         serde_json::to_vec(&vec![dialog_row(0, 0, 0)]).map_err(|error| error.to_string())?,
         CREATED_AT as u64 + 4,
     )?;
+    let recovery_member_corr = recovered.reply_dialog_members(0, 0, 0, CREATED_AT as u64 + 4)?;
     let recovery = recovered.events()?;
     let mut events = initial;
     events.extend(terminal);
@@ -206,11 +248,13 @@ fn run_success() -> TestResult<PersonaTrace> {
         ticks: vec![
             json!({"kind":"Command","value":{"name":"im_query_dialog_list"},"now_ms":CREATED_AT}),
             json!({"kind":"PortReply","value":{"correlation":query_corr.raw(),"outcome":{"variant":"Ok"}},"now_ms":CREATED_AT + 1}),
+            json!({"kind":"PortReply","value":{"correlation":initial_member_corr.raw(),"outcome":{"variant":"Ok"}},"now_ms":CREATED_AT + 1}),
             json!({"kind":"Command","value":{"name":"im_channels_view","payload":{"channels":[{"id":CHANNEL_ID,"isRoot":true}]}},"now_ms":CREATED_AT + 1}),
             json!({"kind":"Inbound","value":{"action":"update_channel","event_seq":42},"now_ms":CREATED_AT + 2}),
             json!({"kind":"PortReply","value":{"correlation":persist_corr.raw(),"outcome":{"variant":"Ok"}},"now_ms":CREATED_AT + 3}),
             json!({"kind":"Command","value":{"name":"im_query_dialog_list","recovery":true},"now_ms":CREATED_AT + 3}),
             json!({"kind":"PortReply","value":{"correlation":recovery_corr.raw(),"outcome":{"variant":"Ok"}},"now_ms":CREATED_AT + 4}),
+            json!({"kind":"PortReply","value":{"correlation":recovery_member_corr.raw(),"outcome":{"variant":"Ok"}},"now_ms":CREATED_AT + 4}),
         ],
     })
 }
@@ -332,6 +376,7 @@ fn g13_persist_failure_preserves_old_projection() -> TestResult<()> {
         serde_json::to_vec(&vec![dialog_row(3, 1, 1)]).map_err(|error| error.to_string())?,
         CREATED_AT as u64 + 1,
     )?;
+    replay.reply_dialog_members(3, 1, 1, CREATED_AT as u64 + 1)?;
     let initial = replay.events()?;
     assert_eq!(initial.len(), 1);
     assert_eq!(initial[0]["event"], "im:read:result");
@@ -403,6 +448,7 @@ fn reaction_unread_member_projection_requires_matching_durable_count() -> TestRe
             serde_json::to_vec(&vec![dialog_row(7, 0, 0)]).map_err(|error| error.to_string())?,
             CREATED_AT as u64,
         )?;
+        replay.reply_dialog_members(7, 0, 0, CREATED_AT as u64)?;
         let wire = json!({"action":"member_projection","data":{
             "channel_id":CHANNEL_ID,"user_id":ACTOR_ID,
             "projection_revision":19,"effect_id":"reaction-effect-19",
@@ -476,6 +522,7 @@ fn reaction_request(replay: &mut Replay, ack: bool) -> TestResult<Correlation> {
         serde_json::to_vec(&vec![dialog_row(7, 0, 0)]).map_err(|e| e.to_string())?,
         CREATED_AT as u64,
     )?;
+    replay.reply_dialog_members(7, 0, 0, CREATED_AT as u64)?;
     replay.command_corr(if ack {"im_reaction_unread_ack"} else {"im_reaction_unread"},
         if ack {json!({"channel_id":CHANNEL_ID,"req_id":"reaction-request","post_id":"reaction-post","observed_revision":"9007199254740993"})}
         else {json!({"channel_id":CHANNEL_ID,"req_id":"reaction-request"})})

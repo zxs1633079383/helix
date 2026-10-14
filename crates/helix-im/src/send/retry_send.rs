@@ -324,7 +324,7 @@ fn retry_failed_media(
             .ok_or_else(|| ImError::Parse("im_retry_send missing media props".to_string()))?;
         for operation in &failed {
             let status = match operation {
-                FailedMediaOp::Prepare(_) => "preparing",
+                FailedMediaOp::Prepare(_) | FailedMediaOp::Multipart(_) => "preparing",
                 FailedMediaOp::Complete(_) => "completing",
             };
             crate::send::upload_props::mark_media_stage(props, operation.target(), status)?;
@@ -428,6 +428,19 @@ pub(crate) fn handle_media_retry_reset_reply(
                         pending.input,
                         out,
                     )?,
+                    FailedMediaOp::Multipart(pending) => {
+                        module
+                            .state
+                            .multipart_retry_attempts
+                            .remove(&(pending.temporary_id.clone(), pending.target.clone()));
+                        module.emit_multipart_init(
+                            pending.channel_id,
+                            pending.temporary_id,
+                            pending.target,
+                            pending.input,
+                            out,
+                        )?
+                    }
                     FailedMediaOp::Complete(pending) => {
                         module.finalize_or_queue_media_completion(pending, out)?;
                     }
@@ -856,6 +869,7 @@ fn continue_retry(
         .pending_sends
         .entry(temporary_id.clone())
         .or_insert_with(|| PendingSend::new(temporary_id.clone(), timeout_timer, connection_id));
+    let old_outbound_http_corr = pending.outbound_http_corr.take();
     pending.status = SendStatus::Local;
     pending.timeout_timer = timeout_timer;
     pending.http_started = false;
@@ -866,6 +880,10 @@ fn continue_retry(
     pending.timeline_readback.window_token = window_token;
 
     pending.persist_corr = Some(persist_corr);
+    // 同一 temporaryId 的新 attempt 不能被旧 posts/create 回包改成失败。
+    if let Some(corr) = old_outbound_http_corr {
+        module.state.corr_map.remove(&corr);
+    }
     module.state.corr_map.insert(
         persist_corr,
         CorrelationContext::OptimisticSend {

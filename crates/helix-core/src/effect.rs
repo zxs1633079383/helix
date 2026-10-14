@@ -18,7 +18,8 @@ mod sink;
 mod storage;
 
 pub use crate::ports::upload::{
-    FileUploadProgress, FileUploadProgressPolicy, FileUploadProgressReporter, FileUploadUrls,
+    FileUploadProgress, FileUploadProgressPolicy, FileUploadProgressReporter, FileUploadRange,
+    FileUploadUrls,
 };
 pub use ids::{Correlation, DomainEventBytes, TimerId, TransportId};
 pub use io::{FileUploadRequest, FileUploadResponse, HttpRequest, HttpResponse};

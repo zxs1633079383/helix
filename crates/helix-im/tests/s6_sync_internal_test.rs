@@ -165,19 +165,17 @@ fn s6_too_long_preserves_messages_and_emits_reload() {
             Effect::PersistAtomic { corr, ops }
                 if ops.iter().any(
                     |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"),
-                ) && ops.iter().any(|op| matches!(op, StorageOp::GuardedBump(_)))
-                    && ops.iter().any(
-                        |op| matches!(op, StorageOp::Get(spec) if spec.table == "channel"),
-                    ) =>
+                ) && ops.iter().any(|op| matches!(op, StorageOp::GuardedBump(_))) =>
             {
+                assert!(ops.iter().all(|op| !matches!(op, StorageOp::Get(_))));
                 Some(corr.raw())
             }
             _ => None,
         })
-        .expect("getLatestPost 回包后必须落 message + bump channel + Get(channel)");
+        .expect("getLatestPost 回包后必须原子落 message + bump channel，事务不得含读操作");
 
     h.step(
-        port_reply_with_body(reload_persist, channel_row_reply(1, 1, "reload-msg")),
+        port_reply_with_body(reload_persist, bytes::Bytes::from_static(b"[]")),
         2300,
     );
     assert_eq!(
@@ -185,6 +183,25 @@ fn s6_too_long_preserves_messages_and_emits_reload() {
         Some(100),
         "successful authoritative window must commit reset_to atomically"
     );
+    assert!(!h
+        .sink
+        .as_slice()
+        .iter()
+        .any(|effect| matches!(effect, Effect::Emit { .. })));
+    let readbacks: Vec<_> = h.sink.as_slice().iter().filter_map(|effect| match effect {
+        Effect::Persist { corr, ops } if matches!(ops.as_slice(), [StorageOp::Get(spec)] if spec.table == "channel") => Some(corr.raw()),
+        _ => None,
+    }).collect();
+    assert_eq!(readbacks.len(), 1, "提交成功后必须仅一次频道读回");
+    assert_ne!(readbacks[0], reload_persist);
+    h.step(
+        port_reply_with_body(readbacks[0], channel_row_reply(1, 1, "reload-msg")),
+        2400,
+    );
+    assert!(h.sink.as_slice().iter().any(|effect| matches!(effect, Effect::Emit { event } if {
+        let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+        value["event"] == "im:channel:update" && value["data"]["dialogPatch"]["unreadCount"] == 1
+    })), "频道读回后必须发出真实绝对未读投影");
     let raw_dialog_patch = h.sink.as_slice().iter().any(|e| {
         matches!(e, Effect::Emit { event } if {
             let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();

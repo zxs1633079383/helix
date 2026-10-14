@@ -3,8 +3,8 @@
 use crate::channel::Channel;
 use crate::pending_send::{PendingSend, TimelineReadbackContext};
 use crate::send::upload_props::{
-    FailedMediaOp, PendingMediaCompletionCommit, PendingMediaOp, PendingMediaPrepare,
-    PendingMediaPut, PendingMediaRetryReset, PendingUpload, UploadTarget,
+    FailedMediaOp, MultipartBatch, MultipartDrain, PendingMediaCompletionCommit, PendingMediaOp,
+    PendingMediaPrepare, PendingMediaPut, PendingMediaRetryReset, PendingUpload, UploadTarget,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
@@ -38,6 +38,7 @@ pub(crate) struct FileUploadProgressState {
     pub target: UploadTarget,
     pub temporary_id: TemporaryId,
     pub channel_id: ChannelId,
+    pub part_number: Option<u32>,
     /// PUT 启动时冻结的 readback 上下文；多附件并发时不受后续 retry attempt 覆盖。
     pub timeline_readback: TimelineReadbackContext,
     pub highest_observed_percent: u8,
@@ -78,6 +79,20 @@ pub struct ImState {
     /// 媒体 Prepare/PUT/Complete 回包路由；corr 单次 O(1) remove 后按阶段分发。
     pub(crate) pending_schedule_media:
         HashMap<helix_core::Correlation, crate::schedule_media::PendingScheduleMedia>,
+    /// 定时 multipart 的独立路由；不借用普通 message 的 pending_media/temporary_id 状态。
+    pub(crate) pending_schedule_multipart:
+        HashMap<helix_core::Correlation, crate::schedule_media::PendingScheduleMultipart>,
+    /// 定时 multipart 持有完整 payload 与运行时批次；每个 channel 最多一个 intent。
+    pub(crate) schedule_multipart_contexts:
+        HashMap<String, crate::schedule_media::ScheduleMultipartContext>,
+    /// 稳定媒体引用已落库、createSchedule 已发出的定时 intent；value 是
+    /// `upload_identity + req_id` 的 generation token，无幂等 wire 时禁止重发。
+    pub(crate) schedule_media_submitting: BTreeMap<ChannelId, String>,
+    /// Multipart schedule drain retry timers; the timer never carries a signed URL.
+    pub(crate) schedule_multipart_retry_timers:
+        HashMap<helix_core::TimerId, String>,
+    /// Startup scan correlation for durable schedule intents.
+    pub(crate) schedule_media_rehydrate_corr: Option<helix_core::Correlation>,
     pub pending_media_ops: HashMap<helix_core::Correlation, PendingMediaOp>,
 
     /// 同消息的进度/完成/失败写串行化，避免不同存储 worker 交错覆盖 props。
@@ -104,6 +119,19 @@ pub struct ImState {
     /// Durable stage transition corr -> operation that may start only after the
     /// journal update succeeds.
     pub pending_media_stage_persists: HashMap<helix_core::Correlation, PendingMediaOp>,
+
+    /// Multipart network/timeout retry budget. The timer payload retains only
+    /// trusted local input; signed URLs are never carried across a retry.
+    pub(crate) multipart_retry_attempts: HashMap<(TemporaryId, UploadTarget), u8>,
+    pub(crate) multipart_retry_timers: HashMap<helix_core::TimerId, PendingMediaPrepare>,
+
+    /// One runtime batch per clientUploadId. The signed queue is memory-only;
+    /// each ETag leaves this map only after its own PersistAtomic succeeds.
+    pub(crate) multipart_batches: HashMap<String, MultipartBatch>,
+
+    /// Failed batches retain their sibling UploadFile routes until every old
+    /// range request has replied; only then may retry or UnSend proceed.
+    pub(crate) multipart_draining: HashMap<String, MultipartDrain>,
 
     /// 同一消息最多一条本地完成持久化链在途；prepare/PUT 仍可并发。
     pub media_completion_inflight: HashSet<TemporaryId>,
@@ -377,6 +405,11 @@ impl ImState {
             pending_sends: HashMap::new(),
             pending_uploads: HashMap::new(),
             pending_schedule_media: HashMap::new(),
+            pending_schedule_multipart: HashMap::new(),
+            schedule_multipart_contexts: HashMap::new(),
+            schedule_media_submitting: BTreeMap::new(),
+            schedule_multipart_retry_timers: HashMap::new(),
+            schedule_media_rehydrate_corr: None,
             pending_media_ops: HashMap::new(),
             media_write_gates: HashMap::new(),
             media_write_owners: HashMap::new(),
@@ -385,6 +418,10 @@ impl ImState {
             file_upload_progress_persists: HashMap::new(),
             pending_media_after_optimistic: HashMap::new(),
             pending_media_stage_persists: HashMap::new(),
+            multipart_retry_attempts: HashMap::new(),
+            multipart_retry_timers: HashMap::new(),
+            multipart_batches: HashMap::new(),
+            multipart_draining: HashMap::new(),
             media_completion_inflight: HashSet::new(),
             queued_media_completions: HashMap::new(),
             completed_media: HashSet::new(),
@@ -552,6 +589,11 @@ impl ImState {
         self.pending_forward_deliveries = crate::forward::PendingForwardDeliveryLedger::default();
         self.pending_schedule_requests.clear();
         self.pending_schedule_media.clear();
+        self.pending_schedule_multipart.clear();
+        self.schedule_multipart_contexts.clear();
+        self.schedule_multipart_retry_timers.clear();
+        self.schedule_media_submitting.clear();
+        self.schedule_media_rehydrate_corr = None;
         self.pending_schedule_cancel_requests.clear();
         self.inflight_schedule_revisions.clear();
         self.inflight_channel_creates.clear();
@@ -560,6 +602,15 @@ impl ImState {
     /// 身份切换时清除旧 viewer 的附着窗口、相关性与覆盖证明。
     pub(crate) fn reset_message_v3_identity(&mut self) {
         self.increment_pull = None;
+        self.multipart_retry_attempts.clear();
+        self.multipart_retry_timers.clear();
+        self.multipart_batches.clear();
+        self.multipart_draining.clear();
+        self.pending_schedule_multipart.clear();
+        self.schedule_multipart_contexts.clear();
+        self.schedule_multipart_retry_timers.clear();
+        self.schedule_media_submitting.clear();
+        self.schedule_media_rehydrate_corr = None;
         self.recovery_session.invalidate();
         // Tenant/actor facts are never portable.  A B session must rediscover
         // channels and cursors from its own store rather than treating A's
@@ -617,6 +668,9 @@ impl ImState {
                     | CorrelationContext::IncrementPullPersist
                     | CorrelationContext::TooLongReload { .. }
                     | CorrelationContext::TooLongReloadPersist { .. }
+                    | CorrelationContext::ChannelUpdateByPost { .. }
+                    | CorrelationContext::TopicActivityRootRead { .. }
+                    | CorrelationContext::TopicActivityPersist { .. }
                     | CorrelationContext::IncrementBatchPersist { .. }
                     | CorrelationContext::ChannelSyncPage { .. }
                     | CorrelationContext::ChannelSyncPageMemberSnapshot { .. }

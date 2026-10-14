@@ -81,7 +81,8 @@ pub use types::{
 /// ## Shutdown 语义
 ///
 /// `shutdown_rx` 收到 `()` 或 `tick_rx` 关闭 → graceful drain：等全部已接收 Persist
-/// + 必达 Http 落地后返回。
+/// 落地；Http/UploadFile 在上限内 drain，超时则 abort；最后 flush drain 期间
+/// 已排队的 driver 诊断，再返回（不保证远端 HTTP 全部成功）。
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
     mut shell: ExecutionShell,
@@ -164,7 +165,7 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
         initial_batch.effects.len()
     );
 
-    // 与主循环同门控：有初始 effect 才 dispatch + flush（避免空批跨 FFI 边界的无谓回调）。
+    // Dispatch remains effect-gated; flush also delivers driver diagnostics on empty steps.
     if !initial_batch.effects.is_empty() {
         let initial_context = LifecycleContext::new(0, None, None)
             .with_capability(LifecycleCapability::Http, true)
@@ -190,9 +191,9 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
             Some(&lifecycle_tracker),
         )
         .await;
-        // start() 那批 Emit 已 dispatch 完成 → 攒批 egress（HX-C007）。native no-op。
-        event_sink.flush();
     }
+    // Sink suppresses empty callbacks; initial diagnostics share this one batch boundary.
+    event_sink.flush();
 
     // 事件泵主循环。
     //
@@ -336,6 +337,8 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
                 perf_metrics.on_step_error(&metric_context);
                 perf_metrics.on_loop_iteration(iteration_started);
                 tracing::error!("engine step error: {}", e);
+                // A rejected core tick can still be the next boundary for late driver facts.
+                event_sink.flush();
                 continue;
             }
         };
@@ -369,10 +372,9 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
                 Some(&lifecycle_tracker),
             )
             .await;
-            // 本 step 的 Emit 已全部 dispatch → 攒批 egress 一次过边界（HX-C007）。
-            // owned 为空时无 Emit、无需 flush（避免空批跨 FFI 边界的无谓回调）。
-            event_sink.flush();
         }
+        // Late driver diagnostics may exist even when this step emits no business effects.
+        event_sink.flush();
         perf_metrics.on_dispatch_complete(&metric_context);
         perf_metrics.on_loop_iteration(iteration_started);
     }
@@ -386,6 +388,8 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
         reply_rx,
     )
     .await;
+    // Uploads completed during drain enqueue diagnostics after the last step boundary.
+    event_sink.flush();
     perf_metrics.on_shutdown(shutdown_started);
     perf_metrics.on_engine_stopped();
     if let Some(rss_sampler) = rss_sampler {

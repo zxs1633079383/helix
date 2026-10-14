@@ -141,3 +141,20 @@ channel unit 的 `too_long_atomic_commit_*`。
 真实 Go HTTP/PostgreSQL副本/Native SQLite/EventSink 验证入口为
 `message_v3_sync_native::real_go_hydration_too_long_advances_durable_cursor_and_stops_old_replay`；
 夹具、命令与验收边界见 [本轮交接](../交接/1012-TooLong恢复/handoff.md)。这不替代真实Tauri及发布验收。
+
+## 共享调度与持久屏障补充（2026-10-13）
+
+- gate 补拉、满批续拉与主动同步共用 `SyncScheduler`（并发上限 8）；
+  Pong 优先，重复频道合并意图。发出 HTTP 时重新读取已提交游标。
+- 处理 HTTP 响应只释放网络槽，不解除该频道的持久屏障。
+  只有对应 `PersistOk` 才提交游标并释放排队意图；失败保留旧游标，
+  无关/迟到回执不得释放其他提交的屏障。
+- `too_long` 的 Host `PersistAtomic` 只允许写入，不能夹带 Get/Rows。
+  最新窗口落库成功后单独发出读回，避免整个原子批次被驱动拒绝后重复同步。
+- RuntimeAuth 重置必须取消对应同步、频道写回和话题活动 owner；
+  旧身份的迟到 HTTP/Persist 回执不得再次调度或发布结果。
+
+回归入口：`explicit_sync_command_test`、`p4_sync_scheduler_test`、`gate_test`、
+`s6_sync_internal_test` 与 `helix-driver-host::too_long_reload_atomic`。
+这些测试覆盖并发上限、提交前无重复拉取、提交后新游标、失败/迟到回执、
+纯写原子恢复；不替代下游 App/浏览器的真实网络与性能验收。

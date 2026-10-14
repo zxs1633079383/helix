@@ -969,9 +969,30 @@ async fn run_media_pipeline(window_token: &str) {
         ))
         .await
         .expect("send rich command");
+    let rich_post = tokio::time::timeout(Duration::from_secs(15), go_post_rx.recv()).await;
+    if rich_post.is_err() {
+        eprintln!(
+            "local rich timeout: uploaded={}, progress={:?}, events={:?}",
+            uploaded.lock().unwrap().len(),
+            storage.progress_snapshot(),
+            event_sink.0.lock().unwrap()
+        );
+        for table in ["pending_media", "message"] {
+            eprintln!(
+                "local {table}: {:?}",
+                host_storage
+                    .scan(ScanSpec {
+                        table,
+                        limit: Some(100),
+                        filter: None,
+                        order_by: &[]
+                    })
+                    .await
+            );
+        }
+    }
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(15), go_post_rx.recv())
-            .await
+        rich_post
             .expect("rich posts/create should arrive")
             .expect("Go post notification channel"),
         1

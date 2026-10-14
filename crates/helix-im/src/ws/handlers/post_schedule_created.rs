@@ -61,6 +61,10 @@ impl WsMessageHandler for ScheduleCreatedHandler {
             .pending_schedule_requests
             .get(&channel_id)
             .cloned();
+        let has_multipart_intent = ctx
+            .state
+            .schedule_media_submitting
+            .contains_key(&channel_id);
         let corr = ctx.alloc_corr();
         ctx.state
             .inflight_schedule_revisions
@@ -73,10 +77,14 @@ impl WsMessageHandler for ScheduleCreatedHandler {
                 causation_id,
             },
         );
-        out.push(Effect::PersistAtomic {
-            corr,
-            ops: fact.storage_ops(),
-        });
+        let mut ops = fact.storage_ops();
+        // A multipart schedule owns an independent intent until this
+        // authority write succeeds. Delete it in the same atomic checkpoint
+        // so a restart cannot resume an already-created schedule.
+        if has_multipart_intent {
+            ops.push(crate::schedule_media::schedule_intent_delete(channel_id));
+        }
+        out.push(Effect::PersistAtomic { corr, ops });
         Ok(())
     }
 }

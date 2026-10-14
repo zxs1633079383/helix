@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-use super::{FileUploadProgressPolicy, FileUploadUrls};
+use super::{FileUploadProgressPolicy, FileUploadRange, FileUploadUrls};
 
 /// HTTP 请求（driver 的 HttpRequester 解析并发出）
 #[derive(Debug, Clone)]
@@ -32,6 +32,11 @@ pub struct FileUploadRequest {
 }
 
 impl FileUploadRequest {
+    /// 返回平台应读取的可选字节区间，size 仍校验整个来源文件。
+    pub fn range(&self) -> Option<FileUploadRange> {
+        self.urls.range()
+    }
+
     /// 进度策略随已有私有 URL 封装携带，避免破坏公开结构体的字段级构造兼容。
     pub fn progress_policy(&self) -> FileUploadProgressPolicy {
         self.urls.progress_policy()

@@ -5,7 +5,7 @@
 预签名 URL。
 
 每个 Gate 必须通过 `ScenarioRunner -> ImModule::handle -> Effect` 验证 prepare、PUT
-continuation、持久化屏障、选择性重试和最终 Post 投影。`MV3-G02d` 的 64 MiB 拒绝发生在 Host
+continuation、持久化屏障、选择性重试和最终 Post 投影。`MV3-G02d` 的 1 GiB+ 拒绝发生在 Host
 ingress，要求零 Core Command、零 Persist、零 HTTP 和零 Event。
 
 AUDIO 与 VIDEO 必须作为两个独立场景；多图必须同时断言逐文件绝对进度与按总字节加权的消息级

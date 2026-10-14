@@ -1,3 +1,6 @@
+🎯 EXPECT ScopedScan遵守调用方显式上限且保留超限拒绝；真实HostStorage公开查询完整返回5000/15000人成员、管理员和权限，边界哨兵/并发/离线重开回归通过。用户授权下一个可用patch发布，无push。| 赌注 中 | 可逆 代码是/发布否 | @2026-10-14
+- 交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/1014-77管理员权限时序/handoff.md
+✅ DONE 独立读取修复批次真实HostStorage红0/5→绿5/5；三群并发/重开/降权/跨块哨兵通过，五crate检查/core29项/WASM通过。整仓305pass/8fail/1ignored；7项基线同样失败，媒体单独2项复验通过。下一阶段0.1.65发布、客户端更新及Native/UI实机待执行，完整证据见交接。
 ✅ DONE 用户批准的MR !9→!15全部合入官方，组合代码五crate检查及147项定向回归通过，3项外部参考用例未执行；远端合并2e244758、本地快进同步，CI跳过。证据与发布边界见 docs/交接/1013-MR11与15定向修复/handoff.md。
 ✅ DONE 0.1.62四包已发布，分支与Tag远端回读一致，registry制品checksum及presence源码核验通过；客户端接入与实机待验范围见 docs/交接/1013-presence-release/handoff.md。
 🎯 EXPECT 用户批准续发patch：保留远端0.1.61历史引用修复，发布0.1.62四包并核验registry、版本Tag和远端；客户端精确依赖接入同版，真实绿点回归单独记验收。| 赌注 中 | 可逆 发布否 | @2026-10-13

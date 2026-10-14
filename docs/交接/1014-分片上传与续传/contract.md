@@ -2,9 +2,12 @@
 
 ## 范围与兼容
 - 用户已授权 Java/Helix/客户端隔离 worktree 实施、TDD、分类 commit；禁止 push/发布/生产操作。
-- 上限 1,073,741,824 字节，含等号；超过 8,388,608 字节走 multipart；小文件保持现有 PUT。
+- 上限 1,073,741,824 字节，含等号；超过 104,857,600 字节（100 MiB）走 multipart；其余保持现有 PUT。
+- 简单PUT中断后按原流程整文件重传；分片路径才按远端ListParts跳过已完成分片，不能把简单PUT称为按片续传。
+- 阈值按用户最新指定的 ossutil 2.0 口径；[阿里云 multipart 文档](https://www.alibabacloud.com/help/en/oss/user-guide/multipart-upload)说明自动阈值为 >100 MiB。单片8 MiB符合100 KB～5 GB范围；128片是本业务1 GiB上限派生值，不是OSS的10,000片服务上限。
 - 最终 fileId/bucket/uri/name/contentType/size/sha256 及 MessageV3 事件不变；合并确认及 PersistOk 前不得 posts/create。
 - core 不认识 OSS/Java/IM，仅扩展文件区间传输；业务与恢复编排在 helix-im。
+- 本次分片状态机覆盖普通消息 im_send_message / im_retry_send → posts/create；独立定时消息 schedule_media → posts/createSchedule 保持原PUT路径，未将其声明为新增分片续传能力。
 - 当前 Web local-path 上传不支持：公共类型与 wasm 编译必须兼容，浏览器文件恢复 NOT_IMPLEMENTED_BY_SCOPE。
 
 ## Java HTTP（全部 POST，Java 成功信封沿用当前 isSuccess=true）

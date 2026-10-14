@@ -510,9 +510,9 @@ fn sender_persona_never_accrues_unread_for_its_own_forward() {
     assert_eq!(channel_update["data"]["channelId"], cid(TARGET_A));
 }
 
-/// A 100-item target completes only on its last unique durable echo, even before HTTP acceptance.
+/// A 100-item target delivers on its last durable echo but retains late HTTP admission.
 #[test]
-fn hundred_item_target_waits_for_all_durable_posts_and_cleans_late_http() {
+fn hundred_item_target_waits_for_all_durable_posts_and_retains_late_http_admission() {
     let mut sender = Harness::new_with_identity(&[TARGET_A], SENDER, "mv3-g03a", "", "", "");
     let rows = (0..100)
         .map(|i| {
@@ -582,16 +582,53 @@ fn hundred_item_target_waits_for_all_durable_posts_and_cleans_late_http() {
             assert!(duplicate.events.is_empty());
         }
     }
-    assert!(sender
+    let delivery_canceled = sender
         .sink
         .as_slice()
         .iter()
-        .any(|effect| matches!(effect, Effect::CancelTimer { id } if *id==timer)));
+        .any(|effect| matches!(effect, Effect::CancelTimer { id } if *id==timer));
     sender.step(
         port_reply_with_body(http.raw(), acceptance(&targets)),
         CREATE_AT as u64 + 400,
     );
-    assert!(sender.sink.as_slice().is_empty());
+    let events = emitted(sender.sink.as_slice());
+    assert_eq!(
+        events.len(),
+        1,
+        "late HTTP must emit its admission exactly once"
+    );
+    assert_eq!(events[0]["event"], "im:posts:batch-result");
+    assert_eq!(events[0]["data"]["reqId"], REQ_ID);
+    assert_eq!(events[0]["data"]["batchStatus"], "success");
+    assert_eq!(events[0]["data"]["acceptedCount"], 1);
+    assert_eq!(events[0]["data"]["failedCount"], 0);
+    assert_eq!(
+        events[0]["data"]["targets"],
+        json!([{
+            "channelId":cid(TARGET_A),"acceptanceStatus":"accepted","deliveryStatus":"pending","error":Value::Null
+        }])
+    );
+    assert!(
+        !delivery_canceled,
+        "durable delivery alone cannot retire pending admission"
+    );
+    assert_eq!(
+        sender
+            .sink
+            .as_slice()
+            .iter()
+            .filter(|effect| matches!(effect, Effect::CancelTimer { id } if *id==timer))
+            .count(),
+        1
+    );
+    sender.step(
+        port_reply_with_body(http.raw(), acceptance(&targets)),
+        CREATE_AT as u64 + 401,
+    );
+    assert!(
+        sender.sink.as_slice().is_empty(),
+        "duplicate admission must not Emit or ACK"
+    );
     sender.step(Tick::Timer(timer), CREATE_AT as u64 + 100_000);
     assert!(emitted(sender.sink.as_slice()).is_empty());
     let mut retry = relay_payload(

@@ -20,6 +20,8 @@ struct Delivery {
     timer: TimerId,
     post_count: usize,
     delivered: BTreeMap<ChannelId, BTreeSet<String>>,
+    // HTTP admission and durable delivery may arrive in either order.
+    admission_received: bool,
 }
 
 /// One active attempt per stable command; retries never overwrite an in-flight waiter.
@@ -52,6 +54,7 @@ impl PendingForwardDeliveryLedger {
                 timer,
                 post_count,
                 delivered: BTreeMap::new(),
+                admission_received: false,
                 all_targets: targets.to_vec(),
                 targets: targets
                     .iter()
@@ -105,6 +108,18 @@ impl PendingForwardDeliveryLedger {
             return false;
         };
         delivery.targets.remove(&channel);
+        if delivery.targets.is_empty() && delivery.admission_received {
+            self.by_request.remove(req);
+            return true;
+        }
+        false
+    }
+
+    fn complete_admission(&mut self, req: &str) -> bool {
+        let Some(delivery) = self.by_request.get_mut(req) else {
+            return false;
+        };
+        delivery.admission_received = true;
         if delivery.targets.is_empty() {
             self.by_request.remove(req);
             return true;
@@ -115,7 +130,13 @@ impl PendingForwardDeliveryLedger {
     fn targets(&self, req: &str) -> Vec<String> {
         self.by_request
             .get(req)
-            .map(|d| d.targets.iter().map(|c| c.as_str().to_owned()).collect())
+            .map(|d| {
+                if d.targets.is_empty() && !d.admission_received {
+                    d.all_targets.clone()
+                } else {
+                    d.targets.iter().map(|c| c.as_str().to_owned()).collect()
+                }
+            })
             .unwrap_or_default()
     }
 }
@@ -324,6 +345,18 @@ impl ImModule {
             }
         };
         out.push(crate::event::post::batch_result_from_authority(req_id, &body)?.into_effect());
+        let timer = self.state.pending_forward_deliveries.timer(req_id);
+        if self
+            .state
+            .pending_forward_deliveries
+            .complete_admission(req_id)
+        {
+            if let Some(timer) = timer {
+                out.push(Effect::CancelTimer { id: timer });
+            }
+            self.clear_forward_correlations(req_id);
+            return Ok(());
+        }
         for target in body["data"]["targets"].as_array().into_iter().flatten() {
             if target["status"] == "failed" {
                 if let Some(channel) = target["channelId"].as_str().and_then(ChannelId::from_str) {
@@ -444,7 +477,7 @@ impl ImModule {
         Ok(())
     }
 
-    /// A WS-first success also releases its still-pending HTTP continuation.
+    /// Release forward continuations only after both phases or an explicit failure.
     fn clear_forward_correlations(&mut self, req: &str) {
         self.state.corr_map.retain(|_, ctx| match ctx {
             CorrelationContext::OutboundCreatePosts { req_id } => req_id != req,

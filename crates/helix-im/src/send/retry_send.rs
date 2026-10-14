@@ -856,6 +856,7 @@ fn continue_retry(
         .pending_sends
         .entry(temporary_id.clone())
         .or_insert_with(|| PendingSend::new(temporary_id.clone(), timeout_timer, connection_id));
+    let old_outbound_http_corr = pending.outbound_http_corr.take();
     pending.status = SendStatus::Local;
     pending.timeout_timer = timeout_timer;
     pending.http_started = false;
@@ -866,6 +867,10 @@ fn continue_retry(
     pending.timeline_readback.window_token = window_token;
 
     pending.persist_corr = Some(persist_corr);
+    // 同一 temporaryId 的新 attempt 不能被旧 posts/create 回包改成失败。
+    if let Some(corr) = old_outbound_http_corr {
+        module.state.corr_map.remove(&corr);
+    }
     module.state.corr_map.insert(
         persist_corr,
         CorrelationContext::OptimisticSend {

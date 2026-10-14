@@ -368,3 +368,110 @@ fn chain_hydration_persist_failure_keeps_message_uncommitted() {
     assert_eq!(h.module.cursor_for(channel_id(1)), Some(0));
     assert!(h.step(port_reply_ok(corr), 1003).is_empty());
 }
+
+/// 再次参与是type2编辑；旧版稀疏接龙帧也须先补齐正文，不能发空更新。
+#[test]
+fn chain_edit_hydrates_before_persist_and_never_emits_received() {
+    let mut h = Harness::new_with_identity(&[1], "viewer", "tenant", "", "", "");
+    h.seed_channel_scope(&cid(1), "tenant", "viewer");
+    let tick = Tick::Inbound(InboundBytes(serde_json::to_vec(&serde_json::json!({
+        "action":"channel_stream_event", "data": {
+            "channel_id":cid(1), "stream_seq":1, "event_id":"chain-edit", "event_type":2,
+            "msg_id":sid(1), "actor_id":"author", "redacted":false,
+            "payload":{"action":"im:post_chain:upsert", "chain_summary":{"chainId":"chain-one","channelId":cid(1)}}
+        }
+    })).unwrap().into()));
+    let effects = h.step(tick, 1000);
+    let corr = effects
+        .iter()
+        .find_map(|effect| {
+            if let EffectKind::Http(c) = effect {
+                Some(*c)
+            } else {
+                None
+            }
+        })
+        .expect("edit must hydrate before writing");
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, EffectKind::PersistAtomic(_) | EffectKind::Emit)));
+    let writes = h.step(chain_post_reply(corr, &cid(1), &sid(1)), 1001);
+    let write = atomic(&writes);
+    assert!(!writes.contains(&EffectKind::Emit));
+    h.step(port_reply_ok(write), 1002);
+    let events: Vec<serde_json::Value> = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| {
+            if let helix_core::Effect::Emit { event } = effect {
+                Some(serde_json::from_slice(event.0.as_ref()).unwrap())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "im:post:updated"),
+        "{events:?}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| event["event"] == "im:post:received"),
+        "{events:?}"
+    );
+    assert!(h.step(port_reply_ok(write), 1003).is_empty());
+}
+
+/// 新服务端完整Post复用公共消息链，新增/编辑各一次；持久化失败不能提前输出。
+#[test]
+fn complete_chain_posts_reuse_canonical_new_and_edit_notifications() {
+    for (kind, expected) in [(1, "im:post:received"), (2, "im:post:updated")] {
+        let mut h = Harness::new_with_identity(&[1], "viewer", "tenant", "", "", "");
+        let tick=Tick::Inbound(InboundBytes(serde_json::to_vec(&serde_json::json!({
+            "action":"channel_stream_event","data":{
+                "channel_id":cid(1),"stream_seq":1,"event_id":"chain-complete","event_type":kind,
+                "msg_id":sid(1),"actor_id":"author","redacted":false,
+                "payload":{"action":"im:post_chain:upsert","post":{
+                    "id":sid(1),"channelId":cid(1),"userId":"author","teamId":"tenant",
+                    "type":"TEXT_CHAIN","message":"参与正文","createAt":100,"viewers":["all"],
+                    "props":{"chain":{"chainId":"chain-one","messageRole":"PARTICIPANT"}}
+                }}
+            }
+        })).unwrap().into()));
+        let effects = h.step(tick, 1000);
+        assert!(!effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Http(_) | EffectKind::Emit)));
+        let corr = atomic(&effects);
+        h.step(port_reply_ok(corr), 1001);
+        let events: Vec<serde_json::Value> = h
+            .sink
+            .as_slice()
+            .iter()
+            .filter_map(|effect| {
+                if let helix_core::Effect::Emit { event } = effect {
+                    Some(serde_json::from_slice(event.0.as_ref()).unwrap())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let messages: Vec<_> = events
+            .iter()
+            .filter(|event| event["event"] == expected)
+            .collect();
+        assert_eq!(messages.len(), 1, "{events:?}");
+        assert_eq!(messages[0]["data"]["id"], sid(1));
+        assert!(!events.iter().any(|event| event["event"]
+            == if kind == 1 {
+                "im:post:updated"
+            } else {
+                "im:post:received"
+            }));
+        assert!(h.step(port_reply_ok(corr), 1002).is_empty());
+    }
+}

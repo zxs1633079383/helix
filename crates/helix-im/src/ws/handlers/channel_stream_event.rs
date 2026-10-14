@@ -63,10 +63,10 @@ impl WsMessageHandler for ChannelStreamEventHandler {
     }
 }
 
-/// 只为没有完整 post 的文字接龙 type1 获取消息事实；普通消息、redacted 和终态保持原路径。
+/// 只为没有完整 post 的文字接龙新增/编辑获取消息事实；普通消息、redacted 和终态保持原路径。
 pub(crate) fn requires_chain_post_hydration(event: &EventEnvelope) -> bool {
     !event.redacted
-        && matches!(event.kind, EventKind::PostUpsert)
+        && matches!(event.kind, EventKind::PostUpsert | EventKind::PostEdit)
         && event.fields.id.is_empty()
         && serde_json::from_str::<serde_json::Value>(&event.event_payload)
             .ok()

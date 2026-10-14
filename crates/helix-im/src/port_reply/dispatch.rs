@@ -391,7 +391,7 @@ impl ImModule {
                     .then(|| self.state.hydration_req_ids.get(&channel_id).cloned())
                     .flatten()
                     .filter(|req_id| self.scope_hydration.is_active(channel_id, req_id));
-                self.handle_channel_persist_reply(
+                let result = self.handle_channel_persist_reply(
                     corr,
                     channel_id,
                     trigger,
@@ -404,7 +404,8 @@ impl ImModule {
                     member_projection,
                     outcome,
                     out,
-                )?;
+                );
+                self.settle_hydration_persist_result(channel_id, result, out)?;
                 if let Some(req_id) = auto_req_id.as_deref() {
                     if !crate::scope_hydration::has_hydration_stage(&self.state, channel_id, req_id)
                     {
@@ -428,7 +429,7 @@ impl ImModule {
                     .then(|| self.state.hydration_req_ids.get(&channel_id).cloned())
                     .flatten()
                     .filter(|req_id| self.scope_hydration.is_active(channel_id, req_id));
-                self.handle_channel_terminal_persist_reply(
+                let result = self.handle_channel_terminal_persist_reply(
                     corr,
                     channel_id,
                     terminal_seq,
@@ -439,7 +440,8 @@ impl ImModule {
                     member_projection,
                     outcome,
                     out,
-                )?;
+                );
+                self.settle_hydration_persist_result(channel_id, result, out)?;
                 if let Some(req_id) = auto_req_id.as_deref() {
                     if !crate::scope_hydration::has_hydration_stage(&self.state, channel_id, req_id)
                     {

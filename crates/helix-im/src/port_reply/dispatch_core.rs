@@ -356,6 +356,11 @@ impl ImModule {
                     error = ?error,
                     "terminal atomic persist failed; cursor/tombstone/frame remain unchanged"
                 );
+                self.fail_hydration_for_channel(
+                    channel_id,
+                    "hydration terminal persist failed",
+                    out,
+                );
                 self.try_finalize_pong_gap(Some(corr), out)?;
             }
         }
@@ -527,13 +532,12 @@ impl ImModule {
                     error = ?e,
                     "persist failed, cursor not advanced, will re-sync"
                 );
-                if trigger == SyncTrigger::Hydration {
-                    self.fail_hydration_for_channel(
-                        channel_id,
-                        "hydration history persist failed",
-                        out,
-                    );
-                }
+                // 普通sync也可能被显式hydration合并等待，失败按频道等待者结算。
+                self.fail_hydration_for_channel(
+                    channel_id,
+                    "hydration history persist failed",
+                    out,
+                );
                 // 仅释放 matching 写屏障；失败不推进 cursor，后续同步仍可从旧水位重试。
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.pending_commits.remove(&corr);
@@ -1713,6 +1717,7 @@ impl ImModule {
         }
         // B4：释放 1 个全局 sync 窗口（Ok/Err 都释放——否则失败 sync 永久占窗 → 队列饿死）。
         self.state.sync_scheduler.release_window();
+        let mut response_error = None;
         match outcome {
             PortOutcome::Ok(reply) => {
                 if let Err(error) = self.handle_sync_reply(corr, channel_id, trigger, reply, out) {
@@ -1725,15 +1730,15 @@ impl ImModule {
                         corr: Some(corr.raw()),
                         ..Default::default()
                     });
-                    if trigger == SyncTrigger::Hydration {
+                    if self.state.hydration_req_ids.contains_key(&channel_id) {
                         self.fail_hydration_for_channel(
                             channel_id,
                             "hydration sync response invalid",
                             out,
                         );
-                        return Ok(());
+                    } else {
+                        response_error = Some(error);
                     }
-                    return Err(error);
                 }
             }
             PortOutcome::Err(e) => {
@@ -1746,9 +1751,7 @@ impl ImModule {
                     corr: Some(corr.raw()),
                     ..Default::default()
                 });
-                if trigger == SyncTrigger::Hydration {
-                    self.fail_hydration_for_channel(channel_id, "hydration sync failed", out);
-                }
+                self.fail_hydration_for_channel(channel_id, "hydration sync failed", out);
                 if self
                     .state
                     .recovery_session
@@ -1767,7 +1770,11 @@ impl ImModule {
                 );
             }
         }
-        // 窗口已释放 → drain 队首续发下一 channel（B4，HX-C011 在途恒 ≤ K）。
+        // 无hydration等待者仍保留原Err；engine会丢弃失败step的Effect，不能在这里占新窗口。
+        if let Some(error) = response_error {
+            return Err(error);
+        }
+        // 已处理的hydration失败也兑现释放窗口，防止其它等待频道饿死。
         self.drain_sync_queue(out);
         self.try_finalize_recovery(None, out)?;
         self.try_finalize_pong_gap(None, out)?;

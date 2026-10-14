@@ -1,3 +1,13 @@
+✅ DONE 0.1.62四包已发布，分支与Tag远端回读一致，registry制品checksum及presence源码核验通过；客户端接入与实机待验范围见 docs/交接/1013-presence-release/handoff.md。
+🎯 EXPECT 用户批准续发patch：保留远端0.1.61历史引用修复，发布0.1.62四包并核验registry、版本Tag和远端；客户端精确依赖接入同版，真实绿点回归单独记验收。| 赌注 中 | 可逆 发布否 | @2026-10-13
+🎯 EXPECT 普通与重点观察切换保留有效状态，刷新仍在线不发unknown；仍即时查询，失败不延长有效期、权威离线/撤权立即生效。公开Tick回归先红后绿；本轮不发布或修改版本。| 赌注 低 | 可逆 是 | @2026-10-13
+✅ DONE 公开Tick新增2项先红后绿，presence共19项通过；五crate检查与WASM构建通过。修复及失败/过期边界见presence_test；真实Tauri回归待新候选，未发布或提版。
+✅ DONE 历史引用 null 修复 513157ad；Helix 0.1.61 已发布 f587445c；客户端回归与依赖提交通过，不构建应用；双仓影响见 docs/交接/1013-历史引用空值修复/handoff.md。
+🎯 EXPECT 历史exact/initial-window无引用保持null，真实引用对象保留，其他默认值不变；先红后绿Tick/SQLite+客户端回归，审查双仓影响后发布新patch、双仓push，不构建应用。| 赌注 中 | 可逆 发布否 | @2026-10-13
+- 交接：docs/交接/1013-历史引用空值修复/handoff.md
+🎯 EXPECT 独立worktree接入12个presence文件，17项presence回放通过；四公共包统一发布下一patch，版本提交与注释Tag推送后远端SHA一致；不修改客户端。分支codex/presence-release-20261013，upstream origin/reactor/MessageV3-helix；本轮保留worktree与分支。| 赌注 中 | 可逆 发布否 | @2026-10-13
+- 交接：docs/交接/1013-presence-release/handoff.md
+✅ DONE 独立worktree84项定向回放与五crate检查通过；四公共包0.1.60已发布并可解析，版本提交/注释Tag已push且远端SHA回读一致；四包registry checksum匹配本地制品，真实链与容量保持NOT_VERIFIED。
 🎯 EXPECT 基于最新官方 b631366e 将本批补充拆为七个串联 MR，每个不超过十文件；逐段冻结源码并验证，不合并或推送官方目标分支。只保留共享 IM 与通用 Host/FFI 修复，WASM 产品打包由下游 helix-driver-ffi 项目负责。| 赌注 中 | 可逆 是 | @2026-10-13
 ✅ DONE 已按依赖拆分，原整包 MR !8 关闭；本轮逐段检查与聚焦回归记录在 .perf/supplement-20261013/split，最终 Rust/C++ 和三端 Rust 检查另行对账。既有完整批次 Host 127、FFI 47、Native 37、C++ 冒烟、release 压力通过；全量 IM 非绿色：130 项依赖缺失外部参考，另两项已在干净官方基线复现，三项旧查询夹具补齐后 15 项定向通过。未伪造参考、放宽断言或宣称真实客户端和下游 FFI WASM 产品已验证。
 ⚠️ BOUNDARY 本轮扩展 Native domain 跑批 35 通过、79 失败：78 项缺失外部账号/私有会话，草稿作用域失败在最新官方 b631366e 的独立源码副本上原样复现。失败日志及生成证据已保存；实际 Native 回归采用 lib、stress_engine、stress_storage，不宣称全量通过。
@@ -1192,3 +1202,9 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 
 🎯 EXPECT hydration TooLong 经权威窗口与cursor原子提交完成原命令，后续fromSeq使用新cursor、不重复旧恢复；失败不推进。证据见 docs/交接/1012-TooLong恢复/handoff.md。 | @2026-10-12
 ✅ DONE hydration TooLong窗口/cursor原子恢复及新cursor补拉已实现；54 focused+2 buffer回归、真实Go HTTP/PostgreSQL副本/Native SQLite/EventSink两组通过。全套IM受无关G03a参考schema阻断；Tauri/发布未运行。详见 docs/交接/1012-TooLong恢复/handoff.md。
+
+🎯 EXPECT 仅修MR11当前viewer成员查询与MR15自有WS夹具；三群15000成员查询及CPP回声终态定向测试通过，不触发流水线 | 赌注 中 | 可逆 是 | @2026-10-13
+
+✅ DONE MR11成员读取先按viewer过滤；公开Tick→真实SQLite三群15000成员红→绿，Host26/P6查询14/Web过滤2及三端Rust验收通过；MR15仍独立验证。交接：docs/交接/1013-MR11与15定向修复/handoff.md。
+
+✅ DONE MR11/P1与MR15/P2分别隔离修复、本地定向验证并独立提交；PC导航适配器8项/UI逻辑40项通过，当前locate不发送navigationToken。未push或触发流水线。最终身份/边界见docs/交接/1013-MR11与15定向修复/handoff.md。

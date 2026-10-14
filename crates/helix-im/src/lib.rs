@@ -43,6 +43,7 @@ mod message_summary;
 pub mod mobile_contract;
 pub mod module;
 pub mod outbound;
+mod presence;
 pub mod sync_observation;
 pub mod parser {
     pub use crate::ws::parser::core::*;

@@ -347,6 +347,10 @@ fn dialog_absolute_member_corr(h: &mut Harness, req_id: &str, channels: serde_js
             Effect::Persist { corr, ops } => match ops.as_slice() {
                 [StorageOp::ScopedScan(spec)] if spec.table == "channel_member" => {
                     assert_eq!(spec.scope_col, "channel_id");
+                    assert!(matches!(
+                        spec.filter.as_ref(),
+                        Some(("user_id", SqlValue::Text(user_id))) if user_id == "user-a"
+                    ));
                     assert_eq!(spec.scope_values.len(), expected_scope.len());
                     for (value, expected_id) in spec.scope_values.iter().zip(&expected_scope) {
                         assert!(

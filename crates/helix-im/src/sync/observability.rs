@@ -419,6 +419,7 @@ pub(crate) fn storage_op_metadata(op: &StorageOp) -> Value {
             "table": spec.table,
             "scope_col": spec.scope_col,
             "scope_count": spec.scope_values.len(),
+            "filter_col": spec.filter.as_ref().map(|(column, _)| *column),
             "limit": spec.limit,
         }),
         StorageOp::Scan(spec) => json!({ "operation": "Scan", "table": spec.table }),

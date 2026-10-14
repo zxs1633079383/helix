@@ -105,6 +105,7 @@ impl Default for ImConfig {
 
 /// IM 业务模块（实现 helix_core::Module trait）
 pub struct ImModule {
+    pub(crate) presence: crate::presence::Presence,
     pub(crate) failure_context: crate::failure_context::FailureContext,
     pub(crate) bookmark_count: crate::bookmark_count::CountCache,
     pub(crate) config: ImConfig,
@@ -163,6 +164,7 @@ impl ImModule {
     ) -> Self {
         Self {
             config,
+            presence: Default::default(),
             failure_context: Default::default(),
             bookmark_count: Default::default(),
             render_scope: Default::default(),
@@ -337,8 +339,15 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), CoreError> {
+        let previous_connection = (frame.action().ok() == Some("hello"))
+            .then(|| self.state.connection_id.clone())
+            .flatten();
         self.failure_context.websocket(frame);
         self.diagnose_inbound(frame);
+        if frame.action().ok() == Some("presence") {
+            self.presence_inbound(frame.data(), now_ms, out);
+            return Ok(());
+        }
         let module_name = self.name();
         let api_base_url = self.config.api_base_url.as_str();
         let auth_user_id = self.config.auth_user_id.as_str();
@@ -371,6 +380,17 @@ impl ImModule {
             module: module_name,
             source: Box::new(e),
         })?;
+
+        if frame.action().ok() == Some("hello")
+            && self.state.connection_id.is_some()
+            && self.state.connection_id != previous_connection
+        {
+            self.presence_connected(now_ms, out)
+                .map_err(|e| CoreError::ModuleError {
+                    module: self.name(),
+                    source: Box::new(e),
+                })?;
+        }
 
         // The post handler has already appended its PersistFire write. The host
         // driver serializes Persist/PersistFire by the same `message` table key,

@@ -483,3 +483,19 @@ fn every_p5a_misc_command_is_dispatchable() {
 fn handle_outbound_bad_payload_is_error_not_panic() {
     assert!(handle_outbound("im_list_users", b"{not json", BASE, BASE, None, corr()).is_err());
 }
+
+// Presence opts in to timestamps without changing the existing flat-map query contract.
+#[test]
+fn user_status_metadata_is_explicit_and_boolean() {
+    let (_, body) = one_http(run(
+        "im_get_user_statuses",
+        json!({"user_ids":["u1"],"include_metadata":true}),
+    ));
+    assert_eq!(body["includeMetadata"], true);
+    let (_, body) = one_http(run("im_get_user_statuses", json!({"user_ids":["u1"]})));
+    assert!(body.get("includeMetadata").is_none());
+    assert!(err(
+        "im_get_user_statuses",
+        json!({"user_ids":["u1"],"include_metadata":"true"})
+    ));
+}

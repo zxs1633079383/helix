@@ -14,6 +14,10 @@ pub struct CommandAlias {
 
 pub const COMMAND_ALIASES: &[CommandAlias] = &[
     CommandAlias {
+        public: "im_presence_observe",
+        core: "im_presence_observe",
+    },
+    CommandAlias {
         public: "im_translate_message",
         core: "im_translate_message",
     },

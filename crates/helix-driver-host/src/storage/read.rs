@@ -145,6 +145,7 @@ pub(super) async fn scoped_scan(
         table,
         scope_col,
         scope_values,
+        filter,
         limit,
     } = spec;
     let mut scope_values = scope_values;
@@ -166,11 +167,21 @@ pub(super) async fn scoped_scan(
                     .join(", ");
                 let fetch_limit = remaining + 1;
                 let sql = format!(
-                    "SELECT * FROM {table} WHERE {scope_col} IN ({placeholders}) LIMIT {fetch_limit}",
+                    "SELECT * FROM {table} WHERE {scope_col} IN ({placeholders}){filter_clause} LIMIT {fetch_limit}",
                     table = table,
                     scope_col = scope_col,
+                    filter_clause = filter
+                        .as_ref()
+                        .map(|(column, _)| format!(" AND {column} = ?"))
+                        .unwrap_or_default(),
                 );
-                let bind = sql_values(scope_chunk.iter());
+                // Keep the existing 900-value scope chunk: the additive filter contributes at
+                // most one bind, so the statement remains below SQLite's default 999-variable
+                // limit while still applying both predicates in one read.
+                let mut bind = sql_values(scope_chunk.iter());
+                if let Some((_, value)) = filter.as_ref() {
+                    bind.extend(sql_values(std::iter::once(value)));
+                }
                 let mut stmt = transaction.prepare_cached(&sql).map_err(map_sqlite_err)?;
                 let _span = trace_sql(&trace, "SELECT", Some(table), &sql, &bind);
                 let mut cursor = stmt

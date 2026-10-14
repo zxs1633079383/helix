@@ -129,3 +129,37 @@ TraceId 来自 core 的当前 step 诊断，不由业务模块创建；HTTP/WS/�
 定向入口为 `cargo test -p helix-im --test message_v3_mv3_g01c` 与
 `cargo test -p helix-driver-host --test media_pipeline_e2e`；本轮仅核对源码和测试入口，
 未执行测试，也不据此宣称真实 Tauri UI 上传进度已验收。
+
+## 按观察范围读取在线状态
+
+`im_presence_observe({scope_id,user_ids,focused_user_ids})` 是本地确定性登记命令，
+通过公共 `client_api` / `Tick::Command` 进入；同 scope 全量替换，两个数组为空时释放。
+每 scope 最多 200 个去重用户，最多 64 scopes；合并后优先 focus，实际观察最多 200 人，
+其余明确为 unknown。最多 10 个 focus 通过 WS 订阅，其余降为普通查询。
+Host 必须为窗口创建唯一 scope 并在隐藏/销毁时释放。身份与企业由 ImConfig 提供，
+不接受 renderer payload 修改。无持久化，不统计群在线人数。
+
+输出为 `{event:"im:presence:update",data:{statuses:{userId:"online"|"offline"|"unknown"}}}`，
+是当前已登记用户的绝对快照；首次登记产生 unknown，网络确认后才出现 online/offline。
+新增观察仅补查无有效缓存且无在途请求的用户，重连重新批查 `/users/status/ids`
+（最多 100 人/批）；滚动保留交集在途请求，不重置普通用户的 30 秒刷新周期，
+有效期从请求开始计算 45 秒；focus 初始查询有效期 15 秒，较新的 WS 样本优先。
+普通与 focus 切换时立即补查，但保留已有有效状态，避免在线绿点先清空再恢复；
+晋升 focus 后等待新确认最多保留 15 秒，且不超过原有效期，反复切换不会续活旧样本。
+专用查询携带 `includeMetadata:true`，返回 `{statuses,checkedAt}`；普通旧查询仍为 map。
+HTTP/WS 按相同服务端 checkedAt 排序。用 HTTP 采样时刻减本地请求发出时刻建立时钟
+偏差上界，保守换算 WS 有效期，延迟到达不续活过期状态；首个 HTTP 确认前不晋升 WS，
+确认失败通过续订周期有界重试；任何 WS 样本的本地剩余新鲜期最多 15 秒。
+每次重连重新校准；同一连接期采用已确认偏差上界的最小值。服务端节点时钟同步及
+会话内时钟稳定仍是 Redis 租约与 checkedAt 排序的前提，时钟前跳不能延长本地新鲜期。
+WS 发 `{action:"presence_watch",seq,data:{userIds,generation}}`，每 20 秒续 60 秒租约；
+接收 `{action:"presence",data:{generation,statuses,checkedAt}}`，完整快照省略用户即 unknown。
+检查失败不延长状态，15 秒未获 focus 确认变 unknown。只有 focus 集合变化或连接恢复
+改变订阅代次；普通列表滚动不重发 watch。同代递增 checkedAt 防旧帧覆盖。
+
+生命周期：输入非法直接报错且不改变观察；HTTP/Port/业务失败不伪造 offline，保留已确认
+状态仅到原期限；请求 15 秒超时后丢弃关联，迟到/重复回复不生效。取消 scope 释放对应用户关联，最后观察者离开取消计时器；断线、
+身份切换、stop 清待处理关联及计时器；断线保留观察意图，hello 后新代重新取快照。
+Persist/SQLite 生命周期为 N/A（瞬时状态），WS 无确认时由 15 秒失效处理。
+定向回放入口：`cargo test -p helix-im --test presence_test`；仅证明 sans-IO 合同，
+真实 Go/WS/Tauri UI、三端业务验收和 5000 人群负载未由这些回放证明。

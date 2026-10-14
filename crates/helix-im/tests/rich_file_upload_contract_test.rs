@@ -1137,7 +1137,7 @@ mod g03_prepare_contract {
             ("fileName", json!("doc\\archive.pdf")),
             ("contentType", json!("application pdf")),
             ("contentType", json!("x".repeat(128))),
-            ("size", json!((64_u64 << 20) + 1)),
+            ("size", json!((1_u64 << 30) + 1)),
             (
                 "sha256",
                 json!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),

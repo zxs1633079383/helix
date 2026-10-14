@@ -21,3 +21,9 @@
 - 真实Go/Tauri业务验证由主任务继续；此证据不证明真实桌面自动清除。
 
 - 全量 `cargo test -p helix-im` 非绿：`message_v3_artifact_schema` 六项依赖旧绝对路径 `/System/Volumes/Data/workspace/angular/visual/cses-client/specs/...`，文件缺失；该合同未被本次修改。不扩大修复范围，后续target并未全部执行。
+
+## 2026-10-14 发布交付
+
+用户授权提交push、发布Helix并应用客户端。当前分支合入远端50个提交，保留0.1.65全部变更；只解决SESSION双方记录冲突。0.1.66已占用，脚本选定0.1.67。首次TLS失败无包上传，正常重试后四包发布且registry可解析。源码候选包中的回应实现与本地一致。
+
+合并后G13 14项通过；版本事务八crate检查、core及WASM通过。原绝对路径合同仍6项失败，未放宽或删除断言。日志release-0.1.67-retry.log。客户端精确依赖及Cargo.lock接入0.1.67；不代表正在运行的旧native已经更新。真实Go/Tauri联调仍待部署/重启后验收。

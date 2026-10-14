@@ -1,3 +1,4 @@
+✅ DONE 用户授权发布0.1.67四包并全部registry可解析；版本提交与Tag同步，客户端接入本版。合并后G13 14项通过，6项既有绝对路径合同失败，真实桌面待验。详见 docs/交接/1014-visible-reaction-query/handoff.md。
 ✅ DONE 可见回应过滤公开Tick先红后绿，G13 14项、五crate check、core、WASM通过；全量被既有合同路径缺失阻断。未提交发布；真实Go/Tauri待主任务，详见 docs/交接/1014-visible-reaction-query/handoff.md。
 🎯 EXPECT 可选 post_ids 最多100项映射HTTP postIds，targets经校验与持久屏障原样返回；原查询和ACK不变，公开Tick先红后绿，不提版提交发布。| 赌注 低 | 可逆 是 | @2026-10-14
 🎯 EXPECT ScopedScan遵守调用方显式上限且保留超限拒绝；真实HostStorage公开查询完整返回5000/15000人成员、管理员和权限，边界哨兵/并发/离线重开回归通过。用户授权下一个可用patch发布，无push。| 赌注 中 | 可逆 代码是/发布否 | @2026-10-14

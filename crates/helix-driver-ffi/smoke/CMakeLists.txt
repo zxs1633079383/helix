@@ -23,7 +23,25 @@ target_link_libraries(helix_smoke PRIVATE helix_driver_ffi)
 set_target_properties(helix_smoke PROPERTIES BUILD_RPATH "${HELIX_TARGET_DIR}")
 
 enable_testing()
-add_test(NAME helix_cpp_direct_smoke COMMAND helix_smoke)
+find_program(NODE_EXECUTABLE NAMES node)
+if(NOT NODE_EXECUTABLE)
+    message(FATAL_ERROR "Node.js is required for the localhost owned-channel smoke fixture")
+endif()
+add_test(NAME helix_cpp_direct_smoke
+    COMMAND "${NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/owned_channel_fixture.mjs"
+        $<TARGET_FILE:helix_smoke> echo)
 set_tests_properties(helix_cpp_direct_smoke PROPERTIES
+    ENVIRONMENT "DYLD_LIBRARY_PATH=${HELIX_TARGET_DIR};LD_LIBRARY_PATH=${HELIX_TARGET_DIR}"
+    TIMEOUT 30)
+
+# Negative paths are first-class smoke tests: HTTP admission alone must fail
+# closed when the WS handshake is rejected or no correlated echo arrives.
+add_test(NAME helix_cpp_ws_handshake_failure
+    COMMAND "${NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/owned_channel_fixture.mjs"
+        $<TARGET_FILE:helix_smoke> ws-failure)
+add_test(NAME helix_cpp_ws_missing_echo
+    COMMAND "${NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/owned_channel_fixture.mjs"
+        $<TARGET_FILE:helix_smoke> no-echo)
+set_tests_properties(helix_cpp_ws_handshake_failure helix_cpp_ws_missing_echo PROPERTIES
     ENVIRONMENT "DYLD_LIBRARY_PATH=${HELIX_TARGET_DIR};LD_LIBRARY_PATH=${HELIX_TARGET_DIR}"
     TIMEOUT 30)

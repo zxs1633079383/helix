@@ -1174,30 +1174,42 @@ impl ImModule {
                     return Ok(());
                 };
                 if let Some(channel_rows) = channel_rows {
-                    let merged_rows = match crate::event::read::merge_dialog_rows_for_viewer(
-                        channel_rows.as_ref(),
+                    let mut merged_rows = crate::channel_sync::project_authority_rows(
+                        *channel_rows,
                         reply.0.as_ref(),
-                        auth_user_id.as_str(),
-                    ) {
-                        Ok(rows) => rows,
-                        Err(error) => {
-                            tracing::warn!(error = ?error, "dialog member absolute snapshot rejected");
-                            out.push(self.emit_dialog_list_result_for_runtime(
-                                causation_id.as_deref(),
-                                b"[]",
-                            ));
-                            return Ok(());
-                        }
-                    };
+                        &crate::query::DialogListScope::new(&auth_user_id, &company_id),
+                    )
+                    .unwrap_or_default();
+                    // 保持列表按当前成员置顶、最后消息排序，不能使用频道占位摘要排序。
+                    merged_rows.sort_by(|left, right| {
+                        right["channelIsTop"]
+                            .as_bool()
+                            .cmp(&left["channelIsTop"].as_bool())
+                            .then_with(|| {
+                                right["lastPostAt"]
+                                    .as_i64()
+                                    .cmp(&left["lastPostAt"].as_i64())
+                            })
+                            .then_with(|| {
+                                right["createAt"].as_i64().cmp(&left["createAt"].as_i64())
+                            })
+                    });
                     let bytes = serde_json::to_vec(&merged_rows)
                         .map_err(|error| ImError::Serialize(error.to_string()))?;
                     out.push(
                         self.emit_dialog_list_result_for_runtime(causation_id.as_deref(), &bytes),
                     );
                 } else {
-                    let scope = crate::query::DialogListScope::new(&auth_user_id, &company_id);
-                    let channel_rows =
-                        crate::query::project_dialog_list_items(reply.0.as_ref(), &scope);
+                    let channel_rows = crate::event::read::parse_dialog_rows(reply.0.as_ref())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|row| {
+                            crate::query::core::dialog_row_visible(
+                                row,
+                                &crate::query::DialogListScope::new(&auth_user_id, &company_id),
+                            )
+                        })
+                        .collect::<Vec<_>>();
                     if channel_rows.is_empty() {
                         out.push(
                             self.emit_dialog_list_result_for_runtime(
@@ -1228,6 +1240,7 @@ impl ImModule {
             }
 
             CorrelationContext::ChannelViewSnapshotQuery {
+                channel_rows,
                 channel_id,
                 causation_id,
                 auth_user_id,
@@ -1238,14 +1251,39 @@ impl ImModule {
                         if self.config.auth_user_id == auth_user_id
                             && self.config.company_id == company_id =>
                     {
-                        crate::query::channel_view_snapshot::result_body(
-                            reply.0.as_ref(),
-                            &crate::query::DialogListScope::new(
-                                auth_user_id.as_str(),
-                                company_id.as_str(),
-                            ),
-                            channel_id,
-                        )
+                        let scope = crate::query::DialogListScope::new(&auth_user_id, &company_id);
+                        if let Some(rows) = channel_rows {
+                            let channel_bytes = serde_json::to_vec(rows.as_ref())
+                                .map_err(|error| ImError::Serialize(error.to_string()))?;
+                            crate::query::channel_view_snapshot::result_body(
+                                &channel_bytes,
+                                reply.0.as_ref(),
+                                &scope,
+                                channel_id,
+                            )
+                        } else {
+                            let rows = crate::event::read::parse_dialog_rows(reply.0.as_ref())
+                                .unwrap_or_default();
+                            let corr = self.alloc_corr_internal();
+                            let effect = crate::channel_sync::member_scan_effect(
+                                corr,
+                                &rows,
+                                &company_id,
+                                &auth_user_id,
+                            )?;
+                            self.state.corr_map.insert(
+                                corr,
+                                CorrelationContext::ChannelViewSnapshotQuery {
+                                    channel_rows: Some(Box::new(rows)),
+                                    channel_id,
+                                    causation_id,
+                                    auth_user_id,
+                                    company_id,
+                                },
+                            );
+                            out.push(effect);
+                            return Ok(());
+                        }
                     }
                     PortOutcome::Ok(_) => {
                         tracing::warn!("channel view snapshot identity changed; returning miss");

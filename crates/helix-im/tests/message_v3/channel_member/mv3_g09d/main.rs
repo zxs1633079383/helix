@@ -137,6 +137,7 @@ impl Replay {
                     "team_id": COMPANY,
                     "role": "MEMBER",
                     "unread_count": 3,
+                    "unread_post_id": "g09d-anchor", "last_read_seq": 0,
                 }, {
                     "channel_id": CHANNEL,
                     "user_id": "admin-g09d",

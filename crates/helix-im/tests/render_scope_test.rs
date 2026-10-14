@@ -174,7 +174,7 @@ fn offline_dialog_query_filters_mixed_user_company_rows() {
                 corr: member_corr,
                 outcome: PortOutcome::Ok(ReplyBytes(
                     serde_json::to_vec(&json!([{
-                        "channel_id": CHANNEL, "user_id": "viewer", "channel_is_top": 0,
+                        "channel_id": CHANNEL, "user_id": "viewer", "team_id": "company-a", "role": "MEMBER", "channel_is_top": 0,
                         "unread_count": 0, "last_read_seq": 0
                     }]))
                     .unwrap()

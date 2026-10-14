@@ -48,12 +48,19 @@ pub fn query_effect(channel_id: ChannelId, corr: Correlation) -> Effect {
 /// 返回 `{snapshot}` typed body；缺行、跨租户或非成员均是明确 local miss。
 pub fn result_body(
     reply_bytes: &[u8],
+    member_bytes: &[u8],
     scope: &DialogListScope,
     channel_id: ChannelId,
 ) -> serde_json::Value {
-    serde_json::json!({
-        "snapshot": crate::query::project_channel_view_snapshot(reply_bytes, scope, channel_id)
-    })
+    let snapshot = serde_json::from_slice::<Vec<serde_json::Value>>(reply_bytes)
+        .ok()
+        .and_then(|rows| crate::channel_sync::project_authority_rows(rows, member_bytes, scope))
+        .and_then(|items| {
+            items.into_iter().find(|row| {
+                row.get("id").and_then(serde_json::Value::as_str) == Some(channel_id.as_str())
+            })
+        });
+    serde_json::json!({ "snapshot": snapshot })
 }
 
 #[cfg(test)]
@@ -71,7 +78,13 @@ mod tests {
             "permission_revision": 4
         }]))
         .unwrap();
-        let body = result_body(&rows, &DialogListScope::new("user-a", "team-a"), channel_id);
+        let members = serde_json::to_vec(&serde_json::json!([{"channel_id":channel_id.as_str(),"user_id":"user-a","team_id":"team-a","role":"MEMBER"}])).unwrap();
+        let body = result_body(
+            &rows,
+            &members,
+            &DialogListScope::new("user-a", "team-a"),
+            channel_id,
+        );
         assert_eq!(body["snapshot"]["id"], channel_id.as_str());
         assert_eq!(body["snapshot"]["settingVersion"], 3);
     }
@@ -85,7 +98,13 @@ mod tests {
             "user_id": "user-a"
         }]))
         .unwrap();
-        let body = result_body(&rows, &DialogListScope::new("user-a", "team-a"), channel_id);
+        let members = serde_json::to_vec(&serde_json::json!([{"channel_id":channel_id.as_str(),"user_id":"user-a","team_id":"team-a","role":"MEMBER"}])).unwrap();
+        let body = result_body(
+            &rows,
+            &members,
+            &DialogListScope::new("user-a", "team-a"),
+            channel_id,
+        );
         assert!(body["snapshot"].is_null());
     }
 }

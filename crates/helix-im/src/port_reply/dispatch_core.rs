@@ -799,9 +799,15 @@ impl ImModule {
             .and_then(|value| value.as_array().cloned())
             .ok_or_else(|| ImError::Parse("channel sync page rows are invalid".to_string()))?;
         let member_corr = self.alloc_corr_internal();
+        let page_rows = channel_rows
+            .iter()
+            .skip(offset)
+            .take(crate::channel_sync::PAGE_SIZE as usize)
+            .cloned()
+            .collect::<Vec<_>>();
         let member_effect = crate::channel_sync::member_scan_effect(
             member_corr,
-            &channel_rows,
+            &page_rows,
             self.config.company_id.as_str(),
             self.config.auth_user_id.as_str(),
         )?;
@@ -2177,7 +2183,7 @@ mod channel_sync_contract_tests {
         let Some(helix_core::effect::StorageOp::ScopedScan(spec)) = member_scan else {
             panic!("channel page must schedule one scoped member scan");
         };
-        assert_eq!(spec.limit, 10_000usize);
+        assert_eq!(spec.limit, 10_001usize);
         let scoped_ids = spec
             .scope_values
             .iter()

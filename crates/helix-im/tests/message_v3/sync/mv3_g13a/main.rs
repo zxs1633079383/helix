@@ -84,7 +84,7 @@ impl Replay {
         self.reply_ok(
             *corr,
             json!([{
-                "channel_id": CHANNEL_VISIBLE, "user_id": VIEWER,
+                "channel_id": CHANNEL_VISIBLE, "user_id": VIEWER, "team_id": COMPANY, "role": "MEMBER",
                 "channel_is_top": 0, "unread_count": unread,
                 "unread_post_id": if unread > 0 { "g13a-anchor" } else { "" },
                 "last_read_seq": 0

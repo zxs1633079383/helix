@@ -489,6 +489,7 @@ pub enum CorrelationContext {
 
     /// 切群本地 ChannelViewSnapshot 单行回读；身份只来自 RuntimeAuth。
     ChannelViewSnapshotQuery {
+        channel_rows: Option<Box<Vec<serde_json::Value>>>,
         channel_id: ChannelId,
         causation_id: Option<String>,
         auth_user_id: String,

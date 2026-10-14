@@ -21,6 +21,7 @@ const SCHEDULE_INTENT_STAGE_SUBMITTING: &str = "submitting";
 pub(crate) const SCHEDULE_INTENT_STAGE_FAILED: &str = "failed";
 pub(crate) const SCHEDULE_INTENT_STAGE_UNKNOWN: &str = "unknown";
 const SCHEDULE_UPLOAD_TOTAL_TIMEOUT_MS: u64 = 300_000;
+const MAX_PENDING_SCHEDULE_MULTIPART: usize = 32;
 
 /// 定时 multipart 回包阶段。路由只保存 key/小型 part，不复制整个 payload/session。
 #[derive(Debug, Clone)]
@@ -390,7 +391,12 @@ impl ImModule {
                 continue;
             }
             if stage == SCHEDULE_INTENT_STAGE_SUBMITTING || stage == SCHEDULE_INTENT_STAGE_UNKNOWN {
-                if self.state.schedule_media_submitting.len() >= 32
+                let active_multipart = self
+                    .state
+                    .schedule_multipart_contexts
+                    .len()
+                    .saturating_add(self.state.schedule_media_submitting.len());
+                if active_multipart >= MAX_PENDING_SCHEDULE_MULTIPART
                     && !self
                         .state
                         .schedule_media_submitting
@@ -505,7 +511,12 @@ impl ImModule {
             let remaining = media.drain(1..).collect::<VecDeque<_>>();
             let key = format!("schedule:{}", channel_id.as_str());
             if self.state.schedule_multipart_contexts.contains_key(&key)
-                || self.state.schedule_multipart_contexts.len() >= 32
+                || self
+                    .state
+                    .schedule_multipart_contexts
+                    .len()
+                    .saturating_add(self.state.schedule_media_submitting.len())
+                    >= MAX_PENDING_SCHEDULE_MULTIPART
             {
                 // Preserve the durable row for a later bounded resume rather
                 // than marking a valid intent failed just because the host is
@@ -621,13 +632,19 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<bool, ImError> {
-        if self.state.schedule_multipart_contexts.len() >= 32 {
-            return Err(ImError::Parse("too many pending schedule uploads".into()));
-        }
         let channel_id = payload["channel_id"]
             .as_str()
             .and_then(ChannelId::from_str)
             .ok_or_else(|| ImError::Parse("invalid schedule channel".into()))?;
+        if self
+            .state
+            .schedule_multipart_contexts
+            .len()
+            .saturating_add(self.state.schedule_media_submitting.len())
+            >= MAX_PENDING_SCHEDULE_MULTIPART
+        {
+            return Err(ImError::Parse("too many pending schedule uploads".into()));
+        }
         if self
             .state
             .schedule_multipart_contexts

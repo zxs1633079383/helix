@@ -13,10 +13,14 @@ const SIZE: u64 = 100 * 1024 * 1024 + 1;
 const PART_SIZE: u64 = 8 * 1024 * 1024;
 
 fn schedule_cmd(req_id: &str) -> Tick {
+    schedule_cmd_on_channel(1, req_id)
+}
+
+fn schedule_cmd_on_channel(channel: u64, req_id: &str) -> Tick {
     command_json(
         "im_create_schedule",
         json!({
-            "channel_id": cid(1),
+            "channel_id": cid(channel),
             "message": "",
             "type": "FILE",
             "req_id": req_id,
@@ -806,6 +810,49 @@ fn schedule_rehydrate_keeps_excess_valid_rows_durable_at_capacity() {
         init_count, 32,
         "startup recovery must keep the 32-intent cap"
     );
+}
+
+#[test]
+fn schedule_multipart_admission_counts_unknown_submission_fences() {
+    let channels = (1..=33).collect::<Vec<_>>();
+    let mut h = Harness::new_with_identity(&channels, "user-1", "team-1", "", "", "");
+    h.start(1_700_000_000_000);
+    let scan = schedule_scan_corr(&h);
+    let rows = (1..=32_u64)
+        .map(|channel| {
+            let mut row = schedule_media_row(
+                channel,
+                "team-1",
+                "user-1",
+                &format!("schedule-unknown-{channel}"),
+                "unknown",
+                schedule_media_value(),
+            );
+            row["session_id"] = json!(format!("schedule-upload-{channel}"));
+            row
+        })
+        .collect::<Vec<_>>();
+    h.step(
+        port_reply_with_body(
+            scan,
+            Bytes::from(serde_json::to_vec(&rows).expect("unknown fence rows")),
+        ),
+        1_700_000_000_001,
+    );
+
+    h.step(
+        schedule_cmd_on_channel(33, "schedule-over-capacity"),
+        1_700_000_000_002,
+    );
+    assert!(h.sink.as_slice().iter().all(|effect| {
+        !matches!(
+            effect,
+            Effect::Persist { .. }
+                | Effect::PersistAtomic { .. }
+                | Effect::Http { .. }
+                | Effect::UploadFile { .. }
+        )
+    }));
 }
 
 #[test]

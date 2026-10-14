@@ -7,7 +7,7 @@
 - 阈值按用户最新指定的 ossutil 2.0 口径；[阿里云 multipart 文档](https://www.alibabacloud.com/help/en/oss/user-guide/multipart-upload)说明自动阈值为 >100 MiB。单片8 MiB符合100 KB～5 GB范围；128片是本业务1 GiB上限派生值，不是OSS的10,000片服务上限。
 - 最终 fileId/bucket/uri/name/contentType/size/sha256 及 MessageV3 事件不变；合并确认及 PersistOk 前不得 posts/create。
 - core 不认识 OSS/Java/IM，仅扩展文件区间传输；业务与恢复编排在 helix-im。
-- 本次分片状态机覆盖普通消息 im_send_message / im_retry_send → posts/create；独立定时消息 schedule_media → posts/createSchedule 保持原PUT路径，未将其声明为新增分片续传能力。
+- 分片状态机覆盖普通消息 im_send_message / im_retry_send → posts/create，以及定时消息 im_create_schedule → posts/createSchedule；两者使用相同大小阈值、分片、重试及传输预算。
 - 当前 Web local-path 上传不支持：公共类型与 wasm 编译必须兼容，浏览器文件恢复 NOT_IMPLEMENTED_BY_SCOPE。
 
 ## Java HTTP（全部 POST，Java 成功信封沿用当前 isSuccess=true）
@@ -38,6 +38,18 @@ journal normalized：session独立行，part=(account-local session,partNumber) 
 失败沿用发送失败/UnSend，不伪造成功；PersistErr不得释放后续；重复/迟到不得重复合并/发送。
 单片最大5分钟、无进度60秒；签名过期/超时先恢复对账，重试次数有界。
 明确取消终止会话；关机/断网保留续传事实，清理仅run-owned资源。当前无公开取消上传入口时记录N/A并明确覆盖实际宿主关闭与worker释放。
+
+## 定时消息生命周期与兼容
+沿用 im_create_schedule 的 payload、executionTime、mentions、viewer 与最终稳定附件引用；不写普通乐观消息、不发送 posts/create。
+包含分片附件的计划：schedule_media_intent 持久化 owner、计划与恢复阶段，上传身份不依赖可变 UI req_id；session/part 复用普通上传表。
+init→intent/session PersistOk→ListParts→签名/区间PUT→checkpoint PersistOk→complete→全部稳定引用及旧会话清理 PersistAtomic→submitting PersistOk→原 posts/createSchedule。
+多附件逐项切换，在同一持久化边界清理上一项会话；纯小附件保持旧路径，简单PUT仍整文件重试。
+重启扫描仅恢复当前账号/公司的意图，损坏行逐项拒绝；上下文与未知提交栅栏合计最多32，超额行留存后续恢复。
+每次进度旋转 watchdog TimerId，迟到旧 timer 不得错误终止仍在推进的上传。
+Go createSchedule 没有幂等键，发送后出现HTTP/业务错误也可能已产生副作用；submitting/unknown栅栏阻止盲重发。
+权威创建WS→channel_schedule/channel及归属intent清理 PersistOk→既有 im:read:result {req_id,body:{ok:true}}。
+取消权威仅释放接收事件时捕获的已提交/未知代次，不清理新代次；已有取消定时消息流程保留，上传中不新增取消入口。
+客户端失败lease可重绑定且迟到旧worker不得清掉新租约；分片计划整体等待按片数/并发/重试预算计算，最高24小时，小文件/文本原300秒预算。
 
 ## Driver 文件区间合同
 保持 FileUploadRequest 现有字段兼容；在已有私有 FileUploadUrls 封装新增可选 FileUploadRange {offset,length} 配置。

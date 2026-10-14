@@ -145,6 +145,16 @@ impl ImModule {
                 });
             if let Some((channel_id, timeline_readback)) = failed_context {
                 let reconcile_corr = self.alloc_corr_internal();
+                let crate::pending_send::TimelineReadbackContext {
+                    window_token,
+                    causation_id,
+                } = timeline_readback;
+                let failed_event =
+                    crate::event::post::send_failed_for_identity_with_request_id(
+                        channel_id.as_str(),
+                        tmp_id.0.as_str(),
+                        causation_id.as_deref(),
+                    )?;
                 if self
                     .state
                     .pending_sends
@@ -155,18 +165,12 @@ impl ImModule {
                         reconcile_corr,
                         crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
                             channel_id,
-                            window_token: timeline_readback.window_token,
-                            causation_id: timeline_readback.causation_id,
+                            window_token,
+                            causation_id,
                         },
                     );
                 }
-                out.push(
-                    crate::event::post::send_failed_for_identity(
-                        channel_id.as_str(),
-                        tmp_id.0.as_str(),
-                    )?
-                    .into_effect(),
-                );
+                out.push(failed_event.into_effect());
             }
             return Ok(());
         }

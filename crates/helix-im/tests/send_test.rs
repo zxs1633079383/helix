@@ -423,6 +423,38 @@ fn send_timeout_marks_unsend() {
 }
 
 #[test]
+/// 15s timeout 也必须携带公开发送命令保存的 request causation。
+fn send_timeout_preserves_request_id_in_failed_projection() {
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
+    let initial_effects = h.step(
+        command_json(
+            "im_send_message",
+            serde_json::json!({
+                "channel_id": cid(1),
+                "allocated_temporary_id": "tmp-timeout-request",
+                "req_id": "send-timeout-request-1",
+                "text": "request-bound timeout"
+            }),
+        ),
+        1000,
+    );
+    let effects = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
+    let timeout_timer = effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::ScheduleTimer(id) => Some(*id),
+            _ => None,
+        })
+        .expect("timeout timer");
+
+    h.step(timer_tick(timeout_timer), 16_001);
+
+    let projection = failed_projection_for_tmp(&h, "tmp-timeout-request")
+        .expect("timeout must emit a request-bound send-failed projection");
+    assert_eq!(projection["data"]["requestId"], "send-timeout-request-1");
+}
+
+#[test]
 fn pending_send_http_error_marks_unsend_cancels_timer_and_emits_failed_projection() {
     let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
     let initial_effects = h.step(send_message_cmd(1, "tmp_fail", "hello"), 1000);
@@ -456,11 +488,41 @@ fn pending_send_http_error_marks_unsend_cancels_timer_and_emits_failed_projectio
         .expect("HTTP Err must emit im:post:send-failed anchored by temporaryId");
     assert_eq!(projection["data"]["sendStatus"], "failed");
     assert_eq!(projection["data"]["channelId"], cid(1));
+    assert!(
+        projection["data"].get("requestId").is_none(),
+        "legacy send-failed payload without a request causation stays unchanged"
+    );
     assert_eq!(
         h.module.pending_send_status("tmp_fail"),
         Some(SendStatus::UnSend),
         "failed send remains retained as terminal UnSend until any later echo/backfill"
     );
+}
+
+#[test]
+/// 公开发送命令的 request causation 必须跟随失败终态，供客户端回收本轮绑定。
+fn pending_send_http_error_preserves_request_id_in_failed_projection() {
+    let mut h = Harness::new_with_identity(&[1], "send-viewer", "send-company", "", "", "");
+    let initial_effects = h.step(
+        command_json(
+            "im_send_message",
+            serde_json::json!({
+                "channel_id": cid(1),
+                "allocated_temporary_id": "tmp-request-bound",
+                "req_id": "send-failure-request-1",
+                "text": "request-bound failure"
+            }),
+        ),
+        1000,
+    );
+    let effects = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
+    let h1 = http_corr(&effects);
+
+    h.step(port_reply_err(h1), 1100);
+
+    let projection = failed_projection_for_tmp(&h, "tmp-request-bound")
+        .expect("HTTP Err must emit a request-bound send-failed projection");
+    assert_eq!(projection["data"]["requestId"], "send-failure-request-1");
 }
 
 #[test]

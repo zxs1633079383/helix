@@ -1574,6 +1574,16 @@ impl ImModule {
                 }
 
                 if let Some((channel_id, body, timeline_readback, timeout_timer)) = terminal {
+                    let crate::pending_send::TimelineReadbackContext {
+                        window_token,
+                        causation_id,
+                    } = timeline_readback;
+                    let failed_event =
+                        crate::event::post::send_failed_for_identity_with_request_id(
+                            channel_id.as_str(),
+                            temporary_id.0.as_str(),
+                            causation_id.as_deref(),
+                        )?;
                     let terminal_corr = self.alloc_corr_internal();
                     let mut terminal_ops = vec![
                         crate::pending_send::optimistic_message_persist_op(
@@ -1604,25 +1614,19 @@ impl ImModule {
                         crate::state::CorrelationContext::MediaFailureCompensation {
                             temporary_id: temporary_id.clone(),
                             channel_id,
-                            window_token: timeline_readback.window_token,
-                            causation_id: timeline_readback.causation_id,
+                            window_token,
+                            causation_id,
                         }
                     } else {
                         crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
                             channel_id,
-                            window_token: timeline_readback.window_token,
-                            causation_id: timeline_readback.causation_id,
+                            window_token,
+                            causation_id,
                         }
                     };
                     self.state.corr_map.insert(terminal_corr, context);
                     out.push(Effect::CancelTimer { id: timeout_timer });
-                    out.push(
-                        crate::event::post::send_failed_for_identity(
-                            channel_id.as_str(),
-                            temporary_id.0.as_str(),
-                        )?
-                        .into_effect(),
-                    );
+                    out.push(failed_event.into_effect());
                 }
             }
         }
@@ -1664,6 +1668,12 @@ impl ImModule {
                     .get_mut(&temporary_id)
                     .is_some_and(|pending| pending.mark_failed_immediately(reconcile_corr, out))
                 {
+                    let failed_event =
+                        crate::event::post::send_failed_for_identity_with_request_id(
+                            channel_id.as_str(),
+                            temporary_id.0.as_str(),
+                            causation_id.as_deref(),
+                        )?;
                     self.state.corr_map.insert(
                         reconcile_corr,
                         crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
@@ -1672,13 +1682,7 @@ impl ImModule {
                             causation_id,
                         },
                     );
-                    out.push(
-                        crate::event::post::send_failed_for_identity(
-                            channel_id.as_str(),
-                            temporary_id.0.as_str(),
-                        )?
-                        .into_effect(),
-                    );
+                    out.push(failed_event.into_effect());
                 }
             }
         }

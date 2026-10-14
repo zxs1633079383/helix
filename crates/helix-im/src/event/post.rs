@@ -515,11 +515,27 @@ pub fn send_failed_for_identity(
     channel_id: &str,
     temporary_id: &str,
 ) -> Result<MessageV3Event, crate::ImError> {
-    send_failed(serde_json::json!({
+    send_failed_for_identity_with_request_id(channel_id, temporary_id, None)
+}
+
+/// 构造按 temporaryId 锚定、可选携带原始请求因果的本地发送失败事实。
+///
+/// `request_id` 只能来自待发送记录保存的 `TimelineReadbackContext`；它与
+/// `temporaryId` 是两个独立身份，缺失时保持旧事件 payload 形状。
+pub fn send_failed_for_identity_with_request_id(
+    channel_id: &str,
+    temporary_id: &str,
+    request_id: Option<&str>,
+) -> Result<MessageV3Event, crate::ImError> {
+    let mut data = serde_json::json!({
         "channelId": channel_id,
         "temporaryId": temporary_id,
         "sendStatus": "failed",
-    }))
+    });
+    if let Some(request_id) = request_id.filter(|value| !value.is_empty()) {
+        data["requestId"] = serde_json::json!(request_id);
+    }
+    send_failed(data)
 }
 
 /// 构造消息撤回事实。

@@ -1612,6 +1612,11 @@ impl ImModule {
             )],
         });
         self.track_media_write(&pending_upload.temporary_id, persist_corr);
+        let failed_event = crate::event::post::send_failed_for_identity_with_request_id(
+            channel_id.as_str(),
+            pending_upload.temporary_id.0.as_str(),
+            causation_id.as_deref(),
+        )?;
         self.state.corr_map.insert(
             persist_corr,
             crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
@@ -1620,13 +1625,7 @@ impl ImModule {
                 causation_id,
             },
         );
-        out.push(
-            crate::event::post::send_failed_for_identity(
-                channel_id.as_str(),
-                pending_upload.temporary_id.0.as_str(),
-            )?
-            .into_effect(),
-        );
+        out.push(failed_event.into_effect());
         Ok(())
     }
 }

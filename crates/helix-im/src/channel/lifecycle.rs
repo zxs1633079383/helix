@@ -99,45 +99,20 @@ impl ImModule {
             .map(|(id, _)| *id);
 
         if let Some(channel_id) = maybe_channel {
-            // 防风暴（根治配套）：若该 channel 已有在途 sync（大缺口立即 backfill 已发起，
-            // 见 ws/handlers/gate.rs::trigger_backfill_if_large_gap），1s gate timer **不再重复发**
-            // sync/notify——仅清 gate（在途 sync 回报会 commit 追平 cursor + flush buffer；若追平后
-            // 仍有缺口，后续帧/续拉会重新 arm gate）。避免双发 sync + corr_map/窗口计数漂移。
-            if self
-                .state
-                .channels
-                .get(&channel_id)
-                .is_some_and(|ch| ch.inflight_sync.is_some())
-            {
-                if let Some(ch) = self.state.channels.get_mut(&channel_id) {
-                    ch.gate = None;
-                }
-                return Ok(());
-            }
-            // gate 超时：吐 Http{sync/notify}
-            let from_seq = self.state.channels[&channel_id].cursor.value();
-            let sync_corr = self.alloc_corr_internal();
-            self.state.corr_map.insert(
-                sync_corr,
-                CorrelationContext::SyncPull {
-                    channel_id,
-                    trigger: crate::state::SyncTrigger::Routine,
-                },
-            );
-
-            // 清除 gate（已触发）+ 设置 inflight（B1 守卫）
+            // 消费 gate；共享队列合并在途请求，并把待提交/满窗意图保留到可 dispatch 时。
             if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                 ch.gate = None;
-                ch.inflight_sync = Some(crate::state::InflightSync(sync_corr));
             }
-
-            out.push(crate::acl::to_effect::sync_notify(
-                &self.config.api_base_url,
-                channel_id,
-                from_seq,
-                sync_corr,
-                self.state.connection_id.as_deref(),
-            ));
+            let api_base_url = self.config.api_base_url.clone();
+            self.with_state_and_corr_allocator(|state, alloc_corr| {
+                crate::sync_scheduler::enqueue_and_drain(
+                    state,
+                    &api_base_url,
+                    &[channel_id],
+                    alloc_corr,
+                    out,
+                );
+            });
             return Ok(());
         }
 

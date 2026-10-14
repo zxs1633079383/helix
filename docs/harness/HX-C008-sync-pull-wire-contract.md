@@ -141,3 +141,14 @@ channel unit 的 `too_long_atomic_commit_*`。
 真实 Go HTTP/PostgreSQL副本/Native SQLite/EventSink 验证入口为
 `message_v3_sync_native::real_go_hydration_too_long_advances_durable_cursor_and_stops_old_replay`；
 夹具、命令与验收边界见 [本轮交接](../交接/1012-TooLong恢复/handoff.md)。这不替代真实Tauri及发布验收。
+
+## 共享调度与持久屏障补充（2026-10-13）
+
+- gate 补拉、满批续拉与主动同步共用 `SyncScheduler`（并发上限 8）；
+  Pong 优先，重复频道合并意图。发出 HTTP 时重新读取已提交游标。
+- 处理 HTTP 响应只释放网络槽，不解除该频道的持久屏障。
+  只有对应 `PersistOk` 才提交游标并释放排队意图；失败保留旧游标，
+  无关/迟到回执不得释放其他提交的屏障。
+
+回归入口：`explicit_sync_command_test`、`p4_sync_scheduler_test`、`gate_test`。
+不替代下游 App/浏览器的真实网络与卡顿验收。

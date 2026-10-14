@@ -229,6 +229,24 @@ impl Harness {
     }
 }
 
+/// 只读取本批实际 sync/notify Effect 的 correlation 与请求体，排除其他 HTTP。
+#[allow(dead_code)]
+pub fn sync_notify_requests(harness: &Harness) -> Vec<(u64, serde_json::Value)> {
+    harness
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Http { corr, req } if req.url.ends_with("/channel/sync/notify") => Some((
+                corr.raw(),
+                serde_json::from_slice(req.body.as_ref().expect("notify body").as_ref())
+                    .expect("notify JSON"),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
 /// 从当前 effect sink 找到 hello 触发的本地 message 水位扫描 correlation。
 #[allow(dead_code)]
 pub fn message_timestamp_scan_corr(sink: &EffectSink) -> Option<u64> {

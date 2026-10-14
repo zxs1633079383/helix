@@ -1214,3 +1214,5 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 - 交接：docs/交接/1014-分片上传与续传/handoff.md
 
 ✅ DONE <=1GiB普通消息分片/续传跨仓实现、TDD与最终本地集成/三端编译完成，已合入各自本地开发分支，未push/发布；真实验收交给用户，源码身份与限制见 docs/交接/1014-分片上传与续传/handoff.md。
+
+🎯 EXPECT 定时消息<=1GiB复用普通分片参数和durable恢复，全部附件稳定引用PersistOk前不发createSchedule，结果未知不自动重复创建；公开seam红绿及本地HTTP/SQLite/三端检查通过，分类提交合入开发分支不push。| 赌注 中 | 可逆 是 | @2026-10-14

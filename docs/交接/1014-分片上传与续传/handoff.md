@@ -38,3 +38,12 @@
 - 正常客户端pin仍使用已发布旧包；需显式本地源码入口验收新上传。原client Cargo配置存在其他任务dirty，helper会保护拒绝，使用干净task工作树。
 - 验收入口：在上述client工作树运行 node scripts/with-local-helix.mjs /System/Volumes/Data/workspace/angular/visual/helix -- yarn start；退出恢复Cargo.toml/lock。
 - 后续仅用户实机验收及其新授权的发布/pin更新；worktree/证据保留。本地实现和合并完成，真实验收待用户。
+
+## 新阶段：定时消息（实施中）
+- 用户新增授权：定时消息也支持分片/断点续传/<=1GiB，参数普通一致，TDD、分类提交、合入开发分支、禁止push。
+- IM代理负责共享编排与durable schedule intent/公开seam；client代理负责暂存lease/定时终态与恢复；主会话负责Host集成/交接/最终合并。
+- 现有createSchedule无req_id幂等wire；已发请求结果未知不盲重发，不改变Go公共合同；真实Java/OSS/Tauri验收仍单列。
+- 新阶段当前：client 5d24759393f23984f481e9f217f4eb359fa66ac9已合入dev-message；38项lease回归通过，整体等待预算还在适配。
+- 主会话Host新增4个共享装配场景：普通、定时101MiB成功、丢第一片回复（13次唯一PUT）、真实SQLite冷启动parts意图恢复（只PUT4..13）分别通过，尚未绑定最终IM提交身份。
+- 新证据：/Users/xpa-12/.codex/worktrees/multipart-1gib/helix/.perf/schedule-multipart-20261014。host-red、host-lost-reply-red均101；first-green、lost-reply-green、cold-start通过。
+- IM仍dirty实施中：schedule_media_intent、恢复、drain/retry、未知提交fence、终态清理；公开生命周期测试收敛后再固定SHA/三端验证/合并。

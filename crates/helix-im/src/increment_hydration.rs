@@ -82,20 +82,27 @@ mod hydration_roster_tests {
 
     #[test]
     fn hydration_emits_disjoint_role_projection_with_total_member_count() {
-        let module = ImModule::new(ImConfig::default());
+        let module = ImModule::new(ImConfig {
+            auth_user_id: "owner-1".into(),
+            company_id: "team-1".into(),
+            ..ImConfig::default()
+        });
         let ordered = vec![
             json!({"userId":"owner-1", "teamId":"team-1"}),
             json!({"userId":"admin-1", "teamId":"team-1"}),
             json!({"userId":"boss-1", "teamId":"team-1"}),
             json!({"userId":"member-1", "teamId":"team-1"}),
         ];
-        let durable_rows = vec![
+        let mut durable_rows = vec![
             json!({"user_id":"owner-1", "team_id":"team-1", "role":"OWNER", "nick_name":"owner"}),
             json!({"user_id":"admin-1", "team_id":"team-1", "role":"MANAGER", "nick_name":"admin"}),
             json!({"user_id":"boss-1", "team_id":"team-1", "role":"BOSS", "nick_name":"boss"}),
             json!({"user_id":"member-1", "team_id":"team-1", "role":"MEMBER", "nick_name":"member"}),
         ];
-        let mut channel = json!({"id":"channel-1"});
+        for row in &mut durable_rows {
+            row["channel_id"] = json!("channel-1");
+        }
+        let mut channel = json!({"id":"channel-1", "team_id":"team-1", "user_id":"owner-1"});
 
         module
             .attach_hydration_roster(&mut channel, &durable_rows, &ordered)
@@ -104,7 +111,7 @@ mod hydration_roster_tests {
         assert_eq!(channel["memberCount"], json!(4));
         assert_eq!(
             channel["members"],
-            json!([{"userId":"member-1", "teamId":"team-1", "role":"MEMBER", "nickName":"member"}])
+            json!([{"id":"member-1", "userId":"member-1", "teamId":"team-1", "role":"MEMBER", "nickName":"member", "nickname":"member"}])
         );
         assert_eq!(channel["adminUsers"][0]["userId"], "admin-1");
         assert_eq!(channel["boss"][0]["userId"], "boss-1");
@@ -296,45 +303,33 @@ impl ImModule {
                 "hydration durable roster count mismatch".to_string(),
             ));
         }
-        let object = channel
-            .as_object_mut()
-            .ok_or_else(|| ImError::Parse("hydration channel shape invalid".to_string()))?;
-        let mut admins = Vec::new();
-        let mut bosses = Vec::new();
-        let mut owner = serde_json::Value::Null;
-        let mut projected_members = Vec::with_capacity(ordered.len());
-        for member in ordered {
-            let user_id = member["userId"]
-                .as_str()
-                .ok_or_else(|| ImError::Parse("hydration ordered member invalid".to_string()))?;
-            let row = durable.get(user_id).ok_or_else(|| {
-                ImError::Parse("hydration durable roster set mismatch".to_string())
-            })?;
-            let role = row
-                .get("role")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("MEMBER");
-            let projected = serde_json::json!({
-                "userId": user_id,
-                "teamId": row.get("team_id").and_then(serde_json::Value::as_str).unwrap_or_default(),
-                "role": role,
-                "nickName": row.get("nick_name").and_then(serde_json::Value::as_str).unwrap_or_default(),
-            });
-            match role {
-                "ADMIN" | "MANAGER" | "MANGER" => admins.push(projected.clone()),
-                "BOSS" => bosses.push(projected.clone()),
-                "OWNER" | "CREATOR" => owner = projected.clone(),
-                _ => projected_members.push(projected.clone()),
-            }
-        }
-        object.insert(
-            "members".to_string(),
-            serde_json::Value::Array(projected_members),
-        );
-        object.insert("adminUsers".to_string(), serde_json::Value::Array(admins));
-        object.insert("boss".to_string(), serde_json::Value::Array(bosses));
-        object.insert("owner".to_string(), owner);
-        object.insert("memberCount".to_string(), serde_json::json!(ordered.len()));
+        let ordered_rows: Vec<_> = ordered
+            .iter()
+            .map(|member| {
+                durable
+                    .get(member["userId"].as_str().unwrap_or_default())
+                    .copied()
+                    .cloned()
+                    .ok_or_else(|| ImError::Parse("hydration durable roster set mismatch".into()))
+            })
+            .collect::<Result<_, _>>()?;
+        let members = serde_json::to_vec(&ordered_rows)
+            .map_err(|error| ImError::Serialize(error.to_string()))?;
+        let mut rows = crate::channel_sync::project_authority_rows(
+            vec![channel.clone()],
+            &members,
+            &crate::query::DialogListScope::new(
+                &self.config.auth_user_id,
+                channel
+                    .get("team_id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default(),
+            ),
+        )
+        .ok_or_else(|| ImError::Parse("hydration member authority invalid".into()))?;
+        *channel = rows
+            .pop()
+            .ok_or_else(|| ImError::Parse("hydration viewer membership missing".into()))?;
         Ok(())
     }
 
@@ -396,7 +391,6 @@ impl ImModule {
             );
             return Ok(());
         };
-        let channel = crate::query::render_ready::channel::shape_channel_row(&channel);
         let corr = self.alloc_corr_internal();
         out.push(Effect::Persist {
             corr,

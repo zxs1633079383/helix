@@ -347,10 +347,10 @@ fn dialog_absolute_member_corr(h: &mut Harness, req_id: &str, channels: serde_js
             Effect::Persist { corr, ops } => match ops.as_slice() {
                 [StorageOp::ScopedScan(spec)] if spec.table == "channel_member" => {
                     assert_eq!(spec.scope_col, "channel_id");
-                    assert!(matches!(
-                        spec.filter.as_ref(),
-                        Some(("user_id", SqlValue::Text(user_id))) if user_id == "user-a"
-                    ));
+                    assert!(
+                        spec.filter.is_none(),
+                        "完整频道投影需要全部成员，不可只读取 viewer"
+                    );
                     assert_eq!(spec.scope_values.len(), expected_scope.len());
                     for (value, expected_id) in spec.scope_values.iter().zip(&expected_scope) {
                         assert!(
@@ -604,4 +604,81 @@ fn dialog_query_absolute_identity_aba_discards_late_member_reply() {
         2_004,
     );
     assert!(h.sink.as_slice().is_empty(), "旧身份成员回包必须彻底失效");
+}
+
+/// 两个真实命令入口都必须先读完整成员，再一次性发布名单、能力和个人字段。
+#[test]
+fn channel_read_entries_share_roster_capabilities_and_personal_authority() {
+    for command in ["im_query_dialog_list", "im_query_channel_view_snapshot"] {
+        let mut h = Harness::new_with_identity(&[1], "user-a", "company-a", "", "", "");
+        let payload = if command == "im_query_dialog_list" {
+            serde_json::json!({"req_id":"authority"})
+        } else {
+            serde_json::json!({"channelId":cid(1),"req_id":"authority"})
+        };
+        h.step(query_cmd(command, payload), 3000);
+        let corr = h
+            .sink
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Persist { corr, .. } => Some(corr.raw()),
+                _ => None,
+            })
+            .unwrap();
+        let mut rows = dialog_absolute_channel_rows();
+        rows[0]["role"] = serde_json::json!("MEMBER");
+        rows[0]["admin_users"] = serde_json::json!("[]");
+        rows[0]["member_count"] = serde_json::json!(2);
+        rows[0]["mention_permission"] = serde_json::json!("MANAGER");
+        h.step(
+            port_reply_with_body(corr, Bytes::from(rows.to_string())),
+            3001,
+        );
+        assert!(h
+            .sink
+            .as_slice()
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Emit { .. })));
+        let corr = h
+            .sink
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Persist { corr, ops } => {
+                    let [StorageOp::ScopedScan(spec)] = ops.as_slice() else {
+                        panic!("full member scan")
+                    };
+                    assert!(spec.filter.is_none());
+                    Some(corr.raw())
+                }
+                _ => None,
+            })
+            .unwrap();
+        let mut viewer = dialog_absolute_member_row();
+        viewer["role"] = serde_json::json!("OWNER");
+        viewer["notify"] = serde_json::json!("IGNORE");
+        let members = serde_json::json!([viewer, {"channel_id":cid(1),"user_id":"admin","team_id":"external","role":"ADMIN"}]);
+        h.step(
+            port_reply_with_body(corr, Bytes::from(members.to_string())),
+            3002,
+        );
+        let result = dialog_absolute_result(&h, "authority");
+        let row = if command == "im_query_dialog_list" {
+            &result["data"]["body"]["items"][0]
+        } else {
+            &result["data"]["body"]["snapshot"]
+        };
+        assert_eq!(row["role"], "CREATOR");
+        assert_eq!(row["canMentionAll"], true);
+        assert_eq!(row["canManageMembers"], true);
+        assert_eq!(row["adminUsers"][0]["userId"], "admin");
+        assert_eq!(row["memberCount"], 2);
+        assert_eq!(row["teamId"], "company-a");
+        assert_eq!(row["notifyProps"], "IGNORE");
+        assert_eq!(row["channelIsTop"], true);
+        assert_eq!(row["mentionCount"], 3);
+        assert_eq!(row["urgentCount"], 1);
+        assert_eq!(row["hasUrgentPost"], true);
+    }
 }

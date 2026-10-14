@@ -238,20 +238,47 @@ pub(crate) fn member_scan_effect(
     member_scan_effect_with_filter(corr, channel_rows, company_id, user_id, None)
 }
 
-/// Dialog只读当前viewer绝对态，不读取用于同步页的完整成员集合。
+/// Dialog 与同步页共享完整成员读取，避免首次读取缺失角色容器。
 pub(crate) fn dialog_member_scan_effect(
     corr: Correlation,
     channel_rows: &[Value],
     company_id: &str,
     user_id: &str,
 ) -> Result<Effect, crate::ImError> {
-    member_scan_effect_with_filter(
-        corr,
-        channel_rows,
-        company_id,
-        user_id,
-        Some(("user_id", SqlValue::Text(user_id.to_owned()))),
-    )
+    member_scan_effect(corr, channel_rows, company_id, user_id)
+}
+
+/// 按去重且可见的频道集合估计读取容量；5000 是基线，不是成员数量上限。
+fn member_read_limit(rows: &[Value], company_id: &str, user_id: &str) -> usize {
+    let mut seen = std::collections::HashSet::new();
+    let capacity = rows
+        .iter()
+        .filter(|row| !crate::query::channel_row_is_terminal(row))
+        .filter(|row| {
+            crate::identity::AccountScope::new(user_id, company_id).accepts_channel_tenant(
+                row.get("team_id")
+                    .or_else(|| row.get("teamId"))
+                    .and_then(Value::as_str),
+            )
+        })
+        .filter_map(|row| {
+            let id = row
+                .get("id")
+                .or_else(|| row.get("channel_id"))
+                .and_then(Value::as_str)?;
+            if !seen.insert(id) {
+                return None;
+            }
+            let count = row
+                .get("member_count")
+                .or_else(|| row.get("memberCount"))
+                .and_then(projection_i64)
+                .and_then(|count| usize::try_from(count).ok())
+                .unwrap_or(0);
+            Some(count.max(5_000))
+        })
+        .fold(0usize, usize::saturating_add);
+    capacity.max(MEMBER_SCAN_LIMIT).saturating_add(1)
 }
 
 /// 两条查询共享频道租户与集合约束，成员过滤按调用方的实际投影需求选择。
@@ -288,6 +315,8 @@ fn member_scan_effect_with_filter(
             channel_ids.push(SqlValue::Text(channel_id.to_string()));
         }
     }
+    // 按当前频道集合容量分配读取上限，多个 5000 人群不能共享固定 10000 行截断。
+    let member_limit = member_read_limit(channel_rows, company_id, user_id);
     Ok(Effect::Persist {
         corr,
         ops: vec![StorageOp::ScopedScan(ScopedScanSpec {
@@ -295,7 +324,7 @@ fn member_scan_effect_with_filter(
             scope_col: "channel_id",
             scope_values: channel_ids,
             filter,
-            limit: MEMBER_SCAN_LIMIT,
+            limit: member_limit,
         })],
     })
 }
@@ -381,24 +410,75 @@ pub(crate) fn project_page_with_members(
     let Value::Array(channel_rows) = serde_json::from_slice(channel_bytes).ok()? else {
         return None;
     };
+    let has_more = channel_rows.len() > offset.saturating_add(PAGE_SIZE as usize);
+    let rows = channel_rows
+        .into_iter()
+        .skip(offset)
+        .take(PAGE_SIZE as usize)
+        .collect();
+    Some((project_authority_rows(rows, member_bytes, scope)?, has_more))
+}
+
+/// 全部读取入口共享频道与成员权威组合；整形只在组合完成后进行一次。
+pub(crate) fn project_authority_rows(
+    channel_rows: Vec<Value>,
+    member_bytes: &[u8],
+    scope: &crate::query::DialogListScope,
+) -> Option<Vec<Value>> {
     let Value::Array(member_rows) = serde_json::from_slice(member_bytes).ok()? else {
         return None;
     };
+    let channel_ids: std::collections::HashSet<_> = channel_rows
+        .iter()
+        .filter(|row| !crate::query::channel_row_is_terminal(row))
+        .filter(|row| {
+            crate::identity::AccountScope::new(&scope.viewer_user_id, &scope.company_id)
+                .accepts_channel_tenant(
+                    row.get("team_id")
+                        .or_else(|| row.get("teamId"))
+                        .and_then(Value::as_str),
+                )
+        })
+        .filter_map(|row| {
+            row.get("id")
+                .or_else(|| row.get("channel_id"))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .collect();
+    let member_rows: Vec<_> = member_rows
+        .into_iter()
+        .filter(|row| {
+            row.get("channel_id")
+                .or_else(|| row.get("channelId"))
+                .and_then(Value::as_str)
+                .is_some_and(|id| channel_ids.contains(id))
+        })
+        .collect();
+    // 多读一行作截断哨兵；未读完整的集合不得宣称为绝对名单。
+    if member_rows.len()
+        >= member_read_limit(&channel_rows, &scope.company_id, &scope.viewer_user_id)
+    {
+        return None;
+    }
+    let mut member_ids = std::collections::HashSet::new();
     let mut by_channel: std::collections::HashMap<String, Vec<Value>> =
         std::collections::HashMap::new();
     for row in member_rows {
-        let Some(object) = row.as_object() else {
+        let object = row.as_object()?;
+        let channel_id = text_field(object, &["channel_id", "channelId"])?;
+        if !channel_ids.contains(channel_id) {
             continue;
-        };
-        let Some(channel_id) = text_field(object, &["channel_id", "channelId"]) else {
-            continue;
-        };
-        let Some(user_id) = text_field(object, &["user_id", "userId", "id"]) else {
-            continue;
-        };
-        let Some(team_id) = text_field(object, &["team_id", "teamId"]) else {
-            continue;
-        };
+        }
+        let user_id = text_field(object, &["user_id", "userId", "id"])?;
+        let team_id = object
+            .get("team_id")
+            .or_else(|| object.get("teamId"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if !member_ids.insert((channel_id.to_owned(), user_id.to_owned())) {
+            return None;
+        }
         let source_role = text_field(object, &["role"]).unwrap_or("");
         let nickname = text_field(object, &["nick_name", "nickName", "nickname"]).unwrap_or("");
         let mut authority_member = object.clone();
@@ -416,13 +496,8 @@ pub(crate) fn project_page_with_members(
 
     let mut seen = std::collections::HashSet::new();
     let mut invalid_viewer_projection = false;
-    // Cursor counts scanned rows, not visible rows: a deleted-only page must still
-    // advance to the lookahead window rather than falsely completing synchronization.
-    let has_more = channel_rows.len() > offset.saturating_add(PAGE_SIZE as usize);
     let page = channel_rows
         .into_iter()
-        .skip(offset)
-        .take(PAGE_SIZE as usize)
         .filter(|row| !crate::query::channel_row_is_terminal(row))
         .filter_map(|row| {
             let channel_id = row
@@ -458,7 +533,7 @@ pub(crate) fn project_page_with_members(
     if invalid_viewer_projection {
         return None;
     }
-    Some((page, has_more))
+    Some(page)
 }
 
 /// 将成员权威行分桶并覆盖频道的四组成员投影；没有该频道成员行时拒绝可见性。
@@ -498,7 +573,8 @@ fn attach_member_projection(
             .is_some_and(|id| id == scope.viewer_user_id);
         visible |= is_viewer;
         if is_viewer {
-            overlay_viewer_unread_projection(&mut row, member)?;
+            crate::event::read::overlay_viewer_dialog_projection(&mut row, member)
+                .map_err(|_| ())?;
             // Keep the raw authority value for capability resolution; the normalized
             // display role must not turn an unknown or missing source role into MEMBER.
             viewer_role = canonical_projection_role(source_role);
@@ -514,6 +590,7 @@ fn attach_member_projection(
         return Ok((row, false));
     };
     object.insert("members".to_string(), Value::Array(regular));
+    object.insert("admin_users".to_string(), Value::Array(admins.clone()));
     object.insert("adminUsers".to_string(), Value::Array(admins));
     object.insert("boss".to_string(), Value::Array(bosses));
     object.insert("owner".to_string(), owner);
@@ -744,7 +821,7 @@ mod tests {
             panic!("scan required")
         };
         assert!(
-            matches!(&ops[0], StorageOp::ScopedScan(spec) if spec.scope_values.len() == 3 && spec.limit == MEMBER_SCAN_LIMIT)
+            matches!(&ops[0], StorageOp::ScopedScan(spec) if spec.scope_values.len() == 3 && spec.limit == 15_001)
         );
         assert!(page_scan_effect(Correlation::from_raw(1), "", "", 0).is_err());
         assert!(member_scan_effect(Correlation::from_raw(1), &[], "", "").is_err());
@@ -985,7 +1062,7 @@ mod tests {
         };
         assert_eq!(spec.table, "channel_member");
         assert_eq!(spec.scope_col, "channel_id");
-        assert_eq!(spec.limit, 10_000usize);
+        assert_eq!(spec.limit, 10_001usize);
         let ids = spec
             .scope_values
             .iter()
@@ -1250,5 +1327,61 @@ mod tests {
             )
             .is_none());
         }
+    }
+    /// 三个 5000 人群的完整名单不能被固定 10000 行上限截断。
+    #[test]
+    fn full_roster_projection_preserves_three_large_groups() {
+        let channels: Vec<_> = (0..3).map(|index| json!({"id":format!("large-{index}"),"team_id":"company-a","user_id":"user-a","admin_users":"[]","member_count":5000})).collect();
+        let members: Vec<_> = (0..3).flat_map(|index| (0..5000).map(move |member| json!({
+            "channel_id":format!("large-{index}"),"user_id":if member == 0 {"user-a".to_owned()} else {format!("member-{member}")},
+            "team_id":"company-a","role":if member == 0 {"OWNER"} else if member == 1 {"ADMIN"} else {"MEMBER"}
+        }))).collect();
+        let page = project_authority_rows(
+            channels,
+            &serde_json::to_vec(&members).unwrap(),
+            &crate::query::DialogListScope::new("user-a", "company-a"),
+        )
+        .unwrap();
+        assert_eq!(page.len(), 3);
+        for row in page {
+            assert_eq!(row["memberCount"], 5000);
+            assert_eq!(row["members"].as_array().unwrap().len(), 4998);
+            assert_eq!(row["adminUsers"].as_array().unwrap().len(), 1);
+            assert_eq!(row["canManageMembers"], true);
+        }
+    }
+
+    /// 重复成员行与截断哨兵不允许形成可缓存的部分名单。
+    #[test]
+    fn full_roster_rejects_duplicate_viewer_and_truncation_sentinel() {
+        let rows = vec![json!({"id":"one","team_id":"company-a"})];
+        let member =
+            json!({"channel_id":"one","user_id":"user-a","team_id":"company-a","role":"OWNER"});
+        let scope = crate::query::DialogListScope::new("user-a", "company-a");
+        assert!(project_authority_rows(
+            rows.clone(),
+            &serde_json::to_vec(&vec![member.clone(), member.clone()]).unwrap(),
+            &scope
+        )
+        .is_none());
+        let truncated: Vec<_> = (0..10_001).map(|index| json!({"channel_id":"one","user_id":format!("member-{index}"),"team_id":"company-a","role":"MEMBER"})).collect();
+        assert!(
+            project_authority_rows(rows, &serde_json::to_vec(&truncated).unwrap(), &scope)
+                .is_none()
+        );
+    }
+    /// 已知的大群人数大于设计基线时，读取不能在 5000 人处截断。
+    #[test]
+    fn member_scan_capacity_respects_larger_durable_member_count() {
+        let rows = vec![json!({"id":"large","team_id":"company-a","member_count":12000})];
+        let Effect::Persist { ops, .. } =
+            member_scan_effect(Correlation::from_raw(1), &rows, "company-a", "user-a").unwrap()
+        else {
+            panic!("member scan");
+        };
+        let StorageOp::ScopedScan(spec) = &ops[0] else {
+            panic!("scoped member scan");
+        };
+        assert_eq!(spec.limit, 12001);
     }
 }

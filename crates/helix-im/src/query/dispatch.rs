@@ -65,6 +65,7 @@ impl ImModule {
                 self.state.corr_map.insert(
                     corr,
                     CorrelationContext::ChannelViewSnapshotQuery {
+                        channel_rows: None,
                         channel_id,
                         causation_id: crate::query::read_relay::read_req_id(payload),
                         auth_user_id: self.config.auth_user_id.clone(),
@@ -489,6 +490,7 @@ mod phase2_contract_tests {
         assert!(matches!(
             module.state.corr_map.get(corr),
             Some(CorrelationContext::ChannelViewSnapshotQuery {
+                channel_rows: None,
                 channel_id,
                 causation_id,
                 auth_user_id,

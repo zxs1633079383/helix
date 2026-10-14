@@ -458,25 +458,6 @@ pub fn project_dialog_list_items(
         .collect()
 }
 
-/// 将单个本地 channel 行收敛为当前 RuntimeAuth 可见的 ChannelViewSnapshot。
-pub fn project_channel_view_snapshot(
-    reply_bytes: &[u8],
-    scope: &DialogListScope,
-    channel_id: ChannelId,
-) -> Option<serde_json::Value> {
-    let serde_json::Value::Array(rows) = serde_json::from_slice(reply_bytes).ok()? else {
-        return None;
-    };
-    rows.into_iter().find_map(|row| {
-        let id = row
-            .get("id")
-            .or_else(|| row.get("channel_id"))
-            .and_then(serde_json::Value::as_str)?;
-        (id == channel_id.as_str() && dialog_row_visible(&row, scope))
-            .then(|| super::render_ready::channel::shape_channel_row(&row))
-    })
-}
-
 /// 把单次 local Scan 包成唯一的 `im:read:result` command Result。
 pub fn emit_dialog_list_result(
     req_id: &str,
@@ -643,7 +624,7 @@ pub(crate) fn channel_row_is_terminal(row: &serde_json::Value) -> bool {
 }
 
 /// 仅允许租户内、当前 viewer 所属的 channel 行进入结果。
-fn dialog_row_visible(row: &serde_json::Value, scope: &DialogListScope) -> bool {
+pub(crate) fn dialog_row_visible(row: &serde_json::Value, scope: &DialogListScope) -> bool {
     if channel_row_is_terminal(row) {
         return false;
     }

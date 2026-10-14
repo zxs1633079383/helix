@@ -517,12 +517,18 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
         "hasUrgentPost",
         &["has_urgent_post", "hasUrgentPost"],
     );
-    insert_alias(
+    insert_bool_alias(
         &mut output,
         row,
         "hasSchedulePost",
         &["has_schedule_post", "hasSchedulePost"],
     );
+    // SQLite 0/1 只能在 Helix 转为布尔，旧别名不能让 Host 校验再次拒绝规范字段。
+    if let Some(value) = output.get("hasSchedulePost").cloned() {
+        if output.contains_key("has_schedule_post") {
+            output.insert("has_schedule_post".into(), value);
+        }
+    }
     insert_alias(&mut output, row, "createBy", &["create_by", "createBy"]);
     insert_alias(&mut output, row, "updateBy", &["update_by", "updateBy"]);
     insert_alias(

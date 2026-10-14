@@ -32,6 +32,13 @@ pub trait FileUploadProgressReporter: MaybeSend + MaybeSync + 'static {
     fn report(&self, progress: FileUploadProgress);
 }
 
+/// 上传一个本地文件的有限字节区间；offset/length 均以字节计，driver 校验范围。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileUploadRange {
+    pub offset: u64,
+    pub length: u64,
+}
+
 /// 文件上传的短期写地址与长期读地址，二者必须同时存在。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileUploadUrls {
@@ -39,6 +46,7 @@ pub struct FileUploadUrls {
     public_url: String,
     // 保持 FileUploadRequest 的公开字段兼容：策略随其已有私有封装携带。
     progress_policy: FileUploadProgressPolicy,
+    range: Option<FileUploadRange>,
 }
 
 impl FileUploadUrls {
@@ -50,6 +58,7 @@ impl FileUploadUrls {
             upload_url,
             public_url,
             progress_policy: FileUploadProgressPolicy::Disabled,
+            range: None,
         })
     }
 
@@ -60,6 +69,17 @@ impl FileUploadUrls {
 
     pub fn progress_policy(&self) -> FileUploadProgressPolicy {
         self.progress_policy
+    }
+
+    /// 限定读取区间而不改变现有整文件请求字段及默认行为。
+    pub fn with_range(mut self, range: FileUploadRange) -> Self {
+        self.range = Some(range);
+        self
+    }
+
+    /// 返回请求的读取区间；None 表示整文件上传。
+    pub fn range(&self) -> Option<FileUploadRange> {
+        self.range
     }
 
     pub fn upload_url(&self) -> &str {

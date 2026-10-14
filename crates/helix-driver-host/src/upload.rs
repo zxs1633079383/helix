@@ -7,7 +7,7 @@ use bytes::Bytes;
 use futures_util::stream;
 use reqwest::header;
 use reqwest::{Client, Method};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use helix_core::effect::{FileUploadProgress, FileUploadRequest, FileUploadResponse};
 use helix_core::ports::{FileUploadProgressReporter, FileUploader};
@@ -32,6 +32,8 @@ pub trait UploadResponseObserver: Send + Sync {
 pub struct SharedFileUploader {
     client: Client,
     timeout: Duration,
+    part_timeout: Duration,
+    part_idle_timeout: Duration,
     observer: Option<Arc<dyn UploadResponseObserver>>,
 }
 
@@ -42,16 +44,26 @@ impl Default for SharedFileUploader {
 }
 
 impl SharedFileUploader {
+    /// 构造整文件 30 秒、分片 300 秒且空闲 60 秒的有界上传器。
     pub fn new(client: Client) -> Self {
         Self {
             client,
             timeout: Duration::from_secs(30),
+            part_timeout: Duration::from_secs(300),
+            part_idle_timeout: Duration::from_secs(60),
             observer: None,
         }
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    /// 区间上传使用独立的总时限与流读取/响应等待空闲预算，不延长旧整文件上传。
+    pub fn with_part_timeouts(mut self, total: Duration, idle: Duration) -> Self {
+        self.part_timeout = total;
+        self.part_idle_timeout = idle;
         self
     }
 
@@ -82,11 +94,18 @@ impl FileUploader for SharedFileUploader {
         self.upload_with_progress(req, None).await
     }
 
+    /// 联网前校验文件与区间，按实际读取字节报告进度并等待上传响应。
     async fn upload_with_progress(
         &self,
         req: FileUploadRequest,
         progress: Option<Arc<dyn FileUploadProgressReporter>>,
     ) -> Result<FileUploadResponse, PortError> {
+        let range = req.range();
+        if range.is_some() && (self.part_timeout.is_zero() || self.part_idle_timeout.is_zero()) {
+            return Err(PortError::Other(
+                "upload part timeouts must be positive".to_string(),
+            ));
+        }
         let method = Method::from_bytes(req.method.as_bytes())
             .map_err(|e| PortError::Other(format!("invalid upload method: {e}")))?;
         if method != Method::PUT {
@@ -118,32 +137,54 @@ impl FileUploader for SharedFileUploader {
                 )));
             }
         }
-        let file = tokio::fs::File::open(&local_path)
+        let transfer_size = match range {
+            Some(range)
+                if range.length > 0
+                    && range
+                        .offset
+                        .checked_add(range.length)
+                        .is_some_and(|end| end <= actual_size) =>
+            {
+                range.length
+            }
+            Some(_) => return Err(PortError::Other("upload file range is invalid".to_string())),
+            None => actual_size,
+        };
+        let mut file = tokio::fs::File::open(&local_path)
             .await
             .map_err(|e| PortError::Other(format!("open upload file failed: {e}")))?;
+        if let Some(range) = range {
+            file.seek(std::io::SeekFrom::Start(range.offset))
+                .await
+                .map_err(|e| PortError::Other(format!("seek upload file failed: {e}")))?;
+        }
+        // A finite reader prevents a part request from leaking any suffix or full-file bytes.
+        let file = file.take(transfer_size);
+        let (activity_tx, mut activity_rx) = tokio::sync::watch::channel(());
         let body = reqwest::Body::wrap_stream(stream::unfold(
-            (file, 0_u64, progress),
-            move |(mut file, completed_bytes, progress)| async move {
+            (file, 0_u64, progress, activity_tx.clone()),
+            move |(mut file, completed_bytes, progress, activity)| async move {
                 let mut chunk = vec![0_u8; 64 * 1024];
                 match file.read(&mut chunk).await {
                     Ok(0) => None,
                     Ok(read) => {
+                        activity.send_replace(());
                         chunk.truncate(read);
                         let completed_bytes = completed_bytes.saturating_add(read as u64);
                         if let Some(reporter) = progress.as_ref() {
                             reporter.report(FileUploadProgress {
                                 completed_bytes,
-                                total_bytes: actual_size,
+                                total_bytes: transfer_size,
                             });
                         }
                         Some((
                             Ok::<Bytes, std::io::Error>(Bytes::from(chunk)),
-                            (file, completed_bytes, progress),
+                            (file, completed_bytes, progress, activity),
                         ))
                     }
                     Err(err) => Some((
                         Err::<Bytes, std::io::Error>(err),
-                        (file, completed_bytes, progress),
+                        (file, completed_bytes, progress, activity),
                     )),
                 }
             },
@@ -156,18 +197,47 @@ impl FileUploader for SharedFileUploader {
         for (name, value) in headers {
             builder = builder.header(&name, value);
         }
-        builder = builder.header(header::CONTENT_LENGTH, actual_size);
+        builder = builder.header(header::CONTENT_LENGTH, transfer_size);
         if let Some(content_type) = content_type.filter(|_| !has_ticket_content_type) {
             builder = builder.header(header::CONTENT_TYPE, content_type);
         }
 
         let started = self.observer.as_ref().map(|_| Instant::now());
-        let response = tokio::time::timeout(self.timeout, builder.body(body).send())
+        let timeout = if range.is_some() {
+            self.part_timeout
+        } else {
+            self.timeout
+        };
+        // The sender remains alive while awaiting acknowledgement, even after the body is read.
+        let send = async {
+            let send = builder.body(body).send();
+            if range.is_none() {
+                return send.await.map_err(Self::classify_error);
+            }
+            let idle = async {
+                loop {
+                    match tokio::time::timeout(self.part_idle_timeout, activity_rx.changed()).await
+                    {
+                        Ok(Ok(())) => {}
+                        _ => {
+                            return Err(PortError::Transport(format!(
+                                "upload part idle timeout after {} ms",
+                                self.part_idle_timeout.as_millis()
+                            )))
+                        }
+                    }
+                }
+            };
+            tokio::select! {
+                result = send => result.map_err(Self::classify_error),
+                result = idle => result,
+            }
+        };
+        let response = tokio::time::timeout(timeout, send)
             .await
-            .map_err(|_| {
-                PortError::Transport(format!("timeout after {} ms", self.timeout.as_millis()))
-            })
-            .and_then(|response| response.map_err(Self::classify_error));
+            .map_err(|_| PortError::Transport(format!("timeout after {} ms", timeout.as_millis())))
+            .and_then(|response| response);
+        drop(activity_tx);
         if let (Some(observer), Some(started)) = (&self.observer, started) {
             observer.observe(UploadResponseObservation {
                 method: "PUT",
@@ -176,7 +246,7 @@ impl FileUploader for SharedFileUploader {
                     .ok()
                     .map(|response| response.status().as_u16()),
                 object_key: &object_key,
-                file_size: actual_size,
+                file_size: transfer_size,
                 duration_us: started.elapsed().as_micros().min(u64::MAX as u128) as u64,
             });
         }
@@ -194,6 +264,13 @@ impl FileUploader for SharedFileUploader {
             .get(header::ETAG)
             .and_then(|value| value.to_str().ok())
             .map(str::to_owned);
+
+        // A part is durable only with its OSS acknowledgement; status alone cannot resume it.
+        if range.is_some() && etag.as_deref().is_none_or(|value| value.trim().is_empty()) {
+            return Err(PortError::Http(
+                "upload part response missing ETag".to_string(),
+            ));
+        }
 
         Ok(FileUploadResponse {
             object_key,

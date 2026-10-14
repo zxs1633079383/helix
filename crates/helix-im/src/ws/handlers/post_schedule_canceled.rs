@@ -81,11 +81,22 @@ impl WsMessageHandler for ScheduleCanceledHandler {
                 causation_id,
             },
         );
+        let owns_multipart_intent = ctx
+            .state
+            .schedule_multipart_contexts
+            .values()
+            .any(|context| context.channel_id == channel_id)
+            || ctx
+                .state
+                .schedule_media_submitting
+                .contains_key(&channel_id);
         let mut ops = fact.storage_ops();
-        // A canceled schedule invalidates any independent multipart intent on
-        // this channel.  Keep this delete in the same authority checkpoint;
-        // the in-memory route is released only after its PersistOk.
-        ops.push(crate::schedule_media::schedule_intent_delete(channel_id));
+        // Only delete an intent owned by this live state machine.  A channel
+        // authority event must not erase a foreign recovery row in shared
+        // storage when this process has no matching context or submit fence.
+        if owns_multipart_intent {
+            ops.push(crate::schedule_media::schedule_intent_delete(channel_id));
+        }
         out.push(Effect::PersistAtomic { corr, ops });
         Ok(())
     }

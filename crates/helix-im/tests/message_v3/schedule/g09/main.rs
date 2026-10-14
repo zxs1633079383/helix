@@ -157,15 +157,7 @@ fn assert_cancel_write_set(effects: &[Effect]) -> TestResult<()> {
             _ => None,
         })
         .ok_or_else(|| "G-09 authority must persist atomically".to_string())?;
-    // G-09 now also clears an independent durable multipart intent in the
-    // same authority checkpoint; the delete is harmless when no intent exists.
-    assert_eq!(ops.len(), 3);
-    assert!(ops.iter().any(|op| {
-        matches!(
-            op,
-            StorageOp::BatchDelete(spec) if spec.table == "schedule_media_intent"
-        )
-    }));
+    assert_eq!(ops.len(), 2);
     let schedule_rows = ops.iter().find_map(|op| match op {
         StorageOp::BatchUpsert(spec) if spec.table == "channel_schedule" => Some(&spec.rows),
         _ => None,

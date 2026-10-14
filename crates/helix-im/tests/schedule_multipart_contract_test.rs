@@ -606,6 +606,76 @@ fn schedule_rehydrate_foreign_owner_is_read_only() {
 }
 
 #[test]
+fn schedule_cancel_authority_does_not_delete_foreign_recovery_intent() {
+    let mut h = Harness::new_with_identity(&[1], "user-1", "team-1", "", "", "");
+    h.start(1_700_000_000_000);
+    let scan = schedule_scan_corr(&h);
+    let row = schedule_media_row(
+        1,
+        "other-team",
+        "other-user",
+        "foreign-cancel",
+        "parts",
+        schedule_media_value(),
+    );
+    h.step(
+        port_reply_with_body(
+            scan,
+            Bytes::from(serde_json::to_vec(&json!([row])).unwrap()),
+        ),
+        1_700_000_000_001,
+    );
+
+    // The current owner may cancel its channel, but that authority must not
+    // delete a recovery row owned by another account.
+    h.step(
+        command_json(
+            "im_cancel_schedule",
+            json!({"channel_id": cid(1), "req_id": "cancel-foreign"}),
+        ),
+        1_700_000_000_002,
+    );
+    h.step(
+        Tick::Inbound(helix_core::tick::InboundBytes(Bytes::from(
+            serde_json::to_vec(&json!({
+                "action": "post_schedule_canceled",
+                "data": {
+                    "channelId": cid(1),
+                    "scheduleOwnerUserId": "user-1",
+                    "status": "canceled",
+                    "revision": 7
+                }
+            }))
+            .expect("cancel authority fixture"),
+        ))),
+        1_700_000_000_003,
+    );
+
+    let ops = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { ops, .. }
+                if ops.iter().any(
+                    |op| matches!(op, StorageOp::BatchUpdate(spec) if spec.table == "channel"),
+                ) =>
+            {
+                Some(ops)
+            }
+            _ => None,
+        })
+        .expect("cancel authority must still persist the channel fact");
+    assert_eq!(ops.len(), 2);
+    assert!(ops.iter().all(|op| {
+        !matches!(
+            op,
+            StorageOp::BatchDelete(spec) if spec.table == "schedule_media_intent"
+        )
+    }));
+}
+
+#[test]
 fn schedule_rehydrate_bad_row_does_not_block_later_valid_row() {
     let mut h = Harness::new_with_identity(&[1, 2], "user-1", "team-1", "", "", "");
     h.start(1_700_000_000_000);

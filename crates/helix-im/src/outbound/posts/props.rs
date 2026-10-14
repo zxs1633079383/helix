@@ -266,12 +266,12 @@ fn non_empty_str(node: &Value, key: &str, label: &str) -> Result<String, ImError
         .ok_or_else(|| ImError::Parse(format!("{label} 缺少非空 {key}")))
 }
 
-/// 字节大小：必须是正整数且不超过单文件 64 MiB 硬上限（INV-11）。
+/// 字节大小：必须是正整数且不超过单文件 1 GiB 硬上限（INV-11）。
 fn positive_size(node: &Value, label: &str) -> Result<u64, ImError> {
     node.get("size")
         .and_then(Value::as_u64)
-        .filter(|value| (1..=(64 << 20)).contains(value))
-        .ok_or_else(|| ImError::Parse(format!("{label} size 必须是 1..=67108864 的整数")))
+        .filter(|value| (1..=(1 << 30)).contains(value))
+        .ok_or_else(|| ImError::Parse(format!("{label} size 必须是 1..=1073741824 的整数")))
 }
 
 /// Host 提取的时长（秒制小数，见 `media_stage.rs` 的 `round_seconds`）。

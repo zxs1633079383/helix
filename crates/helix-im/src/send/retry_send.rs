@@ -324,7 +324,7 @@ fn retry_failed_media(
             .ok_or_else(|| ImError::Parse("im_retry_send missing media props".to_string()))?;
         for operation in &failed {
             let status = match operation {
-                FailedMediaOp::Prepare(_) => "preparing",
+                FailedMediaOp::Prepare(_) | FailedMediaOp::Multipart(_) => "preparing",
                 FailedMediaOp::Complete(_) => "completing",
             };
             crate::send::upload_props::mark_media_stage(props, operation.target(), status)?;
@@ -428,6 +428,19 @@ pub(crate) fn handle_media_retry_reset_reply(
                         pending.input,
                         out,
                     )?,
+                    FailedMediaOp::Multipart(pending) => {
+                        module
+                            .state
+                            .multipart_retry_attempts
+                            .remove(&(pending.temporary_id.clone(), pending.target.clone()));
+                        module.emit_multipart_init(
+                            pending.channel_id,
+                            pending.temporary_id,
+                            pending.target,
+                            pending.input,
+                            out,
+                        )?
+                    }
                     FailedMediaOp::Complete(pending) => {
                         module.finalize_or_queue_media_completion(pending, out)?;
                     }

@@ -317,8 +317,8 @@ fn phase1_schema(file: &str) -> Value {
                         "media_handle": {"type": "string", "minLength": 1},
                         "file_name": {"type": "string", "minLength": 1},
                         "content_type": {"type": "string", "minLength": 1},
-                        // INV-11：单文件硬上限 64 MiB。
-                        "size": {"type": "integer", "minimum": 0, "maximum": 67108864},
+                        // INV-11：单文件硬上限 1 GiB。
+                        "size": {"type": "integer", "minimum": 0, "maximum": 1073741824},
                         "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
                         "metadata": {"type": "object"}
                     }

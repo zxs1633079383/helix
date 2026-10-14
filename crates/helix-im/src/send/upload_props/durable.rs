@@ -1,6 +1,6 @@
 use super::{
-    FailedMediaOp, MediaInput, PendingMediaOp, PendingMediaPrepare, PendingMediaPut, PreparedMedia,
-    UploadTarget,
+    FailedMediaOp, MediaInput, MultipartSession, PendingMediaOp, PendingMediaPrepare,
+    PendingMediaPut, PreparedMedia, UploadTarget, MAX_MEDIA_SIZE_BYTES,
 };
 use crate::state::{ChannelId, TemporaryId};
 use crate::ImError;
@@ -36,9 +36,75 @@ pub fn upsert_op(operation: &PendingMediaOp) -> Result<StorageOp, ImError> {
             Some(&pending.prepared),
             "complete",
         ),
+        PendingMediaOp::MultipartInit(pending) => (
+            &pending.temporary_id,
+            pending.channel_id,
+            &pending.target,
+            &pending.input,
+            None,
+            "multipart_init",
+        ),
+        PendingMediaOp::MultipartParts(session) => (
+            &session.temporary_id,
+            session.channel_id,
+            &session.target,
+            &session.input,
+            None,
+            "multipart_parts",
+        ),
+        PendingMediaOp::MultipartSign(pending) => (
+            &pending.session.temporary_id,
+            pending.session.channel_id,
+            &pending.session.target,
+            &pending.session.input,
+            None,
+            "multipart_sign",
+        ),
+        PendingMediaOp::MultipartPut(pending) => (
+            &pending.session.temporary_id,
+            pending.session.channel_id,
+            &pending.session.target,
+            &pending.session.input,
+            None,
+            "multipart_parts",
+        ),
+        PendingMediaOp::MultipartComplete(session) => (
+            &session.temporary_id,
+            session.channel_id,
+            &session.target,
+            &session.input,
+            None,
+            "multipart_complete",
+        ),
     };
     let prepared_text =
         |read: fn(&PreparedMedia) -> &String| prepared.map(read).cloned().unwrap_or_default();
+    let (multipart_file_id, multipart_object_key, multipart_uri) = match operation {
+        PendingMediaOp::MultipartParts(session) | PendingMediaOp::MultipartComplete(session) => (
+            session.file_id.clone(),
+            session.object_key.clone(),
+            session.uri.clone(),
+        ),
+        PendingMediaOp::MultipartSign(pending) => (
+            pending.session.file_id.clone(),
+            pending.session.object_key.clone(),
+            pending.session.uri.clone(),
+        ),
+        PendingMediaOp::MultipartPut(pending) => (
+            pending.session.file_id.clone(),
+            pending.session.object_key.clone(),
+            pending.session.uri.clone(),
+        ),
+        _ => (String::new(), String::new(), String::new()),
+    };
+    let is_multipart = matches!(
+        operation,
+        PendingMediaOp::MultipartInit(_)
+            | PendingMediaOp::MultipartParts(_)
+            | PendingMediaOp::MultipartSign(_)
+            | PendingMediaOp::MultipartPut(_)
+            | PendingMediaOp::MultipartComplete(_)
+    );
 
     let size = i64::try_from(input.size)
         .map_err(|_| ImError::Parse("pending_media size exceeds SQLite INTEGER".to_string()))?;
@@ -73,16 +139,29 @@ pub fn upsert_op(operation: &PendingMediaOp) -> Result<StorageOp, ImError> {
             ("sha256".to_string(), SqlValue::Text(input.sha256.clone())),
             (
                 "upload_id".to_string(),
-                // 兼容旧列；Java complete 删除后，file_id 就是唯一稳定幂等标识。
-                SqlValue::Text(prepared_text(|value| &value.file_id)),
+                // Multipart 的 uploadId 属于规范化 session；旧列仍保持空，避免
+                // 过去把 upload_id 当 fileId 的歧义在恢复时重新出现。
+                SqlValue::Text(if is_multipart {
+                    String::new()
+                } else {
+                    prepared_text(|value| &value.file_id)
+                }),
             ),
             (
                 "file_id".to_string(),
-                SqlValue::Text(prepared_text(|value| &value.file_id)),
+                SqlValue::Text(if is_multipart {
+                    multipart_file_id
+                } else {
+                    prepared_text(|value| &value.file_id)
+                }),
             ),
             (
                 "method".to_string(),
-                SqlValue::Text(prepared_text(|value| &value.method)),
+                SqlValue::Text(if is_multipart {
+                    "MULTIPART".to_string()
+                } else {
+                    prepared_text(|value| &value.method)
+                }),
             ),
             (
                 "upload_url".to_string(),
@@ -92,11 +171,19 @@ pub fn upsert_op(operation: &PendingMediaOp) -> Result<StorageOp, ImError> {
             (
                 "public_url".to_string(),
                 // 兼容既有 SQLite 列名；新媒体合同在此保存 bucket 内 uri。
-                SqlValue::Text(prepared_text(|value| &value.uri)),
+                SqlValue::Text(if is_multipart {
+                    multipart_uri
+                } else {
+                    prepared_text(|value| &value.uri)
+                }),
             ),
             (
                 "object_key".to_string(),
-                SqlValue::Text(prepared_text(|value| &value.object_key)),
+                SqlValue::Text(if is_multipart {
+                    multipart_object_key
+                } else {
+                    prepared_text(|value| &value.object_key)
+                }),
             ),
             (
                 "headers_json".to_string(),
@@ -138,6 +225,202 @@ pub fn delete_op(temporary_id: &TemporaryId, target: &UploadTarget) -> StorageOp
     })
 }
 
+/// Normalized multipart session journal. The signed URL and headers are
+/// intentionally absent; only durable identity and input facts survive a
+/// restart.
+pub fn multipart_session_upsert_op(session: &MultipartSession) -> StorageOp {
+    let size = i64::try_from(session.input.size).unwrap_or(i64::MAX);
+    StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
+        table: "media_upload_session",
+        rows: vec![vec![
+            (
+                "session_id".to_string(),
+                SqlValue::Text(session.client_upload_id.clone()),
+            ),
+            (
+                "temporary_id".to_string(),
+                SqlValue::Text(session.temporary_id.0.clone()),
+            ),
+            (
+                "target_key".to_string(),
+                SqlValue::Text(target_key(&session.target)),
+            ),
+            (
+                "channel_id".to_string(),
+                SqlValue::Text(session.channel_id.as_str().to_string()),
+            ),
+            (
+                "client_upload_id".to_string(),
+                SqlValue::Text(session.client_upload_id.clone()),
+            ),
+            ("bucket".to_string(), SqlValue::Text(session.bucket.clone())),
+            (
+                "content_type".to_string(),
+                SqlValue::Text(session.input.content_type.clone()),
+            ),
+            ("size".to_string(), SqlValue::Integer(size)),
+            (
+                "sha256".to_string(),
+                SqlValue::Text(session.input.sha256.clone()),
+            ),
+            (
+                "file_name".to_string(),
+                SqlValue::Text(session.input.file_name.clone()),
+            ),
+            (
+                "local_path".to_string(),
+                SqlValue::Text(session.input.local_path.clone()),
+            ),
+            (
+                "upload_id".to_string(),
+                SqlValue::Text(session.upload_id.clone()),
+            ),
+            (
+                "file_id".to_string(),
+                SqlValue::Text(session.file_id.clone()),
+            ),
+            (
+                "object_key".to_string(),
+                SqlValue::Text(session.object_key.clone()),
+            ),
+            ("uri".to_string(), SqlValue::Text(session.uri.clone())),
+            (
+                "part_size".to_string(),
+                SqlValue::Integer(session.part_size as i64),
+            ),
+            ("status".to_string(), SqlValue::Text(session.status.clone())),
+        ]],
+        conflict_key: None,
+        exclude_from_update: Vec::new(),
+    })
+}
+
+/// Seed the normalized session row before Java init. It is intentionally an
+/// incomplete session: `upload_id`/file identity are filled only after the
+/// matching init response is validated.
+pub fn multipart_prepare_session_upsert_op(pending: &PendingMediaPrepare) -> StorageOp {
+    let session = MultipartSession {
+        temporary_id: pending.temporary_id.clone(),
+        channel_id: pending.channel_id,
+        target: pending.target.clone(),
+        input: pending.input.clone(),
+        client_upload_id: super::client_upload_id(&pending.temporary_id.0, &pending.target),
+        upload_id: String::new(),
+        file_id: String::new(),
+        bucket: pending.target.bucket().to_string(),
+        object_key: String::new(),
+        uri: String::new(),
+        part_size: super::MULTIPART_PART_SIZE_BYTES,
+        status: "preparing".to_string(),
+        parts: Vec::new(),
+    };
+    multipart_session_upsert_op(&session)
+}
+
+/// Persist only confirmed remote parts. A signed part is never written here.
+pub fn multipart_parts_upsert_op(session: &MultipartSession) -> Option<StorageOp> {
+    if session.parts.is_empty() {
+        return None;
+    }
+    Some(StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
+        table: "media_upload_part",
+        rows: session
+            .parts
+            .iter()
+            .map(|part| {
+                vec![
+                    (
+                        "session_id".to_string(),
+                        SqlValue::Text(session.client_upload_id.clone()),
+                    ),
+                    (
+                        "part_number".to_string(),
+                        SqlValue::Integer(i64::from(part.part_number)),
+                    ),
+                    ("size".to_string(), SqlValue::Integer(part.size as i64)),
+                    ("etag".to_string(), SqlValue::Text(part.etag.clone())),
+                    (
+                        "status".to_string(),
+                        SqlValue::Text("completed".to_string()),
+                    ),
+                ]
+            })
+            .collect(),
+        conflict_key: None,
+        exclude_from_update: Vec::new(),
+    }))
+}
+
+/// Recovery reconciliation replaces the bounded remote list. Delete the
+/// session's previous sparse rows before the optional batch upsert so a part
+/// missing from Java/OSS cannot survive locally as a false checkpoint.
+pub fn multipart_parts_delete_op(session: &MultipartSession) -> StorageOp {
+    StorageOp::BatchDelete(BatchDeleteSpec {
+        table: "media_upload_part",
+        scope_col: "session_id",
+        scope_val: SqlValue::Text(session.client_upload_id.clone()),
+        key_col: "part_number",
+        key_vals: (1..=session.input.part_count())
+            .map(|part| SqlValue::Integer(i64::from(part)))
+            .collect(),
+    })
+}
+
+/// Normal path checkpoint: one confirmed ETag becomes one sparse row. The
+/// complete remote parts list is the only recovery boundary that may batch rows.
+pub fn multipart_part_upsert_op(
+    session: &MultipartSession,
+    part: &super::MultipartPart,
+) -> StorageOp {
+    StorageOp::BatchUpsert(UpsertSpec {
+        version_column: None,
+        update_guard: None,
+        table: "media_upload_part",
+        rows: vec![vec![
+            (
+                "session_id".to_string(),
+                SqlValue::Text(session.client_upload_id.clone()),
+            ),
+            (
+                "part_number".to_string(),
+                SqlValue::Integer(i64::from(part.part_number)),
+            ),
+            ("size".to_string(), SqlValue::Integer(part.size as i64)),
+            ("etag".to_string(), SqlValue::Text(part.etag.clone())),
+            (
+                "status".to_string(),
+                SqlValue::Text("completed".to_string()),
+            ),
+        ]],
+        conflict_key: None,
+        exclude_from_update: Vec::new(),
+    })
+}
+
+pub fn multipart_delete_ops(session: &MultipartSession) -> Vec<StorageOp> {
+    let mut ops = vec![StorageOp::BatchDelete(BatchDeleteSpec {
+        table: "media_upload_session",
+        scope_col: "session_id",
+        scope_val: SqlValue::Text(session.client_upload_id.clone()),
+        key_col: "session_id",
+        key_vals: vec![SqlValue::Text(session.client_upload_id.clone())],
+    })];
+    ops.push(StorageOp::BatchDelete(BatchDeleteSpec {
+        table: "media_upload_part",
+        scope_col: "session_id",
+        scope_val: SqlValue::Text(session.client_upload_id.clone()),
+        key_col: "part_number",
+        key_vals: (1..=session.input.part_count())
+            .map(|part| SqlValue::Integer(i64::from(part)))
+            .collect(),
+    }));
+    ops
+}
+
 pub fn decode_scan(bytes: &[u8]) -> Result<Vec<FailedMediaOp>, ImError> {
     if bytes.is_empty() {
         return Ok(Vec::new());
@@ -163,8 +446,12 @@ fn decode_row(row: &Value) -> Result<FailedMediaOp, ImError> {
     let size = row
         .get("size")
         .and_then(Value::as_u64)
-        .filter(|value| *value > 0)
-        .ok_or_else(|| ImError::Parse("pending_media invalid size".to_string()))?;
+        .filter(|value| (1..=MAX_MEDIA_SIZE_BYTES).contains(value))
+        .ok_or_else(|| {
+            ImError::Parse(format!(
+                "pending_media size must be in 1..={MAX_MEDIA_SIZE_BYTES}"
+            ))
+        })?;
     let input = MediaInput {
         local_path: required("local_path")?,
         file_name: required("file_name")?,
@@ -179,9 +466,22 @@ fn decode_row(row: &Value) -> Result<FailedMediaOp, ImError> {
         input: input.clone(),
     };
     match required("stage")?.as_str() {
-        "prepare" => Ok(FailedMediaOp::Prepare(prepare)),
+        "prepare" => {
+            if input.uses_multipart() {
+                Ok(FailedMediaOp::Multipart(prepare))
+            } else {
+                Ok(FailedMediaOp::Prepare(prepare))
+            }
+        }
         // PUT 未确认完成时，旧预签名可能已经失效；重启只能回到 Prepare。
-        "put" => Ok(FailedMediaOp::Prepare(prepare)),
+        "put" => {
+            if input.uses_multipart() {
+                Ok(FailedMediaOp::Multipart(prepare))
+            } else {
+                Ok(FailedMediaOp::Prepare(prepare))
+            }
+        }
+        stage if stage.starts_with("multipart_") => Ok(FailedMediaOp::Multipart(prepare)),
         "complete" => {
             let bucket = target.bucket().to_string();
             let pending = PendingMediaPut {

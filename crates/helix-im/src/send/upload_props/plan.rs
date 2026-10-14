@@ -3,7 +3,7 @@ use crate::ImError;
 use serde_json::{json, Map, Value};
 
 const MEDIA_INPUT_FIELDS: [&str; 5] = ["localPath", "fileName", "contentType", "size", "sha256"];
-const MAX_MEDIA_SIZE: u64 = 64 << 20;
+pub(crate) const MAX_MEDIA_SIZE: u64 = super::MAX_MEDIA_SIZE_BYTES;
 const MAX_RICH_MEDIA: usize = 10;
 const TRANSIENT_REFERENCE_FIELDS: [&str; 10] = [
     "uploadId",

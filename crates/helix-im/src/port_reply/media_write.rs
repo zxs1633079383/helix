@@ -27,6 +27,12 @@ impl ImModule {
         op.map(|op| match op {
             PendingMediaOp::Prepare(p) => p.temporary_id.clone(),
             PendingMediaOp::Put(p) | PendingMediaOp::Complete(p) => p.temporary_id.clone(),
+            PendingMediaOp::MultipartInit(p) => p.temporary_id.clone(),
+            PendingMediaOp::MultipartParts(p) | PendingMediaOp::MultipartComplete(p) => {
+                p.temporary_id.clone()
+            }
+            PendingMediaOp::MultipartSign(p) => p.session.temporary_id.clone(),
+            PendingMediaOp::MultipartPut(p) => p.session.temporary_id.clone(),
         })
         .or_else(|| {
             self.state

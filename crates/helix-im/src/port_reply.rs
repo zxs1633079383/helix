@@ -1,6 +1,10 @@
 use crate::error::ImError;
 use crate::http_envelope::unwrap_sync_envelope;
 use crate::module::ImModule;
+use crate::send::upload_props::{
+    MultipartBatch, MultipartSession, PendingMediaOp, PendingMultipartPut, PendingMultipartSign,
+    MULTIPART_MAX_INFLIGHT,
+};
 use crate::state::{ChannelId, CorrelationContext};
 use helix_core::EffectSink;
 
@@ -21,7 +25,121 @@ pub(crate) mod message_v3_urgent;
 mod progress;
 mod reaction_unread;
 
+fn multipart_session_from_operation(
+    operation: &crate::send::upload_props::PendingMediaOp,
+) -> crate::send::upload_props::MultipartSession {
+    use crate::send::upload_props::{MultipartSession, PendingMediaOp};
+    match operation {
+        PendingMediaOp::MultipartParts(session) | PendingMediaOp::MultipartComplete(session) => {
+            session.clone()
+        }
+        PendingMediaOp::MultipartSign(sign) => sign.session.clone(),
+        PendingMediaOp::MultipartPut(put) => put.session.clone(),
+        PendingMediaOp::MultipartInit(prepare) => MultipartSession {
+            temporary_id: prepare.temporary_id.clone(),
+            channel_id: prepare.channel_id,
+            target: prepare.target.clone(),
+            input: prepare.input.clone(),
+            client_upload_id: crate::send::upload_props::client_upload_id(
+                &prepare.temporary_id.0,
+                &prepare.target,
+            ),
+            upload_id: String::new(),
+            file_id: String::new(),
+            bucket: prepare.target.bucket().to_string(),
+            object_key: String::new(),
+            uri: String::new(),
+            part_size: crate::send::upload_props::MULTIPART_PART_SIZE_BYTES,
+            status: "preparing".to_string(),
+            parts: Vec::new(),
+        },
+        _ => unreachable!("multipart_session_from_operation called for legacy media op"),
+    }
+}
+
+fn multipart_prepare_from_session(
+    session: &crate::send::upload_props::MultipartSession,
+) -> crate::send::upload_props::PendingMediaPrepare {
+    crate::send::upload_props::PendingMediaPrepare {
+        temporary_id: session.temporary_id.clone(),
+        channel_id: session.channel_id,
+        target: session.target.clone(),
+        input: session.input.clone(),
+    }
+}
+
+fn multipart_operation_id(operation: &PendingMediaOp) -> String {
+    match operation {
+        PendingMediaOp::MultipartInit(prepare) => {
+            crate::send::upload_props::client_upload_id(&prepare.temporary_id.0, &prepare.target)
+        }
+        PendingMediaOp::MultipartParts(session) | PendingMediaOp::MultipartComplete(session) => {
+            session.client_upload_id.clone()
+        }
+        PendingMediaOp::MultipartSign(sign) => sign.session.client_upload_id.clone(),
+        PendingMediaOp::MultipartPut(put) => put.session.client_upload_id.clone(),
+        _ => String::new(),
+    }
+}
+
 impl ImModule {
+    /// Drop all in-memory signed work for a session before retry/failure. Late
+    /// UploadFile or stage Persist replies then become harmless unknown corrs;
+    /// the next init/parts query is the only source of remote truth.
+    pub(crate) fn clear_multipart_runtime(&mut self, client_upload_id: &str) {
+        self.state.multipart_batches.remove(client_upload_id);
+        let upload_corrs = self
+            .state
+            .pending_media_ops
+            .iter()
+            .filter_map(|(corr, operation)| {
+                (multipart_operation_id(operation) == client_upload_id).then_some(*corr)
+            })
+            .collect::<Vec<_>>();
+        for corr in upload_corrs {
+            self.state.pending_media_ops.remove(&corr);
+            self.finish_file_upload_progress(corr);
+        }
+        let stage_corrs = self
+            .state
+            .pending_media_stage_persists
+            .iter()
+            .filter_map(|(corr, operation)| {
+                (multipart_operation_id(operation) == client_upload_id).then_some(*corr)
+            })
+            .collect::<Vec<_>>();
+        for corr in stage_corrs {
+            self.state.pending_media_stage_persists.remove(&corr);
+        }
+    }
+
+    pub(crate) fn clear_all_multipart_runtime(&mut self) {
+        let mut client_upload_ids = self
+            .state
+            .multipart_batches
+            .keys()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        client_upload_ids.extend(
+            self.state
+                .pending_media_ops
+                .values()
+                .filter_map(|operation| {
+                    let id = multipart_operation_id(operation);
+                    (!id.is_empty()).then_some(id)
+                }),
+        );
+        client_upload_ids.extend(self.state.pending_media_stage_persists.values().filter_map(
+            |operation| {
+                let id = multipart_operation_id(operation);
+                (!id.is_empty()).then_some(id)
+            },
+        ));
+        for client_upload_id in client_upload_ids {
+            self.clear_multipart_runtime(&client_upload_id);
+        }
+    }
+
     fn handle_too_long_reload_reply(
         &mut self,
         channel_id: ChannelId,
@@ -167,9 +285,7 @@ impl ImModule {
         outcome: &helix_core::tick::PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        use crate::send::upload_props::{
-            FailedMediaOp, PendingMediaOp, PendingMediaPrepare, PendingMediaPut,
-        };
+        use crate::send::upload_props::{FailedMediaOp, PendingMediaPrepare, PendingMediaPut};
         use helix_core::tick::PortOutcome;
 
         match pending {
@@ -247,8 +363,574 @@ impl ImModule {
                     )?;
                 }
             }
+            PendingMediaOp::MultipartInit(prepare) => match outcome {
+                PortOutcome::Ok(reply) => {
+                    match crate::send::upload_props::parse_multipart_init_reply(
+                        reply.0.as_ref(),
+                        &prepare,
+                    ) {
+                        Ok(session) => {
+                            let operation = PendingMediaOp::MultipartParts(session);
+                            self.persist_multipart_stage(operation, out)?;
+                        }
+                        Err(reason) => self.fail_media_operation(
+                            FailedMediaOp::Multipart(prepare),
+                            "multipart_init_reply",
+                            &reason,
+                            out,
+                        )?,
+                    }
+                }
+                PortOutcome::Err(error) => self.retry_multipart_on_port_error(
+                    prepare,
+                    error,
+                    "multipart_init_request",
+                    out,
+                )?,
+            },
+            PendingMediaOp::MultipartParts(mut session) => match outcome {
+                PortOutcome::Ok(reply) => {
+                    match crate::send::upload_props::parse_multipart_parts_reply(
+                        reply.0.as_ref(),
+                        &session,
+                    ) {
+                        Ok((status, parts)) => {
+                            // Java/OSS list is authoritative after restart and after any
+                            // lost response; replace local facts rather than trusting them.
+                            session.status = status;
+                            session.parts = parts;
+                            let mut present = [false; 128];
+                            for part in &session.parts {
+                                // `parse_multipart_parts_reply` already bounds and validates
+                                // part numbers. Keep this lookup O(P) even if a future parser
+                                // adds another response source.
+                                present[part.part_number as usize - 1] = true;
+                            }
+                            let missing = (1..=session.input.part_count())
+                                .filter(|number| !present[*number as usize - 1])
+                                .collect::<Vec<_>>();
+                            if session.status == "completed" || missing.is_empty() {
+                                self.persist_multipart_stage(
+                                    PendingMediaOp::MultipartComplete(session),
+                                    out,
+                                )?;
+                            } else {
+                                self.persist_multipart_stage(
+                                    PendingMediaOp::MultipartSign(PendingMultipartSign {
+                                        session,
+                                        missing,
+                                    }),
+                                    out,
+                                )?;
+                            }
+                        }
+                        Err(reason) => self.fail_multipart_session(
+                            session,
+                            "multipart_parts_reply",
+                            &reason,
+                            out,
+                        )?,
+                    }
+                }
+                PortOutcome::Err(error) => self.retry_multipart_on_port_error(
+                    multipart_prepare_from_session(&session),
+                    error,
+                    "multipart_parts_request",
+                    out,
+                )?,
+            },
+            PendingMediaOp::MultipartSign(sign) => match outcome {
+                PortOutcome::Ok(reply) => {
+                    match crate::send::upload_props::parse_multipart_sign_reply(
+                        reply.0.as_ref(),
+                        &sign.session,
+                        &sign.missing,
+                    ) {
+                        Ok(signed) => self.start_multipart_batch(sign.session, signed, out)?,
+                        Err(reason) => self.fail_multipart_session(
+                            sign.session,
+                            "multipart_sign_reply",
+                            &reason,
+                            out,
+                        )?,
+                    }
+                }
+                PortOutcome::Err(error) => self.retry_multipart_on_port_error(
+                    multipart_prepare_from_session(&sign.session),
+                    error,
+                    "multipart_sign_request",
+                    out,
+                )?,
+            },
+            PendingMediaOp::MultipartPut(put) => match outcome {
+                PortOutcome::Ok(reply) => {
+                    let success =
+                        crate::send::upload_props::parse_upload_success_reply(reply.0.as_ref())
+                            .map_err(|reason| {
+                                ImError::Parse(format!("multipart UploadFile: {reason}"))
+                            });
+                    match success {
+                        Ok(success) => {
+                            let Some(etag) = success.etag.filter(|etag| !etag.trim().is_empty())
+                            else {
+                                self.fail_multipart_session(
+                                    put.session,
+                                    "multipart_upload_etag",
+                                    "multipart UploadFile requires non-empty ETag",
+                                    out,
+                                )?;
+                                return Ok(());
+                            };
+                            let client_upload_id = put.session.client_upload_id.clone();
+                            let Some(batch_session) = self
+                                .state
+                                .multipart_batches
+                                .get(&client_upload_id)
+                                .map(|batch| batch.session.clone())
+                            else {
+                                // A transport retry/terminal failure may have revoked
+                                // sibling corrs already. Treat this late response as stale.
+                                return Ok(());
+                            };
+                            if success.object_key != batch_session.object_key {
+                                self.fail_multipart_session(
+                                    batch_session,
+                                    "multipart_upload_object_key",
+                                    "multipart UploadFile objectKey mismatch",
+                                    out,
+                                )?;
+                                return Ok(());
+                            }
+                            let (checkpoint, session, duplicate_conflict) = {
+                                let Some(batch) =
+                                    self.state.multipart_batches.get_mut(&client_upload_id)
+                                else {
+                                    return Ok(());
+                                };
+                                if let Some(existing) = batch
+                                    .session
+                                    .parts
+                                    .iter()
+                                    .find(|part| part.part_number == put.part.part_number)
+                                {
+                                    (None, batch.session.clone(), existing.etag != etag)
+                                } else {
+                                    let size = batch
+                                        .session
+                                        .input
+                                        .part_size(put.part.part_number)
+                                        .ok_or_else(|| {
+                                            ImError::Parse(
+                                                "multipart part out of range".to_string(),
+                                            )
+                                        })?;
+                                    let part = crate::send::upload_props::MultipartPart {
+                                        part_number: put.part.part_number,
+                                        size,
+                                        etag,
+                                    };
+                                    batch.confirmed_parts[put.part.part_number as usize - 1] = true;
+                                    batch.session.parts.push(part.clone());
+                                    batch.session.parts.sort_by_key(|part| part.part_number);
+                                    (Some(part), batch.session.clone(), false)
+                                }
+                            };
+                            if duplicate_conflict {
+                                self.fail_multipart_session(
+                                    session,
+                                    "multipart_upload_duplicate",
+                                    "duplicate multipart part returned a different ETag",
+                                    out,
+                                )?;
+                                return Ok(());
+                            }
+                            self.persist_multipart_stage(
+                                PendingMediaOp::MultipartPut(PendingMultipartPut {
+                                    session,
+                                    part: put.part,
+                                    remaining: Vec::new(),
+                                    checkpoint,
+                                }),
+                                out,
+                            )?;
+                        }
+                        Err(error) => self.fail_multipart_session(
+                            put.session,
+                            "multipart_upload_reply",
+                            &error.to_string(),
+                            out,
+                        )?,
+                    }
+                }
+                PortOutcome::Err(error) => self.retry_multipart_on_port_error(
+                    multipart_prepare_from_session(&put.session),
+                    error,
+                    "multipart_upload_request",
+                    out,
+                )?,
+            },
+            PendingMediaOp::MultipartComplete(session) => match outcome {
+                PortOutcome::Ok(reply) => {
+                    match crate::send::upload_props::parse_multipart_complete_reply(
+                        reply.0.as_ref(),
+                        &session,
+                    ) {
+                        Ok(prepared) => {
+                            self.finalize_multipart_completion(session, prepared, out)?
+                        }
+                        Err(reason) => self.fail_multipart_session(
+                            session,
+                            "multipart_complete_reply",
+                            &reason,
+                            out,
+                        )?,
+                    }
+                }
+                PortOutcome::Err(error) => self.retry_multipart_on_port_error(
+                    multipart_prepare_from_session(&session),
+                    error,
+                    "multipart_complete_request",
+                    out,
+                )?,
+            },
         }
         Ok(())
+    }
+
+    fn persist_multipart_stage(
+        &mut self,
+        operation: crate::send::upload_props::PendingMediaOp,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let persist_corr = self.alloc_corr_internal();
+        let mut ops = vec![crate::send::upload_props::durable_upsert_op(&operation)?];
+        let session = multipart_session_from_operation(&operation);
+        ops.push(crate::send::upload_props::durable_multipart_session_upsert_op(&session));
+        match &operation {
+            crate::send::upload_props::PendingMediaOp::MultipartPut(put) => {
+                if let Some(part) = put.checkpoint.as_ref() {
+                    ops.push(crate::send::upload_props::durable_multipart_part_upsert_op(
+                        &session, part,
+                    ));
+                }
+            }
+            // A Java parts response is the recovery boundary and may replace
+            // the local list in one bounded batch. Normal UploadFile replies
+            // above use one sparse row per confirmed ETag instead.
+            crate::send::upload_props::PendingMediaOp::MultipartParts(_) => {
+                ops.push(crate::send::upload_props::durable_multipart_parts_delete_op(&session));
+                if let Some(parts) =
+                    crate::send::upload_props::durable_multipart_parts_upsert_op(&session)
+                {
+                    ops.push(parts);
+                }
+            }
+            _ => {}
+        }
+        out.push(helix_core::Effect::PersistAtomic {
+            corr: persist_corr,
+            ops,
+        });
+        self.state
+            .pending_media_stage_persists
+            .insert(persist_corr, operation);
+        Ok(())
+    }
+
+    fn emit_multipart_parts(
+        &mut self,
+        session: MultipartSession,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let corr = self.alloc_corr_internal();
+        let req = crate::send::upload_props::multipart_parts_request(
+            &self.config.default_api_base_url,
+            &session,
+            crate::acl::sync_http_effects::session_auth_headers(
+                self.state.connection_id.as_deref(),
+            ),
+        )?;
+        self.state
+            .pending_media_ops
+            .insert(corr, PendingMediaOp::MultipartParts(session));
+        out.push(helix_core::Effect::Http { corr, req });
+        Ok(())
+    }
+
+    fn emit_multipart_sign(
+        &mut self,
+        mut sign: PendingMultipartSign,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        // Java signs at most eight parts per request. Keep the authoritative
+        // missing set in the durable stage, but expose only one bounded batch;
+        // after that batch completes, a fresh parts reconciliation discovers
+        // the remaining gaps before the next sign request.
+        sign.missing.truncate(8);
+        let corr = self.alloc_corr_internal();
+        let req = crate::send::upload_props::multipart_sign_request(
+            &self.config.default_api_base_url,
+            &sign.session,
+            &sign.missing,
+            crate::acl::sync_http_effects::session_auth_headers(
+                self.state.connection_id.as_deref(),
+            ),
+        )?;
+        self.state
+            .pending_media_ops
+            .insert(corr, PendingMediaOp::MultipartSign(sign));
+        out.push(helix_core::Effect::Http { corr, req });
+        Ok(())
+    }
+
+    fn start_multipart_batch(
+        &mut self,
+        session: MultipartSession,
+        signed: Vec<crate::send::upload_props::MultipartSignedPart>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let client_upload_id = session.client_upload_id.clone();
+        let mut confirmed_parts = [false; 128];
+        for part in &session.parts {
+            confirmed_parts[part.part_number as usize - 1] = true;
+        }
+        self.state.multipart_batches.insert(
+            client_upload_id.clone(),
+            MultipartBatch {
+                session,
+                signed: signed.into_iter().collect(),
+                inflight: std::collections::HashSet::new(),
+                confirmed_parts,
+                progress_bytes: std::collections::HashMap::new(),
+            },
+        );
+        self.emit_multipart_batch_slots(&client_upload_id, out)
+    }
+
+    /// Fill up to three transport slots from one sign response. The session
+    /// copy in each corr is only a routing snapshot; durable/ordering facts
+    /// live in `multipart_batches` and are advanced after checkpoint PersistOk.
+    fn emit_multipart_batch_slots(
+        &mut self,
+        client_upload_id: &str,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let mut slots = Vec::new();
+        {
+            let Some(batch) = self.state.multipart_batches.get_mut(client_upload_id) else {
+                return Ok(());
+            };
+            while batch.inflight.len() < MULTIPART_MAX_INFLIGHT {
+                let Some(part) = batch.signed.pop_front() else {
+                    break;
+                };
+                batch.inflight.insert(part.part_number);
+                slots.push((batch.session.clone(), part));
+            }
+        }
+        for (session, part) in slots {
+            if let Err(error) = self.emit_multipart_upload(session, part, Vec::new(), out) {
+                self.clear_multipart_runtime(client_upload_id);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_multipart_upload(
+        &mut self,
+        session: MultipartSession,
+        part: crate::send::upload_props::MultipartSignedPart,
+        remaining: Vec<crate::send::upload_props::MultipartSignedPart>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let req = crate::send::upload_props::multipart_upload_request(
+            &session.input,
+            &session,
+            &part,
+            &session.target,
+        )?;
+        let corr = self.alloc_corr_internal();
+        self.register_multipart_upload_progress(
+            corr,
+            session.temporary_id.clone(),
+            session.channel_id,
+            &session.target,
+            part.part_number,
+        );
+        self.state.pending_media_ops.insert(
+            corr,
+            PendingMediaOp::MultipartPut(PendingMultipartPut {
+                session,
+                part,
+                remaining,
+                checkpoint: None,
+            }),
+        );
+        out.push(helix_core::Effect::UploadFile { corr, req });
+        Ok(())
+    }
+
+    fn continue_multipart_batch(
+        &mut self,
+        completed: PendingMultipartPut,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let client_upload_id = completed.session.client_upload_id.clone();
+        let mut next = None;
+        let mut requery = None;
+        if let Some(batch) = self.state.multipart_batches.get_mut(&client_upload_id) {
+            batch.inflight.remove(&completed.part.part_number);
+            if batch.inflight.is_empty() && batch.signed.is_empty() {
+                requery = Some(batch.session.clone());
+            } else if batch.inflight.len() < MULTIPART_MAX_INFLIGHT {
+                if let Some(part) = batch.signed.pop_front() {
+                    batch.inflight.insert(part.part_number);
+                    next = Some((batch.session.clone(), part));
+                }
+            }
+        }
+        if let Some((session, part)) = next {
+            // The previous ETag PersistAtomic has ACKed. Persist the next
+            // in-memory routing stage before exposing another signed URL.
+            return self.persist_multipart_stage(
+                PendingMediaOp::MultipartPut(PendingMultipartPut {
+                    session,
+                    part,
+                    remaining: Vec::new(),
+                    checkpoint: None,
+                }),
+                out,
+            );
+        }
+        if let Some(session) = requery {
+            self.state.multipart_batches.remove(&client_upload_id);
+            // The final local checkpoint is durable; a fresh parts query is
+            // still required before Java complete, including after a lost
+            // UploadFile response or completed-session recovery.
+            return self.persist_multipart_stage(PendingMediaOp::MultipartParts(session), out);
+        }
+        Ok(())
+    }
+
+    fn emit_multipart_complete(
+        &mut self,
+        session: MultipartSession,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let corr = self.alloc_corr_internal();
+        let req = crate::send::upload_props::multipart_complete_request(
+            &self.config.default_api_base_url,
+            &session,
+            crate::acl::sync_http_effects::session_auth_headers(
+                self.state.connection_id.as_deref(),
+            ),
+        )?;
+        self.state
+            .pending_media_ops
+            .insert(corr, PendingMediaOp::MultipartComplete(session));
+        out.push(helix_core::Effect::Http { corr, req });
+        Ok(())
+    }
+
+    fn fail_multipart_session(
+        &mut self,
+        session: MultipartSession,
+        hop: &'static str,
+        error: &str,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let client_upload_id = session.client_upload_id.clone();
+        self.clear_multipart_runtime(&client_upload_id);
+        self.fail_media_operation(
+            crate::send::upload_props::FailedMediaOp::Multipart(
+                crate::send::upload_props::PendingMediaPrepare {
+                    temporary_id: session.temporary_id,
+                    channel_id: session.channel_id,
+                    target: session.target,
+                    input: session.input,
+                },
+            ),
+            hop,
+            error,
+            out,
+        )
+    }
+
+    /// 网络、超时和 5xx 只重试有限次数；每次重新 init 后再 parts 对账，
+    /// 因而不会把本地旧 signed URL 或本地 parts 集合当成远端事实。
+    fn retry_multipart_on_port_error(
+        &mut self,
+        pending: crate::send::upload_props::PendingMediaPrepare,
+        error: &helix_core::tick::PortError,
+        hop: &'static str,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let client_upload_id =
+            crate::send::upload_props::client_upload_id(&pending.temporary_id.0, &pending.target);
+        self.clear_multipart_runtime(&client_upload_id);
+        let retryable = matches!(
+            error,
+            helix_core::tick::PortError::Timeout
+                | helix_core::tick::PortError::Network
+                | helix_core::tick::PortError::Http(408 | 500..=599)
+        ) || matches!(
+            (hop, error),
+            (
+                "multipart_upload_request",
+                helix_core::tick::PortError::Http(403)
+            )
+        );
+        let key = (pending.temporary_id.clone(), pending.target.clone());
+        if retryable {
+            let attempt = {
+                let attempts = self
+                    .state
+                    .multipart_retry_attempts
+                    .entry(key.clone())
+                    .or_default();
+                if *attempts < 3 {
+                    *attempts += 1;
+                    Some(*attempts)
+                } else {
+                    None
+                }
+            };
+            if let Some(attempt) = attempt {
+                let timer = self.alloc_timer();
+                let backoff_ms = 100_u64.saturating_mul(1_u64 << (attempt - 1));
+                self.state.multipart_retry_timers.insert(timer, pending);
+                out.push(helix_core::Effect::ScheduleTimer {
+                    id: timer,
+                    after_ms: backoff_ms,
+                });
+                return Ok(());
+            }
+        }
+        self.fail_media_operation(
+            crate::send::upload_props::FailedMediaOp::Multipart(pending),
+            hop,
+            &format!("{error:?}"),
+            out,
+        )
+    }
+
+    fn finalize_multipart_completion(
+        &mut self,
+        session: MultipartSession,
+        prepared: crate::send::upload_props::PreparedMedia,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        self.finalize_or_queue_media_completion(
+            crate::send::upload_props::PendingMediaPut {
+                temporary_id: session.temporary_id,
+                channel_id: session.channel_id,
+                target: session.target,
+                input: session.input,
+                prepared,
+            },
+            out,
+        )
     }
 
     fn persist_media_complete_stage(
@@ -274,7 +956,7 @@ impl ImModule {
         outcome: &helix_core::tick::PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        use crate::send::upload_props::{FailedMediaOp, PendingMediaOp, PendingMediaPrepare};
+        use crate::send::upload_props::{FailedMediaOp, PendingMediaPrepare};
         use helix_core::tick::PortOutcome;
 
         match outcome {
@@ -307,8 +989,35 @@ impl ImModule {
                 PendingMediaOp::Complete(put) => {
                     self.finalize_or_queue_media_completion(put, out)?;
                 }
+                PendingMediaOp::MultipartInit(prepare) => self.emit_multipart_init(
+                    prepare.channel_id,
+                    prepare.temporary_id,
+                    prepare.target,
+                    prepare.input,
+                    out,
+                )?,
+                PendingMediaOp::MultipartParts(session) => {
+                    self.emit_multipart_parts(session, out)?;
+                }
+                PendingMediaOp::MultipartSign(sign) => {
+                    self.emit_multipart_sign(sign, out)?;
+                }
+                PendingMediaOp::MultipartPut(put) => {
+                    if put.checkpoint.is_none() {
+                        // This is a next-slot routing stage. Its part number
+                        // was reserved in the batch before PersistAtomic;
+                        // expose the signed UploadFile only after that ACK.
+                        self.emit_multipart_upload(put.session, put.part, put.remaining, out)?;
+                    } else {
+                        self.continue_multipart_batch(put, out)?;
+                    }
+                }
+                PendingMediaOp::MultipartComplete(session) => {
+                    self.emit_multipart_complete(session, out)?;
+                }
             },
             PortOutcome::Err(error) => {
+                let multipart_id = multipart_operation_id(&pending);
                 let fallback = match pending {
                     PendingMediaOp::Prepare(prepare) => FailedMediaOp::Prepare(prepare),
                     PendingMediaOp::Put(put) => FailedMediaOp::Prepare(PendingMediaPrepare {
@@ -318,7 +1027,36 @@ impl ImModule {
                         input: put.input,
                     }),
                     PendingMediaOp::Complete(put) => FailedMediaOp::Complete(put),
+                    PendingMediaOp::MultipartInit(prepare) => FailedMediaOp::Multipart(prepare),
+                    PendingMediaOp::MultipartParts(session)
+                    | PendingMediaOp::MultipartComplete(session) => {
+                        FailedMediaOp::Multipart(PendingMediaPrepare {
+                            temporary_id: session.temporary_id,
+                            channel_id: session.channel_id,
+                            target: session.target,
+                            input: session.input,
+                        })
+                    }
+                    PendingMediaOp::MultipartSign(sign) => {
+                        FailedMediaOp::Multipart(PendingMediaPrepare {
+                            temporary_id: sign.session.temporary_id,
+                            channel_id: sign.session.channel_id,
+                            target: sign.session.target,
+                            input: sign.session.input,
+                        })
+                    }
+                    PendingMediaOp::MultipartPut(put) => {
+                        FailedMediaOp::Multipart(PendingMediaPrepare {
+                            temporary_id: put.session.temporary_id,
+                            channel_id: put.session.channel_id,
+                            target: put.session.target,
+                            input: put.session.input,
+                        })
+                    }
                 };
+                if !multipart_id.is_empty() {
+                    self.clear_multipart_runtime(&multipart_id);
+                }
                 self.fail_media_operation(fallback, "stage_persist", &format!("{error:?}"), out)?;
             }
         }
@@ -358,16 +1096,11 @@ impl ImModule {
             for pending in queued {
                 self.state.failed_media_ops.insert(
                     (temporary_id.clone(), pending.target.clone()),
-                    crate::send::upload_props::FailedMediaOp::Complete(pending),
+                    failed_media_op_for_put(&pending),
                 );
             }
         }
-        self.fail_media_operation(
-            crate::send::upload_props::FailedMediaOp::Complete(failed),
-            hop,
-            error,
-            out,
-        )
+        self.fail_media_operation(failed_media_op_for_put(&failed), hop, error, out)
     }
 
     // 释放当前串行槽并取出同一消息的下一个待完成附件。
@@ -413,6 +1146,14 @@ impl ImModule {
         self.state
             .media_retry_inflight
             .remove(&pending.temporary_id);
+        if matches!(
+            &failed,
+            crate::send::upload_props::FailedMediaOp::Multipart(_)
+        ) {
+            self.state
+                .multipart_retry_attempts
+                .remove(&(pending.temporary_id.clone(), pending.target.clone()));
+        }
         self.state.failed_media_ops.insert(
             (pending.temporary_id.clone(), pending.target.clone()),
             failed,
@@ -507,6 +1248,11 @@ impl ImModule {
             message_op,
             crate::send::upload_props::durable_delete_op(&pending.temporary_id, &pending.target),
         ];
+        if pending.prepared.method == "MULTIPART" {
+            ops.extend(crate::send::upload_props::durable_multipart_delete_ops(
+                &multipart_session_from_put(&pending),
+            ));
+        }
         if is_file && !is_final_media {
             ops.push(crate::pending_send::upload_progress_persist_op(
                 &pending.temporary_id,
@@ -546,6 +1292,7 @@ impl ImModule {
                 let crate::send::upload_props::PendingMediaPut {
                     temporary_id,
                     channel_id,
+                    target,
                     prepared,
                     ..
                 } = pending;
@@ -562,6 +1309,9 @@ impl ImModule {
                     }
                 }
                 self.state.completed_media.insert(prepared.file_id);
+                self.state
+                    .multipart_retry_attempts
+                    .remove(&(temporary_id.clone(), target));
 
                 let next_completion = self.take_next_media_completion(&temporary_id);
                 if let Some(pending) = next_completion {
@@ -760,6 +1510,46 @@ impl ImModule {
             .into_effect(),
         );
         Ok(())
+    }
+}
+
+fn failed_media_op_for_put(
+    pending: &crate::send::upload_props::PendingMediaPut,
+) -> crate::send::upload_props::FailedMediaOp {
+    if pending.input.uses_multipart() || pending.prepared.method == "MULTIPART" {
+        crate::send::upload_props::FailedMediaOp::Multipart(
+            crate::send::upload_props::PendingMediaPrepare {
+                temporary_id: pending.temporary_id.clone(),
+                channel_id: pending.channel_id,
+                target: pending.target.clone(),
+                input: pending.input.clone(),
+            },
+        )
+    } else {
+        crate::send::upload_props::FailedMediaOp::Complete(pending.clone())
+    }
+}
+
+fn multipart_session_from_put(
+    pending: &crate::send::upload_props::PendingMediaPut,
+) -> crate::send::upload_props::MultipartSession {
+    crate::send::upload_props::MultipartSession {
+        temporary_id: pending.temporary_id.clone(),
+        channel_id: pending.channel_id,
+        target: pending.target.clone(),
+        input: pending.input.clone(),
+        client_upload_id: crate::send::upload_props::client_upload_id(
+            &pending.temporary_id.0,
+            &pending.target,
+        ),
+        upload_id: String::new(),
+        file_id: pending.prepared.file_id.clone(),
+        bucket: pending.prepared.bucket.clone(),
+        object_key: pending.prepared.object_key.clone(),
+        uri: pending.prepared.uri.clone(),
+        part_size: crate::send::upload_props::MULTIPART_PART_SIZE_BYTES,
+        status: "completed".to_string(),
+        parts: Vec::new(),
     }
 }
 

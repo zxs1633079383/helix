@@ -1551,10 +1551,14 @@ impl ImModule {
                 });
 
                 for media in &planned {
-                    self.state.failed_media_ops.insert(
-                        (temporary_id.clone(), media.target.clone()),
-                        crate::send::upload_props::FailedMediaOp::Prepare(media.clone()),
-                    );
+                    let failed = if media.input.uses_multipart() {
+                        crate::send::upload_props::FailedMediaOp::Multipart(media.clone())
+                    } else {
+                        crate::send::upload_props::FailedMediaOp::Prepare(media.clone())
+                    };
+                    self.state
+                        .failed_media_ops
+                        .insert((temporary_id.clone(), media.target.clone()), failed);
                 }
                 let media_compensation = !planned.is_empty();
                 if media_compensation {

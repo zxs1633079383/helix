@@ -3,8 +3,8 @@
 use crate::channel::Channel;
 use crate::pending_send::{PendingSend, TimelineReadbackContext};
 use crate::send::upload_props::{
-    FailedMediaOp, PendingMediaCompletionCommit, PendingMediaOp, PendingMediaPrepare,
-    PendingMediaPut, PendingMediaRetryReset, PendingUpload, UploadTarget,
+    FailedMediaOp, MultipartBatch, PendingMediaCompletionCommit, PendingMediaOp,
+    PendingMediaPrepare, PendingMediaPut, PendingMediaRetryReset, PendingUpload, UploadTarget,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
@@ -38,6 +38,7 @@ pub(crate) struct FileUploadProgressState {
     pub target: UploadTarget,
     pub temporary_id: TemporaryId,
     pub channel_id: ChannelId,
+    pub part_number: Option<u32>,
     /// PUT 启动时冻结的 readback 上下文；多附件并发时不受后续 retry attempt 覆盖。
     pub timeline_readback: TimelineReadbackContext,
     pub highest_observed_percent: u8,
@@ -104,6 +105,15 @@ pub struct ImState {
     /// Durable stage transition corr -> operation that may start only after the
     /// journal update succeeds.
     pub pending_media_stage_persists: HashMap<helix_core::Correlation, PendingMediaOp>,
+
+    /// Multipart network/timeout retry budget. The timer payload retains only
+    /// trusted local input; signed URLs are never carried across a retry.
+    pub(crate) multipart_retry_attempts: HashMap<(TemporaryId, UploadTarget), u8>,
+    pub(crate) multipart_retry_timers: HashMap<helix_core::TimerId, PendingMediaPrepare>,
+
+    /// One runtime batch per clientUploadId. The signed queue is memory-only;
+    /// each ETag leaves this map only after its own PersistAtomic succeeds.
+    pub(crate) multipart_batches: HashMap<String, MultipartBatch>,
 
     /// 同一消息最多一条本地完成持久化链在途；prepare/PUT 仍可并发。
     pub media_completion_inflight: HashSet<TemporaryId>,
@@ -385,6 +395,9 @@ impl ImState {
             file_upload_progress_persists: HashMap::new(),
             pending_media_after_optimistic: HashMap::new(),
             pending_media_stage_persists: HashMap::new(),
+            multipart_retry_attempts: HashMap::new(),
+            multipart_retry_timers: HashMap::new(),
+            multipart_batches: HashMap::new(),
             media_completion_inflight: HashSet::new(),
             queued_media_completions: HashMap::new(),
             completed_media: HashSet::new(),
@@ -560,6 +573,9 @@ impl ImState {
     /// 身份切换时清除旧 viewer 的附着窗口、相关性与覆盖证明。
     pub(crate) fn reset_message_v3_identity(&mut self) {
         self.increment_pull = None;
+        self.multipart_retry_attempts.clear();
+        self.multipart_retry_timers.clear();
+        self.multipart_batches.clear();
         self.recovery_session.invalidate();
         // Tenant/actor facts are never portable.  A B session must rediscover
         // channels and cursors from its own store rather than treating A's

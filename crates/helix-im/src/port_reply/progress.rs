@@ -12,8 +12,12 @@ impl ImModule {
         upload_corr: Correlation,
         operation: &crate::send::upload_props::PendingMediaOp,
     ) -> bool {
-        let crate::send::upload_props::PendingMediaOp::Put(pending) = operation else {
-            return false;
+        let pending = match operation {
+            crate::send::upload_props::PendingMediaOp::Put(pending) => pending.clone(),
+            // Multipart UploadFile replies carry the required ETag. Do not defer
+            // them behind progress persistence, which has no reply payload to save.
+            crate::send::upload_props::PendingMediaOp::MultipartPut(_) => return false,
+            _ => return false,
         };
         let must_wait = self
             .state
@@ -23,7 +27,7 @@ impl ImModule {
         if must_wait {
             self.state
                 .media_put_after_progress
-                .insert(upload_corr, pending.clone());
+                .insert(upload_corr, pending);
         }
         must_wait
     }
@@ -50,6 +54,7 @@ impl ImModule {
                 target: target.clone(),
                 temporary_id,
                 channel_id,
+                part_number: None,
                 timeline_readback,
                 highest_observed_percent: 0,
                 committed_percent: 0,
@@ -57,6 +62,20 @@ impl ImModule {
                 queued_latest: None,
             },
         );
+    }
+
+    pub(crate) fn register_multipart_upload_progress(
+        &mut self,
+        upload_corr: Correlation,
+        temporary_id: TemporaryId,
+        channel_id: ChannelId,
+        target: &UploadTarget,
+        part_number: u32,
+    ) {
+        self.register_file_upload_progress(upload_corr, temporary_id, channel_id, target);
+        if let Some(state) = self.state.file_upload_progress.get_mut(&upload_corr) {
+            state.part_number = Some(part_number);
+        }
     }
 
     pub(crate) fn handle_file_upload_progress(
@@ -70,7 +89,61 @@ impl ImModule {
         }
         let raw_percent =
             ((u128::from(progress.completed_bytes) * 100) / u128::from(progress.total_bytes)) as u8;
-        let percent = (raw_percent / 5) * 5;
+        let multipart_id = match self.state.pending_media_ops.get(&upload_corr) {
+            Some(crate::send::upload_props::PendingMediaOp::MultipartPut(pending)) => Some((
+                pending.session.client_upload_id.clone(),
+                pending.part.part_number,
+            )),
+            _ => None,
+        };
+        let percent = if let Some((client_upload_id, part_number)) = multipart_id {
+            if let Some(batch) = self.state.multipart_batches.get_mut(&client_upload_id) {
+                let bytes = progress.completed_bytes.min(progress.total_bytes);
+                batch
+                    .progress_bytes
+                    .entry(part_number)
+                    .and_modify(|current| *current = (*current).max(bytes))
+                    .or_insert(bytes);
+            }
+            // Aggregate confirmed part bytes plus active range bytes. A local
+            // range EOF still caps at 99 until Java complete + PersistOk.
+            let aggregate = self
+                .state
+                .multipart_batches
+                .get(&client_upload_id)
+                .map(|batch| {
+                    let confirmed = batch
+                        .session
+                        .parts
+                        .iter()
+                        .map(|part| part.size)
+                        .sum::<u64>();
+                    let active = batch
+                        .progress_bytes
+                        .iter()
+                        .filter(|(number, _)| {
+                            batch
+                                .confirmed_parts
+                                .get((**number as usize).saturating_sub(1))
+                                .is_some_and(|confirmed| !confirmed)
+                        })
+                        .map(|(number, bytes)| {
+                            batch
+                                .session
+                                .input
+                                .part_size(*number)
+                                .map_or(0, |size| (*bytes).min(size))
+                        })
+                        .sum::<u64>();
+                    (((u128::from(confirmed.saturating_add(active)) * 100)
+                        / u128::from(batch.session.input.size))
+                    .min(99)) as u8
+                })
+                .unwrap_or(raw_percent.min(99));
+            (aggregate / 5) * 5
+        } else {
+            (raw_percent / 5) * 5
+        };
         if percent == 0 {
             return Ok(());
         }

@@ -178,6 +178,7 @@ impl ImModule {
             if matches!(
                 &pending_media,
                 crate::send::upload_props::PendingMediaOp::Put(_)
+                    | crate::send::upload_props::PendingMediaOp::MultipartPut(_)
             ) {
                 if matches!(outcome, PortOutcome::Ok(_))
                     && self.defer_media_put_until_progress_commits(corr, &pending_media)

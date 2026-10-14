@@ -71,6 +71,16 @@ pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
         scope_col: Some("temporary_id"),
     },
     SparseTableSpec {
+        table: "media_upload_session",
+        identity_cols: &["session_id"],
+        scope_col: Some("temporary_id"),
+    },
+    SparseTableSpec {
+        table: "media_upload_part",
+        identity_cols: &["session_id", "part_number"],
+        scope_col: Some("session_id"),
+    },
+    SparseTableSpec {
         table: "receiver_snapshot",
         identity_cols: &["snapshot_id"],
         scope_col: Some("channel_id"),
@@ -442,6 +452,36 @@ END",
         PRIMARY KEY (temporary_id, target_key)\
     )",
     "CREATE INDEX IF NOT EXISTS idx_pending_media_temporary_id ON pending_media(temporary_id)",
+    // Multipart checkpoint facts are normalized so a restart can re-query Java/OSS
+    // and compare remote parts without treating a legacy pending_media upload_id as fileId.
+    "CREATE TABLE IF NOT EXISTS media_upload_session (\
+        session_id TEXT PRIMARY KEY,\
+        temporary_id TEXT NOT NULL,\
+        target_key TEXT NOT NULL,\
+        channel_id TEXT NOT NULL,\
+        client_upload_id TEXT NOT NULL,\
+        bucket TEXT NOT NULL,\
+        content_type TEXT NOT NULL,\
+        size INTEGER NOT NULL,\
+        sha256 TEXT NOT NULL,\
+        file_name TEXT NOT NULL,\
+        local_path TEXT NOT NULL,\
+        upload_id TEXT NOT NULL,\
+        file_id TEXT NOT NULL DEFAULT '',\
+        object_key TEXT NOT NULL DEFAULT '',\
+        uri TEXT NOT NULL DEFAULT '',\
+        part_size INTEGER NOT NULL DEFAULT 8388608,\
+        status TEXT NOT NULL DEFAULT 'uploading'\
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_media_upload_session_temporary_id ON media_upload_session(temporary_id)",
+    "CREATE TABLE IF NOT EXISTS media_upload_part (\
+        session_id TEXT NOT NULL,\
+        part_number INTEGER NOT NULL,\
+        size INTEGER NOT NULL,\
+        etag TEXT NOT NULL,\
+        status TEXT NOT NULL DEFAULT 'completed',\
+        PRIMARY KEY (session_id, part_number)\
+    )",
     // 文字接龙最小 durable projection；JSON window 列只存 Helix 编码的 id 数组。
     "CREATE TABLE IF NOT EXISTS chain_summary (\
         chain_id TEXT PRIMARY KEY,\

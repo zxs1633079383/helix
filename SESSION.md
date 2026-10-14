@@ -1212,3 +1212,5 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 
 🎯 EXPECT 四个隔离工作树完成<=1GiB分片与重试，旧PUT和MessageV3成功屏障保持；focused红绿与三端检查通过，禁止push。| 赌注 中 | 可逆 是 | @2026-10-14
 - 交接：docs/交接/1014-分片上传与续传/handoff.md
+
+✅ DONE <=1GiB普通消息分片/续传跨仓实现、TDD与最终本地集成/三端编译完成，已合入各自本地开发分支，未push/发布；真实验收交给用户，源码身份与限制见 docs/交接/1014-分片上传与续传/handoff.md。

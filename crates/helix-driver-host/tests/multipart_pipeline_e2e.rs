@@ -33,6 +33,14 @@ const PART_SIZE: u64 = 8 * 1024 * 1024;
 const PART_COUNT: u32 = 13;
 const FILE_SHA256: &str = "f1753a034bbd26e9458921b121c32d4750b9f7e5ef8adbbb337dcc96283ef40a";
 
+/// 只移除本轮create_new创建的稀疏fixture，红测panic也不残留文件。
+struct FixtureCleanup(std::path::PathBuf);
+impl Drop for FixtureCleanup {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 #[derive(Debug)]
 struct LocalRequest {
     method: String,
@@ -370,8 +378,11 @@ async fn run_oss_server(
     listener: TcpListener,
     remote_parts: Arc<Mutex<BTreeMap<u32, RemotePart>>>,
     records: Arc<Mutex<Vec<OssPutRecord>>>,
+    lose_first_reply: bool,
 ) {
-    for _ in 0..PART_COUNT {
+    let missing_count =
+        PART_COUNT - remote_parts.lock().expect("initial remote parts").len() as u32;
+    for _ in 0..missing_count {
         let (mut stream, _) = listener.accept().await.expect("accept OSS PUT");
         let (request_line, headers) = read_headers(&mut stream).await;
         let mut request_parts = request_line.split_whitespace();
@@ -434,6 +445,11 @@ async fn run_oss_server(
                 target,
                 headers,
             });
+        // 模拟OSS已接收分片，但成功响应在链路中丢失。远端ListParts应让续传跳过这一片。
+        if lose_first_reply && part_number == 1 {
+            drop(stream);
+            continue;
+        }
         let response = format!(
             "HTTP/1.1 200 OK\r\nETag: {etag}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         );
@@ -448,6 +464,7 @@ async fn run_go_server(
     listener: TcpListener,
     post_tx: mpsc::UnboundedSender<Value>,
     storage: HostStorage,
+    schedule: bool,
 ) -> Value {
     loop {
         let (mut stream, _) = listener.accept().await.expect("accept Go request");
@@ -465,7 +482,14 @@ async fn run_go_server(
             .await;
             continue;
         }
-        assert_eq!(path, "/go/posts/create");
+        assert_eq!(
+            path,
+            if schedule {
+                "/go/posts/createSchedule"
+            } else {
+                "/go/posts/create"
+            }
+        );
         assert_eq!(request.method, "POST");
         assert_eq!(
             request.headers.get("cookieid").map(String::as_str),
@@ -491,6 +515,46 @@ async fn run_go_server(
                     .is_empty(),
                 "stable PersistOk must clear {table} before Go posts/create"
             );
+        }
+        if schedule {
+            let intents = storage
+                .scan(ScanSpec {
+                    table: "schedule_media_intent",
+                    limit: None,
+                    filter: None,
+                    order_by: &[],
+                })
+                .await
+                .expect("durable schedule submit fence");
+            assert_eq!(
+                intents.len(),
+                1,
+                "one schedule intent must fence the remote write"
+            );
+            assert_eq!(text_column(&intents[0], "stage"), "submitting");
+            assert_eq!(
+                text_column(&intents[0], "request_id"),
+                "schedule-multipart-101m"
+            );
+            let payload: Value = serde_json::from_str(text_column(&intents[0], "payload_json"))
+                .expect("durable schedule payload");
+            assert_eq!(payload["props"]["file"]["uri"], "media/file-multipart-101m");
+            assert!(!payload.to_string().contains("mediaInput"));
+            assert_eq!(body["schedulePostAt"], 1_900_000_000_000_i64);
+            assert_eq!(body["post"]["channelId"], CHANNEL_ID);
+            assert_eq!(body["post"]["viewers"], json!(["all"]));
+            assert_eq!(body["post"]["mentions"], json!([AUTH_USER_ID]));
+            assert!(!body.to_string().contains("temporaryId"));
+            assert!(storage
+                .scan(ScanSpec {
+                    table: "message",
+                    limit: None,
+                    filter: None,
+                    order_by: &[]
+                })
+                .await
+                .expect("no optimistic schedule message")
+                .is_empty());
         }
         post_tx.send(body.clone()).expect("notify Go posts/create");
         write_json_response(
@@ -578,6 +642,16 @@ fn send_command(local_path: &str) -> Tick {
     ))
 }
 
+/// 公开定时入口保留执行时间、可见范围和提及，仅携带本地媒体信息。
+fn schedule_command(local_path: &str) -> Tick {
+    Tick::Command(helix_core::tick::AppCommand::new("im_create_schedule", serde_json::to_vec(&json!({
+        "channel_id": CHANNEL_ID, "req_id": "schedule-multipart-101m", "type": "FILE",
+        "message": "101 MiB multipart integration fixture", "schedule_post_at": 1_900_000_000_000_i64,
+        "viewers": ["all"], "mentions": [AUTH_USER_ID],
+        "props": {"file": {"mediaInput": {"localPath": local_path, "fileName": "multipart-101m.bin", "contentType": "application/octet-stream", "size": FILE_SIZE, "sha256": FILE_SHA256}}}
+    })).expect("schedule multipart command")))
+}
+
 fn synthetic_post_echo() -> Tick {
     Tick::Inbound(helix_core::tick::InboundBytes(
         serde_json::to_vec(&json!({
@@ -597,6 +671,17 @@ fn synthetic_post_echo() -> Tick {
         .expect("serialize multipart authoritative echo")
         .into(),
     ))
+}
+
+/// 定时创建成功仍需Go权威WS与本地channel_schedule持久化，HTTP200不释放终态。
+fn synthetic_schedule_echo() -> Tick {
+    Tick::Inbound(helix_core::tick::InboundBytes(serde_json::to_vec(&json!({
+        "action": "post_schedule_created", "eventSeq": 1,
+        "data": {"channelId": CHANNEL_ID, "scheduleId": "schedule-multipart-101m",
+            "scheduleOwnerUserId": AUTH_USER_ID, "message": "101 MiB multipart integration fixture",
+            "messagePreview": "101 MiB multipart integration fixture", "sendAt": 1_900_000_000_000_i64,
+            "status": "scheduled", "revision": 1}
+    })).expect("schedule authoritative echo").into()))
 }
 
 fn assert_stable_go_body(body: &Value) {
@@ -623,6 +708,29 @@ fn assert_stable_go_body(body: &Value) {
 /// LOCAL_INTEGRATION：生产 HostStorage/engine/uploader 链接本地 Java 五接口、OSS range PUT、Go posts/create。
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn multipart_pipeline_uses_bounded_ranges_and_stable_reference() {
+    run_multipart_pipeline(false, false, 0).await;
+}
+
+/// 定时媒体复用同一Java/OSS装配，全部稳定引用持久化后才提交Go定时接口。
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn schedule_multipart_pipeline_preserves_create_schedule_barrier() {
+    run_multipart_pipeline(true, false, 0).await;
+}
+
+/// OSS收到了第一片但响应丢失；重试查询真实分片，禁止重新PUT已完成分片或重复创建定时消息。
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn schedule_multipart_reconciles_lost_part_reply_without_reupload() {
+    run_multipart_pipeline(true, true, 0).await;
+}
+
+/// 冷启动读取真实SQLite中的未提交意图，并以OSS权威前三片继续；不需要再次注入创建命令。
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn schedule_multipart_cold_start_resumes_persisted_intent() {
+    run_multipart_pipeline(true, false, 3).await;
+}
+
+/// 共享真实engine/SQLite/流式range PUT装配，普通和定时仅更换业务入口及终态。
+async fn run_multipart_pipeline(schedule: bool, lose_first_reply: bool, resume_parts: u32) {
     let java_listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind Java listener");
@@ -636,7 +744,19 @@ async fn multipart_pipeline_uses_bounded_ranges_and_stable_reference() {
         .expect("bind Go listener");
     let go_address = go_listener.local_addr().expect("Go address");
 
-    let remote_parts = Arc::new(Mutex::new(BTreeMap::<u32, RemotePart>::new()));
+    let remote_parts = Arc::new(Mutex::new(
+        (1..=resume_parts)
+            .map(|part_number| {
+                (
+                    part_number,
+                    RemotePart {
+                        size: PART_SIZE,
+                        etag: format!("etag-{part_number}-{PART_SIZE}"),
+                    },
+                )
+            })
+            .collect::<BTreeMap<u32, RemotePart>>(),
+    ));
     let java_audit = Arc::new(Mutex::new(JavaAudit::default()));
     let oss_records = Arc::new(Mutex::new(Vec::<OssPutRecord>::new()));
     let java_task = tokio::spawn(run_java_server(
@@ -649,13 +769,22 @@ async fn multipart_pipeline_uses_bounded_ranges_and_stable_reference() {
         oss_listener,
         Arc::clone(&remote_parts),
         Arc::clone(&oss_records),
+        lose_first_reply,
     ));
     let (post_tx, mut post_rx) = mpsc::unbounded_channel();
 
     let fixture_path = std::env::temp_dir().join(format!(
         "helix-multipart-pipeline-{}-{}.bin",
         std::process::id(),
-        1_u64
+        if resume_parts > 0 {
+            4_u64
+        } else if lose_first_reply {
+            3_u64
+        } else if schedule {
+            2_u64
+        } else {
+            1_u64
+        }
     ));
     let fixture = tokio::fs::OpenOptions::new()
         .write(true)
@@ -663,6 +792,7 @@ async fn multipart_pipeline_uses_bounded_ranges_and_stable_reference() {
         .open(&fixture_path)
         .await
         .expect("create sparse fixture");
+    let _fixture_cleanup = FixtureCleanup(fixture_path.clone());
     fixture
         .set_len(FILE_SIZE)
         .await
@@ -672,7 +802,15 @@ async fn multipart_pipeline_uses_bounded_ranges_and_stable_reference() {
     let db = format!(
         "file:helix_multipart_pipeline_{}_{}?mode=memory&cache=shared",
         std::process::id(),
-        1_u64
+        if resume_parts > 0 {
+            4_u64
+        } else if lose_first_reply {
+            3_u64
+        } else if schedule {
+            2_u64
+        } else {
+            1_u64
+        }
     );
     let host_storage = HostStorage::open_sqlite_url(&db)
         .await
@@ -696,7 +834,48 @@ async fn multipart_pipeline_uses_bounded_ranges_and_stable_reference() {
         ))
         .await
         .expect("seed channel scope");
-    let go_task = tokio::spawn(run_go_server(go_listener, post_tx, host_storage.clone()));
+    if resume_parts > 0 {
+        // Golden durable row：仅文件元数据/业务意图，没有签名URL或凭据。数据由真实Storage读取。
+        let Tick::Command(command) = schedule_command(fixture_path.to_str().expect("fixture path"))
+        else {
+            unreachable!()
+        };
+        let payload: Value =
+            serde_json::from_slice(command.payload.as_ref()).expect("durable command payload");
+        let media = json!([{ "target": {"kind": "file"}, "localPath": fixture_path.to_str().expect("fixture path"), "fileName": "multipart-101m.bin", "contentType": "application/octet-stream", "size": FILE_SIZE, "sha256": FILE_SHA256 }]);
+        host_storage
+            .batch_upsert(UpsertSpec::new(
+                "schedule_media_intent",
+                vec![vec![
+                    ("channel_id".into(), SqlValue::Text(CHANNEL_ID.into())),
+                    (
+                        "request_id".into(),
+                        SqlValue::Text("schedule-multipart-101m".into()),
+                    ),
+                    (
+                        "account_id".into(),
+                        SqlValue::Text("tmfixx00000000000000000001".into()),
+                    ),
+                    ("owner_user_id".into(), SqlValue::Text(AUTH_USER_ID.into())),
+                    (
+                        "schedule_post_at".into(),
+                        SqlValue::Integer(1_900_000_000_000),
+                    ),
+                    ("payload_json".into(), SqlValue::Text(payload.to_string())),
+                    ("media_json".into(), SqlValue::Text(media.to_string())),
+                    ("stage".into(), SqlValue::Text("parts".into())),
+                ]],
+                Some("channel_id"),
+            ))
+            .await
+            .expect("seed persisted schedule intent");
+    }
+    let go_task = tokio::spawn(run_go_server(
+        go_listener,
+        post_tx,
+        host_storage.clone(),
+        schedule,
+    ));
 
     let java_base = format!("http://{java_address}/java");
     let go_base = format!("http://{go_address}/go");
@@ -776,53 +955,118 @@ async fn multipart_pipeline_uses_bounded_ranges_and_stable_reference() {
         .await;
     });
 
-    tick_tx
-        .send(Tick::Command(helix_core::tick::AppCommand::new(
-            "im_query_messages_by_channel",
-            serde_json::to_vec(&json!({
-                "channel_id": CHANNEL_ID,
-                "pageSize": 20,
-                "windowToken": "multipart-local-window"
-            }))
-            .expect("serialize timeline query"),
-        )))
-        .await
-        .expect("send timeline query");
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            if event_sink
-                .0
-                .lock()
-                .expect("timeline events lock")
-                .iter()
-                .any(|event| event["event"] == "im:timeline:ready")
-            {
-                break;
+    if resume_parts == 0 {
+        tick_tx
+            .send(Tick::Command(helix_core::tick::AppCommand::new(
+                "im_query_messages_by_channel",
+                serde_json::to_vec(&json!({
+                    "channel_id": CHANNEL_ID,
+                    "pageSize": 20,
+                    "windowToken": "multipart-local-window"
+                }))
+                .expect("serialize timeline query"),
+            )))
+            .await
+            .expect("send timeline query");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if event_sink
+                    .0
+                    .lock()
+                    .expect("timeline events lock")
+                    .iter()
+                    .any(|event| event["event"] == "im:timeline:ready")
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
             }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("timeline must be ready before send");
-
-    tick_tx
-        .send(send_command(
-            fixture_path.to_str().expect("fixture path utf8"),
-        ))
+        })
         .await
-        .expect("send multipart command");
+        .expect("timeline must be ready before send");
+
+        tick_tx
+            .send(if schedule {
+                schedule_command(fixture_path.to_str().expect("fixture path utf8"))
+            } else {
+                send_command(fixture_path.to_str().expect("fixture path utf8"))
+            })
+            .await
+            .expect("send multipart command");
+    }
     let post_body = tokio::time::timeout(Duration::from_secs(60), post_rx.recv())
         .await
         .expect("posts/create must follow complete PersistOk")
         .expect("posts/create notification");
-    assert_stable_go_body(&post_body);
-    tick_tx
-        .send(synthetic_post_echo())
-        .await
-        .expect("send authoritative post echo");
+    assert_stable_go_body(if schedule {
+        &post_body["post"]
+    } else {
+        &post_body
+    });
+    if !schedule {
+        tick_tx
+            .send(synthetic_post_echo())
+            .await
+            .expect("send authoritative post echo");
 
-    let final_rows = wait_for_sent_message(&host_storage).await;
-    assert_eq!(text_column(&final_rows[0], "temporary_id"), TEMPORARY_ID);
+        let final_rows = wait_for_sent_message(&host_storage).await;
+        assert_eq!(text_column(&final_rows[0], "temporary_id"), TEMPORARY_ID);
+    } else {
+        tick_tx
+            .send(synthetic_schedule_echo())
+            .await
+            .expect("schedule authority echo");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if event_sink
+                    .0
+                    .lock()
+                    .expect("schedule events")
+                    .iter()
+                    .any(|e| {
+                        e["event"] == "im:read:result"
+                            && e["data"]["req_id"] == "schedule-multipart-101m"
+                            && e["data"]["body"]["ok"] == true
+                    })
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("schedule authority result");
+        let rows = host_storage
+            .scan(ScanSpec {
+                table: "channel_schedule",
+                limit: None,
+                filter: None,
+                order_by: &[],
+            })
+            .await
+            .expect("schedule readback");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            text_column(&rows[0], "schedule_id"),
+            "schedule-multipart-101m"
+        );
+        assert!(host_storage
+            .scan(ScanSpec {
+                table: "schedule_media_intent",
+                limit: None,
+                filter: None,
+                order_by: &[]
+            })
+            .await
+            .expect("schedule intent after authority")
+            .is_empty());
+        assert!(!event_sink
+            .0
+            .lock()
+            .expect("schedule events")
+            .iter()
+            .any(|e| e["event"] == "im:post:sent"));
+    }
     shutdown_tx.send(()).ok();
     tokio::time::timeout(Duration::from_secs(10), engine)
         .await
@@ -852,7 +1096,7 @@ async fn multipart_pipeline_uses_bounded_ranges_and_stable_reference() {
             .iter()
             .filter(|request| request.path == "/java/oss/multipart/init")
             .count(),
-        1
+        if lose_first_reply { 2 } else { 1 }
     );
     assert_eq!(
         audit
@@ -888,7 +1132,7 @@ async fn multipart_pipeline_uses_bounded_ranges_and_stable_reference() {
     drop(audit);
 
     let records = oss_records.lock().expect("OSS records lock").clone();
-    assert_eq!(records.len(), PART_COUNT as usize);
+    assert_eq!(records.len(), (PART_COUNT - resume_parts) as usize);
     let mut seen = BTreeSet::new();
     for record in &records {
         assert!(seen.insert(record.part_number));
@@ -901,7 +1145,10 @@ async fn multipart_pipeline_uses_bounded_ranges_and_stable_reference() {
         assert!(!record.headers.contains_key("cookieid"));
         assert!(!record.headers.contains_key("deviceid"));
     }
-    assert_eq!(seen, (1..=PART_COUNT).collect::<BTreeSet<_>>());
+    assert_eq!(
+        seen,
+        ((resume_parts + 1)..=PART_COUNT).collect::<BTreeSet<_>>()
+    );
     assert_eq!(
         remote_parts.lock().expect("remote parts lock").len(),
         PART_COUNT as usize

@@ -3,7 +3,7 @@
 use crate::channel::Channel;
 use crate::pending_send::{PendingSend, TimelineReadbackContext};
 use crate::send::upload_props::{
-    FailedMediaOp, MultipartBatch, PendingMediaCompletionCommit, PendingMediaOp,
+    FailedMediaOp, MultipartBatch, MultipartDrain, PendingMediaCompletionCommit, PendingMediaOp,
     PendingMediaPrepare, PendingMediaPut, PendingMediaRetryReset, PendingUpload, UploadTarget,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -114,6 +114,10 @@ pub struct ImState {
     /// One runtime batch per clientUploadId. The signed queue is memory-only;
     /// each ETag leaves this map only after its own PersistAtomic succeeds.
     pub(crate) multipart_batches: HashMap<String, MultipartBatch>,
+
+    /// Failed batches retain their sibling UploadFile routes until every old
+    /// range request has replied; only then may retry or UnSend proceed.
+    pub(crate) multipart_draining: HashMap<String, MultipartDrain>,
 
     /// 同一消息最多一条本地完成持久化链在途；prepare/PUT 仍可并发。
     pub media_completion_inflight: HashSet<TemporaryId>,
@@ -398,6 +402,7 @@ impl ImState {
             multipart_retry_attempts: HashMap::new(),
             multipart_retry_timers: HashMap::new(),
             multipart_batches: HashMap::new(),
+            multipart_draining: HashMap::new(),
             media_completion_inflight: HashSet::new(),
             queued_media_completions: HashMap::new(),
             completed_media: HashSet::new(),
@@ -576,6 +581,7 @@ impl ImState {
         self.multipart_retry_attempts.clear();
         self.multipart_retry_timers.clear();
         self.multipart_batches.clear();
+        self.multipart_draining.clear();
         self.recovery_session.invalidate();
         // Tenant/actor facts are never portable.  A B session must rediscover
         // channels and cursors from its own store rather than treating A's

@@ -78,8 +78,8 @@ pub struct MediaInput {
 }
 
 /// Multipart applies only to the new Java protocol. The legacy PUT path remains
-/// the behavior for files at or below the threshold.
-pub const MULTIPART_THRESHOLD_BYTES: u64 = 8 * 1024 * 1024;
+/// the behavior for files at or below 100 MiB.
+pub const MULTIPART_THRESHOLD_BYTES: u64 = 100 * 1024 * 1024;
 pub const MULTIPART_PART_SIZE_BYTES: u64 = 8 * 1024 * 1024;
 pub const MAX_MEDIA_SIZE_BYTES: u64 = 1 << 30;
 
@@ -122,6 +122,18 @@ pub struct PendingMediaPrepare {
     pub channel_id: crate::state::ChannelId,
     pub target: UploadTarget,
     pub input: MediaInput,
+}
+
+/// A failed multipart batch remains in this draining state until every old
+/// range PUT and already-issued checkpoint PersistAtomic have produced a
+/// terminal reply. Retrying before that barrier could reuse a part number while
+/// an old signed URL is still able to complete.
+#[derive(Debug, Clone)]
+pub(crate) struct MultipartDrain {
+    pub pending: PendingMediaPrepare,
+    pub retry_after_ms: Option<u64>,
+    pub hop: &'static str,
+    pub error: String,
 }
 
 #[derive(Debug, Clone)]

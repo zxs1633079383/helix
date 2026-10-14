@@ -400,7 +400,7 @@ fn body_request(
 fn validate_size(input: &MediaInput) -> Result<(), ImError> {
     if input.size <= super::MULTIPART_THRESHOLD_BYTES || input.size > MAX_MEDIA_SIZE_BYTES {
         return Err(ImError::Parse(
-            "multipart size must be >8 MiB and <=1 GiB".to_string(),
+            "multipart size must be >100 MiB and <=1 GiB".to_string(),
         ));
     }
     Ok(())
@@ -449,7 +449,8 @@ fn progress_policy(target: &super::UploadTarget) -> FileUploadProgressPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::send::upload_props::{PendingMediaPrepare, UploadTarget};
+    use crate::send::upload_props::{PendingMediaPrepare, UploadTarget, MULTIPART_THRESHOLD_BYTES};
+    use crate::state::{ChannelId, TemporaryId};
 
     fn pending(size: u64) -> PendingMediaPrepare {
         PendingMediaPrepare {
@@ -468,7 +469,7 @@ mod tests {
 
     #[test]
     fn range_keeps_full_size_and_uses_part_length() {
-        let p = pending(MULTIPART_PART_SIZE_BYTES + 1);
+        let p = pending(MULTIPART_THRESHOLD_BYTES + 1);
         let session = MultipartSession {
             temporary_id: p.temporary_id.clone(),
             channel_id: p.channel_id,
@@ -488,7 +489,7 @@ mod tests {
             &p.input,
             &session,
             &MultipartSignedPart {
-                part_number: 2,
+                part_number: 13,
                 url: "https://oss/part".to_string(),
                 headers: Vec::new(),
             },
@@ -499,8 +500,8 @@ mod tests {
         assert_eq!(
             req.range(),
             Some(FileUploadRange {
-                offset: MULTIPART_PART_SIZE_BYTES,
-                length: 1
+                offset: MULTIPART_PART_SIZE_BYTES * 12,
+                length: MULTIPART_THRESHOLD_BYTES - MULTIPART_PART_SIZE_BYTES * 12 + 1,
             })
         );
     }

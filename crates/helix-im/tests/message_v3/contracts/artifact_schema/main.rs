@@ -718,7 +718,7 @@ fn phase1_zero_event_gates_match_their_declared_shape() {
 /// 当前 Phase 1 参考包声明「零 Effect」的 Gate 恰好是两个 deferred Gap 加两个负向/早退 Gate。
 ///
 /// `allowed_effect_tags` 与 `reference_sequence` 同时为空 = 该 Gate 不允许产生任何 Effect：
-/// - `MV3-G02d`（64 MiB 早退）：超限必须在暂存前返回结构化错误，**不创建 temporaryId、
+/// - `MV3-G02d`（1 GiB+ 早退）：超限必须在暂存前返回结构化错误，**不创建 temporaryId、
 ///   不 Persist、不 Emit**（INV-11）；
 /// - `MV3-G05l`（零 IM 写入工具栏命令）：整条命令不得触达 IM；
 /// - `MV3-G01i/G01j`：已关闭的合同决议保持 deferred Gap，不伪造 Effect。

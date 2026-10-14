@@ -2,8 +2,8 @@ use crate::error::ImError;
 use crate::http_envelope::unwrap_sync_envelope;
 use crate::module::ImModule;
 use crate::send::upload_props::{
-    MultipartBatch, MultipartSession, PendingMediaOp, PendingMultipartPut, PendingMultipartSign,
-    MULTIPART_MAX_INFLIGHT,
+    MultipartBatch, MultipartDrain, MultipartSession, PendingMediaOp, PendingMultipartPut,
+    PendingMultipartSign, MULTIPART_MAX_INFLIGHT,
 };
 use crate::state::{ChannelId, CorrelationContext};
 use helix_core::EffectSink;
@@ -83,11 +83,93 @@ fn multipart_operation_id(operation: &PendingMediaOp) -> String {
 }
 
 impl ImModule {
-    /// Drop all in-memory signed work for a session before retry/failure. Late
-    /// UploadFile or stage Persist replies then become harmless unknown corrs;
-    /// the next init/parts query is the only source of remote truth.
+    fn has_live_multipart_uploads(&self, client_upload_id: &str) -> bool {
+        self.state.pending_media_ops.values().any(|operation| {
+            matches!(
+                operation,
+                PendingMediaOp::MultipartPut(put)
+                    if put.session.client_upload_id == client_upload_id
+            )
+        })
+    }
+
+    fn has_live_multipart_stage_persists(&self, client_upload_id: &str) -> bool {
+        self.state
+            .pending_media_stage_persists
+            .values()
+            .any(|operation| multipart_operation_id(operation) == client_upload_id)
+    }
+
+    fn remove_multipart_stage_persists(&mut self, client_upload_id: &str) {
+        let stage_corrs = self
+            .state
+            .pending_media_stage_persists
+            .iter()
+            .filter_map(|(corr, operation)| {
+                (multipart_operation_id(operation) == client_upload_id).then_some(*corr)
+            })
+            .collect::<Vec<_>>();
+        for corr in stage_corrs {
+            self.state.pending_media_stage_persists.remove(&corr);
+        }
+    }
+
+    /// Stop issuing new signed work while retaining sibling UploadFile routes
+    /// and already issued checkpoint PersistAtomic routes. Retry or terminal
+    /// failure is released only after both classes have produced a reply.
+    fn begin_multipart_drain(
+        &mut self,
+        client_upload_id: String,
+        drain: MultipartDrain,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        self.state.multipart_batches.remove(&client_upload_id);
+        self.state
+            .multipart_draining
+            .entry(client_upload_id.clone())
+            .or_insert(drain);
+        self.finish_multipart_drain_if_ready(&client_upload_id, out)
+    }
+
+    fn finish_multipart_drain_if_ready(
+        &mut self,
+        client_upload_id: &str,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if self.has_live_multipart_uploads(client_upload_id)
+            || self.has_live_multipart_stage_persists(client_upload_id)
+        {
+            return Ok(());
+        }
+        let Some(drain) = self.state.multipart_draining.remove(client_upload_id) else {
+            return Ok(());
+        };
+        if let Some(after_ms) = drain.retry_after_ms {
+            let timer = self.alloc_timer();
+            self.state
+                .multipart_retry_timers
+                .insert(timer, drain.pending);
+            out.push(helix_core::Effect::ScheduleTimer {
+                id: timer,
+                after_ms,
+            });
+        } else {
+            self.fail_media_operation(
+                crate::send::upload_props::FailedMediaOp::Multipart(drain.pending),
+                drain.hop,
+                &drain.error,
+                out,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Drop all in-memory signed work for a session during lifecycle shutdown.
+    /// Unlike retry/failure, stop is allowed to revoke all routes because the
+    /// host is closing the corresponding transports at the same boundary.
     pub(crate) fn clear_multipart_runtime(&mut self, client_upload_id: &str) {
         self.state.multipart_batches.remove(client_upload_id);
+        self.state.multipart_draining.remove(client_upload_id);
         let upload_corrs = self
             .state
             .pending_media_ops
@@ -100,17 +182,7 @@ impl ImModule {
             self.state.pending_media_ops.remove(&corr);
             self.finish_file_upload_progress(corr);
         }
-        let stage_corrs = self
-            .state
-            .pending_media_stage_persists
-            .iter()
-            .filter_map(|(corr, operation)| {
-                (multipart_operation_id(operation) == client_upload_id).then_some(*corr)
-            })
-            .collect::<Vec<_>>();
-        for corr in stage_corrs {
-            self.state.pending_media_stage_persists.remove(&corr);
-        }
+        self.remove_multipart_stage_persists(client_upload_id);
     }
 
     pub(crate) fn clear_all_multipart_runtime(&mut self) {
@@ -135,6 +207,7 @@ impl ImModule {
                 (!id.is_empty()).then_some(id)
             },
         ));
+        client_upload_ids.extend(self.state.multipart_draining.keys().cloned());
         for client_upload_id in client_upload_ids {
             self.clear_multipart_runtime(&client_upload_id);
         }
@@ -488,9 +561,12 @@ impl ImModule {
                                 .get(&client_upload_id)
                                 .map(|batch| batch.session.clone())
                             else {
-                                // A transport retry/terminal failure may have revoked
-                                // sibling corrs already. Treat this late response as stale.
-                                return Ok(());
+                                // A failed batch has no active runtime, but its sibling
+                                // UploadFile routes remain until this late response. This
+                                // reply only releases the drain barrier; it can never resume
+                                // business success or start another upload.
+                                return self
+                                    .finish_multipart_drain_if_ready(&client_upload_id, out);
                             };
                             if success.object_key != batch_session.object_key {
                                 self.fail_multipart_session(
@@ -841,18 +917,19 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let client_upload_id = session.client_upload_id.clone();
-        self.clear_multipart_runtime(&client_upload_id);
-        self.fail_media_operation(
-            crate::send::upload_props::FailedMediaOp::Multipart(
-                crate::send::upload_props::PendingMediaPrepare {
+        self.begin_multipart_drain(
+            client_upload_id,
+            MultipartDrain {
+                pending: crate::send::upload_props::PendingMediaPrepare {
                     temporary_id: session.temporary_id,
                     channel_id: session.channel_id,
                     target: session.target,
                     input: session.input,
                 },
-            ),
-            hop,
-            error,
+                retry_after_ms: None,
+                hop,
+                error: error.to_string(),
+            },
             out,
         )
     }
@@ -868,7 +945,13 @@ impl ImModule {
     ) -> Result<(), ImError> {
         let client_upload_id =
             crate::send::upload_props::client_upload_id(&pending.temporary_id.0, &pending.target);
-        self.clear_multipart_runtime(&client_upload_id);
+        if self
+            .state
+            .multipart_draining
+            .contains_key(&client_upload_id)
+        {
+            return self.finish_multipart_drain_if_ready(&client_upload_id, out);
+        }
         let retryable = matches!(
             error,
             helix_core::tick::PortError::Timeout
@@ -882,7 +965,7 @@ impl ImModule {
             )
         );
         let key = (pending.temporary_id.clone(), pending.target.clone());
-        if retryable {
+        let retry_after_ms = if retryable {
             let attempt = {
                 let attempts = self
                     .state
@@ -897,20 +980,21 @@ impl ImModule {
                 }
             };
             if let Some(attempt) = attempt {
-                let timer = self.alloc_timer();
-                let backoff_ms = 100_u64.saturating_mul(1_u64 << (attempt - 1));
-                self.state.multipart_retry_timers.insert(timer, pending);
-                out.push(helix_core::Effect::ScheduleTimer {
-                    id: timer,
-                    after_ms: backoff_ms,
-                });
-                return Ok(());
+                Some(100_u64.saturating_mul(1_u64 << (attempt - 1)))
+            } else {
+                None
             }
-        }
-        self.fail_media_operation(
-            crate::send::upload_props::FailedMediaOp::Multipart(pending),
-            hop,
-            &format!("{error:?}"),
+        } else {
+            None
+        };
+        self.begin_multipart_drain(
+            client_upload_id,
+            MultipartDrain {
+                pending,
+                retry_after_ms,
+                hop,
+                error: format!("{error:?}"),
+            },
             out,
         )
     }
@@ -958,6 +1042,14 @@ impl ImModule {
     ) -> Result<(), ImError> {
         use crate::send::upload_props::{FailedMediaOp, PendingMediaPrepare};
         use helix_core::tick::PortOutcome;
+
+        let multipart_id = multipart_operation_id(&pending);
+        if !multipart_id.is_empty() && self.state.multipart_draining.contains_key(&multipart_id) {
+            // The stage was already issued before the batch failed. Its
+            // PersistAtomic reply is only a drain barrier; never expose the
+            // signed URL or checkpoint continuation after failure.
+            return self.finish_multipart_drain_if_ready(&multipart_id, out);
+        }
 
         match outcome {
             PortOutcome::Ok(_) => match pending {
@@ -1017,7 +1109,6 @@ impl ImModule {
                 }
             },
             PortOutcome::Err(error) => {
-                let multipart_id = multipart_operation_id(&pending);
                 let fallback = match pending {
                     PendingMediaOp::Prepare(prepare) => FailedMediaOp::Prepare(prepare),
                     PendingMediaOp::Put(put) => FailedMediaOp::Prepare(PendingMediaPrepare {
@@ -1055,9 +1146,36 @@ impl ImModule {
                     }
                 };
                 if !multipart_id.is_empty() {
-                    self.clear_multipart_runtime(&multipart_id);
+                    match fallback {
+                        FailedMediaOp::Multipart(prepare) => {
+                            self.begin_multipart_drain(
+                                multipart_id,
+                                MultipartDrain {
+                                    pending: prepare,
+                                    retry_after_ms: None,
+                                    hop: "stage_persist",
+                                    error: format!("{error:?}"),
+                                },
+                                out,
+                            )?;
+                        }
+                        other => {
+                            self.fail_media_operation(
+                                other,
+                                "stage_persist",
+                                &format!("{error:?}"),
+                                out,
+                            )?;
+                        }
+                    }
+                } else {
+                    self.fail_media_operation(
+                        fallback,
+                        "stage_persist",
+                        &format!("{error:?}"),
+                        out,
+                    )?;
                 }
-                self.fail_media_operation(fallback, "stage_persist", &format!("{error:?}"), out)?;
             }
         }
         Ok(())

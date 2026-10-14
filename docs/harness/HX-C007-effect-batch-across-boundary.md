@@ -95,3 +95,19 @@ Review 必须确认：Web 的公开 drain 返回数组/批次，FFI 的宿主回
 
 - drafting → active：2026-06-08，Dioxus 视角 review 确立批处理契约；
 - 2026-07-14：历史 wasm crate 删除后，守护对象迁到正式 `helix-driver-web` + FFI。
+
+## Host/FFI 批次与上传诊断补充（2026-10-13）
+
+Host 引擎在启动、空 step、失败 step 与退出最终 drain 后都必须执行 flush。
+FFI 的空业务批次不触发回调，最终 drain 产生的事件不能随 shutdown 丢失。
+真实上传响应 observer 只记录方法、对象键、状态、字节数和耗时；
+不记录 URL、认证 header、cookie、文件路径或内容。
+
+诊断与业务事件使用独立有界队列：最多 128 条、每条编码不超过 1024 字节，
+超限通过序号/丢弃计数显式反映。网络 worker 只入队，不调用 C++ 宿主；
+由原有 pump 边界 flush，业务事件 wire 保持不变。
+
+回归入口：Host `upload` 单测的真实 PUT 成功/503/超时，
+`transport_lifecycle_test` 的退出 drain；FFI `event_sink`/`pump` 单测、
+`api_smoke`、`f5_egress_parity` 和 `scripts/cpp-smoke.sh`。
+所有网络夹具为本机自建服务，不调用业务生产接口，也不涉及 WASM 产品打包。

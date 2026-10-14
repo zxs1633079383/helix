@@ -1,3 +1,5 @@
+✅ DONE 可见回应过滤公开Tick先红后绿，G13 14项、五crate check、core、WASM通过；全量被既有合同路径缺失阻断。未提交发布；真实Go/Tauri待主任务，详见 docs/交接/1014-visible-reaction-query/handoff.md。
+🎯 EXPECT 可选 post_ids 最多100项映射HTTP postIds，targets经校验与持久屏障原样返回；原查询和ACK不变，公开Tick先红后绿，不提版提交发布。| 赌注 低 | 可逆 是 | @2026-10-14
 ✅ DONE 0.1.62四包已发布，分支与Tag远端回读一致，registry制品checksum及presence源码核验通过；客户端接入与实机待验范围见 docs/交接/1013-presence-release/handoff.md。
 🎯 EXPECT 用户批准续发patch：保留远端0.1.61历史引用修复，发布0.1.62四包并核验registry、版本Tag和远端；客户端精确依赖接入同版，真实绿点回归单独记验收。| 赌注 中 | 可逆 发布否 | @2026-10-13
 🎯 EXPECT 普通与重点观察切换保留有效状态，刷新仍在线不发unknown；仍即时查询，失败不延长有效期、权威离线/撤权立即生效。公开Tick回归先红后绿；本轮不发布或修改版本。| 赌注 低 | 可逆 是 | @2026-10-13

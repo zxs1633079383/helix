@@ -711,3 +711,125 @@ fn run_reaction_success(ack: bool) -> TestResult<PersonaTrace> {
         ],
     })
 }
+
+/// Visible-message queries preserve empty filters and return exact string revisions after persistence.
+#[test]
+fn reaction_visible_query_roundtrips_bounded_targets() -> TestResult<()> {
+    for ids in [
+        json!([]),
+        json!(["reaction-post", "other-post"]),
+        json!(std::iter::once("reaction-post".to_string())
+            .chain((1..100).map(|i| format!("post-{i}")))
+            .collect::<Vec<_>>()),
+    ] {
+        let mut replay = Replay::new();
+        let query = replay.command_corr("im_query_dialog_list", json!({}))?;
+        replay.reply(
+            query,
+            json!([dialog_row(7, 0, 0)]).to_string().into_bytes(),
+            CREATED_AT as u64,
+        )?;
+        let http = replay.command_corr(
+            "im_reaction_unread",
+            json!({
+                "channel_id":CHANNEL_ID,"req_id":"visible","post_ids":ids
+            }),
+        )?;
+        let sent = replay
+            .sink
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Http { req, .. } => req
+                    .body
+                    .as_ref()
+                    .and_then(|body| serde_json::from_slice::<Value>(body.as_ref()).ok()),
+                _ => None,
+            })
+            .ok_or("missing HTTP body")?;
+        assert_eq!(sent["postIds"], ids);
+        let mut body = reaction_response(1);
+        body["data"]["targets"] = if ids.as_array().is_some_and(|ids| ids.is_empty()) {
+            json!([])
+        } else {
+            json!([{"postId":"reaction-post","revision":"9007199254740993"}])
+        };
+        replay.reply(http, reaction_http(&body)?, CREATED_AT as u64 + 1)?;
+        assert!(replay.events()?.is_empty());
+        let persist = replay.only_corr()?;
+        replay.reply(persist, Vec::new(), CREATED_AT as u64 + 2)?;
+        let readback = replay.only_corr()?;
+        replay.reply(
+            readback,
+            json!([body["data"]["memberProjection"]])
+                .to_string()
+                .into_bytes(),
+            CREATED_AT as u64 + 3,
+        )?;
+        assert!(replay
+            .events()?
+            .iter()
+            .any(|event| event["event"] == "im:read:result" && event["data"]["body"] == body));
+    }
+    Ok(())
+}
+
+/// Malformed or oversized visible filters fail before network dispatch.
+#[test]
+fn reaction_visible_query_rejects_invalid_filters() -> TestResult<()> {
+    for ids in [
+        Value::Null,
+        json!("post"),
+        json!([1]),
+        json!([""]),
+        json!([" "]),
+        json!([" post"]),
+        json!(["post", "post"]),
+        json!((0..101).map(|i| format!("post-{i}")).collect::<Vec<_>>()),
+    ] {
+        let mut replay = Replay::new();
+        let args = json!({"channel_id":CHANNEL_ID,"req_id":"visible","post_ids":ids});
+        assert!(replay
+            .step(
+                Tick::Command(AppCommand::new(
+                    "im_reaction_unread",
+                    args.to_string().into_bytes()
+                )),
+                CREATED_AT as u64
+            )
+            .is_err());
+        assert!(replay.sink.as_slice().is_empty());
+    }
+    Ok(())
+}
+
+/// New response targets obey the same revision boundary and cannot inflate the authority count.
+#[test]
+fn reaction_visible_query_rejects_invalid_targets() -> TestResult<()> {
+    for targets in [
+        Value::Null,
+        json!({}),
+        json!([{"postId":"","revision":"1"}]),
+        json!([{"postId":"post","revision":1}]),
+        json!([{"postId":"post","revision":"0"}]),
+        json!([{"postId":"post","revision":"1"},{"postId":"post","revision":"2"}]),
+        json!((0..101)
+            .map(|i| json!({"postId":format!("post-{i}"),"revision":"1"}))
+            .collect::<Vec<_>>()),
+    ] {
+        let mut replay = Replay::new();
+        let corr = reaction_request(&mut replay, false)?;
+        let mut body = reaction_response(1);
+        body["data"]["targets"] = targets;
+        replay.reply(corr, reaction_http(&body)?, CREATED_AT as u64 + 1)?;
+        assert!(
+            replay.only_corr().is_err(),
+            "invalid targets reached storage: {body}"
+        );
+        assert!(replay
+            .events()?
+            .iter()
+            .any(|event| event["data"]["error"].is_string()));
+    }
+    Ok(())
+}

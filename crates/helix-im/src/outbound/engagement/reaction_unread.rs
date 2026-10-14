@@ -21,7 +21,7 @@ impl OutboundCommand for ReactionUnreadCommand {
         let allowed: &[&str] = if self.ack {
             &["channel_id", "post_id", "observed_revision", "req_id"]
         } else {
-            &["channel_id", "req_id"]
+            &["channel_id", "req_id", "post_ids"]
         };
         let object = args
             .as_object()
@@ -39,6 +39,24 @@ impl OutboundCommand for ReactionUnreadCommand {
             ));
         }
         let mut body = json!({"channelId":channel});
+        if let Some(ids) = args.get("post_ids") {
+            let ids = ids
+                .as_array()
+                .ok_or_else(|| ImError::Parse("post_ids must be an array".into()))?;
+            let mut unique = std::collections::BTreeSet::new();
+            if ids.len() > 100
+                || ids.iter().any(|id| {
+                    id.as_str().is_none_or(|id| {
+                        id.trim().is_empty() || id != id.trim() || !unique.insert(id)
+                    })
+                })
+            {
+                return Err(ImError::Parse(
+                    "post_ids must contain at most 100 unique nonempty IDs".into(),
+                ));
+            }
+            body["postIds"] = json!(ids);
+        }
         if self.ack {
             let post = require_str(args, "post_id", self.name())?;
             let revision = require_str(args, "observed_revision", self.name())?;

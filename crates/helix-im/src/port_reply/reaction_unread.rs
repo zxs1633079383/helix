@@ -50,6 +50,22 @@ impl ImModule {
             {
                 return None;
             }
+            if let Some(targets) = data.get("targets") {
+                let targets = targets.as_array()?;
+                let mut unique = std::collections::BTreeSet::new();
+                if targets.len() > 100
+                    || targets.len() as i64 > count
+                    || targets.iter().any(|target| {
+                        target["postId"].as_str().is_none_or(|id| {
+                            id.trim().is_empty() || id != id.trim() || !unique.insert(id)
+                        }) || !target["revision"].as_str().is_some_and(
+                            crate::outbound::engagement::reaction_unread::valid_revision,
+                        )
+                    })
+                {
+                    return None;
+                }
+            }
             let member = &data["memberProjection"];
             if member["channelId"].as_str() != Some(channel_id.as_str())
                 || member["userId"].as_str() != Some(self.config.auth_user_id.as_str())

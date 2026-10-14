@@ -423,7 +423,7 @@ fn auto_hydration_current_scope_emits_increment_after_terminal_readback() {
 }
 
 #[test]
-fn auto_hydration_external_scope_never_emits_increment() {
+fn auto_hydration_cross_company_member_emits_committed_increment() {
     let mut harness = Harness::new_with_identity(&[], "scope-viewer", "scope-company", "", "", "");
     harness.seed_channel_scope(&cid(7), "other-company", "other-viewer");
 
@@ -441,7 +441,9 @@ fn auto_hydration_external_scope_never_emits_increment() {
 
     let events =
         complete_no_sync_hydration(&mut harness, 7, "scope-viewer", "other-company", 1_003);
-    assert!(events.is_empty(), "外公司频道补水不得向 UI 广播任何事件");
+    assert_eq!(events.len(), 1, "自动水合只广播一次已提交频道投影");
+    assert_eq!(events[0]["event"], "im:channel:increment");
+    assert_eq!(events[0]["data"]["teamId"], "other-company");
 }
 
 #[test]

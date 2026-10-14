@@ -1043,7 +1043,7 @@ mod tests {
     }
 
     #[test]
-    fn member_scan_effect_scopes_to_deduplicated_current_company_channels() {
+    fn member_scan_effect_scopes_to_all_deduplicated_member_channels() {
         let rows = vec![
             serde_json::json!({"id": "channel-a", "team_id": "company-a"}),
             serde_json::json!({"id": "channel-a", "team_id": "company-a"}),
@@ -1062,7 +1062,7 @@ mod tests {
         };
         assert_eq!(spec.table, "channel_member");
         assert_eq!(spec.scope_col, "channel_id");
-        assert_eq!(spec.limit, 10_001usize);
+        assert_eq!(spec.limit, 15_001usize);
         let ids = spec
             .scope_values
             .iter()
@@ -1071,7 +1071,7 @@ mod tests {
                 _ => panic!("channel scope must use text IDs"),
             })
             .collect::<Vec<_>>();
-        assert_eq!(ids, vec!["channel-a", "channel-c"]);
+        assert_eq!(ids, vec!["channel-a", "other-company", "channel-c"]);
     }
 
     #[test]
@@ -1209,7 +1209,8 @@ mod tests {
             0,
         )
         .expect("valid snapshots");
-        assert_eq!(page.len(), 1);
+        assert_eq!(page.len(), 2);
+        assert_eq!(page[1]["id"], "channel-b");
         assert!(!has_more);
         assert_eq!(page[0]["id"], "channel-a");
         assert_eq!(page[0]["owner"]["teamId"], "company-b");

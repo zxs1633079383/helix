@@ -25,19 +25,19 @@ impl<'a> AccountScope<'a> {
         }
     }
 
-    /// 本地频道行的结构化过滤策略；个人模式按账户快照，不按公司过滤。
+    /// 本地数据按登录账号隔离；公司身份不能排除已授权的跨公司成员频道。
     pub(crate) fn channel_filter(self) -> (&'static str, &'a str) {
         match self {
             Self::Personal { user_id } => ("user_id", user_id),
-            Self::Company { company_id, .. } => ("team_id", company_id),
+            Self::Company { user_id, .. } => ("user_id", user_id),
         }
     }
 
-    /// 公司模式保持原有边界，个人模式允许属于其他租户的频道，仍需后续成员校验。
+    /// 群租户必须存在，访问资格由账号成员事实裁决，不按登录公司拒绝。
     pub(crate) fn accepts_channel_tenant(self, tenant: Option<&str>) -> bool {
         match self {
             Self::Personal { .. } => tenant.is_some_and(|value| !value.is_empty()),
-            Self::Company { company_id, .. } => tenant == Some(company_id),
+            Self::Company { .. } => tenant.is_some_and(|value| !value.is_empty()),
         }
     }
 }
@@ -53,10 +53,11 @@ mod tests {
         assert!(!scope.accepts_channel_tenant(None));
     }
     #[test]
-    fn company_scope_keeps_existing_filter() {
+    fn company_scope_keeps_account_isolation_without_company_restriction() {
         let scope = AccountScope::new("a", "company");
-        assert_eq!(scope.channel_filter(), ("team_id", "company"));
+        assert_eq!(scope.channel_filter(), ("user_id", "a"));
         assert!(scope.accepts_channel_tenant(Some("company")));
-        assert!(!scope.accepts_channel_tenant(Some("other")));
+        assert!(scope.accepts_channel_tenant(Some("other")));
+        assert!(!scope.accepts_channel_tenant(Some("")));
     }
 }

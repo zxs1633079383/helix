@@ -54,6 +54,14 @@ pub fn result_body(
 ) -> serde_json::Value {
     let snapshot = serde_json::from_slice::<Vec<serde_json::Value>>(reply_bytes)
         .ok()
+        // 本地单键读取不能把其他账号的持久频道行交给当前 viewer。
+        .filter(|rows| {
+            rows.iter().all(|row| {
+                row.get("user_id")
+                    .and_then(serde_json::Value::as_str)
+                    .is_none_or(|user| user == scope.viewer_user_id)
+            })
+        })
         .and_then(|rows| crate::channel_sync::project_authority_rows(rows, member_bytes, scope))
         .and_then(|items| {
             items.into_iter().find(|row| {
@@ -90,12 +98,12 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_rejects_cross_tenant_row() {
+    fn snapshot_rejects_other_account_row() {
         let channel_id = ChannelId::from_str("chfixx0000000000000000002a").unwrap();
         let rows = serde_json::to_vec(&serde_json::json!([{
             "id": channel_id.as_str(),
             "team_id": "team-b",
-            "user_id": "user-a"
+            "user_id": "other-account"
         }]))
         .unwrap();
         let members = serde_json::to_vec(&serde_json::json!([{"channel_id":channel_id.as_str(),"user_id":"user-a","team_id":"team-a","role":"MEMBER"}])).unwrap();

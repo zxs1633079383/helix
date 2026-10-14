@@ -181,7 +181,7 @@ fn closed_hydration_reads_archive_without_sync_or_cursor_forgery() {
 }
 
 #[test]
-fn closed_hydration_foreign_company_finishes_without_render_body() {
+fn closed_hydration_cross_company_retains_real_closed_state() {
     let (mut module, mut sink, persist) = start("company-b", 7);
     reply(&mut module, &mut sink, persist, ok(json!(null)));
     for table in [
@@ -193,12 +193,12 @@ fn closed_hydration_foreign_company_finishes_without_render_body() {
         let (corr, outcome) = readback(&sink, table, 7);
         reply(&mut module, &mut sink, corr, outcome);
     }
-    let emitted = events(&sink);
+    let emitted: Vec<_> = events(&sink).into_iter().filter(|event| event["event"] == "im:read:result").collect();
     assert_eq!(emitted.len(), 1);
     assert_eq!(emitted[0]["event"], "im:read:result");
     assert_eq!(emitted[0]["data"]["req_id"], "closed-read");
-    assert_eq!(emitted[0]["data"]["error"], "RENDER_SCOPE_MISMATCH");
-    assert!(emitted[0]["data"].get("body").is_none());
+    assert_eq!(emitted[0]["data"]["body"]["channel"]["deleteAt"], CLOSED_AT);
+    assert!(emitted[0]["data"].get("error").is_none());
     assert_clean(&module);
 }
 

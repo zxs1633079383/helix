@@ -1,4 +1,4 @@
-//! 用户级持久化与公司级渲染的独立边界。只筛 Emit，不丢弃补水或持久化操作。
+//! 用户级持久化与成员频道渲染的边界。跨公司可见，其他账号及未知频道仍拒绝。
 use crate::module::ImConfig;
 use helix_core::effect::{SqlValue, StorageOp};
 use helix_core::{Correlation, Effect, EffectSink, Tick};
@@ -52,6 +52,59 @@ enum ScopePath {
 }
 
 impl RenderScope {
+    /// O(Effect 数量 + 请求 JSON 长度) 路由已提交频道的 HTTP 租户；不改变账号/凭据或全局请求。
+    pub(crate) fn scope_http_requests(
+        &self,
+        config: &ImConfig,
+        tick: &Tick,
+        start: usize,
+        out: &mut EffectSink,
+    ) {
+        #[derive(Deserialize)]
+        struct ChannelRequest<'a> {
+            #[serde(default, alias = "channelId", borrow)]
+            channel_id: Option<&'a str>,
+        }
+        let command_channel = match tick {
+            Tick::Command(command) => {
+                serde_json::from_slice::<ChannelRequest<'_>>(command.payload.as_ref())
+                    .ok()
+                    .and_then(|request| request.channel_id)
+            }
+            _ => None,
+        };
+        out.retain_mut_from(start, |effect| {
+            let Effect::Http { req, .. } = effect else {
+                return true;
+            };
+            // Java/OSS 与未确认的资源不继承群租户；Host 继续注入原登录身份。
+            if config.api_base_url.is_empty()
+                || !req
+                    .url
+                    .strip_prefix(config.api_base_url.trim_end_matches('/'))
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+            {
+                return true;
+            }
+            let channel = req
+                .body
+                .as_ref()
+                .and_then(|body| serde_json::from_slice::<ChannelRequest<'_>>(body.as_ref()).ok())
+                .and_then(|request| request.channel_id)
+                .or(command_channel);
+            if let Some(channel) =
+                channel.filter(|channel| self.has_trusted_channel_scope(config, channel))
+            {
+                if let Some(company) = self.company_for(channel) {
+                    req.headers
+                        .retain(|(name, _)| !name.eq_ignore_ascii_case("companyId"));
+                    req.headers.push(("companyId".into(), company.into()));
+                }
+            }
+            true
+        });
+    }
+
     /// 权威全局读已验证账号与企业后，允许该单次结果中的未缓存频道通过渲染围栏。
     pub(crate) fn authorize_read(&mut self, req_id: &str, channels: HashSet<String>) {
         self.authority_reads.insert(req_id.to_owned(), channels);
@@ -145,7 +198,7 @@ impl RenderScope {
         }
     }
 
-    /// 账户必须匹配；个人模式跨公司展示，公司模式保持原过滤，未知频道仍拒绝。
+    /// 持久账户必须匹配；有效群租户不受登录公司限制，未知频道仍拒绝。
     pub(crate) fn visible(&self, config: &ImConfig, channel: &str) -> bool {
         !config.auth_user_id.is_empty()
             && self.channels.get(channel).is_some_and(|(team, user)| {
@@ -167,7 +220,7 @@ impl RenderScope {
         })
     }
 
-    /// 当前用户/公司的频道集合只用于本地水位，不裁剪后台跨公司同步游标。
+    /// 当前账号的成员频道集合用于本地水位，不裁剪跨公司同步游标。
     pub(crate) fn scoped_channel_ids(&self, config: &ImConfig) -> Vec<crate::state::ChannelId> {
         let mut ids: Vec<_> = self
             .channels
@@ -253,7 +306,7 @@ impl RenderScope {
                 reason = "render_scope_mismatch",
                 "suppressed out-of-scope render projection"
             );
-            // 读请求必须结算，但不能带回任何外公司 body。广播则完全不发送。
+            // 读请求必须结算，但不能带回未授权频道 body。广播则完全不发送。
             if envelope.event == "im:read:result" {
                 if let Ok(CorrelatedRead {
                     req_id: Some(req_id),

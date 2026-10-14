@@ -2194,7 +2194,7 @@ mod channel_sync_contract_tests {
         let Some(helix_core::effect::StorageOp::ScopedScan(spec)) = member_scan else {
             panic!("channel page must schedule one scoped member scan");
         };
-        assert_eq!(spec.limit, 10_001usize);
+        assert_eq!(spec.limit, 15_001usize);
         let scoped_ids = spec
             .scope_values
             .iter()
@@ -2203,8 +2203,8 @@ mod channel_sync_contract_tests {
                 _ => panic!("channel scope must use text IDs"),
             })
             .collect::<Vec<_>>();
-        assert_eq!(scoped_ids, vec!["creator-channel", "member-channel"]);
-        assert!(!scoped_ids.contains(&"other-company"));
+        assert_eq!(scoped_ids, vec!["creator-channel", "member-channel", "other-company"]);
+        assert!(scoped_ids.contains(&"other-company"));
 
         let mut out = EffectSink::new();
         module

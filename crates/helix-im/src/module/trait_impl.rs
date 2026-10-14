@@ -35,6 +35,8 @@ impl Module for ImModule {
         self.failure_context.enter(tick);
         self.render_scope.observe_reply(tick);
         let result = self.handle_scoped_tick(tick, now_ms, out);
+        self.render_scope
+            .scope_http_requests(&self.config, tick, start, out);
         // 包括提前 return 和错误路径在内，任何跨端 Emit 都必须经过同一个业务闸门。
         self.render_scope.guard_effects(&self.config, start, out);
         self.failure_context

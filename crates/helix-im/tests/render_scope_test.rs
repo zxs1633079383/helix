@@ -72,8 +72,10 @@ fn committed_events_for(
 }
 
 #[test]
-fn foreign_company_persists_without_render_broadcast() {
-    assert!(committed_events(
+fn other_account_persists_without_render_broadcast() {
+    assert!(committed_events_for(
+        "company-a",
+        "other-user",
         "company-b",
         "im:channel:update",
         json!({"channelId": CHANNEL, "displayName":"B secret"})
@@ -93,8 +95,10 @@ fn active_company_still_renders_after_commit() {
 }
 
 #[test]
-fn foreign_local_read_completes_without_returning_projection() {
-    let events = committed_events(
+fn other_account_local_read_completes_without_returning_projection() {
+    let events = committed_events_for(
+        "company-a",
+        "other-user",
         "company-b",
         "im:read:result",
         json!({"req_id":"read-b", "body":{"channel":{"id":CHANNEL,"teamId":"company-b"},"messages":[{"channelId":CHANNEL,"content":"B secret"}]}}),
@@ -199,7 +203,7 @@ fn offline_dialog_query_filters_mixed_user_company_rows() {
 
 /// 跨公司补水真实经历 HTTP→PersistOk→四段读回，但不会返回任何业务投影。
 #[test]
-fn foreign_hydration_completes_storage_lifecycle_without_projection() {
+fn cross_company_hydration_completes_storage_and_returns_projection() {
     let mut module = ImModule::new(ImConfig {
         auth_user_id: "viewer-g13b".into(),
         company_id: "company-a".into(),
@@ -301,10 +305,20 @@ fn foreign_hydration_completes_storage_lifecycle_without_projection() {
             _ => None,
         })
         .collect();
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0]["event"], "im:read:result");
-    assert!(events[0]["data"].get("body").is_none());
-    assert_eq!(events[0]["data"]["error"], "RENDER_SCOPE_MISMATCH");
+    let read = events
+        .iter()
+        .find(|event| event["event"] == "im:read:result")
+        .expect("hydration result");
+    assert_eq!(read["data"]["body"]["completion"], "hydrated");
+    assert!(read["data"].get("error").is_none());
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event["event"] == "im:read:result")
+            .count(),
+        1
+    );
+    assert_eq!(read["data"]["body"]["channel"]["teamId"], "company-g13b");
 }
 
 /// 公司切换只改变可见集合；失败的归属写入和重复回执不能污染持久 scope。
@@ -368,11 +382,10 @@ fn failed_scope_change_does_not_relabel_channel_and_switch_uses_real_company() {
     let corr = module.queue_message_v3_commit(vec![], vec![event()], &mut sink);
     reply(&mut module, &mut sink, corr, success());
     assert!(
-        !sink
-            .as_slice()
+        sink.as_slice()
             .iter()
             .any(|e| matches!(e, Effect::Emit { .. })),
-        "same user switch cannot render A in B"
+        "same account keeps joined channels after company switch"
     );
 }
 
@@ -840,8 +853,8 @@ fn timeline_topic_read_still_rejects_foreign_parent_and_message_routes() {
             json!({"operation": operation, "channelId": CHANNEL, "messages": [{"channelId": CHANNEL, "topic": independent_topic_metadata()}, {"channelId": UNLOADED_TOPIC, "topic": {"channelId": CHANNEL}}]}),
         );
         let events = timeline_topic_query_events(operation, "company-b");
-        assert_eq!(events[0]["data"]["error"], "RENDER_SCOPE_MISMATCH");
-        assert!(events[0]["data"].get("body").is_none());
+        assert!(events[0]["data"].get("error").is_none());
+        assert!(events[0]["data"].get("body").is_some());
     }
 }
 
@@ -1107,7 +1120,11 @@ fn cold_hello_waits_for_channel_scope_before_reading_watermark() {
         .find_map(|effect| match effect {
             Effect::Persist { corr, ops } => match ops.as_slice() {
                 [StorageOp::ScopedMax(spec)] => {
-                    assert!(matches!(spec.scope_values.as_slice(), [SqlValue::Text(id)] if id == CHANNEL));
+                    assert_eq!(spec.scope_values.len(), 2);
+                    assert!(spec
+                        .scope_values
+                        .iter()
+                        .any(|value| matches!(value, SqlValue::Text(id) if id == CHANNEL)));
                     Some(*corr)
                 }
                 _ => None,
@@ -1220,7 +1237,10 @@ fn latest_query_keeps_topic_reference_without_using_its_scope() {
 /// 话题引用豁免不能授权主会话或窗口里的另一条未知频道消息。
 #[test]
 fn topic_reference_does_not_bypass_message_scope() {
-    for (company, message_channel) in [("company-b", CHANNEL), ("company-a", "unknown-channel")] {
+    for (company, message_channel) in [
+        ("company-b", "unknown-channel"),
+        ("company-a", "unknown-channel"),
+    ] {
         let events = committed_events(
             company,
             "im:timeline:ready",
@@ -1254,4 +1274,76 @@ fn personal_account_renders_joined_channel_across_companies_after_commit() {
         json!({"channelId":CHANNEL,"teamId":"company-b"})
     )
     .is_empty());
+}
+
+/// 回归锚：跨公司有效成员提交后必须收到相同的频道投影。
+#[test]
+fn cross_company_member_renders_committed_channel() {
+    let events = committed_events(
+        "company-b",
+        "im:channel:update",
+        json!({"channelId":CHANNEL,"close":false,"deleteAt":0}),
+    );
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["data"]["deleteAt"], 0);
+    assert_eq!(events[0]["data"]["close"], false);
+}
+
+/// 回归锚：频道请求使用已提交资源租户，账号身份和全局查询不变。
+#[test]
+fn cross_company_channel_http_uses_committed_resource_tenant() {
+    let mut module = ImModule::new(ImConfig {
+        auth_user_id: "viewer".into(),
+        company_id: "company-a".into(),
+        api_base_url: "http://scope.invalid/api/cses".into(),
+        ..Default::default()
+    });
+    let mut sink = EffectSink::new();
+    let corr = module.queue_message_v3_commit(
+        vec![StorageOp::BatchUpsert(UpsertSpec::new(
+            "channel",
+            vec![vec![
+                ("id".into(), SqlValue::Text(CHANNEL.into())),
+                ("team_id".into(), SqlValue::Text("company-b".into())),
+                ("user_id".into(), SqlValue::Text("viewer".into())),
+            ]],
+            Some("id"),
+        ))],
+        vec![],
+        &mut sink,
+    );
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr,
+                outcome: PortOutcome::Ok(ReplyBytes(Bytes::from_static(b"[]"))),
+            },
+            1,
+            &mut sink,
+        )
+        .unwrap();
+    sink.clear();
+    module
+        .handle(
+            &Tick::Command(helix_core::tick::AppCommand::new(
+                "im_reaction_unread",
+                serde_json::to_vec(&json!({"channel_id":CHANNEL,"req_id":"cross-http"})).unwrap(),
+            )),
+            2,
+            &mut sink,
+        )
+        .unwrap();
+    let req = sink
+        .as_slice()
+        .iter()
+        .find_map(|e| match e {
+            Effect::Http { req, .. } => Some(req),
+            _ => None,
+        })
+        .expect("HTTP effect");
+    assert!(req
+        .headers
+        .iter()
+        .any(|(name, value)| name.eq_ignore_ascii_case("companyId") && value == "company-b"));
 }

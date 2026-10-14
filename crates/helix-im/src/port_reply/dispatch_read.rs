@@ -923,16 +923,20 @@ impl ImModule {
                             .and_then(serde_json::Value::as_array)
                             .is_some_and(|rows| {
                                 rows.iter().all(|row| {
+                                    let tenant = row
+                                        .get("teamId")
+                                        .or_else(|| row.get("team_id"))
+                                        .and_then(serde_json::Value::as_str);
                                     !self.config.auth_user_id.is_empty()
-                                        && crate::identity::AccountScope::new(
-                                            &self.config.auth_user_id,
-                                            &self.config.company_id,
-                                        )
-                                        .accepts_channel_tenant(
-                                            row.get("teamId")
-                                                .or_else(|| row.get("team_id"))
-                                                .and_then(serde_json::Value::as_str),
-                                        )
+                                        && tenant.is_some_and(|tenant| !tenant.is_empty())
+                                        && (self.config.company_id.is_empty()
+                                            || tenant == Some(self.config.company_id.as_str())
+                                            || row
+                                                .get("id")
+                                                .and_then(serde_json::Value::as_str)
+                                                .is_some_and(|id| {
+                                                    self.render_scope.visible(&self.config, id)
+                                                }))
                                 })
                             });
                         if !scoped {

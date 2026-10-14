@@ -14,6 +14,10 @@
 
 ## 同步与成员绝对态边界
 
+- 公司身份不限制已加入群的展示/读取。持久频道按 `auth_user_id` 隔离，读回仍校验有效成员；未知频道及其他账号资料继续拒绝。
+- 已提交频道请求的 `companyId` HTTP header 取该频道真实租户，账号与凭据不变；全局请求与 Java/OSS 请求保留原身份。群租户不能用来判断人员资料所属公司。
+- 跨公司水合不得构造归档事实；真正 `close/deleteAt` 与成员退出终态仍保留。
+
 - `im_query_dialog_list` 在频道分页后按频道集合读取当前认证用户的成员状态，
   两阶段共用 `DialogListQuery` 身份与 typed Result；成员回读前不发布旧未读数。
   未读 count/anchor/read-seq/revision 复用 `channel_sync` 的绝对态校验，

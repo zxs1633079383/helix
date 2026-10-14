@@ -616,8 +616,8 @@ mod phase2_contract_tests {
                     && scan.limit == Some(21)
                     && matches!(
                         scan.filter,
-                        Some(("team_id", helix_core::effect::SqlValue::Text(ref value)))
-                            if value == "company-a"
+                        Some(("user_id", helix_core::effect::SqlValue::Text(ref value)))
+                            if value == "user-a"
                     )
         ));
         assert!(matches!(

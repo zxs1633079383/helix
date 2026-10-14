@@ -1227,3 +1227,4 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 🎯 EXPECT 定时消息<=1GiB复用普通分片参数和durable恢复，全部附件稳定引用PersistOk前不发createSchedule，结果未知不自动重复创建；公开seam红绿及本地HTTP/SQLite/三端检查通过，分类提交合入开发分支不push。| 赌注 中 | 可逆 是 | @2026-10-14
 
 ✅ DONE 定时分片/续传及1GiB边界实现、TDD和本地集成/三端编译通过，分类提交并合入本地开发分支，未push；旧普通进度测试偶发失败根因未确认，兼容诊断PARTIAL及真实验收边界见 docs/交接/1014-分片上传与续传/handoff.md。
+🎯 EXPECT 跨公司有效成员按账号读取与发送，不因公司错配归档；个人目录补齐基础姓名，真实关闭/退群仍拒绝。实现与本地证据见 ../cses-client/docs/交接/1014-跨公司群成员权限/handoff.md；本轮不发布、不push。

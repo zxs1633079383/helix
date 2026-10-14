@@ -1046,10 +1046,12 @@ impl ImModule {
                 channel_id,
                 revision,
                 causation_id,
+                multipart_submission_token,
             } => self.handle_message_v3_schedule_canceled_persist_reply(
                 channel_id,
                 revision,
                 causation_id,
+                multipart_submission_token,
                 outcome,
                 out,
             ),

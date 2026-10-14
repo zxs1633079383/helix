@@ -85,7 +85,8 @@ pub struct ImState {
     /// 定时 multipart 持有完整 payload 与运行时批次；每个 channel 最多一个 intent。
     pub(crate) schedule_multipart_contexts:
         HashMap<String, crate::schedule_media::ScheduleMultipartContext>,
-    /// 稳定媒体引用已落库、createSchedule 已发出的定时 intent；无幂等 wire 时禁止重发。
+    /// 稳定媒体引用已落库、createSchedule 已发出的定时 intent；value 是
+    /// `upload_identity + req_id` 的 generation token，无幂等 wire 时禁止重发。
     pub(crate) schedule_media_submitting: BTreeMap<ChannelId, String>,
     /// Multipart schedule drain retry timers; the timer never carries a signed URL.
     pub(crate) schedule_multipart_retry_timers:

@@ -276,6 +276,63 @@ fn schedule_to_first_upload_batch(h: &mut Harness, req_id: &str, base: u64) -> V
         .collect()
 }
 
+fn schedule_to_stable_persist(h: &mut Harness, req_id: &str, base: u64) -> u64 {
+    let mut pending_uploads = schedule_to_first_upload_batch(h, req_id, base);
+    let mut index = 0_u32;
+    while let Some(corr) = pending_uploads.pop() {
+        h.step(
+            port_reply_with_body(
+                corr,
+                Bytes::from(
+                    serde_json::to_vec(&json!({
+                        "objectKey": "media/schedule-file-1",
+                        "url": "media/schedule-file-1",
+                        "etag": format!("schedule-etag-{}", index + 1)
+                    }))
+                    .expect("UploadFile fixture"),
+                ),
+            ),
+            base + 7 + u64::from(index) * 2,
+        );
+        let checkpoint = persist_corr(h, "media_upload_part", None);
+        h.step(port_reply_ok(checkpoint), base + 8 + u64::from(index) * 2);
+        index += 1;
+        pending_uploads.extend(h.sink.as_slice().iter().filter_map(|effect| match effect {
+            Effect::UploadFile { corr, .. } => Some(corr.raw()),
+            _ => None,
+        }));
+    }
+
+    let requery = http_corr(h, "/oss/multipart/parts");
+    h.step(
+        java_reply(requery, parts_reply(complete_parts(), "completed")),
+        base + 40,
+    );
+    let complete_stage = persist_corr(h, "schedule_media_intent", Some("parts"));
+    h.step(port_reply_ok(complete_stage), base + 41);
+    let complete = http_corr(h, "/oss/multipart/complete");
+    h.step(java_reply(complete, complete_reply()), base + 42);
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, ops }
+                if ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        StorageOp::BatchUpsert(spec)
+                            if spec.table == "schedule_media_intent"
+                                && spec.rows.iter().flatten().any(|(name, value)| {
+                                    name == "stage"
+                                        && matches!(value, SqlValue::Text(actual) if actual == "submitting")
+                                })
+                    )
+                }) => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("stable reference must be behind submitting PersistAtomic")
+}
+
 #[test]
 fn schedule_multipart_reaches_create_only_after_part_checkpoints_and_stable_persist() {
     let mut h = Harness::new(&[1]);
@@ -934,19 +991,18 @@ fn schedule_multipart_oversize_fails_before_durable_or_network_effects() {
 }
 
 #[test]
-fn schedule_cancel_authority_deletes_intent_and_releases_channel_after_persist() {
+fn schedule_cancel_authority_deletes_submitting_intent_and_releases_fence() {
     let mut h = Harness::new(&[1]);
-    h.step(schedule_cmd("schedule-cancel-fence"), 1_700_000_000_000);
-    let intent = persist_corr(&h, "schedule_media_intent", Some("intent"));
-    h.step(port_reply_ok(intent), 1_700_000_000_001);
-    let init = http_corr(&h, "/oss/multipart/init");
-
+    let stable = schedule_to_stable_persist(&mut h, "schedule-cancel-fence", 1_700_000_000_000);
+    h.step(port_reply_ok(stable), 1_700_000_000_100);
+    let create_schedule = http_corr(&h, "/posts/createSchedule");
+    h.step(port_reply_err(create_schedule), 1_700_000_000_101);
     h.step(
         command_json(
             "im_cancel_schedule",
             json!({"channel_id": cid(1), "req_id": "schedule-cancel"}),
         ),
-        1_700_000_000_002,
+        1_700_000_000_102,
     );
     h.step(
         Tick::Inbound(helix_core::tick::InboundBytes(Bytes::from(
@@ -961,7 +1017,7 @@ fn schedule_cancel_authority_deletes_intent_and_releases_channel_after_persist()
             }))
             .expect("cancel authority fixture"),
         ))),
-        1_700_000_000_003,
+        1_700_000_000_103,
     );
     let cancel_persist = h
         .sink
@@ -977,19 +1033,174 @@ fn schedule_cancel_authority_deletes_intent_and_releases_channel_after_persist()
             }
             _ => None,
         })
-        .expect("cancel authority must delete durable multipart intent atomically");
-    h.step(port_reply_ok(cancel_persist), 1_700_000_000_004);
+        .expect("submitted cancellation must delete durable intent atomically");
+    assert_eq!(
+        h.sink.as_slice().iter().find_map(|effect| match effect {
+            Effect::PersistAtomic { ops, .. }
+                if ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        StorageOp::BatchDelete(spec)
+                            if spec.table == "schedule_media_intent"
+                    )
+                }) =>
+                Some(ops.len()),
+            _ => None,
+        }),
+        Some(3)
+    );
+    h.step(port_reply_ok(cancel_persist), 1_700_000_000_104);
 
-    // The old PUT/init reply can arrive after cancellation, but it must not
-    // resurrect the independent multipart state or schedule another request.
-    h.step(java_reply(init, init_reply()), 1_700_000_000_005);
-    assert!(h.sink.as_slice().iter().all(|effect| {
-        !matches!(effect, Effect::Http { req, .. } if req.url.ends_with("/oss/multipart/parts"))
-            && !matches!(effect, Effect::UploadFile { .. })
-    }));
-
-    h.step(schedule_cmd("schedule-after-cancel"), 1_700_000_000_006);
+    h.step(schedule_cmd("schedule-after-cancel"), 1_700_000_000_105);
     assert!(h.sink.as_slice().iter().any(|effect| {
         matches!(effect, Effect::PersistAtomic { ops, .. } if ops.iter().any(|op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "schedule_media_intent")))
+    }));
+}
+
+#[test]
+fn schedule_cancel_authority_keeps_active_upload_routes_until_checkpoint_ack() {
+    let mut h = Harness::new(&[1]);
+    let uploads =
+        schedule_to_first_upload_batch(&mut h, "schedule-cancel-active", 1_700_000_000_000);
+    h.step(
+        port_reply_with_body(
+            uploads[0],
+            Bytes::from(
+                serde_json::to_vec(&json!({
+                    "objectKey": "media/schedule-file-1",
+                    "url": "media/schedule-file-1",
+                    "etag": "schedule-etag-1"
+                }))
+                .expect("UploadFile fixture"),
+            ),
+        ),
+        1_700_000_000_007,
+    );
+    let checkpoint = persist_corr(&h, "media_upload_part", None);
+
+    h.step(
+        command_json(
+            "im_cancel_schedule",
+            json!({"channel_id": cid(1), "req_id": "schedule-cancel-active"}),
+        ),
+        1_700_000_000_008,
+    );
+    h.step(
+        Tick::Inbound(helix_core::tick::InboundBytes(Bytes::from(
+            serde_json::to_vec(&json!({
+                "action": "post_schedule_canceled",
+                "data": {
+                    "channelId": cid(1),
+                    "scheduleOwnerUserId": "actor",
+                    "status": "canceled",
+                    "revision": 7
+                }
+            }))
+            .expect("active cancellation authority fixture"),
+        ))),
+        1_700_000_000_009,
+    );
+    let cancel_persist = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, ops }
+                if ops.iter().any(
+                    |op| matches!(op, StorageOp::BatchUpdate(spec) if spec.table == "channel"),
+                ) =>
+            {
+                assert!(ops.iter().all(|op| {
+                    !matches!(
+                        op,
+                        StorageOp::BatchDelete(spec) if spec.table == "schedule_media_intent"
+                    )
+                }));
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("active cancellation must persist channel authority");
+    h.step(port_reply_ok(cancel_persist), 1_700_000_000_010);
+
+    // The checkpoint was already issued before cancellation and must still
+    // release its slot after the authority ACK; active upload is not canceled.
+    h.step(port_reply_ok(checkpoint), 1_700_000_000_011);
+    assert!(h
+        .sink
+        .as_slice()
+        .iter()
+        .any(|effect| matches!(effect, Effect::UploadFile { .. })));
+}
+
+#[test]
+fn schedule_cancel_ack_does_not_clear_new_submission_fence() {
+    let mut h = Harness::new(&[1]);
+    let stable =
+        schedule_to_stable_persist(&mut h, "schedule-cancel-generation", 1_700_000_000_000);
+
+    h.step(
+        command_json(
+            "im_cancel_schedule",
+            json!({"channel_id": cid(1), "req_id": "schedule-cancel-generation"}),
+        ),
+        1_700_000_000_100,
+    );
+    h.step(
+        Tick::Inbound(helix_core::tick::InboundBytes(Bytes::from(
+            serde_json::to_vec(&json!({
+                "action": "post_schedule_canceled",
+                "data": {
+                    "channelId": cid(1),
+                    "scheduleOwnerUserId": "actor",
+                    "status": "canceled",
+                    "revision": 7
+                }
+            }))
+            .expect("generation cancellation authority fixture"),
+        ))),
+        1_700_000_000_101,
+    );
+    let cancel_persist = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, ops }
+                if ops.iter().any(
+                    |op| matches!(op, StorageOp::BatchUpdate(spec) if spec.table == "channel"),
+                ) =>
+            {
+                assert!(ops.iter().all(|op| {
+                    !matches!(
+                        op,
+                        StorageOp::BatchDelete(spec) if spec.table == "schedule_media_intent"
+                    )
+                }));
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("cancel without a submission fence must persist channel authority");
+
+    // The stable checkpoint submits a new generation before the old cancel
+    // authority's PersistOk arrives.
+    h.step(port_reply_ok(stable), 1_700_000_000_102);
+    let create_schedule = http_corr(&h, "/posts/createSchedule");
+    h.step(port_reply_err(create_schedule), 1_700_000_000_103);
+    h.step(port_reply_ok(cancel_persist), 1_700_000_000_104);
+
+    // The old ACK carried no token and must not release the new submitting
+    // fence, so a second schedule cannot register a competing intent.
+    h.step(schedule_cmd("schedule-after-generation"), 1_700_000_000_105);
+    assert!(h.sink.as_slice().iter().all(|effect| {
+        !matches!(
+            effect,
+            Effect::PersistAtomic { ops, .. }
+                if ops.iter().any(|op| matches!(
+                    op,
+                    StorageOp::BatchUpsert(spec) if spec.table == "schedule_media_intent"
+                ))
+        )
     }));
 }

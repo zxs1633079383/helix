@@ -136,6 +136,7 @@ impl ImModule {
         channel_id: crate::state::ChannelId,
         revision: u64,
         causation_id: Option<String>,
+        multipart_submission_token: Option<String>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) {
@@ -173,7 +174,7 @@ impl ImModule {
         self.state
             .committed_schedule_revisions
             .insert(channel_id, revision);
-        self.clear_schedule_multipart_for_cancel(channel_id, out);
+        self.clear_schedule_submission_fence(channel_id, multipart_submission_token.as_deref());
         if let Some(req_id) = causation_id.as_deref() {
             out.push(crate::read_relay::emit_read_body(
                 req_id,

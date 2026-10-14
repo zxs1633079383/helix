@@ -134,6 +134,13 @@ fn schedule_upload_identity(
     )
 }
 
+/// Identifies one submitted schedule generation across cancel authority and
+/// restart recovery. A channel alone is insufficient because a newer upload
+/// may be registered before an older cancel PersistOk arrives.
+pub(crate) fn schedule_submission_token(upload_identity: &str, request_id: &str) -> String {
+    format!("{upload_identity}:{request_id}")
+}
+
 fn schedule_intent_upsert(
     context: &ScheduleMultipartContext,
     stage: &str,
@@ -393,9 +400,16 @@ impl ImModule {
                     // startup must not fan out unbounded submissions.
                     continue;
                 }
-                self.state
-                    .schedule_media_submitting
-                    .insert(channel_id, format!("schedule:{}", channel_id.as_str()));
+                let submission_identity = row
+                    .get("session_id")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("schedule:{}", channel_id.as_str()));
+                self.state.schedule_media_submitting.insert(
+                    channel_id,
+                    schedule_submission_token(&submission_identity, &request_id),
+                );
                 continue;
             }
             if matches!(stage, SCHEDULE_INTENT_STAGE_FAILED) {
@@ -1678,9 +1692,10 @@ impl ImModule {
             .remove(key)
             .ok_or_else(|| ImError::Parse("schedule multipart context missing".into()))?;
         out.push(Effect::CancelTimer { id: context.timer });
-        self.state
-            .schedule_media_submitting
-            .insert(context.channel_id, key.to_owned());
+        self.state.schedule_media_submitting.insert(
+            context.channel_id,
+            schedule_submission_token(&context.upload_identity, &context.req_id),
+        );
         let bytes = serde_json::to_vec(&context.payload)
             .map_err(|error| ImError::Serialize(error.to_string()))?;
         // Re-enter the existing createSchedule route only after stage=submitting PersistOk;
@@ -1898,56 +1913,25 @@ impl ImModule {
         }
     }
 
-    /// Cancel authority is the only in-memory release fence for a submitted
-    /// schedule.  The handler calls this only after the channel authority
-    /// `PersistAtomic` succeeds; old PUT/Persist replies then find no route
-    /// and cannot resurrect a canceled intent.
-    pub(crate) fn clear_schedule_multipart_for_cancel(
+    /// Release only the submission generation captured by cancel authority.
+    /// Active multipart contexts and their PUT/Persist routes deliberately
+    /// remain alive; an old PersistOk must not clear a newer fence.
+    pub(crate) fn clear_schedule_submission_fence(
         &mut self,
         channel_id: ChannelId,
-        out: &mut EffectSink,
+        expected_token: Option<&str>,
     ) {
-        let mut keys = self
+        let Some(expected_token) = expected_token else {
+            return;
+        };
+        if self
             .state
-            .schedule_multipart_contexts
-            .iter()
-            .filter(|(_, context)| context.channel_id == channel_id)
-            .map(|(key, _)| key.clone())
-            .collect::<Vec<_>>();
-        keys.sort();
-        let mut timers = Vec::new();
-        for key in &keys {
-            if let Some(context) = self.state.schedule_multipart_contexts.remove(key) {
-                timers.push(context.timer);
-            }
+            .schedule_media_submitting
+            .get(&channel_id)
+            .is_some_and(|current| current == expected_token)
+        {
+            self.state.schedule_media_submitting.remove(&channel_id);
         }
-        self.state
-            .pending_schedule_multipart
-            .retain(|_, pending| !keys.binary_search(&pending.key).is_ok());
-        let mut retry_timers = self
-            .state
-            .schedule_multipart_retry_timers
-            .iter()
-            .filter(|(_, key)| keys.binary_search(key).is_ok())
-            .map(|(timer, _)| *timer)
-            .collect::<Vec<_>>();
-        retry_timers.sort_by_key(|timer| timer.raw());
-        let retry_raw = retry_timers
-            .iter()
-            .map(|timer| timer.raw())
-            .collect::<Vec<_>>();
-        self.state
-            .schedule_multipart_retry_timers
-            .retain(|timer, _| retry_raw.binary_search(&timer.raw()).is_err());
-        timers.sort_by_key(|timer| timer.raw());
-        for timer in timers {
-            out.push(Effect::CancelTimer { id: timer });
-        }
-        for timer in retry_timers {
-            out.push(Effect::CancelTimer { id: timer });
-        }
-        self.state.schedule_media_submitting.remove(&channel_id);
-        self.state.pending_schedule_requests.remove(&channel_id);
     }
 
     /// 单附件单阶段出站，移动 payload 而非逐附件复制；超时只约束上传而非定时投递。

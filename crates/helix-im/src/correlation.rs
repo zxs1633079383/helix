@@ -474,6 +474,9 @@ pub enum CorrelationContext {
         channel_id: ChannelId,
         revision: u64,
         causation_id: Option<String>,
+        /// Submission fence captured when the cancel authority was received.
+        /// Only this exact generation may be released after PersistOk.
+        multipart_submission_token: Option<String>,
     },
 
     /// G09 原子提交成功后读取 creator 本地 canceled 绝对态。

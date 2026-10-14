@@ -1209,3 +1209,6 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 ✅ DONE MR11成员读取先按viewer过滤；公开Tick→真实SQLite三群15000成员红→绿，Host26/P6查询14/Web过滤2及三端Rust验收通过；MR15仍独立验证。交接：docs/交接/1013-MR11与15定向修复/handoff.md。
 
 ✅ DONE MR11/P1与MR15/P2分别隔离修复、本地定向验证并独立提交；PC导航适配器8项/UI逻辑40项通过，当前locate不发送navigationToken。未push或触发流水线。最终身份/边界见docs/交接/1013-MR11与15定向修复/handoff.md。
+
+🎯 EXPECT 四个隔离工作树完成<=1GiB分片与重试，旧PUT和MessageV3成功屏障保持；focused红绿与三端检查通过，禁止push。| 赌注 中 | 可逆 是 | @2026-10-14
+- 交接：docs/交接/1014-分片上传与续传/handoff.md

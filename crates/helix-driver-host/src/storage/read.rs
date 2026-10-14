@@ -14,7 +14,6 @@ use super::values::{convert_row, sql_values};
 use super::HostStorage;
 
 const MAX_BOUND_VALUES_PER_QUERY: usize = 900;
-const MAX_SCOPED_SCAN_LIMIT: usize = 10_000;
 
 pub(super) async fn get(
     storage: &HostStorage,
@@ -128,6 +127,8 @@ pub(super) async fn scoped_max(
 /// Each chunk applies the `IN` predicate before a bounded `LIMIT remaining + 1`. The extra
 /// sentinel row lets the adapter distinguish an exact result from an over-limit result and
 /// fail closed. Empty scope values never touch the table.
+/// The caller's explicit limit is authoritative; an additional driver row ceiling would
+/// reject valid multi-scope reads. Validate that LIMIT plus its sentinel fits SQLite first.
 pub(super) async fn scoped_scan(
     storage: &HostStorage,
     spec: ScopedScanSpec,
@@ -135,10 +136,15 @@ pub(super) async fn scoped_scan(
     if spec.scope_values.is_empty() {
         return Ok(Vec::new());
     }
-    if spec.limit > MAX_SCOPED_SCAN_LIMIT {
-        return Err(PortError::Storage(format!(
-            "scoped scan limit exceeds driver maximum {MAX_SCOPED_SCAN_LIMIT}"
-        )));
+    if spec
+        .limit
+        .checked_add(1)
+        .and_then(|sentinel_limit| i64::try_from(sentinel_limit).ok())
+        .is_none()
+    {
+        return Err(PortError::Storage(
+            "scoped scan limit plus sentinel exceeds SQLite signed integer range".to_string(),
+        ));
     }
 
     let ScopedScanSpec {

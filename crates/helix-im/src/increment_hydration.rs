@@ -21,6 +21,10 @@ const HYDRATION_MESSAGE_ORDER: &[ScanOrder] = &[
 #[path = "closed_hydration_tests.rs"]
 mod closed_hydration_tests;
 
+#[cfg(test)]
+#[path = "hydration_terminal_tests.rs"]
+mod hydration_terminal_tests;
+
 /// Classify a missing-data reply using fixed values; never log remote payloads or messages.
 fn hydration_reply_diagnostic(body: &serde_json::Value) -> (&'static str, &'static str) {
     match body.get("status").and_then(serde_json::Value::as_str) {
@@ -131,6 +135,81 @@ mod hydration_roster_tests {
 }
 
 impl ImModule {
+    /// 会话中断先结算显式补水，再撤销其路由；本地sync写回执仍可提交已发出的事实。
+    pub(crate) fn cancel_hydration_requests(&mut self, reason: &str, out: &mut EffectSink) {
+        // 冷会话边界按req_id排序去重，不扫描消息/成员；自动scope请求不进入UI结果流。
+        let mut requests = std::collections::BTreeMap::new();
+        for (channel, req_id) in &self.state.hydration_req_ids {
+            requests.insert(
+                req_id.clone(),
+                self.scope_hydration.is_active(*channel, req_id),
+            );
+        }
+        for waiters in self.state.hydration_waiters.values() {
+            for req_id in waiters {
+                requests.entry(req_id.clone()).or_insert(false);
+            }
+        }
+        // 新hello前也撤销被取消频道的旧HTTP路由；已发出的本地ChannelPersist不删除。
+        let channels = &mut self.state.channels;
+        let scheduler = &mut self.state.sync_scheduler;
+        let pending = &self.state.hydration_req_ids;
+        let scope = &self.scope_hydration;
+        self.state.corr_map.retain(|_, context| {
+            let (req_id, internal) = match context {
+                CorrelationContext::SyncPull { channel_id, .. }
+                    if pending.contains_key(channel_id) =>
+                {
+                    if let Some(channel) = channels.get_mut(channel_id) {
+                        channel.inflight_sync = None;
+                        channel.last_sync_from_seq = None;
+                    }
+                    scheduler.release_window();
+                    return false;
+                }
+                CorrelationContext::OutboundIncrementHydration {
+                    req_id,
+                    scope_channel,
+                    ..
+                } => (req_id, scope_channel.is_some()),
+                CorrelationContext::IncrementHydrationPersist {
+                    req_id, channel_id, ..
+                }
+                | CorrelationContext::HydrationChannelReadback { req_id, channel_id }
+                | CorrelationContext::HydrationMemberReadback {
+                    req_id, channel_id, ..
+                }
+                | CorrelationContext::HydrationMessagesReadback {
+                    req_id, channel_id, ..
+                }
+                | CorrelationContext::HydrationCursorReadback {
+                    req_id, channel_id, ..
+                } => {
+                    let internal = scope.is_active(*channel_id, req_id);
+                    (req_id, internal)
+                }
+                _ => return true,
+            };
+            requests
+                .entry(req_id.clone())
+                .and_modify(|auto| *auto |= internal)
+                .or_insert(internal);
+            false
+        });
+        self.state.hydration_pending.clear();
+        self.state.hydration_req_ids.clear();
+        self.state.hydration_waiters.clear();
+        self.state.hydration_emit_channel_increment.clear();
+        self.state.hydration_ordered_rosters.clear();
+        self.state.hydration_authority_unreads.clear();
+        for (req_id, internal) in requests {
+            if !internal {
+                out.push(crate::read_relay::emit_read_error(&req_id, reason));
+            }
+        }
+        self.scope_hydration.reset();
+    }
+
     /// B-rest 测试 / driver 入口：直接喂一个解析好的 `increment_channel` 帧。
     pub fn ingest_increment(
         &mut self,
@@ -661,6 +740,30 @@ impl ImModule {
             .unwrap_or_default()
         {
             out.push(crate::read_relay::emit_read_error(&waiter, reason));
+        }
+    }
+
+    /// Persist回灌的业务处理错误必须结算等待者，不能只让engine记录step错误后丢弃结果。
+    pub(crate) fn settle_hydration_persist_result(
+        &mut self,
+        channel_id: ChannelId,
+        result: Result<(), ImError>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        match result {
+            Err(error) if self.state.hydration_req_ids.contains_key(&channel_id) => {
+                tracing::warn!(channel_id = channel_id.as_str(), operation = "channel_hydration",
+                    phase = "persist_reply", error = ?error, "hydration persist processing failed");
+                self.fail_hydration_for_channel(
+                    channel_id,
+                    "hydration persist processing failed",
+                    out,
+                );
+                // 处理失败也兑现已解除的写屏障，避免其它频道等待本次成功路径的drain。
+                self.drain_sync_queue(out);
+                Ok(())
+            }
+            other => other,
         }
     }
 

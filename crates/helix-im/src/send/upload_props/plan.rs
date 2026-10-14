@@ -498,7 +498,7 @@ mod tests {
             ("fileName", json!("report\\2026.pdf")),
             ("contentType", json!("not a mime")),
             ("contentType", json!("application/pdf; charset=utf-8")),
-            ("size", json!((64_u64 << 20) + 1)),
+            ("size", json!(MAX_MEDIA_SIZE + 1)),
             (
                 "sha256",
                 json!("ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789"),
@@ -517,15 +517,16 @@ mod tests {
 
     #[test]
     fn server_metadata_trimming_and_upper_size_boundary_are_preserved() {
+        assert_eq!(MAX_MEDIA_SIZE, 1_u64 << 30, "单文件上限合同为1 GiB");
         let mut props = file_props();
         props["file"]["mediaInput"]["fileName"] = json!(" report.pdf ");
         props["file"]["mediaInput"]["contentType"] = json!(" application/pdf ");
-        props["file"]["mediaInput"]["size"] = json!(64_u64 << 20);
+        props["file"]["mediaInput"]["size"] = json!(MAX_MEDIA_SIZE);
 
         let plan = build_upload_plan("FILE", "caption", props).expect("valid upper boundary");
         assert_eq!(plan.media[0].input.file_name, "report.pdf");
         assert_eq!(plan.media[0].input.content_type, "application/pdf");
-        assert_eq!(plan.media[0].input.size, 64_u64 << 20);
+        assert_eq!(plan.media[0].input.size, MAX_MEDIA_SIZE);
     }
 
     #[test]

@@ -628,7 +628,7 @@ fn outbound_reference_event_names_match_the_runtime_projection() -> TestResult<(
         .collect();
     assert_eq!(actual, declared);
 
-    // 参考包 im:channel:update 的 data 字段集合是渲染契约，不允许多字段/少字段。
+    // 成员读回包含频道别名与 viewer 身份；字段集合仍精确校验，防止丢失归属。
     let mut keys: Vec<&String> = sender.events[1]["data"]
         .as_object()
         .ok_or_else(|| "im:channel:update data 必须是 object".to_string())?
@@ -637,9 +637,11 @@ fn outbound_reference_event_names_match_the_runtime_projection() -> TestResult<(
     keys.sort();
     assert_eq!(
         keys,
-        ["channelId", "lastPost", "unreadCount"],
-        "im:channel:update 只发绝对态三字段（参考包 outbound-sample）"
+        ["channelId", "id", "lastPost", "unreadCount", "userId"],
+        "im:channel:update 保留绝对态与成员读回身份"
     );
+    assert_eq!(sender.events[1]["data"]["id"], common::cid(CHANNEL_INDEX));
+    assert_eq!(sender.events[1]["data"]["userId"], ACTOR_ID);
     Ok(())
 }
 

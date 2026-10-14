@@ -339,6 +339,20 @@ impl ImModule {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), CoreError> {
+        // 与hello handler同一有效/去重条件：新会话重置前释放旧请求，重复hello不取消。
+        if frame.action().ok() == Some("hello") {
+            if let Some(connection_id) = frame
+                .data()
+                .and_then(|data| data.get("connectionId"))
+                .and_then(serde_json::Value::as_str)
+            {
+                if self.state.conn != crate::state::ConnState::Connected
+                    || self.state.connection_id.as_deref() != Some(connection_id)
+                {
+                    self.cancel_hydration_requests("hydration session replaced", out);
+                }
+            }
+        }
         let previous_connection = (frame.action().ok() == Some("hello"))
             .then(|| self.state.connection_id.clone())
             .flatten();

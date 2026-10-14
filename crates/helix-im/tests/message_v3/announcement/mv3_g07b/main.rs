@@ -481,8 +481,9 @@ fn wire_body_is_the_full_announcement_post_shape() {
     // Helix 铸造项。
     assert_eq!(body["message"], CONTENT);
     assert_eq!(
-        body["simpleMessage"], CONTENT,
-        "摘要由 Helix 派生，不由客户端提交"
+        body["simpleMessage"],
+        format!("[群公告] {CONTENT}"),
+        "摘要由 Helix 派生，保留公共群公告前缀"
     );
     assert!(body["temporaryId"]
         .as_str()

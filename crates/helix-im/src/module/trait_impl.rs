@@ -802,7 +802,7 @@ impl ImModule {
             }
 
             Tick::Disconnected(_transport) => {
-                self.scope_hydration.reset();
+                self.cancel_hydration_requests("hydration disconnected", out);
                 self.finish_sync_observation(crate::sync_observation::SyncResult::Cancelled);
                 self.state.increment_pull = None;
                 self.state.corr_map.retain(|_, context| {
@@ -845,6 +845,8 @@ impl ImModule {
                 self.state
                     .corr_map
                     .retain(|_, ctx| !matches!(ctx, CorrelationContext::SyncPull { .. }));
+                // 在途HTTP关联已撤销，释放其全局窗口及旧队列；hello会重新建立恢复意图。
+                self.state.sync_scheduler.reset();
                 tracing::debug!("helix-im: disconnected, cleared inflight sync state");
             }
         }

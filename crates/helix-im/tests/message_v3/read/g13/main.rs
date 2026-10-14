@@ -384,7 +384,7 @@ fn g13_persist_failure_preserves_old_projection() -> TestResult<()> {
 
     let view_corr = replay.command_corr(
         "im_channels_view",
-        json!({"channels":[{"id":CHANNEL_ID,"isRoot":true}]}),
+        json!({"channels":[{"id":CHANNEL_ID,"isRoot":true,"throughPostId":"srvfix00000000000000000001"}]}),
     )?;
     replay.reply(view_corr, http_success()?, CREATED_AT as u64 + 2)?;
     assert!(replay.events()?.is_empty());
@@ -877,6 +877,83 @@ fn reaction_visible_query_rejects_invalid_targets() -> TestResult<()> {
             .events()?
             .iter()
             .any(|event| event["data"]["error"].is_string()));
+    }
+    Ok(())
+}
+
+/// 有界清除只透传明确目标；HTTP/失败不得猜测本地未读数。
+#[test]
+fn channels_view_boundary_preserves_wire_and_authority_barrier() -> TestResult<()> {
+    for post in ["srvfix00000000000000000001", "507f1f77bcf86cd799439011"] {
+        let mut replay = Replay::new();
+        let query = replay.command_corr("im_query_dialog_list", json!({}))?;
+        replay.reply(
+            query,
+            json!([dialog_row(3, 1, 1)]).to_string().into_bytes(),
+            CREATED_AT as u64,
+        )?;
+        replay.reply_dialog_members(3, 1, 1, CREATED_AT as u64)?;
+        let channels = json!([{"id":CHANNEL_ID,"isRoot":true,"throughPostId":post}]);
+        let corr = replay.command_corr("im_channels_view", json!({"channels":channels}))?;
+        let sent = replay
+            .sink
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Http { req, .. } => req
+                    .body
+                    .as_ref()
+                    .and_then(|body| serde_json::from_slice::<Value>(body.as_ref()).ok()),
+                _ => None,
+            })
+            .ok_or("missing HTTP")?;
+        assert_eq!(sent, json!({"channels":channels}));
+        assert!(replay.events()?.is_empty());
+        replay.reply(corr, http_success()?, CREATED_AT as u64 + 1)?;
+        assert!(replay.events()?.is_empty());
+        let persist = replay.ingest_read()?;
+        assert!(replay.events()?.is_empty());
+        replay.reply(persist, Vec::new(), CREATED_AT as u64 + 3)?;
+        assert_eq!(
+            replay
+                .events()?
+                .iter()
+                .filter(|e| e["event"] == "im:channel:update")
+                .count(),
+            1
+        );
+        replay.reply(persist, Vec::new(), CREATED_AT as u64 + 4)?;
+        assert!(replay.events()?.is_empty());
+    }
+    Ok(())
+}
+
+/// 直接内核入口也拒绝非法边界，不能绕过公开 normalizer 触发全清。
+#[test]
+fn channels_view_boundary_rejects_invalid_without_http() -> TestResult<()> {
+    for post in [
+        Value::Null,
+        json!(""),
+        json!("temporary-id"),
+        json!(42),
+        json!(" 507f1f77bcf86cd799439011"),
+    ] {
+        let mut replay = Replay::new();
+        let payload = json!({"channels":[{"id":CHANNEL_ID,"isRoot":true,"throughPostId":post}]});
+        assert!(replay
+            .step(
+                Tick::Command(AppCommand::new(
+                    "im_channels_view",
+                    payload.to_string().into_bytes()
+                )),
+                CREATED_AT as u64
+            )
+            .is_err());
+        assert!(!replay.sink.as_slice().iter().any(|e| matches!(
+            e,
+            Effect::Http { .. } | Effect::Persist { .. } | Effect::PersistAtomic { .. }
+        )));
+        assert!(replay.events()?.is_empty());
     }
     Ok(())
 }

@@ -81,6 +81,11 @@ pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
         scope_col: Some("session_id"),
     },
     SparseTableSpec {
+        table: "schedule_media_intent",
+        identity_cols: &["channel_id"],
+        scope_col: Some("channel_id"),
+    },
+    SparseTableSpec {
         table: "receiver_snapshot",
         identity_cols: &["snapshot_id"],
         scope_col: Some("channel_id"),
@@ -481,6 +486,21 @@ END",
         etag TEXT NOT NULL,\
         status TEXT NOT NULL DEFAULT 'completed',\
         PRIMARY KEY (session_id, part_number)\
+    )",
+    // Multipart schedule owner/context is independent from message/pending_media. The payload
+    // is updated only at attachment/stable-reference boundaries; signed URL/headers never enter.
+    "CREATE TABLE IF NOT EXISTS schedule_media_intent (\
+        channel_id TEXT PRIMARY KEY,\
+        request_id TEXT NOT NULL DEFAULT '',\
+        account_id TEXT NOT NULL DEFAULT '',\
+        owner_user_id TEXT NOT NULL DEFAULT '',\
+        schedule_post_at INTEGER NOT NULL DEFAULT 0,\
+        payload_json TEXT NOT NULL DEFAULT '{}',\
+        media_json TEXT NOT NULL DEFAULT '[]',\
+        stage TEXT NOT NULL,\
+        session_id TEXT NOT NULL DEFAULT '',\
+        stable_object_ref TEXT NOT NULL DEFAULT '',\
+        last_error TEXT NOT NULL DEFAULT ''\
     )",
     // 文字接龙最小 durable projection；JSON window 列只存 Helix 编码的 id 数组。
     "CREATE TABLE IF NOT EXISTS chain_summary (\

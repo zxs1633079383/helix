@@ -57,6 +57,10 @@ impl ImModule {
             self.state.pending_schedule_requests.remove(&channel_id);
         }
         let PortOutcome::Ok(_) = outcome else {
+            // The authority persist failed. Keep the durable submitting intent
+            // and its in-memory fence for manual inspection.  A later
+            // authority replay or explicit cancel is the only release; no
+            // transport retry may resend a wire request without an idempotency key.
             if let Some(req_id) = causation_id.as_deref() {
                 out.push(crate::read_relay::emit_read_error(
                     req_id,
@@ -73,6 +77,7 @@ impl ImModule {
         self.state
             .committed_schedule_revisions
             .insert(channel_id, revision);
+        self.state.schedule_media_submitting.remove(&channel_id);
         if let Some(req_id) = causation_id.as_deref() {
             out.push(crate::read_relay::emit_read_body(
                 req_id,
@@ -168,6 +173,7 @@ impl ImModule {
         self.state
             .committed_schedule_revisions
             .insert(channel_id, revision);
+        self.clear_schedule_multipart_for_cancel(channel_id, out);
         if let Some(req_id) = causation_id.as_deref() {
             out.push(crate::read_relay::emit_read_body(
                 req_id,

@@ -50,8 +50,20 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         use helix_core::tick::PortOutcome;
+        if let Some(pending) = self.state.pending_schedule_multipart.remove(&corr) {
+            return self.schedule_multipart_reply(pending, outcome, now_ms, out);
+        }
         if let Some(pending) = self.state.pending_schedule_media.remove(&corr) {
             return self.schedule_media_reply(pending, outcome, now_ms, out);
+        }
+
+        if self.state.schedule_media_rehydrate_corr == Some(corr) {
+            self.state.schedule_media_rehydrate_corr = None;
+            if let PortOutcome::Ok(reply) = outcome {
+                return self.rehydrate_schedule_media(reply.0.as_ref(), now_ms, out);
+            }
+            tracing::warn!("schedule media intent recovery scan failed; recovery remains closed");
+            return Ok(());
         }
 
         if self.state.pending_media_rehydrate_corr == Some(corr) {
@@ -921,6 +933,11 @@ impl ImModule {
                 channel_id,
                 request_id,
             } => {
+                let multipart_submission = self
+                    .state
+                    .schedule_media_submitting
+                    .get(&channel_id)
+                    .cloned();
                 let succeeded = match outcome {
                     PortOutcome::Ok(reply) => {
                         crate::http_envelope::unwrap_success_envelope(reply.0.as_ref(), "schedule")
@@ -938,6 +955,41 @@ impl ImModule {
                         self.state.pending_schedule_requests.get(&channel_id) == Some(request_id)
                     }) {
                         self.state.pending_schedule_requests.remove(&channel_id);
+                        if multipart_submission.is_some() {
+                            let (stage, message) = match outcome {
+                                PortOutcome::Err(error) => (
+                                    crate::schedule_media::SCHEDULE_INTENT_STAGE_UNKNOWN,
+                                    format!("schedule HTTP outcome unknown: {error:?}"),
+                                ),
+                                PortOutcome::Ok(_) => (
+                                    crate::schedule_media::SCHEDULE_INTENT_STAGE_FAILED,
+                                    "schedule HTTP returned business failure".to_string(),
+                                ),
+                            };
+                            // A transport error leaves the submission outcome
+                            // unknown: keep the in-memory fence until a
+                            // creator/cancel authority resolves it.  An
+                            // explicit Java business rejection is terminal.
+                            if matches!(outcome, PortOutcome::Ok(_)) {
+                                self.state.schedule_media_submitting.remove(&channel_id);
+                            }
+                            let persist_corr = self.alloc_corr_internal();
+                            out.push(helix_core::Effect::PersistAtomic {
+                                corr: persist_corr,
+                                ops: vec![crate::schedule_media::schedule_intent_stage_update(
+                                    channel_id, stage, &message,
+                                )],
+                            });
+                            out.push(crate::read_relay::emit_read_error(
+                                &req_id,
+                                if stage == crate::schedule_media::SCHEDULE_INTENT_STAGE_UNKNOWN {
+                                    "SCHEDULE_REQUEST_UNKNOWN"
+                                } else {
+                                    "SCHEDULE_REQUEST_FAILED"
+                                },
+                            ));
+                            return Ok(());
+                        }
                         out.push(crate::read_relay::emit_read_error(
                             &req_id,
                             "SCHEDULE_REQUEST_FAILED",

@@ -956,6 +956,62 @@ fn schedule_media_upload_precedes_create_and_ignores_duplicate() {
     assert!(http_corr(&h.sink).is_none());
 }
 
+/// 大于 100MiB 的定时附件必须进入 multipart init；入口只写 schedule 意图，
+/// 在稳定引用 PersistOk 之前不得调用 createSchedule 或普通 posts/create。
+#[test]
+fn schedule_large_media_enters_multipart_before_schedule_create() {
+    let mut h = Harness::new(&[1]);
+    h.step(outbound_cmd("im_create_schedule", serde_json::json!({
+        "channel_id": cid(1), "message": "", "type": "FILE", "req_id": "schedule-large",
+        "schedule_post_at": 1900000000000i64,
+        "props": {"file": {"mediaInput": {
+            "localPath": "/tmp/sparse-101m.bin", "fileName": "sparse-101m.bin",
+            "contentType": "application/octet-stream", "size": 104857601,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }}}
+    })), 1);
+    let intent = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, ops } if ops.iter().any(|op| {
+                matches!(op, helix_core::effect::StorageOp::BatchUpsert(spec) if spec.table == "schedule_media_intent")
+            }) => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("large schedule media must persist intent before network I/O");
+    h.step(port_reply_ok(intent), 2);
+    let init = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, req } if req.url.ends_with("/oss/multipart/init") => {
+                Some((*corr, req.clone()))
+            }
+            _ => None,
+        })
+    .expect("large schedule media must start multipart init after intent PersistOk");
+    assert!(
+        h.sink.as_slice().iter().all(|effect| {
+            !matches!(effect, Effect::Http { req, .. } if req.url.ends_with("/oss/getPresignedUrl"))
+        }),
+        "large schedule media must not use legacy prepare"
+    );
+    assert!(
+        h.sink.as_slice().iter().all(|effect| {
+            !matches!(effect, Effect::Http { req, .. } if req.url.ends_with("/posts/createSchedule"))
+        }),
+        "schedule create must wait for multipart stable reference"
+    );
+    let body: serde_json::Value = serde_json::from_slice(
+        init.1.body.as_ref().expect("multipart init body").as_ref(),
+    )
+    .expect("multipart init JSON");
+    assert_eq!(body["size"], 104857601u64);
+}
+
 /// 票据失败与超时都返回关联错误，迟到响应不得产生创建请求。
 #[test]
 fn schedule_media_failure_and_timeout_release_intent() {

@@ -750,6 +750,18 @@ impl ImModule {
                 if self.schedule_media_timeout(*id, out) {
                     return Ok(());
                 }
+                if self.schedule_multipart_timeout(*id, now_ms, out) {
+                    return Ok(());
+                }
+                if let Some(key) = self.state.schedule_multipart_retry_timers.remove(id) {
+                    self.schedule_multipart_retry(&key, out).map_err(|error| {
+                        CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(error),
+                        }
+                    })?;
+                    return Ok(());
+                }
                 if let Some(pending) = self.state.multipart_retry_timers.remove(id) {
                     self.emit_multipart_init(
                         pending.channel_id,
@@ -868,6 +880,19 @@ impl ImModule {
             )],
         });
         self.state.pending_media_rehydrate_corr = Some(corr);
+        let schedule_corr = self.alloc_corr_internal();
+        out.push(helix_core::Effect::Persist {
+            corr: schedule_corr,
+            ops: vec![helix_core::effect::StorageOp::Scan(
+                helix_core::effect::ScanSpec {
+                    table: "schedule_media_intent",
+                    limit: None,
+                    filter: None,
+                    order_by: &[],
+                },
+            )],
+        });
+        self.state.schedule_media_rehydrate_corr = Some(schedule_corr);
         Ok(())
     }
 
@@ -938,6 +963,7 @@ impl ImModule {
         self.finish_sync_observation(crate::sync_observation::SyncResult::Cancelled);
         self.cancel_category(out);
         self.stop_schedule_media(out);
+        self.stop_schedule_multipart(out);
         self.cancel_forward_details(None, "CANCELLED", out);
         self.cancel_forwards(out)
             .map_err(|e| CoreError::ModuleError {

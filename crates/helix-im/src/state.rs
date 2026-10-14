@@ -79,6 +79,19 @@ pub struct ImState {
     /// 媒体 Prepare/PUT/Complete 回包路由；corr 单次 O(1) remove 后按阶段分发。
     pub(crate) pending_schedule_media:
         HashMap<helix_core::Correlation, crate::schedule_media::PendingScheduleMedia>,
+    /// 定时 multipart 的独立路由；不借用普通 message 的 pending_media/temporary_id 状态。
+    pub(crate) pending_schedule_multipart:
+        HashMap<helix_core::Correlation, crate::schedule_media::PendingScheduleMultipart>,
+    /// 定时 multipart 持有完整 payload 与运行时批次；每个 channel 最多一个 intent。
+    pub(crate) schedule_multipart_contexts:
+        HashMap<String, crate::schedule_media::ScheduleMultipartContext>,
+    /// 稳定媒体引用已落库、createSchedule 已发出的定时 intent；无幂等 wire 时禁止重发。
+    pub(crate) schedule_media_submitting: BTreeMap<ChannelId, String>,
+    /// Multipart schedule drain retry timers; the timer never carries a signed URL.
+    pub(crate) schedule_multipart_retry_timers:
+        HashMap<helix_core::TimerId, String>,
+    /// Startup scan correlation for durable schedule intents.
+    pub(crate) schedule_media_rehydrate_corr: Option<helix_core::Correlation>,
     pub pending_media_ops: HashMap<helix_core::Correlation, PendingMediaOp>,
 
     /// 同消息的进度/完成/失败写串行化，避免不同存储 worker 交错覆盖 props。
@@ -391,6 +404,11 @@ impl ImState {
             pending_sends: HashMap::new(),
             pending_uploads: HashMap::new(),
             pending_schedule_media: HashMap::new(),
+            pending_schedule_multipart: HashMap::new(),
+            schedule_multipart_contexts: HashMap::new(),
+            schedule_media_submitting: BTreeMap::new(),
+            schedule_multipart_retry_timers: HashMap::new(),
+            schedule_media_rehydrate_corr: None,
             pending_media_ops: HashMap::new(),
             media_write_gates: HashMap::new(),
             media_write_owners: HashMap::new(),
@@ -570,6 +588,11 @@ impl ImState {
         self.pending_forward_deliveries = crate::forward::PendingForwardDeliveryLedger::default();
         self.pending_schedule_requests.clear();
         self.pending_schedule_media.clear();
+        self.pending_schedule_multipart.clear();
+        self.schedule_multipart_contexts.clear();
+        self.schedule_multipart_retry_timers.clear();
+        self.schedule_media_submitting.clear();
+        self.schedule_media_rehydrate_corr = None;
         self.pending_schedule_cancel_requests.clear();
         self.inflight_schedule_revisions.clear();
         self.inflight_channel_creates.clear();
@@ -582,6 +605,11 @@ impl ImState {
         self.multipart_retry_timers.clear();
         self.multipart_batches.clear();
         self.multipart_draining.clear();
+        self.pending_schedule_multipart.clear();
+        self.schedule_multipart_contexts.clear();
+        self.schedule_multipart_retry_timers.clear();
+        self.schedule_media_submitting.clear();
+        self.schedule_media_rehydrate_corr = None;
         self.recovery_session.invalidate();
         // Tenant/actor facts are never portable.  A B session must rediscover
         // channels and cursors from its own store rather than treating A's

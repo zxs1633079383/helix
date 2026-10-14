@@ -81,10 +81,12 @@ impl WsMessageHandler for ScheduleCanceledHandler {
                 causation_id,
             },
         );
-        out.push(Effect::PersistAtomic {
-            corr,
-            ops: fact.storage_ops(),
-        });
+        let mut ops = fact.storage_ops();
+        // A canceled schedule invalidates any independent multipart intent on
+        // this channel.  Keep this delete in the same authority checkpoint;
+        // the in-memory route is released only after its PersistOk.
+        ops.push(crate::schedule_media::schedule_intent_delete(channel_id));
+        out.push(Effect::PersistAtomic { corr, ops });
         Ok(())
     }
 }

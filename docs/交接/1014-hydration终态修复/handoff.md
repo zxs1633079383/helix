@@ -1,34 +1,37 @@
-# Hydration 终态修复交接
-- 目标：修复断线/hello、复用普通 sync 失败、Persist 回灌抛错的 hydration 终态缺口。实现与本地聚焦验证完成。
-- 授权：独立 worktree 实施、本地验证与完成态 commit；不改超时、不 push/发布，不操作真实业务数据。
-- 仓库：/Users/xpa-12/.codex/worktrees/hydration-terminal-fix/helix
-- 分支：codex/hydration-terminal-fix，无 upstream；基线 4feeab961938955f84244e21f6e3b2ea2f2a517c。
-- 修复提交：以本文件所在提交为准；验证源文件 fingerprint SHA256：1f104268b9e3041ed6d7eab4261367523d0b2908fd1840e0db98e8bdecfd2960。
-- 主仓仍在 reactor/MessageV3-helix，未合并本修复；worktree尚未合并故保留。合并后按用户规则保留证据再 archive，不自动删分支。
+# Hydration 终态修复与发布交接
+- 当前阶段：Helix开发分支合入、四包0.1.68发布、客户端依赖更新、两个远端同步完成。
+- 用户授权：独立worktree实现/TDD/本地验证；后续明确授权合并开发分支、重新发布Helix、更新客户端、同步dev-message远端和dev分支。不得调大超时。
+- 边界：不操作真实业务数据、不构建客户端安装包；真实Go/Tauri/UI与容量仍NOT_VERIFIED。
+
+## 代码身份与交付
+- Helix主仓：/System/Volumes/Data/workspace/angular/visual/helix，reactor/MessageV3-helix。
+- 基线：4feeab961938955f84244e21f6e3b2ea2f2a517c；修复：417503b80d0384efc98b6dc4c3f9d1e8757cf119，已快进合入。
+- 发布提交：8fab60f6ac9fdc21c228d5541415357a40d22c11；注释Tag helix-v-0.1.68，远端Tag解引用SHA与发布提交一致。
+- crates.io四包：cses-helix-core、helix-im、helix-driver-host、helix-driver-native，均0.1.68已上传并可解析；Web/FFI/CLI/perf只同步精确依赖。
+- 客户端依赖提交：72196cff5b，四pin与lock统一0.1.68；registry checksum与实际发布crate字节一致。
+- 客户端最终合并：eb878063de81cf2f0ae749a9230e5874543b3bd8；origin/dev-message与origin/dev均回读为此SHA，保留并发远端d6c077cb0f更新。
+- 客户端主工作区仍dev-message@8b0e7d14ff846268a52b5718bd512d8526e7155c（已含0.1.68）；本地dev为最终合并SHA。保留AGENTS.md/release.json用户脏改动；release.json与最新开发历史重叠，未为更新主checkout覆盖它。
+- 原Codex修复worktree已archive，普通客户端发布worktree已删除；提交与证据均保留，不删除分支。
 
 ## 生命周期合同
-- 入口：既有 im_channel_load_increment_by_channel_id，channel_id/channelId + transport req_id；公开 Module::handle。
-- 分类：远程读，HTTP → channel/member Persist → 必要sync → 四段本地读回；写业务与新schema N/A。
-- 成功：matching Persist/read-back 后唯一 im:read:result，completion=hydrated；本批保持原合同。
-- 失败：HTTP/业务/解析/PortError::Timeout/Storage 错误与取消均返回关联error；unknown/非法输入保持原行为。
-- 断线和有效新hello在清理前结算primary/waiter；重复hello不取消；撤销旧HTTP/read-back，保留已发出sync本地写回执。
-- 普通Routine/PongGap sync的网络、解析、历史写和关闭事件写失败也结算频道hydration等待者。
-- Persist业务处理Err在存在hydration等待者时转关联error并返回Ok，让EventSink可交付；无等待者保留原Err。
-- 同一req_id仅结算一次，重复/迟到回执无重复终态；无新增timer/worker/transport，原30秒预算不变。
+- 既有远程读Command im_channel_load_increment_by_channel_id：channel_id/channelId + transport req_id，经公开Module::handle。
+- 成功仍须HTTP、channel/member持久化、必要sync、四段本地读回后唯一im:read:result(completion=hydrated)。schema/ABI/30秒预算不变。
+- 断线/有效新hello先失败结算primary/waiter，再撤销旧HTTP/read-back；重复hello不取消；已发出的sync本地写仍可推进cursor。
+- 普通Routine/PongGap sync网络、解析、历史或关闭事件Persist失败也结算hydration；Persist处理Err有等待者时转关联error/Ok交付，无等待者保留原Err。
+- 重复/迟到回包不重复终态，断线释放窗口；不新增timer/worker/transport。
 
 ## 验证与证据
-- 红测：red-1断线/hello结果缺失；red-2普通sync失败结果缺失；red-3注入Persist投影处理错误；red-4窗口/旧回包；red-5普通关闭事件PersistErr。
-- 17项：cargo test -p helix-im --lib hydration -- --nocapture，PASS，含9条新回归。
-- 7项：cargo test -p helix-im --lib sync::scheduler::tests，PASS。
-- 35项：cargo test -p helix-im --test message_v3_mv3_g13b --test message_v3_mv3_g09d --test scope_hydration_test，PASS。
-- 上述integration replay读取真实本地参考文件，环境 MESSAGE_V3_PHASE3_CLIENT_ROOT=/System/Volumes/Data/workspace/angular/visual/cses-client；首轮worktree默认相邻路径缺失，已用既有覆盖参数正确定位，未修改断言/夹具。
-- cargo check -p helix-im、git diff --check：PASS；既有dead_code warnings保留。
-- 热路径审查：新成功分支无消息/成员clone与I/O；取消仅冷会话边界按请求集合排序。audit脚本报告冷取消helper及原有多clone函数，人工按diff核验，不冒称脚本全绿。
-- 证据目录：/Users/xpa-12/.codex/visualizations/2026/10/14/01a13994-a2cc-7112-8b81-e1521ed522a5/hydration终态修复证据
-- 证据等级：公开Tick/PortReply回放；Persist处理抛错为明确内部故障注入，不是现场根因复现。真实Go/SQLite执行器/Tauri/UI、容量/1秒目标：NOT_VERIFIED。
-- 无port/driver/core/schema变更，按本批聚焦边界未执行完整gate、三端Rust或无关全量测试。
+- 9条新回归；三类缺口先红后绿，另含窗口/迟到回包及普通关闭事件PersistErr红测。Persist抛错为明确内部故障注入，不是现场根因复现。
+- 实现指纹SHA256：1f104268b9e3041ed6d7eab4261367523d0b2908fd1840e0db98e8bdecfd2960；发布仅manifest/lock变动，源文件身份未变。
+- 59项定向：17 hydration库回放、7 scheduler、35 G13b/G09d/scope回放通过；参考根MESSAGE_V3_PHASE3_CLIENT_ROOT指向真实本地cses-client文件。
+- 发布前cargo test -p helix-im --lib：490/490通过；core测试28项及doc test1项通过、文档示例ignore1项；Web wasm32 build通过。
+- 发布脚本八workspace crate check、四包dry-run/发布解析通过；diff检查通过。既有dead_code warnings保留。
+- 客户端cargo update仅四包、cargo tree --locked解析正确；最终合并后3组Jest 27/27通过（Hydration/Engagement/channel-authority-chain）。
+- 热路径人工diff审查：成功分支无新增消息/成员复制或I/O；冷会话取消按请求排序。audit脚本报告冷helper及原有clone，不冒称脚本全绿。
+- 证据：/Users/xpa-12/.codex/visualizations/2026/10/14/01a13994-a2cc-7112-8b81-e1521ed522a5/hydration终态修复证据
+- 分层：公开Tick回放、Rust编译、registry发布/依赖解析、Jest均通过；真实Go/SQLite执行器/Tauri/UI、客户端打包/安装及CI/CD结果未验证。
+- 规模目标：单群5000人、每群5RPS、多群并行、1秒可达；本批不作达标结论。
 
-## 后续边界
-- 报错者安装包与本源码身份仍未核实，未证明频道1cix8ii6s7fzfjr1eoupabd9iy现场命中哪条路径。
-- 后续若合并/发布/客户端升级或真实链验收，需绑定相应版本与同run证据；本批无push/发布授权。
-- 规模目标仍为单群5000人、每群5RPS、多群并行、1秒可达；本批不作容量达标结论。
+## 后续
+- 报错者安装包版本仍未核实；尚未证明频道1cix8ii6s7fzfjr1eoupabd9iy现场命中哪条路径。
+- 客户端主checkout更新到最终远端前须协调release.json未提交编辑；保持用户内容，不能直接覆盖或强制重置。

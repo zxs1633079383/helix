@@ -319,7 +319,7 @@ PARTIAL：源码硬闸门/自动补水/用户库迁移已落地；render13、内
 ## 0909 分类开发合并候选
 🎯 EXPECT 三类 hydration 缺终态均公开Tick红→绿；断线/重连与失败后唯一error、迟到不重复，超时预算不变。| 赌注 中 | 可逆 是 | @2026-10-14
 - 交接：docs/交接/1014-hydration终态修复/handoff.md
-✅ DONE 三类缺终态及窗口/迟到回包红→绿；59项聚焦回放和helix-im check通过，超时与schema不变；仅本地worktree提交，真实链/发布未验证。
+✅ DONE 三类缺口红→绿；59项定向与490项库测试、发布检查通过；Helix0.1.68发布/Tag已push，客户端四pin与双远端同步，最终Jest27项通过；worktree已清理，真实客户端未验证。
 
 🎯 EXPECT Hydration TooLong不提前read error且PersistOk后唯一完成；客户端取消不弹错/不回写，现有代码在focused行为断言失败。仅红测。 | 赌注 中 | 可逆 是 | @2026-10-10
 - 交接：/Users/xpa-12/.codex/worktrees/hydration-cancel-red/cses-client/docs/交接/1010-会话恢复红测/handoff.md

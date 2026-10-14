@@ -12,16 +12,20 @@
 | [`消息发送全流程/在线与离线发送消息全流程.md`](./消息发送全流程/在线与离线发送消息全流程.md) | 结合 Helix 与现役 Go server 源码，说明 `im_send_message`、Persist/HTTP/timer/PortReply、WS authority、sender/receiver 未读、离线补偿与手动 retry。 |
 | [`消息发送全流程/在线与离线发送消息全流程.mmd`](./消息发送全流程/在线与离线发送消息全流程.mmd) | 同一链路的 Mermaid 图源。 |
 
-## 同步与原子恢复边界
+## 同步与成员绝对态边界
 
+- `im_query_dialog_list` 在频道分页后按频道集合读取当前认证用户的成员状态，
+  两阶段共用 `DialogListQuery` 身份与 typed Result；成员回读前不发布旧未读数。
+  未读 count/anchor/read-seq/revision 复用 `channel_sync` 的绝对态校验，
+  成员主键和公司字段不得覆盖频道归属，成员置顶合并后按原三键稳定排序。
 - gate 补拉、主动同步和满批续拉共用有界调度器；对应原子提交回执到达前，
   同一频道的后续意图留队，发出请求时读取已提交游标。失败不得推进游标。
 - `too_long` 的原子批次只包含写入，读回在 `PersistOk` 后单独派发。
-  RuntimeAuth 重置清除在途 owner，迟到回执不能重新发起旧同步。
-- 成员绝对态合并复用 `channel_sync` 的校验 helper；dialog 查询切换在后续 MR。
+  RuntimeAuth 重置清除在途 owner，迟到回执不能重新发起旧同步或结算旧查询。
 
-源码入口：`src/sync/scheduler.rs`、`src/sync/flow.rs`、`src/port_reply/dispatch.rs`；
-回归入口为 `p4_sync_scheduler_test`、`gate_test` 和 Host 的 `too_long_reload_atomic`。
+源码入口：`src/query/dispatch.rs`、`src/event/read.rs`、`src/sync/scheduler.rs`、
+`src/sync/flow.rs`、`src/port_reply/dispatch.rs`；回归入口为 `p6_query_test`、
+`p4_sync_scheduler_test`、`gate_test` 和 Host 的 `too_long_reload_atomic`。
 同步护栏见 [HX-C008](../../../docs/harness/HX-C008-sync-pull-wire-contract.md)。
 
 ## 合并转发媒体投影

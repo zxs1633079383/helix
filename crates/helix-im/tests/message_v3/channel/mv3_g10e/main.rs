@@ -214,6 +214,29 @@ fn g10e_reentry_query_reads_scalar_notify_props() -> Result<(), String> {
         common::port_reply_with_body(corr.raw(), channel_readback("STRONG")),
         NOW_MS + 1,
     );
+    assert!(emitted(harness.sink.as_slice()).is_empty());
+    let member_corr = persist_corr(harness.sink.as_slice())?;
+    let [Effect::Persist { ops, .. }] = harness.sink.as_slice() else {
+        return Err("missing member readback scan".into());
+    };
+    let [StorageOp::ScopedScan(spec)] = ops.as_slice() else {
+        return Err("member readback must be channel-scoped".into());
+    };
+    assert_eq!(spec.table, "channel_member");
+    assert_eq!(spec.scope_values.len(), 1);
+    assert!(matches!(&spec.scope_values[0], SqlValue::Text(id) if id == CHANNEL_ID));
+    harness.step(
+        common::port_reply_with_body(
+            member_corr.raw(),
+            json!([{"channel_id": CHANNEL_ID, "user_id": ACTOR_ID,
+                "channel_is_top": 0,
+                "unread_count": 7, "unread_post_id": "g10e-anchor",
+                "notify": "STRONG"}])
+            .to_string()
+            .into(),
+        ),
+        NOW_MS + 2,
+    );
     let result = emitted(harness.sink.as_slice())
         .into_iter()
         .find(|event| event["event"] == "im:read:result")

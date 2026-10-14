@@ -278,14 +278,19 @@ pub struct ScopedMaxSpec {
 
 /// 作用域集合内的有界多行查询规格。
 ///
-/// driver 必须先应用 `scope_col IN scope_values` 再执行 limit；若匹配行数超过 limit，
-/// 必须返回错误而不是静默截断。`limit` 是调用方明确给出的硬上限，空作用域返回空数组。
+/// driver 必须先应用 `scope_col IN scope_values` 与可选 `filter` 再执行 limit；若匹配行数
+/// 超过 limit，必须返回错误而不是静默截断。`limit` 是调用方明确给出的硬上限，空作用域
+/// 返回空数组。
 /// `scope_values` 按集合解释：重复值不得让同一行跨分块重复返回。
 #[derive(Debug, Clone)]
 pub struct ScopedScanSpec {
     pub table: &'static str,
     pub scope_col: &'static str,
     pub scope_values: Vec<SqlValue>,
+    /// 可选的第二个等值条件；driver 必须在 `scope_col IN (...)` 同一 SQL 中应用它。
+    /// 等值条件遵循 SQL `=` 语义：任一侧为 `NULL` 时都不匹配。
+    /// `None` 保持原有仅按集合约束的语义。
+    pub filter: Option<(&'static str, SqlValue)>,
     pub limit: usize,
 }
 

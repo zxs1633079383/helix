@@ -479,8 +479,13 @@ pub enum CorrelationContext {
     /// G09 原子提交成功后读取 creator 本地 canceled 绝对态。
     MessageV3ScheduleCanceledReadback,
 
-    /// UC-3 `im_query_dialog_list` Scan 回报 → emit channel list 与 viewer read 绝对态。
-    DialogListQuery { causation_id: Option<String> },
+    /// UC-3 先读频道、再读当前 viewer 成员绝对态；两阶段共用身份绑定与 typed Result owner。
+    DialogListQuery {
+        causation_id: Option<String>,
+        auth_user_id: String,
+        company_id: String,
+        channel_rows: Option<Box<Vec<serde_json::Value>>>,
+    },
 
     /// 切群本地 ChannelViewSnapshot 单行回读；身份只来自 RuntimeAuth。
     ChannelViewSnapshotQuery {
@@ -488,13 +493,6 @@ pub enum CorrelationContext {
         causation_id: Option<String>,
         auth_user_id: String,
         company_id: String,
-    },
-
-    /// UC-3 首段 channel 行快照，等待当前 viewer 的 channel_member 置顶回读后合并发布。
-    DialogListMemberSnapshot {
-        channel_rows: Box<Vec<serde_json::Value>>,
-        causation_id: Option<String>,
-        auth_user_id: String,
     },
 
     /// G13d `im_query_subtopics` Scan 回报；父频道随 correlation 一起隔离。

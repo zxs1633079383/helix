@@ -39,14 +39,17 @@ impl ImModule {
                 self.complete_channel_sync(payload, out)?;
             }
             "im_query_dialog_list" => {
-                // UC-3：低频按需拉全量会话列表（off hot-path）→ Scan channel + 注册 DialogListQuery；
-                // PortReply 回报后只 emit 一次 `im:read:result` typed Result（前端零计算）。
+                // UC-3：先读频道，再按频道范围读取当前 viewer 成员绝对态；
+                // 第二阶段成功/失败都只结束一次 typed Result，不广播旧业务事件。
                 let corr = self.alloc_corr_internal();
                 let effect = self.build_dialog_list_query_for_runtime(payload, corr)?;
                 self.state.corr_map.insert(
                     corr,
                     CorrelationContext::DialogListQuery {
                         causation_id: crate::query::read_relay::read_req_id(payload),
+                        auth_user_id: self.config.auth_user_id.clone(),
+                        company_id: self.config.company_id.clone(),
+                        channel_rows: None,
                     },
                 );
                 out.push(effect);

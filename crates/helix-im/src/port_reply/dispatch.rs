@@ -3,22 +3,6 @@ use crate::module::ImModule;
 use crate::state::CorrelationContext;
 use helix_core::EffectSink;
 
-/// 以明确失败状态结束 dialog 两段式回读，避免无身份或畸形回包静默成功。
-fn emit_dialog_list_failed(
-    out: &mut EffectSink,
-    causation_id: Option<String>,
-) -> Result<(), ImError> {
-    out.push(
-        crate::event::channel::list(serde_json::json!({
-            "channels": [],
-            "requestId": causation_id,
-            "state": "failed",
-        }))?
-        .into_effect(),
-    );
-    Ok(())
-}
-
 /// Decode the channel row returned after a notify write; sparse WS input is never used as the
 /// final event payload, so absent fields retain the durable values already in SQLite.
 fn notify_channel_update_from_reply(
@@ -1167,20 +1151,80 @@ impl ImModule {
                 self.forward_committed_readback(*read, outcome, out)?
             }
 
-            CorrelationContext::DialogListQuery { causation_id } => match outcome {
-                PortOutcome::Ok(reply) => {
-                    out.push(self.emit_dialog_list_result_for_runtime(
-                        causation_id.as_deref(),
-                        reply.0.as_ref(),
-                    ));
-                }
-                PortOutcome::Err(e) => {
-                    tracing::warn!(error = ?e, "dialog list scan failed");
+            CorrelationContext::DialogListQuery {
+                causation_id,
+                auth_user_id,
+                company_id,
+                channel_rows,
+            } => {
+                if self.config.auth_user_id != auth_user_id || self.config.company_id != company_id
+                {
+                    tracing::warn!("dialog list identity changed; refusing stale snapshot");
                     out.push(
                         self.emit_dialog_list_result_for_runtime(causation_id.as_deref(), b"[]"),
                     );
+                    return Ok(());
                 }
-            },
+                let PortOutcome::Ok(reply) = outcome else {
+                    tracing::warn!("dialog list channel/member scan failed");
+                    out.push(
+                        self.emit_dialog_list_result_for_runtime(causation_id.as_deref(), b"[]"),
+                    );
+                    return Ok(());
+                };
+                if let Some(channel_rows) = channel_rows {
+                    let merged_rows = match crate::event::read::merge_dialog_rows_for_viewer(
+                        channel_rows.as_ref(),
+                        reply.0.as_ref(),
+                        auth_user_id.as_str(),
+                    ) {
+                        Ok(rows) => rows,
+                        Err(error) => {
+                            tracing::warn!(error = ?error, "dialog member absolute snapshot rejected");
+                            out.push(self.emit_dialog_list_result_for_runtime(
+                                causation_id.as_deref(),
+                                b"[]",
+                            ));
+                            return Ok(());
+                        }
+                    };
+                    let bytes = serde_json::to_vec(&merged_rows)
+                        .map_err(|error| ImError::Serialize(error.to_string()))?;
+                    out.push(
+                        self.emit_dialog_list_result_for_runtime(causation_id.as_deref(), &bytes),
+                    );
+                } else {
+                    let scope = crate::query::DialogListScope::new(&auth_user_id, &company_id);
+                    let channel_rows =
+                        crate::query::project_dialog_list_items(reply.0.as_ref(), &scope);
+                    if channel_rows.is_empty() {
+                        out.push(
+                            self.emit_dialog_list_result_for_runtime(
+                                causation_id.as_deref(),
+                                b"[]",
+                            ),
+                        );
+                        return Ok(());
+                    }
+                    let member_corr = self.alloc_corr_internal();
+                    let member_effect = crate::channel_sync::dialog_member_scan_effect(
+                        member_corr,
+                        &channel_rows,
+                        &company_id,
+                        &auth_user_id,
+                    )?;
+                    self.state.corr_map.insert(
+                        member_corr,
+                        CorrelationContext::DialogListQuery {
+                            causation_id,
+                            auth_user_id,
+                            company_id,
+                            channel_rows: Some(Box::new(channel_rows)),
+                        },
+                    );
+                    out.push(member_effect);
+                }
+            }
 
             CorrelationContext::ChannelViewSnapshotQuery {
                 channel_id,
@@ -1216,53 +1260,6 @@ impl ImModule {
                     body,
                 ));
             }
-
-            // 兼容仍在迁移中的旧两段 dialog/member 绝对投影回读；生产入口已统一走 typed Result。
-            CorrelationContext::DialogListMemberSnapshot {
-                channel_rows,
-                causation_id,
-                auth_user_id,
-            } => match outcome {
-                PortOutcome::Ok(reply) => {
-                    if self.config.auth_user_id.as_str() != auth_user_id.as_str() {
-                        tracing::warn!(
-                            "dialog member readback identity changed; refusing stale snapshot"
-                        );
-                        emit_dialog_list_failed(out, causation_id)?;
-                        return Ok(());
-                    }
-                    let merged_rows = match crate::event::read::merge_dialog_rows_for_viewer(
-                        channel_rows.as_ref(),
-                        reply.0.as_ref(),
-                        auth_user_id.as_str(),
-                    ) {
-                        Ok(rows) => rows,
-                        Err(error) => {
-                            tracing::warn!(error = ?error, "dialog member readback rejected");
-                            emit_dialog_list_failed(out, causation_id)?;
-                            return Ok(());
-                        }
-                    };
-                    let read_events = crate::event::read::channels_from_dialog_rows(
-                        &merged_rows,
-                        auth_user_id.as_str(),
-                    )?;
-                    out.push(
-                        crate::event::channel::list(serde_json::json!({
-                            "channels": merged_rows,
-                            "requestId": causation_id,
-                        }))?
-                        .into_effect(),
-                    );
-                    for event in read_events {
-                        out.push(event.into_effect());
-                    }
-                }
-                PortOutcome::Err(error) => {
-                    tracing::warn!(error = ?error, "dialog member scan failed");
-                    emit_dialog_list_failed(out, causation_id)?;
-                }
-            },
 
             // G13d 本地 topic Scan 只发布一次 parent-scoped typed Result，不广播业务事件。
             CorrelationContext::SubtopicsQuery {

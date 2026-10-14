@@ -1198,3 +1198,9 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 
 🎯 EXPECT hydration TooLong 经权威窗口与cursor原子提交完成原命令，后续fromSeq使用新cursor、不重复旧恢复；失败不推进。证据见 docs/交接/1012-TooLong恢复/handoff.md。 | @2026-10-12
 ✅ DONE hydration TooLong窗口/cursor原子恢复及新cursor补拉已实现；54 focused+2 buffer回归、真实Go HTTP/PostgreSQL副本/Native SQLite/EventSink两组通过。全套IM受无关G03a参考schema阻断；Tauri/发布未运行。详见 docs/交接/1012-TooLong恢复/handoff.md。
+
+🎯 EXPECT 仅修MR11当前viewer成员查询与MR15自有WS夹具；三群15000成员查询及CPP回声终态定向测试通过，不触发流水线 | 赌注 中 | 可逆 是 | @2026-10-13
+
+✅ DONE MR11成员读取先按viewer过滤；公开Tick→真实SQLite三群15000成员红→绿，Host26/P6查询14/Web过滤2及三端Rust验收通过；MR15仍独立验证。交接：docs/交接/1013-MR11与15定向修复/handoff.md。
+
+✅ DONE MR11/P1与MR15/P2分别隔离修复、本地定向验证并独立提交；PC导航适配器8项/UI逻辑40项通过，当前locate不发送navigationToken。未push或触发流水线。最终身份/边界见docs/交接/1013-MR11与15定向修复/handoff.md。

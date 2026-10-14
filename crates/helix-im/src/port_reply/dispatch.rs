@@ -818,7 +818,7 @@ impl ImModule {
                 reset_to,
                 channel_updates,
             } => match outcome {
-                PortOutcome::Ok(reply) => {
+                PortOutcome::Ok(_) => {
                     self.clear_too_long_recovery(channel_id);
                     let committed = self
                         .state
@@ -827,11 +827,16 @@ impl ImModule {
                         .is_some_and(|channel| channel.commit_too_long_after_atomic(reset_to));
                     if committed {
                         for pending in channel_updates {
-                            if let Some(data) =
-                                pending.event_data_from_channel_reply(reply.0.as_ref())
-                            {
-                                out.push(crate::event::channel::update(data)?.into_effect());
-                            }
+                            // 原子写不返回行；提交成功后再读回绝对未读值，复用统一频道投影。
+                            let read_corr = self.alloc_corr_internal();
+                            out.push(helix_core::Effect::Persist {
+                                corr: read_corr,
+                                ops: vec![crate::acl::to_effect::get_channel_row_op(channel_id)],
+                            });
+                            self.state.corr_map.insert(
+                                read_corr,
+                                CorrelationContext::ChannelUpdateByPost { pending },
+                            );
                         }
                         self.finish_increment_hydration(channel_id, out)?;
                         // resetTo 只覆盖原响应时刻；再从已提交cursor有界补拉，接住恢复期间的新事件。

@@ -125,9 +125,6 @@ impl ImModule {
                 &pending.update,
             ));
         }
-        if !channel_updates.is_empty() {
-            ops.push(crate::acl::to_effect::get_channel_row_op(channel_id));
-        }
         // 权威窗口与 cursor 共用同一个写屏障，空窗口也必须如此；重拉失败时旧行与旧 cursor 均不变。
         ops.push(crate::acl::to_effect::advance_cursor_op(
             channel_id, reset_to,

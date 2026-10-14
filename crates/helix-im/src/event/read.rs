@@ -97,7 +97,73 @@ pub(crate) fn channels_from_dialog_rows(
         .collect()
 }
 
-/// 合并首段 channel 行与当前 viewer 的 member 置顶回读，缺行或越权行一律失败闭合。
+/// 成员专属 dialog 字段只覆盖对应投影，不能把成员公司或主键当作频道归属。
+const MEMBER_DIALOG_FIELDS: &[(&[&str], &str, &str)] = &[
+    (&["last_post", "lastPost"], "last_post", "lastPost"),
+    (
+        &["last_post_at", "lastPostAt"],
+        "last_post_at",
+        "lastPostAt",
+    ),
+    (
+        &["last_root_post_at", "lastRootPostAt"],
+        "last_root_post_at",
+        "lastRootPostAt",
+    ),
+    (
+        &["mention_count", "mentionCount"],
+        "mention_count",
+        "mentionCount",
+    ),
+    (
+        &["mention_count_root", "mentionCountRoot"],
+        "mention_count_root",
+        "mentionCountRoot",
+    ),
+    (
+        &["mention_list", "mentionList"],
+        "mention_list",
+        "mentionList",
+    ),
+    (
+        &["mention_user", "mentionUser"],
+        "mention_user",
+        "mentionUser",
+    ),
+    (
+        &["urgent_mention_count", "urgent_count", "urgentCount"],
+        "urgent_count",
+        "urgentCount",
+    ),
+    (
+        &["urgent_post_list", "urgentPostList"],
+        "urgent_post_list",
+        "urgentPostList",
+    ),
+    (
+        &[
+            "urgent_mention_user",
+            "urgent_current_name",
+            "urgentCurrentName",
+        ],
+        "urgent_current_name",
+        "urgentCurrentName",
+    ),
+    (&["msg_count", "msgCount"], "msg_count", "msgCount"),
+    (
+        &["msg_count_root", "msgCountRoot"],
+        "msg_count_root",
+        "msgCountRoot",
+    ),
+    (
+        &["msg_count_private", "msgCountPrivate"],
+        "msg_count_private",
+        "msgCountPrivate",
+    ),
+    (&["effect_id", "effectId"], "effect_id", "effectId"),
+];
+
+/// 合并当前 viewer 的成员绝对态，并复用 channel_sync 的 count/anchor/revision 校验。
 pub(crate) fn merge_dialog_rows_for_viewer(
     channel_rows: &[Value],
     member_reply_bytes: &[u8],
@@ -124,11 +190,15 @@ pub(crate) fn merge_dialog_rows_for_viewer(
     for row in &member_rows {
         let user_id = dialog_row_text(row, "user_id", "userId", "member user_id")?;
         if user_id != auth_user_id {
-            return Err(ImError::Parse(format!(
-                "dialog member readback user scope mismatch: {user_id}"
-            )));
+            // ScopedScan 同时读到其他成员，只有当前认证 viewer 可以覆盖绝对投影。
+            continue;
         }
         let channel_id = dialog_row_channel_id(row, "member")?;
+        if !channel_ids.contains(channel_id) {
+            return Err(ImError::Parse(format!(
+                "dialog member readback channel scope mismatch: {channel_id}"
+            )));
+        }
         dialog_row_bool(row, "channel_is_top", "channelIsTop")?;
         if members_by_channel
             .insert(channel_id.to_string(), row)
@@ -153,27 +223,52 @@ pub(crate) fn merge_dialog_rows_for_viewer(
         let object = row
             .as_object_mut()
             .ok_or_else(|| ImError::Parse("dialog channel row must be object".into()))?;
-        let member_object = member
-            .as_object()
-            .ok_or_else(|| ImError::Parse("dialog member row must be object".into()))?;
-        for (key, value) in member_object {
-            if !matches!(
-                key.as_str(),
-                "id" | "channel_id" | "channelId" | "user_id" | "userId"
-            ) {
-                object.insert(key.clone(), value.clone());
+        for (keys, snake, camel) in MEMBER_DIALOG_FIELDS {
+            if let Some(value) = keys.iter().find_map(|key| member.get(*key)) {
+                object.insert((*snake).to_string(), value.clone());
+                object.insert((*camel).to_string(), value.clone());
             }
         }
+        object.insert("is_top".into(), Value::from(if top { 1 } else { 0 }));
         object.insert("channelIsTop".into(), Value::Bool(top));
+        crate::channel_sync::overlay_viewer_unread_projection(&mut row, member).map_err(|()| {
+            ImError::Parse(format!(
+                "dialog member unread projection invalid: {channel_id}"
+            ))
+        })?;
         merged.push(row);
     }
+    // 保留原查询排序键与稳定同值顺序；置顶和最后消息使用成员覆盖后的绝对态。
+    merged.sort_by(|left, right| {
+        integer(right, "is_top", "channelIsTop")
+            .cmp(&integer(left, "is_top", "channelIsTop"))
+            .then_with(|| {
+                integer(right, "last_post_at", "lastPostAt").cmp(&integer(
+                    left,
+                    "last_post_at",
+                    "lastPostAt",
+                ))
+            })
+            .then_with(|| {
+                integer(right, "created_at", "createdAt").cmp(&integer(
+                    left,
+                    "created_at",
+                    "createdAt",
+                ))
+            })
+    });
     Ok(merged)
 }
 
 /// 提取 channel 或 channel_member 行的非空频道标识，并拒绝双字段不一致。
 fn dialog_row_channel_id<'a>(row: &'a Value, scope: &str) -> Result<&'a str, ImError> {
-    let id = row.get("id").and_then(Value::as_str);
-    let channel_id = row.get("channel_id").and_then(Value::as_str);
+    let id = (scope == "channel")
+        .then(|| row.get("id").and_then(Value::as_str))
+        .flatten();
+    let channel_id = row
+        .get("channel_id")
+        .or_else(|| row.get("channelId"))
+        .and_then(Value::as_str);
     if let (Some(id), Some(channel_id)) = (id, channel_id) {
         if id != channel_id {
             return Err(ImError::Parse(format!(
@@ -306,6 +401,7 @@ pub fn post_for_viewer_with_event_seq(
 
 #[cfg(test)]
 mod tests {
+    /// 重启成员绝对态必须携带有效未读锚点与 revision 对应的 read-seq/effect identity。
     #[test]
     fn dialog_merge_uses_member_unread_after_restart() {
         let channel_id = crate::state::test_channel_id(1);
@@ -318,7 +414,10 @@ mod tests {
             "user_id": "viewer",
             "channel_is_top": 0,
             "unread_count": 9,
-            "projection_revision": 4
+            "unread_post_id": "restart-anchor",
+            "last_read_seq": 3,
+            "projection_revision": 4,
+            "effect_id": "restart-effect-4"
         }]);
 
         let merged = super::merge_dialog_rows_for_viewer(

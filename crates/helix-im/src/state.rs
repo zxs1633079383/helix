@@ -617,6 +617,9 @@ impl ImState {
                     | CorrelationContext::IncrementPullPersist
                     | CorrelationContext::TooLongReload { .. }
                     | CorrelationContext::TooLongReloadPersist { .. }
+                    | CorrelationContext::ChannelUpdateByPost { .. }
+                    | CorrelationContext::TopicActivityRootRead { .. }
+                    | CorrelationContext::TopicActivityPersist { .. }
                     | CorrelationContext::IncrementBatchPersist { .. }
                     | CorrelationContext::ChannelSyncPage { .. }
                     | CorrelationContext::ChannelSyncPageMemberSnapshot { .. }

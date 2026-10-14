@@ -2,7 +2,12 @@
 
 use bytes::Bytes;
 use helix_core::tick::{PortOutcome, ReplyBytes};
-use helix_core::Correlation;
+use helix_core::{Correlation, Effect, EffectSink, Module, Tick};
+use helix_im::client_api::build_command;
+use helix_im::module::ImConfig;
+use helix_im::query::LocalStoreMode;
+use helix_im::timeline_navigation::parse_locate_request_for_command;
+use helix_im::ImModule;
 use serde_json::{json, Value};
 
 #[path = "../../support/artifact.rs"]
@@ -14,6 +19,153 @@ const CHANNEL_ID: &str = "chfixx0000000000000000001c";
 const CREATED_AT: i64 = 1_700_001_300_000;
 
 type TestResult<T> = Result<T, String>;
+
+/// 将外部 JSON 经三端共享门面交给真实 Module，并保留拒绝路径的 Effect。
+fn execute_public_locate(
+    command_name: &str,
+    payload: Value,
+) -> TestResult<(TestResult<()>, EffectSink, Bytes)> {
+    let encoded = serde_json::to_vec(&payload).map_err(|error| error.to_string())?;
+    let command = build_command(command_name, &encoded).map_err(|error| error.to_string())?;
+    let normalized = command.payload.clone();
+    let mut module = ImModule::new_with_local_store(
+        ImConfig {
+            api_base_url: "http://g11a.invalid".to_string(),
+            auth_user_id: "g10c-actor".to_string(),
+            company_id: "g10c-company".to_string(),
+            ..ImConfig::default()
+        },
+        LocalStoreMode::Session,
+    );
+    let mut sink = EffectSink::new();
+    let result = module
+        .handle(&Tick::Command(command), CREATED_AT as u64, &mut sink)
+        .map_err(|error| error.to_string());
+    Ok((result, sink, normalized))
+}
+
+/// 构造只包含公开 locate 合法字段的请求；各测试自行增添待验证字段。
+fn public_locate_payload() -> Value {
+    json!({
+        "channelId": CHANNEL_ID,
+        "messageId": base::server_id(8),
+        "pageSize": 20,
+        "reqId": "g11a-public-request",
+    })
+}
+
+/// 检查归一化 token 被真实执行接受，并且目标、请求 ID 和 HTTP 形状保持不变。
+fn assert_public_locate_token(token_field: &str) -> TestResult<()> {
+    const TOKEN: &str = "g11a-public-Navigation:Token/17";
+    for command_name in ["im_locate_message", "im_locate_context"] {
+        let mut payload = public_locate_payload();
+        payload[token_field] = json!(TOKEN);
+        let (result, sink, normalized) = execute_public_locate(command_name, payload)?;
+        result?;
+        let parsed = parse_locate_request_for_command(&normalized, command_name)
+            .map_err(|error| error.to_string())?;
+        assert_eq!(parsed.0.as_str(), CHANNEL_ID);
+        assert_eq!(parsed.1, base::server_id(8));
+        assert_eq!(parsed.2, 20);
+        assert_eq!(parsed.3.as_deref(), Some("g11a-public-request"));
+        assert_eq!(parsed.4.as_deref(), Some(TOKEN));
+        let normalized: Value =
+            serde_json::from_slice(&normalized).map_err(|error| error.to_string())?;
+        assert_eq!(normalized["navigation_token"], TOKEN);
+        assert!(normalized.get("navigationToken").is_none());
+        let [Effect::Http { req, .. }] = sink.as_slice() else {
+            return Err(format!(
+                "{command_name} must produce exactly one HTTP Effect"
+            ));
+        };
+        assert_eq!(req.method, "POST");
+        assert_eq!(req.url, "http://g11a.invalid/posts/postContext");
+        assert!(req
+            .headers
+            .iter()
+            .any(|(key, value)| { key == "Cses-Track-Id" && value == "g11a-public-request" }));
+        let body: Value = serde_json::from_slice(
+            req.body
+                .as_ref()
+                .ok_or_else(|| "missing locate HTTP body".to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        assert_eq!(body["postId"], base::server_id(8));
+        assert_eq!(body["pageSize"], 20);
+    }
+    Ok(())
+}
+
+/// Web/FFI 公开 camelCase 输入不能在门面改名后被 locate parser 拒绝。
+#[test]
+fn g11a_public_locate_preserves_camel_case_navigation_token() -> TestResult<()> {
+    assert_public_locate_token("navigationToken")
+}
+
+/// 已规范化的 snake_case 输入与 camelCase 共享同一有效 token 合同。
+#[test]
+fn g11a_public_locate_preserves_snake_case_navigation_token() -> TestResult<()> {
+    assert_public_locate_token("navigation_token")
+}
+
+/// token 的空串及错误类型必须在任何 HTTP、Persist 或 Emit 之前失败。
+#[test]
+fn g11a_public_locate_rejects_empty_and_wrong_type_tokens_before_effects() -> TestResult<()> {
+    for command_name in ["im_locate_message", "im_locate_context"] {
+        for token_field in ["navigationToken", "navigation_token"] {
+            for token in [
+                json!(""),
+                Value::Null,
+                json!(7),
+                json!(true),
+                json!([]),
+                json!({}),
+            ] {
+                let mut payload = public_locate_payload();
+                payload[token_field] = token;
+                let (result, sink, _) = execute_public_locate(command_name, payload)?;
+                let error = result
+                    .err()
+                    .ok_or_else(|| format!("{command_name} accepted invalid {token_field}"))?;
+                assert!(error.contains("must be non-empty string"), "{error}");
+                assert!(sink.is_empty(), "rejected token produced an Effect");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 规范化不能把未知 renderer 字段变成合法导航输入。
+#[test]
+fn g11a_public_locate_rejects_unknown_fields_before_effects() -> TestResult<()> {
+    for command_name in ["im_locate_message", "im_locate_context"] {
+        let mut payload = public_locate_payload();
+        payload["rendererCursor"] = json!("not-authoritative");
+        let (result, sink, _) = execute_public_locate(command_name, payload)?;
+        let error = result
+            .err()
+            .ok_or_else(|| "unknown field was accepted".to_string())?;
+        assert!(error.contains("unknown field: renderer_cursor"), "{error}");
+        assert!(sink.is_empty(), "unknown field produced an Effect");
+    }
+    Ok(())
+}
+
+/// 未提供可选 token 的合法公开请求继续使用既有 req_id 导航关联。
+#[test]
+fn g11a_public_locate_keeps_navigation_token_optional() -> TestResult<()> {
+    for command_name in ["im_locate_message", "im_locate_context"] {
+        let (result, sink, normalized) =
+            execute_public_locate(command_name, public_locate_payload())?;
+        result?;
+        let parsed = parse_locate_request_for_command(&normalized, command_name)
+            .map_err(|error| error.to_string())?;
+        assert_eq!(parsed.3.as_deref(), Some("g11a-public-request"));
+        assert!(parsed.4.is_none());
+        assert!(matches!(sink.as_slice(), [Effect::Http { .. }]));
+    }
+    Ok(())
+}
 
 /// 记录当前 token 与 stale token 的两次 terminal event。
 struct PersonaTrace {

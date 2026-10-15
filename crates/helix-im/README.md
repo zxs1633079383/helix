@@ -5,7 +5,7 @@
 
 ```toml
 [dependencies]
-helix-im = "=0.1.52"
+helix-im = "=0.1.69"
 ```
 
 本项目采用 `MIT OR Apache-2.0` 双许可证。
@@ -163,3 +163,28 @@ WS 发 `{action:"presence_watch",seq,data:{userIds,generation}}`，每 20 秒续
 Persist/SQLite 生命周期为 N/A（瞬时状态），WS 无确认时由 15 秒失效处理。
 定向回放入口：`cargo test -p helix-im --test presence_test`；仅证明 sans-IO 合同，
 真实 Go/WS/Tauri UI、三端业务验收和 5000 人群负载未由这些回放证明。
+
+## 普通未读清除边界与可见回应查询
+
+`im_channels_view` 的 `channels` 每项为 `{id,isRoot:true,throughPostId?}`。
+可选 `throughPostId` 必须是 canonical post ID；省略时保留原请求形状，提供时原样
+透传至 `/channels/view`。公开入口与 outbound 均校验，null、空串、临时 ID、非字符串
+及未知字段均拒绝，不将非法边界降级为无边界请求。见
+[`client_api/command.rs`](src/client_api/command.rs) 与
+[`outbound/channel_admin/change_dedicated.rs`](src/outbound/channel_admin/change_dedicated.rs)。
+命令与 HTTP 成功不乐观清零；频道投影仍由权威成员事实经持久化屏障推进。
+
+`im_reaction_unread({channel_id,req_id,post_ids?})` 将可选 `post_ids` 映射为
+`posts/reactionUnread` 的 `postIds`：允许空数组，最多 100 个不重复、非空且无首尾空白的
+字符串。省略时不附加过滤字段。ACK 仍使用
+`im_reaction_unread_ack({channel_id,post_id,observed_revision,req_id})`，不接收 `post_ids`。
+请求合同见 [`outbound/engagement/reaction_unread.rs`](src/outbound/engagement/reaction_unread.rs)。
+
+响应的可选 `targets` 最多 100 项且不超过权威 `count`；post ID 不重复，revision 为正
+十进制 i64 字符串。成员投影须匹配频道、认证用户及回应未读数，经原子持久化和版本/effect
+读回核对后，才通过 `im:read:result` 原样返回响应 body；失败不发布成功结果。见
+[`port_reply/reaction_unread.rs`](src/port_reply/reaction_unread.rs)。
+
+回归入口：`cargo test -p helix-im --test message_v3_g13`；其中包含边界透传、非法过滤、
+非法 targets、持久化失败与重复回执用例。本轮仅核对源码与 Cargo 注册，未运行这些测试，
+不据此声明 Go、Native/UI 或大群容量已通过。

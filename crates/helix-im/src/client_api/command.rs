@@ -607,9 +607,14 @@ fn validate_canonical_root_channels(value: &Value, command: &str) -> Result<(), 
         let object = channel
             .as_object()
             .ok_or_else(|| ImError::Parse(format!("{command}: channel 必须是 object")))?;
-        if object.len() != 2 || !object.contains_key("id") || !object.contains_key("isRoot") {
+        if !object.contains_key("id")
+            || !object.contains_key("isRoot")
+            || object
+                .keys()
+                .any(|key| !["id", "isRoot", "throughPostId"].contains(&key.as_str()))
+        {
             return Err(ImError::Parse(format!(
-                "{command}: channel 只能包含 id/isRoot canonical 字段"
+                "{command}: channel 只能包含 id/isRoot/throughPostId canonical 字段"
             )));
         }
         let id = object
@@ -624,6 +629,16 @@ fn validate_canonical_root_channels(value: &Value, command: &str) -> Result<(), 
         }
         if object.get("isRoot").and_then(Value::as_bool) != Some(true) {
             return Err(ImError::Parse(format!("{command}: isRoot 必须为 true")));
+        }
+        if let Some(post) = object.get("throughPostId") {
+            if post
+                .as_str()
+                .is_none_or(|id| !crate::state::is_canonical_post_id(id))
+            {
+                return Err(ImError::Parse(format!(
+                    "{command}: throughPostId 必须是 canonical post id"
+                )));
+            }
         }
         if !seen.insert(id) {
             return Err(ImError::Parse(format!("{command}: channel id 重复: {id}")));
@@ -840,6 +855,30 @@ mod tests {
                 );
             }
             other => panic!("expected Http, got {other:?}"),
+        }
+    }
+
+    /// 显式边界保留 Java/Go ID；不得将非法边界降级为全清。
+    #[test]
+    fn channels_view_public_boundary_roundtrips_and_rejects_invalid_ids() {
+        for post in [json!(test_post_id(1)), json!("507f1f77bcf86cd799439011")] {
+            let payload =
+                json!({"channels":[{"id":test_channel_id(1),"isRoot":true,"throughPostId":post}]});
+            let command =
+                build_command("im_channels_view", payload.to_string().as_bytes()).unwrap();
+            let normalized: Value = serde_json::from_slice(command.payload.as_ref()).unwrap();
+            assert_eq!(normalized, payload);
+        }
+        for post in [
+            Value::Null,
+            json!(""),
+            json!("temp-local"),
+            json!(12),
+            json!(" 507f1f77bcf86cd799439011"),
+        ] {
+            let payload =
+                json!({"channels":[{"id":test_channel_id(1),"isRoot":true,"throughPostId":post}]});
+            assert!(build_command("im_channels_view", payload.to_string().as_bytes()).is_err());
         }
     }
 

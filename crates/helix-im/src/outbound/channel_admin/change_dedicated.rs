@@ -237,7 +237,7 @@ impl OutboundCommand for ViewChannelsCommand {
     }
 
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
-        // 只接收 client_api 已一次归一化的 `{id,isRoot:true}`，这里不再补字段或改 id。
+        // 只接收 client_api 已一次归一化的 `{id,isRoot:true,throughPostId?}`，这里不再补字段或改 id。
         let channels = require_canonical_root_channels(args, self.name())?;
         Ok(("channels/view", json!({ "channels": channels })))
     }
@@ -259,9 +259,14 @@ fn require_canonical_root_channels(args: &Value, command: &str) -> Result<Value,
         let object = channel
             .as_object()
             .ok_or_else(|| ImError::Parse(format!("{command}: channel 必须是 object")))?;
-        if object.len() != 2 || !object.contains_key("id") || !object.contains_key("isRoot") {
+        if !object.contains_key("id")
+            || !object.contains_key("isRoot")
+            || object
+                .keys()
+                .any(|key| !["id", "isRoot", "throughPostId"].contains(&key.as_str()))
+        {
             return Err(ImError::Parse(format!(
-                "{command}: channel 只能包含 id/isRoot canonical 字段"
+                "{command}: channel 只能包含 id/isRoot/throughPostId canonical 字段"
             )));
         }
         let id = object
@@ -276,6 +281,16 @@ fn require_canonical_root_channels(args: &Value, command: &str) -> Result<Value,
         }
         if object.get("isRoot").and_then(Value::as_bool) != Some(true) {
             return Err(ImError::Parse(format!("{command}: isRoot 必须为 true")));
+        }
+        if let Some(post) = object.get("throughPostId") {
+            if post
+                .as_str()
+                .is_none_or(|id| !crate::state::is_canonical_post_id(id))
+            {
+                return Err(ImError::Parse(format!(
+                    "{command}: throughPostId 必须是 canonical post id"
+                )));
+            }
         }
         if !seen.insert(id) {
             return Err(ImError::Parse(format!("{command}: channel id 重复: {id}")));

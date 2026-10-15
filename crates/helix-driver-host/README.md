@@ -5,7 +5,7 @@ timer、事件投递与执行循环适配器。
 
 ```toml
 [dependencies]
-helix-driver-host = "=0.1.52"
+helix-driver-host = "=0.1.69"
 ```
 
 本项目采用 `MIT OR Apache-2.0` 双许可证。
@@ -25,6 +25,13 @@ helix-driver-host = "=0.1.52"
 `protocol=grpc`、`deployment_environment=local`；默认 endpoint 为
 `http://opentelemetry-collector.monitoring.svc.cluster.local:4317`，实际可达性由宿主环境决定。
 环境值归一到 `local/test/dev/pre/prod`，其他值回落为 `local`。
+
+宿主选择 `HostOtelRuntime::from_env` / `from_env_with_metric_sink` 时，读取
+`HELIX_OTEL_ENABLED`、`HELIX_OTEL_PROTOCOL`；服务名、端点、环境依次优先读取
+`HELIX_OTEL_SERVICE_NAME` / `HELIX_OTEL_ENDPOINT` / `HELIX_OTEL_DEPLOYMENT_ENVIRONMENT`，
+缺失时分别回退到 `OTEL_SERVICE_NAME` / `OTEL_EXPORTER_OTLP_ENDPOINT` /
+`OTEL_DEPLOYMENT_ENVIRONMENT`。两级服务名均缺失时使用调用方传入的默认服务名；
+端点与环境回退到 `HostOtelConfig` 默认值。直接传入配置的构造路径不因此自动读取环境变量。
 
 [`TraceScope::step`](src/trace/hooks.rs) 将当前 span 的合法 TraceId 显式传入 core，
 再将当轮失败登记到当前 step/root span；`record_failure` 标记 Error，

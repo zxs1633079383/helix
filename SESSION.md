@@ -1,3 +1,8 @@
+🎯 EXPECT 仅修改Markdown；四公共包版本入口与当前manifest一致，补充有源码证据的API说明；链接/索引/Spec聚焦校验通过，历史缺口与未覆盖范围单列。 | 赌注 中 | 可逆 是 | @2026-10-15 08:01 CST
+- 本任务交接：docs/交接/Markdown日检-20261015/handoff.md
+✅ DONE 六处版本入口、未读/回应API与Trace环境配置已对齐；本批静态校验通过，历史缺口及未覆盖语义单列，整体PARTIAL；交付结果见交接所指报告。
+✅ DONE channels/view 可选 throughPostId 两层严格校验与透传，公开5项/G13 16项、五crate/core/WASM通过；IM全量481pass/1无关文件大小断言fail。未提交发布，真实链待验。详见 docs/交接/1014-unread-boundary/handoff.md。
+🎯 EXPECT channels/view 每项可选 throughPostId 经公开入口与 outbound 严格校验并透传；无字段保留全清，非法边界不发HTTP、不乐观清零，G13公开Tick先红后绿。| 赌注 低 | 可逆 是 | @2026-10-14
 ✅ DONE 用户授权发布0.1.67四包并全部registry可解析；版本提交与Tag同步，客户端接入本版。合并后G13 14项通过，6项既有绝对路径合同失败，真实桌面待验。详见 docs/交接/1014-visible-reaction-query/handoff.md。
 ✅ DONE 可见回应过滤公开Tick先红后绿，G13 14项、五crate check、core、WASM通过；全量被既有合同路径缺失阻断。未提交发布；真实Go/Tauri待主任务，详见 docs/交接/1014-visible-reaction-query/handoff.md。
 🎯 EXPECT 可选 post_ids 最多100项映射HTTP postIds，targets经校验与持久屏障原样返回；原查询和ACK不变，公开Tick先红后绿，不提版提交发布。| 赌注 低 | 可逆 是 | @2026-10-14

@@ -1,0 +1,1626 @@
+{
+  "crate": {
+    "id": "cses-helix-core",
+    "name": "cses-helix-core",
+    "updated_at": "2026-09-15T05:17:15.033947Z",
+    "versions": [
+      3239916,
+      3238694,
+      3232327,
+      3210120,
+      3202352,
+      3201196,
+      3199587,
+      3194258,
+      3194148,
+      3186913,
+      3186275,
+      3185715,
+      3184267,
+      3149396,
+      3149068,
+      3142356,
+      3140120,
+      3139432,
+      3132646,
+      3125124,
+      3103925,
+      3089764,
+      3082805
+    ],
+    "keywords": [],
+    "categories": [],
+    "badges": [],
+    "created_at": "2026-08-26T09:59:01.209712Z",
+    "downloads": 674,
+    "recent_downloads": 674,
+    "default_version": "0.1.22",
+    "num_versions": 23,
+    "yanked": false,
+    "max_version": "0.1.22",
+    "newest_version": "0.1.22",
+    "max_stable_version": "0.1.22",
+    "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+    "homepage": null,
+    "documentation": null,
+    "repository": "https://git.yundiz.com/cses/go/helix",
+    "links": {
+      "version_downloads": "/api/v1/crates/cses-helix-core/downloads",
+      "versions": null,
+      "owners": "/api/v1/crates/cses-helix-core/owners",
+      "owner_team": "/api/v1/crates/cses-helix-core/owner_team",
+      "owner_user": "/api/v1/crates/cses-helix-core/owner_user",
+      "reverse_dependencies": "/api/v1/crates/cses-helix-core/reverse_dependencies"
+    },
+    "exact_match": false,
+    "trustpub_only": false
+  },
+  "versions": [
+    {
+      "id": 3239916,
+      "crate": "cses-helix-core",
+      "num": "0.1.22",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.22/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.22/readme",
+      "updated_at": "2026-09-15T05:17:15.033947Z",
+      "created_at": "2026-09-15T05:17:15.033947Z",
+      "downloads": 17,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.22/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.22/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.22/authors"
+      },
+      "crate_size": 37437,
+      "published_by": {
+        "id": 439872,
+        "login": "fatekingsama",
+        "name": "Hui Qiao",
+        "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+        "url": "https://github.com/fatekingsama",
+        "github_username_matches": true,
+        "created_at": "2026-09-01T07:27:19.272488Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439872,
+            "login": "fatekingsama",
+            "name": "Hui Qiao",
+            "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+            "url": "https://github.com/fatekingsama",
+            "github_username_matches": true,
+            "created_at": "2026-09-01T07:27:19.272488Z"
+          },
+          "time": "2026-09-15T05:17:15.033947Z"
+        }
+      ],
+      "checksum": "13c1fce09b182ddadb920eacc245c9066f25ee32414892d9c30fe29cc253b232",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1459,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1459,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3238694,
+      "crate": "cses-helix-core",
+      "num": "0.1.21",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.21/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.21/readme",
+      "updated_at": "2026-09-15T01:35:27.478049Z",
+      "created_at": "2026-09-15T01:35:27.478049Z",
+      "downloads": 17,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.21/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.21/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.21/authors"
+      },
+      "crate_size": 37440,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-09-15T01:35:27.478049Z"
+        }
+      ],
+      "checksum": "61b4c8b056dbd192bc70ec90df4909cf4cb9cf77ba479f6f6347b00ffa2c38dd",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1459,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1459,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3232327,
+      "crate": "cses-helix-core",
+      "num": "0.1.20",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.20/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.20/readme",
+      "updated_at": "2026-09-14T07:47:54.588482Z",
+      "created_at": "2026-09-14T07:47:54.588482Z",
+      "downloads": 34,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.20/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.20/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.20/authors"
+      },
+      "crate_size": 37439,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-09-14T07:47:54.588482Z"
+        }
+      ],
+      "checksum": "8baaa1a277b359be600cce92ddf69d3dc1be80579ca9b5d27ab0d87ab5c73200",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1459,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1459,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3210120,
+      "crate": "cses-helix-core",
+      "num": "0.1.19",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.19/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.19/readme",
+      "updated_at": "2026-09-11T01:24:31.508278Z",
+      "created_at": "2026-09-11T01:24:31.508278Z",
+      "downloads": 32,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.19/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.19/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.19/authors"
+      },
+      "crate_size": 37434,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-09-11T01:24:31.508278Z"
+        }
+      ],
+      "checksum": "366438a37bc5a67a14a1dc82ab0e9070ad36ec8b71609cdcd28dfcc60622ab09",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1459,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1459,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3202352,
+      "crate": "cses-helix-core",
+      "num": "0.1.18",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.18/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.18/readme",
+      "updated_at": "2026-09-10T06:57:07.793978Z",
+      "created_at": "2026-09-10T06:57:07.793978Z",
+      "downloads": 41,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.18/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.18/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.18/authors"
+      },
+      "crate_size": 37259,
+      "published_by": {
+        "id": 439872,
+        "login": "fatekingsama",
+        "name": "Hui Qiao",
+        "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+        "url": "https://github.com/fatekingsama",
+        "github_username_matches": true,
+        "created_at": "2026-09-01T07:27:19.272488Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439872,
+            "login": "fatekingsama",
+            "name": "Hui Qiao",
+            "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+            "url": "https://github.com/fatekingsama",
+            "github_username_matches": true,
+            "created_at": "2026-09-01T07:27:19.272488Z"
+          },
+          "time": "2026-09-10T06:57:07.793978Z"
+        }
+      ],
+      "checksum": "683c8b8be312fda4520475d0f2d01e1dd19dd90ef38a42642a27a6ad0d739f4b",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1459,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1459,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3201196,
+      "crate": "cses-helix-core",
+      "num": "0.1.17",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.17/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.17/readme",
+      "updated_at": "2026-09-10T03:45:47.599300Z",
+      "created_at": "2026-09-10T03:45:47.599300Z",
+      "downloads": 37,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.17/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.17/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.17/authors"
+      },
+      "crate_size": 37265,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-09-10T03:45:47.599300Z"
+        }
+      ],
+      "checksum": "98866706d01eade8975c4a1fc772ff52c69c0d61a45db5dff742ebe5b48bf3ec",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1459,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1459,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3199587,
+      "crate": "cses-helix-core",
+      "num": "0.1.16",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.16/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.16/readme",
+      "updated_at": "2026-09-09T22:12:06.987833Z",
+      "created_at": "2026-09-09T22:12:06.987833Z",
+      "downloads": 28,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.16/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.16/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.16/authors"
+      },
+      "crate_size": 36699,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-09-09T22:12:06.987833Z"
+        }
+      ],
+      "checksum": "83665525f0e35d9321d76bd0b199cb730f2452880e1329912b056c42748e88b4",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3194258,
+      "crate": "cses-helix-core",
+      "num": "0.1.15",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.15/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.15/readme",
+      "updated_at": "2026-09-09T08:08:35.422684Z",
+      "created_at": "2026-09-09T08:08:35.422684Z",
+      "downloads": 27,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.15/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.15/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.15/authors"
+      },
+      "crate_size": 36698,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-09-09T08:08:35.422684Z"
+        }
+      ],
+      "checksum": "31fc6057e9773620a59758c2edacf0540a7bde53250363fcf2f0a434ae1e3d1f",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3194148,
+      "crate": "cses-helix-core",
+      "num": "0.1.14",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.14/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.14/readme",
+      "updated_at": "2026-09-09T07:55:35.918008Z",
+      "created_at": "2026-09-09T07:55:35.918008Z",
+      "downloads": 19,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.14/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.14/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.14/authors"
+      },
+      "crate_size": 36701,
+      "published_by": {
+        "id": 439872,
+        "login": "fatekingsama",
+        "name": "Hui Qiao",
+        "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+        "url": "https://github.com/fatekingsama",
+        "github_username_matches": true,
+        "created_at": "2026-09-01T07:27:19.272488Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439872,
+            "login": "fatekingsama",
+            "name": "Hui Qiao",
+            "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+            "url": "https://github.com/fatekingsama",
+            "github_username_matches": true,
+            "created_at": "2026-09-01T07:27:19.272488Z"
+          },
+          "time": "2026-09-09T07:55:35.918008Z"
+        }
+      ],
+      "checksum": "b3b3ff180a053c583045ee47e2b7ac10b0c21f0c033f2f5fea569342ecb71952",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3186913,
+      "crate": "cses-helix-core",
+      "num": "0.1.13",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.13/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.13/readme",
+      "updated_at": "2026-09-08T09:43:52.893895Z",
+      "created_at": "2026-09-08T09:43:52.893895Z",
+      "downloads": 27,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.13/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.13/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.13/authors"
+      },
+      "crate_size": 36696,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-09-08T09:43:52.893895Z"
+        }
+      ],
+      "checksum": "3231f795e0c05b189c086e98e74888a27313815d11dc98506874f9098b9df215",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3186275,
+      "crate": "cses-helix-core",
+      "num": "0.1.12",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.12/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.12/readme",
+      "updated_at": "2026-09-08T08:21:05.040910Z",
+      "created_at": "2026-09-08T08:21:05.040910Z",
+      "downloads": 26,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.12/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.12/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.12/authors"
+      },
+      "crate_size": 36694,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-09-08T08:21:05.040910Z"
+        }
+      ],
+      "checksum": "4bd34778046e689b222e3abe87bd0df9c5257881ceae5181089ba634074ee1ad",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3185715,
+      "crate": "cses-helix-core",
+      "num": "0.1.11",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.11/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.11/readme",
+      "updated_at": "2026-09-08T06:33:24.553785Z",
+      "created_at": "2026-09-08T06:33:24.553785Z",
+      "downloads": 30,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.11/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.11/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.11/authors"
+      },
+      "crate_size": 36699,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-09-08T06:33:24.553785Z"
+        }
+      ],
+      "checksum": "b2b8e9b3e26ff010ea288b0dea905ae2cf85d75d15c7684ec6e9b94ff08b2b7a",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3184267,
+      "crate": "cses-helix-core",
+      "num": "0.1.10",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.10/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.10/readme",
+      "updated_at": "2026-09-08T01:31:20.038578Z",
+      "created_at": "2026-09-08T01:31:20.038578Z",
+      "downloads": 20,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.10/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.10/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.10/authors"
+      },
+      "crate_size": 36698,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-09-08T01:31:20.038578Z"
+        }
+      ],
+      "checksum": "ae4ebc0cdf8c4fe621fd1ca90f0867d75f889751d36a95e7dd55f56ced3b5ee7",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3149396,
+      "crate": "cses-helix-core",
+      "num": "0.1.9",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.9/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.9/readme",
+      "updated_at": "2026-09-04T05:14:48.970368Z",
+      "created_at": "2026-09-04T05:14:48.970368Z",
+      "downloads": 34,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.9/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.9/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.9/authors"
+      },
+      "crate_size": 36700,
+      "published_by": {
+        "id": 439872,
+        "login": "fatekingsama",
+        "name": "Hui Qiao",
+        "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+        "url": "https://github.com/fatekingsama",
+        "github_username_matches": true,
+        "created_at": "2026-09-01T07:27:19.272488Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439872,
+            "login": "fatekingsama",
+            "name": "Hui Qiao",
+            "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+            "url": "https://github.com/fatekingsama",
+            "github_username_matches": true,
+            "created_at": "2026-09-01T07:27:19.272488Z"
+          },
+          "time": "2026-09-04T05:14:48.970368Z"
+        }
+      ],
+      "checksum": "affa195e1f3df0524f3feefce4120eeac3d8e7c52fcd46caf5fb9f3d0fcc618b",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3149068,
+      "crate": "cses-helix-core",
+      "num": "0.1.8",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.8/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.8/readme",
+      "updated_at": "2026-09-04T03:58:24.482093Z",
+      "created_at": "2026-09-04T03:58:24.482093Z",
+      "downloads": 35,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.8/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.8/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.8/authors"
+      },
+      "crate_size": 36692,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-09-04T03:58:24.482093Z"
+        }
+      ],
+      "checksum": "6e6d585fa903547044c033d1a9d092456c1a019685a44dd33dc930bbf9d6fac4",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3142356,
+      "crate": "cses-helix-core",
+      "num": "0.1.7",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.7/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.7/readme",
+      "updated_at": "2026-09-03T09:32:59.533431Z",
+      "created_at": "2026-09-03T09:32:59.533431Z",
+      "downloads": 38,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.7/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.7/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.7/authors"
+      },
+      "crate_size": 36698,
+      "published_by": {
+        "id": 439872,
+        "login": "fatekingsama",
+        "name": "Hui Qiao",
+        "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+        "url": "https://github.com/fatekingsama",
+        "github_username_matches": true,
+        "created_at": "2026-09-01T07:27:19.272488Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439872,
+            "login": "fatekingsama",
+            "name": "Hui Qiao",
+            "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+            "url": "https://github.com/fatekingsama",
+            "github_username_matches": true,
+            "created_at": "2026-09-01T07:27:19.272488Z"
+          },
+          "time": "2026-09-03T09:32:59.533431Z"
+        }
+      ],
+      "checksum": "9a36419a46850491c585f47d7a74b2eef0cd69496ab317b98fc16145a0157468",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3140120,
+      "crate": "cses-helix-core",
+      "num": "0.1.6",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.6/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.6/readme",
+      "updated_at": "2026-09-03T03:24:14.331809Z",
+      "created_at": "2026-09-03T03:24:14.331809Z",
+      "downloads": 36,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.6/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.6/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.6/authors"
+      },
+      "crate_size": 36695,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-09-03T03:24:14.331809Z"
+        }
+      ],
+      "checksum": "5e191971b03f7ed085bd35a3a70c052ab3c540c9596433e427dcc247a528f399",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3139432,
+      "crate": "cses-helix-core",
+      "num": "0.1.5",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.5/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.5/readme",
+      "updated_at": "2026-09-03T01:26:07.057175Z",
+      "created_at": "2026-09-03T01:26:07.057175Z",
+      "downloads": 20,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.5/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.5/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.5/authors"
+      },
+      "crate_size": 36701,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-09-03T01:26:07.057175Z"
+        }
+      ],
+      "checksum": "e0b88e12dff2b3532b76d8b097684e5e6d709d55d952828a972c6786b49e430d",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3132646,
+      "crate": "cses-helix-core",
+      "num": "0.1.4",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.4/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.4/readme",
+      "updated_at": "2026-09-02T06:39:32.986024Z",
+      "created_at": "2026-09-02T06:39:32.986024Z",
+      "downloads": 27,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.4/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.4/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.4/authors"
+      },
+      "crate_size": 36695,
+      "published_by": {
+        "id": 439872,
+        "login": "fatekingsama",
+        "name": "Hui Qiao",
+        "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+        "url": "https://github.com/fatekingsama",
+        "github_username_matches": true,
+        "created_at": "2026-09-01T07:27:19.272488Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439872,
+            "login": "fatekingsama",
+            "name": "Hui Qiao",
+            "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+            "url": "https://github.com/fatekingsama",
+            "github_username_matches": true,
+            "created_at": "2026-09-01T07:27:19.272488Z"
+          },
+          "time": "2026-09-02T06:39:32.986024Z"
+        }
+      ],
+      "checksum": "498185cd52ea7f79110293bacc6b64d1b9bc32c0625aee57534ba6c005fe695c",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3125124,
+      "crate": "cses-helix-core",
+      "num": "0.1.3",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.3/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.3/readme",
+      "updated_at": "2026-09-01T07:35:44.211635Z",
+      "created_at": "2026-09-01T07:35:44.211635Z",
+      "downloads": 35,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.3/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.3/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.3/authors"
+      },
+      "crate_size": 36695,
+      "published_by": {
+        "id": 439872,
+        "login": "fatekingsama",
+        "name": "Hui Qiao",
+        "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+        "url": "https://github.com/fatekingsama",
+        "github_username_matches": true,
+        "created_at": "2026-09-01T07:27:19.272488Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439872,
+            "login": "fatekingsama",
+            "name": "Hui Qiao",
+            "avatar": "https://avatars.githubusercontent.com/u/92987034?v=4",
+            "url": "https://github.com/fatekingsama",
+            "github_username_matches": true,
+            "created_at": "2026-09-01T07:27:19.272488Z"
+          },
+          "time": "2026-09-01T07:35:44.211635Z"
+        }
+      ],
+      "checksum": "a7153b7584f3355e59719c9eba2d108524426ce8b52aa1a27b9bd2fe43bcb3e3",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3103925,
+      "crate": "cses-helix-core",
+      "num": "0.1.2",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.2/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.2/readme",
+      "updated_at": "2026-08-29T03:05:17.956345Z",
+      "created_at": "2026-08-29T03:05:17.956345Z",
+      "downloads": 40,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.2/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.2/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.2/authors"
+      },
+      "crate_size": 36695,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-08-29T03:05:17.956345Z"
+        }
+      ],
+      "checksum": "9e01c09d8c4039b270c3d66659ae2d0269645c731f9029c5a06906808682194b",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3089764,
+      "crate": "cses-helix-core",
+      "num": "0.1.1",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.1/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.1/readme",
+      "updated_at": "2026-08-27T06:24:01.586339Z",
+      "created_at": "2026-08-27T06:24:01.586339Z",
+      "downloads": 29,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.1/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.1/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.1/authors"
+      },
+      "crate_size": 36699,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-08-27T06:24:01.586339Z"
+        }
+      ],
+      "checksum": "e81366a741782e787fec06bf254e261ee712720bdb4f08247675dea169430c5e",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    },
+    {
+      "id": 3082805,
+      "crate": "cses-helix-core",
+      "num": "0.1.0",
+      "dl_path": "/api/v1/crates/cses-helix-core/0.1.0/download",
+      "readme_path": "/api/v1/crates/cses-helix-core/0.1.0/readme",
+      "updated_at": "2026-08-26T09:59:01.209712Z",
+      "created_at": "2026-08-26T09:59:01.209712Z",
+      "downloads": 25,
+      "features": {
+        "testing": []
+      },
+      "yanked": false,
+      "yank_message": null,
+      "lib_links": null,
+      "license": "MIT OR Apache-2.0",
+      "links": {
+        "dependencies": "/api/v1/crates/cses-helix-core/0.1.0/dependencies",
+        "version_downloads": "/api/v1/crates/cses-helix-core/0.1.0/downloads",
+        "authors": "/api/v1/crates/cses-helix-core/0.1.0/authors"
+      },
+      "crate_size": 36689,
+      "published_by": {
+        "id": 439262,
+        "login": "zxs1633079383",
+        "name": null,
+        "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+        "url": "https://github.com/zxs1633079383",
+        "github_username_matches": true,
+        "created_at": "2026-08-26T09:54:09.285213Z"
+      },
+      "audit_actions": [
+        {
+          "action": "publish",
+          "user": {
+            "id": 439262,
+            "login": "zxs1633079383",
+            "name": null,
+            "avatar": "https://avatars.githubusercontent.com/u/68211742?v=4",
+            "url": "https://github.com/zxs1633079383",
+            "github_username_matches": true,
+            "created_at": "2026-08-26T09:54:09.285213Z"
+          },
+          "time": "2026-08-26T09:59:01.209712Z"
+        }
+      ],
+      "checksum": "7993ab792cac63e9c8900f0d1cdba0d66616be5f0bd1c644f0a62b12ced2cb18",
+      "rust_version": null,
+      "has_lib": true,
+      "bin_names": [],
+      "edition": "2021",
+      "description": "运行时无关的确定性业务内核与 sans-IO 执行壳",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://git.yundiz.com/cses/go/helix",
+      "trustpub_data": null,
+      "linecounts": {
+        "languages": {
+          "Rust": {
+            "code_lines": 1447,
+            "comment_lines": 58,
+            "files": 23
+          }
+        },
+        "total_code_lines": 1447,
+        "total_comment_lines": 58
+      }
+    }
+  ],
+  "keywords": [],
+  "categories": []
+}

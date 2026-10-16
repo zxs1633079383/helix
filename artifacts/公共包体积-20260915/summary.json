@@ -1,0 +1,50 @@
+{
+  "queried_at": "2026-09-15T09:44:00.555664+00:00",
+  "packages": [
+    {
+      "name": "cses-helix-core",
+      "version": "0.1.22",
+      "archive_bytes": 37437,
+      "published_versions": 23,
+      "all_versions_archive_bytes": 848118,
+      "download_verified": true,
+      "unpacked_file_bytes": 113332,
+      "files": 28
+    },
+    {
+      "name": "helix-im",
+      "version": "0.1.22",
+      "archive_bytes": 640416,
+      "published_versions": 23,
+      "all_versions_archive_bytes": 13490753,
+      "download_verified": true,
+      "unpacked_file_bytes": 2811569,
+      "files": 252
+    },
+    {
+      "name": "helix-driver-host",
+      "version": "0.1.22",
+      "archive_bytes": 165473,
+      "published_versions": 23,
+      "all_versions_archive_bytes": 3582324,
+      "download_verified": true,
+      "unpacked_file_bytes": 677172,
+      "files": 65
+    },
+    {
+      "name": "helix-driver-native",
+      "version": "0.1.22",
+      "archive_bytes": 38688,
+      "published_versions": 23,
+      "all_versions_archive_bytes": 879338,
+      "download_verified": true,
+      "unpacked_file_bytes": 136925,
+      "files": 18
+    }
+  ],
+  "count": 4,
+  "archive_bytes": 882014,
+  "unpacked_file_bytes": 3738998,
+  "version_count": 92,
+  "all_versions_archive_bytes": 18800533
+}

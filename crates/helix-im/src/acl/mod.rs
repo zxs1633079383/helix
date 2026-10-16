@@ -15,6 +15,8 @@
 
 pub mod from_tick;
 mod projection_control_effects;
+/// 连接控制事件的唯一真源：helix-im 负责 emit，driver 侧按此常量观察（禁止各自写字面量）。
+pub use projection_control_effects::EVENT_NET_RECONNECT_REQUESTED;
 mod projection_message_effects;
 mod storage_effects;
 pub mod sync_effects;

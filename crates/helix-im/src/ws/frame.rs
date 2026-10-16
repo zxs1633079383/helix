@@ -3,12 +3,13 @@ use bytes::Bytes;
 use crate::error::ImError;
 use crate::state::Seq;
 
-/// 合成 action：心跳 pong ACK 帧（`status==OK` + 带 `gaps`/`hashMismatch`，**无** `action` 字段）。
+/// 合成 action：心跳 pong ACK 帧（根 `status==OK`、**无** `action` 字段；可选带 `gaps`/`hashMismatch`）。
 ///
 /// 现网 cses-client 的 pong 走 runtime `ack_observer`（status==OK 被心跳校验吞，不进 handler）。
 /// helix sans-IO 无 runtime 吞帧——pong 作 Text JSON 经 `Tick::Inbound` 进 core。为复用 registry
-/// 的 by-action 路由（不污染 dispatch），`WsFrame::action()` 把这类无 action 的 pong 帧合成此
-/// 常量 → `ws::handlers::pong` 接管 gap 补偿（Round-3 UC-4.4 消费侧补齐）。
+/// 的 by-action 路由（不污染 dispatch），`WsFrame::action()` 把这类无 action 的 ACK 帧合成此
+/// 常量 → `ws::handlers::pong` 同时承担两件事：① 心跳 liveness 记账（取消 pong 逾期 timer）；
+/// ② 带 gap 字段时做 gap 补偿（Round-3 UC-4.4 消费侧补齐）。
 pub(crate) const PONG_ACTION: &str = "__pong__";
 
 pub(crate) struct WsFrame {
@@ -53,17 +54,13 @@ impl WsFrame {
         Err(ImError::InvalidWsFrame("missing action".to_string()))
     }
 
-    /// 心跳 pong ACK 判定（零信任）：`status=="OK"` 且 `data` 含 `gaps` 或 `hashMismatch`。
-    /// 严格判定避免误吞普通 status==OK 裸 ACK（无 gap 信息的 pong 无补偿动作，路由到此也是
-    /// no-op，但显式带补偿字段才合成 action，语义更收敛）。
+    /// 心跳 ACK 判定（零信任）：无 `action` 且根 `status=="OK"` 即视为 pong。
+    ///
+    /// 早期实现额外要求 `data` 含 `gaps`/`hashMismatch` 才合成 action；但**纯 ACK 也是连接存活的
+    /// 唯一证据**，漏判会让 pong 逾期判定误报超时并触发不必要的重连。补偿动作仍只由 gap 字段
+    /// 驱动：无补偿信息的 ACK 进入 pong handler 后直接 no-op，不放大任何业务行为。
     fn is_pong_frame(&self) -> bool {
-        let status_ok = self.root.get("status").and_then(serde_json::Value::as_str) == Some("OK");
-        if !status_ok {
-            return false;
-        }
-        self.data()
-            .map(|d| d.get("gaps").is_some() || d.get("hashMismatch").is_some())
-            .unwrap_or(false)
+        self.root.get("status").and_then(serde_json::Value::as_str) == Some("OK")
     }
 
     pub(crate) fn raw(&self) -> &[u8] {

@@ -78,6 +78,7 @@ mod topic_activity;
 pub(crate) mod ws;
 
 pub use error::ImError;
+pub use acl::EVENT_NET_RECONNECT_REQUESTED;
 pub use http_outcome::{http_outcome_event, EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OFFLINE};
 pub use module::ImModule;
 pub use module::{ClientPlatform, ImConfig};

@@ -137,9 +137,14 @@ pub fn emit_channel_update(channel_id: ChannelId) -> Effect {
     }
 }
 
-/// 连接控制：`im_reconnect` → `im:net:reconnect_requested` 信号。
+/// 连接控制事件名：`im_reconnect` 与心跳 pong 逾期都走它，由 driver 观察后重建 transport。
+///
+/// 单一真源：helix-im 负责 emit，`helix-driver-native` 按此常量观察，禁止各自写字面量。
+pub const EVENT_NET_RECONNECT_REQUESTED: &str = "im:net:reconnect_requested";
+
+/// 连接控制：`im_reconnect` / 心跳 pong 逾期 → `im:net:reconnect_requested` 信号。
 pub fn emit_reconnect_requested() -> Effect {
-    let payload = serde_json::json!({ "event": "im:net:reconnect_requested", "data": {} });
+    let payload = serde_json::json!({ "event": EVENT_NET_RECONNECT_REQUESTED, "data": {} });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload).expect("emit_reconnect_requested: static JSON must not fail"),
     );

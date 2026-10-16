@@ -200,6 +200,15 @@ pub struct ImState {
     /// ping timer ID
     pub ping_timer: Option<helix_core::TimerId>,
 
+    /// 心跳 liveness：已发出但尚未收到 pong 的 ping（单调 seq 与发出时刻 now_ms）。
+    ///
+    /// 半开连接（锁屏/休眠恢复、NAT 老化）下 ping 仍能写出，但 pong 永远不回；只有该状态
+    /// 能在 OS 给出 RST 之前证明连接已死。收到任何合法 ACK 帧即清空。
+    pub ping_awaiting_ack: Option<(u64, u64)>,
+
+    /// pong 逾期 timer ID：收到 pong 立即取消；逾期仍未回则请求 driver 重建连接。
+    pub pong_deadline_timer: Option<helix_core::TimerId>,
+
     /// B-rest：本次 increment 批次已收到推送的 channel 集合（`increment_channel` 帧落地）。
     ///
     /// 设计文档 §3 Phase 4：`increment_channel_end`(global) 收尾时，对
@@ -445,6 +454,8 @@ impl ImState {
             reply_projection_seen_ids: HashMap::new(),
             backoff_timer: None,
             ping_timer: None,
+            ping_awaiting_ack: None,
+            pong_deadline_timer: None,
             increment_fetched: HashSet::new(),
             increment_order: Vec::new(),
             need_sync_skip: HashSet::new(),

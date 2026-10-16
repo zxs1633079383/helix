@@ -4,6 +4,13 @@ use crate::state::{ChannelId, ConnState, CorrelationContext, Seq};
 use helix_core::effect::{ScanSpec, StorageOp, TimerId};
 use helix_core::{Effect, EffectSink};
 
+/// 心跳 pong 逾期上界：ping 发出后该时长内没有任何 ACK，即判定为半开连接。
+///
+/// 取值小于 `ping_interval_ms`(8s)，使「发出 ping → 判定」不跨到下一个心跳周期；
+/// 端到端发现延迟上界 = 距下一次 ping 的等待(≤8s) + 本超时。真实 pong RTT 基线
+/// （未回 pong 的延迟分布）落地后再考虑提升为 `ImConfig` 可配置项。
+const PONG_ACK_TIMEOUT_MS: u64 = 4_000;
+
 impl ImModule {
     pub(crate) fn channel_cursors(&self) -> Vec<(ChannelId, Seq)> {
         if !self.state.startup_channel_projection_ready {
@@ -53,6 +60,26 @@ impl ImModule {
         );
     }
 
+    /// 记一次已发出的 ping 并臂 pong 逾期 timer；同 id 覆盖语义保证每轮只有一个逾期 timer。
+    fn arm_pong_deadline(&mut self, seq: u64, now_ms: u64, out: &mut EffectSink) {
+        self.clear_pong_tracking(out);
+        let deadline_timer = self.alloc_timer();
+        out.push(Effect::ScheduleTimer {
+            id: deadline_timer,
+            after_ms: PONG_ACK_TIMEOUT_MS,
+        });
+        self.state.ping_awaiting_ack = Some((seq, now_ms));
+        self.state.pong_deadline_timer = Some(deadline_timer);
+    }
+
+    /// 清空 liveness 记账并取消未到期的逾期 timer（收到 ACK、换代或进入非 Connected 时调用）。
+    pub(crate) fn clear_pong_tracking(&mut self, out: &mut EffectSink) {
+        self.state.ping_awaiting_ack = None;
+        if let Some(deadline_timer) = self.state.pong_deadline_timer.take() {
+            out.push(Effect::CancelTimer { id: deadline_timer });
+        }
+    }
+
     /// 处理 Timer 触发
     pub(crate) fn handle_timer(
         &mut self,
@@ -68,6 +95,11 @@ impl ImModule {
                 let seq = self.state.next_client_seq();
                 let roots = crate::sync_increment::heartbeat_root_cursors(&self.state);
                 out.push(crate::acl::to_effect::ping_frame(seq, &roots));
+                // 只有收到 pong 才能证明这条连接还活着；同时臂一个逾期 timer 作为上界。
+                self.arm_pong_deadline(seq, now_ms, out);
+            } else {
+                // 非 Connected 不发 ping，也不保留上一代的 liveness 记账。
+                self.clear_pong_tracking(out);
             }
             // 重新 arm（self-arm 实现无 tick() 的周期心跳）
             let new_timer = self.alloc_timer();
@@ -79,7 +111,22 @@ impl ImModule {
             return Ok(());
         }
 
-        // 2. backoff timer（重连到期）
+        // 2. pong 逾期 timer：ping 已发出但至今没有 ACK，判定半开连接并请求 driver 重建。
+        if self.state.pong_deadline_timer == Some(timer_id) {
+            self.state.pong_deadline_timer = None;
+            if let Some((seq, sent_at_ms)) = self.state.ping_awaiting_ack.take() {
+                self.state.conn = ConnState::Connecting;
+                tracing::warn!(
+                    seq,
+                    waited_ms = now_ms.saturating_sub(sent_at_ms),
+                    "helix-im: 心跳 pong 逾期，判定半开连接并请求重建 transport"
+                );
+                out.push(crate::acl::to_effect::emit_reconnect_requested());
+            }
+            return Ok(());
+        }
+
+        // 3. backoff timer（重连到期）
         if self.state.backoff_timer == Some(timer_id) {
             self.state.backoff_timer = None;
             self.state.conn = ConnState::Connecting;
@@ -89,7 +136,7 @@ impl ImModule {
             return Ok(());
         }
 
-        // 3. gate timer（per-channel，1s 缺口后触发 sync/notify）
+        // 4. gate timer（per-channel，1s 缺口后触发 sync/notify）
         //    找出哪个 channel 持有这个 gate timer
         let maybe_channel = self
             .state
@@ -314,6 +361,9 @@ impl ImModule {
         });
         self.state.ping_timer = Some(ping_timer);
         self.state.conn = ConnState::Connecting;
+        // 新生命周期不继承上一代的 liveness 记账（旧逾期 timer 已由 stop 取消）。
+        self.state.ping_awaiting_ack = None;
+        self.state.pong_deadline_timer = None;
 
         tracing::info!("helix-im: starting, ws={}", self.config.ws_url);
         Ok(())
@@ -321,6 +371,7 @@ impl ImModule {
 
     /// 停止：取消所有 timer + 关闭连接
     pub(crate) fn stop_lifecycle(&mut self, out: &mut EffectSink) -> Result<(), ImError> {
+        self.clear_pong_tracking(out);
         if let Some(ping_timer) = self.state.ping_timer.take() {
             out.push(Effect::CancelTimer { id: ping_timer });
         }

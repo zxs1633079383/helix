@@ -218,7 +218,7 @@ pub async fn run_engine_loop_with_transports_and_trace(
         trace_stats,
         tasks,
         shutdown_tx: reconnect_shutdown_tx,
-    } = start_native_reconnect(&transports);
+    } = start_native_reconnect(&transports, &config.event_sink);
     engine::run_engine_loop(
         shell,
         tick_rx,
@@ -257,7 +257,7 @@ pub async fn run_engine_loop_with_transports_and_trace_stamped(
         trace_stats,
         tasks,
         shutdown_tx: reconnect_shutdown_tx,
-    } = start_native_reconnect(&transports);
+    } = start_native_reconnect(&transports, &config.event_sink);
     engine::run_engine_loop_stamped(
         shell,
         tick_rx,

@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use crate::{EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OFFLINE};
+use crate::{EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OFFLINE, EVENT_NET_RECONNECT_REQUESTED};
 
 pub const CONTRACT_VERSION: u32 = 1;
 pub const BUS_CHANNEL: &str = "im:__bus__";
@@ -62,7 +62,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:post_chain:read_cursor",
     "im:health:result",
     "im:translation:result",
-    "im:net:reconnect_requested",
+    EVENT_NET_RECONNECT_REQUESTED,
     EVENT_HTTP_UNAUTHORIZED,
     EVENT_NET_OFFLINE,
 ];

@@ -8,7 +8,7 @@
 //! 把无 action 的 pong 帧合成 `PONG_ACTION` → 本 handler 解析 `gaps[].channelId` + `hashMismatch`
 //! → `pong_compensate::compensate_from_pong`（5s 节流去重 + 全局 sync 窗口）。
 
-use helix_core::EffectSink;
+use helix_core::{Effect, EffectSink};
 
 use crate::error::ImError;
 
@@ -27,6 +27,13 @@ impl WsMessageHandler for PongHandler {
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        // 心跳 liveness 记账必须在任何早退之前：纯 ACK（无 gaps/hashMismatch）同样证明
+        // 「ping 写出去了、服务端也回得来」，而它是半开连接下唯一的存活证据。
+        ctx.state.ping_awaiting_ack = None;
+        if let Some(deadline_timer) = ctx.state.pong_deadline_timer.take() {
+            out.push(Effect::CancelTimer { id: deadline_timer });
+        }
+
         // pong data 缺失 → 无补偿信息，no-op（零信任，不报错）。
         let Some(data) = frame.data() else {
             return Ok(());

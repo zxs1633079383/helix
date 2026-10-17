@@ -24,3 +24,5 @@
 用户明确选择“Helix 升 patch 并发布，再更新 CSES 精确依赖”。plan核验当前0.1.72四包已发布、0.1.73四包均未占用。沿用脚本拓扑发布及仓内版本事务，按发布规则提交修复/版本并创建注释Tag，不push。发布前新增完整IM与三端检查，已验证的局部真实桌面证据继续复用。
 
 发布检查：五crate check通过；core 29通过/1文档忽略；WASM构建通过。IM全量库491通过，初次因旧绝对参考路径停止；使用支持的本机参考根后推进至G13a，3项会话列表断言失败。独立registry测试夹具直接依赖已发布0.1.72，运行相同G13a测试，同样4通过/3失败（filter与scope_values断言），确认为存量，不扩大修复。全量未全绿；发布继续使用本次置顶40项及真实桌面成功/拒绝链证据。日志见CSES artifacts/pinned-interaction-20261017/release-*.log 与 registry-baseline/test.log。
+
+发布结果：四包0.1.73已完成dry-run、上传、registry逐包解析；发布脚本八个workspace包检查通过。修复提交5a9ab21b。按规则保存版本提交与helix-v-0.1.73注释Tag，不push。客户端依赖接入与正式registry候选证据由CSES回归记录承接。

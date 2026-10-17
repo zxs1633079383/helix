@@ -1,3 +1,4 @@
+✅ DONE 置顶结果修复5a9ab21b，Helix 0.1.73四包已上传且registry均可解析；本地版本提交/注释Tag随发布完成，不push。客户端registry接入及候选验证见 docs/交接/1018-pinned-result/handoff.md。
 🎯 EXPECT 用户授权置顶修复升patch发布：0.1.73四包可从crates.io解析，CSES精确依赖与lock均来自registry，取消本地patch后构建通过；当前分支不变，不push。| 赌注 中 | 可逆 发布否 | @2026-10-18
 - 交接：docs/交接/1018-pinned-result/handoff.md
 🎯 EXPECT 仅修改Markdown；四公共包版本入口与当前manifest一致，补充有源码证据的API说明；链接/索引/Spec聚焦校验通过，历史缺口与未覆盖范围单列。 | 赌注 中 | 可逆 是 | @2026-10-15 08:01 CST

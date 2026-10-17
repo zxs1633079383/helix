@@ -388,6 +388,11 @@ pub enum CorrelationContext {
         trigger: SyncTrigger,
     },
 
+    /// 一个有界 HTTP 批次对应原有逐群 correlation，逐群持久化语义保持不变。
+    SyncPullBatch {
+        requests: Vec<(helix_core::Correlation, ChannelId)>,
+    },
+
     /// 最近消息 local-first 第 1 段：本地 Scan 回报后判定显式窗口 coverage。
     MessageQueryLocal {
         request: Box<crate::query::MessageQueryRequest>,

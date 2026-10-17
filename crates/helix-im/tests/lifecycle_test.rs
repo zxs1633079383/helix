@@ -178,8 +178,8 @@ fn connected_triggers_proactive_resync_for_each_channel() {
     let syncs = http_reqs(&h.sink);
     assert_eq!(
         syncs.len(),
-        3,
-        "global-end 须对 3 个增量群各发一次 sync POST，got: {:?}",
+        1,
+        "global-end 须把 3 个增量群合成一次 sync POST，got: {:?}",
         syncs
     );
     for (method, url) in &syncs {
@@ -194,17 +194,11 @@ fn connected_triggers_proactive_resync_for_each_channel() {
 
 /// 从 sink 抽取所有 sync/notify Http Effect 的 channelId（按 Effect 产出顺序）。
 fn sync_notify_channel_ids(sink: &helix_core::EffectSink) -> Vec<String> {
-    sink.as_slice()
-        .iter()
-        .filter_map(|e| match e {
-            Effect::Http { req, .. } if req.url.ends_with("/channel/sync/notify") => {
-                let body = req.body.as_ref()?;
-                let v: serde_json::Value = serde_json::from_slice(body).ok()?;
-                v["cursors"][0]["channelId"].as_str().map(str::to_string)
-            }
-            _ => None,
-        })
-        .collect()
+    sink.as_slice().iter().filter_map(|e| match e {
+        Effect::Http {req,..} if req.url.ends_with("/channel/sync/notify") =>
+            serde_json::from_slice::<serde_json::Value>(req.body.as_ref()?).ok(),
+        _ => None,
+    }).flat_map(|v| v["cursors"].as_array().unwrap().iter().map(|c| c["channelId"].as_str().unwrap().to_owned()).collect::<Vec<_>>()).collect()
 }
 
 /// NS-1 回归：global-end resync 必须按 `increment_channel` 的确定性到达顺序产出。
@@ -349,11 +343,13 @@ fn connected_each_channel_gets_different_corr() {
         .collect();
     assert_eq!(
         sync_corrs.len(),
-        3,
-        "global-end 应对 3 群各发一个 sync Http"
+        1,
+        "global-end 应对 3 群发一个批量 sync Http"
     );
     let unique: std::collections::HashSet<u64> = sync_corrs.iter().copied().collect();
-    assert_eq!(unique.len(), 3, "each sync Http should have a unique corr");
+    assert_eq!(unique.len(), 1, "batch Http has one transport correlation");
+    assert_eq!(sync_notify_channel_ids(&h.sink), vec![cid(10),cid(20),cid(30)]);
+    assert_eq!(h.module.sync_inflight(), 3);
 }
 
 // ─── Tick::Disconnected → 静默 + 状态标记 ────────────────────────────────────
@@ -420,8 +416,8 @@ fn disconnected_then_reconnect_triggers_new_resync() {
     let syncs = http_reqs(&h.sink);
     assert_eq!(
         syncs.len(),
-        2,
-        "重连 increment_end 后应对 2 群发 2 个 sync POST，got: {:?}",
+        1,
+        "重连 increment_end 后应对 2 群发一个批量 sync POST，got: {:?}",
         syncs
     );
 }

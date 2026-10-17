@@ -6,7 +6,8 @@
 //! `(increment_fetched − need_sync_skip)` 每个 channel 立即发 HTTP）。helix 接管 HTTP 后，257
 //! channel 同时 needSync 会一次性吐 257 条并发 `Effect::Http` → 重连风暴打爆 driver 连接池 /
 //! 后端。SyncScheduler 在 core 侧加一道**全局并发窗口**：所有待 sync channel 入
-//! `pending_sync: VecDeque`，在途数 < K 才取队首 dispatch；一个 sync 回报释放 1 个窗口再 drain。
+//! `pending_sync: VecDeque`，在途群数 < K 才取队首 dispatch。每轮最多 K 个群合并为一个 HTTP；
+//! 批量回报逐群释放窗口，整批处理结束后再 drain，避免退化为逐群请求。
 //!
 //! ## 不变量（HX-C011 证伪锚点）
 //!
@@ -51,6 +52,7 @@ pub struct SyncScheduler {
     enqueued: HashSet<ChannelId>,
     /// 全局在途 sync 计数（dispatch 时 +1，回报时 -1，恒 ≤ MAX_INFLIGHT_SYNC）。
     inflight: usize,
+    pub(crate) applying_batch: bool,
     /// pong gap 补偿节流：channel → 上次补偿的 `now_ms`（test-and-set，防 pong 风暴）。
     /// 与 `pending`/`enqueued` 正交：那两个管「待 sync 队列」，这个管「补偿冷却」。
     /// 确定性：节流判定纯比 `now_ms`（host 注入），不读墙钟（HX-C011 / sans-IO）。
@@ -162,6 +164,7 @@ impl SyncScheduler {
         self.pending.clear();
         self.enqueued.clear();
         self.inflight = 0;
+        self.applying_batch = false;
         self.pong_throttle.clear();
     }
 }
@@ -257,6 +260,10 @@ pub fn drain(
     alloc_corr: &mut dyn FnMut() -> Correlation,
     out: &mut EffectSink,
 ) {
+    if state.sync_scheduler.applying_batch {
+        return;
+    }
+    let mut batch = Vec::new();
     let conn_id = state.connection_id.clone();
     let queued = state.sync_scheduler.pending_len();
     let mut blocked = 0;
@@ -308,16 +315,35 @@ pub fn drain(
             scheduler_pending = state.sync_scheduler.pending_len(),
             "sync/notify dispatched"
         );
-        out.push(crate::acl::to_effect::sync_notify(
-            api_base_url,
-            channel_id,
-            from_seq,
-            sync_corr,
-            conn_id.as_deref(),
-        ));
+        batch.push((sync_corr, channel_id, from_seq));
     }
     // 满窗可能留下未检查的 backlog；恢复原先被阻挡项的优先顺序（包括 PongGap）。
     state.sync_scheduler.pending.rotate_right(blocked);
+    if batch.len() == 1 {
+        let (corr, channel, from) = batch[0];
+        out.push(crate::acl::to_effect::sync_notify(
+            api_base_url,
+            channel,
+            from,
+            corr,
+            conn_id.as_deref(),
+        ));
+    } else if !batch.is_empty() {
+        let corr = alloc_corr();
+        state.corr_map.insert(
+            corr,
+            CorrelationContext::SyncPullBatch {
+                requests: batch.iter().map(|(c, id, _)| (*c, *id)).collect(),
+            },
+        );
+        let cursors: Vec<_> = batch.iter().map(|(_, id, seq)| (*id, *seq)).collect();
+        out.push(crate::acl::sync_http_effects::sync_notify_batch(
+            api_base_url,
+            &cursors,
+            corr,
+            conn_id.as_deref(),
+        ));
+    }
 }
 
 #[cfg(test)]

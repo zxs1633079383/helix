@@ -59,9 +59,10 @@ fn pong_with_gaps_routes_and_compensates() {
     // 关键证伪：pong 必须被识别并触发补偿（此前整帧静默丢弃 → 0）。
     assert_eq!(
         count_sync_http(&h),
-        2,
-        "pong gaps[ch1,ch2] 应各触发一次 sync/notify 补偿，got effects: {effects:?}"
+        1,
+        "pong gaps[ch1,ch2] 应合并为一次 sync/notify 补偿，got effects: {effects:?}"
     );
+    assert_eq!(sync_notify_requests(&h)[0].1["cursors"].as_array().unwrap().len(), 2);
 }
 
 #[test]

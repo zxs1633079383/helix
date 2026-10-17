@@ -309,11 +309,15 @@ fn global_increment_end_syncs_fetched_minus_skip() {
     h.sink.clear();
     h.module.ingest_increment_end(None, &mut h.sink);
 
+    let batch = common::sync_notify_requests(&h);
+    assert_eq!(batch[0].1["cursors"], serde_json::json!([
+        {"channelId":cid(10),"fromSeq":0},{"channelId":cid(11),"fromSeq":0},{"channelId":cid(12),"fromSeq":0}
+    ]));
     let reqs = http_reqs(&h.sink);
     assert_eq!(
         reqs.len(),
-        3,
-        "global-end：主 resync {{10,11}} 各一次 + B2 heal 对 need_sync=false 但落后水位的 12 补一次 = 3，got: {:?}",
+        1,
+        "global-end：批量覆盖主 resync {{10,11}} 各一次 + B2 heal 对 need_sync=false 但落后水位的 12 补一次 = 3，got: {:?}",
         reqs
     );
     for (method, url) in &reqs {

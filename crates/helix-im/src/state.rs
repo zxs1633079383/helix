@@ -673,6 +673,7 @@ impl ImState {
                     | CorrelationContext::MessageV3RevokeChannelReadback
                     | CorrelationContext::MessageV3SyncDialogReadback
                     | CorrelationContext::SyncPull { .. }
+                    | CorrelationContext::SyncPullBatch { .. }
                     | CorrelationContext::ScanChannelProjections
                     | CorrelationContext::IncrementMessageTimestampScan { .. }
                     | CorrelationContext::IncrementPullHttp

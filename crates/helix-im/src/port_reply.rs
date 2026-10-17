@@ -24,6 +24,7 @@ pub(crate) mod message_v3_template;
 pub(crate) mod message_v3_urgent;
 mod progress;
 mod reaction_unread;
+mod sync_batch;
 
 fn multipart_session_from_operation(
     operation: &crate::send::upload_props::PendingMediaOp,

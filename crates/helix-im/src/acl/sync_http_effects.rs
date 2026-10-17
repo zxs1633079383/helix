@@ -44,11 +44,17 @@ pub fn sync_notify(
     corr: Correlation,
     connection_id: Option<&str>,
 ) -> Effect {
-    let body = serde_json::json!({
-        "cursors": [
-            { "channelId": channel_id.as_str(), "fromSeq": from_seq.0 }
-        ]
-    });
+    sync_notify_batch(base_url, &[(channel_id, from_seq)], corr, connection_id)
+}
+
+pub fn sync_notify_batch(
+    base_url: &str,
+    cursors: &[(ChannelId, Seq)],
+    corr: Correlation,
+    connection_id: Option<&str>,
+) -> Effect {
+    let body = serde_json::json!({"cursors": cursors.iter().map(|(id, seq)|
+        serde_json::json!({"channelId": id.as_str(), "fromSeq": seq.0})).collect::<Vec<_>>()});
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
     headers.extend(session_auth_headers(connection_id));
     headers.push((CSES_TRACK_ID_HEADER.to_string(), sync_track_id(corr)));

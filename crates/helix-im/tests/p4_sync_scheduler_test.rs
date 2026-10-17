@@ -70,7 +70,7 @@ fn storm_initial_fanout_capped_at_k() {
     let dispatched = sync_notify_corrs(&h);
     assert_eq!(
         dispatched.len(),
-        K,
+        1,
         "N={n}>K={K}：初次 fan-out 至多 K 条 sync/notify（破坏限流即 > K），got {} 条",
         dispatched.len()
     );
@@ -90,49 +90,28 @@ fn inflight_never_exceeds_k_through_full_drain() {
     let mut h = Harness::new(&[]);
     drive_storm(&mut h, n);
 
-    let mut inflight_corrs = sync_notify_corrs(&h);
-    let mut total_dispatched = inflight_corrs.len();
-
-    // 反复：取一个在途 sync 喂回报（释放窗口 + drain 续发），断言每步在途 ≤ K。
-    let mut guard = 0;
-    while !inflight_corrs.is_empty() {
-        guard += 1;
-        assert!(guard <= 1000, "drain 循环未收敛（疑似死锁 / 队列不清）");
-
-        // 核心证伪：任意时刻全局在途恒 ≤ K（破坏限流即 fail）。
-        assert!(
-            h.module.sync_inflight() <= K,
-            "在途 sync={} 超过上限 K={K}（限流被破坏）",
-            h.module.sync_inflight()
-        );
-
-        let corr = inflight_corrs.remove(0);
-        h.sink.clear();
-        // 喂 sync 回报（no_change → 释放窗口，无续拉）。corr 经 SyncPull 路由到其 channel；
-        // body 用占位 channel（999）→ parse 找不到本 channel entry → NoChange（按 corr 路由安全）。
-        h.step(
-            port_reply_with_body(corr, enveloped(sync_reply_no_change(999, 0))),
-            2000 + guard,
-        );
-
-        // 回报后应至多新发 1 条 sync（释放 1 窗口 → drain 1）。
-        let newly = sync_notify_corrs(&h);
-        assert!(
-            newly.len() <= 1,
-            "单次回报释放 1 窗口 → 至多 drain 1 条续发，got {} 条",
-            newly.len()
-        );
-        total_dispatched += newly.len();
-        inflight_corrs.extend(newly);
+    let mut requests = sync_notify_requests(&h);
+    let mut seen = std::collections::HashSet::new();
+    let mut count = 0;
+    while let Some((corr, body)) = requests.pop() {
+        assert!(h.module.sync_inflight() <= K);
+        let cursors = body["cursors"].as_array().unwrap();
+        assert!(cursors.len() <= K);
+        let entries: Vec<_> = cursors.iter().map(|c| {
+            assert!(seen.insert(c["channelId"].as_str().unwrap().to_string()));
+            serde_json::json!({"channelId":c["channelId"],"kind":"no_change","events":[],"nextSeq":c["fromSeq"]})
+        }).collect();
+        count += 1;
+        assert!(count <= n);
+        h.step(port_reply_with_body(corr, enveloped(bytes::Bytes::from(
+            serde_json::json!({"status":"SUCCESS","data":{"entries":entries}}).to_string()
+        ))), 2000+count);
+        requests.extend(sync_notify_requests(&h));
     }
-
-    // ④ 全部回报后：所有 N 个 channel 终被 dispatch，队列清空，在途归 0。
-    assert_eq!(
-        total_dispatched, n as usize,
-        "所有 N={n} 个入队 channel 终须各 dispatch 一次（FIFO 不丢）"
-    );
-    assert_eq!(h.module.sync_pending_len(), 0, "全部 drain 后队列须清空");
-    assert_eq!(h.module.sync_inflight(), 0, "全部回报后在途须归 0");
+    assert_eq!(seen.len(), n as usize);
+    assert_eq!(count, (n as usize).div_ceil(K) as u64);
+    assert_eq!(h.module.sync_inflight(),0);
+    assert_eq!(h.module.sync_pending_len(),0);
 }
 
 // ─── ③ N≤K：不触发限流，全部立即 dispatch（边界对照，证伪「无脑全砍到 K」误实现）────
@@ -145,7 +124,7 @@ fn small_fanout_below_k_dispatches_all_immediately() {
     let dispatched = sync_notify_corrs(&h);
     assert_eq!(
         dispatched.len(),
-        n as usize,
+        1,
         "N={n}≤K={K}：全部立即 dispatch（限流不应误砍未满窗的小 fan-out）"
     );
     assert_eq!(h.module.sync_pending_len(), 0, "N≤K 时队列应为空");
@@ -507,4 +486,70 @@ fn queued_full_page_preserves_pong_trigger_in_both_orders() {
         eprintln!("queued_trigger_order: initial_pong={initial_pong} trigger={} cursor={:?} actual={} inflight={}",
             state["data"]["trigger"], h.module.cursor_for(channel_id(1)), dispatched - completed, h.module.sync_inflight());
     }
+}
+
+// Regression: invalid whole-batch responses release every group without accepting partial facts.
+#[test]
+fn malformed_batch_releases_all_slots_without_advancing_cursors() {
+    for mode in ["missing", "duplicate", "unexpected", "network"] {
+        let mut h = Harness::new(&[]);
+        drive_storm(&mut h, 3);
+        let requests = sync_notify_requests(&h);
+        assert_eq!(requests.len(), 1);
+        let (corr, body) = &requests[0];
+        let mut entries: Vec<_> = body["cursors"].as_array().unwrap().iter().map(|c|
+            serde_json::json!({"channelId":c["channelId"],"kind":"no_change","events":[],"nextSeq":0})
+        ).collect();
+        match mode {
+            "missing" => { entries.pop(); }
+            "duplicate" => { entries[1] = entries[0].clone(); }
+            "unexpected" => { entries[1]["channelId"] = cid(999).into(); }
+            _ => {}
+        }
+        let tick = if mode == "network" { port_reply_err(*corr) } else {
+            port_reply_with_body(*corr, enveloped(bytes::Bytes::from(
+                serde_json::json!({"status":"SUCCESS","data":{"entries":entries}}).to_string())))
+        };
+        h.step(tick, 2000);
+        assert_eq!(h.module.sync_inflight(), 0, "{mode}");
+        for id in 1..=3 { assert_eq!(h.module.cursor_for(channel_id(id)), Some(0)); }
+        assert!(!h.sink.as_slice().iter().any(|e| matches!(e, Effect::PersistAtomic {..})), "{mode}");
+    }
+}
+
+#[test]
+fn disconnected_batch_reply_cannot_restore_old_sync_state() {
+    let mut h = Harness::new(&[]);
+    drive_storm(&mut h, 3);
+    let (corr, body) = sync_notify_requests(&h).remove(0);
+    let entries: Vec<_> = body["cursors"].as_array().unwrap().iter().map(|c|
+        serde_json::json!({"channelId":c["channelId"],"kind":"no_change","events":[],"nextSeq":0})
+    ).collect();
+    h.step(Tick::Disconnected(helix_core::effect::TransportId::from_raw(1)), 2000);
+    h.step(port_reply_with_body(corr, enveloped(bytes::Bytes::from(
+        serde_json::json!({"status":"SUCCESS","data":{"entries":entries}}).to_string()))), 2001);
+    assert_eq!(h.module.sync_inflight(), 0);
+    assert!(sync_notify_requests(&h).is_empty());
+    for id in 1..=3 { assert_eq!(h.module.cursor_for(channel_id(id)), Some(0)); }
+}
+
+#[test]
+fn mixed_batch_keeps_each_cursor_behind_its_durable_commit() {
+    let mut h = Harness::new_with_identity(&[], "viewer-444", "tenant-1", "", "", "");
+    drive_storm(&mut h, 3);
+    let (corr, _) = sync_notify_requests(&h).remove(0);
+    let entries: Vec<_> = [sync_reply_events(1, &[1]), sync_reply_no_change(2, 0), sync_reply_no_change(3, 0)]
+        .iter().map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).unwrap()["data"]["entries"][0].clone()).collect();
+    let reply = enveloped(bytes::Bytes::from(serde_json::json!({"status":"SUCCESS","data":{"entries":entries}}).to_string()));
+    let effects = h.step(port_reply_with_body(corr, reply.clone()), 2000);
+    let writes: Vec<_> = effects.iter().filter_map(|e| match e { EffectKind::PersistAtomic(c) => Some(*c), _ => None }).collect();
+    assert_eq!(writes.len(), 1);
+    for id in 1..=3 { assert_eq!(h.module.cursor_for(channel_id(id)), Some(0)); }
+    h.step(port_reply_ok(writes[0]), 2001);
+    assert_eq!(h.module.cursor_for(channel_id(1)), Some(1));
+    assert_eq!(h.module.cursor_for(channel_id(2)), Some(0));
+    assert_eq!(h.module.cursor_for(channel_id(3)), Some(0));
+    h.step(port_reply_with_body(corr, reply), 2002);
+    assert!(!h.sink.as_slice().iter().any(|e| matches!(e, Effect::PersistAtomic {..})));
+    assert_eq!(h.module.sync_inflight(), 0);
 }

@@ -844,9 +844,13 @@ impl ImModule {
                         *wants_continuation = false;
                     }
                 }
-                self.state
-                    .corr_map
-                    .retain(|_, ctx| !matches!(ctx, CorrelationContext::SyncPull { .. }));
+                self.state.corr_map.retain(|_, ctx| {
+                    !matches!(
+                        ctx,
+                        CorrelationContext::SyncPull { .. }
+                            | CorrelationContext::SyncPullBatch { .. }
+                    )
+                });
                 // 在途HTTP关联已撤销，释放其全局窗口及旧队列；hello会重新建立恢复意图。
                 self.state.sync_scheduler.reset();
                 tracing::debug!("helix-im: disconnected, cleared inflight sync state");

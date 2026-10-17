@@ -294,10 +294,11 @@ fn s6_increment_end_fanout_preserves_delivery_order() {
                 Effect::Http { req, .. } if req.url.ends_with("/channel/sync/notify") => {
                     let body = req.body.as_ref()?;
                     let v: serde_json::Value = serde_json::from_slice(body).ok()?;
-                    v["cursors"][0]["channelId"].as_str().map(str::to_string)
+                    Some(v["cursors"].as_array()?.iter().map(|c| c["channelId"].as_str().unwrap().to_string()).collect::<Vec<_>>())
                 }
                 _ => None,
             })
+            .flatten()
             .collect()
     }
 

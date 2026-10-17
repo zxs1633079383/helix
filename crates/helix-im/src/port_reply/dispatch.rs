@@ -1103,6 +1103,9 @@ impl ImModule {
                 )?;
             }
             // 路由：sync Http 回报（sync/notify 响应）→ 清 per-channel 在途标记（B1 gate_inflight）。
+            CorrelationContext::SyncPullBatch { requests } => {
+                self.handle_sync_batch_reply(requests, outcome, now_ms, out)?;
+            }
             CorrelationContext::SyncPull {
                 channel_id,
                 trigger,

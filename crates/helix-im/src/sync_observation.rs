@@ -315,6 +315,7 @@ fn is_recovery_operation(context: &crate::state::CorrelationContext) -> bool {
             | IncrementPullPersist
             | IncrementBatchPersist { .. }
             | SyncPull { .. }
+            | SyncPullBatch { .. }
             | ChannelPersist { .. }
             | ChannelTerminalPersist { .. }
             | MemberProjectionPersist { .. }

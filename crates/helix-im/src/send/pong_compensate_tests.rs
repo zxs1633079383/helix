@@ -96,9 +96,14 @@ fn gap_channels_trigger_compensation_sync() {
 
     assert_eq!(
         count_sync_http(&out),
-        2,
-        "两个 gap channel 各触发一次 sync 补偿"
+        1,
+        "两个 gap channel 合成一次有界批量补偿"
     );
+    let cursors = out.as_slice().iter().find_map(|e| match e {
+        helix_core::Effect::Http { req, .. } => Some(serde_json::from_slice::<serde_json::Value>(req.body.as_ref().unwrap()).unwrap()),
+        _ => None,
+    }).unwrap();
+    assert_eq!(cursors["cursors"], json!([{"channelId":c1.as_str(),"fromSeq":5},{"channelId":c2.as_str(),"fromSeq":7}]));
 }
 
 #[test]

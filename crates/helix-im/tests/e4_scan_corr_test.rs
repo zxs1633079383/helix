@@ -181,6 +181,10 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
         250,
     );
     let projection_reqs = http_reqs(&h.sink);
+    let batch = common::sync_notify_requests(&h);
+    assert_eq!(batch[0].1["cursors"], serde_json::json!([
+        {"channelId":cid(1),"fromSeq":10}, {"channelId":cid(2),"fromSeq":20}, {"channelId":cid(3),"fromSeq":30}
+    ]));
     let timestamp_scan_corr = message_timestamp_scan_corr(&h.sink)
         .expect("startup retry should scan the local message watermark");
     assert_eq!(
@@ -196,8 +200,8 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
             .iter()
             .filter(|(_, url)| url.ends_with("/channel/sync/notify"))
             .count(),
-        3,
-        "channel projection scan should still emit 3 sync Http effects"
+        1,
+        "channel projection scan batches all 3 groups into one Http effect"
     );
     let retry_effects = h.step(
         port_reply_with_body(timestamp_scan_corr, bytes::Bytes::from_static(br#"[]"#)),
@@ -224,8 +228,8 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
             .iter()
             .filter(|effect| matches!(effect, EffectKind::Http(_)))
             .count()
-            >= 3,
-        "projection scan should retain the three sync effects"
+            == 1,
+        "projection scan retains one batch covering all three groups"
     );
     assert_eq!(
         h.last_http_body()

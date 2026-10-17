@@ -1662,3 +1662,54 @@ fn bookmark_count_rejects_invalid_input() {
         assert!(http_corr(&h.sink).is_none());
     }
 }
+
+/// 置顶写结果只在真实 HTTP 终态返回；失败、重复与 stop 不留下伪成功。
+#[test]
+fn pinned_mutations_relay_terminal_once() {
+    use helix_core::Module;
+    use helix_core::tick::{PortError, PortOutcome};
+    for command in ["im_set_message_top", "im_set_message_untop"] {
+        for case in ["success", "business", "network", "timeout", "stop"] {
+            let channel = "ch00000000000000000000000a";
+            let mut h = scoped_read_harness(&[channel]);
+            h.step(outbound_cmd(command, serde_json::json!({
+                "channel_id": channel, "post_id": "p1", "req_id": "rq-pin"
+            })), 1000);
+            let corr = http_corr(&h.sink).expect("pin HTTP must accept transport correlation");
+            assert!(emit_json(&h.sink).is_none());
+            let body = serde_json::json!({"status": if case == "success" {"SUCCESS"} else {"failed"}, "message": "当前用户权限不足，无法置顶消息"});
+            let reply = || port_reply_with_body(corr, enveloped(bytes::Bytes::from(serde_json::to_vec(&body).unwrap())));
+            if case == "stop" {
+                h.sink.clear();
+                h.module.on_stop(&mut h.sink).unwrap();
+            } else if case == "network" || case == "timeout" {
+                h.step(Tick::PortReply { corr: helix_core::Correlation::from_raw(corr), outcome: PortOutcome::Err(if case == "timeout" {PortError::Timeout} else {PortError::Network}) }, 1001);
+            } else { h.step(reply(), 1001); }
+            let events = emit_jsons(&h.sink);
+            let result = events.iter().find(|e| e["event"] == "im:read:result").expect("one correlated terminal");
+            assert_eq!(result["data"]["req_id"], "rq-pin");
+            if case == "success" { assert_eq!(result["data"]["body"], body); }
+            else { assert!(result["data"]["error"].is_string()); }
+            if case == "business" { assert!(result["data"]["error"].to_string().contains("权限不足")); }
+            assert!(!h.sink.as_slice().iter().any(|e| matches!(e, Effect::Persist { .. })));
+            h.step(reply(), 1002);
+            assert!(emit_json(&h.sink).is_none());
+        }
+    }
+}
+
+/// correlation 仅进 transport header；无效 correlation 不得发出 HTTP。
+#[test]
+fn pinned_mutations_validate_transport_correlation() {
+    for command in ["im_set_message_top", "im_set_message_untop"] {
+        for invalid in [serde_json::json!(""), serde_json::json!(null), serde_json::json!(42)] {
+            assert!(commands::handle_outbound(command, &serde_json::to_vec(&serde_json::json!({
+                "channel_id": "ch00000000000000000000000a", "post_id": "p1", "req_id": invalid
+            })).unwrap(), "http://x/api/cses", "http://x", None, helix_core::Correlation::from_raw(1)).is_err());
+        }
+        let mut h = scoped_read_harness(&["ch00000000000000000000000a"]);
+        h.step(outbound_cmd(command, serde_json::json!({"channel_id":"ch00000000000000000000000a","post_id":"p1","req_id":"rq-pin"})), 1000);
+        let request = h.sink.as_slice().iter().find_map(|e| if let Effect::Http {req,..}=e {Some(req)} else {None}).unwrap();
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(request.body.as_ref().unwrap()).unwrap(),serde_json::json!({"channelId":"ch00000000000000000000000a","postId":"p1"}));
+    }
+}

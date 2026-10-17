@@ -5,7 +5,7 @@
 //! 是两套机制，键名/路由都不同——前者作用于单条 post，后者作用于整个频道在我侧的排序。
 //!
 //! 两条命令各独立 endpoint + body + inventory 注册（C4 收口，与其他 outbound 文件零交集）。
-//! 写族默认 is_read=false（写经 WS 回声对账，不回灌 HTTP 响应）。
+//! 写请求复用关联 HTTP 结果回传；置顶事实仍由 WS 持久化回声对账。
 //!
 //! ## endpoint / body 真源
 //! 子路由前缀 `channel`（BaseRoutes.Channel = `/api/cses/channel`）。
@@ -28,11 +28,14 @@ fn require_pin_keys(args: &Value, cmd: &str) -> Result<(), ImError> {
         .ok_or_else(|| ImError::Parse(format!("{cmd}: payload 必须是 object")))?;
     if let Some(unknown) = object
         .keys()
-        .find(|key| !matches!(key.as_str(), "channel_id" | "post_id"))
+        .find(|key| !matches!(key.as_str(), "channel_id" | "post_id" | "req_id"))
     {
         return Err(ImError::Parse(format!(
             "{cmd}: 未知或非 canonical 字段 '{unknown}'"
         )));
+    }
+    if object.contains_key("req_id") {
+        require_str(args, "req_id", cmd)?;
     }
     Ok(())
 }
@@ -44,6 +47,7 @@ impl OutboundCommand for SetMessageTopCommand {
     fn name(&self) -> &'static str {
         "im_set_message_top"
     }
+    fn is_read(&self) -> bool { true }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         require_pin_keys(args, self.name())?;
         let channel_id = require_str(args, "channel_id", self.name())?;
@@ -69,6 +73,7 @@ impl OutboundCommand for SetMessageUntopCommand {
     fn name(&self) -> &'static str {
         "im_set_message_untop"
     }
+    fn is_read(&self) -> bool { true }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         require_pin_keys(args, self.name())?;
         let channel_id = require_str(args, "channel_id", self.name())?;

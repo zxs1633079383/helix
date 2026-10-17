@@ -1,3 +1,5 @@
+🎯 EXPECT 用户授权置顶修复升patch发布：0.1.73四包可从crates.io解析，CSES精确依赖与lock均来自registry，取消本地patch后构建通过；当前分支不变，不push。| 赌注 中 | 可逆 发布否 | @2026-10-18
+- 交接：docs/交接/1018-pinned-result/handoff.md
 🎯 EXPECT 仅修改Markdown；四公共包版本入口与当前manifest一致，补充有源码证据的API说明；链接/索引/Spec聚焦校验通过，历史缺口与未覆盖范围单列。 | 赌注 中 | 可逆 是 | @2026-10-15 08:01 CST
 - 本任务交接：docs/交接/Markdown日检-20261015/handoff.md
 ✅ DONE 六处版本入口、未读/回应API与Trace环境配置已对齐；本批静态校验通过，历史缺口及未覆盖语义单列，整体PARTIAL；交付结果见交接所指报告。

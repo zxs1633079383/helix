@@ -19,4 +19,6 @@
 见 `artifacts/pinned-count-20261018/` 和客户端同任务候选/桌面证据。定向公开 Tick、缓存和稀疏摘要回归；真实 PRE 新候选双实例通过：置顶后1/1，原生按钮取消后0/0；仅隔离实例注入缓存1/摘要0后，原生切群重进恢复1/1，独立SQLite读回确认。候选SHA256 `3ce8823424166bc09631848d382a79fa8d378dda4fc82729eb62c68a05122308`。
 
 定向测试：read_relay_test 41、channel_write_program_test 14、pinned_projection 4，共59项通过；cargo check -p helix-im通过（既有9条warning）。
-未提版、未发布、未 push。Go 远端部署与客户端 registry 依赖接入分别验收，当前本地 patch 候选不能代表用户旧实例已升级。
+用户批准 patch 后，四个公开 crate 已发布 crates.io 0.1.74；版本提交 bb57fe75，注释标签 helix-v-0.1.74，未 push。发布脚本八包 check、四包 dry-run及可解析验证通过；core测试、WebAssembly构建通过；IM库492项通过，全量在G13a三个既有失败停止，与旧registry基线一致。日志见 artifacts/pinned-count-20261018/release/。
+
+CSES 精确依赖及锁文件已更新到0.1.74，registry桌面验收见客户端回归记录。Go已按用户本批覆盖率例外提交8af7b1b7，尚未部署；不能声称新Go实时帧已验收或用户旧实例已升级。

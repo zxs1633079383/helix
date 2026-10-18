@@ -123,8 +123,9 @@ fn pinned_authority_read_persists_before_local_replay() {
     use helix_core::effect::{Row, SqlValue, StorageOp};
     use helix_core::port_codec::rows_to_reply_bytes;
 
-    let channel_id = "ch00000000000000000000000a";
-    let mut h = Harness::new_with_identity(&[], "user-a", "company-a", "", "", "");
+    let id = cid(1);
+    let channel_id = id.as_str();
+    let mut h = Harness::new_with_identity(&[1], "user-a", "company-a", "", "", "");
     h.step(
         outbound_cmd(
             "im_channel_load_post_pinned",
@@ -148,18 +149,46 @@ fn pinned_authority_read_persists_before_local_replay() {
     let persist = kinds
         .iter()
         .find_map(|kind| match kind {
-            EffectKind::Persist(corr) => Some(*corr),
+            EffectKind::PersistAtomic(corr) => Some(*corr),
             _ => None,
         })
         .expect("authority body waits for durable projection");
     assert!(emit_json(&h.sink).is_none(), "PersistOk 前不得回灌结果");
     assert!(h.sink.as_slice().iter().any(|effect| matches!(
         effect,
-        Effect::Persist { ops, .. }
+        Effect::PersistAtomic { ops, .. }
             if matches!(ops.first(), Some(StorageOp::BatchUpsert(spec)) if spec.table == "channel_pinned_projection")
     )));
 
-    h.step(port_reply_ok(persist), 1002);
+    assert!(h.sink.as_slice().iter().any(|effect| matches!(effect,
+        Effect::PersistAtomic { ops, .. } if ops.iter().any(|op| matches!(op,
+            StorageOp::BatchUpdate(spec) if spec.table == "channel" &&
+                spec.patch.iter().any(|(key, value)| key == "top_count" && matches!(value, SqlValue::Integer(1)))
+        ))
+    )), "pin list and count must commit atomically");
+    let kinds = h.step(port_reply_ok(persist), 1002);
+    assert!(
+        emit_json(&h.sink).is_none(),
+        "count must be read back after commit"
+    );
+    let readback = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .unwrap();
+    let channel_row: Row = vec![
+        ("id".into(), SqlValue::Text(channel_id.into())),
+        ("top_count".into(), SqlValue::Integer(1)),
+    ];
+    h.step(
+        port_reply_with_body(readback, rows_to_reply_bytes(&[channel_row])),
+        1002,
+    );
+    assert!(emit_jsons(&h.sink)
+        .iter()
+        .any(|value| value["event"] == "im:channel:update" && value["data"]["topCount"] == 1));
     let emitted = emit_json(&h.sink).expect("PersistOk 后回灌 authority body");
     assert_eq!(emitted["data"]["body"]["data"][0]["post"]["id"], "post-1");
 
@@ -180,7 +209,7 @@ fn pinned_authority_read_persists_before_local_replay() {
         SqlValue::Text(String::from_utf8(authority.to_vec()).unwrap()),
     )];
     h.step(
-        port_reply_with_body(local_corr, rows_to_reply_bytes(&[row])),
+        port_reply_with_body(local_corr, rows_to_reply_bytes(&[row, vec![("top_count".into(), SqlValue::Integer(1))]])),
         1004,
     );
     let cached = emit_json(&h.sink).expect("local projection returns typed result");
@@ -1711,5 +1740,31 @@ fn pinned_mutations_validate_transport_correlation() {
         h.step(outbound_cmd(command, serde_json::json!({"channel_id":"ch00000000000000000000000a","post_id":"p1","req_id":"rq-pin"})), 1000);
         let request = h.sink.as_slice().iter().find_map(|e| if let Effect::Http {req,..}=e {Some(req)} else {None}).unwrap();
         assert_eq!(serde_json::from_slice::<serde_json::Value>(request.body.as_ref().unwrap()).unwrap(),serde_json::json!({"channelId":"ch00000000000000000000000a","postId":"p1"}));
+    }
+}
+
+/// 权威空列表清零，业务拒绝/畸形列表不入库，提交失败不发布摘要成功。
+#[test]
+fn pinned_empty_and_failure_do_not_fabricate_summary() {
+    use helix_core::effect::{SqlValue, StorageOp};
+    for (body, valid) in [
+        (serde_json::json!({"status":"SUCCESS","data":[]}), true),
+        (serde_json::json!({"status":"ERROR","data":[]}), false),
+        (serde_json::json!({"status":"SUCCESS","data":null}), false),
+    ] {
+        let mut h = Harness::new_with_identity(&[1], "user-a", "company-a", "", "", "");
+        h.step(outbound_cmd("im_channel_load_post_pinned", serde_json::json!({"channel_id":cid(1),"req_id":"pin-empty"})), 1);
+        let http = http_corr(&h.sink).unwrap();
+        h.step(port_reply_with_body(http, enveloped(bytes::Bytes::from(serde_json::to_vec(&body).unwrap()))), 2);
+        let persist = h.sink.as_slice().iter().find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, ops } => {
+                assert!(ops.iter().any(|op| matches!(op, StorageOp::BatchUpdate(spec) if spec.patch.iter().any(|(key,value)| key == "top_count" && matches!(value, SqlValue::Integer(0))))));
+                Some(corr.raw())
+            }, _ => None,
+        });
+        assert_eq!(persist.is_some(), valid);
+        if let Some(corr) = persist { h.step(port_reply_err(corr), 3); }
+        assert!(!emit_jsons(&h.sink).iter().any(|value| value["event"] == "im:channel:update"));
+        assert!(emit_jsons(&h.sink).iter().any(|value| value["event"] == "im:read:result"));
     }
 }

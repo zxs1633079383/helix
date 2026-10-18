@@ -796,6 +796,15 @@ impl ImModule {
                 return Ok(());
             }
         };
+        let body: serde_json::Value = serde_json::from_slice(&raw_body)
+            .map_err(|error| ImError::Parse(format!("pinned response: {error}")))?;
+        if body["status"] != "SUCCESS" || !body["data"].is_array() {
+            out.push(crate::read_relay::emit_read_result(
+                req_id.as_str(),
+                raw_body.as_ref(),
+            ));
+            return Ok(());
+        }
         let current_epoch = self
             .state
             .pinned_projection_epochs
@@ -821,6 +830,7 @@ impl ImModule {
             corr,
             crate::state::CorrelationContext::PinnedProjectionPersist {
                 req_id,
+                channel_id,
                 raw_body: raw_body.to_vec(),
             },
         );

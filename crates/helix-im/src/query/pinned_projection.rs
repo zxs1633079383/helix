@@ -1,7 +1,7 @@
 //! 频道置顶集合的账号隔离本地绝对投影。
 
 use helix_core::effect::{
-    BatchDeleteSpec, Correlation, Effect, GetSpec, SqlValue, StorageOp, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, Correlation, Effect, GetSpec, SqlValue, StorageOp, UpsertSpec,
 };
 
 use crate::error::ImError;
@@ -44,14 +44,14 @@ pub fn projection_key(account_id: &str, channel_id: ChannelId) -> Result<String,
 }
 
 /// 构造单行本地置顶投影读取，不触发 HTTP。
-pub fn query_effect(projection_key: String, corr: Correlation) -> Effect {
+pub fn query_effect(projection_key: String, channel_id: ChannelId, corr: Correlation) -> Effect {
     Effect::Persist {
         corr,
         ops: vec![StorageOp::Get(GetSpec {
             table: "channel_pinned_projection",
             key_col: "projection_key",
             key_val: SqlValue::Text(projection_key),
-        })],
+        }), StorageOp::Get(GetSpec { table: "channel", key_col: "id", key_val: SqlValue::Text(channel_id.as_str().to_string()) })],
     }
 }
 
@@ -65,21 +65,33 @@ pub fn persist_effect(
 ) -> Result<Effect, ImError> {
     let body = serde_json::from_slice::<serde_json::Value>(raw_body)
         .map_err(|error| ImError::Parse(format!("pinned projection body: {error}")))?;
-    Ok(Effect::Persist {
+    let count = body["data"]
+        .as_array()
+        .ok_or_else(|| ImError::Parse("pinned list data must be an array".into()))?
+        .len() as i64;
+    Ok(Effect::PersistAtomic {
         corr,
-        ops: vec![StorageOp::BatchUpsert(UpsertSpec::new(
-            "channel_pinned_projection",
-            vec![vec![
-                ("projection_key".to_string(), SqlValue::Text(projection_key)),
-                ("account_id".to_string(), SqlValue::Text(account_id)),
-                (
-                    "channel_id".to_string(),
-                    SqlValue::Text(channel_id.as_str().to_string()),
-                ),
-                ("body".to_string(), SqlValue::Text(body.to_string())),
-            ]],
-            Some("projection_key"),
-        ))],
+        ops: vec![
+            StorageOp::BatchUpsert(UpsertSpec::new(
+                "channel_pinned_projection",
+                vec![vec![
+                    ("projection_key".to_string(), SqlValue::Text(projection_key)),
+                    ("account_id".to_string(), SqlValue::Text(account_id)),
+                    (
+                        "channel_id".to_string(),
+                        SqlValue::Text(channel_id.as_str().to_string()),
+                    ),
+                    ("body".to_string(), SqlValue::Text(body.to_string())),
+                ]],
+                Some("projection_key"),
+            )),
+            StorageOp::BatchUpdate(BatchUpdateSpec {
+                table: "channel",
+                key_col: "id",
+                key_vals: vec![SqlValue::Text(channel_id.as_str().to_string())],
+                patch: vec![("top_count".to_string(), SqlValue::Integer(count))],
+            }),
+        ],
     })
 }
 
@@ -112,6 +124,13 @@ pub fn result_body(reply: &bytes::Bytes) -> Result<serde_json::Value, ImError> {
     };
     let body = serde_json::from_str::<serde_json::Value>(body)
         .map_err(|error| ImError::Parse(format!("pinned projection cached body: {error}")))?;
+    // 旧版本可能只缓存了列表；摘要不一致时重新取得权威快照并原子修复。
+    let count = rows.iter().flat_map(|row| row.iter()).find_map(|(key, value)| match value {
+        SqlValue::Integer(count) if key == "top_count" => Some(*count), _ => None,
+    });
+    if body["status"] != "SUCCESS" || body["data"].as_array().map(|items| items.len() as i64) != count || count.is_none() {
+        return Ok(serde_json::json!({ "cached": false }));
+    }
     Ok(serde_json::json!({ "cached": true, "body": body }))
 }
 
@@ -140,10 +159,19 @@ mod tests {
                     .to_string(),
             ),
         )];
-        let reply = helix_core::port_codec::rows_to_reply_bytes(&[row]);
+        let reply = helix_core::port_codec::rows_to_reply_bytes(&[row, vec![("top_count".into(), SqlValue::Integer(1))]]);
         let result = result_body(&reply).unwrap();
         assert_eq!(result["cached"], true);
         assert_eq!(result["body"]["data"][0]["post"]["id"], "p1");
+    }
+
+    /// 旧缓存摘要不一致、业务失败或列表缺失都必须回读权威，而非当成空置顶。
+    #[test]
+    fn mismatched_cached_count_requires_authority_read() {
+        for body in [serde_json::json!({"status":"SUCCESS", "data":[{"post":{"id":"p1"}}]}), serde_json::json!({"status":"ERROR", "data":[]}), serde_json::json!({"status":"SUCCESS", "data":null})] {
+            let rows = vec![vec![("body".into(), SqlValue::Text(body.to_string()))], vec![("top_count".into(), SqlValue::Integer(0))]];
+            assert_eq!(result_body(&helix_core::port_codec::rows_to_reply_bytes(&rows)).unwrap(), serde_json::json!({"cached":false}));
+        }
     }
 
     /// 每次 pin/unpin 都推进失效代次并删除账号级单行投影。

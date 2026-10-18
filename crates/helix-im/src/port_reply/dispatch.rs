@@ -1412,14 +1412,69 @@ impl ImModule {
                 )?;
             }
 
-            CorrelationContext::PinnedProjectionPersist { req_id, raw_body } => {
+            CorrelationContext::PinnedProjectionPersist {
+                req_id,
+                raw_body,
+                channel_id,
+            } => {
                 if let PortOutcome::Err(error) = outcome {
                     tracing::warn!(error = ?error, "pinned projection persist failed; returning authority body without cache");
+                    out.push(crate::read_relay::emit_read_result(
+                        req_id.as_str(),
+                        raw_body.as_slice(),
+                    ));
+                } else {
+                    let corr = self.alloc_corr_internal();
+                    self.state.corr_map.insert(
+                        corr,
+                        CorrelationContext::PinnedProjectionReadback {
+                            req_id,
+                            raw_body,
+                            channel_id,
+                        },
+                    );
+                    out.push(helix_core::Effect::Persist {
+                        corr,
+                        ops: vec![helix_core::effect::StorageOp::Get(
+                            helix_core::effect::GetSpec {
+                                table: "channel",
+                                key_col: "id",
+                                key_val: helix_core::effect::SqlValue::Text(
+                                    channel_id.as_str().to_string(),
+                                ),
+                            },
+                        )],
+                    });
                 }
+            }
+            CorrelationContext::PinnedProjectionReadback {
+                req_id,
+                raw_body,
+                channel_id,
+            } => {
                 out.push(crate::read_relay::emit_read_result(
                     req_id.as_str(),
                     raw_body.as_slice(),
                 ));
+                if let PortOutcome::Ok(reply) = outcome {
+                    let rows = helix_core::port_codec::rows_from_reply_bytes(&reply.0).map_err(
+                        |error| ImError::Parse(format!("pinned count readback: {error}")),
+                    )?;
+                    for row in rows {
+                        let matches_channel = row.iter().any(|(key, value)| key == "id" && matches!(value, helix_core::effect::SqlValue::Text(id) if id == channel_id.as_str()));
+                        if !matches_channel {
+                            continue;
+                        }
+                        if let Some(count) = row.iter().find_map(|(key, value)| match value {
+                            helix_core::effect::SqlValue::Integer(count) if key == "top_count" => {
+                                Some(*count)
+                            }
+                            _ => None,
+                        }) {
+                            out.push(crate::event::channel::update(serde_json::json!({"channelId":channel_id.as_str(), "topCount":count}))?.into_effect());
+                        }
+                    }
+                }
             }
 
             // spec06 缺陷A：读族 outbound HTTP 回报 → 透传响应体回灌前端（杀 fire-and-forget 丢响应）。

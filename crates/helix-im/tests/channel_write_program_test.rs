@@ -303,3 +303,17 @@ fn program_full_invalid_id_none_s3() {
     assert!(program_full(&serde_json::json!({ "type": "O" }), "", 0).is_none());
     assert!(program_full(&serde_json::json!({ "id": "short" }), "", 0).is_none());
 }
+
+/// 稀疏群更新不能把未知计数变成零，明确零仍清空旧计数。
+#[test]
+fn pinned_count_missing_preserves_but_explicit_zero_updates() {
+    for value in [
+        serde_json::json!(null),
+        serde_json::json!(0),
+        serde_json::json!(7),
+    ] {
+        let data = serde_json::json!({"id":"00000000000000000000000007", "topCount":value});
+        let (_, omit) = program_full(&data, "viewer", 0).unwrap();
+        assert_eq!(omit.contains(&"top_count"), value.is_null());
+    }
+}

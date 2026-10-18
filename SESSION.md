@@ -1,3 +1,5 @@
+✅ DONE 置顶列表/摘要同事务和旧缓存修复，59项定向回归及crate check通过，真实PRE双实例与隔离缓存故障回归通过；Go与registry发布待接入，详见 docs/交接/pinned-count-20261018.md。
+🎯 EXPECT 置顶权威列表与摘要同事务落库；缺失计数不覆盖，明确0可清空；公开读命令及定向回归先红后绿，不改版本、不发布。 | 赌注 中 | 可逆 是 | @2026-10-18
 ✅ DONE 置顶结果修复5a9ab21b，Helix 0.1.73四包已上传且registry均可解析；本地版本提交/注释Tag随发布完成，不push。客户端registry接入及候选验证见 docs/交接/1018-pinned-result/handoff.md。
 🎯 EXPECT 用户授权置顶修复升patch发布：0.1.73四包可从crates.io解析，CSES精确依赖与lock均来自registry，取消本地patch后构建通过；当前分支不变，不push。| 赌注 中 | 可逆 发布否 | @2026-10-18
 - 交接：docs/交接/1018-pinned-result/handoff.md

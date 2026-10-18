@@ -526,7 +526,18 @@ pub enum CorrelationContext {
     },
 
     /// 置顶权威列表已进入 durable 单行投影，PersistOk 后才回灌调用方。
-    PinnedProjectionPersist { req_id: String, raw_body: Vec<u8> },
+    PinnedProjectionPersist {
+        req_id: String,
+        raw_body: Vec<u8>,
+        channel_id: ChannelId,
+    },
+
+    /// 置顶集合和摘要提交后的同频道读回。
+    PinnedProjectionReadback {
+        req_id: String,
+        raw_body: Vec<u8>,
+        channel_id: ChannelId,
+    },
 
     /// spec06 缺陷A：读族 outbound **HTTP** 回报（request-response 回灌）。
     ///
@@ -870,7 +881,8 @@ impl CorrelationContext {
             Self::OutboundScheduleCancel { request_id, .. } => request_id.as_deref(),
             Self::PinnedProjectionQuery { req_id, .. } => Some(req_id.as_str()),
             Self::OutboundPinnedReply { req_id, .. } => Some(req_id.as_str()),
-            Self::PinnedProjectionPersist { req_id, .. } => Some(req_id.as_str()),
+            Self::PinnedProjectionReadback { req_id, .. }
+            | Self::PinnedProjectionPersist { req_id, .. } => Some(req_id.as_str()),
             Self::ReactionUnreadProjection { req_id, .. } => Some(req_id.as_str()),
             Self::OutboundReadReply { req_id, .. } => Some(req_id.as_str()),
             Self::OutboundExactPosts { req_id, .. } => Some(req_id.as_str()),

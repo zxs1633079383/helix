@@ -139,6 +139,9 @@ impl Presence {
         snapshot: bool,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if self.users.is_empty() {
+            return Ok(());
+        }
         let ids: Vec<_> = self
             .users
             .iter()

@@ -673,17 +673,23 @@ fn focus_switch_failed_refresh_keeps_but_never_extends_expiry() {
 // Normal polling keeps its period but different authenticated clients get different phases.
 #[test]
 fn polling_is_staggered_without_changing_steady_period() {
-    fn first_poll(user: &str) -> u64 {
+    fn first_poll(user: &str, initially_empty: bool) -> u64 {
         let mut m = ImModule::new(ImConfig {
             auth_user_id: user.into(),
             api_base_url: "http://test/api/cses".into(),
             ..ImConfig::default()
         });
-        let e = observe(&mut m, "list", vec!["peer".into()], vec![], 0);
-        reply(&mut m, corr(&e), json!({"peer":"online"}), 1);
+        let start = if initially_empty {
+            assert!(observe(&mut m, "list", vec![], vec![], 0).is_empty());
+            60_000
+        } else {
+            0
+        };
+        let e = observe(&mut m, "list", vec!["peer".into()], vec![], start);
+        reply(&mut m, corr(&e), json!({"peer":"online"}), start + 1);
         let mut t = timer(&e);
         let mut first = 0;
-        for now in (5_000..=70_000).step_by(100) {
+        for now in (start + 5_000..=start + 70_000).step_by(100) {
             let e = step(&mut m, Tick::Timer(t), now);
             t = timer(&e);
             if e.iter().any(|e| matches!(e, Effect::Http { .. })) {
@@ -692,19 +698,24 @@ fn polling_is_staggered_without_changing_steady_period() {
                     first = now;
                 } else {
                     assert_eq!(now - first, 30_000);
-                    return first;
+                    return first - start;
                 }
             }
         }
         panic!("missing steady refresh")
     }
-    let a = first_poll("viewer-a");
-    let b = first_poll("viewer-b");
+    let a = first_poll("viewer-a", false);
+    let b = first_poll("viewer-b", false);
+    assert_eq!(
+        a,
+        first_poll("viewer-a", true),
+        "empty observations must not consume the first poll phase"
+    );
     assert!((30_000..=35_000).contains(&a));
     assert_ne!(a, b, "clients remain synchronized");
     assert_eq!(
         a,
-        first_poll("viewer-a"),
+        first_poll("viewer-a", false),
         "same input must replay identically"
     );
 }

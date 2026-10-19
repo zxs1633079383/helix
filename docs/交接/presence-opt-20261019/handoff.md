@@ -18,3 +18,9 @@
 ## 范围
 
 没有运行真实Go/新Helix/桌面组合链或容量压测。客户端仍精确依赖registry 0.1.74，未接入本次源码；实机后台验证仅覆盖未改动的UI可见性与旧版已存在的释放逻辑。首个即时快照的集中启动流量不在周期错峰内。
+
+## 联调补充：空观察初始化
+
+真实Native启动先收到空观察，query此前仍初始化next_poll；延迟到首次有目标时，过期的deadline导致连接相位被跳过。公开Tick回归模拟空观察后等待60秒，先红（首次轮询仅5秒）后绿：无目标时query直接返回，不改变30秒稳定周期、错误退避或协议。22项presence_test与cargo check -p helix-im通过（9项已有warnings）。原始记录见artifacts/presence-opt-20261019/empty-phase-{red,green,check}.log。
+
+组合验证与最终候选证据在 /Users/mac17/workspace/front-end/cses-client/docs/交接/presence-opt-20261019/；没有版本或发布动作。

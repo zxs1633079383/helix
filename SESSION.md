@@ -1,3 +1,5 @@
+🎯 EXPECT 空观察不会提前初始化Presence周期；延迟首次观察仍保持连接相位错峰与30秒稳定周期，公开Tick先红后绿，新Native候选复验。| 赌注 低 | 可逆 是 | @2026-10-19
+✅ DONE 空观察不初始化首次轮询；22 项 Presence 回归及 crate 检查通过。最终桌面组合证据见 docs/交接/presence-opt-20261019/handoff.md；未发布。
 ✅ DONE Presence错峰退避22项公开Tick回归与crate检查通过；正常30秒周期不变、无版本发布；实机和依赖接入边界见 docs/交接/presence-opt-20261019/handoff.md。
 🎯 EXPECT 在线状态正常30秒刷新不变，连接相位错峰、失败指数退避且成功恢复；公开Tick回归先红后绿，不改版本、不发布。 | 赌注 中 | 可逆 是 | @2026-10-19
 ✅ DONE 置顶列表/摘要同事务和旧缓存修复，59项定向回归及crate check通过，真实PRE双实例与隔离缓存故障回归通过；Go与registry发布待接入，详见 docs/交接/pinned-count-20261018.md。

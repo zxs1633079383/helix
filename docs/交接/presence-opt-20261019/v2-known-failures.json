@@ -1,0 +1,13 @@
+{
+  "candidateFailures": [
+    "dialog_list_rejects_missing_member_row_without_shared_top_fallback",
+    "query_dialog_list_emits_one_scoped_result_without_legacy_events",
+    "query_dialog_list_returns_archived_channel_with_delete_at",
+    "query_dialog_list_scans_runtime_company_without_remote_or_business_emit",
+    "query_subtopics_empty_or_orphan_or_remote_parent_is_typed_empty",
+    "query_subtopics_filters_parent_type_root_and_account_visibility",
+    "query_subtopics_scans_runtime_company_once_without_http"
+  ],
+  "matchesPreviouslyVerifiedBaseline": true,
+  "baselineEvidence": "docs/\u4ea4\u63a5/presence-opt-20261019/release-0175-known-failures.json"
+}

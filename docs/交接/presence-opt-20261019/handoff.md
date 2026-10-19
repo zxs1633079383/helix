@@ -24,3 +24,21 @@
 真实Native启动先收到空观察，query此前仍初始化next_poll；延迟到首次有目标时，过期的deadline导致连接相位被跳过。公开Tick回归模拟空观察后等待60秒，先红（首次轮询仅5秒）后绿：无目标时query直接返回，不改变30秒稳定周期、错误退避或协议。22项presence_test与cargo check -p helix-im通过（9项已有warnings）。原始记录见artifacts/presence-opt-20261019/empty-phase-{red,green,check}.log。
 
 组合验证与最终候选证据在 /Users/mac17/workspace/front-end/cses-client/docs/交接/presence-opt-20261019/；没有版本或发布动作。
+
+## 2026-10-19 Presence v2 合并订阅（本地实现，未发布）
+
+- Client 已合并滚动订阅；Helix 通过原 presence_watch 发送 version=2、generation、requestId、userIds（最多200）和 focusedUserIds（最多10且属于userIds）。旧协议仍兼容。
+- Go 每 Pod 汇总活跃订阅：同 viewer/company/target 的权限结果最多缓存30秒，授权批次100人、4个worker、整轮4秒；Redis按目标去重，重点5秒、普通30秒，读取预算1秒。连接订阅60秒到期，解除观察后缓存清理；没有数据库结构或配置变更。
+- 响应 action=presence，包含 version=2、generation、requestId、单调sequence、kind（snapshot/delta/confirm）、statuses、validUntil与checkedAt。首包全量，后续只发变化；续订确认不延长旧授权。即将到期且已经刷新有效期的样本及时确认，避免同状态抑制新有效期。
+- validUntil取授权到期与样本新鲜度的较早值；权限查询失败/拒绝/到期输出unknown。Helix基于请求发送时间校准截止时间，不依赖机器时钟一致。断序重新订阅，重连重建，过期unknown；新协议健康时忽略旧协议和在途HTTP结果。
+- 健康v2停止普通HTTP查询，每20秒续订，40秒无有效帧后恢复原HTTP错峰退避（还受原查询节拍影响）。没有提高正常刷新频率；后台释放观察沿用Client已验证路径。
+
+### 验证与边界
+
+- Go presence race通过；ws整包100.0%覆盖率、vet/build通过。回归覆盖共享授权、目标去重、重点/普通节拍、权限失败/撤销/续订、队列满、取消与缓存回收。
+- Helix presence 25项公开Tick回归通过；native/FFI/web检查、wasm最终构建和core测试通过。helix-im全套剩7项频道查询失败，与此前0.1.75基线名单完全一致；不宣称全套绿色。
+- 真实Tauri加载本地Helix，连接本机两份Go；隔离PostgreSQL，PRE身份库只读，Redis使用miniredis测试替身。确认跨进程online/offline、多设备剩一个仍online、最后设备关闭offline；79秒健康窗口0次普通HTTP，撤销权限11266ms变unknown，丢弃v2后46149ms恢复HTTP。不是K8s集群/真实Redis生产压测。
+- 证据目录：客户端 artifacts/presence-v2-20261019，Go artifacts/presence-v2-20261019；联合证据 joint-result.json、devices-result.json、events-final.log、wire.jsonl。最终截止时间确认修正另做复验并记录。
+- 未改版本，未push或发布；客户端使用本地Helix临时构建，Cargo.toml/lock由原有helper恢复，普通开发二进制hash未变。
+
+最终服务端重建后再次经真实Tauri验证：断线重连、多设备online/offline、70秒健康订阅0次HTTP、新截止时间确认通过，见 v2-corrected-result.json。授权硬截止与5秒调度边界仍可能短暂unknown，下一轮确认恢复；没有延长授权来掩盖过期。

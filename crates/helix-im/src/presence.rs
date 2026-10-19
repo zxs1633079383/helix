@@ -40,6 +40,13 @@ pub(crate) struct Presence {
     last_attempt: BTreeMap<String, u64>,
     retries: BTreeMap<String, Retry>,
     generation: u64,
+    subscription_generation: u64,
+    subscription_sequence: u64,
+    subscription_request: u64,
+    subscription_requests: BTreeMap<u64, u64>,
+    subscription_until: u64,
+    subscription_statuses: BTreeMap<String, String>,
+    subscription_offset: Option<i128>,
     timer: Option<TimerId>,
     next_poll: u64,
     next_watch: u64,
@@ -132,6 +139,37 @@ impl Presence {
         self.next_watch = now.saturating_add(20_000);
     }
 
+    fn subscription_reset(&mut self) {
+        self.subscription_generation = self.subscription_generation.saturating_add(1);
+        self.subscription_sequence = 0;
+        self.subscription_until = 0;
+        self.subscription_requests.clear();
+        self.subscription_statuses.clear();
+        self.subscription_offset = None;
+    }
+
+    fn watch_subscription(&mut self, module: &mut ImModule, now: u64, out: &mut EffectSink) {
+        if module.state.connection_id.is_none() {
+            return;
+        }
+        self.subscription_request = self.subscription_request.saturating_add(1);
+        self.subscription_requests
+            .retain(|_, started| now.saturating_sub(*started) < 45_000);
+        // Bound correlations even when UI changes rapidly at the same host timestamp.
+        while self.subscription_requests.len() >= 4 {
+            self.subscription_requests.pop_first();
+        }
+        self.subscription_requests
+            .insert(self.subscription_request, now);
+        out.push(Effect::Send {
+            transport: TransportId::from_raw(0),
+            frame: Bytes::from(json!({"action":"presence_watch", "seq":module.state.next_client_seq(),
+                "data":{"version":2,"generation":self.subscription_generation,"requestId":self.subscription_request,
+                "userIds":self.users,"focusedUserIds":self.focused}}).to_string())
+        });
+        self.next_watch = now.saturating_add(20_000);
+    }
+
     fn query(
         &mut self,
         module: &mut ImModule,
@@ -140,6 +178,12 @@ impl Presence {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         if self.users.is_empty() {
+            return Ok(());
+        }
+        if now < self.subscription_until {
+            if !snapshot {
+                self.next_poll = now.saturating_add(30_000);
+            }
             return Ok(());
         }
         let ids: Vec<_> = self
@@ -266,6 +310,7 @@ impl Presence {
             self.emit(now, out);
             return Ok(());
         }
+        self.subscription_reset();
         let focus_changed = focused != self.focused;
         if focus_changed {
             self.generation = self.generation.saturating_add(1);
@@ -294,6 +339,7 @@ impl Presence {
         if focus_changed {
             self.watch(module, now, out);
         }
+        self.watch_subscription(module, now, out);
         self.query(module, now, true, out)?;
         if self.users.is_empty() {
             self.next_poll = 0;
@@ -305,6 +351,94 @@ impl Presence {
         }
         self.emit(now, out);
         Ok(())
+    }
+
+    // V2 delta/confirmation frames carry absolute authorization deadlines for every usable sample.
+    // Request correlations bound server clock offset without trusting shared wall clocks.
+    fn subscription_inbound(&mut self, data: &Value, now: u64) -> bool {
+        if data.get("generation").and_then(Value::as_u64) != Some(self.subscription_generation) {
+            return false;
+        }
+        let Some(request) = data.get("requestId").and_then(Value::as_u64) else {
+            return false;
+        };
+        let Some(started) = self.subscription_requests.get(&request).copied() else {
+            return false;
+        };
+        if now.saturating_sub(started) >= 45_000 {
+            return false;
+        }
+        let Some(sequence) = data.get("sequence").and_then(Value::as_u64) else {
+            return false;
+        };
+        if sequence <= self.subscription_sequence {
+            return false;
+        }
+        let Some(kind) = data.get("kind").and_then(Value::as_str) else {
+            return false;
+        };
+        if !matches!(kind, "snapshot" | "delta" | "confirm") {
+            return false;
+        }
+        if sequence != self.subscription_sequence + 1
+            || (self.subscription_sequence == 0 && kind != "snapshot")
+        {
+            return true;
+        }
+        let (Some(checked), Some(changes), Some(deadlines)) = (
+            data.get("checkedAt").and_then(Value::as_u64),
+            data.get("statuses").and_then(Value::as_object),
+            data.get("validUntil").and_then(Value::as_object),
+        ) else {
+            return false;
+        };
+        if changes.iter().any(|(id, status)| {
+            !self.users.contains(id)
+                || !matches!(status.as_str(), Some("online" | "offline" | "unknown"))
+        }) || deadlines
+            .iter()
+            .any(|(id, until)| !self.users.contains(id) || until.as_u64().is_none())
+            || (kind == "confirm" && !changes.is_empty())
+        {
+            return false;
+        }
+        if kind == "snapshot" {
+            self.subscription_statuses.clear();
+        }
+        for (id, status) in changes {
+            if let Some(status) = status.as_str() {
+                self.subscription_statuses.insert(id.clone(), status.into());
+            }
+        }
+        let offset = i128::from(checked) - i128::from(started);
+        let offset = self
+            .subscription_offset
+            .map_or(offset, |old| old.min(offset));
+        self.subscription_offset = Some(offset);
+        for id in &self.users {
+            let until = deadlines.get(id).and_then(Value::as_u64).unwrap_or(0);
+            let expires = ((i128::from(until) - offset).clamp(0, i128::from(u64::MAX)) as u64)
+                .min(now.saturating_add(30_000));
+            let status = self
+                .subscription_statuses
+                .get(id)
+                .filter(|_| expires > now && until <= checked.saturating_add(30_000))
+                .cloned()
+                .unwrap_or_else(|| "unknown".into());
+            self.cache.insert(
+                id.clone(),
+                Cached {
+                    status,
+                    sampled: checked,
+                    expires: expires.max(now),
+                },
+            );
+        }
+        self.subscription_sequence = sequence;
+        self.subscription_until = now.saturating_add(40_000);
+        self.retries.clear();
+        tracing::debug!(target:"helix::presence",hop="presence_subscription",generation=self.subscription_generation,sequence,kind,"presence subscription frame");
+        false
     }
 
     fn apply(&mut self, ids: &[String], statuses: &Value, sampled: u64, expires: u64) {
@@ -354,6 +488,10 @@ impl ImModule {
                 Tick::PortReply { corr, outcome } => {
                     if let Some(pending) = presence.pending.remove(corr) {
                         let mut succeeded = false;
+                        if now < presence.subscription_until {
+                            // In-flight HTTP must not extend a v2 authorization deadline.
+                            return Ok(true);
+                        }
                         if now.saturating_sub(pending.started) < 15_000 {
                             let statuses = match outcome {
                                 PortOutcome::Ok(reply) => {
@@ -435,8 +573,11 @@ impl ImModule {
                     if now >= presence.next_poll {
                         presence.query(self, now, false, out)?;
                     }
-                    if now >= presence.next_watch && !presence.focused.is_empty() {
-                        presence.watch(self, now, out);
+                    if now >= presence.next_watch && !presence.users.is_empty() {
+                        if now >= presence.subscription_until && !presence.focused.is_empty() {
+                            presence.watch(self, now, out);
+                        }
+                        presence.watch_subscription(self, now, out);
                         if presence.clock_offset_upper.is_none() {
                             presence.query(self, now, true, out)?;
                         }
@@ -460,6 +601,20 @@ impl ImModule {
         out: &mut EffectSink,
     ) {
         let Some(data) = data else { return };
+        if data.get("version").and_then(Value::as_u64) == Some(2) {
+            let mut presence = std::mem::take(&mut self.presence);
+            if presence.subscription_inbound(data, now) {
+                presence.subscription_reset();
+                presence.watch_subscription(self, now, out);
+            }
+            presence.emit(now, out);
+            presence.arm(self, now, out);
+            self.presence = presence;
+            return;
+        }
+        if now < self.presence.subscription_until {
+            return;
+        }
         if data.get("generation").and_then(Value::as_u64) != Some(self.presence.generation) {
             return;
         }
@@ -500,6 +655,7 @@ impl ImModule {
     ) -> Result<(), ImError> {
         let mut presence = std::mem::take(&mut self.presence);
         presence.generation = presence.generation.saturating_add(1);
+        presence.subscription_reset();
         presence.last_checked_at = None;
         presence.clock_offset_upper = None;
         presence.pending.clear();
@@ -509,6 +665,9 @@ impl ImModule {
         presence.cache.clear();
         if !presence.focused.is_empty() {
             presence.watch(self, now, out);
+        }
+        if !presence.users.is_empty() {
+            presence.watch_subscription(self, now, out);
         }
         let result = presence.query(self, now, true, out);
         presence.arm(self, now, out);
@@ -521,6 +680,7 @@ impl ImModule {
     pub(crate) fn presence_clear(&mut self, release: bool, now: u64, out: &mut EffectSink) {
         let mut presence = std::mem::take(&mut self.presence);
         presence.generation = presence.generation.saturating_add(1);
+        presence.subscription_reset();
         presence.last_checked_at = None;
         presence.clock_offset_upper = None;
         presence.cache.clear();
@@ -534,11 +694,15 @@ impl ImModule {
         presence.emit(now, out);
         if release {
             let had_focus = !presence.focused.is_empty();
+            let had_users = !presence.users.is_empty();
             presence.scopes.clear();
             presence.users.clear();
             presence.focused.clear();
             if had_focus {
                 presence.watch(self, now, out);
+            }
+            if had_users {
+                presence.watch_subscription(self, now, out);
             }
         }
         self.presence = presence;

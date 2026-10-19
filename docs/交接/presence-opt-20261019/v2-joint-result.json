@@ -1,0 +1,10 @@
+{
+  "realTauriLocalHelix": true,
+  "twoLocalGoProcesses": true,
+  "redis": "miniredis fixture",
+  "preIdentityReadOnly": true,
+  "permissionRevocationMs": 11266,
+  "healthyHttpRequests": 0,
+  "healthyObservationMs": 78914,
+  "fallbackMs": 46149
+}

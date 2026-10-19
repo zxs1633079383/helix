@@ -544,8 +544,15 @@ fn ordinary_scroll_keeps_focused_subscription_generation() {
             200 + i * 200,
         );
         assert!(
-            !e.iter().any(|e| matches!(e, Effect::Send { .. })),
-            "ordinary scroll must not renew or replace watch"
+            !e.iter().any(|e| match e {
+                Effect::Send { frame, .. } => serde_json::from_slice::<Value>(frame)
+                    .ok()
+                    .is_some_and(
+                        |v| v["action"] == "presence_watch" && v["data"]["version"].is_null()
+                    ),
+                _ => false,
+            }),
+            "ordinary scroll must not replace the legacy focused watch"
         );
     }
     let e = inbound(
@@ -839,4 +846,193 @@ fn polling_failure_kinds_cap_retries_and_release_cancels() {
             .iter()
             .any(|e| matches!(e, Effect::Http { .. } | Effect::ScheduleTimer { .. })));
     }
+}
+
+// V2 negotiation includes ordinary users without removing the legacy fallback.
+#[test]
+fn subscription_v2_offers_all_visible_users() {
+    let mut m = module();
+    hello(&mut m, "v2", 1);
+    let e = observe(
+        &mut m,
+        "list",
+        vec!["a".into(), "b".into()],
+        vec!["a".into()],
+        100,
+    );
+    let frames: Vec<Value> = e
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Send { frame, .. } => serde_json::from_slice(frame).ok(),
+            _ => None,
+        })
+        .collect();
+    let v2 = frames
+        .iter()
+        .find(|v| v["action"] == "presence_watch" && v["data"]["version"] == 2)
+        .expect("v2 subscription offer");
+    assert_eq!(v2["data"]["userIds"], json!(["a", "b"]));
+}
+
+// Read the actual negotiated wire offer, rather than inventing a generation/request correlation.
+fn subscription_offer(e: &[Effect]) -> Value {
+    e.iter()
+        .filter_map(|e| match e {
+            Effect::Send { frame, .. } => serde_json::from_slice::<Value>(frame).ok(),
+            _ => None,
+        })
+        .filter(|v| v["data"]["version"] == 2)
+        .last()
+        .unwrap()["data"]
+        .clone()
+}
+// Inject a server frame on the shared public parser seam.
+fn subscription_frame(
+    m: &mut ImModule,
+    offer: &Value,
+    seq: u64,
+    kind: &str,
+    changes: Value,
+    deadlines: Value,
+    now: u64,
+) -> Vec<Effect> {
+    inbound(
+        m,
+        json!({"action":"presence","data":{"version":2,"generation":offer["generation"],"requestId":offer["requestId"],"sequence":seq,"kind":kind,"statuses":changes,"validUntil":deadlines,"checkedAt":now}}),
+        now,
+    )
+}
+
+// Successful subscription suppresses periodic HTTP; expired permissions and dropped frames never keep a green dot alive.
+#[test]
+fn subscription_v2_snapshot_delta_confirm_expiry_and_fallback() {
+    let mut m = module();
+    hello(&mut m, "v2", 1);
+    let e = observe(&mut m, "list", vec!["a".into(), "b".into()], vec![], 100);
+    let offer = subscription_offer(&e);
+    let t = timer(&e);
+    let http = corr(&e);
+    let e = subscription_frame(
+        &mut m,
+        &offer,
+        1,
+        "snapshot",
+        json!({"a":"online","b":"offline"}),
+        json!({"a":30100,"b":30100}),
+        200,
+    );
+    assert_eq!(statuses(&e), json!({"a":"online","b":"offline"}));
+    let e = reply(&mut m, http, json!({"a":"offline","b":"online"}), 300);
+    assert!(statuses(&e).is_null(), "late HTTP cannot overwrite v2");
+    let e = subscription_frame(
+        &mut m,
+        &offer,
+        2,
+        "delta",
+        json!({"a":"offline"}),
+        json!({"a":30100,"b":30100}),
+        500,
+    );
+    assert_eq!(statuses(&e), json!({"a":"offline","b":"offline"}));
+    assert!(statuses(&subscription_frame(
+        &mut m,
+        &offer,
+        2,
+        "delta",
+        json!({"a":"online"}),
+        json!({"a":30100}),
+        600
+    ))
+    .is_null());
+    let e = step(&mut m, Tick::Timer(t), 30100);
+    let t = timer(&e);
+    assert!(
+        !e.iter().any(|e| matches!(e, Effect::Http { .. })),
+        "healthy v2 must stop polling"
+    );
+    assert_eq!(statuses(&e), json!({"a":"unknown","b":"unknown"}));
+    let renewed = subscription_offer(&e);
+    let e = subscription_frame(
+        &mut m,
+        &renewed,
+        3,
+        "confirm",
+        json!({}),
+        json!({"a":60000,"b":60000}),
+        30200,
+    );
+    assert_eq!(
+        statuses(&e),
+        json!({"a":"offline","b":"offline"}),
+        "confirmation renews only server validated samples"
+    );
+    let e = step(&mut m, Tick::Timer(t), 75000);
+    assert!(
+        e.iter().any(|e| matches!(e, Effect::Http { .. })),
+        "missing subscription confirmation restores HTTP"
+    );
+}
+
+// Lost deltas require a fresh full snapshot; old generations and unrelated targets cannot enter the cache.
+#[test]
+fn subscription_v2_gap_reconnect_and_revoke() {
+    let mut m = module();
+    hello(&mut m, "v2", 1);
+    let e = observe(&mut m, "list", vec!["a".into()], vec![], 100);
+    let offer = subscription_offer(&e);
+    subscription_frame(
+        &mut m,
+        &offer,
+        1,
+        "snapshot",
+        json!({"a":"online"}),
+        json!({"a":30100}),
+        200,
+    );
+    let e = subscription_frame(
+        &mut m,
+        &offer,
+        3,
+        "delta",
+        json!({"a":"offline"}),
+        json!({"a":30100}),
+        300,
+    );
+    let fresh = subscription_offer(&e);
+    assert_ne!(fresh["generation"], offer["generation"]);
+    assert!(statuses(&subscription_frame(
+        &mut m,
+        &offer,
+        2,
+        "delta",
+        json!({"a":"offline"}),
+        json!({"a":30100}),
+        400
+    ))
+    .is_null());
+    let e = subscription_frame(
+        &mut m,
+        &fresh,
+        1,
+        "snapshot",
+        json!({"a":"unknown"}),
+        json!({}),
+        500,
+    );
+    assert_eq!(statuses(&e)["a"], "unknown");
+    let e = hello(&mut m, "new-socket", 600);
+    let reconnect = subscription_offer(&e);
+    assert_ne!(reconnect["generation"], fresh["generation"]);
+    assert!(statuses(&subscription_frame(
+        &mut m,
+        &reconnect,
+        1,
+        "snapshot",
+        json!({"stranger":"online"}),
+        json!({"stranger":30100}),
+        700
+    ))
+    .is_null());
+    let e = observe(&mut m, "list", vec![], vec![], 800);
+    assert_eq!(subscription_offer(&e)["userIds"], json!([]));
 }

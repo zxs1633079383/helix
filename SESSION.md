@@ -1,3 +1,5 @@
+✅ DONE Presence v2定向25项、三端check/wasm/core通过，本地双Go与真实Tauri联调通过；IM全套7个已核对历史失败，未发布。证据见 docs/交接/presence-opt-20261019/handoff.md。
+🎯 EXPECT Presence v2确认后停止普通HTTP轮询，失效恢复；授权最长30秒，不改core/driver与版本。公开Tick先红后绿并完成Go/Tauri隔离联调。| 赌注 中 | 可逆 是 | @2026-10-19
 🎯 EXPECT 空观察不会提前初始化Presence周期；延迟首次观察仍保持连接相位错峰与30秒稳定周期，公开Tick先红后绿，新Native候选复验。| 赌注 低 | 可逆 是 | @2026-10-19
 ✅ DONE 空观察不初始化首次轮询；22 项 Presence 回归及 crate 检查通过。最终桌面组合证据见 docs/交接/presence-opt-20261019/handoff.md；未发布。
 ✅ DONE Presence错峰退避22项公开Tick回归与crate检查通过；正常30秒周期不变、无版本发布；实机和依赖接入边界见 docs/交接/presence-opt-20261019/handoff.md。

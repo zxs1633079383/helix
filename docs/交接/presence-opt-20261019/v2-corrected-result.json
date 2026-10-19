@@ -1,0 +1,67 @@
+{
+  "finalServerRebuilt": true,
+  "realTauriReconnected": true,
+  "devices": {
+    "passed": true,
+    "events": [
+      {
+        "phase": "two devices online",
+        "at": 1792404739009
+      },
+      {
+        "phase": "one device remains online",
+        "at": 1792404745511
+      },
+      {
+        "phase": "last device offline",
+        "at": 1792404753520
+      }
+    ]
+  },
+  "observedStates": [
+    "online",
+    "offline",
+    "unknown",
+    "offline"
+  ],
+  "healthyHttpAfterOnline": 0,
+  "durationMs": 70004,
+  "deadlineRefreshConfirmations": [
+    {
+      "checkedAt": 1792404788168,
+      "generation": 5,
+      "kind": "confirm",
+      "requestId": 24,
+      "sequence": 9,
+      "statuses": {},
+      "validUntil": {
+        "444": 1792404798164
+      },
+      "version": 2
+    },
+    {
+      "checkedAt": 1792404803164,
+      "generation": 5,
+      "kind": "confirm",
+      "requestId": 24,
+      "sequence": 10,
+      "statuses": {},
+      "validUntil": {
+        "444": 1792404813163
+      },
+      "version": 2
+    },
+    {
+      "checkedAt": 1792404808169,
+      "generation": 5,
+      "kind": "confirm",
+      "requestId": 25,
+      "sequence": 11,
+      "statuses": {},
+      "validUntil": {
+        "444": 1792404823169
+      },
+      "version": 2
+    }
+  ]
+}

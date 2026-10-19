@@ -15,7 +15,7 @@ name = "helix-store-inspect"
 path = "src/store_inspect_main.rs"
 
 [dependencies]
-helix-core          = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.74" }
+helix-core          = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.75" }
 helix-im            = { path = "../helix-im" }
 helix-driver-host   = { path = "../helix-driver-host" }
 helix-driver-native = { path = "../helix-driver-native" }

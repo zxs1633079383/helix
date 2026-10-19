@@ -26,6 +26,11 @@ struct Pending {
     started: u64,
 }
 #[derive(Default)]
+struct Retry {
+    failures: u32,
+    not_before: u64,
+}
+#[derive(Default)]
 pub(crate) struct Presence {
     scopes: BTreeMap<String, Observation>,
     users: BTreeSet<String>,
@@ -33,6 +38,7 @@ pub(crate) struct Presence {
     cache: BTreeMap<String, Cached>,
     pending: HashMap<Correlation, Pending>,
     last_attempt: BTreeMap<String, u64>,
+    retries: BTreeMap<String, Retry>,
     generation: u64,
     timer: Option<TimerId>,
     next_poll: u64,
@@ -43,6 +49,28 @@ pub(crate) struct Presence {
 }
 
 impl Presence {
+    // Derive a repeatable phase from host/server identity; no ambient randomness in the kernel.
+    fn phase(module: &ImModule) -> u64 {
+        module
+            .config
+            .auth_user_id
+            .bytes()
+            .chain(module.state.connection_id.as_deref().unwrap_or("").bytes())
+            .fold(0u64, |hash, byte| {
+                (hash ^ u64::from(byte)).wrapping_mul(16_777_619)
+            })
+            % 5_001
+    }
+
+    fn failed(&mut self, pending: &Pending) {
+        for id in &pending.ids {
+            let retry = self.retries.entry(id.clone()).or_default();
+            retry.failures = retry.failures.saturating_add(1).min(5);
+            let delay = (30_000u64 << (retry.failures - 1)).min(300_000);
+            retry.not_before = pending.started.saturating_add(delay);
+        }
+    }
+
     fn emit(&mut self, now: u64, out: &mut EffectSink) {
         let requested: BTreeSet<_> = self
             .scopes
@@ -85,6 +113,7 @@ impl Presence {
                 .map(|c| c.expires.saturating_sub(now))
                 .min()
                 .unwrap_or(5_000)
+                .min(self.next_poll.saturating_sub(now))
                 .clamp(1, 5_000);
             out.push(Effect::ScheduleTimer { id, after_ms });
         }
@@ -114,6 +143,11 @@ impl Presence {
             .users
             .iter()
             .filter(|id| snapshot || !self.focused.contains(*id))
+            .filter(|id| {
+                self.retries
+                    .get(*id)
+                    .is_none_or(|retry| now >= retry.not_before)
+            })
             .filter(|id| {
                 !snapshot
                     || ((!self.cache.get(*id).is_some_and(|c| c.expires > now)
@@ -160,7 +194,9 @@ impl Presence {
                 out.push(effect);
             }
         }
-        if !snapshot || self.next_poll == 0 {
+        if self.next_poll == 0 {
+            self.next_poll = now.saturating_add(30_000 + Self::phase(module));
+        } else if !snapshot {
             self.next_poll = now.saturating_add(30_000);
         }
         Ok(())
@@ -238,10 +274,12 @@ impl Presence {
             !pending.ids.is_empty()
         });
         self.last_attempt.retain(|id, _| users.contains(id));
+        self.retries.retain(|id, _| users.contains(id));
         self.cache.retain(|id, _| users.contains(id));
         // Refresh mode changes without blanking a still-valid sample or extending its lifetime.
         for id in focused.symmetric_difference(&self.focused) {
             self.last_attempt.remove(id);
+            self.retries.remove(id);
         }
         for id in focused.difference(&self.focused) {
             if let Some(cached) = self.cache.get_mut(id) {
@@ -312,6 +350,7 @@ impl ImModule {
                 Tick::Command(c) => presence.observe(self, &c.payload, now, out)?,
                 Tick::PortReply { corr, outcome } => {
                     if let Some(pending) = presence.pending.remove(corr) {
+                        let mut succeeded = false;
                         if now.saturating_sub(pending.started) < 15_000 {
                             let statuses = match outcome {
                                 PortOutcome::Ok(reply) => {
@@ -340,9 +379,14 @@ impl ImModule {
                                             .clock_offset_upper
                                             .map_or(offset, |old| old.min(offset)),
                                     );
+                                    succeeded = true;
+                                    for id in &pending.ids {
+                                        presence.retries.remove(id);
+                                    }
                                     let (focused, ordinary): (Vec<_>, Vec<_>) = pending
                                         .ids
-                                        .into_iter()
+                                        .iter()
+                                        .cloned()
                                         .filter(|id| {
                                             !presence
                                                 .cache
@@ -366,13 +410,24 @@ impl ImModule {
                             }
                             presence.emit(now, out);
                         }
+                        if !succeeded {
+                            presence.failed(&pending);
+                        }
                     }
                 }
                 Tick::Timer(_) => {
                     presence.timer = None;
-                    presence
+                    let expired: Vec<_> = presence
                         .pending
-                        .retain(|_, p| now.saturating_sub(p.started) < 15_000);
+                        .iter()
+                        .filter(|(_, p)| now.saturating_sub(p.started) >= 15_000)
+                        .map(|(corr, _)| *corr)
+                        .collect();
+                    for corr in expired {
+                        if let Some(pending) = presence.pending.remove(&corr) {
+                            presence.failed(&pending);
+                        }
+                    }
                     presence.cache.retain(|_, c| c.expires > now);
                     if now >= presence.next_poll {
                         presence.query(self, now, false, out)?;
@@ -446,6 +501,7 @@ impl ImModule {
         presence.clock_offset_upper = None;
         presence.pending.clear();
         presence.last_attempt.clear();
+        presence.retries.clear();
         presence.next_poll = 0;
         presence.cache.clear();
         if !presence.focused.is_empty() {
@@ -467,6 +523,7 @@ impl ImModule {
         presence.cache.clear();
         presence.pending.clear();
         presence.last_attempt.clear();
+        presence.retries.clear();
         presence.next_poll = 0;
         if let Some(id) = presence.timer.take() {
             out.push(Effect::CancelTimer { id });

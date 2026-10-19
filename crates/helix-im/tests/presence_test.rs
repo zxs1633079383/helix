@@ -669,3 +669,163 @@ fn focus_switch_failed_refresh_keeps_but_never_extends_expiry() {
         assert_eq!(statuses(&expired)["u1"], "unknown");
     }
 }
+
+// Normal polling keeps its period but different authenticated clients get different phases.
+#[test]
+fn polling_is_staggered_without_changing_steady_period() {
+    fn first_poll(user: &str) -> u64 {
+        let mut m = ImModule::new(ImConfig {
+            auth_user_id: user.into(),
+            api_base_url: "http://test/api/cses".into(),
+            ..ImConfig::default()
+        });
+        let e = observe(&mut m, "list", vec!["peer".into()], vec![], 0);
+        reply(&mut m, corr(&e), json!({"peer":"online"}), 1);
+        let mut t = timer(&e);
+        let mut first = 0;
+        for now in (5_000..=70_000).step_by(100) {
+            let e = step(&mut m, Tick::Timer(t), now);
+            t = timer(&e);
+            if e.iter().any(|e| matches!(e, Effect::Http { .. })) {
+                reply(&mut m, corr(&e), json!({"peer":"online"}), now + 1);
+                if first == 0 {
+                    first = now;
+                } else {
+                    assert_eq!(now - first, 30_000);
+                    return first;
+                }
+            }
+        }
+        panic!("missing steady refresh")
+    }
+    let a = first_poll("viewer-a");
+    let b = first_poll("viewer-b");
+    assert!((30_000..=35_000).contains(&a));
+    assert_ne!(a, b, "clients remain synchronized");
+    assert_eq!(
+        a,
+        first_poll("viewer-a"),
+        "same input must replay identically"
+    );
+}
+
+// Consecutive failures back off per user; success restores normal polling and unknown remains unknown.
+#[test]
+fn polling_backs_off_failures_and_recovers() {
+    let mut m = module();
+    let mut e = observe(&mut m, "list", vec!["peer".into()], vec![], 0);
+    let mut t = timer(&e);
+    for now in [0, 30_000] {
+        if now != 0 {
+            e = step(&mut m, Tick::Timer(t), now);
+            t = timer(&e);
+        }
+        step(
+            &mut m,
+            Tick::PortReply {
+                corr: corr(&e),
+                outcome: PortOutcome::Err(PortError::Network),
+            },
+            now + 1,
+        );
+    }
+    e = step(&mut m, Tick::Timer(t), 60_000);
+    t = timer(&e);
+    assert!(
+        !e.iter().any(|e| matches!(e, Effect::Http { .. })),
+        "second failure must skip a normal poll"
+    );
+    let extra = observe(
+        &mut m,
+        "list",
+        vec!["peer".into(), "new".into()],
+        vec![],
+        60_100,
+    );
+    let request = extra
+        .iter()
+        .find_map(|e| {
+            if let Effect::Http { req, .. } = e {
+                Some(serde_json::from_slice::<Value>(req.body.as_ref().unwrap()).unwrap())
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(
+        request["userIds"],
+        json!(["new"]),
+        "scroll cannot bypass backoff or block new users"
+    );
+    e = step(&mut m, Tick::Timer(t), 90_000);
+    t = timer(&e);
+    reply(
+        &mut m,
+        corr(&e),
+        json!({"peer":"online","new":"offline"}),
+        90_001,
+    );
+    e = step(&mut m, Tick::Timer(t), 120_000);
+    assert!(
+        e.iter().any(|e| matches!(e, Effect::Http { .. })),
+        "success restores 30s polling"
+    );
+}
+
+// Network, business, malformed and missing replies share bounded retries without inventing offline.
+#[test]
+fn polling_failure_kinds_cap_retries_and_release_cancels() {
+    for kind in ["network", "business", "malformed", "timeout"] {
+        let mut m = module();
+        let e = observe(&mut m, "list", vec!["peer".into()], vec![], 0);
+        let mut t = timer(&e);
+        let mut requests = vec![0];
+        // Every emitted request is answered or deliberately allowed to time out.
+        let fail = |m: &mut ImModule, c, now| match kind {
+            "network" => {
+                step(
+                    m,
+                    Tick::PortReply {
+                        corr: c,
+                        outcome: PortOutcome::Err(PortError::Network),
+                    },
+                    now + 1,
+                );
+            }
+            "business" => {
+                raw_reply(m, c, json!({"status":"FAIL"}), now + 1);
+            }
+            "malformed" => {
+                raw_reply(m, c, json!({"data":{}}), now + 1);
+            }
+            _ => {}
+        };
+        fail(&mut m, corr(&e), 0);
+        for now in (5_000..=1_050_000).step_by(5_000) {
+            let e = step(&mut m, Tick::Timer(t), now);
+            t = timer(&e);
+            if e.iter().any(|e| matches!(e, Effect::Http { .. })) {
+                requests.push(now);
+                fail(&mut m, corr(&e), now);
+            }
+            let state = statuses(&e);
+            assert!(
+                state.is_null() || state["peer"] == "unknown",
+                "failed queries cannot claim offline"
+            );
+        }
+        assert_eq!(
+            requests,
+            vec![0, 30_000, 90_000, 210_000, 450_000, 750_000, 1_050_000],
+            "{kind}"
+        );
+        let released = observe(&mut m, "list", vec![], vec![], 1_050_100);
+        assert!(released
+            .iter()
+            .any(|e| matches!(e, Effect::CancelTimer { .. })));
+        let after = step(&mut m, Tick::Timer(t), 1_400_000);
+        assert!(!after
+            .iter()
+            .any(|e| matches!(e, Effect::Http { .. } | Effect::ScheduleTimer { .. })));
+    }
+}

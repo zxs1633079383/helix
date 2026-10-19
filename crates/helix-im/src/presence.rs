@@ -83,6 +83,7 @@ impl Presence {
             .scopes
             .values()
             .flat_map(|s| s.user_ids.iter().chain(&s.focused_user_ids))
+            .chain(self.cache.keys())
             .collect();
         if requested.is_empty() && self.emitted.is_none() {
             return;
@@ -111,17 +112,22 @@ impl Presence {
     }
 
     fn arm(&mut self, module: &mut ImModule, now: u64, out: &mut EffectSink) {
-        if self.timer.is_none() && !self.users.is_empty() {
+        if self.timer.is_none() && (!self.users.is_empty() || !self.cache.is_empty()) {
             let id = module.alloc_timer();
             self.timer = Some(id);
-            let after_ms = self
+            let expires_in = self
                 .cache
                 .values()
                 .map(|c| c.expires.saturating_sub(now))
                 .min()
-                .unwrap_or(5_000)
-                .min(self.next_poll.saturating_sub(now))
-                .clamp(1, 5_000);
+                .unwrap_or(5_000);
+            let after_ms = if self.users.is_empty() {
+                expires_in.max(1)
+            } else {
+                expires_in
+                    .min(self.next_poll.saturating_sub(now))
+                    .clamp(1, 5_000)
+            };
             out.push(Effect::ScheduleTimer { id, after_ms });
         }
     }
@@ -323,7 +329,21 @@ impl Presence {
         });
         self.last_attempt.retain(|id, _| users.contains(id));
         self.retries.retain(|id, _| users.contains(id));
-        self.cache.retain(|id, _| users.contains(id));
+        // Keep a bounded warm cache for brief background/foreground transitions; never extend expiry.
+        let mut spare = 200usize.saturating_sub(users.len());
+        self.cache.retain(|id, cached| {
+            if cached.expires <= now {
+                return false;
+            }
+            if users.contains(id) {
+                return true;
+            }
+            if spare == 0 {
+                return false;
+            }
+            spare -= 1;
+            true
+        });
         // Refresh mode changes without blanking a still-valid sample or extending its lifetime.
         for id in focused.symmetric_difference(&self.focused) {
             self.last_attempt.remove(id);
@@ -346,9 +366,8 @@ impl Presence {
             if let Some(id) = self.timer.take() {
                 out.push(Effect::CancelTimer { id });
             }
-        } else {
-            self.arm(module, now, out);
         }
+        self.arm(module, now, out);
         self.emit(now, out);
         Ok(())
     }
@@ -662,7 +681,7 @@ impl ImModule {
         presence.last_attempt.clear();
         presence.retries.clear();
         presence.next_poll = 0;
-        presence.cache.clear();
+        presence.cache.retain(|_, c| c.expires > now);
         if !presence.focused.is_empty() {
             presence.watch(self, now, out);
         }
@@ -676,20 +695,27 @@ impl ImModule {
         result
     }
 
-    /// No persistent presence survives disconnect, identity changes or module shutdown.
+    /// Disconnect preserves valid samples; identity changes and shutdown clear them immediately.
     pub(crate) fn presence_clear(&mut self, release: bool, now: u64, out: &mut EffectSink) {
         let mut presence = std::mem::take(&mut self.presence);
         presence.generation = presence.generation.saturating_add(1);
         presence.subscription_reset();
         presence.last_checked_at = None;
         presence.clock_offset_upper = None;
-        presence.cache.clear();
+        if release {
+            presence.cache.clear();
+        } else {
+            presence.cache.retain(|_, c| c.expires > now);
+        }
         presence.pending.clear();
         presence.last_attempt.clear();
         presence.retries.clear();
         presence.next_poll = 0;
         if let Some(id) = presence.timer.take() {
             out.push(Effect::CancelTimer { id });
+        }
+        if !release {
+            presence.arm(self, now, out);
         }
         presence.emit(now, out);
         if release {

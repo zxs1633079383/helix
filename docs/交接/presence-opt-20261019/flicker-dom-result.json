@@ -1,0 +1,49 @@
+{
+  "candidate": "b9dade3292d0f7c68178ab6ff35173f2d1c99112f19722b993e8240def94ae25",
+  "cases": [
+    {
+      "name": "open-private-chat",
+      "start": 1792414471763,
+      "end": 1792414473948,
+      "status": "online",
+      "nonOnlineMutations": 0
+    },
+    {
+      "name": "websocket-reconnect",
+      "start": 1792414473948,
+      "end": 1792414478957,
+      "status": "online",
+      "nonOnlineMutations": 0
+    },
+    {
+      "name": "brief-background-foreground",
+      "start": 1792414478957,
+      "end": 1792414482663,
+      "status": "online",
+      "nonOnlineMutations": 0
+    },
+    {
+      "name": "normal-authorization-renewal",
+      "start": 1792414482663,
+      "end": 1792414504668,
+      "status": "online",
+      "nonOnlineMutations": 0
+    },
+    {
+      "name": "background-expiry",
+      "status": "unknown",
+      "durationMs": 32007,
+      "backgroundHTTP": 0
+    },
+    {
+      "name": "foreground-refresh-after-expiry",
+      "status": "online"
+    },
+    {
+      "name": "actual-offline",
+      "status": "offline"
+    }
+  ],
+  "passed": true,
+  "reconnectWireGenerationChanged": true
+}

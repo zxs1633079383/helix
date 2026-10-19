@@ -1,3 +1,5 @@
+✅ DONE 同身份重连/前后台保留有界有效状态，后台只到期清除；28项Presence与check通过，当前真实Tauri私聊绿点DOM回归通过。未提版/发布，见 docs/交接/presence-opt-20261019/handoff.md。
+
 ✅ DONE Presence v2定向25项、三端check/wasm/core通过，本地双Go与真实Tauri联调通过；IM全套7个已核对历史失败，未发布。证据见 docs/交接/presence-opt-20261019/handoff.md。
 🎯 EXPECT Presence v2确认后停止普通HTTP轮询，失效恢复；授权最长30秒，不改core/driver与版本。公开Tick先红后绿并完成Go/Tauri隔离联调。| 赌注 中 | 可逆 是 | @2026-10-19
 🎯 EXPECT 空观察不会提前初始化Presence周期；延迟首次观察仍保持连接相位错峰与30秒稳定周期，公开Tick先红后绿，新Native候选复验。| 赌注 低 | 可逆 是 | @2026-10-19

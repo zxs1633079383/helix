@@ -1036,3 +1036,104 @@ fn subscription_v2_gap_reconnect_and_revoke() {
     let e = observe(&mut m, "list", vec![], vec![], 800);
     assert_eq!(subscription_offer(&e)["userIds"], json!([]));
 }
+
+// A reconnect replaces transport correlation, not a still-valid authorization sample.
+#[test]
+fn reconnect_retains_valid_status_until_original_deadline() {
+    let mut m = module();
+    hello(&mut m, "first", 0);
+    let e = observe(&mut m, "list", vec!["u".into()], vec![], 100);
+    subscription_frame(
+        &mut m,
+        &subscription_offer(&e),
+        1,
+        "snapshot",
+        json!({"u":"online"}),
+        json!({"u":30100}),
+        200,
+    );
+    let e = step(&mut m, Tick::Disconnected(TransportId::from_raw(0)), 300);
+    assert!(
+        statuses(&e).is_null(),
+        "disconnect must not blank valid status"
+    );
+    let e = hello(&mut m, "second", 400);
+    assert!(
+        statuses(&e).is_null(),
+        "reconnect must not blank valid status"
+    );
+    let e = observe(&mut m, "list", vec!["u".into()], vec![], 30_201);
+    assert_eq!(
+        statuses(&e)["u"],
+        "unknown",
+        "reconnect must not extend freshness"
+    );
+}
+
+// Releasing network observation retains only bounded, expiring cache; background sends no queries.
+#[test]
+fn background_release_reuses_cache_without_network_or_deadline_extension() {
+    let mut m = module();
+    hello(&mut m, "first", 0);
+    let e = observe(&mut m, "list", vec!["u".into()], vec![], 100);
+    subscription_frame(
+        &mut m,
+        &subscription_offer(&e),
+        1,
+        "snapshot",
+        json!({"u":"online"}),
+        json!({"u":30100}),
+        200,
+    );
+    let e = observe(&mut m, "list", vec![], vec![], 300);
+    assert!(statuses(&e).is_null() || statuses(&e)["u"] == "online");
+    let t = timer(&e);
+    let e = step(&mut m, Tick::Timer(t), 30_201);
+    assert!(!e.iter().any(|e| matches!(
+        e,
+        Effect::Http { .. } | Effect::Send { .. } | Effect::ScheduleTimer { .. }
+    )));
+    assert_eq!(statuses(&e), json!({}));
+    let e = observe(&mut m, "list", vec!["u".into()], vec![], 30_202);
+    assert_eq!(statuses(&e)["u"], "unknown");
+    reply(&mut m, corr(&e), json!({"u":"online"}), 30_203);
+    observe(&mut m, "list", vec![], vec![], 30_204);
+    let e = observe(&mut m, "list", vec!["u".into()], vec![], 30_205);
+    assert_eq!(statuses(&e)["u"], "online");
+}
+
+// Warm entries cannot grow with scrolling and cannot cross an identity boundary.
+#[test]
+fn warm_presence_cache_is_bounded_and_identity_scoped() {
+    let mut m = module();
+    hello(&mut m, "first", 0);
+    let e = observe(&mut m, "list", vec!["old".into()], vec![], 100);
+    reply(&mut m, corr(&e), json!({"old":"online"}), 200);
+    observe(&mut m, "list", vec![], vec![], 300);
+    let ids: Vec<_> = (0..200).map(|i| format!("u{i}")).collect();
+    let e = observe(&mut m, "list", ids, vec![], 400);
+    assert!(statuses(&e).get("old").is_none());
+    let e = observe(&mut m, "list", vec!["u0".into()], vec![], 500);
+    let offer = subscription_offer(&e);
+    subscription_frame(
+        &mut m,
+        &offer,
+        1,
+        "snapshot",
+        json!({"u0":"online"}),
+        json!({"u0":30100}),
+        600,
+    );
+    observe(&mut m, "list", vec![], vec![], 700);
+    let e = step(
+        &mut m,
+        Tick::Command(AppCommand::new(
+            "__helix_runtime_identity",
+            json!({"company_id":"other"}).to_string(),
+        )),
+        800,
+    );
+    assert_eq!(statuses(&e), json!({}));
+    let e = observe(&mut m, "list", vec!["u0".into()], vec![], 900);
+    assert_eq!(statuses(&e)["u0"], "unknown");
+}

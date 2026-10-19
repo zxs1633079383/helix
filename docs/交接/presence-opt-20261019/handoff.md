@@ -42,3 +42,16 @@
 - 未改版本，未push或发布；客户端使用本地Helix临时构建，Cargo.toml/lock由原有helper恢复，普通开发二进制hash未变。
 
 最终服务端重建后再次经真实Tauri验证：断线重连、多设备online/offline、70秒健康订阅0次HTTP、新截止时间确认通过，见 v2-corrected-result.json。授权硬截止与5秒调度边界仍可能短暂unknown，下一轮确认恢复；没有延长授权来掩盖过期。
+
+
+## 2026-10-19 重连和前后台在线图标连续性
+
+同身份的断连/重连不主动清除尚未过期的状态；仍刷新generation、清理旧请求关联、重建订阅，旧帧不能延长状态。观察释放后最多保留200份原有效期内的warm cache；主动观察优先占用额度，闲置项按原截止时间清除。无观察时只有到期定时器，不发HTTP、WS查询或续订。切账号/租户、shutdown、明确撤销仍清除，后台不无限保绿。
+
+消费侧MessagePresenceService把重报订阅与身份清除分开，保留有界已接受用户用于投影，以覆盖visibilitychange早于IntersectionObserver的顺序；Helix绝对快照缺失/unknown仍清灰。相同映射不更新Signal；指令可见性只控制观察，不把有效状态转成unknown，presenceEnabled继续控制展示。
+
+公开seam：im_presence_observe是远端读意图；成功由im:presence:update返回，失败不延长已有期限，generation/corr隔离迟到结果；Persist/远端写为N/A。无新命令、wire字段、Port、依赖或配置；三端共享业务状态机保持sans-IO。
+
+验证：新增重连有效期、后台无网络与过期、cache上限与租户隔离回归；旧代码2项失败后修复，最终28项presence测试通过，cargo check -p helix-im通过（9项既有warning）。客户端20项服务、1项指令DOM、6项Host合同共27项通过，边界/type/lint及前端/本地Helix原生候选构建通过。未重跑无关全套IM/三端driver测试；未改port/driver/schema。
+
+真实macOS Tauri候选加载当前Helix与当前前端，使用真实本机双Go、Redis/Pulsar、隔离PostgreSQL和只读PRE身份库。通过本机真实HTTP建私聊，原生pointer点击私聊，代理断开真实WS（wire generation已变化），原生hide/show；MutationObserver跟踪现有私聊行data-line-status/class。点击、重连、短暂隐藏恢复、22秒授权续期均无非online变更；隐藏32秒后unknown且0次HTTP查询，恢复重新online，对端实际断开后offline。见 flicker-dom-result.json；原始DOM/network/provenance/screenshot在cses-client/artifacts/presence-flicker-20261019。不是K8s容量、Windows或多窗口验收；发现注册仍用本地fixture。未提版、push或发布。

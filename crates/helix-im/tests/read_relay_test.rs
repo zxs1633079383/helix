@@ -1768,3 +1768,36 @@ fn pinned_empty_and_failure_do_not_fabricate_summary() {
         assert!(emit_jsons(&h.sink).iter().any(|value| value["event"] == "im:read:result"));
     }
 }
+
+/// Both errors complete the original request; only confirmed pre-I/O rejection carries not_submitted.
+#[test]
+fn offline_terminal_preserves_req_id_and_does_not_mislabel_inflight_network_failure() {
+    use helix_core::{Correlation, tick::{PortOutcome, PortError}};
+    for (error, offline) in [(PortError::NetworkUnavailable, true), (PortError::Network, false)] {
+        let mut h=scoped_read_harness(&["ch00000000000000000000000a"]);
+        h.step(outbound_cmd("im_top20", serde_json::json!({"channel_id":"ch00000000000000000000000a","req_id":"offline-read"})),1000);
+        let corr=http_corr(&h.sink).unwrap();
+        h.step(Tick::PortReply { corr:Correlation::from_raw(corr), outcome:PortOutcome::Err(error) },1001);
+        let result=emit_json(&h.sink).unwrap();
+        assert_eq!(result["data"]["req_id"],"offline-read"); assert!(result["data"].get("body").is_none());
+        assert!(result["data"].get("networkFailure").is_some());
+        if !offline { assert_eq!(result["data"]["networkFailure"]["code"],"SERVICE_UNREACHABLE"); assert_eq!(result["data"]["networkFailure"]["outcome"],"unknown"); }
+        if offline { assert_eq!(result["data"]["networkFailure"]["outcome"],"not_submitted"); assert_eq!(result["data"]["networkFailure"]["reqId"],"offline-read"); }
+        h.step(Tick::PortReply { corr:Correlation::from_raw(corr), outcome:PortOutcome::Err(PortError::NetworkUnavailable) },1002);
+        assert!(emit_jsons(&h.sink).is_empty(),"duplicate terminal must not complete twice");
+    }
+}
+
+/// Write commands without a read continuation still return one matched pre-I/O failure terminal.
+#[test]
+fn offline_write_without_read_relay_still_emits_correlated_terminal() {
+    use helix_core::{Correlation,tick::{PortOutcome,PortError}};
+    let mut h=scoped_read_harness(&["ch00000000000000000000000a"]);
+    h.step(outbound_cmd("im_urgent_confirm",serde_json::json!({"post_id":"post-1","req_id":"offline-write"})),1000);
+    let corr=http_corr(&h.sink).unwrap();
+    h.step(Tick::PortReply {corr:Correlation::from_raw(corr),outcome:PortOutcome::Err(PortError::NetworkUnavailable)},1001);
+    let terminal=emit_json(&h.sink).unwrap(); assert_eq!(terminal["event"],"im:operation:status");
+    assert_eq!(terminal["data"]["requestId"],"offline-write"); assert_eq!(terminal["data"]["networkFailure"]["reqId"],"offline-write");
+    h.step(Tick::PortReply {corr:Correlation::from_raw(corr),outcome:PortOutcome::Err(PortError::NetworkUnavailable)},1002);
+    assert!(emit_jsons(&h.sink).is_empty());
+}

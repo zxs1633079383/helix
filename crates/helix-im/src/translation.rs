@@ -328,6 +328,7 @@ fn is_supported_language(language: &str) -> bool {
 
 fn error_code(error: &PortError) -> &'static str {
     match error {
+        PortError::NetworkUnavailable => "NETWORK_UNAVAILABLE",
         PortError::Timeout => "TRANSLATION_TIMEOUT",
         PortError::Network => "TRANSLATION_NETWORK_ERROR",
         PortError::Http(_) => "TRANSLATION_HTTP_ERROR",

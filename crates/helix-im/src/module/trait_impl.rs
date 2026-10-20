@@ -37,6 +37,29 @@ impl Module for ImModule {
         let result = self.handle_scoped_tick(tick, now_ms, out);
         self.render_scope
             .scope_http_requests(&self.config, tick, start, out);
+        let offline = matches!(tick, Tick::PortReply { outcome: helix_core::tick::PortOutcome::Err(helix_core::tick::PortError::NetworkUnavailable), .. });
+        let service_unreachable = matches!(tick, Tick::PortReply { outcome: helix_core::tick::PortOutcome::Err(helix_core::tick::PortError::Network | helix_core::tick::PortError::Timeout), .. });
+        if offline || service_unreachable {
+            let code = if offline { "NETWORK_UNAVAILABLE" } else { "SERVICE_UNREACHABLE" };
+            let phase = if offline { "before_io" } else { "after_io" };
+            let outcome = if offline { "not_submitted" } else { "unknown" };
+            // Commands without a business HTTP continuation still require a correlated failure terminal.
+            if !out.as_slice()[start..].iter().any(|effect|matches!(effect,helix_core::Effect::Emit { .. })) {
+                if let Some(req_id)=self.failure_context.current_request_id() {
+                    if let Ok(event)=crate::event::MessageV3Event::new("im:operation:status", serde_json::json!({"requestId":req_id,"status":"failed","failureCode":code})) { out.push(event.into_effect()); }
+                }
+            }
+            out.visit_mut_from(start, |effect| {
+                if let helix_core::Effect::Emit { event } = effect {
+                    if let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&event.0) {
+                        if let Some(data) = value.get_mut("data").and_then(serde_json::Value::as_object_mut) {
+                            data.insert("networkFailure".into(), serde_json::json!({"code":code,"phase":phase,"outcome":outcome,"reqId":self.failure_context.current_request_id()}));
+                            if let Ok(bytes) = serde_json::to_vec(&value) { event.0 = bytes.into(); }
+                        }
+                    }
+                }
+            });
+        }
         // 包括提前 return 和错误路径在内，任何跨端 Emit 都必须经过同一个业务闸门。
         self.render_scope.guard_effects(&self.config, start, out);
         self.failure_context

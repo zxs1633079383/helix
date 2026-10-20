@@ -95,3 +95,76 @@ impl ImModule {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+mod network_recovery_tests {
+    use super::*;
+    use crate::pending_send::PendingSend;
+    use crate::state::{SendStatus, ServerId};
+    use helix_core::{Effect, Module, Tick, TimerId};
+
+    /// Disconnect/hello must retain an admitted send; only authoritative sync reconciles it.
+    #[test]
+    fn reconnect_preserves_pending_and_sync_confirmation_never_replays_http_write() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let temporary_id = TemporaryId("network-pending".into());
+        let mut pending = PendingSend::new(
+            temporary_id.clone(),
+            TimerId::from_raw(71),
+            Some("old-connection".into()),
+        );
+        pending.status = SendStatus::Sending;
+        pending.http_started = true;
+        module
+            .state
+            .pending_sends
+            .insert(temporary_id.clone(), pending);
+        let mut out = EffectSink::new();
+        module
+            .handle(
+                &Tick::Disconnected(helix_core::effect::TransportId::from_raw(0)),
+                1,
+                &mut out,
+            )
+            .unwrap();
+        module
+            .handle(
+                &Tick::Connected(helix_core::effect::TransportId::from_raw(0)),
+                2,
+                &mut out,
+            )
+            .unwrap();
+        let hello = Tick::Inbound(helix_core::tick::InboundBytes::from_static(
+            br#"{"v":1,"action":"hello","data":{"connectionId":"new-connection"},"seq":0}"#,
+        ));
+        module.handle(&hello, 3, &mut out).unwrap();
+        assert!(
+            module
+                .state
+                .pending_sends
+                .get(&temporary_id)
+                .unwrap()
+                .http_started
+        );
+        assert!(!out.as_slice().iter().any(|fx| matches!(fx, Effect::Http { req, .. } if req.method == "POST" && req.url.contains("posts/create"))));
+        let confirmation = PendingSendReconciliation {
+            temporary_id: temporary_id.clone(),
+            server_id: ServerId::from_str("po000000000000000000000001").unwrap(),
+        };
+        assert!(module
+            .reconcile_pending_send_after_sync(confirmation.clone(), &mut out)
+            .unwrap());
+        assert!(!module
+            .reconcile_pending_send_after_sync(confirmation, &mut out)
+            .unwrap());
+        assert!(!module.state.pending_sends.contains_key(&temporary_id));
+        assert!(!out
+            .as_slice()
+            .iter()
+            .any(|fx| matches!(fx, Effect::Http { req, .. } if req.method == "POST")));
+        assert!(out
+            .as_slice()
+            .iter()
+            .any(|fx| matches!(fx, Effect::CancelTimer { id } if *id == TimerId::from_raw(71))));
+    }
+}

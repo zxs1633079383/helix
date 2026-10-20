@@ -17,11 +17,13 @@ pub(super) fn http_request(
     corr: Correlation,
 ) -> Effect {
     // CATEGORY profile input is business data; its message projections are cleaned separately.
-    let body = if path.starts_with("post-chain/") && path.ends_with("?mode=CATEGORY") {
+    let mut body = if path.starts_with("post-chain/") && path.ends_with("?mode=CATEGORY") {
         body
     } else {
         crate::message_identity::sanitize(body)
     };
+    // req_id is Host correlation metadata, including raw-body commands; never send it as business data.
+    if let Some(object) = body.as_object_mut() { object.remove("req_id"); object.remove("reqId"); }
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
     headers.extend(crate::acl::to_effect::connection_id_headers(connection_id));
     headers.push((AUTH_KIND_HEADER.to_string(), auth_kind.as_str().to_string()));

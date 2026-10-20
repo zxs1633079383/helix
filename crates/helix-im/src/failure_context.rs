@@ -62,7 +62,12 @@ struct FailureFields<'a> {
 }
 
 impl FailureContext {
-    /// 不读取Command payload；仅共享命令名称与owned关联，不把借用带到下一轮。
+    /// The decoder/Effect bound req_id; expose it only for terminal transport metadata.
+    pub(crate) fn current_request_id(&self) -> Option<&str> {
+        self.current.origin.as_ref().map(|origin| origin.request_id()).filter(|id| !id.is_empty())
+    }
+
+    /// Enter the tick origin without parsing Command payloads or retaining business data.
     pub(crate) fn enter(&mut self, tick: &Tick) {
         self.current = match tick {
             Tick::Command(cmd) => {
@@ -89,6 +94,7 @@ impl FailureContext {
             }
             _ => Source::default(),
         };
+
     }
 
     /// 借用业务解码器已有的关联字段；OnceLock 只初始化一次，已发出的分支共享同一身份。
@@ -154,6 +160,7 @@ impl FailureContext {
             }
             match effect {
                 Effect::Http { corr, req } => {
+                    if let Some((_, request_id))=req.headers.iter().find(|(name,_)|name.eq_ignore_ascii_case("Cses-Track-Id")) { self.bind_request(request_id); }
                     let mut source = self.current.clone();
                     source.route = Some(Arc::from(format!(
                         "HTTP {} {}",

@@ -70,6 +70,7 @@ impl super::ImModule {
                     return Ok(());
                 }
                 let (state, code, retry_reconcile) = match error {
+                    PortError::NetworkUnavailable => (ChainMutationState::Rejected, "NETWORK_UNAVAILABLE", false),
                     PortError::Timeout | PortError::Network | PortError::Http(500..=599) => (
                         ChainMutationState::Reconciling,
                         "TRANSPORT_UNKNOWN",

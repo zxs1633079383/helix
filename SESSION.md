@@ -1,3 +1,6 @@
+🎯 EXPECT 仅修改Markdown；六处公共包版本入口与manifest一致，Presence说明与当前源码一致；本批链接/索引/Spec检查通过，历史缺口和未覆盖语义单列。 | 赌注 中 | 可逆 是 | @2026-10-20 08:08 CST
+- 交接：docs/交接/Markdown日检-20261020/handoff.md
+✅ DONE 六处版本入口和Presence订阅/缓存说明已对齐；静态聚焦检查通过，整体PARTIAL，最终发布结果见交接所指报告。
 ✅ DONE 同身份重连/前后台保留有界有效状态，后台只到期清除；28项Presence与check通过，当前真实Tauri私聊绿点DOM回归通过。未提版/发布，见 docs/交接/presence-opt-20261019/handoff.md。
 
 ✅ DONE Presence v2定向25项、三端check/wasm/core通过，本地双Go与真实Tauri联调通过；IM全套7个已核对历史失败，未发布。证据见 docs/交接/presence-opt-20261019/handoff.md。

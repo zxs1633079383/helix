@@ -5,7 +5,7 @@
 
 ```toml
 [dependencies]
-helix-im = "=0.1.69"
+helix-im = "=0.1.76"
 ```
 
 本项目采用 `MIT OR Apache-2.0` 双许可证。
@@ -135,15 +135,18 @@ TraceId 来自 core 的当前 step 诊断，不由业务模块创建；HTTP/WS/�
 `im_presence_observe({scope_id,user_ids,focused_user_ids})` 是本地确定性登记命令，
 通过公共 `client_api` / `Tick::Command` 进入；同 scope 全量替换，两个数组为空时释放。
 每 scope 最多 200 个去重用户，最多 64 scopes；合并后优先 focus，实际观察最多 200 人，
-其余明确为 unknown。最多 10 个 focus 通过 WS 订阅，其余降为普通查询。
+其余明确为 unknown。最多 10 个 focus；v2 订阅覆盖全部实际观察用户，
+旧服务端兼容路径仅为 focus 建立 WS 订阅，其余走普通查询。
 Host 必须为窗口创建唯一 scope 并在隐藏/销毁时释放。身份与企业由 ImConfig 提供，
 不接受 renderer payload 修改。无持久化，不统计群在线人数。
 
 输出为 `{event:"im:presence:update",data:{statuses:{userId:"online"|"offline"|"unknown"}}}`，
-是当前已登记用户的绝对快照；首次登记产生 unknown，网络确认后才出现 online/offline。
-新增观察仅补查无有效缓存且无在途请求的用户，重连重新批查 `/users/status/ids`
-（最多 100 人/批）；滚动保留交集在途请求，不重置普通用户的 30 秒刷新周期，
-有效期从请求开始计算 45 秒；focus 初始查询有效期 15 秒，较新的 WS 样本优先。
+覆盖当前已登记用户与仍有效的有界缓存；首次无缓存时产生 unknown，网络确认后才出现
+online/offline。短暂释放观察可以保留原期限内的状态，缓存总量最多 200 人。
+兼容路径中，新增观察仅补查需要刷新的用户，并避免同用户重复在途；重连重新批查 `/users/status/ids`
+（最多 100 人/批）；滚动保留交集在途请求，不重置普通用户的 30 秒刷新周期。
+首次周期按认证用户与连接 ID 确定性错峰 0–5 秒；失败按用户退避 30–300 秒，成功清除退避。
+普通查询有效期从请求开始计算 45 秒；focus 初始查询有效期 15 秒，较新的 WS 样本优先。
 普通与 focus 切换时立即补查，但保留已有有效状态，避免在线绿点先清空再恢复；
 晋升 focus 后等待新确认最多保留 15 秒，且不超过原有效期，反复切换不会续活旧样本。
 专用查询携带 `includeMetadata:true`，返回 `{statuses,checkedAt}`；普通旧查询仍为 map。
@@ -152,16 +155,27 @@ HTTP/WS 按相同服务端 checkedAt 排序。用 HTTP 采样时刻减本地请�
 确认失败通过续订周期有界重试；任何 WS 样本的本地剩余新鲜期最多 15 秒。
 每次重连重新校准；同一连接期采用已确认偏差上界的最小值。服务端节点时钟同步及
 会话内时钟稳定仍是 Redis 租约与 checkedAt 排序的前提，时钟前跳不能延长本地新鲜期。
-WS 发 `{action:"presence_watch",seq,data:{userIds,generation}}`，每 20 秒续 60 秒租约；
+兼容 WS 发 `{action:"presence_watch",seq,data:{userIds,generation}}`，每 20 秒续订；
 接收 `{action:"presence",data:{generation,statuses,checkedAt}}`，完整快照省略用户即 unknown。
-检查失败不延长状态，15 秒未获 focus 确认变 unknown。只有 focus 集合变化或连接恢复
-改变订阅代次；普通列表滚动不重发 watch。同代递增 checkedAt 防旧帧覆盖。
+检查失败不延长状态，15 秒未获 focus 确认变 unknown。兼容订阅只有 focus 集合变化或连接恢复
+改变代次；普通列表滚动不重发兼容 watch。同代递增 checkedAt 防旧帧覆盖。
+
+v2 使用同一 `presence_watch` action，额外携带 `version:2`、`requestId`、
+`generation`、全量 `userIds` 与 `focusedUserIds`，每 20 秒续订。入站必须匹配代次、
+未过期请求与连续 `sequence`；首帧必须是 `snapshot`，后续支持 `delta` / `confirm`。
+断序会重置代次并请求新快照。有效确认后 40 秒内停止 HTTP 查询并忽略旧协议与在途 HTTP
+结果；失联后恢复兼容查询。每用户有效期由 `validUntil` 和请求关联的时钟偏差界确定，
+最长 30 秒；缺失或过期授权为 unknown，确认不能无条件续活样本。实现真源为
+[`presence.rs`](src/presence.rs)，订阅活性期限与每用户授权期限不可混为一谈。
 
 生命周期：输入非法直接报错且不改变观察；HTTP/Port/业务失败不伪造 offline，保留已确认
-状态仅到原期限；请求 15 秒超时后丢弃关联，迟到/重复回复不生效。取消 scope 释放对应用户关联，最后观察者离开取消计时器；断线、
-身份切换、stop 清待处理关联及计时器；断线保留观察意图，hello 后新代重新取快照。
-Persist/SQLite 生命周期为 N/A（瞬时状态），WS 无确认时由 15 秒失效处理。
-定向回放入口：`cargo test -p helix-im --test presence_test`；仅证明 sans-IO 合同，
+状态仅到原期限；请求 15 秒超时后丢弃关联，迟到/重复回复不生效。取消 scope 释放对应用户关联；
+最后观察者离开停止查询/续订，但保留缓存到期计时器，后台只清除到期状态。断线清待处理
+关联并保留未过期缓存，hello 后新代取快照，不延长旧状态；身份切换或 stop 立即清空缓存
+与观察意图。Persist/SQLite 生命周期为 N/A（瞬时状态）；兼容 focus 与 v2 分别按上述
+新鲜期/授权截止处理。
+定向回放入口：`cargo test -p helix-im --test presence_test`（Cargo 自动发现）；本轮仅核对
+源码与测试入口，未执行 Rust 测试。该回放仅覆盖 sans-IO 合同，
 真实 Go/WS/Tauri UI、三端业务验收和 5000 人群负载未由这些回放证明。
 
 ## 普通未读清除边界与可见回应查询

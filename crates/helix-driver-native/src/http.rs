@@ -61,6 +61,7 @@ pub struct NativeHttp {
     inner: HttpInner,
     headers: HostHeaderRegistry,
     translation: Option<TranslationHttpClient>,
+    request_guard: Option<helix_driver_host::RequestAdmissionGuard>,
 }
 
 #[derive(Clone)]
@@ -72,6 +73,16 @@ enum HttpInner {
 }
 
 impl NativeHttp {
+    /// Keep a last-mile guard for translation and HTTP calls; the shared HTTP client is also guarded.
+    pub fn with_request_guard(mut self, guard: helix_driver_host::RequestAdmissionGuard) -> Self {
+        if let Some(client) = self.translation.take() { self.translation = Some(client.with_request_guard(Arc::clone(&guard))); }
+        self.inner = match self.inner {
+            HttpInner::Plain(client) => HttpInner::Plain(client.with_request_guard(Arc::clone(&guard))),
+            HttpInner::Cross(client) => HttpInner::Cross(client.map_inner(|inner| inner.with_request_guard(Arc::clone(&guard)))),
+        };
+        self.request_guard = Some(guard); self
+    }
+
     // 构造唯一入口 = with_config / from_shared / with_crosscut（ADR-010 共享 client）。
     // 旧 new()/with_timeout() 曾退化为永远 Err 的活墓碑——已删，误用变编译错（D2 drift 收敛）。
     pub fn with_config(config: HostNetworkConfig) -> Result<Self, PortError> {
@@ -93,6 +104,7 @@ impl NativeHttp {
             inner: HttpInner::Plain(inner),
             headers,
             translation: None,
+            request_guard: None,
         }
     }
 
@@ -116,6 +128,7 @@ impl NativeHttp {
             )),
             headers,
             translation: None,
+            request_guard: None,
         }
     }
 
@@ -134,6 +147,7 @@ impl NativeHttp {
             ),
             headers,
             translation: None,
+            request_guard: None,
         }
     }
 
@@ -144,7 +158,9 @@ impl NativeHttp {
         mut self,
         config: TranslationHttpConfig,
     ) -> Result<Self, PortError> {
-        self.translation = Some(TranslationHttpClient::new(config)?);
+        let mut client = TranslationHttpClient::new(config)?;
+        if let Some(guard) = &self.request_guard { client = client.with_request_guard(Arc::clone(guard)); }
+        self.translation = Some(client);
         Ok(self)
     }
 
@@ -167,6 +183,7 @@ impl NativeHttp {
 #[async_trait::async_trait]
 impl HttpRequester for NativeHttp {
     async fn request(&self, req: HttpRequest) -> Result<HttpResponse, PortError> {
+        if let Some(guard) = &self.request_guard { guard()?; }
         if consume_wdio_post_create_fault(&req) {
             return Err(PortError::Transport(
                 "wdio coarse-real injected posts/create failure".to_string(),

@@ -3,6 +3,7 @@
 //! Login/auth remains outside Helix. Platform shells provide config and update
 //! headers; these clients only inject the latest header snapshot into requests.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -71,17 +72,57 @@ enum WsLifecyclePhase {
     Finished,
 }
 
+/// 物理连接代际：每次 connect 取一个新 epoch，只有「当前代」的收尾才允许发布 `Disconnected`。
+///
+/// ## 为什么需要它
+///
+/// `transport_id` 是**逻辑**路由键（IM 恒为 0），重建会复用同一 id。若被替换连接的收尾也能发布
+/// `Disconnected`，reconnect supervisor 就会把「上一条连接没了」误判成「当前连接断了」，每次
+/// 重建都触发下一次重建，形成自持重连风暴（线上 60~80 次/分，服务端从未主动关闭）。
+///
+/// 代际计数器由 reconnect factory 持有，跨代共享；未设置代际的路径（FFI/Web）保持既有语义：
+/// 每次收尾都发布，行为不变。
+#[derive(Debug, Default)]
+pub struct ConnectionEpochs {
+    latest: AtomicU64,
+}
+
+impl ConnectionEpochs {
+    /// 分配下一个代际；新连接一建立就宣告自己是当前代。
+    pub fn next(&self) -> u64 {
+        self.latest.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// 当前代际；`epoch < latest()` 即已被替换。
+    pub fn latest(&self) -> u64 {
+        self.latest.load(Ordering::SeqCst)
+    }
+}
+
 pub(crate) struct WsConnectionLifecycle {
     phase: Mutex<WsLifecyclePhase>,
     inbound: Option<(TransportId, InboundTickSender)>,
+    /// 本连接所属代际；`None` 表示无代际语义（FFI/Web/单测直连路径）。
+    epoch: Option<(u64, Arc<ConnectionEpochs>)>,
 }
 
 impl WsConnectionLifecycle {
-    pub(crate) fn new(inbound: Option<(TransportId, InboundTickSender)>) -> Self {
+    pub(crate) fn new_with_epoch(
+        inbound: Option<(TransportId, InboundTickSender)>,
+        epoch: Option<(u64, Arc<ConnectionEpochs>)>,
+    ) -> Self {
         Self {
             phase: Mutex::new(WsLifecyclePhase::Prepared),
             inbound,
+            epoch,
         }
+    }
+
+    /// 本连接是否已被更新的代际替换。
+    fn is_superseded(&self) -> bool {
+        self.epoch
+            .as_ref()
+            .is_some_and(|(epoch, epochs)| *epoch < epochs.latest())
     }
 
     pub(crate) async fn activate(&self) -> Result<bool, PortError> {
@@ -107,6 +148,20 @@ impl WsConnectionLifecycle {
                 *phase = WsLifecyclePhase::Finished;
             }
             WsLifecyclePhase::Active => {
+                if self.is_superseded() {
+                    // 已被更新代际的连接替换：静默收尾。
+                    // 发布 Disconnected 会让 supervisor 把「上一条连接没了」误判成「当前连接断了」。
+                    // 现场留证：真机验收时这条日志必须出现，且不再伴随重连风暴。
+                    if let Some((epoch, epochs)) = &self.epoch {
+                        tracing::info!(
+                            epoch = *epoch,
+                            latest_epoch = epochs.latest(),
+                            "被替换连接收尾：抑制 Disconnected（防重连风暴）"
+                        );
+                    }
+                    *phase = WsLifecyclePhase::Finished;
+                    return;
+                }
                 if let Some((id, tick_tx)) = &self.inbound {
                     tick_tx.send(Tick::Disconnected(*id)).await.ok();
                 }
@@ -195,6 +250,8 @@ pub struct SharedWsClient {
     state: Arc<Mutex<WsState>>,
     /// 可选入站推送通道：Some 时 shared lifecycle 发 Connected/Disconnected，reader 发 Inbound。
     inbound: Option<(TransportId, InboundTickSender)>,
+    /// 物理连接代际：Some 时只有「当前代」的收尾才发布 Disconnected。
+    epoch: Option<(u64, Arc<ConnectionEpochs>)>,
     metrics: Arc<dyn AsyncMetricSink>,
 }
 
@@ -213,6 +270,7 @@ impl SharedWsClient {
             headers,
             state: Arc::new(Mutex::new(WsState::Disconnected)),
             inbound: None,
+            epoch: None,
             metrics: Arc::new(NoopMetricSink),
         })
     }
@@ -241,6 +299,12 @@ impl SharedWsClient {
 
     pub fn with_metric_sink(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
         self.metrics = metrics;
+        self
+    }
+
+    /// 注入物理连接代际：本连接被更新代际替换后，其收尾不再发布 `Disconnected`。
+    pub fn with_epoch(mut self, epoch: u64, epochs: Arc<ConnectionEpochs>) -> Self {
+        self.epoch = Some((epoch, epochs));
         self
     }
 }
@@ -302,7 +366,10 @@ impl SharedWsClient {
         let dump_frames = std::env::var("HELIX_DUMP_FRAMES").is_ok();
         let inbound = self.inbound.clone();
         let metrics = Arc::clone(&self.metrics);
-        let lifecycle = Arc::new(WsConnectionLifecycle::new(inbound.clone()));
+        let lifecycle = Arc::new(WsConnectionLifecycle::new_with_epoch(
+            inbound.clone(),
+            self.epoch.clone(),
+        ));
         let reader_lifecycle = Arc::clone(&lifecycle);
 
         let reader = tokio::spawn(async move {

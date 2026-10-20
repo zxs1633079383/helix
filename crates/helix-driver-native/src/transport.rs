@@ -13,8 +13,8 @@ use helix_core::ports::FrameSender;
 use helix_core::PortError;
 use helix_core::Tick;
 use helix_driver_host::{
-    AsyncMetricSink, HostHeaderRegistry, HostNetworkConfig, NoopMetricSink, SharedWsClient,
-    TickIngressSender, WsConnectionActivation,
+    AsyncMetricSink, ConnectionEpochs, HostHeaderRegistry, HostNetworkConfig, NoopMetricSink,
+    SharedWsClient, TickIngressSender, WsConnectionActivation,
 };
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -43,12 +43,15 @@ pub(crate) struct NativeReconnectFactory {
     id: TransportId,
     tick_tx: Option<NativeTickSender>,
     metrics: Arc<dyn AsyncMetricSink>,
+    /// 跨代共享的连接代际：新连接一建立就成为当前代，被替换连接收尾时静默退出。
+    epochs: Arc<ConnectionEpochs>,
 }
 
 impl NativeReconnectFactory {
     pub(crate) fn build(&self) -> Result<NativeTransport, PortError> {
         let mut inner = SharedWsClient::with_registry(self.config.clone(), self.headers.clone())?
-            .with_metric_sink(Arc::clone(&self.metrics));
+            .with_metric_sink(Arc::clone(&self.metrics))
+            .with_epoch(self.epochs.next(), Arc::clone(&self.epochs));
         if let Some(tx) = &self.tick_tx {
             inner = tx.attach(inner, self.id);
         }
@@ -125,7 +128,10 @@ impl NativeTransport {
         tick_tx: Option<NativeTickSender>,
     ) -> Result<Self, PortError> {
         let headers = HostHeaderRegistry::default();
-        let mut inner = SharedWsClient::with_registry(config.clone(), headers.clone())?;
+        // 首连也属于第 1 代：被后续重建替换后，它的收尾同样不得发布 Disconnected。
+        let epochs = Arc::new(ConnectionEpochs::default());
+        let mut inner = SharedWsClient::with_registry(config.clone(), headers.clone())?
+            .with_epoch(epochs.next(), Arc::clone(&epochs));
         if let Some(tx) = &tick_tx {
             inner = tx.attach(inner, id);
         }
@@ -135,6 +141,7 @@ impl NativeTransport {
             id,
             tick_tx,
             metrics: Arc::new(NoopMetricSink),
+            epochs,
         };
         Ok(Self::from_shared_parts(inner, Some(reconnect)))
     }

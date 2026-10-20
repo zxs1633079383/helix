@@ -233,6 +233,136 @@ async fn reconnect_supervisor_shutdown_interrupts_backoff() {
     drop(lifecycle_tx);
 }
 
+/// 线上 1:1 模式复现：客户端每次「连接成功」后，上一条连接迟到的 Disconnected 紧随其后到达
+/// （10 小时 2158 次 reconnect_success 对 2113 次 disconnect，服务端日志证明它从未主动关闭）。
+///
+/// 不变式：成功后极短时间内又被告知断开＝「连上即断」抖动，退避必须继续升级并保持有界；
+/// 现状是每条 Disconnected 都把 attempt 重置为 1，于是永远在 initial_delay 上打转，
+/// 也就是线上 60~70 次/分的连接风暴。
+#[tokio::test(start_paused = true)]
+async fn replacement_disconnect_after_success_must_escalate_backoff() {
+    let transport_id = TransportId::from_raw(21);
+    let policy = ReconnectPolicy {
+        initial_delay: Duration::from_millis(200),
+        max_delay: Duration::from_secs(10),
+        multiplier: 2,
+        max_attempts: None,
+    };
+    let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (trace_tx, mut trace_rx) = TransportTraceSink::channel();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let attempts_for_factory = Arc::clone(&attempts);
+    let lifecycle_for_factory = lifecycle_tx.clone();
+
+    let handle = spawn_reconnect_supervisor(
+        transport_id,
+        policy,
+        lifecycle_rx,
+        shutdown_rx,
+        ReconnectTraceSink::new(Some(trace_tx)),
+        move || {
+            let attempts = Arc::clone(&attempts_for_factory);
+            let lifecycle_tx = lifecycle_for_factory.clone();
+            async move {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                // 本次重连成功的同时，上一条连接（同一 transport_id）的 Disconnected 才被投递。
+                lifecycle_tx
+                    .send(TransportLifecycleEvent::Disconnected {
+                        transport_id,
+                        reason: "reader_closed_or_error",
+                    })
+                    .ok();
+                Ok(())
+            }
+        },
+    );
+
+    lifecycle_tx
+        .send(TransportLifecycleEvent::Disconnected {
+            transport_id,
+            reason: "reader_closed_or_error",
+        })
+        .expect("send lifecycle event");
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let attempts_in_two_seconds = attempts.load(Ordering::SeqCst);
+
+    shutdown_tx.send_replace(true);
+    handle.await.expect("supervisor task should not panic");
+
+    let mut scheduled_attempts = Vec::new();
+    while let Ok(event) = trace_rx.try_recv() {
+        if event.action == "reconnect_schedule" {
+            scheduled_attempts.push(event.attempt.unwrap_or(0));
+        }
+    }
+
+    assert!(
+        attempts_in_two_seconds <= 4,
+        "2s 内只允许 4 次以内重建（200/400/800/1600ms 退避），实际 {attempts_in_two_seconds} 次；\
+         调度 attempt 序列 {scheduled_attempts:?}"
+    );
+    assert!(
+        scheduled_attempts.len() >= 2 && scheduled_attempts[1] > scheduled_attempts[0],
+        "连上即断后必须继续升级退避，实际调度 attempt 序列 {scheduled_attempts:?}"
+    );
+}
+
+/// 反向守卫：连接稳定存活超过抖动窗口后再断开，属于新故障，退避必须回到首档。
+/// 没有这条，抖动识别会退化成「重连一次比一次慢」，稳定网络下的快速恢复也会被拖死。
+#[tokio::test(start_paused = true)]
+async fn stable_connection_resets_backoff_to_initial_delay() {
+    let transport_id = TransportId::from_raw(22);
+    let policy = ReconnectPolicy {
+        initial_delay: Duration::from_millis(200),
+        max_delay: Duration::from_secs(10),
+        multiplier: 2,
+        max_attempts: None,
+    };
+    let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (trace_tx, mut trace_rx) = TransportTraceSink::channel();
+
+    let handle = spawn_reconnect_supervisor(
+        transport_id,
+        policy,
+        lifecycle_rx,
+        shutdown_rx,
+        ReconnectTraceSink::new(Some(trace_tx)),
+        || async { Ok(()) },
+    );
+
+    let disconnected = || TransportLifecycleEvent::Disconnected {
+        transport_id,
+        reason: "reader_closed_or_error",
+    };
+
+    lifecycle_tx.send(disconnected()).expect("first disconnect");
+    // 让首轮重连完成，并让连接稳定存活过抖动窗口。
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    lifecycle_tx
+        .send(disconnected())
+        .expect("second disconnect");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    shutdown_tx.send_replace(true);
+    handle.await.expect("supervisor task should not panic");
+
+    let mut schedules = Vec::new();
+    while let Ok(event) = trace_rx.try_recv() {
+        if event.action == "reconnect_schedule" {
+            schedules.push((event.attempt.unwrap_or(0), event.delay_ms.unwrap_or(0)));
+        }
+    }
+
+    assert_eq!(
+        schedules,
+        vec![(1, 200), (1, 200)],
+        "稳定连接后的再次断开必须从首档 200ms 重来，实际 {schedules:?}"
+    );
+}
+
 async fn collect_trace_events(
     rx: &mut mpsc::Receiver<TransportTraceEvent>,
     expected: usize,

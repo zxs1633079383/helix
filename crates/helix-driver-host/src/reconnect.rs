@@ -4,6 +4,7 @@ use std::time::Duration;
 use helix_core::effect::TransportId;
 use helix_core::PortError;
 use tokio::sync::{mpsc, watch};
+use tokio::time::Instant;
 
 use crate::engine::{TransportLifecycleEvent, TransportTraceEvent, TransportTraceSink};
 
@@ -42,6 +43,14 @@ impl ReconnectPolicy {
     }
 }
 
+/// 连接成功后在窗口内又被判定断开＝「连上即断」抖动：这一轮不重置退避，继续升级。
+///
+/// 线上复现（pre 客户端，单日 10 小时）：2158 次 `reconnect_success` 对 2113 次
+/// `disconnect`，服务端日志证明从未主动关闭（`closeCode=0`，全是 60~100s 读超时收割）。
+/// 若每次抖动都从 `attempt=1` 起步，退避就永远停在 `initial_delay`（200ms），
+/// 即 60~70 次/分的连接风暴。
+pub const RECONNECT_FLAP_WINDOW: Duration = Duration::from_secs(5);
+
 #[derive(Clone, Default)]
 pub struct ReconnectTraceSink {
     sink: Option<TransportTraceSink>,
@@ -75,6 +84,8 @@ where
     Fut: Future<Output = Result<(), PortError>> + Send + 'static,
 {
     tokio::spawn(async move {
+        // 上一次成功的时刻与档位：用于识别「连上即断」抖动，避免退避被抖动重置。
+        let mut last_success: Option<(Instant, u32)> = None;
         loop {
             let event = tokio::select! {
                 event = lifecycle_rx.recv() => {
@@ -93,6 +104,15 @@ where
             }
 
             let mut attempt = 1u32;
+            if let Some((succeeded_at, succeeded_attempt)) = last_success {
+                if succeeded_at.elapsed() < RECONNECT_FLAP_WINDOW {
+                    // 连上即断：沿用上一轮档位继续升级，不回落到首档。
+                    attempt = succeeded_attempt.saturating_add(1);
+                } else {
+                    // 连接稳定存活过窗口，这一轮算新故障，退避从首档重新开始。
+                    last_success = None;
+                }
+            }
             loop {
                 if *shutdown_rx.borrow() {
                     return;
@@ -123,6 +143,7 @@ where
                 match reconnect_result {
                     Ok(()) => {
                         emit_success(&trace_sink, transport_id, attempt);
+                        last_success = Some((Instant::now(), attempt));
                         break;
                     }
                     Err(error) => {

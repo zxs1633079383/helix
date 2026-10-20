@@ -120,3 +120,101 @@ async fn shared_ws_send_before_connect_reports_transport_error() {
         .iter()
         .any(|label| label.key == LabelKey::Status && label.value == "error"));
 }
+
+/// The authority accepts a POST then drops its response; the shared HTTP port must submit once.
+#[tokio::test]
+async fn response_loss_does_not_retry_http_write() {
+    use helix_core::ports::HttpRequester;
+    use tokio::io::AsyncReadExt;
+    use tokio::time::{timeout, Duration};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut bytes = Vec::new();
+        let mut buffer = [0u8; 1024];
+        loop {
+            let read = stream.read(&mut buffer).await.unwrap();
+            assert!(read > 0);
+            bytes.extend_from_slice(&buffer[..read]);
+            if bytes.ends_with(b"{}") {
+                break;
+            }
+        }
+        assert!(bytes.starts_with(b"POST /write "));
+        drop(stream); // Simulated committed write; no response is returned.
+        assert!(
+            timeout(Duration::from_millis(300), listener.accept())
+                .await
+                .is_err(),
+            "no automatic duplicate POST"
+        );
+    });
+    let client = SharedHttpClient::new(
+        HostNetworkConfig::new(format!("http://{address}"), "ws://127.0.0.1:1")
+            .with_timeout(Duration::from_secs(1)),
+    )
+    .unwrap();
+    let result = client
+        .request(HttpRequest {
+            method: "POST".into(),
+            url: "/write".into(),
+            headers: Vec::new(),
+            body: Some(Bytes::from_static(b"{}")),
+        })
+        .await;
+    assert!(
+        result.is_err(),
+        "response loss must remain an unknown result"
+    );
+    timeout(Duration::from_secs(2), server)
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+/// Offline is a deterministic pre-I/O terminal: no TCP connection and no HTTP write replay.
+#[tokio::test]
+async fn offline_admission_guard_returns_terminal_without_any_remote_request() {
+    use tokio::{net::TcpListener, time::{timeout, Duration}};
+    use helix_core::ports::HttpRequester;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let client = SharedHttpClient::new(HostNetworkConfig::new(format!("http://{address}"), "ws://127.0.0.1:1")).unwrap()
+        .with_request_guard(std::sync::Arc::new(|| Err(helix_core::PortError::NetworkUnavailable)));
+    for method in ["GET", "POST"] {
+        let result = client.request(HttpRequest { method: method.into(), url: "/guarded".into(), headers: vec![], body: None }).await;
+        assert!(matches!(result, Err(helix_core::PortError::NetworkUnavailable)));
+    }
+    assert!(timeout(Duration::from_millis(50), listener.accept()).await.is_err());
+}
+
+/// Upload has a typed pre-I/O rejection even when a background worker reaches it after admission.
+#[tokio::test]
+async fn confirmed_offline_upload_never_opens_a_remote_connection() {
+    use helix_core::{ports::{FileUploader, upload::FileUploadUrls}, effect::FileUploadRequest};
+    let uploader=helix_driver_host::SharedFileUploader::default().with_request_guard(Arc::new(||Err(PortError::NetworkUnavailable)));
+    let result=uploader.upload(FileUploadRequest { local_path:"not-opened-while-offline".into(), object_key:"object".into(), method:"PUT".into(),
+        urls:FileUploadUrls::new("http://127.0.0.1:1/upload".into(),"http://127.0.0.1:1/file".into()).unwrap(), headers:vec![],content_type:None,size:None }).await;
+    assert!(matches!(result,Err(PortError::NetworkUnavailable)));
+}
+
+/// A fact change after request submission cannot reclassify a lost response as not_submitted.
+#[tokio::test]
+async fn inflight_response_loss_keeps_unknown_outcome_without_a_second_post() {
+    use tokio::{net::TcpListener,io::AsyncReadExt,time::{timeout,Duration}};
+    use std::sync::atomic::{AtomicBool,Ordering};
+    use helix_core::ports::HttpRequester;
+    let listener=TcpListener::bind("127.0.0.1:0").await.unwrap(); let address=listener.local_addr().unwrap();
+    let online=Arc::new(AtomicBool::new(true));let fact=online.clone();
+    let server=tokio::spawn(async move {
+        let (mut stream,_)=listener.accept().await.unwrap();let mut bytes=[0;1024]; assert!(stream.read(&mut bytes).await.unwrap()>0);
+        fact.store(false,Ordering::SeqCst); drop(stream);
+        assert!(timeout(Duration::from_millis(100),listener.accept()).await.is_err());
+    });
+    let client=SharedHttpClient::new(HostNetworkConfig::new(format!("http://{address}"),"ws://127.0.0.1:1")).unwrap()
+        .with_request_guard(Arc::new(move||if online.load(Ordering::SeqCst) {Ok(())} else {Err(PortError::NetworkUnavailable)}));
+    let result=client.request(HttpRequest {method:"POST".into(),url:"/write".into(),headers:vec![],body:None}).await;
+    assert!(result.is_err()); assert!(!matches!(result,Err(PortError::NetworkUnavailable)));
+    server.await.unwrap();
+}

@@ -51,9 +51,16 @@ pub struct TranslationHttpClient {
     auth_header: Option<(reqwest::header::HeaderName, reqwest::header::HeaderValue)>,
     /// Translation traffic is intentionally capped below the shared IM HTTP limit.
     inflight: Arc<Semaphore>,
+    request_guard: Option<crate::RequestAdmissionGuard>,
 }
 
 impl TranslationHttpClient {
+    /// Opt-in host fact check; default adapters keep their previous network behavior.
+    pub fn with_request_guard(mut self, guard: crate::RequestAdmissionGuard) -> Self {
+        self.request_guard = Some(guard);
+        self
+    }
+
     pub fn new(config: TranslationHttpConfig) -> Result<Self, PortError> {
         let endpoint = Url::parse(&config.endpoint)
             .map_err(|error| PortError::Http(format!("invalid translation endpoint: {error}")))?;
@@ -119,6 +126,7 @@ impl TranslationHttpClient {
             endpoint: endpoint.to_string(),
             auth_header,
             inflight: Arc::new(Semaphore::new(2)),
+            request_guard: None,
         })
     }
 
@@ -154,6 +162,7 @@ impl TranslationHttpClient {
             }
             builder = builder.body(body);
         }
+        if let Some(guard) = &self.request_guard { guard()?; }
         let response = builder.send().await.map_err(classify_error)?;
         let status = response.status().as_u16();
         let headers = response

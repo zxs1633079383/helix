@@ -12,3 +12,6 @@ pub use capabilities::{
 pub use command::{
     build_command, command_alias, normalize_command_payload, CommandAlias, COMMAND_ALIASES,
 };
+
+mod network_policy;
+pub use network_policy::{command_network_mode, command_network_inventory, CommandNetworkMode};

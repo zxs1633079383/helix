@@ -54,6 +54,8 @@ pub struct ReplyBytes(pub bytes::Bytes);
 /// IM 模块可区分 4xx/5xx/超时，实现差异化重试策略。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PortError {
+    /// Confirmed offline before I/O, distinct from an in-flight network failure.
+    NetworkUnavailable,
     /// 请求超时（网络层）
     Timeout,
     /// HTTP 错误，携带状态码（如 4xx、5xx）

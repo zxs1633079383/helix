@@ -89,6 +89,7 @@ pub fn capabilities_json() -> Vec<u8> {
         "bus": BUS_CHANNEL,
         "commands": commands,
         "queries": queries,
+        "commandNetworkModes": super::command_network_inventory(),
         "events": PUBLIC_EVENTS,
         "features": {
             "postChainCategoryMode": true,
@@ -99,7 +100,8 @@ pub fn capabilities_json() -> Vec<u8> {
             "batchEventCallback": true,
             "readResultReqId": true,
             "messageV3Events": true,
-            "noPerBusinessAbiSymbol": true
+            "noPerBusinessAbiSymbol": true,
+            "networkCommandPolicyVersion": 1
         }
     });
     serde_json::to_vec(&value).expect("static capabilities JSON must serialize")

@@ -86,3 +86,6 @@ pub const PERSIST_QUEUE_CAP: usize = 1024;
 /// 必达 Http（Block）满时 `send().await` 把背压传导回 tick_tx；
 /// HttpFire（DropNewest）满时 try_send 失败即丢当前条目（满即丢最新来的）+ warn（自愈靠 cursor-gate 重发）。
 pub const HTTP_QUEUE_CAP: usize = 1024;
+
+/// Optional O(1) host admission check immediately before remote I/O; never schedules retries.
+pub type RequestAdmissionGuard = std::sync::Arc<dyn Fn() -> Result<(), helix_core::PortError> + Send + Sync>;

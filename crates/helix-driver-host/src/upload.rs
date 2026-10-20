@@ -35,6 +35,7 @@ pub struct SharedFileUploader {
     part_timeout: Duration,
     part_idle_timeout: Duration,
     observer: Option<Arc<dyn UploadResponseObserver>>,
+    request_guard: Option<crate::RequestAdmissionGuard>,
 }
 
 impl Default for SharedFileUploader {
@@ -44,6 +45,12 @@ impl Default for SharedFileUploader {
 }
 
 impl SharedFileUploader {
+    /// Opt-in host fact check; default adapters keep their previous network behavior.
+    pub fn with_request_guard(mut self, guard: crate::RequestAdmissionGuard) -> Self {
+        self.request_guard = Some(guard);
+        self
+    }
+
     /// 构造整文件 30 秒、分片 300 秒且空闲 60 秒的有界上传器。
     pub fn new(client: Client) -> Self {
         Self {
@@ -52,6 +59,7 @@ impl SharedFileUploader {
             part_timeout: Duration::from_secs(300),
             part_idle_timeout: Duration::from_secs(60),
             observer: None,
+            request_guard: None,
         }
     }
 
@@ -100,6 +108,7 @@ impl FileUploader for SharedFileUploader {
         req: FileUploadRequest,
         progress: Option<Arc<dyn FileUploadProgressReporter>>,
     ) -> Result<FileUploadResponse, PortError> {
+        if let Some(guard) = &self.request_guard { guard()?; }
         let range = req.range();
         if range.is_some() && (self.part_timeout.is_zero() || self.part_idle_timeout.is_zero()) {
             return Err(PortError::Other(
@@ -202,6 +211,7 @@ impl FileUploader for SharedFileUploader {
             builder = builder.header(header::CONTENT_TYPE, content_type);
         }
 
+        if let Some(guard) = &self.request_guard { guard()?; }
         let started = self.observer.as_ref().map(|_| Instant::now());
         let timeout = if range.is_some() {
             self.part_timeout

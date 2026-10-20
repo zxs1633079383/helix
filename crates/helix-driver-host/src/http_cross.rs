@@ -107,6 +107,9 @@ where
     H: HttpRequester,
     E: EventSink,
 {
+    /// Transform the concrete I/O client while retaining auth, trace and outcome policy.
+    pub fn map_inner(mut self, map: impl FnOnce(H) -> H) -> Self { self.inner = map(self.inner); self }
+
     pub fn new(
         inner: H,
         event_sink: Arc<E>,
@@ -215,6 +218,7 @@ where
 /// 将 HTTP 失败折叠成低基数错误类别，不把响应正文或凭据写入 Trace。
 fn error_kind(error: &PortError) -> &'static str {
     match error {
+        PortError::NetworkUnavailable => "offline_not_submitted",
         PortError::Storage(_) => "storage",
         PortError::StorageConflict => "storage_conflict",
         PortError::Transport(_) => "transport",

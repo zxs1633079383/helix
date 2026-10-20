@@ -35,9 +35,16 @@ pub struct SharedHttpClient {
     headers: HostHeaderRegistry,
     metrics: Arc<dyn AsyncMetricSink>,
     inflight: Arc<AtomicUsize>,
+    request_guard: Option<crate::RequestAdmissionGuard>,
 }
 
 impl SharedHttpClient {
+    /// Opt-in host fact check; default adapters keep their previous network behavior.
+    pub fn with_request_guard(mut self, guard: crate::RequestAdmissionGuard) -> Self {
+        self.request_guard = Some(guard);
+        self
+    }
+
     pub fn new(config: HostNetworkConfig) -> Result<Self, PortError> {
         Self::with_registry(config, HostHeaderRegistry::default())
     }
@@ -63,6 +70,7 @@ impl SharedHttpClient {
             headers,
             metrics: Arc::new(NoopMetricSink),
             inflight: Arc::new(AtomicUsize::new(0)),
+            request_guard: None,
         })
     }
 
@@ -125,6 +133,7 @@ impl SharedHttpClient {
         if let Some(body) = prepared.body {
             builder = builder.body(body);
         }
+        if let Some(guard) = &self.request_guard { guard()?; }
         let resp = builder.send().await.map_err(|e| Self::classify_error(&e))?;
         let status = resp.status().as_u16();
         let headers = resp

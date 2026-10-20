@@ -251,6 +251,7 @@ fn duration_millis(duration: Duration) -> u64 {
 
 fn classify_port_error(error: &PortError) -> String {
     match error {
+        PortError::NetworkUnavailable => "offline_not_submitted",
         PortError::Transport(_) => "transport",
         PortError::Http(_) => "http",
         PortError::Storage(_) => "storage",

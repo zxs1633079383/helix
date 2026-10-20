@@ -331,11 +331,14 @@ pub const COMMAND_ALIASES: &[CommandAlias] = &[
     },
 ];
 
+/// The alias declaration remains the sole source; repeated admission checks are O(1).
 pub fn command_alias(public: &str) -> Option<&'static str> {
-    COMMAND_ALIASES
-        .iter()
-        .find(|alias| alias.public == public)
-        .map(|alias| alias.core)
+    static MAP: std::sync::OnceLock<std::collections::HashMap<&'static str, &'static str>> = std::sync::OnceLock::new();
+    MAP.get_or_init(|| {
+        let mut aliases=std::collections::HashMap::new();
+        for alias in COMMAND_ALIASES { aliases.entry(alias.public).or_insert(alias.core); }
+        aliases
+    }).get(public).copied()
 }
 
 pub fn normalize_command_payload(public: &str, payload: &[u8]) -> Result<Vec<u8>, ImError> {

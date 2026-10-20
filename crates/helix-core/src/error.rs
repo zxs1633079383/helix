@@ -49,6 +49,9 @@ pub enum CoreError {
 /// ```
 #[derive(Debug, Error)]
 pub enum PortError {
+    /// Confirmed host offline before I/O; the request has never been submitted.
+    #[error("NETWORK_UNAVAILABLE: not_submitted before_io")]
+    NetworkUnavailable,
     /// An optimistic write lost a race; its transaction rolled back and the store remains usable.
     #[error("storage conflict")]
     StorageConflict,

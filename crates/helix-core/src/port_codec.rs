@@ -100,6 +100,7 @@ pub fn rows_from_reply_bytes(bytes: &Bytes) -> Result<Vec<Row>, String> {
 /// Convert a driver-facing port failure into the stable module-visible class.
 pub fn classify_port_error(error: DriverPortError) -> PortError {
     match &error {
+        DriverPortError::NetworkUnavailable => PortError::NetworkUnavailable,
         DriverPortError::Storage(_) => PortError::Storage(0),
         DriverPortError::StorageConflict => PortError::Storage(1),
         DriverPortError::Transport(detail) if detail.starts_with("timeout") => PortError::Timeout,

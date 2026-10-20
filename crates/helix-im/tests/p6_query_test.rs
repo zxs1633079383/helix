@@ -287,13 +287,32 @@ fn dialog_list_rejects_missing_member_row_without_shared_top_fallback() {
     assert_eq!(items[0]["id"], cid(1));
 }
 
+/// 登录公司不决定访问资格：跨公司频道仍以持久 viewer 成员事实裁决。
+#[test]
+fn dialog_list_keeps_cross_company_channel_with_authoritative_member() {
+    let mut h = Harness::new_with_identity(&[1], "user-a", "company-a", "", "", "");
+    let mut channels = dialog_absolute_channel_rows();
+    channels[0]["team_id"] = serde_json::json!("company-b");
+    let corr = dialog_absolute_member_corr(&mut h, "dialog-cross-company-member", channels);
+    h.step(
+        port_reply_with_body(corr, Bytes::from(serde_json::json!([dialog_absolute_member_row()]).to_string())),
+        2_002,
+    );
+    let result = dialog_absolute_result(&h, "dialog-cross-company-member");
+    let items = result["data"]["body"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], cid(1));
+    assert_eq!(items[0]["unreadCount"], 5);
+}
+
 /// 从公开命令入口回放频道首段，并要求成员权威读回前不得发布旧频道占位值。
 fn dialog_absolute_member_corr(h: &mut Harness, req_id: &str, channels: serde_json::Value) -> u64 {
     let expected_scope = channels
         .as_array()
         .unwrap()
         .iter()
-        .filter(|row| row["team_id"] == "company-a")
+        // 跨公司频道也必须查成员权威；仅缺少 viewer 成员事实的频道最终被剔除。
+        .filter(|row| row["user_id"] == "user-a" && row["team_id"].as_str().is_some_and(|id| !id.is_empty()))
         .map(|row| row["id"].as_str().unwrap().to_string())
         .collect::<Vec<_>>();
     let payload = serde_json::to_vec(&serde_json::json!({ "limit": 2, "reqId": req_id })).unwrap();

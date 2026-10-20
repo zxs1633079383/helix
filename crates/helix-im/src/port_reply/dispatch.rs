@@ -218,6 +218,25 @@ impl ImModule {
         };
 
         match ctx {
+            CorrelationContext::OutboundWriteReply { req_id } => {
+                // remove 已消费关联：重复及迟到回包不会再次发布终态。
+                let code = match outcome {
+                    PortOutcome::Err(helix_core::tick::PortError::NetworkUnavailable) => {
+                        Some("NETWORK_UNAVAILABLE")
+                    },
+                    PortOutcome::Err(helix_core::tick::PortError::Network | helix_core::tick::PortError::Timeout) => {
+                        Some("SERVICE_UNREACHABLE")
+                    },
+                    _ => None,
+                };
+                if let Some(code) = code {
+                    out.push(crate::event::MessageV3Event::new(
+                        "im:operation:status",
+                        serde_json::json!({"requestId":req_id,"status":"failed","failureCode":code}),
+                    )?.into_effect());
+                }
+            }
+
             CorrelationContext::Translation { request, timer } => {
                 self.translation_reply(*request, timer, outcome, out)?;
             }

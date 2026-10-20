@@ -110,30 +110,19 @@ fn pending_sync_with(queued: Option<SyncTrigger>) -> (ImModule, EffectSink, Corr
 /// 断线应立即失败，重复断线和迟到sync不得重复结算。
 #[test]
 fn hydration_terminal_disconnect_cancels_pending_sync() {
-    let (mut m, mut out, sync) = pending_sync();
-    step(
-        &mut m,
-        &mut out,
-        Tick::Disconnected(TransportId::from_raw(1)),
-    )
-    .unwrap();
-    assert_error(&out, "hydration-primary");
-    assert!(m.state.hydration_req_ids.is_empty());
-    assert_eq!(
-        m.sync_inflight(),
-        0,
-        "disconnect must release abandoned sync windows"
-    );
-    step(
-        &mut m,
-        &mut out,
-        Tick::PortReply {
-            corr: sync,
-            outcome: PortOutcome::Err(helix_core::tick::PortError::Network),
-        },
-    )
-    .unwrap();
-    assert!(out.as_slice().is_empty());
+    for error in [
+        helix_core::tick::PortError::Network,
+        helix_core::tick::PortError::Timeout,
+        helix_core::tick::PortError::NetworkUnavailable,
+    ] {
+        let (mut m, mut out, sync) = pending_sync();
+        step(&mut m, &mut out, Tick::Disconnected(TransportId::from_raw(1))).unwrap();
+        assert_error(&out, "hydration-primary");
+        assert!(m.state.hydration_req_ids.is_empty());
+        assert_eq!(m.sync_inflight(), 0, "disconnect must release abandoned sync windows");
+        step(&mut m, &mut out, Tick::PortReply { corr: sync, outcome: PortOutcome::Err(error) }).unwrap();
+        assert!(out.as_slice().is_empty(), "cancelled sync must ignore every late network terminal");
+    }
 }
 /// 新hello重置前必须结算旧hydration，即使Disconnected未先送达。
 #[test]

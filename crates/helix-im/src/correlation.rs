@@ -84,6 +84,8 @@ pub struct PendingSendReconciliation {
 // （非 key），`PartialEq` 供 ws/registry 测试 `assert_eq!`，`Eq` 无用处（grep 实证）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum CorrelationContext {
+    /// 无业务续步的写请求只结算网络失败，不推断服务端写入结果。
+    OutboundWriteReply { req_id: String },
     /// One immutable remote page; cancellation owns this correlation and timer.
     ForwardDetail {
         request: Box<crate::query::forward_detail::Request>,
@@ -884,7 +886,7 @@ impl CorrelationContext {
             Self::PinnedProjectionReadback { req_id, .. }
             | Self::PinnedProjectionPersist { req_id, .. } => Some(req_id.as_str()),
             Self::ReactionUnreadProjection { req_id, .. } => Some(req_id.as_str()),
-            Self::OutboundReadReply { req_id, .. } => Some(req_id.as_str()),
+            Self::OutboundReadReply { req_id, .. } | Self::OutboundWriteReply { req_id } => Some(req_id.as_str()),
             Self::OutboundExactPosts { req_id, .. } => Some(req_id.as_str()),
             Self::ExactPostsPersist { req_id, .. } => Some(req_id.as_str()),
             Self::ExactPostsReadback { req_id, .. } => Some(req_id.as_str()),

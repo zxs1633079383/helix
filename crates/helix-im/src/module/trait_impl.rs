@@ -43,12 +43,6 @@ impl Module for ImModule {
             let code = if offline { "NETWORK_UNAVAILABLE" } else { "SERVICE_UNREACHABLE" };
             let phase = if offline { "before_io" } else { "after_io" };
             let outcome = if offline { "not_submitted" } else { "unknown" };
-            // Commands without a business HTTP continuation still require a correlated failure terminal.
-            if !out.as_slice()[start..].iter().any(|effect|matches!(effect,helix_core::Effect::Emit { .. })) {
-                if let Some(req_id)=self.failure_context.current_request_id() {
-                    if let Ok(event)=crate::event::MessageV3Event::new("im:operation:status", serde_json::json!({"requestId":req_id,"status":"failed","failureCode":code})) { out.push(event.into_effect()); }
-                }
-            }
             out.visit_mut_from(start, |effect| {
                 if let helix_core::Effect::Emit { event } = effect {
                     if let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&event.0) {
@@ -382,7 +376,7 @@ impl ImModule {
                         }
                     };
                     // spec06 缺陷A：读族注册回灌上下文（PortReply 透传 `im:read:result{req_id,body}`；写族
-                    // fire-and-forget 不注册；quickReply 复用关联回包，只确认 HTTP 结果而非 durable 回应）。S7：byIds 成员快照走 OutboundMembersByIds（额外 emit im:channel:members）。
+                    // fire-and-forget 在下方注册失败终态；quickReply 复用关联回包，只确认 HTTP 结果而非 durable 回应）。S7：byIds 成员快照走 OutboundMembersByIds（额外 emit im:channel:members）。
                     if crate::commands::is_read(name) || name == "im_quick_reply" {
                         let explicit_req_id = crate::read_relay::read_req_id(cmd.payload.as_ref());
                         let increment_hydration = name == "im_channel_load_increment_by_channel_id";
@@ -705,6 +699,15 @@ impl ImModule {
                             self.state
                                 .corr_map
                                 .insert(corr, CorrelationContext::OutboundLeave { channel_id });
+                        }
+                    }
+                    // 写请求同样由业务关联表结算一次；诊断记录不得复活已取消请求。
+                    if !crate::commands::is_read(name) && !self.state.corr_map.contains_key(&corr) {
+                        if let Some(req_id) = crate::read_relay::read_req_id(cmd.payload.as_ref()) {
+                            self.state.corr_map.insert(
+                                corr,
+                                CorrelationContext::OutboundWriteReply { req_id },
+                            );
                         }
                     }
                     for eff in effects {

@@ -1792,12 +1792,14 @@ fn offline_terminal_preserves_req_id_and_does_not_mislabel_inflight_network_fail
 #[test]
 fn offline_write_without_read_relay_still_emits_correlated_terminal() {
     use helix_core::{Correlation,tick::{PortOutcome,PortError}};
+    for error in [PortError::NetworkUnavailable, PortError::Network, PortError::Timeout] {
     let mut h=scoped_read_harness(&["ch00000000000000000000000a"]);
     h.step(outbound_cmd("im_urgent_confirm",serde_json::json!({"post_id":"post-1","req_id":"offline-write"})),1000);
     let corr=http_corr(&h.sink).unwrap();
-    h.step(Tick::PortReply {corr:Correlation::from_raw(corr),outcome:PortOutcome::Err(PortError::NetworkUnavailable)},1001);
+    h.step(Tick::PortReply {corr:Correlation::from_raw(corr),outcome:PortOutcome::Err(error)},1001);
     let terminal=emit_json(&h.sink).unwrap(); assert_eq!(terminal["event"],"im:operation:status");
     assert_eq!(terminal["data"]["requestId"],"offline-write"); assert_eq!(terminal["data"]["networkFailure"]["reqId"],"offline-write");
     h.step(Tick::PortReply {corr:Correlation::from_raw(corr),outcome:PortOutcome::Err(PortError::NetworkUnavailable)},1002);
     assert!(emit_jsons(&h.sink).is_empty());
+    }
 }

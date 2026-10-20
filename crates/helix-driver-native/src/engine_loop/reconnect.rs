@@ -85,34 +85,53 @@ pub(super) fn start_native_reconnect(
         let register_tx = register_tx.clone();
         let shutdown_rx = shutdown_rx.clone();
         let trace_sink = ReconnectTraceSink::new(Some(trace_sink.clone()));
-        // 当前物理连接：重建时先关掉它，服务端立即收到 FIN，而不是等 60~100s 读超时收割。
-        let current: Arc<tokio::sync::Mutex<Option<Arc<NativeTransport>>>> =
-            Arc::new(tokio::sync::Mutex::new(None));
-        tasks.push(spawn_reconnect_supervisor(
-            transport_id,
-            ReconnectPolicy::default(),
-            route_rx,
-            shutdown_rx,
-            trace_sink,
-            move || {
-                let factory = factory.clone();
-                let register_tx = register_tx.clone();
-                let current = Arc::clone(&current);
-                async move {
-                    // 先 build 拿到新代际（epoch 自增），再把上一代关掉：
-                    // 此时它已是「被替换连接」，收尾不会发布 Disconnected。
-                    let mut transport = factory.build()?;
-                    if let Some(previous) = current.lock().await.take() {
-                        previous.close().await.ok();
+        let initial = transport.needs_initial_connection();
+        let network_recovery = factory.recovery.clone();
+        let current = Arc::new(tokio::sync::Mutex::new(Arc::clone(transport)));
+        let current_for_connect = Arc::clone(&current);
+        let connect = move || {
+            let current = Arc::clone(&current_for_connect);
+            let factory = factory.clone();
+            let register_tx = register_tx.clone();
+            async move {
+                let mut transport = factory.build()?;
+                // Allocate the new epoch before closing the previous connection.
+                let previous = Arc::clone(&*current.lock().await);
+                previous.close().await.ok();
+                let activation = transport.connect().await?;
+                let transport = Arc::new(transport);
+                register_transport(&register_tx, transport_id, Arc::clone(&transport)).await?;
+                activation.activate().await?;
+                *current.lock().await = transport;
+                Ok(())
+            }
+        };
+        tasks.push(match network_recovery {
+            Some(recovery) => crate::network_recovery::spawn_network_recovery(
+                transport_id,
+                recovery,
+                initial,
+                route_rx,
+                shutdown_rx,
+                trace_sink,
+                connect,
+                move || {
+                    let current = Arc::clone(&current);
+                    async move {
+                        let transport = Arc::clone(&*current.lock().await);
+                        let _ = transport.close().await;
                     }
-                    let activation = transport.connect().await?;
-                    let transport = Arc::new(transport);
-                    register_transport(&register_tx, transport_id, Arc::clone(&transport)).await?;
-                    *current.lock().await = Some(Arc::clone(&transport));
-                    activation.activate().await
-                }
-            },
-        ));
+                },
+            ),
+            None => spawn_reconnect_supervisor(
+                transport_id,
+                ReconnectPolicy::default(),
+                route_rx,
+                shutdown_rx,
+                trace_sink,
+                connect,
+            ),
+        });
     }
     drop(register_tx);
 

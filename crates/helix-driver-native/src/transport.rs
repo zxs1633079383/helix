@@ -7,6 +7,7 @@
 //! - **入站推送**（`SharedWsClient::with_inbound_tick`）：native engine_loop 从不调 `recv()`，
 //!   入站帧全靠读任务作 `Tick::Inbound` 直发泵（A2 不变量）。
 
+use crate::network_recovery::{NetworkAvailability, NetworkRecovery, NetworkRecoveryPolicy};
 use bytes::Bytes;
 use helix_core::effect::TransportId;
 use helix_core::ports::FrameSender;
@@ -16,8 +17,11 @@ use helix_driver_host::{
     AsyncMetricSink, ConnectionEpochs, HostHeaderRegistry, HostNetworkConfig, NoopMetricSink,
     SharedWsClient, TickIngressSender, WsConnectionActivation,
 };
-use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use tokio::sync::{mpsc, watch};
 
 mod ingress;
 use ingress::NativeTickSender;
@@ -34,6 +38,7 @@ pub struct NativeTransport {
     /// 故身份头必须随 upgrade 请求带，而非仅 HTTP 客户端全局头。connect 前灌进共享 registry。
     handshake_headers: Vec<(String, String)>,
     reconnect: Option<NativeReconnectFactory>,
+    connected_once: bool,
 }
 
 #[derive(Clone)]
@@ -45,10 +50,20 @@ pub(crate) struct NativeReconnectFactory {
     metrics: Arc<dyn AsyncMetricSink>,
     /// 跨代共享的连接代际：新连接一建立就成为当前代，被替换连接收尾时静默退出。
     epochs: Arc<ConnectionEpochs>,
+    pub(crate) recovery: Option<NetworkRecovery>,
+    handshake_headers: Vec<(String, String)>,
+    headers_initialized: Arc<AtomicBool>,
 }
 
 impl NativeReconnectFactory {
+    /// Seeds cold-start headers once; reconnects retain later registry/auth updates.
     pub(crate) fn build(&self) -> Result<NativeTransport, PortError> {
+        if !self.headers_initialized.load(Ordering::Acquire) {
+            for (name, value) in &self.handshake_headers {
+                self.headers.set_header_sync(name, value)?;
+            }
+            self.headers_initialized.store(true, Ordering::Release);
+        }
         let mut inner = SharedWsClient::with_registry(self.config.clone(), self.headers.clone())?
             .with_metric_sink(Arc::clone(&self.metrics))
             .with_epoch(self.epochs.next(), Arc::clone(&self.epochs));
@@ -76,6 +91,7 @@ impl NativeTransport {
                 init_error: Some(e.to_string()),
                 handshake_headers: Vec::new(),
                 reconnect: None,
+                connected_once: false,
             },
         }
     }
@@ -93,6 +109,7 @@ impl NativeTransport {
                 init_error: Some(error.to_string()),
                 handshake_headers: Vec::new(),
                 reconnect: None,
+                connected_once: false,
             },
         }
     }
@@ -100,6 +117,9 @@ impl NativeTransport {
     /// 注入 WS upgrade 握手头（builder）。现网 Go：`cookieId=userId`（+ 可选 companyId 等）。
     /// 头在 `connect` 前灌进 `SharedWsClient` 的共享 header registry，随 upgrade 请求带出。
     pub fn with_handshake_headers(mut self, headers: Vec<(String, String)>) -> Self {
+        if let Some(factory) = &mut self.reconnect {
+            factory.handshake_headers = headers.clone();
+        }
         self.handshake_headers = headers;
         self
     }
@@ -142,8 +162,20 @@ impl NativeTransport {
             tick_tx,
             metrics: Arc::new(NoopMetricSink),
             epochs,
+            recovery: None,
+            handshake_headers: Vec::new(),
+            headers_initialized: Arc::new(AtomicBool::new(false)),
         };
         Ok(Self::from_shared_parts(inner, Some(reconnect)))
+    }
+
+    /// Fallible stamped construction exposes configuration failures before starting a runtime.
+    pub fn with_config_stamped(
+        config: HostNetworkConfig,
+        id: TransportId,
+        tick_tx: Option<TickIngressSender>,
+    ) -> Result<Self, PortError> {
+        Self::with_config_parts(config, id, tick_tx.map(NativeTickSender::Stamped))
     }
 
     pub fn from_shared(
@@ -164,7 +196,39 @@ impl NativeTransport {
             init_error: None,
             handshake_headers: Vec::new(),
             reconnect,
+            connected_once: false,
         }
+    }
+
+    /// Enables cold-start recovery without blocking local engine/storage initialization.
+    pub fn with_network_recovery(
+        mut self,
+        availability: watch::Receiver<NetworkAvailability>,
+    ) -> Self {
+        if let Some(factory) = &mut self.reconnect {
+            factory.recovery = Some(NetworkRecovery {
+                availability,
+                policy: NetworkRecoveryPolicy::default(),
+            });
+        }
+        self
+    }
+
+    /// Tests and isolated hosts can shorten delays without changing production defaults.
+    pub fn with_network_recovery_policy(mut self, policy: NetworkRecoveryPolicy) -> Self {
+        if let Some(recovery) = self
+            .reconnect
+            .as_mut()
+            .and_then(|factory| factory.recovery.as_mut())
+        {
+            recovery.policy = policy;
+        }
+        self
+    }
+
+    /// A registered, unconnected transport needs one initial supervisor attempt.
+    pub(crate) fn needs_initial_connection(&self) -> bool {
+        !self.connected_once
     }
 
     pub(crate) fn reconnect_factory(&self) -> Option<NativeReconnectFactory> {
@@ -207,12 +271,31 @@ impl NativeTransport {
             registry
                 .replace_headers(self.handshake_headers.iter().map(|(k, v)| (k, v)))
                 .await?;
+            if let Some(factory) = &self.reconnect {
+                factory.headers_initialized.store(true, Ordering::Release);
+            }
         }
 
-        self.inner_mut()?.connect().await
+        let timeout = self
+            .reconnect
+            .as_ref()
+            .filter(|factory| factory.recovery.is_some())
+            .map(|factory| factory.config.timeout);
+        let activation = match timeout {
+            Some(timeout) => tokio::time::timeout(timeout, self.inner_mut()?.connect())
+                .await
+                .map_err(|_| PortError::Transport("websocket handshake timeout".into()))??,
+            None => self.inner_mut()?.connect().await?,
+        };
+        self.connected_once = true;
+        Ok(activation)
     }
 
     async fn send_frame(&self, frame: Bytes) -> Result<(), PortError> {
+        if self.reconnect.as_ref().and_then(|factory| factory.recovery.as_ref())
+            .is_some_and(|recovery| recovery.availability.has_changed().is_ok() && *recovery.availability.borrow() == NetworkAvailability::Offline) {
+            return Err(PortError::NetworkUnavailable);
+        }
         // 出站走 SharedWsClient::send（已修为 Message::Text，现网 Go Text→JSON 解码）。
         self.inner()?.send(frame).await
     }
@@ -239,6 +322,34 @@ impl FrameSender for NativeTransport {
 mod tests {
     use super::*;
     use helix_core::effect::TransportId;
+
+    /// A refreshed cookie must survive a factory rebuild instead of being replaced by startup headers.
+    #[tokio::test]
+    async fn reconnect_factory_preserves_updated_headers_after_cold_seed() {
+        let transport = NativeTransport::new("ws://127.0.0.1:1", TransportId::from_raw(0), None)
+            .with_handshake_headers(vec![("cookieId".into(), "old".into())]);
+        let factory = transport.reconnect_factory().unwrap();
+        let _first = factory.build().unwrap();
+        factory
+            .headers
+            .set_header("cookieId", "updated")
+            .await
+            .unwrap();
+        let rebuilt = factory.build().unwrap();
+        assert!(rebuilt.handshake_headers.is_empty());
+        assert_eq!(
+            factory.headers.snapshot().await.get("cookieId").unwrap(),
+            "updated"
+        );
+    }
+
+    /// Business WS sends are rejected before touching the socket when the shared fact is offline.
+    #[tokio::test]
+    async fn confirmed_offline_ws_send_is_not_submitted() {
+        let (_tx,rx)=tokio::sync::watch::channel(NetworkAvailability::Offline);
+        let transport=NativeTransport::new("ws://127.0.0.1:1",TransportId::from_raw(0),None).with_network_recovery(rx);
+        assert!(matches!(transport.send(Bytes::from_static(b"write")).await,Err(PortError::NetworkUnavailable)));
+    }
 
     #[tokio::test]
     async fn test_send_on_disconnected_returns_err() {

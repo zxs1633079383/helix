@@ -35,7 +35,7 @@ WS 协议 / HTTP / SQLite 的真正执行已下沉 `helix-driver-host`（ADR-007
 - **跨模块公平性（刀3）**：BoundedSpawner 并发名额全局共享、单队列 FIFO。单模块（IM）无饥饿；**第二个业务模块（presence/notify）接入前必修**——引入 per-module 配额 / by-module 轮转。🔴 绝不现在建优先级调度器（预建框架违 GOAL §2 YAGNI）。
 - **HttpFire 池零生产者**：helix-im 三个 Http 的 PortReply 均 load-bearing，全为必达 `Http`，无一吐 `HttpFire`。本池为与 http_pool 类型对称而 eager 建；第二模块接入时重审/删。
 - **Effect::Request 方向①**：HostRequester port 未接，当前 deferred stub（仅 tracing::warn）。core 侧闭环已由 `helix-core/tests/request_reply_replay.rs` 验证。
-- **WS reconnect/backoff 的真实链证据**：连接级重连退避已由 `helix-driver-host::ReconnectPolicy` 与 native supervisor 接线（默认 200ms 起、10s 封顶、倍增）；仍需在真实 Go/WS 重启窗口执行并保留端到端证据，不能把静态接线当运行态 Green。
+- **WS reconnect/backoff 的真实链证据**：旧调用方保持共享默认策略。Tauri Helix通过 `NativeTransport::with_network_recovery` 显式启用冷启动恢复、三次快速重试（1/2/4秒）和低频恢复（15/30/60秒，有抖动）；确认本地断网暂停、恢复提前唤醒。恢复器只管理transport，不持有或重放业务写命令。隔离WS/HTTP/SQLite回归不等于真实Go/Tauri验收。
 
 ## 渲染
 

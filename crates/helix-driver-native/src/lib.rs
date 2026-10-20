@@ -17,6 +17,8 @@ pub mod clock;
 pub mod engine_loop;
 pub mod event_sink;
 pub mod http;
+pub mod network_recovery;
+pub use network_recovery::{NetworkAvailability, NetworkRecoveryPolicy};
 pub mod storage;
 pub mod transport;
 

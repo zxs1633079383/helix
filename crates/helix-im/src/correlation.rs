@@ -924,6 +924,10 @@ impl CorrelationContext {
                 | crate::category_chain::Pending::Persist(work)
                 | crate::category_chain::Pending::Readback(work) => work.request.req_id.as_deref(),
             },
+            Self::TimelineNavigationHttp { state }
+            | Self::TimelineNavigationCache { state }
+            | Self::TimelineNavigationReadback { state }
+            | Self::TimelineNavigationExactReadback { state, .. } => state.request_id(),
             Self::ForwardDetail { request, .. } => Some(&request.req_id),
             Self::Translation { request, .. } => Some(&request.req_id),
             Self::OutboundReplies { request } => Some(&request.req_id),

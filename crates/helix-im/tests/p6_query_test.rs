@@ -682,3 +682,19 @@ fn channel_read_entries_share_roster_capabilities_and_personal_authority() {
         assert_eq!(row["hasUrgentPost"], true);
     }
 }
+
+/// A cache miss followed by offline fallback is a failed terminal, never a successful empty window.
+#[test]
+fn local_cache_miss_offline_fallback_keeps_request_and_failed_state() {
+    use helix_core::{Correlation,tick::{PortOutcome,PortError}};
+    let mut h=Harness::new_with_identity(&[2], "viewer-a", "company-a", "", "", "");
+    h.step(query_cmd("im_query_messages_by_channel",serde_json::json!({"channel_id":cid(2),"req_id":"cache-miss"})),1000);
+    let corr=h.sink.as_slice().iter().find_map(|e|if let Effect::Persist {corr,..}=e {Some(corr.raw())} else {None}).unwrap();
+    h.step(port_reply_with_body(corr,Bytes::from_static(b"[]")),1001);
+    let corr=h.sink.as_slice().iter().find_map(|e|if let Effect::Http {corr,..}=e {Some(corr.raw())} else {None}).unwrap();
+    h.step(Tick::PortReply {corr:Correlation::from_raw(corr),outcome:PortOutcome::Err(PortError::NetworkUnavailable)},1002);
+    let terminal=h.sink.as_slice().iter().find_map(|e|if let Effect::Emit {event}=e {serde_json::from_slice::<serde_json::Value>(&event.0).ok()} else {None}).unwrap();
+    assert_eq!(terminal["data"]["state"],"failed");
+    assert_eq!(terminal["data"]["networkFailure"]["reqId"],"cache-miss");
+    assert_eq!(terminal["data"]["networkFailure"]["outcome"],"not_submitted");
+}

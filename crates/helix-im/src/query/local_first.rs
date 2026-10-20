@@ -332,6 +332,10 @@ impl ImModule {
         payload: &[u8],
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        // Bind caller correlation at the query decoder; diagnostics never parse Command payloads.
+        if let Some(req_id) = super::read_relay::read_req_id(payload) {
+            self.failure_context.bind_request(&req_id);
+        }
         self.dispatch_message_query_with_causation_and_deferred_send(payload, true, None, None, out)
     }
 

@@ -154,3 +154,16 @@ fn read_missing_required_errors() {
     )
     .is_err());
 }
+
+/// 话题请求保持独立关联键，不能把父群消息时间当清单水位。
+#[test]
+fn subtopic_request_has_identity_and_full_inventory() {
+    let (_, body) = dispatch(
+        "im_request_channel_increment",
+        json!({
+            "channel_id":"parent", "timestamp":1792548948497_i64, "sync_request_id":"topic-request-1"
+        }),
+    );
+    assert_eq!(body["timeStamp"], 0);
+    assert_eq!(body["syncRequestId"], "topic-request-1");
+}

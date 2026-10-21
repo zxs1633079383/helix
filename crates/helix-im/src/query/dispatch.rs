@@ -115,6 +115,7 @@ impl ImModule {
                 self.state.corr_map.insert(
                     corr,
                     CorrelationContext::SubtopicsQuery {
+                        parent_row: None,
                         parent_channel_id,
                         causation_id: req_id,
                     },
@@ -135,7 +136,9 @@ impl ImModule {
                     corr,
                     CorrelationContext::PinnedProjectionQuery { req_id, channel_id },
                 );
-                out.push(crate::query::pinned_projection::query_effect(key, channel_id, corr));
+                out.push(crate::query::pinned_projection::query_effect(
+                    key, channel_id, corr,
+                ));
             }
             "im_delete_all_dialogs" => {
                 // 内存 channel gate 清空（core 拥有的状态；物理 DELETE 留待 truncate 原语，query.rs）。

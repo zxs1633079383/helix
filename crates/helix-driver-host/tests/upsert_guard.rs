@@ -232,3 +232,53 @@ async fn versioned_upsert_keeps_monotonic_facts_and_default_updates() {
             |(key, value)| key == "props" && matches!(value, SqlValue::Text(text) if text == "old")
         ));
 }
+
+/// 迟到话题清单即使来自另一写队列，也必须整批回滚，保留新数量和话题行。
+#[tokio::test]
+async fn stale_topic_snapshot_cannot_replace_newer_collection() {
+    use helix_core::effect::BatchUpdateSpec;
+    let storage = storage().await;
+    storage.execute_raw("CREATE TABLE channel (id TEXT PRIMARY KEY, root_id TEXT NOT NULL DEFAULT '', is_remove INTEGER NOT NULL DEFAULT 0, subtopics_loaded_at INTEGER NOT NULL DEFAULT 0, thread_count INTEGER NOT NULL DEFAULT 0); INSERT INTO channel(id,subtopics_loaded_at,thread_count) VALUES ('parent',200,4); INSERT INTO channel(id,root_id) VALUES ('new-topic','parent');").await.unwrap();
+    let ops = vec![
+        StorageOp::BatchUpdate(BatchUpdateSpec {
+            table: "channel",
+            key_col: "root_id",
+            key_vals: vec![SqlValue::Text("parent".into())],
+            patch: vec![("is_remove".into(), SqlValue::Integer(1))],
+        }),
+        StorageOp::BatchUpsert(UpsertSpec {
+            table: "channel",
+            rows: vec![vec![
+                ("id".into(), SqlValue::Text("parent".into())),
+                ("subtopics_loaded_at".into(), SqlValue::Integer(150)),
+                ("thread_count".into(), SqlValue::Integer(0)),
+            ]],
+            conflict_key: Some("id"),
+            exclude_from_update: vec![],
+            version_column: None,
+            update_guard: Some(UpsertGuard {
+                column: "subtopics_loaded_at",
+                expected: SqlValue::Integer(100),
+            }),
+        }),
+    ];
+    assert!(matches!(
+        storage.atomic_write(ops).await,
+        Err(PortError::StorageConflict)
+    ));
+    for (id, column, expected) in [("parent", "thread_count", 4), ("new-topic", "is_remove", 0)] {
+        let row = storage
+            .get(GetSpec {
+                table: "channel",
+                key_col: "id",
+                key_val: SqlValue::Text(id.into()),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(row
+            .iter()
+            .any(|(key, value)| key == column
+                && matches!(value,SqlValue::Integer(n) if *n==expected)));
+    }
+}

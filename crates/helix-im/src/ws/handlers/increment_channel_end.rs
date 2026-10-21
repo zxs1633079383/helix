@@ -123,6 +123,8 @@ pub(crate) fn apply_scoped_increment_end(
     ctx: &mut ImWsContext<'_>,
     channel_id: Option<ChannelId>,
     scope: Option<&str>,
+    request_id: Option<&str>,
+    snapshot_count: Option<usize>,
     batch_id: Option<&str>,
     out: &mut EffectSink,
 ) {
@@ -165,57 +167,128 @@ pub(crate) fn apply_scoped_increment_end(
     }
 
     let parent_channel_id = channel_id.expect("checked above");
+    if let Some(expected) = ctx.state.subtopic_requests.get(&parent_channel_id) {
+        if request_id != Some(expected.as_str()) {
+            return;
+        }
+    }
     let diagnostic_batch_id = batch_id
         .filter(|value| !value.is_empty())
         .map(str::to_owned);
     let batch_id = batch_id
         .filter(|value| !value.is_empty())
         .unwrap_or("legacy");
-    if let Some(expected) = ctx.state.pending_increment_batch_id.as_deref() {
-        if expected != batch_id {
-            tracing::warn!(
-                channel_id = %parent_channel_id.as_str(),
-                expected_batch_id = expected,
-                batch_id,
-                "subtopics-sync-ready 未触发：收尾 batchId 不匹配"
-            );
+    let topic_key = (parent_channel_id, batch_id.to_string());
+    if let Some(expected) = snapshot_count {
+        let received = ctx
+            .state
+            .pending_topic_increments
+            .get(&topic_key)
+            .map(|pending| {
+                pending
+                    .projections
+                    .iter()
+                    .map(|(id, _)| *id)
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+            })
+            .unwrap_or(0);
+        if expected != received {
             return;
         }
     }
-    ctx.state.pending_increment_batch_id = None;
+    let has_scoped = ctx.state.pending_topic_increments.contains_key(&topic_key);
+    if !has_scoped && snapshot_count.is_none() {
+        if ctx
+            .state
+            .pending_topic_increments
+            .keys()
+            .any(|(parent, _)| *parent == parent_channel_id)
+        {
+            return; // 同父群另一个批次尚未收尾，迟到end不得消费它。
+        }
+        if let Some(expected) = ctx.state.pending_increment_batch_id.as_deref() {
+            if expected != batch_id {
+                return;
+            }
+        }
+    }
     let batch_key = format!("subtopics|{}|{}", parent_channel_id.as_str(), batch_id);
     if ctx.state.subtopic_sync_completed.contains(&batch_key)
-        || ctx.state.subtopic_sync_active.as_deref() == Some(batch_key.as_str())
+        || ctx.state.subtopic_sync_active.contains(&batch_key)
     {
-        tracing::info!(
-            channel_id = %parent_channel_id.as_str(),
-            batch_id,
-            "subtopics-sync-ready 未触发：重复或在途批次"
-        );
         return;
     }
+    ctx.state.subtopic_sync_active.insert(batch_key.clone());
+    let (mut ops, projections) =
+        if let Some(pending) = ctx.state.pending_topic_increments.remove(&topic_key) {
+            (pending.ops, pending.projections)
+        } else if snapshot_count.is_some() {
+            (Vec::new(), Vec::new())
+        } else {
+            ctx.state.pending_increment_batch_id = None;
+            (
+                std::mem::take(&mut ctx.state.pending_increment_ops),
+                std::mem::take(&mut ctx.state.pending_increment_projections),
+            )
+        };
 
-    ctx.state.subtopic_sync_active = Some(batch_key.clone());
-    let mut ops = std::mem::take(&mut ctx.state.pending_increment_ops);
-    let projections = std::mem::take(&mut ctx.state.pending_increment_projections);
-
-    // 话题批次的成功标记与子频道/成员/cursor 写入共用同一 Persist，令下一次切群
-    // 能在本地判断快照有效；不能在内存里提前写标记，否则 Persist 失败会跳过下一次补偿。
-    ops.push(StorageOp::BatchUpdate(BatchUpdateSpec {
-        table: "channel",
-        key_col: "id",
-        key_vals: vec![SqlValue::Text(parent_channel_id.as_str().to_string())],
-        patch: vec![(
-            "subtopics_loaded_at".to_string(),
-            SqlValue::Integer(ctx.now_ms.min(i64::MAX as u64) as i64),
-        )],
-    }));
+    // 只有完整清单才替换可见集合及完成标记，全部与频道写共用原子提交。
+    if let Some(count) = snapshot_count {
+        ops.insert(
+            0,
+            StorageOp::BatchUpdate(BatchUpdateSpec {
+                table: "channel",
+                key_col: "root_id",
+                key_vals: vec![SqlValue::Text(parent_channel_id.as_str().to_string())],
+                patch: vec![("is_remove".to_string(), SqlValue::Integer(1))],
+            }),
+        );
+        if !projections.is_empty() {
+            ops.push(StorageOp::BatchUpdate(BatchUpdateSpec {
+                table: "channel",
+                key_col: "id",
+                key_vals: projections
+                    .iter()
+                    .map(|(id, _)| SqlValue::Text(id.as_str().to_string()))
+                    .collect(),
+                patch: vec![("is_remove".to_string(), SqlValue::Integer(0))],
+            }));
+        }
+        ops.push(StorageOp::BatchUpdate(BatchUpdateSpec {
+            table: "channel",
+            key_col: "id",
+            key_vals: vec![SqlValue::Text(parent_channel_id.as_str().to_string())],
+            patch: vec![
+                (
+                    "subtopics_loaded_at".to_string(),
+                    SqlValue::Integer(ctx.now_ms.min(i64::MAX as u64) as i64),
+                ),
+                ("thread_count".to_string(), SqlValue::Integer(count as i64)),
+            ],
+        }));
+    }
 
     let corr = ctx.alloc_corr();
-    out.push(Effect::Persist { corr, ops });
+    let snapshot_read = if snapshot_count.is_some() {
+        out.push(Effect::Persist {
+            corr,
+            ops: vec![crate::acl::to_effect::get_channel_row_op(parent_channel_id)],
+        });
+        ctx.state
+            .pending_topic_snapshot_ops
+            .insert(batch_key.clone(), ops);
+        true
+    } else {
+        out.push(Effect::PersistAtomic { corr, ops });
+        false
+    };
     ctx.state.corr_map.insert(
         corr,
         crate::state::CorrelationContext::SubtopicIncrementBatchPersist {
+            snapshot_read,
+            request_id: request_id.map(str::to_owned),
+            snapshot_count,
             parent_channel_id,
             batch_key,
             batch_id: diagnostic_batch_id,
@@ -341,7 +414,29 @@ impl WsMessageHandler for IncrementChannelEndHandler {
                 )
             })
             .unwrap_or((None, None));
-        apply_scoped_increment_end(ctx, channel_id, scope, batch_id, out);
+        let request_id = frame
+            .data()
+            .and_then(|data| data.get("requestId"))
+            .and_then(serde_json::Value::as_str);
+        let snapshot_count = frame
+            .data()
+            .filter(|data| {
+                data.get("snapshotComplete")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+            })
+            .and_then(|data| data.get("channelCount"))
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|count| usize::try_from(count).ok());
+        apply_scoped_increment_end(
+            ctx,
+            channel_id,
+            scope,
+            request_id,
+            snapshot_count,
+            batch_id,
+            out,
+        );
         Ok(())
     }
 }

@@ -147,14 +147,14 @@ read_cmd!(
     "im_request_channel_increment",
     |args, cmd| {
         let channel_id = require_str(args, "channel_id", cmd)?;
-        let timestamp = args.get("timestamp").and_then(Value::as_i64).unwrap_or(0);
+        let request_id = args.get("sync_request_id").and_then(Value::as_str);
         let cursors = args.get("cursors").cloned().unwrap_or_else(|| json!([]));
         if !cursors.is_array() {
             return Err(ImError::Parse(format!("{cmd}: cursors 必须是数组")));
         }
         Ok((
             "channels/load/increment",
-            json!({ "timeStamp": timestamp, "channelId": channel_id, "cursors": cursors }),
+            json!({ "timeStamp": 0, "channelId": channel_id, "cursors": cursors, "syncRequestId": request_id }),
         ))
     }
 );

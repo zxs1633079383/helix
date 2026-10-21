@@ -945,12 +945,88 @@ mod tests {
         assert!(matching_out
             .as_slice()
             .iter()
-            .any(|effect| matches!(effect, Effect::Persist { .. })));
+            .any(|effect| matches!(effect, Effect::PersistAtomic { .. })));
         assert!(matching_out
             .as_slice()
             .iter()
             .all(|effect| !matches!(effect, Effect::Http { .. })));
-        assert!(ctx.state.subtopic_sync_active.is_some());
+        assert!(!ctx.state.subtopic_sync_active.is_empty());
+    }
+
+    /// 服务端声明两行却仅收到一行时，不可落库或发布完整清单完成。
+    #[test]
+    fn dispatch_ws_subtopic_incomplete_manifest_does_not_commit() {
+        let mut state = ImState::new();
+        let mut next = 1;
+        let mut alloc = || {
+            let corr = helix_core::Correlation::from_raw(next);
+            next += 1;
+            corr
+        };
+        let mut ctx = ImWsContext::new(&mut state, 1000, "", "", &mut alloc);
+        let increment = frame_from_json(serde_json::json!({"action":"increment_channel", "data": {
+            "id":channel_id(211).as_str(), "type":"T", "rootId":channel_id(201).as_str(),
+            "batchId":"a", "lastEventSeq":3, "mentionList":[], "urgentPostList":[]
+        }}));
+        dispatch_ws(&mut ctx, &increment, &mut EffectSink::new()).unwrap();
+        let end = frame_from_json(
+            serde_json::json!({"action":"increment_channel_end", "data": {
+                "scope":"subtopics", "channelId":channel_id(201).as_str(), "batchId":"a",
+                "snapshotComplete":true, "channelCount":2
+            }}),
+        );
+        let mut out = EffectSink::new();
+        dispatch_ws(&mut ctx, &end, &mut out).unwrap();
+        assert!(
+            out.as_slice().is_empty(),
+            "missing inventory frame must not close the snapshot"
+        );
+    }
+
+    /// 两个父群话题帧交错时，各自 end 只能提交所属批次。
+    #[test]
+    fn dispatch_ws_subtopic_batches_interleave_without_mixing() {
+        let mut state = ImState::new();
+        let mut next = 1;
+        let mut alloc = || {
+            let corr = helix_core::Correlation::from_raw(next);
+            next += 1;
+            corr
+        };
+        let mut ctx = ImWsContext::new(&mut state, 1000, "", "", &mut alloc);
+        for (parent, topic, batch) in [(201, 211, "a"), (202, 212, "b")] {
+            let frame = frame_from_json(serde_json::json!({"action":"increment_channel", "data": {
+                "id": channel_id(topic).as_str(), "type":"T", "rootId":channel_id(parent).as_str(),
+                "batchId":batch, "lastEventSeq":3, "mentionList":[], "urgentPostList":[]
+            }}));
+            dispatch_ws(&mut ctx, &frame, &mut EffectSink::new()).unwrap();
+        }
+        for (parent, topic, batch) in [(201, 211, "a"), (202, 212, "b")] {
+            let end = frame_from_json(
+                serde_json::json!({"action":"increment_channel_end", "data": {
+                    "scope":"subtopics", "channelId":channel_id(parent).as_str(), "batchId":batch
+                }}),
+            );
+            let mut out = EffectSink::new();
+            dispatch_ws(&mut ctx, &end, &mut out).unwrap();
+            let corr = out
+                .as_slice()
+                .iter()
+                .find_map(|effect| match effect {
+                    Effect::PersistAtomic { corr, .. } => Some(*corr),
+                    _ => None,
+                })
+                .expect("each parent must produce its own atomic commit");
+            let Some(crate::state::CorrelationContext::SubtopicIncrementBatchPersist {
+                projections,
+                ..
+            }) = ctx.state.corr_map.get(&corr)
+            else {
+                panic!("missing subtopic correlation");
+            };
+            assert_eq!(projections.len(), 1);
+            assert_eq!(projections[0].0, channel_id(topic));
+        }
     }
 
     // 验证声明为普通频道的收尾帧携带父频道时 fail-closed，不误触发话题或列表同步。

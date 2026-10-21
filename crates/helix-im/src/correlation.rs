@@ -257,6 +257,10 @@ pub enum CorrelationContext {
 
     /// 话题增量批次的原子落库回执；成功只发布 subtopics-sync-ready。
     SubtopicIncrementBatchPersist {
+        /// true表示先读父群CAS水位，false表示等待原子写回执。
+        snapshot_read: bool,
+        snapshot_count: Option<usize>,
+        request_id: Option<String>,
         parent_channel_id: ChannelId,
         batch_key: String,
         /// 缺失时保持None，不将兼容用的legacy哨兵伪装为服务端批次。
@@ -508,6 +512,7 @@ pub enum CorrelationContext {
 
     /// G13d `im_query_subtopics` Scan 回报；父频道随 correlation 一起隔离。
     SubtopicsQuery {
+        parent_row: Option<Box<serde_json::Value>>,
         parent_channel_id: ChannelId,
         causation_id: Option<String>,
     },
@@ -886,7 +891,9 @@ impl CorrelationContext {
             Self::PinnedProjectionReadback { req_id, .. }
             | Self::PinnedProjectionPersist { req_id, .. } => Some(req_id.as_str()),
             Self::ReactionUnreadProjection { req_id, .. } => Some(req_id.as_str()),
-            Self::OutboundReadReply { req_id, .. } | Self::OutboundWriteReply { req_id } => Some(req_id.as_str()),
+            Self::OutboundReadReply { req_id, .. } | Self::OutboundWriteReply { req_id } => {
+                Some(req_id.as_str())
+            }
             Self::OutboundExactPosts { req_id, .. } => Some(req_id.as_str()),
             Self::ExactPostsPersist { req_id, .. } => Some(req_id.as_str()),
             Self::ExactPostsReadback { req_id, .. } => Some(req_id.as_str()),

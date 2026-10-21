@@ -274,26 +274,6 @@ pub fn dialog_list_scan_spec_for_scope(
     })
 }
 
-/// 构造当前 RuntimeAuth 租户的本地 topic Scan；父频道可见性在同一回包中验证。
-pub fn subtopics_scan_spec_for_scope(scope: &DialogListScope) -> Result<ScanSpec, ImError> {
-    if scope.viewer_user_id.is_empty() {
-        return Err(ImError::Parse(
-            "im_query_subtopics requires RuntimeAuth user".into(),
-        ));
-    }
-    Ok(ScanSpec {
-        table: "channel",
-        limit: Some(QUERY_DIALOGS_MAX),
-        filter: Some({
-            let (column, value) =
-                crate::identity::AccountScope::new(&scope.viewer_user_id, &scope.company_id)
-                    .channel_filter();
-            (column, SqlValue::Text(value.to_string()))
-        }),
-        order_by: DIALOG_QUERY_ORDER,
-    })
-}
-
 const MESSAGE_QUERY_ORDER: &[ScanOrder] = &[
     ScanOrder::desc("create_at"),
     ScanOrder::desc("temporary_id"),
@@ -428,10 +408,24 @@ pub fn build_subtopics_query_for_scope(
             "im_query_subtopics requires parentChannelId".into(),
         ));
     }
-    let scan = subtopics_scan_spec_for_scope(scope)?;
+    if scope.viewer_user_id.is_empty() {
+        return Err(ImError::Parse(
+            "im_query_subtopics requires RuntimeAuth user".into(),
+        ));
+    }
     Ok(Effect::Persist {
         corr,
-        ops: vec![StorageOp::Scan(scan)],
+        ops: vec![StorageOp::Get(helix_core::effect::GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text(
+                request
+                    .parent_channel_id
+                    .expect("validated parent")
+                    .as_str()
+                    .to_string(),
+            ),
+        })],
     })
 }
 

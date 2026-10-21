@@ -223,10 +223,10 @@ impl ImModule {
                 let code = match outcome {
                     PortOutcome::Err(helix_core::tick::PortError::NetworkUnavailable) => {
                         Some("NETWORK_UNAVAILABLE")
-                    },
-                    PortOutcome::Err(helix_core::tick::PortError::Network | helix_core::tick::PortError::Timeout) => {
-                        Some("SERVICE_UNREACHABLE")
-                    },
+                    }
+                    PortOutcome::Err(
+                        helix_core::tick::PortError::Network | helix_core::tick::PortError::Timeout,
+                    ) => Some("SERVICE_UNREACHABLE"),
                     _ => None,
                 };
                 if let Some(code) = code {
@@ -476,11 +476,17 @@ impl ImModule {
             } => self.handle_increment_batch_persist_reply(projections, batch_id, outcome, out)?,
 
             CorrelationContext::SubtopicIncrementBatchPersist {
+                snapshot_read,
+                snapshot_count,
+                request_id,
                 parent_channel_id,
                 batch_key,
                 batch_id,
                 projections,
             } => self.handle_subtopic_increment_batch_persist_reply(
+                snapshot_read,
+                snapshot_count,
+                request_id,
                 parent_channel_id,
                 batch_key,
                 batch_id,
@@ -1282,7 +1288,7 @@ impl ImModule {
                         .unwrap_or_default()
                         .into_iter()
                         .filter(|row| {
-                            crate::query::core::dialog_row_visible(
+                            crate::query::dialog_row_visible(
                                 row,
                                 &crate::query::DialogListScope::new(&auth_user_id, &company_id),
                             )
@@ -1378,24 +1384,86 @@ impl ImModule {
                 ));
             }
 
-            // G13d 本地 topic Scan 只发布一次 parent-scoped typed Result，不广播业务事件。
+            // 先验证父群，再按 root_id 扫描；无关频道不会占用话题查询上限。
             CorrelationContext::SubtopicsQuery {
+                parent_row,
                 parent_channel_id,
                 causation_id,
             } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    out.push(self.emit_subtopics_result_for_runtime(
-                        causation_id.as_deref(),
-                        Some(parent_channel_id.as_str()),
-                        reply.0.as_ref(),
-                    ));
+                    let mut rows: Vec<serde_json::Value> = serde_json::from_slice(reply.0.as_ref())
+                        .map_err(|e| ImError::Parse(format!("subtopic rows: {e}")))?;
+                    if let Some(parent) = parent_row {
+                        rows.push(*parent);
+                        out.push(
+                            self.emit_subtopics_result_for_runtime(
+                                causation_id.as_deref(),
+                                Some(parent_channel_id.as_str()),
+                                &serde_json::to_vec(&rows)
+                                    .map_err(|e| ImError::Parse(e.to_string()))?,
+                            ),
+                        );
+                    } else {
+                        let scope = crate::query::DialogListScope::new(
+                            self.config.auth_user_id.as_str(),
+                            self.config.company_id.as_str(),
+                        );
+                        let parent = rows.into_iter().find(|row| {
+                            row.get("id").and_then(serde_json::Value::as_str)
+                                == Some(parent_channel_id.as_str())
+                                && crate::query::dialog_row_visible(row, &scope)
+                        });
+                        if let Some(parent) = parent {
+                            let corr = self.alloc_corr_internal();
+                            self.state.corr_map.insert(
+                                corr,
+                                CorrelationContext::SubtopicsQuery {
+                                    parent_row: Some(Box::new(parent)),
+                                    parent_channel_id,
+                                    causation_id,
+                                },
+                            );
+                            out.push(helix_core::Effect::Persist {
+                                corr,
+                                ops: vec![helix_core::effect::StorageOp::ScopedScan(
+                                    helix_core::effect::ScopedScanSpec {
+                                        table: "channel",
+                                        scope_col: "root_id",
+                                        scope_values: vec![helix_core::effect::SqlValue::Text(
+                                            parent_channel_id.as_str().to_string(),
+                                        )],
+                                        filter: Some({
+                                            let (column, value) =
+                                                crate::identity::AccountScope::new(
+                                                    self.config.auth_user_id.as_str(),
+                                                    self.config.company_id.as_str(),
+                                                )
+                                                .channel_filter();
+                                            (
+                                                column,
+                                                helix_core::effect::SqlValue::Text(
+                                                    value.to_string(),
+                                                ),
+                                            )
+                                        }),
+                                        limit: 2000,
+                                    },
+                                )],
+                            });
+                        } else {
+                            out.push(self.emit_subtopics_result_for_runtime(
+                                causation_id.as_deref(),
+                                Some(parent_channel_id.as_str()),
+                                b"[]",
+                            ));
+                        }
+                    }
                 }
                 PortOutcome::Err(error) => {
                     tracing::warn!(error = ?error, "subtopic scan failed");
-                    out.push(self.emit_subtopics_result_for_runtime(
-                        causation_id.as_deref(),
-                        Some(parent_channel_id.as_str()),
-                        b"[]",
+                    out.push(crate::read_relay::emit_read_error(
+                        causation_id.as_deref().unwrap_or_default(),
+                        "HELIX_SUBTOPICS_QUERY_FAILED",
                     ));
                 }
             },

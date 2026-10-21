@@ -666,6 +666,9 @@ impl ImModule {
     /// 处理话题增量原子落库回执；成功只通知该父群继续读取本地话题。
     pub(super) fn handle_subtopic_increment_batch_persist_reply(
         &mut self,
+        snapshot_read: bool,
+        snapshot_count: Option<usize>,
+        request_id: Option<String>,
         parent_channel_id: crate::state::ChannelId,
         batch_key: String,
         batch_id: Option<String>,
@@ -673,6 +676,83 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if snapshot_read {
+            let Some(mut ops) = self.state.pending_topic_snapshot_ops.remove(&batch_key) else {
+                self.state.subtopic_sync_active.remove(&batch_key);
+                return Ok(());
+            };
+            use helix_core::effect::{SqlValue, StorageOp, UpsertGuard, UpsertSpec};
+            let current = self
+                .state
+                .subtopic_requests
+                .get(&parent_channel_id)
+                .is_none_or(|expected| request_id.as_deref() == Some(expected.as_str()));
+            let rows = match outcome {
+                PortOutcome::Ok(reply) => {
+                    serde_json::from_slice::<Vec<serde_json::Value>>(reply.0.as_ref()).ok()
+                }
+                _ => None,
+            };
+            let parent = rows.as_ref().and_then(|rows| {
+                rows.iter()
+                    .find(|row| row["id"] == parent_channel_id.as_str())
+            });
+            let expected = parent.and_then(|row| row["subtopics_loaded_at"].as_i64());
+            let Some(expected) = expected.filter(|_| current) else {
+                self.state.subtopic_sync_active.remove(&batch_key);
+                return Ok(());
+            };
+            let Some(StorageOp::BatchUpdate(marker)) = ops.pop() else {
+                self.state.subtopic_sync_active.remove(&batch_key);
+                return Err(ImError::Parse("topic snapshot marker missing".into()));
+            };
+            let mut row = vec![(
+                "id".to_string(),
+                SqlValue::Text(parent_channel_id.as_str().to_string()),
+            )];
+            for (column, value) in marker.patch {
+                let value = if column == "subtopics_loaded_at" {
+                    let prior = match value {
+                        SqlValue::Integer(value) => value,
+                        _ => 0,
+                    };
+                    SqlValue::Integer(prior.max(expected.saturating_add(1)))
+                } else {
+                    value
+                };
+                row.push((column, value));
+            }
+            // CAS失败使整个清单事务回滚，跨table-set队列也不能迟到覆盖新快照。
+            ops.insert(
+                0,
+                StorageOp::BatchUpsert(UpsertSpec {
+                    table: "channel",
+                    rows: vec![row],
+                    conflict_key: Some("id"),
+                    exclude_from_update: vec![],
+                    update_guard: Some(UpsertGuard {
+                        column: "subtopics_loaded_at",
+                        expected: SqlValue::Integer(expected),
+                    }),
+                    version_column: None,
+                }),
+            );
+            let corr = self.alloc_corr_internal();
+            self.state.corr_map.insert(
+                corr,
+                crate::state::CorrelationContext::SubtopicIncrementBatchPersist {
+                    snapshot_read: false,
+                    snapshot_count,
+                    request_id,
+                    parent_channel_id,
+                    batch_key,
+                    batch_id,
+                    projections: _projections,
+                },
+            );
+            out.push(Effect::PersistAtomic { corr, ops });
+            return Ok(());
+        }
         self.diagnose(crate::diagnostics::Observation {
             event: "channel_inventory_persisted",
             stage: "persist",
@@ -700,7 +780,14 @@ impl ImModule {
                 self.diagnose_checkpoint(*channel, "inventory_committed");
             }
         }
-        self.state.subtopic_sync_active = None;
+        self.state.subtopic_sync_active.remove(&batch_key);
+        // 旧事务回执只释放关联，不能覆盖新请求的UI数量或完成等待。
+        if let Some(expected) = self.state.subtopic_requests.get(&parent_channel_id) {
+            if request_id.as_deref() != Some(expected.as_str()) {
+                return Ok(());
+            }
+        }
+
         match outcome {
             PortOutcome::Ok(_) => {
                 if !self.state.subtopic_sync_completed.insert(batch_key) {
@@ -714,9 +801,21 @@ impl ImModule {
                     channel_id = %parent_channel_id.as_str(),
                     "subtopics-sync-ready 已触发：话题 increment 批次 PersistOk"
                 );
-                out.push(
-                    crate::event::channel_sync::subtopics_ready(parent_channel_id.as_str())?
+                if let Some(count) = snapshot_count {
+                    out.push(
+                        crate::event::channel::update(serde_json::json!({
+                            "id": parent_channel_id.as_str(), "threadCount": count
+                        }))?
                         .into_effect(),
+                    );
+                }
+                out.push(
+                    crate::event::channel_sync::subtopics_ready(
+                        parent_channel_id.as_str(),
+                        request_id.as_deref(),
+                        snapshot_count.is_some(),
+                    )?
+                    .into_effect(),
                 );
             }
             PortOutcome::Err(error) => {
@@ -2203,7 +2302,10 @@ mod channel_sync_contract_tests {
                 _ => panic!("channel scope must use text IDs"),
             })
             .collect::<Vec<_>>();
-        assert_eq!(scoped_ids, vec!["creator-channel", "member-channel", "other-company"]);
+        assert_eq!(
+            scoped_ids,
+            vec!["creator-channel", "member-channel", "other-company"]
+        );
         assert!(scoped_ids.contains(&"other-company"));
 
         let mut out = EffectSink::new();

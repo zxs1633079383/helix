@@ -14,6 +14,47 @@ pub(crate) fn apply_increment(
     inc: &IncrementChannel,
     out: &mut EffectSink,
 ) {
+    // 话题批次按父群与batch隔离，避免快速切群时相互覆盖全局缓冲。
+    let scoped_batch = serde_json::from_slice::<serde_json::Value>(inc.raw.as_ref())
+        .ok()
+        .and_then(|data| {
+            if data.get("type").and_then(serde_json::Value::as_str) != Some("T") {
+                return None;
+            }
+            let parent = data
+                .get("rootId")
+                .and_then(serde_json::Value::as_str)
+                .and_then(crate::state::ChannelId::from_str)?;
+            let batch = data
+                .get("batchId")
+                .and_then(serde_json::Value::as_str)
+                .filter(|v| !v.is_empty())?;
+            Some((
+                (parent, batch.to_string()),
+                data.get("requestId")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+            ))
+        });
+    if let Some((key, request_id)) = scoped_batch {
+        if let Some(expected) = ctx.state.subtopic_requests.get(&key.0) {
+            if request_id.as_deref() != Some(expected.as_str()) {
+                return;
+            }
+        }
+        let effects = apply_increment_effects(ctx, inc);
+        let pending = ctx.state.pending_topic_increments.entry(key).or_default();
+        for effect in effects {
+            match effect {
+                Effect::PersistFire { ops } => pending.ops.extend(ops),
+                other => out.push(other),
+            }
+        }
+        pending
+            .projections
+            .push((inc.channel_id, inc.raw.as_ref().to_vec()));
+        return;
+    }
     // 每个新 increment 都重新打开当前批次；global end 只封口一次，避免后续批次被旧 ready 闸门吞掉。
     ctx.state.channel_sync_batch_pending = true;
     if let Ok(data) = serde_json::from_slice::<serde_json::Value>(inc.raw.as_ref()) {

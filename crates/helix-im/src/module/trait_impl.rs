@@ -37,10 +37,30 @@ impl Module for ImModule {
         let result = self.handle_scoped_tick(tick, now_ms, out);
         self.render_scope
             .scope_http_requests(&self.config, tick, start, out);
-        let offline = matches!(tick, Tick::PortReply { outcome: helix_core::tick::PortOutcome::Err(helix_core::tick::PortError::NetworkUnavailable), .. });
-        let service_unreachable = matches!(tick, Tick::PortReply { outcome: helix_core::tick::PortOutcome::Err(helix_core::tick::PortError::Network | helix_core::tick::PortError::Timeout), .. });
+        let offline = matches!(
+            tick,
+            Tick::PortReply {
+                outcome: helix_core::tick::PortOutcome::Err(
+                    helix_core::tick::PortError::NetworkUnavailable
+                ),
+                ..
+            }
+        );
+        let service_unreachable = matches!(
+            tick,
+            Tick::PortReply {
+                outcome: helix_core::tick::PortOutcome::Err(
+                    helix_core::tick::PortError::Network | helix_core::tick::PortError::Timeout
+                ),
+                ..
+            }
+        );
         if offline || service_unreachable {
-            let code = if offline { "NETWORK_UNAVAILABLE" } else { "SERVICE_UNREACHABLE" };
+            let code = if offline {
+                "NETWORK_UNAVAILABLE"
+            } else {
+                "SERVICE_UNREACHABLE"
+            };
             let phase = if offline { "before_io" } else { "after_io" };
             let outcome = if offline { "not_submitted" } else { "unknown" };
             out.visit_mut_from(start, |effect| {
@@ -375,6 +395,31 @@ impl ImModule {
                             });
                         }
                     };
+                    // 完整话题请求注册先于HTTP出站；后续旧WS帧不可覆盖新清单。
+                    if name == "im_request_channel_increment" {
+                        if let Ok(args) =
+                            serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
+                        {
+                            let parent = args
+                                .get("channel_id")
+                                .or_else(|| args.get("channelId"))
+                                .and_then(serde_json::Value::as_str)
+                                .and_then(crate::state::ChannelId::from_str);
+                            let request = args
+                                .get("sync_request_id")
+                                .or_else(|| args.get("syncRequestId"))
+                                .and_then(serde_json::Value::as_str)
+                                .filter(|id| !id.is_empty());
+                            if let (Some(parent), Some(request)) = (parent, request) {
+                                self.state
+                                    .subtopic_requests
+                                    .insert(parent, request.to_string());
+                                self.state
+                                    .pending_topic_increments
+                                    .retain(|(id, _), _| *id != parent);
+                            }
+                        }
+                    }
                     // spec06 缺陷A：读族注册回灌上下文（PortReply 透传 `im:read:result{req_id,body}`；写族
                     // fire-and-forget 在下方注册失败终态；quickReply 复用关联回包，只确认 HTTP 结果而非 durable 回应）。S7：byIds 成员快照走 OutboundMembersByIds（额外 emit im:channel:members）。
                     if crate::commands::is_read(name) || name == "im_quick_reply" {
@@ -704,10 +749,9 @@ impl ImModule {
                     // 写请求同样由业务关联表结算一次；诊断记录不得复活已取消请求。
                     if !crate::commands::is_read(name) && !self.state.corr_map.contains_key(&corr) {
                         if let Some(req_id) = crate::read_relay::read_req_id(cmd.payload.as_ref()) {
-                            self.state.corr_map.insert(
-                                corr,
-                                CorrelationContext::OutboundWriteReply { req_id },
-                            );
+                            self.state
+                                .corr_map
+                                .insert(corr, CorrelationContext::OutboundWriteReply { req_id });
                         }
                     }
                     for eff in effects {

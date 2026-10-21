@@ -24,6 +24,13 @@ pub use correlation::{
     HydrationPersistSnapshot, MakeTopicProjection, PendingSendReconciliation, SyncTrigger,
 };
 
+/// 同一父群、同一批次的原子写与回读投影；不同群不得共享缓冲。
+#[derive(Default)]
+pub(crate) struct PendingTopicIncrement {
+    pub ops: Vec<helix_core::effect::StorageOp>,
+    pub projections: Vec<(ChannelId, Vec<u8>)>,
+}
+
 /// 同一消息的媒体 props 写入屏障；回包按到达顺序，进度按目标合并。
 #[derive(Default)]
 pub(crate) struct MediaWriteGate {
@@ -89,8 +96,7 @@ pub struct ImState {
     /// `upload_identity + req_id` 的 generation token，无幂等 wire 时禁止重发。
     pub(crate) schedule_media_submitting: BTreeMap<ChannelId, String>,
     /// Multipart schedule drain retry timers; the timer never carries a signed URL.
-    pub(crate) schedule_multipart_retry_timers:
-        HashMap<helix_core::TimerId, String>,
+    pub(crate) schedule_multipart_retry_timers: HashMap<helix_core::TimerId, String>,
     /// Startup scan correlation for durable schedule intents.
     pub(crate) schedule_media_rehydrate_corr: Option<helix_core::Correlation>,
     pub pending_media_ops: HashMap<helix_core::Correlation, PendingMediaOp>,
@@ -275,7 +281,11 @@ pub struct ImState {
     pub(crate) pending_increment_projections: Vec<(ChannelId, Vec<u8>)>,
 
     /// 话题增量批次的活动身份；与普通频道 ready 分开，避免 scoped end 晋升全局列表。
-    pub(crate) subtopic_sync_active: Option<String>,
+    pub(crate) subtopic_sync_active: HashSet<String>,
+    /// 当前父群完整清单请求；旧请求不得再写回集合。
+    pub(crate) subtopic_requests: HashMap<ChannelId, String>,
+    pub(crate) pending_topic_snapshot_ops: HashMap<String, Vec<helix_core::effect::StorageOp>>,
+    pub(crate) pending_topic_increments: HashMap<(ChannelId, String), PendingTopicIncrement>,
 
     /// 已完成的话题批次键，重复 end 只读丢弃，不重复发布 ready。
     pub(crate) subtopic_sync_completed: std::collections::HashSet<String>,
@@ -472,7 +482,10 @@ impl ImState {
             startup_channel_projection_ready: false,
             pending_increment_ops: Vec::new(),
             pending_increment_projections: Vec::new(),
-            subtopic_sync_active: None,
+            subtopic_sync_active: HashSet::new(),
+            subtopic_requests: HashMap::new(),
+            pending_topic_snapshot_ops: HashMap::new(),
+            pending_topic_increments: HashMap::new(),
             subtopic_sync_completed: HashSet::new(),
             pending_increment_batch_id: None,
             channel_sync_session: None,
@@ -531,7 +544,10 @@ impl ImState {
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
         self.inflight_member_role_updates.clear();
-        self.subtopic_sync_active = None;
+        self.subtopic_sync_active.clear();
+        self.subtopic_requests.clear();
+        self.pending_topic_snapshot_ops.clear();
+        self.pending_topic_increments.clear();
         self.subtopic_sync_completed.clear();
         self.pending_increment_batch_id = None;
         self.channel_sync_batch_pending = true;
@@ -652,7 +668,10 @@ impl ImState {
         self.hydration_authority_unreads.clear();
         self.pending_increment_ops.clear();
         self.pending_increment_projections.clear();
-        self.subtopic_sync_active = None;
+        self.subtopic_sync_active.clear();
+        self.subtopic_requests.clear();
+        self.pending_topic_snapshot_ops.clear();
+        self.pending_topic_increments.clear();
         self.subtopic_sync_completed.clear();
         self.pending_increment_batch_id = None;
         self.channel_sync_session = None;

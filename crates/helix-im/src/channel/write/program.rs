@@ -354,3 +354,17 @@ mod tests {
         assert_eq!(*topic_count, 11);
     }
 }
+
+/// 未查询话题总数的普通完整投影，不得清掉之前已知的权威数量。
+#[cfg(test)]
+#[test]
+fn absent_topic_count_preserves_existing_authority() {
+    for value in [None, Some(0_i64), Some(4_i64)] {
+        let mut data = serde_json::json!({"id":"chfixx00000000000000000064", "type":"P"});
+        if let Some(count) = value {
+            data["threadCount"] = serde_json::json!(count);
+        }
+        let (_, omit) = program_full(&data, "viewer", 1).expect("valid channel");
+        assert_eq!(omit.contains(&"thread_count"), value.is_none());
+    }
+}

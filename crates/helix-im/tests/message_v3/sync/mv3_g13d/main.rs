@@ -8,7 +8,7 @@ mod common;
 
 use bytes::Bytes;
 use common::{cid, EffectKind};
-use helix_core::effect::{Effect, ScanOrder, SqlValue, StorageOp};
+use helix_core::effect::{Effect, SqlValue, StorageOp};
 use helix_core::tick::{AppCommand, PortError, PortOutcome, ReplyBytes};
 use helix_core::{Correlation, EffectSink, Module, Tick};
 use helix_im::{ImConfig, ImModule};
@@ -31,6 +31,7 @@ impl Replay {
         Self {
             module: ImModule::new(ImConfig {
                 auth_user_id: VIEWER.to_string(),
+                api_base_url: "http://topic-regression.invalid".to_string(),
                 company_id: COMPANY.to_string(),
                 ..ImConfig::default()
             }),
@@ -73,7 +74,37 @@ impl Replay {
             outcome: PortOutcome::Ok(ReplyBytes(Bytes::from(
                 serde_json::to_vec(&rows).map_err(|error| error.to_string())?,
             ))),
-        })
+        })?;
+        let next = self.sink.as_slice().iter().find_map(|effect| match effect {
+            Effect::Persist { corr, ops } => Some((*corr, ops.clone())),
+            _ => None,
+        });
+        if let Some((next_corr, ops)) = next {
+            let [StorageOp::ScopedScan(spec)] = ops.as_slice() else {
+                return Err("parent validation must continue with scoped topic scan".to_string());
+            };
+            assert_eq!(spec.scope_col, "root_id");
+            assert!(
+                matches!(spec.scope_values.as_slice(), [SqlValue::Text(value)] if value == PARENT)
+            );
+            assert!(
+                matches!(&spec.filter, Some(("user_id", SqlValue::Text(value))) if value == VIEWER)
+            );
+            let topics: Vec<Value> = rows
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|row| row["root_id"] == PARENT)
+                .cloned()
+                .collect();
+            self.step(Tick::PortReply {
+                corr: next_corr,
+                outcome: PortOutcome::Ok(ReplyBytes(Bytes::from(
+                    serde_json::to_vec(&topics).map_err(|error| error.to_string())?,
+                ))),
+            })?;
+        }
+        Ok(())
     }
 
     /// 回灌失败结果，验证失败分支仍只结算空 typed Result。
@@ -184,22 +215,12 @@ fn query_subtopics_scans_runtime_company_once_without_http() -> Result<(), Strin
         return Err("subtopic query must start with Persist Scan".to_string());
     };
     assert_eq!(*persisted, corr);
-    let [StorageOp::Scan(spec)] = ops.as_slice() else {
-        return Err("subtopic query must issue exactly one Scan".to_string());
+    let [StorageOp::Get(spec)] = ops.as_slice() else {
+        return Err("subtopic query must get its parent before a parent-scoped scan".to_string());
     };
     assert_eq!(spec.table, "channel");
-    assert!(matches!(
-        &spec.filter,
-        Some(("team_id", SqlValue::Text(value))) if value == COMPANY
-    ));
-    assert_eq!(
-        spec.order_by,
-        &[
-            ScanOrder::desc("is_top"),
-            ScanOrder::desc("last_post_at"),
-            ScanOrder::desc("created_at"),
-        ]
-    );
+    assert_eq!(spec.key_col, "id");
+    assert!(matches!(&spec.key_val, SqlValue::Text(value) if value == PARENT));
     assert!(replay.events().is_empty());
     assert!(replay.effect_kinds().iter().all(|kind| !matches!(
         kind,
@@ -239,7 +260,8 @@ fn query_subtopics_filters_parent_type_root_and_account_visibility() -> Result<(
             channel_row(&cid(106), COMPANY, "topic-owner", "T", &cid(999), &[VIEWER]),
         ]),
     )?;
-    assert_single_typed_result(&replay, "req-g13d-filter", &[TOPIC_VISIBLE]);
+    // 成员授权跨公司仍可读；仅其他账号且无成员资格的行不可见。
+    assert_single_typed_result(&replay, "req-g13d-filter", &[TOPIC_VISIBLE, &cid(105)]);
     let event = replay.events().pop().expect("one result");
     let item = &event["data"]["body"]["items"][0];
     assert_eq!(item["type"], "T");
@@ -356,7 +378,14 @@ fn query_subtopics_empty_or_orphan_or_remote_parent_is_typed_empty() -> Result<(
     cross_account.reply_ok(
         corr,
         json!([
-            channel_row(PARENT, "company-other", VIEWER, "P", "", &[VIEWER]),
+            channel_row(
+                PARENT,
+                "company-other",
+                "other-viewer",
+                "P",
+                "",
+                &["other-viewer"]
+            ),
             channel_row(
                 TOPIC_VISIBLE,
                 "company-other",
@@ -371,17 +400,155 @@ fn query_subtopics_empty_or_orphan_or_remote_parent_is_typed_empty() -> Result<(
     Ok(())
 }
 
-/// Scan 失败也只返回一次 typed empty Result，且重复回包不能二次结算。
+/// Scan 失败返回关联错误，不能伪装成空清单成功；重复回包不能二次结算。
 #[test]
 fn query_subtopics_failure_is_empty_and_terminal_is_idempotent() -> Result<(), String> {
     let mut replay = Replay::new();
     let corr = replay.query(PARENT, "req-g13d-failure")?;
     replay.reply_err(corr)?;
-    assert_single_typed_result(&replay, "req-g13d-failure", &[]);
+    let events = replay.events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["data"]["req_id"], "req-g13d-failure");
+    assert!(events[0]["data"]["error"].is_string());
+    assert!(events[0]["data"].get("body").is_none());
     replay.reply_ok(corr, json!([]))?;
     assert!(
         replay.events().is_empty(),
         "late reply must not emit a second Result"
+    );
+    Ok(())
+}
+
+/// 完整空清单仍需原子落库成功；失败、重复回执不得发布 ready。
+#[test]
+fn topic_snapshot_ready_requires_matching_atomic_success() -> Result<(), String> {
+    for (success, superseded) in [(false, false), (true, false), (true, true)] {
+        let mut replay = Replay::new();
+        replay.step(Tick::Command(AppCommand::new(
+            "im_query_dialog_list",
+            b"{}".to_vec(),
+        )))?;
+        let parent_corr = replay
+            .sink
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Persist { corr, .. } => Some(*corr),
+                _ => None,
+            })
+            .ok_or("missing parent scope query")?;
+        replay.step(Tick::PortReply {
+            corr: parent_corr,
+            outcome: PortOutcome::Ok(ReplyBytes(Bytes::from(
+                json!([channel_row(PARENT, COMPANY, VIEWER, "P", "", &[VIEWER])]).to_string(),
+            ))),
+        })?;
+        replay.step(Tick::Inbound(helix_core::tick::InboundBytes(Bytes::from(
+            json!({
+                "action":"increment_channel_end", "data":{
+                    "scope":"subtopics", "channelId":PARENT, "batchId":"empty-batch",
+                    "requestId":"request-1", "snapshotComplete":true, "channelCount":0
+                }
+            })
+            .to_string(),
+        ))))?;
+        assert!(replay.events().is_empty());
+        let [Effect::Persist {
+            corr: guard_read,
+            ops: guard_ops,
+        }] = replay.sink.as_slice()
+        else {
+            return Err("snapshot must read durable parent version before replacement".into());
+        };
+        assert!(matches!(guard_ops.as_slice(), [StorageOp::Get(_)]));
+        let guard_read = *guard_read;
+        replay.step(Tick::PortReply {
+            corr: guard_read,
+            outcome: PortOutcome::Ok(ReplyBytes(Bytes::from(
+                json!([{"id":PARENT,"subtopics_loaded_at":100}]).to_string(),
+            ))),
+        })?;
+        let [Effect::PersistAtomic { corr, ops }] = replay.sink.as_slice() else {
+            return Err("snapshot must commit one atomic transaction".into());
+        };
+        let corr = *corr;
+        assert!(ops.iter().any(|op|matches!(op, StorageOp::BatchUpsert(spec) if spec.table=="channel" && spec.update_guard.as_ref().is_some_and(|guard| guard.column=="subtopics_loaded_at"))));
+        let writes = format!("{ops:?}");
+        assert!(
+            writes.contains("subtopics_loaded_at")
+                && writes.contains("thread_count")
+                && writes.contains("is_remove")
+        );
+        if superseded {
+            replay.step(Tick::Command(AppCommand::new(
+                "im_request_channel_increment",
+                json!({
+                    "channel_id":PARENT, "sync_request_id":"newer-request", "cursors":[]
+                })
+                .to_string()
+                .into_bytes(),
+            )))?;
+        }
+        replay.step(Tick::PortReply {
+            corr,
+            outcome: if success {
+                PortOutcome::Ok(ReplyBytes(Bytes::new()))
+            } else {
+                PortOutcome::Err(PortError::Storage(500))
+            },
+        })?;
+        let events = replay.events();
+        let ready: Vec<_> = events
+            .iter()
+            .filter(|e| e["event"] == "im:subtopics-sync-ready")
+            .collect();
+        assert_eq!(
+            ready.len(),
+            usize::from(success && !superseded),
+            "effects={:?}",
+            replay.sink.as_slice()
+        );
+        if success && !superseded {
+            assert_eq!(ready[0]["data"]["requestId"], "request-1");
+            assert_eq!(ready[0]["data"]["snapshotComplete"], true);
+            assert!(events
+                .iter()
+                .any(|e| e["event"] == "im:channel:update" && e["data"]["threadCount"] == 0));
+        }
+        replay.step(Tick::PortReply {
+            corr,
+            outcome: PortOutcome::Ok(ReplyBytes(Bytes::new())),
+        })?;
+        assert!(replay.events().is_empty());
+    }
+    Ok(())
+}
+
+/// 新请求已经注册后，旧请求的空清单不能清掉当前缓存。
+#[test]
+fn stale_topic_request_end_must_not_persist() -> Result<(), String> {
+    let mut replay = Replay::new();
+    replay.step(Tick::Command(AppCommand::new(
+        "im_request_channel_increment",
+        json!({
+            "channel_id":PARENT, "sync_request_id":"new-request", "cursors":[]
+        })
+        .to_string()
+        .into_bytes(),
+    )))?;
+    replay.step(Tick::Inbound(helix_core::tick::InboundBytes(Bytes::from(
+        json!({
+            "action":"increment_channel_end", "data":{
+                "scope":"subtopics", "channelId":PARENT, "batchId":"old-batch",
+                "requestId":"old-request", "snapshotComplete":true, "channelCount":0
+            }
+        })
+        .to_string(),
+    ))))?;
+    assert!(
+        replay.sink.as_slice().is_empty(),
+        "old request must not persist: {:?}",
+        replay.sink.as_slice()
     );
     Ok(())
 }

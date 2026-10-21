@@ -1,3 +1,6 @@
+- DONE(local candidate only): 1021话题清单请求关联/原子CAS/范围查询回归通过；真实Native/PRE候选验收未完成。证据见客户端 docs/交接/1021-话题全流程修复/handoff.md。
+🎯 EXPECT 话题批次以原子提交后发布 ready；父群查询不受账号前2000频道截断；先红后绿，真实PRE与发布单列。 | 赌注 中 | 可逆 是 | @2026-10-21
+- 交接：../cses-client/docs/交接/1021-话题全流程修复/handoff.md
 🎯 EXPECT 仅修改Markdown；六处公共包版本入口与manifest一致，Presence说明与当前源码一致；本批链接/索引/Spec检查通过，历史缺口和未覆盖语义单列。 | 赌注 中 | 可逆 是 | @2026-10-20 08:08 CST
 - 交接：docs/交接/Markdown日检-20261020/handoff.md
 ✅ DONE 六处版本入口和Presence订阅/缓存说明已对齐；静态聚焦检查通过，整体PARTIAL，最终发布结果见交接所指报告。

@@ -142,10 +142,8 @@ fn pinned_authority_read_persists_before_local_replay() {
         .unwrap(),
     );
 
-    let kinds = h.step(
-        port_reply_with_body(http, enveloped(authority.clone())),
-        1001,
-    );
+    h.step(port_reply_with_body(http, enveloped(authority.clone())), 1001);
+    let kinds = pinned_fence_reply(&mut h, 1001);
     let persist = kinds
         .iter()
         .find_map(|kind| match kind {
@@ -1756,6 +1754,7 @@ fn pinned_empty_and_failure_do_not_fabricate_summary() {
         h.step(outbound_cmd("im_channel_load_post_pinned", serde_json::json!({"channel_id":cid(1),"req_id":"pin-empty"})), 1);
         let http = http_corr(&h.sink).unwrap();
         h.step(port_reply_with_body(http, enveloped(bytes::Bytes::from(serde_json::to_vec(&body).unwrap()))), 2);
+        if valid { pinned_fence_reply(&mut h, 2); }
         let persist = h.sink.as_slice().iter().find_map(|effect| match effect {
             Effect::PersistAtomic { corr, ops } => {
                 assert!(ops.iter().any(|op| matches!(op, StorageOp::BatchUpdate(spec) if spec.patch.iter().any(|(key,value)| key == "top_count" && matches!(value, SqlValue::Integer(0))))));
@@ -1801,5 +1800,333 @@ fn offline_write_without_read_relay_still_emits_correlated_terminal() {
     assert_eq!(terminal["data"]["requestId"],"offline-write"); assert_eq!(terminal["data"]["networkFailure"]["reqId"],"offline-write");
     h.step(Tick::PortReply {corr:Correlation::from_raw(corr),outcome:PortOutcome::Err(PortError::NetworkUnavailable)},1002);
     assert!(emit_jsons(&h.sink).is_empty());
+    }
+}
+
+/// 回归锚：离线置顶同数量替换；真实公开同步入口接受一批消息变更。
+fn pinned_sync_batch(h: &mut Harness, now: u64) -> u64 {
+    h.step(inbound_event(1, 99, 1), now);
+    let corr = http_corr(&h.sink).expect("gap starts sync");
+    let raw = sync_reply_events_with_messages(
+        1,
+        &[ev(1, 2, "old-pin"), ev(2, 2, "new-pin")],
+        &[("old-pin", "unpinned", ""), ("new-pin", "pinned", "")],
+        2,
+    );
+    let mut body: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+    let messages = &mut body["data"]["entries"][0]["messages"];
+    messages["old-pin"]["props"] = serde_json::json!({"pinned": false});
+    messages["new-pin"]["props"] = serde_json::json!({"pinned": true});
+    let raw = bytes::Bytes::from(serde_json::to_vec(&body).unwrap());
+    h.step(port_reply_with_body(corr, enveloped(raw)), now + 1);
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|e| match e {
+            Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("sync atomic commit")
+}
+
+/// 消息与cursor提交必须同时删除整份置顶缓存；相同top_count不能证明集合相同。
+#[test]
+fn pinned_offline_sync_invalidates_in_same_transaction() {
+    use helix_core::effect::StorageOp;
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    let commit = pinned_sync_batch(&mut h, 100);
+    assert!(
+        h.sink.as_slice().iter().any(|e| matches!(e,
+            Effect::PersistAtomic { corr, ops } if corr.raw() == commit && ops.iter().any(|op|
+                matches!(op, StorageOp::BatchDelete(s) if s.table == "channel_pinned_projection"))
+        )),
+        "offline changes must atomically invalidate the old pinned set"
+    );
+}
+
+/// 同步跨代后迟到HTTP不得写缓存或把旧集合当成功返回；重复回包没有第二终态。
+#[test]
+fn pinned_offline_sync_rejects_late_http() {
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    h.step(
+        outbound_cmd(
+            "im_channel_load_post_pinned",
+            serde_json::json!({"channel_id":cid(1),"req_id":"old-http"}),
+        ),
+        1,
+    );
+    let http = http_corr(&h.sink).unwrap();
+    pinned_sync_batch(&mut h, 100);
+    let reply = enveloped(bytes::Bytes::from_static(
+        br#"{"status":"SUCCESS","data":[{"post":{"id":"old-pin"}}]}"#,
+    ));
+    h.step(port_reply_with_body(http, reply.clone()), 110);
+    assert!(
+        !h.sink
+            .as_slice()
+            .iter()
+            .any(|e| matches!(e, Effect::PersistAtomic { .. })),
+        "stale HTTP must not repopulate cache"
+    );
+    assert!(
+        emit_json(&h.sink).unwrap()["data"]["error"].is_string(),
+        "stale list must not reach UI as success"
+    );
+    h.step(port_reply_with_body(http, reply), 111);
+    assert!(emit_json(&h.sink).is_none());
+}
+
+/// 已发出的本地Get跨过同步失效时，即使旧列表数量等于旧摘要也必须miss。
+#[test]
+fn pinned_offline_sync_rejects_late_local_read() {
+    use helix_core::effect::SqlValue;
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    h.step(
+        outbound_cmd(
+            "im_query_pinned_projection",
+            serde_json::json!({"channel_id":cid(1),"req_id":"old-local"}),
+        ),
+        1,
+    );
+    let query = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|e| match e {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .unwrap();
+    pinned_sync_batch(&mut h, 100);
+    let rows = vec![
+        vec![(
+            "body".into(),
+            SqlValue::Text(r#"{"status":"SUCCESS","data":[{"post":{"id":"old-pin"}}]}"#.into()),
+        )],
+        vec![("top_count".into(), SqlValue::Integer(1))],
+    ];
+    h.step(
+        port_reply_with_body(query, helix_core::port_codec::rows_to_reply_bytes(&rows)),
+        110,
+    );
+    assert_eq!(emit_json(&h.sink).unwrap()["data"]["body"]["cached"], false);
+}
+
+/// 实时pin已经推进epoch；即使拦住落库，也不能把跨代列表作为成功结果交付。
+#[test]
+fn pinned_online_invalidation_rejects_stale_success() {
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    h.step(
+        outbound_cmd(
+            "im_channel_load_post_pinned",
+            serde_json::json!({"channel_id":cid(1),"req_id":"online-old"}),
+        ),
+        1,
+    );
+    let http = http_corr(&h.sink).unwrap();
+    let frame = serde_json::json!({"action":"post_pin","data":{"channelId":cid(1),"postId":"old-pin","operation":"remove"}});
+    h.step(
+        Tick::Inbound(helix_core::tick::InboundBytes(
+            serde_json::to_vec(&frame).unwrap().into(),
+        )),
+        2,
+    );
+    let body = enveloped(bytes::Bytes::from_static(
+        br#"{"status":"SUCCESS","data":[{"post":{"id":"old-pin"}}]}"#,
+    ));
+    h.step(port_reply_with_body(http, body), 3);
+    assert!(!h
+        .sink
+        .as_slice()
+        .iter()
+        .any(|e| matches!(e, Effect::PersistAtomic { .. })));
+    assert!(
+        emit_json(&h.sink).unwrap()["data"]["error"].is_string(),
+        "online epoch rejection must reject stale UI success too"
+    );
+}
+
+/// HTTP检查后到PersistOk前发生失效，旧commit不得继续读回并发布旧列表。
+#[test]
+fn pinned_offline_sync_rejects_late_persist_completion() {
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    h.step(
+        outbound_cmd(
+            "im_channel_load_post_pinned",
+            serde_json::json!({"channel_id":cid(1),"req_id":"old-commit"}),
+        ),
+        1,
+    );
+    let http = http_corr(&h.sink).unwrap();
+    h.step(
+        port_reply_with_body(
+            http,
+            enveloped(bytes::Bytes::from_static(
+                br#"{"status":"SUCCESS","data":[{"post":{"id":"old-pin"}}]}"#,
+            )),
+        ),
+        2,
+    );
+    pinned_fence_reply(&mut h, 2);
+    let commit = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|e| match e {
+            Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .unwrap();
+    pinned_sync_batch(&mut h, 100);
+    h.step(port_reply_ok(commit), 110);
+    assert!(
+        !h.sink
+            .as_slice()
+            .iter()
+            .any(|e| matches!(e, Effect::Persist { .. })),
+        "invalidated commit must not start stale success readback"
+    );
+    assert!(emit_json(&h.sink).unwrap()["data"]["error"].is_string());
+}
+
+/// TooLong窗口不含完整置顶集合，窗口和cursor提交也必须使旧集合失效。
+#[test]
+fn pinned_offline_too_long_invalidates_with_window() {
+    use helix_core::effect::StorageOp;
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    h.step(inbound_event(1, 99, 1), 1);
+    let sync = http_corr(&h.sink).unwrap();
+    h.step(
+        port_reply_with_body(sync, enveloped(sync_reply_too_long(1, 100))),
+        2,
+    );
+    let reload = http_corr(&h.sink).expect("TooLong requires latest window");
+    h.step(
+        port_reply_with_body(
+            reload,
+            enveloped(bytes::Bytes::from_static(
+                br#"{"status":"SUCCESS","data":[]}"#,
+            )),
+        ),
+        3,
+    );
+    assert!(
+        h.sink.as_slice().iter().any(|e| matches!(e,
+            Effect::PersistAtomic {ops, ..} if ops.iter().any(|op| matches!(op,
+                StorageOp::BatchDelete(s) if s.table == "channel_pinned_projection"))
+        )),
+        "TooLong window commit must invalidate old pinned set"
+    );
+}
+
+/// 回灌新引入的持久代次读取；空库版本不伪造PersistOk，也不绕过生产CAS写集。
+fn pinned_fence_reply(h: &mut Harness, now: u64) -> Vec<EffectKind> {
+    let corr = h.sink.as_slice().iter().find_map(|e| match e {
+        Effect::Persist {corr, ops} if ops.iter().any(|op| matches!(op, helix_core::effect::StorageOp::Get(spec) if spec.table == "channel_pinned_fence")) => Some(corr.raw()), _=>None,
+    }).expect("authority success must read durable fence");
+    h.step(
+        port_reply_with_body(corr, helix_core::port_codec::rows_to_reply_bytes(&[])),
+        now,
+    )
+}
+
+/// PersistOk后的摘要读回若跨过失效，不能泄漏已缓存的旧body。
+#[test]
+fn pinned_late_readback_is_error_not_old_success() {
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    h.step(
+        outbound_cmd(
+            "im_channel_load_post_pinned",
+            serde_json::json!({"channel_id":cid(1),"req_id":"old-readback"}),
+        ),
+        1,
+    );
+    let http = http_corr(&h.sink).unwrap();
+    h.step(
+        port_reply_with_body(
+            http,
+            enveloped(bytes::Bytes::from_static(
+                br#"{"status":"SUCCESS","data":[]}"#,
+            )),
+        ),
+        2,
+    );
+    let kinds = pinned_fence_reply(&mut h, 3);
+    let commit = kinds
+        .iter()
+        .find_map(|k| {
+            if let EffectKind::PersistAtomic(c) = k {
+                Some(*c)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    h.step(port_reply_ok(commit), 4);
+    let read = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|e| {
+            if let Effect::Persist { corr, .. } = e {
+                Some(corr.raw())
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    pinned_sync_batch(&mut h, 100);
+    h.step(
+        port_reply_with_body(read, bytes::Bytes::from_static(b"[]")),
+        110,
+    );
+    assert!(emit_json(&h.sink).unwrap()["data"]["error"].is_string());
+    h.step(port_reply_ok(read), 111);
+    assert!(emit_json(&h.sink).is_none());
+}
+
+/// 重连不能将代次归零而使旧请求恢复有效；原req_id恰好得到一次失败。
+#[test]
+fn pinned_reconnect_fences_pending_http() {
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    h.step(
+        outbound_cmd(
+            "im_channel_load_post_pinned",
+            serde_json::json!({"channel_id":cid(1),"req_id":"before-reconnect"}),
+        ),
+        1,
+    );
+    let http = http_corr(&h.sink).unwrap();
+    h.step(hello_inbound("new-pin-session"), 2);
+    h.step(
+        port_reply_with_body(
+            http,
+            enveloped(bytes::Bytes::from_static(
+                br#"{"status":"SUCCESS","data":[]}"#,
+            )),
+        ),
+        3,
+    );
+    let result = emit_json(&h.sink).unwrap();
+    assert_eq!(result["data"]["req_id"], "before-reconnect");
+    assert!(result["data"]["error"].is_string());
+}
+
+/// 公告使用服务端版本而非条数；同数量旧全集不发布，也不作为成功结果返回。
+#[test]
+fn announcement_same_count_lower_version_is_rejected() {
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    for (index, (version, req)) in [(9,"new-ann"),(8,"old-ann")].into_iter().enumerate() {
+        h.step(outbound_cmd("im_announcement_list",serde_json::json!({"channel_id":cid(1),"req_id":req})),(index as u64)*10+1);
+        let http=http_corr(&h.sink).expect("announcement always reads authority");
+        let body=serde_json::json!({"status":"SUCCESS","data":{"channelId":cid(1),"version":version,"announcements":[]}});
+        h.step(port_reply_with_body(http,enveloped(bytes::Bytes::from(serde_json::to_vec(&body).unwrap()))),(index as u64)*10+2);
+        if version==9 {
+            assert!(emit_jsons(&h.sink).iter().any(|v|v["event"]=="im:announcement:list-updated" && v["data"]["version"]==9));
+        } else {
+            let values=emit_jsons(&h.sink);
+            assert!(values.iter().any(|v|v["data"]["req_id"]==req && v["data"]["error"].is_string()));
+            assert!(!values.iter().any(|v|v["event"]=="im:announcement:list-updated"));
+        }
     }
 }

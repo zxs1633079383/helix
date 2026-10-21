@@ -159,7 +159,7 @@ pub(crate) fn commit_increment_state(ctx: &mut ImWsContext<'_>, inc: &IncrementC
     }
 }
 
-/// 纯粹编译频道和成员写操作，不修改恢复集合或频道内存态。
+/// 编译频道/成员写集并失效置顶读代次；不修改恢复集合或频道业务事实。
 pub(crate) fn compile_increment_effects(
     ctx: &mut ImWsContext<'_>,
     inc: &IncrementChannel,
@@ -174,6 +174,13 @@ pub(crate) fn compile_increment_effects(
             crate::channel_write::program_full(&data, ctx.auth_user_id, ctx.now_ms)
         {
             effects.push(crate::acl::to_effect::upsert_channel_full(cols, exclude));
+            // 快照可能只更新topCount或保持同数量；集合新鲜度不能由计数推断。
+            if let Some(invalidation) = ctx
+                .state
+                .invalidate_pinned_projection(ctx.auth_user_id, channel_id)
+            {
+                effects.push(invalidation);
+            }
             if data.get("topicInventory").is_none() {
                 if let Some(op) = crate::topic_inventory::legacy_count_op(channel_id, &data) {
                     effects.push(Effect::PersistFire { ops: vec![op] });

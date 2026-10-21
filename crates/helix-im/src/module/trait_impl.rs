@@ -564,9 +564,10 @@ impl ImModule {
                                 let epoch = self
                                     .state
                                     .pinned_projection_epochs
-                                    .get(&channel_id)
-                                    .copied()
-                                    .unwrap_or(0);
+                                    .entry(channel_id)
+                                    .or_default();
+                                *epoch = epoch.wrapping_add(1);
+                                let epoch = *epoch;
                                 CorrelationContext::OutboundPinnedReply {
                                     req_id,
                                     account_id,

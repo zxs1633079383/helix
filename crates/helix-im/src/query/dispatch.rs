@@ -134,7 +134,16 @@ impl ImModule {
                 let corr = self.alloc_corr_internal();
                 self.state.corr_map.insert(
                     corr,
-                    CorrelationContext::PinnedProjectionQuery { req_id, channel_id },
+                    CorrelationContext::PinnedProjectionQuery {
+                        req_id,
+                        channel_id,
+                        epoch: self
+                            .state
+                            .pinned_projection_epochs
+                            .get(&channel_id)
+                            .copied()
+                            .unwrap_or(0),
+                    },
                 );
                 out.push(crate::query::pinned_projection::query_effect(
                     key, channel_id, corr,
@@ -456,7 +465,7 @@ mod phase2_contract_tests {
         ));
         assert!(matches!(
             module.state.corr_map.get(corr),
-            Some(CorrelationContext::PinnedProjectionQuery { req_id, channel_id })
+            Some(CorrelationContext::PinnedProjectionQuery { req_id, channel_id, .. })
                 if req_id == "pin-local-1" && channel_id.as_str() == CHANNEL_ID
         ));
         assert!(!out

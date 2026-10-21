@@ -39,9 +39,6 @@ impl WsMessageHandler for PostPinHandler {
             return Ok(());
         };
         ctx.state.invalidate_recent_message_coverage(channel_id);
-        let pinned_projection_invalidation = ctx
-            .state
-            .invalidate_pinned_projection(ctx.auth_user_id, channel_id);
         let Some(post_id) = data
             .get("postId")
             .or_else(|| data.get("post_id"))
@@ -64,11 +61,21 @@ impl WsMessageHandler for PostPinHandler {
         };
 
         // 裸 post_pin 没有正文与时间戳，只写 pinned；完整 fat projection 由 NOTICE 负责。
-        out.push(helix_core::Effect::PersistFire {
-            ops: vec![crate::channel::pin_state_op(post_id, pinned)],
-        });
-        if let Some(effect) = pinned_projection_invalidation {
-            out.push(effect);
+        let pinned_projection_invalidation = ctx
+            .state
+            .invalidate_pinned_projection(ctx.auth_user_id, channel_id);
+        if let Some(helix_core::Effect::PersistFire { mut ops }) = pinned_projection_invalidation {
+            ops.push(crate::channel::pin_state_op(post_id, pinned));
+            let corr = ctx.alloc_corr();
+            ctx.state
+                .corr_map
+                .insert(corr, crate::state::CorrelationContext::PinnedInvalidation);
+            out.push(helix_core::Effect::PersistAtomic { corr, ops });
+        } else {
+            // 无账号时不能写账号缓存，仍保留既有消息patch语义。
+            out.push(helix_core::Effect::PersistFire {
+                ops: vec![crate::channel::pin_state_op(post_id, pinned)],
+            });
         }
         Ok(())
     }

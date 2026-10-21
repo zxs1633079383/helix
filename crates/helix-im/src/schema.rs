@@ -41,6 +41,11 @@ pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
         scope_col: Some("channel_id"),
     },
     SparseTableSpec {
+        table: "channel_pinned_fence",
+        identity_cols: &["projection_key"],
+        scope_col: Some("projection_key"),
+    },
+    SparseTableSpec {
         table: "channel_pinned_projection",
         identity_cols: &["projection_key"],
         scope_col: Some("account_id"),
@@ -400,6 +405,7 @@ END",
     )",
     "CREATE INDEX IF NOT EXISTS idx_post_receipt_post_id ON post_receipt(post_id)",
     // Pinned details are an account-scoped absolute read projection populated by the authority read.
+    "CREATE TABLE IF NOT EXISTS channel_pinned_fence (projection_key TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0)",
     "CREATE TABLE IF NOT EXISTS channel_pinned_projection (\
         projection_key TEXT PRIMARY KEY,\
         account_id TEXT NOT NULL,\
@@ -617,6 +623,7 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "CREATE INDEX IF NOT EXISTS idx_receiver_snapshot_temporary_id ON receiver_snapshot(temporary_id)",
     "CREATE TABLE IF NOT EXISTS post_receipt (snapshot_id TEXT PRIMARY KEY, post_id TEXT NOT NULL, channel_id TEXT NOT NULL, read_bits TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL DEFAULT 0)",
     "CREATE INDEX IF NOT EXISTS idx_post_receipt_post_id ON post_receipt(post_id)",
+    "CREATE TABLE IF NOT EXISTS channel_pinned_fence (projection_key TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0)",
     "CREATE TABLE IF NOT EXISTS channel_pinned_projection (projection_key TEXT PRIMARY KEY, account_id TEXT NOT NULL, channel_id TEXT NOT NULL, body TEXT NOT NULL DEFAULT '[]')",
     "CREATE INDEX IF NOT EXISTS idx_channel_pinned_account_channel ON channel_pinned_projection(account_id, channel_id)",
     "CREATE TABLE IF NOT EXISTS message_draft (account_id TEXT NOT NULL, channel_id TEXT NOT NULL, text TEXT NOT NULL DEFAULT '', props TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (account_id, channel_id))",

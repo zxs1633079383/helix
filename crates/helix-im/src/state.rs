@@ -389,7 +389,9 @@ pub struct ImState {
     /// 已发起但尚未收到绝对列表的公告重拉版本；抑制重复/旧 changed 通知。
     pub(crate) announcement_reload_versions: BTreeMap<ChannelId, u64>,
 
-    /// 每频道置顶集合失效代次；阻止 pin/unpin 后迟到的旧 HTTP 列表重新落库。
+    /// 失效事务未确认或重连后未刷新时，本地缓存读取必须miss。
+    pub(crate) pinned_projection_dirty: std::collections::BTreeSet<ChannelId>,
+    /// 每频道请求/失效代次；阻止跨代HTTP、存储读写回包发布旧成功。
     pub(crate) pinned_projection_epochs: BTreeMap<ChannelId, u64>,
 
     /// coverage 会话代号；hello/disconnect 递增，旧回包不得污染新会话。
@@ -403,6 +405,7 @@ impl ImState {
         account_id: &str,
         channel_id: ChannelId,
     ) -> Option<helix_core::Effect> {
+        self.pinned_projection_dirty.insert(channel_id);
         let epoch = self.pinned_projection_epochs.entry(channel_id).or_default();
         *epoch = epoch.wrapping_add(1);
         crate::query::pinned_projection::projection_key(account_id, channel_id)
@@ -520,6 +523,7 @@ impl ImState {
             committed_post_reads: BTreeMap::new(),
             announcement_versions: BTreeMap::new(),
             announcement_reload_versions: BTreeMap::new(),
+            pinned_projection_dirty: Default::default(),
             pinned_projection_epochs: BTreeMap::new(),
             query_session_epoch: 0,
         }
@@ -585,7 +589,14 @@ impl ImState {
         // 仍需保留 deferred posts/create 衔接，否则已落库的发送会丢掉出站入口。
         self.drop_query_session_correlations(true);
         self.announcement_reload_versions.clear();
-        self.pinned_projection_epochs.clear();
+        // 重连不是代次归零：旧HTTP/本地写回仍可能在途，归零会产生ABA。
+        for channel in self.channels.keys() {
+            self.pinned_projection_epochs.entry(*channel).or_default();
+        }
+        for (channel, epoch) in &mut self.pinned_projection_epochs {
+            *epoch = epoch.wrapping_add(1);
+            self.pinned_projection_dirty.insert(*channel);
+        }
     }
 
     /// 完整 query/session reset 同时撤销旧查询回包。

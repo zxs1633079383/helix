@@ -812,29 +812,28 @@ impl ImModule {
             .copied()
             .unwrap_or(0);
         if current_epoch != epoch {
-            out.push(crate::read_relay::emit_read_result(
-                req_id.as_str(),
-                raw_body.as_ref(),
+            out.push(crate::read_relay::emit_read_error(
+                &req_id,
+                "HELIX_PINNED_STALE",
             ));
             return Ok(());
         }
         let corr = self.alloc_corr_internal();
-        let persist = crate::query::pinned_projection::persist_effect(
-            projection_key,
-            account_id,
-            channel_id,
-            raw_body.as_ref(),
+        out.push(crate::query::pinned_projection::fence_read(
+            projection_key.clone(),
             corr,
-        )?;
+        ));
         self.state.corr_map.insert(
             corr,
-            crate::state::CorrelationContext::PinnedProjectionPersist {
+            crate::state::CorrelationContext::PinnedFenceRead {
                 req_id,
+                account_id,
                 channel_id,
+                projection_key,
+                epoch,
                 raw_body: raw_body.to_vec(),
             },
         );
-        out.push(persist);
         Ok(())
     }
 

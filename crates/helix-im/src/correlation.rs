@@ -523,6 +523,7 @@ pub enum CorrelationContext {
 
     /// 切群置顶详情只读本地账号级绝对投影。
     PinnedProjectionQuery {
+        epoch: u64,
         req_id: String,
         channel_id: ChannelId,
     },
@@ -536,8 +537,21 @@ pub enum CorrelationContext {
         epoch: u64,
     },
 
+    /// HTTP之后读取持久失效版本，回包再次检查内存代次后才创建CAS写集。
+    PinnedFenceRead {
+        req_id: String,
+        account_id: String,
+        channel_id: ChannelId,
+        projection_key: String,
+        epoch: u64,
+        raw_body: Vec<u8>,
+    },
+    /// 在线缓存失效事务，仅用于接收失败，不发布业务成功。
+    PinnedInvalidation,
+
     /// 置顶权威列表已进入 durable 单行投影，PersistOk 后才回灌调用方。
     PinnedProjectionPersist {
+        epoch: u64,
         req_id: String,
         raw_body: Vec<u8>,
         channel_id: ChannelId,
@@ -545,6 +559,7 @@ pub enum CorrelationContext {
 
     /// 置顶集合和摘要提交后的同频道读回。
     PinnedProjectionReadback {
+        epoch: u64,
         req_id: String,
         raw_body: Vec<u8>,
         channel_id: ChannelId,
@@ -890,7 +905,9 @@ impl CorrelationContext {
             Self::RetrySendRehydrate { request_id, .. } => request_id.as_deref(),
             Self::OutboundScheduleCreate { request_id, .. } => request_id.as_deref(),
             Self::OutboundScheduleCancel { request_id, .. } => request_id.as_deref(),
-            Self::PinnedProjectionQuery { req_id, .. } => Some(req_id.as_str()),
+            Self::PinnedFenceRead { req_id, .. } | Self::PinnedProjectionQuery { req_id, .. } => {
+                Some(req_id.as_str())
+            }
             Self::OutboundPinnedReply { req_id, .. } => Some(req_id.as_str()),
             Self::PinnedProjectionReadback { req_id, .. }
             | Self::PinnedProjectionPersist { req_id, .. } => Some(req_id.as_str()),

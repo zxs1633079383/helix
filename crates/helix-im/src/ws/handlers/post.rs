@@ -162,7 +162,13 @@ impl WsMessageHandler for PostHandler {
                 .state
                 .invalidate_pinned_projection(ctx.auth_user_id, ingest_channel)
             {
-                out.push(effect);
+                if let helix_core::Effect::PersistFire { ops } = effect {
+                    let corr = ctx.alloc_corr();
+                    ctx.state
+                        .corr_map
+                        .insert(corr, crate::state::CorrelationContext::PinnedInvalidation);
+                    out.push(helix_core::Effect::PersistAtomic { corr, ops });
+                }
             }
             out.push(emit);
         }

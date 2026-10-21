@@ -328,6 +328,7 @@ impl ImModule {
             .cloned()
             .into_iter()
             .collect::<Vec<_>>();
+        self.append_pinned_invalidation(channel_id, &mut ops);
         out.push(helix_core::Effect::PersistAtomic {
             corr: persist_corr,
             ops,

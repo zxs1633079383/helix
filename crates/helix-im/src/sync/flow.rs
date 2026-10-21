@@ -717,6 +717,12 @@ impl ImModule {
                 if trigger == SyncTrigger::PongGap {
                     self.state.pong_gap_batch.register_persist(persist_corr);
                 }
+                if let Some(Effect::PersistFire { ops }) = self
+                    .state
+                    .invalidate_pinned_projection(&self.config.auth_user_id, channel_id)
+                {
+                    persist_ops.extend(ops);
+                }
                 out.push(Effect::PersistAtomic {
                     corr: persist_corr,
                     ops: persist_ops,
@@ -861,6 +867,12 @@ impl ImModule {
                 }
                 if trigger == SyncTrigger::PongGap {
                     self.state.pong_gap_batch.register_persist(persist_corr);
+                }
+                if let Some(Effect::PersistFire { ops }) = self
+                    .state
+                    .invalidate_pinned_projection(&self.config.auth_user_id, channel_id)
+                {
+                    persist_ops.extend(ops);
                 }
                 out.push(Effect::PersistAtomic {
                     corr: persist_corr,
@@ -1064,6 +1076,7 @@ impl ImModule {
         })
         .chain(chain_domain_events)
         .collect();
+        self.append_pinned_invalidation(channel_id, &mut ops);
         out.push(Effect::PersistAtomic {
             corr: persist_corr,
             ops,

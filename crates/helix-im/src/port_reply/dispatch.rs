@@ -217,6 +217,59 @@ impl ImModule {
             return Ok(());
         };
 
+        // 每个异步边界都拒绝跨代成功；本地缓存读在失效事务提交前也必须miss。
+        let pin = match &ctx {
+            CorrelationContext::PinnedProjectionQuery {
+                req_id,
+                channel_id,
+                epoch,
+            }
+            | CorrelationContext::OutboundPinnedReply {
+                req_id,
+                channel_id,
+                epoch,
+                ..
+            }
+            | CorrelationContext::PinnedFenceRead {
+                req_id,
+                channel_id,
+                epoch,
+                ..
+            }
+            | CorrelationContext::PinnedProjectionPersist {
+                req_id,
+                channel_id,
+                epoch,
+                ..
+            }
+            | CorrelationContext::PinnedProjectionReadback {
+                req_id,
+                channel_id,
+                epoch,
+                ..
+            } => Some((req_id, channel_id, epoch)),
+            _ => None,
+        };
+        if let Some((req_id, channel, epoch)) = pin {
+            let local = matches!(&ctx, CorrelationContext::PinnedProjectionQuery { .. });
+            if self
+                .state
+                .pinned_projection_epochs
+                .get(channel)
+                .copied()
+                .unwrap_or(0)
+                != *epoch
+                || (local && self.state.pinned_projection_dirty.contains(channel))
+            {
+                out.push(if local {
+                    crate::read_relay::emit_read_body(req_id, serde_json::json!({"cached":false}))
+                } else {
+                    crate::read_relay::emit_read_error(req_id, "HELIX_PINNED_STALE")
+                });
+                return Ok(());
+            }
+        }
+
         match ctx {
             CorrelationContext::TopicInventoryRead { parent } => {
                 self.topic_inventory_read(parent, outcome, out)?
@@ -1476,7 +1529,68 @@ impl ImModule {
                 }
             },
 
-            CorrelationContext::PinnedProjectionQuery { req_id, channel_id } => {
+            CorrelationContext::PinnedInvalidation => {
+                if let PortOutcome::Err(error) = outcome {
+                    tracing::warn!(
+                        ?error,
+                        "pinned invalidation failed; local cache remains dirty"
+                    );
+                }
+            }
+            CorrelationContext::PinnedFenceRead {
+                req_id,
+                account_id,
+                channel_id,
+                projection_key,
+                epoch,
+                raw_body,
+            } => {
+                let PortOutcome::Ok(reply) = outcome else {
+                    out.push(crate::read_relay::emit_read_error(
+                        &req_id,
+                        "HELIX_PINNED_FENCE_FAILED",
+                    ));
+                    return Ok(());
+                };
+                let rows = helix_core::port_codec::rows_from_reply_bytes(&reply.0)
+                    .map_err(|e| ImError::Parse(e.to_string()))?;
+                let revision = rows
+                    .iter()
+                    .flat_map(|r| r.iter())
+                    .find_map(|(k, v)| match v {
+                        helix_core::effect::SqlValue::Integer(n) if k == "revision" => Some(*n),
+                        _ => None,
+                    });
+                if !rows.is_empty() && revision.is_none() {
+                    out.push(crate::read_relay::emit_read_error(
+                        &req_id,
+                        "HELIX_PINNED_FENCE_INVALID",
+                    ));
+                    return Ok(());
+                }
+                let corr = self.alloc_corr_internal();
+                let effect = crate::query::pinned_projection::persist_effect(
+                    projection_key,
+                    account_id,
+                    channel_id,
+                    &raw_body,
+                    corr,
+                    revision,
+                )?;
+                self.state.corr_map.insert(
+                    corr,
+                    CorrelationContext::PinnedProjectionPersist {
+                        req_id,
+                        channel_id,
+                        epoch,
+                        raw_body,
+                    },
+                );
+                out.push(effect);
+            }
+            CorrelationContext::PinnedProjectionQuery {
+                req_id, channel_id, ..
+            } => {
                 let body = match outcome {
                     PortOutcome::Ok(reply) => {
                         crate::query::pinned_projection::result_body(&reply.0)?
@@ -1508,21 +1622,23 @@ impl ImModule {
             }
 
             CorrelationContext::PinnedProjectionPersist {
+                epoch,
                 req_id,
                 raw_body,
                 channel_id,
             } => {
                 if let PortOutcome::Err(error) = outcome {
-                    tracing::warn!(error = ?error, "pinned projection persist failed; returning authority body without cache");
-                    out.push(crate::read_relay::emit_read_result(
-                        req_id.as_str(),
-                        raw_body.as_slice(),
+                    tracing::warn!(error = ?error, "pinned projection transaction failed");
+                    out.push(crate::read_relay::emit_read_error(
+                        &req_id,
+                        "HELIX_PINNED_COMMIT_FAILED",
                     ));
                 } else {
                     let corr = self.alloc_corr_internal();
                     self.state.corr_map.insert(
                         corr,
                         CorrelationContext::PinnedProjectionReadback {
+                            epoch,
                             req_id,
                             raw_body,
                             channel_id,
@@ -1543,10 +1659,19 @@ impl ImModule {
                 }
             }
             CorrelationContext::PinnedProjectionReadback {
+                epoch: _,
                 req_id,
                 raw_body,
                 channel_id,
             } => {
+                if matches!(outcome, PortOutcome::Err(_)) {
+                    out.push(crate::read_relay::emit_read_error(
+                        &req_id,
+                        "HELIX_PINNED_READBACK_FAILED",
+                    ));
+                    return Ok(());
+                }
+                self.state.pinned_projection_dirty.remove(&channel_id);
                 out.push(crate::read_relay::emit_read_result(
                     req_id.as_str(),
                     raw_body.as_slice(),

@@ -22,8 +22,15 @@ pub(super) fn http_request(
     } else {
         crate::message_identity::sanitize(body)
     };
-    // req_id is Host correlation metadata, including raw-body commands; never send it as business data.
-    if let Some(object) = body.as_object_mut() { object.remove("req_id"); object.remove("reqId"); }
+    // Host req_id 不进入业务体；initial 窗口的 reqId 是 Go 明确回显的协议字段。
+    let initial_window = path == "posts/getPostsAfterIndex"
+        && body.get("direction").and_then(Value::as_str) == Some("initial");
+    if let Some(object) = body.as_object_mut() {
+        object.remove("req_id");
+        if !initial_window {
+            object.remove("reqId");
+        }
+    }
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
     headers.extend(crate::acl::to_effect::connection_id_headers(connection_id));
     headers.push((AUTH_KIND_HEADER.to_string(), auth_kind.as_str().to_string()));

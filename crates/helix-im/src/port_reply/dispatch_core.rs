@@ -697,7 +697,9 @@ impl ImModule {
                 rows.iter()
                     .find(|row| row["id"] == parent_channel_id.as_str())
             });
-            let expected = parent.and_then(|row| row["subtopics_loaded_at"].as_i64());
+            let expected = parent
+                .filter(|row| row["topic_inventory_version"].as_i64().unwrap_or(0) == 0)
+                .and_then(|row| row["subtopics_loaded_at"].as_i64());
             let Some(expected) = expected.filter(|_| current) else {
                 self.state.subtopic_sync_active.remove(&batch_key);
                 return Ok(());

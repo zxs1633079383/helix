@@ -66,6 +66,7 @@ pub(crate) struct FileUploadProgressPersist {
 ///
 /// 所有字段为可序列化的 Rust 值类型，确保三栖确定性。
 pub struct ImState {
+    pub(crate) topic_inventories: HashMap<ChannelId, crate::topic_inventory::Lane>,
     pub recent_history: crate::recent_history::HistoryState,
     /// WS 连接状态机
     pub conn: ConnState,
@@ -484,6 +485,7 @@ impl ImState {
             pending_increment_projections: Vec::new(),
             subtopic_sync_active: HashSet::new(),
             subtopic_requests: HashMap::new(),
+            topic_inventories: HashMap::new(),
             pending_topic_snapshot_ops: HashMap::new(),
             pending_topic_increments: HashMap::new(),
             subtopic_sync_completed: HashSet::new(),
@@ -546,6 +548,7 @@ impl ImState {
         self.inflight_member_role_updates.clear();
         self.subtopic_sync_active.clear();
         self.subtopic_requests.clear();
+        self.topic_inventories.clear();
         self.pending_topic_snapshot_ops.clear();
         self.pending_topic_increments.clear();
         self.subtopic_sync_completed.clear();
@@ -670,6 +673,7 @@ impl ImState {
         self.pending_increment_projections.clear();
         self.subtopic_sync_active.clear();
         self.subtopic_requests.clear();
+        self.topic_inventories.clear();
         self.pending_topic_snapshot_ops.clear();
         self.pending_topic_increments.clear();
         self.subtopic_sync_completed.clear();

@@ -552,3 +552,154 @@ fn stale_topic_request_end_must_not_persist() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// 新成员观察到达后，旧完整清单不得再写入集合或发完成通知。
+#[test]
+fn lifecycle_inventory_rejects_older_full_snapshot() -> Result<(), String> {
+    let mut replay = Replay::new();
+    replay.step(Tick::Inbound(helix_core::tick::InboundBytes(Bytes::from(
+        json!({
+         "action":"update_channel","data":{"id":PARENT,"userId":VIEWER,"threadCount":1,
+         "topicInventory":{"version":"202","channelIds":[TOPIC_VISIBLE]}}
+        })
+        .to_string(),
+    ))))?;
+    let [Effect::Persist { corr, ops }] = replay.sink.as_slice() else {
+        return Err("inventory must read durable authority version".into());
+    };
+    assert!(
+        matches!(ops.as_slice(), [StorageOp::Get(_)]),
+        "lifecycle count bypasses inventory fence: {ops:?}"
+    );
+    let corr = *corr;
+    replay.step(Tick::PortReply {
+        corr,
+        outcome: PortOutcome::Ok(ReplyBytes(Bytes::from(
+            json!([{"id":PARENT,"topic_inventory_version":200}]).to_string(),
+        ))),
+    })?;
+    let [Effect::PersistAtomic { corr, ops }] = replay.sink.as_slice() else {
+        return Err("inventory requires atomic count and visibility".into());
+    };
+    assert!(format!("{ops:?}").contains("is_remove"));
+    let corr = *corr;
+    replay.step(Tick::PortReply {
+        corr,
+        outcome: PortOutcome::Ok(ReplyBytes(Bytes::new())),
+    })?;
+    replay.step(Tick::Inbound(helix_core::tick::InboundBytes(Bytes::from(json!({
+  "action":"increment_channel_end","data":{"channelId":PARENT,"scope":"subtopics","batchId":"old","requestId":"old","snapshotComplete":true,"channelCount":0,
+  "topicInventory":{"version":"201","channelIds":[]}}
+ }).to_string()))))?;
+    assert!(
+        replay.sink.as_slice().is_empty(),
+        "old inventory must not persist or signal success: {:?}",
+        replay.sink.as_slice()
+    );
+    Ok(())
+}
+
+/// 快照已在途时新生命周期观察排队；旧PersistOk只释放队列，不能发旧计数或ready。
+#[test]
+fn lifecycle_during_snapshot_commit_is_serialized_and_suppresses_old_ready() -> Result<(), String> {
+    let mut r = Replay::new();
+    r.step(Tick::Inbound(helix_core::tick::InboundBytes(Bytes::from(json!({"action":"increment_channel_end","data":{"channelId":PARENT,"scope":"subtopics","batchId":"old","requestId":"req-old","snapshotComplete":true,"channelCount":0,"topicInventory":{"version":"201","channelIds":[]}}}).to_string()))))?;
+    let [Effect::Persist { corr, .. }] = r.sink.as_slice() else {
+        panic!("read")
+    };
+    let corr = *corr;
+    r.step(Tick::PortReply {
+        corr,
+        outcome: PortOutcome::Ok(ReplyBytes(Bytes::from(
+            json!([{"id":PARENT,"topic_inventory_version":200}]).to_string(),
+        ))),
+    })?;
+    let [Effect::PersistAtomic { corr, .. }] = r.sink.as_slice() else {
+        panic!("atomic")
+    };
+    let old = *corr;
+    r.step(Tick::Inbound(helix_core::tick::InboundBytes(Bytes::from(json!({"action":"update_channel","data":{"id":PARENT,"userId":VIEWER,"threadCount":1,"topicInventory":{"version":"202","channelIds":[TOPIC_VISIBLE]}}}).to_string()))))?;
+    assert!(
+        r.sink.as_slice().is_empty(),
+        "must serialize same-parent writes"
+    );
+    r.step(Tick::PortReply {
+        corr: old,
+        outcome: PortOutcome::Ok(ReplyBytes(Bytes::new())),
+    })?;
+    assert!(
+        r.events().is_empty(),
+        "superseded transaction must not emit ready/count"
+    );
+    let [Effect::Persist { corr, .. }] = r.sink.as_slice() else {
+        panic!("next read")
+    };
+    let corr = *corr;
+    r.step(Tick::PortReply {
+        corr,
+        outcome: PortOutcome::Ok(ReplyBytes(Bytes::from(
+            json!([{"id":PARENT,"topic_inventory_version":201}]).to_string(),
+        ))),
+    })?;
+    let [Effect::PersistAtomic { corr, ops }] = r.sink.as_slice() else {
+        panic!("new atomic")
+    };
+    let corr = *corr;
+    assert!(format!("{ops:?}").contains(TOPIC_VISIBLE));
+    r.step(Tick::PortReply {
+        corr,
+        outcome: PortOutcome::Err(PortError::Storage(500)),
+    })?;
+    assert!(r.events().is_empty(), "failed write is not complete");
+    let [Effect::Persist { corr, .. }] = r.sink.as_slice() else {
+        panic!("bounded retry")
+    };
+    let corr = *corr;
+    r.step(Tick::PortReply {
+        corr,
+        outcome: PortOutcome::Ok(ReplyBytes(Bytes::from(
+            json!([{"id":PARENT,"topic_inventory_version":201}]).to_string(),
+        ))),
+    })?;
+    let [Effect::PersistAtomic { corr, .. }] = r.sink.as_slice() else {
+        panic!("retry atomic")
+    };
+    let corr = *corr;
+    r.step(Tick::PortReply {
+        corr,
+        outcome: PortOutcome::Ok(ReplyBytes(Bytes::new())),
+    })?;
+    // Render scope 未装载时update可被过滤；不允许因此制造ready。
+    assert!(!r
+        .events()
+        .iter()
+        .any(|e| e["event"] == "im:subtopics-sync-ready"));
+    r.step(Tick::PortReply {
+        corr,
+        outcome: PortOutcome::Ok(ReplyBytes(Bytes::new())),
+    })?;
+    assert!(
+        r.sink.as_slice().is_empty(),
+        "duplicate reply must be inert"
+    );
+    Ok(())
+}
+
+/// 新全集已经确认重新加入后，迟到的旧退出标记不能隐藏该话题。
+#[test]
+fn authoritative_inventory_overrides_late_remove_flag() -> Result<(), String> {
+    let mut r = Replay::new();
+    let corr = r.query(PARENT, "late-remove")?;
+    let mut parent = channel_row(PARENT, COMPANY, VIEWER, "P", "", &[VIEWER]);
+    parent["topic_inventory_version"] = json!(202);
+    parent["topic_inventory_ids"] = json!(json!([TOPIC_VISIBLE]).to_string());
+    let mut topic = channel_row(TOPIC_VISIBLE, COMPANY, VIEWER, "T", PARENT, &[VIEWER]);
+    topic["is_remove"] = json!(1);
+    r.reply_ok(corr, json!([parent, topic]))?;
+    let events = r.events();
+    assert!(
+        events.iter().any(|e| e.to_string().contains(TOPIC_VISIBLE)),
+        "latest inventory must govern visibility: {events:?}"
+    );
+    Ok(())
+}

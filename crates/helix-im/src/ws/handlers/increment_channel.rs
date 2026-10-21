@@ -174,6 +174,13 @@ pub(crate) fn compile_increment_effects(
             crate::channel_write::program_full(&data, ctx.auth_user_id, ctx.now_ms)
         {
             effects.push(crate::acl::to_effect::upsert_channel_full(cols, exclude));
+            if data.get("type").and_then(serde_json::Value::as_str) != Some("T") {
+                if let Some(raw) = data.get("topicInventory") {
+                    if let Ok(op) = crate::topic_inventory::root_projection_op(channel_id, raw) {
+                        effects.push(Effect::PersistFire { ops: vec![op] })
+                    }
+                }
+            }
         }
 
         // 只有快照明确携带 unread 绝对值时，它才是当前 viewer 的成员态权威；缺字段时保留

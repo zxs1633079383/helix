@@ -428,6 +428,48 @@ impl WsMessageHandler for IncrementChannelEndHandler {
             .and_then(|data| data.get("channelCount"))
             .and_then(serde_json::Value::as_u64)
             .and_then(|count| usize::try_from(count).ok());
+
+        if scope == Some("subtopics") {
+            if let (Some(parent), Some(raw)) = (
+                channel_id,
+                frame
+                    .data()
+                    .and_then(|data| data.get("topicInventory"))
+                    .filter(|v| !v.is_null()),
+            ) {
+                if ctx
+                    .state
+                    .subtopic_requests
+                    .get(&parent)
+                    .is_some_and(|expected| Some(expected.as_str()) != request_id)
+                {
+                    return Ok(());
+                }
+                let mut inventory = crate::topic_inventory::parse(raw)?;
+                if snapshot_count != Some(inventory.ids.len()) {
+                    return Err(ImError::Parse("topic manifest count mismatch".into()));
+                }
+                let key = (parent, batch_id.unwrap_or("legacy").to_string());
+                let pending = ctx
+                    .state
+                    .pending_topic_increments
+                    .remove(&key)
+                    .unwrap_or_default();
+                let actual: std::collections::HashSet<_> =
+                    pending.projections.iter().map(|(id, _)| *id).collect();
+                if actual.len() != inventory.ids.len()
+                    || inventory.ids.iter().any(|id| !actual.contains(id))
+                {
+                    return Err(ImError::Parse("topic manifest membership mismatch".into()));
+                }
+                inventory.ops = pending.ops;
+                inventory.request = request_id.map(str::to_owned);
+                inventory.loaded_at = ctx.now_ms.min(i64::MAX as u64) as i64;
+                let corr = ctx.alloc_corr();
+                crate::topic_inventory::enqueue(ctx.state, parent, inventory, corr, out);
+                return Ok(());
+            }
+        }
         apply_scoped_increment_end(
             ctx,
             channel_id,

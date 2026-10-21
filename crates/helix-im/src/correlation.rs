@@ -84,6 +84,10 @@ pub struct PendingSendReconciliation {
 // （非 key），`PartialEq` 供 ws/registry 测试 `assert_eq!`，`Eq` 无用处（grep 实证）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum CorrelationContext {
+    /// 读取父群已落库观察版本，作为原子清单写入的CAS基准。
+    TopicInventoryRead { parent: ChannelId },
+    /// 清单提交后释放投影并继续该父群的最新候选。
+    TopicInventoryCommit { parent: ChannelId },
     /// 无业务续步的写请求只结算网络失败，不推断服务端写入结果。
     OutboundWriteReply { req_id: String },
     /// One immutable remote page; cancellation owns this correlation and timer.

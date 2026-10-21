@@ -258,6 +258,21 @@ impl WsMessageHandler for UpdateChannelHandler {
             return Ok(());
         };
         let channel = data.get("channel").unwrap_or(data);
+        if let Some(raw) = channel.get("topicInventory") {
+            let parent = channel
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .and_then(ChannelId::from_str)
+                .ok_or_else(|| ImError::Parse("topic inventory missing parent".into()))?;
+            if channel.get("userId").and_then(serde_json::Value::as_str) != Some(ctx.auth_user_id) {
+                return Ok(());
+            }
+            let inventory = crate::topic_inventory::parse(raw)?;
+            let corr = ctx.alloc_corr();
+            crate::topic_inventory::enqueue(ctx.state, parent, inventory, corr, out);
+            return Ok(());
+        }
+
         // channel id 硬 gate（缺 / 非 26 字符 → no-op，边界零信任，helix-im 不变量 4）。
         let Some(channel_id) = channel
             .get("id")

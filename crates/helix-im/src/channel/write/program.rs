@@ -45,6 +45,9 @@ pub fn program_full(
 
     let ch_type = s("type").unwrap_or_default();
     let mut omit: Vec<&'static str> = Vec::new();
+    if data.get("topicInventory").is_some() {
+        omit.push("thread_count");
+    }
     let mut row: Vec<ChannelCol> = Vec::with_capacity(55);
 
     row.push(("id", SqlValue::Text(id.as_str().to_string())));

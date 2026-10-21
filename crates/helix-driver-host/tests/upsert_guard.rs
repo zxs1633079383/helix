@@ -282,3 +282,155 @@ async fn stale_topic_snapshot_cannot_replace_newer_collection() {
                 && matches!(value,SqlValue::Integer(n) if *n==expected)));
     }
 }
+
+/// 真实 Module + SQLite：快照写在途时加入新话题，重启后迟到旧全集不能回退落库集合。
+#[tokio::test]
+async fn topic_inventory_lifecycle_race_survives_restart() {
+    use helix_core::tick::InboundBytes;
+    use helix_core::{Effect, EffectSink, Module, Tick};
+    use helix_im::{ImConfig, ImModule};
+    use serde_json::json;
+    const P: &str = "chfixx00000000000000000064";
+    const T: &str = "chfixx00000000000000000065";
+    let db = storage().await;
+    for sql in helix_im::schema::IM_SCHEMA {
+        db.execute_raw(sql).await.unwrap();
+    }
+    db.execute_raw("INSERT INTO channel(id,type,user_id) VALUES('chfixx00000000000000000064','P','viewer'),('chfixx00000000000000000065','T','viewer')")
+    .await
+    .unwrap();
+    db.execute_raw("UPDATE channel SET root_id='chfixx00000000000000000064' WHERE id='chfixx00000000000000000065'")
+        .await
+        .unwrap();
+    let config = || ImConfig {
+        auth_user_id: "viewer".into(),
+        ..ImConfig::default()
+    };
+    let mut module = ImModule::new(config());
+    let mut sink = EffectSink::new();
+    let old = json!({"action":"increment_channel_end","data":{"channelId":P,"scope":"subtopics","batchId":"old","requestId":"old","snapshotComplete":true,"channelCount":0,"topicInventory":{"version":"201","channelIds":[]}}});
+    module
+        .handle(
+            &Tick::Inbound(InboundBytes(old.to_string().into())),
+            100,
+            &mut sink,
+        )
+        .unwrap();
+    let Effect::Persist { corr, ops } = &sink.as_slice()[0] else {
+        panic!("read")
+    };
+    let corr = *corr;
+    let result = execute_storage_ops(&db, ops).await;
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr,
+                outcome: result,
+            },
+            100,
+            &mut sink,
+        )
+        .unwrap();
+    let Effect::PersistAtomic {
+        corr: old_corr,
+        ops: old_ops,
+    } = &sink.as_slice()[0]
+    else {
+        panic!("atomic")
+    };
+    let old_corr = *old_corr;
+    let old_ops = old_ops.clone();
+    sink.clear();
+    let new = json!({"action":"update_channel","data":{"id":P,"userId":"viewer","threadCount":1,"topicInventory":{"version":"202","channelIds":[T]}}});
+    module
+        .handle(
+            &Tick::Inbound(InboundBytes(new.to_string().into())),
+            101,
+            &mut sink,
+        )
+        .unwrap();
+    assert!(sink.as_slice().is_empty());
+    let result = execute_storage_ops_atomic(&db, &old_ops).await;
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: old_corr,
+                outcome: result,
+            },
+            101,
+            &mut sink,
+        )
+        .unwrap();
+    // 真实存储端口驱动剩余队列，不能用伪造成功代替提交。
+    for _ in 0..6 {
+        let next = sink.as_slice().iter().find_map(|effect| match effect {
+            Effect::Persist { corr, ops } => Some((*corr, ops.clone(), false)),
+            Effect::PersistAtomic { corr, ops } => Some((*corr, ops.clone(), true)),
+            _ => None,
+        });
+        let Some((corr, ops, atomic)) = next else {
+            break;
+        };
+        sink.clear();
+        let outcome = if atomic {
+            execute_storage_ops_atomic(&db, &ops).await
+        } else {
+            execute_storage_ops(&db, &ops).await
+        };
+        module
+            .handle(&Tick::PortReply { corr, outcome }, 102, &mut sink)
+            .unwrap();
+    }
+    let parent = db
+        .get(GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text(P.into()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(parent
+        .iter()
+        .any(|(k, v)| k == "topic_inventory_version" && matches!(v, SqlValue::Integer(202))));
+    assert!(parent
+        .iter()
+        .any(|(k, v)| k == "thread_count" && matches!(v, SqlValue::Integer(1))));
+    assert!(parent.iter().any(|(k, v)| k == "topic_inventory_ids"
+        && matches!(v,SqlValue::Text(ids) if ids==&json!([T]).to_string())));
+    let topic = db
+        .get(GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text(T.into()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(topic
+        .iter()
+        .any(|(k, v)| k == "is_remove" && matches!(v, SqlValue::Integer(0))));
+    let mut restarted = ImModule::new(config());
+    sink.clear();
+    restarted
+        .handle(
+            &Tick::Inbound(InboundBytes(old.to_string().into())),
+            103,
+            &mut sink,
+        )
+        .unwrap();
+    let Effect::Persist { corr, ops } = &sink.as_slice()[0] else {
+        panic!("restart read")
+    };
+    let corr = *corr;
+    let outcome = execute_storage_ops(&db, ops).await;
+    sink.clear();
+    restarted
+        .handle(&Tick::PortReply { corr, outcome }, 103, &mut sink)
+        .unwrap();
+    assert!(
+        sink.as_slice().is_empty(),
+        "durably stale observation must not persist or emit"
+    );
+}

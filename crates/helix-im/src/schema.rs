@@ -258,6 +258,8 @@ pub const IM_SCHEMA: &[&'static str] = &[
         urgent_current_name TEXT NOT NULL DEFAULT '',\
         member_count INTEGER NOT NULL DEFAULT 0,\
         subtopics_loaded_at INTEGER NOT NULL DEFAULT 0,\
+        topic_inventory_version INTEGER NOT NULL DEFAULT 0,\
+        topic_inventory_ids TEXT NOT NULL DEFAULT '[]',\
         schedule_id TEXT NOT NULL DEFAULT '',\
         schedule_owner_user_id TEXT NOT NULL DEFAULT '',\
         schedule_message TEXT NOT NULL DEFAULT '',\
@@ -710,4 +712,6 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     // 旧库仍可能拥有空串 DEFAULT；兼容写只更新当前 PK，不引入热路径全表扫描。
     "CREATE TRIGGER IF NOT EXISTS channel_member_empty_lists_insert AFTER INSERT ON channel_member WHEN NEW.mention_list = '' OR NEW.urgent_post_list = '' BEGIN UPDATE channel_member SET mention_list = CASE WHEN NEW.mention_list = '' THEN '[]' ELSE NEW.mention_list END, urgent_post_list = CASE WHEN NEW.urgent_post_list = '' THEN '[]' ELSE NEW.urgent_post_list END WHERE channel_id = NEW.channel_id AND user_id = NEW.user_id; END",
     "CREATE TRIGGER IF NOT EXISTS channel_member_empty_lists_update AFTER UPDATE OF mention_list, urgent_post_list ON channel_member WHEN NEW.mention_list = '' OR NEW.urgent_post_list = '' BEGIN UPDATE channel_member SET mention_list = CASE WHEN NEW.mention_list = '' THEN '[]' ELSE NEW.mention_list END, urgent_post_list = CASE WHEN NEW.urgent_post_list = '' THEN '[]' ELSE NEW.urgent_post_list END WHERE channel_id = NEW.channel_id AND user_id = NEW.user_id; END",
+    "ALTER TABLE channel ADD COLUMN topic_inventory_version INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel ADD COLUMN topic_inventory_ids TEXT NOT NULL DEFAULT '[]'",
 ];

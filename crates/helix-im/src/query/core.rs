@@ -483,15 +483,40 @@ pub fn project_subtopic_items(
     }) else {
         return Vec::new();
     };
+    let inventory_ids: Option<std::collections::HashSet<String>> =
+        (parent_row["topic_inventory_version"].as_i64().unwrap_or(0) > 0).then(|| {
+            parent_row["topic_inventory_ids"]
+                .as_str()
+                .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
+                .unwrap_or_default()
+                .into_iter()
+                .collect()
+        });
     let parent_sync_watermark = parent_row
         .get("subtopics_loaded_at")
         .or_else(|| parent_row.get("subtopicsLoadedAt"))
         .cloned();
     let mut seen = std::collections::HashSet::new();
     rows.into_iter()
+        .map(|mut row| {
+            // 新全集取代无版本生命周期的移除标记；账号与父群校验仍照常执行。
+            if inventory_ids
+                .as_ref()
+                .is_some_and(|ids| channel_row_id(&row).is_some_and(|id| ids.contains(id)))
+            {
+                row["is_remove"] = serde_json::json!(0);
+                row["isRemove"] = serde_json::json!(false);
+            }
+            row
+        })
         .filter(|row| dialog_row_visible(row, scope))
         .filter(|row| channel_row_type(row) == Some("T"))
         .filter(|row| channel_row_root_id(row) == Some(parent_channel_id))
+        .filter(|row| {
+            inventory_ids
+                .as_ref()
+                .is_none_or(|ids| channel_row_id(row).is_some_and(|id| ids.contains(id)))
+        })
         .filter_map(|row| {
             let id = channel_row_id(&row)?;
             seen.insert(id.to_string()).then(|| {

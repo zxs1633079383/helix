@@ -567,6 +567,25 @@ pub(crate) fn shape_channel_row(row: &Value) -> Value {
         "subtopicsLoadedAt",
         &["subtopics_loaded_at", "subtopicsLoadedAt"],
     );
+    if row
+        .get("topic_inventory_version")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(0)
+        > 0
+    {
+        if let Some(ids) = row
+            .get("topic_inventory_ids")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+        {
+            output.insert("topicChannelIds".into(), ids);
+            output.insert(
+                "topicInventoryVersion".into(),
+                serde_json::Value::String(row["topic_inventory_version"].to_string()),
+            );
+        }
+    }
+
     insert_alias(
         &mut output,
         row,
@@ -689,6 +708,14 @@ pub(crate) fn shape_channel_rows(rows: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn topic_inventory_projection_preserves_int64_precision() {
+        let rows = json!([{"id":"parent", "topic_inventory_version":9007199254740993_i64,"topic_inventory_ids":"[\"topic\"]","thread_count":1}]);
+        let shaped = shape_channel_rows(&rows);
+        assert_eq!(shaped[0]["topicInventoryVersion"], "9007199254740993");
+        assert_eq!(shaped[0]["topicChannelIds"], json!(["topic"]));
+    }
 
     /// Channel scans expose the camel fields and a shaped last post to MessageV3.
     #[test]

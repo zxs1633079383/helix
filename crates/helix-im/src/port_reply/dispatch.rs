@@ -218,6 +218,14 @@ impl ImModule {
         };
 
         match ctx {
+            CorrelationContext::TopicInventoryRead { parent } => {
+                self.topic_inventory_read(parent, outcome, out)?
+            }
+            CorrelationContext::TopicInventoryCommit { parent } => self.topic_inventory_finish(
+                parent,
+                matches!(outcome, helix_core::tick::PortOutcome::Ok(_)),
+                out,
+            )?,
             CorrelationContext::OutboundWriteReply { req_id } => {
                 // remove 已消费关联：重复及迟到回包不会再次发布终态。
                 let code = match outcome {

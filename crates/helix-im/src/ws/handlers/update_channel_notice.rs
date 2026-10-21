@@ -57,13 +57,12 @@ impl WsMessageHandler for UpdateChannelNoticeHandler {
                 }
             }
         }
+        ctx.state.observe_channel_snapshot(channel_id, &settings);
         let cols = crate::channel_write::collect_present(&settings);
-        if let Some(op) = crate::acl::to_effect::update_channel_partial_op(channel_id, cols) {
+        let ops = crate::acl::to_effect::update_channel_partial_ops(channel_id, cols);
+        if !ops.is_empty() {
             let corr = ctx.alloc_corr();
-            out.push(helix_core::Effect::Persist {
-                corr,
-                ops: vec![op],
-            });
+            out.push(helix_core::Effect::PersistAtomic { corr, ops });
             let mut persisted_settings = settings;
             if let Some(object) = persisted_settings.as_object_mut() {
                 for key in ["settingVersion", "setting_version", "capabilitiesByRole"] {
@@ -83,6 +82,14 @@ impl WsMessageHandler for UpdateChannelNoticeHandler {
                 corr,
                 crate::state::CorrelationContext::UpdateChannelDialogPersist {
                     channel_id,
+                    readback: false,
+                    emit_settings: true,
+                    snapshot_generation: ctx
+                        .state
+                        .channel_snapshot_versions
+                        .get(&channel_id)
+                        .map(|v| v.1)
+                        .unwrap_or(0),
                     channel: Box::new(persisted_settings),
                     member_channel: None,
                     causation_id,

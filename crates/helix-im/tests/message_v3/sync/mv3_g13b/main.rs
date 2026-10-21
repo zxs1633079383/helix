@@ -542,7 +542,7 @@ fn hydration_events_use_atomic_history_cursor_without_business_events() -> Resul
         .expect("history atomic ops");
     let debug = format!("{history_ops:?}");
     assert!(
-        !debug.contains("ScopedGuardedBump") && !debug.contains("last_unread_event_seq"),
+        history_ops.iter().all(|op| !matches!(op, StorageOp::ScopedGuardedBump(spec) if !matches!((spec.table,spec.bump_col,spec.bump_delta),("channel","snapshot_updated_at",0)|("channel_pinned_fence","revision",1)))) && !debug.contains("last_unread_event_seq"),
         "缺少 memberProjection 时 history 不得按消息数量重建未读"
     );
     replay.reply_persist_ok(history_corr)?;
@@ -841,7 +841,7 @@ fn hydration_too_long_followup_uses_committed_cursor_and_no_change_stops() -> Re
         })
         .unwrap();
     assert!(
-        !format!("{ops:?}").contains("ScopedGuardedBump"),
+        ops.iter().all(|op| !matches!(op, StorageOp::ScopedGuardedBump(spec) if !matches!((spec.table,spec.bump_col,spec.bump_delta),("channel","snapshot_updated_at",0)|("channel_pinned_fence","revision",1)))),
         "历史窗口不得重复累加authority未读"
     );
     replay.reply_persist_ok(persist)?;

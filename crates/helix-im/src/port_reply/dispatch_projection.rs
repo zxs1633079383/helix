@@ -343,134 +343,59 @@ impl ImModule {
             has_display_name = projection.display_name.is_some(),
             "频道设置 authority 投影解析成功"
         );
+        // Go settingVersion=channel.updateAt；HTTP不得绕过WS/increment的共享水位。
+        let mut channel = projection.channel;
+        let nested = channel.get_mut("settings").map(serde_json::Value::take);
+        if let Some(serde_json::Value::Object(fields)) = nested {
+            if let Some(object) = channel.as_object_mut() {
+                object.extend(fields);
+                object.remove("settings");
+            }
+        }
+        if let Some(object) = channel.as_object_mut() {
+            object.insert(
+                "id".into(),
+                serde_json::json!(projection.channel_id.as_str()),
+            );
+            object.insert(
+                "updateAt".into(),
+                serde_json::json!(projection.setting_version),
+            );
+            object.insert(
+                "settingVersion".into(),
+                serde_json::json!(projection.setting_version),
+            );
+        }
+        self.state
+            .observe_channel_snapshot(projection.channel_id, &channel);
+        let generation = self
+            .state
+            .channel_snapshot_versions
+            .get(&projection.channel_id)
+            .map(|v| v.1)
+            .unwrap_or(0);
+        let ops = crate::acl::to_effect::update_channel_partial_ops(
+            projection.channel_id,
+            crate::channel_write::collect_present(&channel),
+        );
         let persist_corr = self.alloc_corr_internal();
-        let row = channel_settings_row(&projection);
-        out.push(Effect::Persist {
+        out.push(Effect::PersistAtomic {
             corr: persist_corr,
-            ops: vec![StorageOp::BatchUpsert(UpsertSpec {
-                version_column: None,
-                update_guard: None,
-                table: "channel",
-                rows: vec![row],
-                conflict_key: Some("id"),
-                exclude_from_update: Vec::new(),
-            })],
+            ops,
         });
         self.state.corr_map.insert(
             persist_corr,
-            CorrelationContext::OutboundChannelSettingsPersist { projection },
-        );
-        tracing::debug!(
-            target: "cses.im.permission",
-            stage = "settings.persist.accepted",
-            channel_id = expected_channel_id.as_str(),
-            persist_corr = persist_corr.raw(),
-            "频道设置持久化 effect 已入队，等待 durable readback"
+            CorrelationContext::UpdateChannelDialogPersist {
+                channel_id: projection.channel_id,
+                channel: Box::new(channel),
+                member_channel: None,
+                causation_id: projection.causation_id,
+                readback: false,
+                snapshot_generation: generation,
+                emit_settings: false,
+            },
         );
     }
-
-    /// 在 channel PersistOk 后释放频道设置的 MessageV3 权威事件。
-    pub(super) fn handle_channel_settings_persist_reply(
-        &mut self,
-        projection: ChannelSettingsProjection,
-        outcome: &PortOutcome,
-        _now_ms: u64,
-        out: &mut EffectSink,
-    ) -> Result<(), crate::error::ImError> {
-        if !matches!(outcome, PortOutcome::Ok(_)) {
-            tracing::debug!(
-                target: "cses.im.permission",
-                stage = "settings.persist.rejected",
-                channel_id = projection.channel_id.as_str(),
-                setting_version = projection.setting_version,
-                reason = "storage_effect_failed",
-                "频道设置持久化未确认，不发布 Angular 权威事件"
-            );
-            return Ok(());
-        }
-        tracing::debug!(
-            target: "cses.im.permission",
-            stage = "settings.persist.completed",
-            channel_id = projection.channel_id.as_str(),
-            setting_version = projection.setting_version,
-            "频道设置持久化已确认，准备生成 channel update"
-        );
-        let mut channel = projection.channel;
-        let Some(channel_map) = channel.as_object_mut() else {
-            tracing::debug!(
-                target: "cses.im.permission",
-                stage = "settings.emit.rejected",
-                channel_id = projection.channel_id.as_str(),
-                reason = "channel_projection_not_object",
-                "频道设置投影不是对象，阻止伪造 Angular 事件"
-            );
-            return Ok(());
-        };
-        // 只补齐已由 Go authority 确认的标识和版本，其他字段原样保留，避免构造伪 DialogItem。
-        channel_map.insert(
-            "id".to_string(),
-            serde_json::Value::String(projection.channel_id.as_str().to_string()),
-        );
-        channel_map.insert(
-            "settingVersion".to_string(),
-            serde_json::Value::from(projection.setting_version),
-        );
-        match crate::event::channel::update(channel) {
-            Ok(event) => {
-                tracing::debug!(
-                    target: "cses.im.permission",
-                    stage = "settings.emit.accepted",
-                    channel_id = projection.channel_id.as_str(),
-                    setting_version = projection.setting_version,
-                    "频道设置 channel update 已生成，等待总线/Angular 消费"
-                );
-                out.push(event.into_effect());
-            }
-            Err(error) => {
-                tracing::debug!(
-                    target: "cses.im.permission",
-                    stage = "settings.emit.rejected",
-                    channel_id = projection.channel_id.as_str(),
-                    reason = "channel_event_parse_failed",
-                    error = ?error,
-                    "频道设置 channel update 生成失败"
-                );
-            }
-        }
-        Ok(())
-    }
-}
-
-/// 将 Go authority 设置快照裁剪为 channel durable row；缺失可选字段时保持旧值。
-fn channel_settings_row(projection: &ChannelSettingsProjection) -> Row {
-    let mut row: Row = vec![
-        (
-            "id".to_string(),
-            SqlValue::Text(projection.channel_id.as_str().to_string()),
-        ),
-        (
-            "purpose".to_string(),
-            SqlValue::Text(projection.purpose.clone()),
-        ),
-        (
-            "header".to_string(),
-            SqlValue::Text(projection.header.clone()),
-        ),
-        (
-            "updated_at".to_string(),
-            SqlValue::Integer(projection.setting_version as i64),
-        ),
-    ];
-    if let Some(display_name) = projection.display_name.as_ref() {
-        row.push((
-            "display_name".to_string(),
-            SqlValue::Text(display_name.clone()),
-        ));
-    }
-    if let Some(orient) = projection.orient.as_ref() {
-        row.push(("orient".to_string(), SqlValue::Text(orient.clone())));
-    }
-    row
 }
 
 fn response_data(outcome: &PortOutcome) -> Option<serde_json::Value> {
@@ -589,7 +514,7 @@ fn decode_settings_projection(
 
 #[cfg(test)]
 mod tests {
-    use super::{channel_settings_row, decode_settings_projection, response_data_with_reason};
+    use super::{decode_settings_projection, response_data_with_reason};
     use crate::state::ChannelId;
     use bytes::Bytes;
     use helix_core::tick::{PortOutcome, ReplyBytes};
@@ -655,9 +580,9 @@ mod tests {
         assert_eq!(projection.header, "notice");
         assert_eq!(projection.orient.as_deref(), Some("delivery-quality"));
         assert_eq!(projection.causation_id.as_deref(), Some("op-settings-1"));
-        let row = channel_settings_row(&projection);
+        let row = crate::channel_write::collect_present(&projection.channel);
         assert!(row.iter().any(|(column, value)| {
-            column == "orient"
+            *column == "orient"
                 && matches!(value, helix_core::effect::SqlValue::Text(value) if value == "delivery-quality")
         }));
     }

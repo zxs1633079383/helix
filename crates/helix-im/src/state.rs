@@ -391,6 +391,8 @@ pub struct ImState {
 
     /// 失效事务未确认或重连后未刷新时，本地缓存读取必须miss。
     pub(crate) pinned_projection_dirty: std::collections::BTreeSet<ChannelId>,
+    /// 已观察共享快照水位，阻止较早读回执在较新更新后发布。
+    pub(crate) channel_snapshot_versions: BTreeMap<ChannelId, (i64, u64)>,
     /// 每频道请求/失效代次；阻止跨代HTTP、存储读写回包发布旧成功。
     pub(crate) pinned_projection_epochs: BTreeMap<ChannelId, u64>,
 
@@ -399,6 +401,20 @@ pub struct ImState {
 }
 
 impl ImState {
+    /// 版本只取服务端时间；本地代次仅拦截同版本/旧协议的迟到回调，不冒充持久权威。
+    pub(crate) fn observe_channel_snapshot(&mut self, id: ChannelId, value: &serde_json::Value) {
+        let version = value
+            .get("updateAt")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0)
+            .max(0);
+        let current = self.channel_snapshot_versions.entry(id).or_default();
+        if version >= current.0 {
+            current.0 = version;
+            current.1 = current.1.wrapping_add(1);
+        }
+    }
+
     /// 失效一个频道的置顶绝对集合，并推进代次使旧 HTTP 回包不能重新落库。
     pub(crate) fn invalidate_pinned_projection(
         &mut self,
@@ -525,6 +541,7 @@ impl ImState {
             announcement_reload_versions: BTreeMap::new(),
             pinned_projection_dirty: Default::default(),
             pinned_projection_epochs: BTreeMap::new(),
+            channel_snapshot_versions: BTreeMap::new(),
             query_session_epoch: 0,
         }
     }

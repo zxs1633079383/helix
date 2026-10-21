@@ -420,6 +420,8 @@ impl ImModule {
         out: &mut EffectSink,
     ) {
         let corr = self.alloc_corr_internal();
+        self.render_scope
+            .track_channel_read(corr, channel_id.as_str());
         out.push(Effect::Persist {
             corr,
             ops: vec![StorageOp::Get(GetSpec {

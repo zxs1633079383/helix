@@ -211,6 +211,8 @@ pub enum GuardComparison {
     #[default]
     Greater,
     Equal,
+    /// Accept a sparse observation at the current or a newer version.
+    GreaterOrEqual,
 }
 
 /// 复合作用域守卫式自增规格，避免复合主键热路径退化为应用层 read-modify-write。

@@ -207,6 +207,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
     // 完整 54 列与 678 对齐（此处全量落地）。
     "CREATE TABLE IF NOT EXISTS channel (\
         id TEXT PRIMARY KEY,\
+        snapshot_updated_at INTEGER NOT NULL DEFAULT 0,\
         display_name TEXT NOT NULL DEFAULT '',\
         type TEXT NOT NULL DEFAULT '',\
         user_id TEXT NOT NULL DEFAULT '',\
@@ -609,6 +610,7 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE message ADD COLUMN failure_code TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE message ADD COLUMN failure_message TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE message ADD COLUMN failure_retryable INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel ADD COLUMN snapshot_updated_at INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel ADD COLUMN header TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel ADD COLUMN schedule_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel ADD COLUMN schedule_owner_user_id TEXT NOT NULL DEFAULT ''",

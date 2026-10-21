@@ -501,6 +501,7 @@ impl WebSessionStore {
         if !match spec.comparison {
             helix_core::effect::GuardComparison::Greater => spec.guard_val > current_guard,
             helix_core::effect::GuardComparison::Equal => spec.guard_val == current_guard,
+            helix_core::effect::GuardComparison::GreaterOrEqual => spec.guard_val >= current_guard,
         } {
             return Ok(());
         }
@@ -1225,6 +1226,63 @@ mod tests {
             let expected = if revision == 0 { 9 } else { 4 };
             assert!(
                 matches!(row_value(&row, "unread_count"), Some(SqlValue::Integer(value)) if *value == expected)
+            );
+        }
+    }
+
+    /// Web 与SQLite一致：>=允许同版本稀疏补齐，旧版本必须拒绝。
+    #[test]
+    fn greater_or_equal_guard_matches_sqlite_contract() {
+        let store = new_store(limits());
+        store
+            .batch_upsert_sync(UpsertSpec {
+                table: "channel",
+                rows: vec![vec![
+                    ("id".into(), text("channel-a")),
+                    ("snapshot_updated_at".into(), SqlValue::Integer(20)),
+                    ("display_name".into(), text("initial")),
+                ]],
+                conflict_key: Some("id"),
+                exclude_from_update: vec![],
+                version_column: None,
+                update_guard: None,
+            })
+            .unwrap();
+        for (version, name, expected) in [
+            (19, "old", "initial"),
+            (20, "equal", "equal"),
+            (21, "new", "new"),
+            (20, "late", "new"),
+        ] {
+            store
+                .scoped_guarded_bump_sync(ScopedGuardedBumpSpec {
+                    table: "channel",
+                    scope_col: "id",
+                    scope_val: text("channel-a"),
+                    key_col: "id",
+                    key_val: text("channel-a"),
+                    bump_col: "snapshot_updated_at",
+                    bump_delta: 0,
+                    set_cols: vec![
+                        ("snapshot_updated_at".into(), SqlValue::Integer(version)),
+                        ("display_name".into(), text(name)),
+                    ],
+                    guard_col: "snapshot_updated_at",
+                    comparison: helix_core::effect::GuardComparison::GreaterOrEqual,
+                    guard_val: version,
+                    additional_guard: None,
+                })
+                .unwrap();
+            let row = store
+                .get_sync(GetSpec {
+                    table: "channel",
+                    key_col: "id",
+                    key_val: text("channel-a"),
+                })
+                .unwrap()
+                .unwrap();
+            assert!(
+                matches!(row_value(&row,"display_name"),Some(SqlValue::Text(v)) if v==expected)
             );
         }
     }

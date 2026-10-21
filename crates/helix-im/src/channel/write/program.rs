@@ -1,10 +1,10 @@
-//! S3 path1 — `program_full`：`increment_channel` 帧 → 全 55 列 upsert 行（JSON rename + 守卫）。
+//! S3 path1 — `program_full`：`increment_channel` 帧 → 全 56 列 upsert 行（JSON rename + 守卫）。
 
 use super::ChannelCol;
 use crate::state::ChannelId;
 use helix_core::effect::SqlValue;
 
-/// path1 — 从 `increment_channel` 帧 data 计算全 55 列 upsert 行（含 JSON rename + 守卫覆盖）。
+/// path1 — 从 `increment_channel` 帧 data 计算全 56 列 upsert 行（含 JSON rename + 守卫覆盖）。
 ///
 /// `auth_user_id`：当前登录用户（写 `user_id` 列；helix-im 无身份 → 传入空串时该列为空，
 /// 由 driver/host 注入真值，对齐 emit 路径的 sender 豁免下沉策略）。
@@ -163,6 +163,10 @@ pub fn program_full(
         "updated_at",
         SqlValue::Integer(i("updateAt").unwrap_or(now_ms as i64)),
     ));
+    row.push((
+        "snapshot_updated_at",
+        SqlValue::Integer(i("updateAt").filter(|v| *v > 0).unwrap_or(0)),
+    ));
     // members/admin_users/boss 仍由独立 channel_member 表承载真值，主表只保留兼容占位。
     for (col, dflt) in [("members", ""), ("admin_users", "[]"), ("boss", "[]")] {
         row.push((col, SqlValue::Text(dflt.to_string())));
@@ -297,7 +301,7 @@ pub fn program_full(
     }
 
     // 插入仍使用列默认值；既有行仅覆盖本帧提供且类型有效的字段。
-    // 固定 55 列有界比较；派生列沿用上面的专用不变量。
+    // 固定 56 列有界比较；派生列沿用上面的专用不变量。
     let provided = super::collect_present(data);
     for &(column, _) in &row {
         if [

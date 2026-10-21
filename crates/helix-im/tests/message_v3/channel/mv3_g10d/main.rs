@@ -36,7 +36,7 @@ fn persist_corr(effects: &[Effect]) -> Result<helix_core::Correlation, String> {
     effects
         .iter()
         .find_map(|effect| match effect {
-            Effect::Persist { corr, .. } => Some(*corr),
+            Effect::Persist { corr, .. } | Effect::PersistAtomic { corr, .. } => Some(*corr),
             _ => None,
         })
         .ok_or_else(|| "missing channel-member top persistence".to_string())
@@ -68,14 +68,16 @@ fn member_row(effects: &[Effect]) -> Result<&Row, String> {
     effects
         .iter()
         .find_map(|effect| match effect {
-            Effect::Persist { ops, .. } => ops.iter().find_map(|op| match op {
-                helix_core::effect::StorageOp::BatchUpsert(spec)
-                    if spec.table == "channel_member" =>
-                {
-                    spec.rows.first()
-                }
-                _ => None,
-            }),
+            Effect::Persist { ops, .. } | Effect::PersistAtomic { ops, .. } => {
+                ops.iter().find_map(|op| match op {
+                    helix_core::effect::StorageOp::BatchUpsert(spec)
+                        if spec.table == "channel_member" =>
+                    {
+                        spec.rows.first()
+                    }
+                    _ => None,
+                })
+            }
             _ => None,
         })
         .ok_or_else(|| "missing channel_member upsert row".to_string())
@@ -93,7 +95,7 @@ fn g10d_top_preference_persists_actor_scope_and_emits_once() -> Result<(), Strin
             .as_slice()
             .iter()
             .find_map(|effect| match effect {
-                Effect::Persist { ops, .. } => Some(ops),
+                Effect::Persist { ops, .. } | Effect::PersistAtomic { ops, .. } => Some(ops),
                 _ => None,
             })
             .ok_or_else(|| "missing top persistence ops".to_string())?;
@@ -188,6 +190,11 @@ fn g10d_full_shared_update_with_top_reaches_channel_projection() -> Result<(), S
 
     let corr = persist_corr(harness.sink.as_slice())?;
     harness.step(common::port_reply_ok(corr.raw()), NOW_MS + 1);
+    assert!(emitted(harness.sink.as_slice()).is_empty());
+    let read = persist_corr(harness.sink.as_slice())?;
+    harness.step(common::port_reply_with_body(read.raw(),serde_json::to_vec(&json!([{
+        "id":CHANNEL_ID,"snapshot_updated_at":NOW_MS,"display_name":"共享频道新名称","purpose":"共享频道新简介","orient":"共享频道新导向"
+    }])).unwrap().into()),NOW_MS+2);
 
     let events = emitted(harness.sink.as_slice());
     let channel_updates = events

@@ -170,6 +170,7 @@ pub(crate) fn compile_increment_effects(
     // BLOCKING-1：user_id 列写 host 注入的真身份（ctx.auth_user_id，非硬编码空串）；空串=无身份退化。
     // now_ms 由 host 经 Clock 注入（确定性）。非法 data（缺 id）→ program_full None → 跳落库（仍 emit）。
     if let Ok(data) = serde_json::from_slice::<serde_json::Value>(inc.raw.as_ref()) {
+        ctx.state.observe_channel_snapshot(channel_id, &data);
         if let Some((cols, exclude)) =
             crate::channel_write::program_full(&data, ctx.auth_user_id, ctx.now_ms)
         {

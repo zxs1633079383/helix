@@ -264,6 +264,7 @@ pub(super) async fn scoped_guarded_bump(
             comparison = match spec.comparison {
                 helix_core::effect::GuardComparison::Greater => ">",
                 helix_core::effect::GuardComparison::Equal => "=",
+                helix_core::effect::GuardComparison::GreaterOrEqual => ">=",
             },
         );
         let mut params = sql_values(std::iter::once(&SqlValue::Integer(spec.bump_delta)));
@@ -613,6 +614,7 @@ fn atomic_scoped_guarded_bump(
         comparison = match spec.comparison {
             helix_core::effect::GuardComparison::Greater => ">",
             helix_core::effect::GuardComparison::Equal => "=",
+            helix_core::effect::GuardComparison::GreaterOrEqual => ">=",
         },
     );
     let mut params = sql_values(std::iter::once(&SqlValue::Integer(spec.bump_delta)));

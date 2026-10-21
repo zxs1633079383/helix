@@ -214,7 +214,10 @@ fn channel_full_and_member_ops(
     if let Some((cols, exclude)) =
         crate::channel_write::program_full(data, ctx.auth_user_id, ctx.now_ms)
     {
-        ops.push(crate::acl::to_effect::upsert_channel_full_op(cols, exclude));
+        ctx.state.observe_channel_snapshot(channel_id, data);
+        ops.extend(crate::acl::to_effect::upsert_channel_full_ops(
+            cols, exclude,
+        ));
     }
 
     // 四源（members/adminUsers/boss/owner）+ memberChange.join → channel_member 行（复合 PK upsert）。

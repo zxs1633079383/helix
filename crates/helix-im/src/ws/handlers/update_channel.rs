@@ -311,9 +311,9 @@ impl WsMessageHandler for UpdateChannelHandler {
             };
             let mut ops = Vec::with_capacity(3);
             let cols = crate::channel_write::collect_present(channel);
-            if let Some(op) = crate::acl::to_effect::update_channel_partial_op(channel_id, cols) {
-                ops.push(op);
-            }
+            ops.extend(crate::acl::to_effect::update_channel_partial_ops(
+                channel_id, cols,
+            ));
             if let Some(op) = crate::acl::to_effect::upsert_channel_member_channel_op(row) {
                 ops.push(op);
             }
@@ -370,6 +370,7 @@ impl WsMessageHandler for UpdateChannelHandler {
         }
 
         // 收 Some 字段 → PATCH（空集 = 无可写字段，update_channel_partial 返回 None → 不 push）。
+        ctx.state.observe_channel_snapshot(channel_id, channel);
         let mut ops = Vec::with_capacity(2);
         let mut cols = if top_intent {
             Vec::new()
@@ -383,9 +384,9 @@ impl WsMessageHandler for UpdateChannelHandler {
                 ops.push(op);
             }
         }
-        if let Some(op) = crate::acl::to_effect::update_channel_partial_op(channel_id, cols) {
-            ops.push(op);
-        }
+        ops.extend(crate::acl::to_effect::update_channel_partial_ops(
+            channel_id, cols,
+        ));
         let member_channel = if let Some((row, projection)) =
             crate::channel_update::member_channel_from_update_channel(
                 data,
@@ -409,7 +410,11 @@ impl WsMessageHandler for UpdateChannelHandler {
         }
         if !ops.is_empty() {
             let corr = ctx.alloc_corr();
-            out.push(helix_core::Effect::Persist { corr, ops });
+            if top_intent {
+                out.push(helix_core::Effect::Persist { corr, ops });
+            } else {
+                out.push(helix_core::Effect::PersistAtomic { corr, ops });
+            }
             let causation_id = frame.cses_track_id().map(str::to_string).or_else(|| {
                 frame
                     .event_seq()
@@ -443,6 +448,14 @@ impl WsMessageHandler for UpdateChannelHandler {
                 corr,
                 crate::state::CorrelationContext::UpdateChannelDialogPersist {
                     channel_id,
+                    readback: false,
+                    emit_settings: true,
+                    snapshot_generation: ctx
+                        .state
+                        .channel_snapshot_versions
+                        .get(&channel_id)
+                        .map(|v| v.1)
+                        .unwrap_or(0),
                     channel: Box::new(persisted_channel),
                     member_channel: if top_intent {
                         None

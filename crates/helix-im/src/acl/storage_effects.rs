@@ -144,78 +144,113 @@ pub fn upsert_message(_temporary_id: &TemporaryId, row: Row, corr: Correlation) 
     }
 }
 
-/// S3 path1：channel 全量 upsert（INSERT … ON CONFLICT(id) DO UPDATE，52 列）。
+/// 完整/稀疏快照共享同一个持久版本守卫，其他投影保留各自写入合同。
 pub fn upsert_channel_full(
     cols: Vec<(&'static str, helix_core::effect::SqlValue)>,
-    exclude_from_update: Vec<&'static str>,
+    exclude: Vec<&'static str>,
 ) -> Effect {
     Effect::PersistFire {
-        ops: vec![upsert_channel_full_op(cols, exclude_from_update)],
+        ops: upsert_channel_full_ops(cols, exclude),
     }
 }
 
-/// 完整频道可插入；缺类型的稀疏帧只更新既有行，不能生成默认空频道。
-pub fn upsert_channel_full_op(
+/// 创建只在类型明确时发生；共享列冲突更新交给独立原子版本比较。
+pub fn upsert_channel_full_ops(
     cols: Vec<(&'static str, helix_core::effect::SqlValue)>,
-    exclude_from_update: Vec<&'static str>,
-) -> StorageOp {
-    let row: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
-    if exclude_from_update.contains(&"type")
-        || !row.iter().any(|(key, value)| {
-            key == "type"
-                && matches!(value, helix_core::effect::SqlValue::Text(value) if !value.is_empty())
-        })
-    {
-        let id = row
+    mut exclude: Vec<&'static str>,
+) -> Vec<StorageOp> {
+    use super::channel_snapshot::{is_shared, revision, shared_patch};
+    use helix_core::effect::{BatchUpdateSpec, SqlValue};
+    // INSERT与条件UPDATE需要各自owned字段；只复制共享子集，数量不随成员数增长。
+    let shared_keys: Vec<_> = cols
+        .iter()
+        .filter(|(k, _)| is_shared(k) && !exclude.contains(k))
+        .map(|(k, _)| *k)
+        .collect();
+    let mut row: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    let Some(id) = row.iter().find(|(k, _)| k == "id").map(|(_, v)| v.clone()) else {
+        return vec![];
+    };
+    let version = revision(&row);
+    let typed = !exclude.contains(&"type")
+        && row
             .iter()
-            .find(|(key, _)| key == "id")
-            .map(|(_, value)| value.clone());
-        return StorageOp::BatchUpdate(helix_core::effect::BatchUpdateSpec {
+            .any(|(k, v)| k == "type" && matches!(v, SqlValue::Text(t) if !t.is_empty()));
+    let shared: Row = row
+        .iter()
+        .filter(|(k, _)| shared_keys.contains(&k.as_str()))
+        .cloned()
+        .collect();
+    let mut ops = Vec::with_capacity(2);
+    if typed {
+        // 原始INSERT列仍供scope追踪使用；冲突时共享列全部排除，随后由版本门禁写入。
+        row.retain(|(k, _)| k != "snapshot_updated_at");
+        exclude.extend(shared_keys);
+        ops.push(StorageOp::BatchUpsert(UpsertSpec {
+            table: "channel",
+            rows: vec![row],
+            conflict_key: Some("id"),
+            exclude_from_update: exclude,
+            update_guard: None,
+            version_column: None,
+        }));
+    } else {
+        let patch: Row = row
+            .into_iter()
+            .filter(|(k, _)| {
+                k != "id"
+                    && k != "snapshot_updated_at"
+                    && !is_shared(k)
+                    && !exclude.contains(&k.as_str())
+            })
+            .collect();
+        // 空稀疏批次仍保留提交屏障，供increment分页推进与失败回调使用。
+        ops.push(StorageOp::BatchUpdate(BatchUpdateSpec {
             table: "channel",
             key_col: "id",
-            key_vals: id.into_iter().collect(),
-            patch: row
-                .into_iter()
-                .filter(|(key, _)| key != "id" && !exclude_from_update.contains(&key.as_str()))
-                .collect(),
-        });
+            key_vals: vec![id.clone()], // hot-path-audit: ignore — 固定频道主键跨两个owned操作复用，不复制消息载荷。
+            patch,
+        }));
     }
-    StorageOp::BatchUpsert(UpsertSpec {
-        version_column: None,
-        update_guard: None,
-        table: "channel",
-        rows: vec![row],
-        conflict_key: Some("id"),
-        exclude_from_update,
-    })
+    if !shared.is_empty() {
+        ops.push(shared_patch(id, shared, version));
+    }
+    ops
 }
 
-/// S3 path2/3：channel 部分更新（UPDATE channel SET <cols> WHERE id=?）。
+/// 部分更新仍保留空集no-op，不将缺省字段补成默认值。
 pub fn update_channel_partial(
     channel_id: ChannelId,
     cols: Vec<(&'static str, helix_core::effect::SqlValue)>,
 ) -> Option<Effect> {
-    Some(Effect::PersistFire {
-        ops: vec![update_channel_partial_op(channel_id, cols)?],
-    })
+    let ops = update_channel_partial_ops(channel_id, cols);
+    (!ops.is_empty()).then_some(Effect::PersistFire { ops })
 }
 
-/// 返回可并入相关事务的 channel 稀疏更新，空字段集保持 no-op。
-pub fn update_channel_partial_op(
+/// 共享属性按快照版本写；成员/消息派生列保持独立，不被共享水位拦截。
+pub fn update_channel_partial_ops(
     channel_id: ChannelId,
     cols: Vec<(&'static str, helix_core::effect::SqlValue)>,
-) -> Option<StorageOp> {
-    if cols.is_empty() {
-        return None;
-    }
+) -> Vec<StorageOp> {
+    use super::channel_snapshot::{is_shared, revision, shared_patch};
     use helix_core::effect::{BatchUpdateSpec, SqlValue};
-    let patch: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
-    Some(StorageOp::BatchUpdate(BatchUpdateSpec {
-        table: "channel",
-        key_col: "id",
-        key_vals: vec![SqlValue::Text(channel_id.as_str().to_string())],
-        patch,
-    }))
+    let row: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    let version = revision(&row);
+    let (shared, patch): (Row, Row) = row.into_iter().partition(|(k, _)| is_shared(k));
+    let id = SqlValue::Text(channel_id.as_str().to_string());
+    let mut ops = Vec::with_capacity(2);
+    if !patch.is_empty() {
+        ops.push(StorageOp::BatchUpdate(BatchUpdateSpec {
+            table: "channel",
+            key_col: "id",
+            key_vals: vec![id.clone()],
+            patch,
+        }));
+    }
+    if !shared.is_empty() {
+        ops.push(shared_patch(id, shared, version));
+    }
+    ops
 }
 
 /// `update_channel` 后端 per-member 绝对态补丁 → `channel_member` 复合 PK upsert。

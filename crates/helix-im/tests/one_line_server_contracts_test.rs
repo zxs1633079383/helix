@@ -26,7 +26,7 @@ fn persist_corr(h: &Harness) -> u64 {
         .as_slice()
         .iter()
         .find_map(|effect| match effect {
-            Effect::Persist { corr, .. } => Some(corr.raw()),
+            Effect::Persist { corr, .. } | Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
             _ => None,
         })
         .expect("command must emit local lookup")
@@ -298,6 +298,8 @@ fn settings_drop_viewer_capabilities_from_server_matrix() {
     );
     let corr = persist_corr(&h);
     h.step(port_reply_ok(corr), 3);
+    let read = persist_corr(&h);
+    h.step(port_reply_with_body(read,serde_json::to_vec(&serde_json::json!([{"id":channel,"snapshot_updated_at":0,"display_name":"新群名"}])).unwrap().into()),4);
 
     let data = &emits(&h, "im:channel:settings-updated")[0];
     assert_eq!(data["settingVersion"], 91);

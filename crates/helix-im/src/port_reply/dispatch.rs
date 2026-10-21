@@ -740,11 +740,88 @@ impl ImModule {
 
             CorrelationContext::UpdateChannelDialogPersist {
                 channel_id,
+                readback,
+                snapshot_generation,
+                emit_settings,
                 channel,
                 member_channel,
-                causation_id: _,
+                causation_id,
             } => match outcome {
-                PortOutcome::Ok(_) => {
+                PortOutcome::Ok(reply) => {
+                    let shared = crate::channel_write::collect_present(channel.as_ref());
+                    let has_shared = shared
+                        .iter()
+                        .any(|(key, _)| crate::acl::channel_snapshot::is_shared(key));
+                    if has_shared && !readback {
+                        let next = self.alloc_corr();
+                        self.render_scope
+                            .track_channel_read(next, channel_id.as_str());
+                        self.state.corr_map.insert(
+                            next,
+                            CorrelationContext::UpdateChannelDialogPersist {
+                                channel_id,
+                                readback: true,
+                                snapshot_generation,
+                                emit_settings,
+                                channel,
+                                member_channel,
+                                causation_id,
+                            },
+                        );
+                        out.push(helix_core::Effect::Persist {
+                            corr: next,
+                            ops: vec![crate::acl::to_effect::get_channel_row_op(channel_id)],
+                        });
+                        return Ok(());
+                    }
+                    if has_shared {
+                        let expected = channel
+                            .get("updateAt")
+                            .and_then(serde_json::Value::as_i64)
+                            .unwrap_or(0)
+                            .max(0);
+                        let observed = self
+                            .state
+                            .channel_snapshot_versions
+                            .get(&channel_id)
+                            .copied()
+                            .unwrap_or_default();
+                        if expected < observed.0 || snapshot_generation != observed.1 {
+                            return Ok(());
+                        }
+                        // 共享字段必须与真实读回一致；写被版本门禁跳过时不得透传旧输入。
+                        let rows: serde_json::Value = serde_json::from_slice(reply.0.as_ref())
+                            .map_err(|e| {
+                                ImError::Parse(format!("channel snapshot readback: {e}"))
+                            })?;
+                        let Some(row) = rows.as_array().and_then(|rows| {
+                            rows.iter()
+                                .find(|row| row["id"].as_str() == Some(channel_id.as_str()))
+                        }) else {
+                            return Ok(());
+                        };
+                        if row["snapshot_updated_at"].as_i64().unwrap_or(0) != expected {
+                            return Ok(());
+                        }
+                        for (key, value) in &shared {
+                            if !crate::acl::channel_snapshot::is_shared(key) || *key == "updated_at"
+                            {
+                                continue;
+                            }
+                            let agrees = match value {
+                                helix_core::effect::SqlValue::Text(v) => {
+                                    row[*key].as_str() == Some(v.as_str())
+                                }
+                                helix_core::effect::SqlValue::Integer(v) => {
+                                    row[*key].as_i64() == Some(*v)
+                                }
+                                _ => false,
+                            };
+                            if !agrees {
+                                return Ok(());
+                            }
+                        }
+                    }
                     let member_read_event = member_channel
                         .as_deref()
                         .map(|projection| {
@@ -776,11 +853,13 @@ impl ImModule {
                     if let Some(event) = member_read_event {
                         out.push(event.into_effect());
                     }
-                    if let Some(event) = crate::event::channel::settings_from_authority(
-                        channel_id.as_str(),
-                        channel.as_ref(),
-                    )? {
-                        out.push(event.into_effect());
+                    if emit_settings {
+                        if let Some(event) = crate::event::channel::settings_from_authority(
+                            channel_id.as_str(),
+                            channel.as_ref(),
+                        )? {
+                            out.push(event.into_effect());
+                        }
                     }
                     let _event_time = now_ms;
                 }
@@ -2049,10 +2128,6 @@ impl ImModule {
                 causation_id,
             } => {
                 self.handle_outbound_channel_settings_reply(channel_id, causation_id, outcome, out);
-            }
-
-            CorrelationContext::OutboundChannelSettingsPersist { projection } => {
-                self.handle_channel_settings_persist_reply(projection, outcome, now_ms, out)?;
             }
 
             // UC-4.5：仍保留通用 read result，同时把 HTTP data=*IncrementChannel 送入既有

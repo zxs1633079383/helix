@@ -352,7 +352,7 @@ fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
     )
     .expect("update_channel_notice must route Ok");
     let notice_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
-        Effect::Persist { corr, .. } => Some(corr.raw()),
+        Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
         _ => None,
     });
     let Some(notice_corr) = notice_corr else {
@@ -360,6 +360,25 @@ fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
     };
     assert!(!emit_names(&h.sink).iter().any(|n| n == "im:channel:update"));
     h.step(port_reply_ok(notice_corr), 1_001);
+    assert!(!emit_names(&h.sink).iter().any(|n| n == "im:channel:update"));
+    let read = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("write success must read durable shared fields");
+    h.step(
+        port_reply_with_body(
+            read,
+            serde_json::to_vec(&json!([{"id":cid1,"snapshot_updated_at":0,"header":"notice"}]))
+                .unwrap()
+                .into(),
+        ),
+        1_002,
+    );
     assert!(emit_names(&h.sink).iter().any(|n| n == "im:channel:update"));
     assert_eq!(
         h.module.cursor_for(channel_id(1)),
@@ -555,7 +574,7 @@ fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
     )
     .expect("nested update_channel must route Ok");
     let update_corr = h.sink.as_slice().iter().find_map(|effect| match effect {
-        Effect::Persist { corr, .. } => Some(corr.raw()),
+        Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
         _ => None,
     });
     let Some(update_corr) = update_corr else {
@@ -563,6 +582,27 @@ fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
     };
     assert!(!emit_names(&h.sink).iter().any(|n| n == "im:channel:update"));
     h.step(port_reply_ok(update_corr), 1_001);
+    assert!(!emit_names(&h.sink).iter().any(|n| n == "im:channel:update"));
+    let read = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("write success must read durable shared fields");
+    h.step(
+        port_reply_with_body(
+            read,
+            serde_json::to_vec(
+                &json!([{"id":cid1,"snapshot_updated_at":0,"display_name":"renamed"}]),
+            )
+            .unwrap()
+            .into(),
+        ),
+        1_002,
+    );
     assert!(emit_names(&h.sink).iter().any(|n| n == "im:channel:update"));
     assert_eq!(
         h.module.cursor_for(channel_id(1)),

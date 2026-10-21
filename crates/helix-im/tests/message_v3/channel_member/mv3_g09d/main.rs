@@ -186,7 +186,28 @@ impl Replay {
     /// 证明 hydration 的投影写集合不触碰 read/unread 或频道事件事实。
     fn assert_projection_only_write_set(&self) {
         let effects = format!("{:?}", self.sink.as_slice());
-        assert!(!effects.contains("GuardedBump"));
+        for effect in self.sink.as_slice() {
+            if let Effect::PersistAtomic { ops, .. } = effect {
+                for op in ops {
+                    match op {
+                        helix_core::effect::StorageOp::GuardedBump(_) => {
+                            panic!("hydration cannot increment unread")
+                        }
+                        helix_core::effect::StorageOp::ScopedGuardedBump(spec) => {
+                            assert!(
+                                matches!(
+                                    (spec.table, spec.bump_col, spec.bump_delta),
+                                    ("channel", "snapshot_updated_at", 0)
+                                        | ("channel_pinned_fence", "revision", 1)
+                                ),
+                                "only metadata/cache guards, never unread increments"
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
         assert!(!effects.contains("read_bits"));
         assert!(!effects.contains("channel_event"));
         assert!(!effects.contains("post_read"));
@@ -211,7 +232,7 @@ fn hydration_hit_emits_one_increment_before_one_result() -> Result<(), String> {
     let persist_corr = replay
         .persist_corr()
         .ok_or_else(|| "G09d must persist before terminal output".to_string())?;
-    assert!(!format!("{:?}", replay.sink.as_slice()).contains("GuardedBump"));
+    replay.assert_projection_only_write_set();
     replay.reply_persist_ok(persist_corr)?;
     assert!(replay.events().is_empty());
     replay.complete_readback()?;

@@ -302,6 +302,12 @@ pub enum CorrelationContext {
     /// 绝对态已进入同一相关 Persist；仅成功回执允许发布 channel/read 双事件。
     UpdateChannelDialogPersist {
         channel_id: ChannelId,
+        /// 写成功后独立读取；原子写端口不支持查询。
+        readback: bool,
+        /// 同版本与旧协议回调的内存代次，不能当服务端持久版本。
+        snapshot_generation: u64,
+        /// WS兼容settings事件；HTTP沿用channel-update出口。
+        emit_settings: bool,
         channel: Box<serde_json::Value>,
         member_channel: Option<Box<serde_json::Value>>,
         causation_id: Option<String>,
@@ -730,11 +736,6 @@ pub enum CorrelationContext {
     OutboundChannelSettings {
         channel_id: ChannelId,
         causation_id: Option<String>,
-    },
-
-    /// 权威设置写入本地 channel 后才释放 settings-updated。
-    OutboundChannelSettingsPersist {
-        projection: ChannelSettingsProjection,
     },
 
     /// UC-4.5 陌生 channel 单频道 hydration 的首段 HTTP 回报。

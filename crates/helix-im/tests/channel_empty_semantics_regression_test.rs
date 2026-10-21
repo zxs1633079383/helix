@@ -125,7 +125,7 @@ fn patch_emit_does_not_clear_fields_skipped_by_persistence() {
         .as_slice()
         .iter()
         .find_map(|e| match e {
-            Effect::Persist { corr, .. } => Some(corr.raw()),
+            Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
             _ => None,
         })
         .unwrap();
@@ -135,6 +135,31 @@ fn patch_emit_does_not_clear_fields_skipped_by_persistence() {
         .iter()
         .any(|e| matches!(e, Effect::Emit { .. })));
     h.step(port_reply_ok(corr), 1001);
+    assert!(!h
+        .sink
+        .as_slice()
+        .iter()
+        .any(|e| matches!(e, Effect::Emit { .. })));
+    let read = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|e| match e {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .unwrap();
+    h.step(
+        port_reply_with_body(
+            read,
+            serde_json::to_vec(
+                &json!([{"id":cid(1),"snapshot_updated_at":0,"display_name":"新群名"}]),
+            )
+            .unwrap()
+            .into(),
+        ),
+        1002,
+    );
     let event: Value = h
         .sink
         .as_slice()
@@ -257,11 +282,26 @@ fn explicit_clear_patch_is_emitted_after_commit() {
         .as_slice()
         .iter()
         .find_map(|e| match e {
-            Effect::Persist { corr, .. } => Some(corr.raw()),
+            Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
             _ => None,
         })
         .unwrap();
     h.step(port_reply_ok(corr), 1001);
+    assert!(!h
+        .sink
+        .as_slice()
+        .iter()
+        .any(|e| matches!(e, Effect::Emit { .. })));
+    let read = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|e| match e {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .unwrap();
+    h.step(port_reply_with_body(read,serde_json::to_vec(&json!([{"id":cid(1),"snapshot_updated_at":0,"purpose":"","orient":"","props":"{}"}])).unwrap().into()),1002);
     let emitted: Value = h
         .sink
         .as_slice()

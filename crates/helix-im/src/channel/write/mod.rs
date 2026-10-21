@@ -4,7 +4,7 @@
 //! `services/message_service.rs`；逐列对照见 `docs/csesapi-migration/channel-52col-mapping.md`。
 //!
 //! 三路径（皆同步纯函数，副作用经调用方 `out.push(Effect)`）：
-//! - **path1** `program_full`（`program.rs`）：WS `increment_channel` 全量 upsert（55 列）。
+//! - **path1** `program_full`（`program.rs`）：WS `increment_channel` 全量 upsert（56 列）。
 //! - **path2** `collect_present`（`patch.rs`）：WS `update_channel` PATCH（仅 `Some` 字段进 SET）。
 //! - **path3** `post_updates`（`post.rs`）：新消息触发 2-5 列（未读 +1 走 SQL 自增，HX-C005）。
 //!

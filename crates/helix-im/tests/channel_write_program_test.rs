@@ -32,7 +32,7 @@ fn program_full_derives_closed_fact_from_delete_at() {
 
 /// 回归锚: S3 path1 —— increment 全量 55 列 + JSON rename + 守卫 omit。
 #[test]
-fn program_full_emits_55_cols_with_guards_omitted_s3() {
+fn program_full_emits_snapshot_version_with_guards_omitted_s3() {
     let data = serde_json::json!({
         "id": "00000000000000000000000007",
         "displayName": "群A",
@@ -51,9 +51,13 @@ fn program_full_emits_55_cols_with_guards_omitted_s3() {
 
     assert_eq!(
         row.len(),
-        55,
-        "path1 = 全 55 列（含 header/member_count/is_closed 守卫列）"
+        56,
+        "path1含独立snapshot_updated_at，不能使用本地时间作为版本"
     );
+    assert!(matches!(
+        get(&row, "snapshot_updated_at"),
+        Some(SqlValue::Integer(200))
+    ));
     // JSON rename / 透传
     assert!(matches!(get(&row, "display_name"), Some(SqlValue::Text(s)) if s == "群A"));
     assert!(matches!(get(&row, "is_top"), Some(SqlValue::Integer(1))));

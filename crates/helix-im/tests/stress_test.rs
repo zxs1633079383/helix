@@ -422,8 +422,8 @@ fn stress_gap_5000_sync_backfill() {
                 );
                 assert_eq!(
                     ops.len(),
-                    (GAP as usize) * 3 + 2,
-                    "atomic batch = 5000 × (msg + channel + ledger) + coverage + cursor"
+                    (GAP as usize) * 3 + 5,
+                    "atomic batch = 5000 × (msg + channel + ledger) + coverage + cursor + 3 pinned invalidation ops"
                 );
                 assert_eq!(cursor_writes, 1, "G-S2/G-S3 cursor 必须与消息同批提交");
                 assert_eq!(ledger_upserts, GAP as usize, "每条远端事件必须有一条恢复证据");

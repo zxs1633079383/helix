@@ -10,9 +10,13 @@ use std::collections::{HashMap, HashSet};
 pub(crate) struct RenderScope {
     // 归属只来自持久 channel 行；消息作者不是本地库所属用户。
     channels: HashMap<String, (String, String)>,
+    // 防止旧Get回包把已读回的新共享归属回退。
+    channel_versions: HashMap<String, i64>,
     // 仅用于本轮已认证远端分页读；不写持久归属，发送该 req_id 后即消耗。
     authority_reads: HashMap<String, HashSet<String>>,
     pending: HashMap<Correlation, Vec<(String, String, String)>>,
+    // 版本化写入可能被拒绝；精确读回后以durable归属纠正写入意图。
+    pending_channel_reads: HashMap<Correlation, Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -126,6 +130,14 @@ impl RenderScope {
             row.get("team_id").and_then(serde_json::Value::as_str),
             row.get("user_id").and_then(serde_json::Value::as_str),
         ) {
+            let version = row
+                .get("snapshot_updated_at")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0);
+            if version < self.channel_versions.get(id).copied().unwrap_or(0) {
+                return;
+            }
+            self.channel_versions.insert(id.into(), version);
             self.channels.insert(id.into(), (team.into(), user.into()));
         }
     }
@@ -133,6 +145,24 @@ impl RenderScope {
     /// 归属变更与数据一样只在对应 PersistOk 后生效，失败/重复回执不改变授权索引。
     pub(crate) fn observe_reply(&mut self, tick: &Tick) {
         if let Tick::PortReply { corr, outcome } = tick {
+            if let Some(ids) = self.pending_channel_reads.remove(corr) {
+                if let helix_core::tick::PortOutcome::Ok(reply) = outcome {
+                    if let Ok(rows) =
+                        serde_json::from_slice::<Vec<serde_json::Value>>(reply.0.as_ref())
+                    {
+                        for row in rows {
+                            if row
+                                .get("id")
+                                .and_then(serde_json::Value::as_str)
+                                .is_some_and(|id| ids.iter().any(|expected| expected == id))
+                            {
+                                self.observe_channel(&row);
+                            }
+                        }
+                    }
+                }
+            }
+
             if let Some(changes) = self.pending.remove(corr) {
                 if matches!(outcome, helix_core::tick::PortOutcome::Ok(_)) {
                     for (id, team, user) in changes {
@@ -141,6 +171,12 @@ impl RenderScope {
                 }
             }
         }
+    }
+
+    /// 仅设置/补水的冷路径精确读回登记归属；不在每条消息的Get上追加JSON解析。
+    pub(crate) fn track_channel_read(&mut self, corr: Correlation, channel_id: &str) {
+        self.pending_channel_reads
+            .insert(corr, vec![channel_id.to_owned()]);
     }
 
     /// 暂存归属写入，既不把写入意图当提交，也不影响任何存储 Effect。

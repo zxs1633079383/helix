@@ -19,7 +19,7 @@ fn persist_corr(effects: &[Effect]) -> TestResult<helix_core::Correlation> {
     effects
         .iter()
         .find_map(|effect| match effect {
-            Effect::Persist { corr, .. } => Some(*corr),
+            Effect::Persist { corr, .. } | Effect::PersistAtomic { corr, .. } => Some(*corr),
             _ => None,
         })
         .ok_or_else(|| "missing settings persistence".to_string())
@@ -85,6 +85,14 @@ fn run_persona(viewer: &str) -> TestResult<(Vec<Value>, u64)> {
         },
         1_700_001_620_003,
     );
+    assert!(
+        events(harness.sink.as_slice()).is_empty(),
+        "write ack alone is not the shared result"
+    );
+    let read = persist_corr(harness.sink.as_slice())?;
+    harness.step(common::port_reply_with_body(read.raw(), serde_json::to_vec(&json!([{
+        "id":CHANNEL_ID,"snapshot_updated_at":0,"display_name":"After","purpose":"G16c purpose","header":"G16c notice"
+    }])).unwrap().into()),1_700_001_620_004);
     Ok((events(harness.sink.as_slice()), persist.raw()))
 }
 

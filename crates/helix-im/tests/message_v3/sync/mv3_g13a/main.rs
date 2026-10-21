@@ -1,4 +1,4 @@
-//! MV3-G13a：当前 RuntimeAuth 的本地会话列表单结果与租户隔离。
+//! MV3-G13a：当前 RuntimeAuth 的本地会话列表单结果与账号隔离。
 
 use bytes::Bytes;
 use helix_core::effect::{Effect, ScanOrder, SqlValue, StorageOp};
@@ -79,7 +79,8 @@ impl Replay {
             return Err("member read must be channel-scoped".into());
         };
         assert_eq!(spec.table, "channel_member");
-        assert_eq!(spec.scope_values.len(), 1);
+        assert_eq!(spec.scope_values.len(), 2);
+        assert!(spec.scope_values.iter().any(|value| matches!(value, SqlValue::Text(id) if id == CHANNEL_OTHER_TENANT)));
         assert!(matches!(&spec.scope_values[0], SqlValue::Text(id) if id == CHANNEL_VISIBLE));
         self.reply_ok(
             *corr,
@@ -88,6 +89,9 @@ impl Replay {
                 "channel_is_top": 0, "unread_count": unread,
                 "unread_post_id": if unread > 0 { "g13a-anchor" } else { "" },
                 "last_read_seq": 0
+            }, {
+                "channel_id": CHANNEL_OTHER_TENANT, "user_id": VIEWER,
+                "team_id": "company-other", "role": "MEMBER", "unread_count": 0
             }]),
         )
     }
@@ -113,9 +117,9 @@ impl Replay {
     }
 }
 
-/// 运行时租户必须进入 channel Scan；请求体只允许 limit/req_id，不接受 caller identity。
+/// 运行时账号必须进入 channel Scan；请求体只允许 limit/req_id，不接受 caller identity。
 #[test]
-fn query_dialog_list_scans_runtime_company_without_remote_or_business_emit() {
+fn query_dialog_list_scans_runtime_viewer_without_remote_or_business_emit() {
     let mut replay = Replay::new();
     let corr = replay
         .query(json!({"limit": 60, "req_id": "req-g13a-scan"}))
@@ -137,7 +141,7 @@ fn query_dialog_list_scans_runtime_company_without_remote_or_business_emit() {
     assert_eq!(spec.limit, Some(60));
     assert!(matches!(
         &spec.filter,
-        Some(("team_id", SqlValue::Text(value))) if value == COMPANY
+        Some(("user_id", SqlValue::Text(value))) if value == VIEWER
     ));
     assert_eq!(
         spec.order_by,
@@ -186,7 +190,7 @@ fn query_dialog_list_rejects_missing_runtime_identity_before_io() {
     assert!(sink.as_slice().is_empty());
 }
 
-/// PortReply 只释放一个 `im:read:result` typed Result，并剔除跨租户/跨 viewer 行。
+/// PortReply 只释放一个 `im:read:result` typed Result，保留当前 viewer 跨公司行并剔除其他 viewer 行。
 #[test]
 fn query_dialog_list_emits_one_scoped_result_without_legacy_events() -> Result<(), String> {
     let mut replay = Replay::new();
@@ -207,11 +211,13 @@ fn query_dialog_list_emits_one_scoped_result_without_legacy_events() -> Result<(
     assert_eq!(events[0]["data"]["req_id"], "req-g13a-result");
     assert_eq!(
         events[0]["data"]["body"]["items"].as_array().unwrap().len(),
-        1
+        2
     );
     let item = &events[0]["data"]["body"]["items"][0];
     assert_eq!(item["id"], CHANNEL_VISIBLE);
     assert_eq!(item["teamId"], COMPANY);
+    assert_eq!(events[0]["data"]["body"]["items"][1]["id"], CHANNEL_OTHER_TENANT);
+    assert_eq!(events[0]["data"]["body"]["items"][1]["teamId"], "company-other");
     let encoded = serde_json::to_string(&events).map_err(|error| error.to_string())?;
     for legacy in [
         "im:channel:list",
@@ -250,7 +256,9 @@ fn query_dialog_list_returns_archived_channel_with_delete_at() -> Result<(), Str
     let items = events[0]["data"]["body"]["items"]
         .as_array()
         .ok_or("missing items")?;
-    assert_eq!(items.len(), 1);
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[1]["id"], CHANNEL_OTHER_TENANT);
+    assert_eq!(items[1]["close"], true);
     assert_eq!(items[0]["id"], CHANNEL_VISIBLE);
     assert_eq!(items[0]["close"], false);
     assert_eq!(items[0]["deleteAt"], 1789974402636_i64);

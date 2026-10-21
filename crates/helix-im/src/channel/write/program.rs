@@ -45,9 +45,8 @@ pub fn program_full(
 
     let ch_type = s("type").unwrap_or_default();
     let mut omit: Vec<&'static str> = Vec::new();
-    if data.get("topicInventory").is_some() {
-        omit.push("thread_count");
-    }
+    // 数量更新统一走独立版本门禁；新行保留初值，普通资料覆盖不能改已有数量。
+    omit.push("thread_count");
     let mut row: Vec<ChannelCol> = Vec::with_capacity(55);
 
     row.push(("id", SqlValue::Text(id.as_str().to_string())));
@@ -368,6 +367,6 @@ fn absent_topic_count_preserves_existing_authority() {
             data["threadCount"] = serde_json::json!(count);
         }
         let (_, omit) = program_full(&data, "viewer", 1).expect("valid channel");
-        assert_eq!(omit.contains(&"thread_count"), value.is_none());
+        assert!(omit.contains(&"thread_count"));
     }
 }

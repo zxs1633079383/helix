@@ -371,11 +371,18 @@ impl WsMessageHandler for UpdateChannelHandler {
 
         // 收 Some 字段 → PATCH（空集 = 无可写字段，update_channel_partial 返回 None → 不 push）。
         let mut ops = Vec::with_capacity(2);
-        let cols = if top_intent {
+        let mut cols = if top_intent {
             Vec::new()
         } else {
             crate::channel_write::collect_present(channel)
         };
+        // 无版本旧帧不能通过普通PATCH绕过新版全集的持久门禁。
+        cols.retain(|(column, _)| *column != "thread_count");
+        if !top_intent {
+            if let Some(op) = crate::topic_inventory::legacy_count_op(channel_id, channel) {
+                ops.push(op);
+            }
+        }
         if let Some(op) = crate::acl::to_effect::update_channel_partial_op(channel_id, cols) {
             ops.push(op);
         }

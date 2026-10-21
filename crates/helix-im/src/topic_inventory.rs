@@ -276,3 +276,20 @@ pub(crate) fn root_projection_op(
         version_column: Some("topic_inventory_version"),
     }))
 }
+
+/// 旧协议数量只可更新尚未建立全集版本的父群；版本0不能覆盖新版权威。
+pub(crate) fn legacy_count_op(parent: ChannelId, value: &serde_json::Value) -> Option<StorageOp> {
+    let count = value.get("threadCount")?.as_i64().filter(|v| *v >= 0)?;
+    Some(StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel",
+        conflict_key: Some("id"),
+        exclude_from_update: vec![],
+        update_guard: None,
+        version_column: Some("topic_inventory_version"),
+        rows: vec![vec![
+            ("id".into(), SqlValue::Text(parent.as_str().into())),
+            ("topic_inventory_version".into(), SqlValue::Integer(0)),
+            ("thread_count".into(), SqlValue::Integer(count)),
+        ]],
+    }))
+}

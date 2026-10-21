@@ -174,6 +174,11 @@ pub(crate) fn compile_increment_effects(
             crate::channel_write::program_full(&data, ctx.auth_user_id, ctx.now_ms)
         {
             effects.push(crate::acl::to_effect::upsert_channel_full(cols, exclude));
+            if data.get("topicInventory").is_none() {
+                if let Some(op) = crate::topic_inventory::legacy_count_op(channel_id, &data) {
+                    effects.push(Effect::PersistFire { ops: vec![op] });
+                }
+            }
             if data.get("type").and_then(serde_json::Value::as_str) != Some("T") {
                 if let Some(raw) = data.get("topicInventory") {
                     if let Ok(op) = crate::topic_inventory::root_projection_op(channel_id, raw) {

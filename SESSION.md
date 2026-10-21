@@ -1,3 +1,5 @@
+✅ DONE(local): 旧协议数量版本0门禁红绿通过；IM1855通过11忽略，SQLite5项通过，多端check/WASM通过；最终patch发布见跨仓交接。
+🎯 EXPECT 升级期无版本计数只更新版本0缓存，不能绕过新全集；SQLite先红后绿并回归旧服务端兼容，发布最终patch。| 赌注 中 | 可逆 是 | @2026-10-21
 ✅ DONE(local): 版本化话题全集/生命周期并发红绿、SQLite重启回放通过；IM1854项+投影精度1项通过；driver上传并发既有超时单列，patch发布见客户端交接。
 🎯 EXPECT 生命周期与完整话题清单共享服务端版本，旧观察不覆盖新集合/计数；公开Tick、真实SQLite及隔离PG红绿回归后发布patch。| 赌注 中 | 可逆 是 | @2026-10-21
 - DONE(local candidate only): 1021话题清单请求关联/原子CAS/范围查询回归通过；真实Native/PRE候选验收未完成。证据见客户端 docs/交接/1021-话题全流程修复/handoff.md。

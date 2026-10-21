@@ -433,4 +433,99 @@ async fn topic_inventory_lifecycle_race_survives_restart() {
         sink.as_slice().is_empty(),
         "durably stale observation must not persist or emit"
     );
+    // 升级期间迟到的旧协议计数也不能绕过新全集版本。
+    sink.clear();
+    restarted
+        .handle(
+            &Tick::Inbound(InboundBytes(
+                json!({"action":"update_channel","data":{"id":P,"threadCount":0}})
+                    .to_string()
+                    .into(),
+            )),
+            104,
+            &mut sink,
+        )
+        .unwrap();
+    for effect in sink.as_slice() {
+        if let Effect::Persist { ops, .. } = effect {
+            let _ = execute_storage_ops(&db, ops).await;
+        }
+    }
+    let parent = db
+        .get(GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text(P.into()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        parent
+            .iter()
+            .any(|(k, v)| k == "thread_count" && matches!(v, SqlValue::Integer(1))),
+        "legacy count must not corrupt versioned inventory: {parent:?}"
+    );
+    let (cols, exclude) = helix_im::channel_write::program_full(
+        &json!({"id":P,"type":"P","threadCount":0}),
+        "viewer",
+        105,
+    )
+    .unwrap();
+    let outcome = execute_storage_ops(
+        &db,
+        &[helix_im::acl::to_effect::upsert_channel_full_op(
+            cols, exclude,
+        )],
+    )
+    .await;
+    assert!(matches!(outcome, helix_core::tick::PortOutcome::Ok(_)));
+    let parent = db
+        .get(GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text(P.into()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        parent
+            .iter()
+            .any(|(k, v)| k == "thread_count" && matches!(v, SqlValue::Integer(1))),
+        "legacy full row must preserve count"
+    );
+    // 旧服务端仍能更新版本0缓存，不能以禁掉兼容路径换取绿测。
+    db.execute_raw("UPDATE channel SET topic_inventory_version=0 WHERE type='P'")
+        .await
+        .unwrap();
+    sink.clear();
+    restarted
+        .handle(
+            &Tick::Inbound(InboundBytes(
+                json!({"action":"update_channel","data":{"id":P,"threadCount":4}})
+                    .to_string()
+                    .into(),
+            )),
+            106,
+            &mut sink,
+        )
+        .unwrap();
+    for effect in sink.as_slice() {
+        if let Effect::Persist { ops, .. } = effect {
+            let _ = execute_storage_ops(&db, ops).await;
+        }
+    }
+    let parent = db
+        .get(GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text(P.into()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(parent
+        .iter()
+        .any(|(k, v)| k == "thread_count" && matches!(v, SqlValue::Integer(4))));
 }

@@ -1121,3 +1121,147 @@ async fn recovery_ledger_and_coverage_migrate_idempotently_and_roll_back_togethe
         .expect("coverage committed query")
         .is_some());
 }
+
+/// 回归锚：PRE 19489 reply-parent type2 到达时，本地尚未加载历史父消息。
+#[tokio::test]
+async fn sync_edit_snapshot_repairs_missing_history_without_replacing_local_authority() {
+    let storage = storage_with_im_schema().await;
+    let channel = channel_id(19489);
+    let mut event = post_event(
+        19489,
+        19489,
+        "tmp-history-parent",
+        "history-parent",
+        "edited",
+    );
+    event.kind = EventKind::PostEdit;
+    event.fields.viewers = vec!["all".into()];
+    event.fields.read_bits = "snapshot-bits".into();
+    event.fields.reply_messages = r#"{"child":{"type":"TEXT"}}"#.into();
+    event.fields.reply_count = 1;
+    let messages =
+        std::collections::HashMap::from([("history-parent".into(), event.fields.clone())]);
+    let mut ops = batch_upsert_events_with_messages_and_auth(&[event.clone()], &messages, "viewer");
+    ops.push(helix_im::acl::to_effect::advance_cursor_op(
+        channel,
+        Seq(19489),
+    ));
+    storage
+        .atomic_write(ops.clone())
+        .await
+        .expect("full visible snapshot must repair missing historical parent");
+    let row = storage
+        .get(GetSpec {
+            table: "message",
+            key_col: "id",
+            key_val: SqlValue::Text("history-parent".into()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(col_text(&row, "message"), "edited");
+    assert_eq!(col_text(&row, "read_bits"), "snapshot-bits");
+    assert!(matches!(
+        col(&row, "reply_count"),
+        Some(SqlValue::Integer(1))
+    ));
+    storage.execute_raw("UPDATE message SET read_bits='newer-bits', send_status='failed', create_at=123, event_seq=77 WHERE id='history-parent'").await.unwrap();
+    storage
+        .atomic_write(ops)
+        .await
+        .expect("replay must be idempotent");
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(col_text(&rows[0], "read_bits"), "newer-bits");
+    assert_eq!(col_text(&rows[0], "send_status"), "failed");
+    assert!(matches!(
+        col(&rows[0], "create_at"),
+        Some(SqlValue::Integer(123))
+    ));
+    assert!(matches!(
+        col(&rows[0], "event_seq"),
+        Some(SqlValue::Integer(77))
+    ));
+    assert!(ops_forbidden_channel_update(
+        &batch_upsert_events_with_messages_and_auth(&[event], &messages, "viewer")
+    ));
+}
+
+/// 编辑补行不得生成新消息的频道摘要或未读写操作。
+fn ops_forbidden_channel_update(ops: &[StorageOp]) -> bool {
+    ops.iter().all(|op| {
+        matches!(op, StorageOp::BatchUpsert(s) if s.table == "message")
+            || matches!(op, StorageOp::BatchUpdate(s) if s.table == "message")
+    })
+}
+
+/// 缺少身份、跨群、不可见或无 canonical temporary_id 时，不得制造历史消息。
+#[tokio::test]
+async fn sync_edit_incomplete_or_invisible_snapshot_keeps_cursor_blocked() {
+    for case in 0..6 {
+        let storage = storage_with_im_schema().await;
+        let mut event = post_event(19490, 2, "tmp-missing", "missing", "edit");
+        event.kind = EventKind::PostEdit;
+        event.fields.viewers = vec!["all".into()];
+        match case {
+            0 => event.fields.temporary_id.clear(),
+            1 => event.fields.user_id.clear(),
+            2 => event.fields.channel_id = cid(99),
+            3 => event.fields.create_at = 0,
+            4 => event.fields.viewers = vec!["other-viewer".into()],
+            _ => event.fields.id = "different-id".into(),
+        }
+        let messages = std::collections::HashMap::from([("missing".into(), event.fields.clone())]);
+        let mut ops = batch_upsert_events_with_messages_and_auth(&[event], &messages, "viewer");
+        ops.push(helix_im::acl::to_effect::advance_cursor_op(
+            channel_id(19490),
+            Seq(2),
+        ));
+        assert!(
+            storage.atomic_write(ops).await.is_err(),
+            "case {case} must fail closed"
+        );
+        assert!(scan_message_rows(&storage).await.is_empty());
+        assert!(storage
+            .get(GetSpec {
+                table: "channel_event_cursor",
+                key_col: "channel_id",
+                key_val: SqlValue::Text(cid(19490))
+            })
+            .await
+            .unwrap()
+            .is_none());
+    }
+}
+
+/// 先补历史行后遇到真实 SQL 失败，整批回滚，不能留下新行或已推进游标。
+#[tokio::test]
+async fn sync_edit_repair_rolls_back_with_remaining_batch_failure() {
+    let storage = storage_with_im_schema().await;
+    let mut event = post_event(19491, 2, "tmp-parent", "parent", "edit");
+    event.kind = EventKind::PostEdit;
+    event.fields.viewers = vec!["all".into()];
+    let messages = std::collections::HashMap::from([("parent".into(), event.fields.clone())]);
+    let mut ops = batch_upsert_events_with_messages_and_auth(&[event], &messages, "viewer");
+    ops.push(helix_im::acl::to_effect::advance_cursor_op(
+        channel_id(19491),
+        Seq(2),
+    ));
+    ops.push(StorageOp::BatchUpdate(BatchUpdateSpec {
+        table: "missing_table",
+        key_col: "id",
+        key_vals: vec![SqlValue::Text("x".into())],
+        patch: vec![("value".into(), SqlValue::Integer(1))],
+    }));
+    assert!(storage.atomic_write(ops).await.is_err());
+    assert!(scan_message_rows(&storage).await.is_empty());
+    assert!(storage
+        .get(GetSpec {
+            table: "channel_event_cursor",
+            key_col: "channel_id",
+            key_val: SqlValue::Text(cid(19491))
+        })
+        .await
+        .unwrap()
+        .is_none());
+}

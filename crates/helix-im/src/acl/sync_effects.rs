@@ -23,6 +23,69 @@ fn is_chain_declaration(fields: &crate::sync_session::PostFields) -> bool {
             .is_some_and(|value| value.eq_ignore_ascii_case("chain"))
 }
 
+/// 完整可见快照补齐尚未加载的历史消息；冲突时仍只更新原 type2 内容列。
+/// 稀疏/跨群/身份不符输入保留严格 UPDATE，不能靠默认值制造已同步事实。
+fn sync_edit_snapshot_op(
+    event: &EventEnvelope,
+    id: &str,
+    fields: &crate::sync_session::PostFields,
+    auth_user_id: &str,
+) -> StorageOp {
+    use helix_core::effect::{SqlValue, UpsertSpec};
+    let original = crate::channel::edit_content_op(id, fields);
+    if fields.id != id
+        || fields.temporary_id.is_empty()
+        || fields.user_id.is_empty()
+        || fields.channel_id != event.channel_id.as_str()
+        || fields.create_at <= 0
+        || fields.msg_type.is_empty()
+        || auth_user_id.is_empty()
+        || !crate::channel_write::post_updates_from_fields(event.channel_id, fields, auth_user_id)
+            .visible
+    {
+        return original;
+    }
+    // CATEGORY_CHAIN 已有独立的 revision 守卫；不改变该路径。
+    let StorageOp::BatchUpdate(update) = original else {
+        return original;
+    };
+    let mut row = update.patch;
+    let mut spec = UpsertSpec::new("message", Vec::new(), Some("temporary_id"));
+    for (column, value) in [
+        ("temporary_id", SqlValue::Text(fields.temporary_id.clone())),
+        ("id", SqlValue::Text(fields.id.clone())),
+        ("channel_id", SqlValue::Text(fields.channel_id.clone())),
+        ("user_id", SqlValue::Text(fields.user_id.clone())),
+        ("team_id", SqlValue::Text(fields.team_id.clone())),
+        (
+            "viewers",
+            SqlValue::Text(serde_json::json!(fields.viewers).to_string()),
+        ),
+        (
+            "mentions",
+            SqlValue::Text(serde_json::json!(fields.mentions).to_string()),
+        ),
+        ("read_bits", SqlValue::Text(fields.read_bits.clone())),
+        ("snapshot_id", SqlValue::Text(fields.snapshot_id.clone())),
+        ("send_status", SqlValue::Text("sent".into())),
+        ("create_at", SqlValue::Integer(fields.create_at)),
+        ("update_at", SqlValue::Integer(fields.update_at)),
+        (
+            "simple_message",
+            SqlValue::Text(fields.simple_message.clone()),
+        ),
+        ("reply_count", SqlValue::Integer(fields.reply_count)),
+    ] {
+        if !row.iter().any(|(key, _)| key == column) {
+            row.push((column.to_owned(), value));
+            spec.exclude_from_update.push(column);
+        }
+    }
+    // 缺行插入不伪造创建事件序号；message.event_seq 保持默认0，游标由原子批次推进。
+    spec.rows.push(row);
+    StorageOp::BatchUpsert(spec)
+}
+
 /// C3：逐 sync 事件产出 mutation 事件 Effect（真源 dispatch table post.rs:1157-1448）。
 pub fn sync_mutation_emits(
     events: &[EventEnvelope],
@@ -337,7 +400,7 @@ pub(crate) fn batch_upsert_events_with_messages_and_auth_observed(
                             }
                             continue;
                         }
-                        let op = crate::channel::edit_content_op(id, fields);
+                        let op = sync_edit_snapshot_op(ev, id, fields, auth_user_id);
                         if let Some(context) = observation
                             .filter(|context| context.target_matches(Some(id), Some(fields)))
                         {

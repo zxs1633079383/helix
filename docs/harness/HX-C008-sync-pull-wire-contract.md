@@ -94,6 +94,8 @@ emit_proactive_resync_for(channel_id);
 
 ## §4 Verification
 
+- type2 历史缺行恢复：服务端 `messages` 带身份完整、当前 viewer 可见的快照时，原子批次须补齐消息；冲突时仍只改原内容列，保留本地 read_bits/send_status/身份，不生成新消息未读。稀疏或 scope 不符输入继续 fail-closed。执行 `cargo test -p helix-driver-host --test im_event_persist sync_edit_`，覆盖缺行补齐、重复回放保留本地事实、无效快照、后续 SQL 失败整批回滚。
+
 - grep gate：`grep -R -n 'needs_continuation.*as_bool\|v\["type"\]' crates/helix-im/src/ws/parser crates/helix-im/src/sync` 期望 **0 行**（不得回退抽象 wire）。
 - grep：`grep -R -n 'SYNC_EVENTS_PER_ENTRY\|next_seq.max' crates/helix-im/src/ws/parser crates/helix-im/src/sync` 期望命中（续拉 + 锚定都在）。
 - 单测：`cargo test -p helix-im --test gate_test sync_cursor_anchors_to_next_seq_not_max_event`（证 nextSeq=50 / max(event.seq)=10 时 cursor 跳 50）；`--test e3_continuation_test`（满批续拉 → no_change 收尾）。

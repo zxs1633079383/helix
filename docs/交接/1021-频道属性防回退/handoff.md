@@ -18,7 +18,11 @@
 - core28+doc1通过/1doc忽略（`core.log`）；Web新增>=守卫测试1通过（`web-guard.log`）。这些通过后的相关core/Web守卫代码未变，复用证据。
 - `git diff --check`通过；core依赖树零运行时；热路径脚本对HEAD作函数/模式差异核对，无新增命中，已有命中未伪称清零（`hot-path-delta.log`）。
 - 风险：Go时间戳非严格revision；同毫秒不同内容、纯无版本写之间不能证明持久全序。专用close/leave、make-topic等与共享更新交叉未验收。
-- 实现/本地验证已完成；真实Go/Tauri/双设备UI、CI、容量未验收。没有push、提版、发布。
+- 实现/本地验证已完成；真实Go/Tauri/双设备UI、CI、容量未验收。发布状态见下。
 - 规模约束：5000人/群、每群5RPS、多群并行、1秒可达是目标；本批每频道固定主键操作，不按成员展开。
 
-- 发布阶段：用户授权发布远端并更新客户端两个分支；候选0.1.82预检通过，进行中。客户端共享脏文件不纳入。
+- 发布完成：四公共crate 0.1.82已发布crates.io且可解析；版本提交311caa9e753570046ae606a6494fb9b1b4727389，注释Tag helix-v-0.1.82及reactor/MessageV3-helix已推送回读。
+- 客户端dev-message：7f117ada52ac8c75ed7d2ebfc35024a5eb2186db；dev：9eb2f52320f4d6e6e186b2f99b9f69dc5b113fca；两个远端分支均回读一致，仅四依赖与lock更新。
+- 发布校验：workspace八crate check、四包dry-run/上传/registry解析通过；release-0.1.82.log。
+- 客户端：cargo update仅更新四包；cargo check --locked -p helix-driver-native通过（2m15s）；两分支manifest/lock逐字节相同，dev离线locked metadata通过，四包archive checksum匹配lock。证据client-082-*.log及client-dev-082-metadata.*。
+- 本轮无安装包构建/部署，CI及真实Tauri/UI未验收；共享客户端脏改动未夹带提交。

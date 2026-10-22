@@ -1,3 +1,4 @@
+✅ DONE(release): Helix0.1.85四包/版本提交/注释Tag已发布推送；客户端dev-message/dev依赖及回归已push且远端SHA一致；不构建安装包，真实UI/CI未验收。见本任务交接。
 🎯 EXPECT 发布下一Helix patch四包并提交注释Tag；客户端dev-message/dev四依赖与lock同步并push，远端回读一致；不构建安装包。| 赌注 中 | 可逆 发布否 | @2026-10-22
 ✅ DONE(local): mentions 实时投影已补齐；SQLite8项、IM库501项、core/五crate/WASM与客户端7项通过，字段删除mutation失败；既有footer断言失败和真实UI未验收见本任务交接。
 🎯 EXPECT 实时 received 保留 mentions（含空数组）；真实Tick/SQLite先红后绿，客户端旧@清除后新@重新显示，会议任务点击移除不变；本地提交不发布。| 赌注 低 | 可逆 是 | @2026-10-22

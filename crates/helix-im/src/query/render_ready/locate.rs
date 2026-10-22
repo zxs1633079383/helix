@@ -7,6 +7,8 @@ use thiserror::Error;
 pub enum LocateProjectionError {
     #[error("locate response omitted target message {0}")]
     TargetMissing(String),
+    #[error("locate response target message {0} was revoked")]
+    TargetRevoked(String),
     #[error(
         "locate response message {message_id} belongs to channel {actual}, expected {expected}"
     )]
@@ -19,6 +21,23 @@ pub enum LocateProjectionError {
     TargetInvisible(String),
     #[error("locate response page size is invalid: {0}")]
     InvalidPageSize(u32),
+}
+
+/// Stable read-relay classifications consumed by the client recovery path.
+pub(crate) const TARGET_NOT_FOUND: &str = "TARGET_NOT_FOUND: locate target is missing";
+pub(crate) const TARGET_REVOKED: &str = "TARGET_REVOKED: locate target was revoked";
+pub(crate) const TARGET_NOT_VISIBLE: &str = "TARGET_NOT_VISIBLE: locate target is not visible";
+
+impl LocateProjectionError {
+    /// Map only target-state failures to machine-readable read error codes.
+    pub(crate) const fn stable_read_error_code(&self) -> Option<&'static str> {
+        match self {
+            Self::TargetMissing(_) => Some(TARGET_NOT_FOUND),
+            Self::TargetRevoked(_) => Some(TARGET_REVOKED),
+            Self::TargetInvisible(_) => Some(TARGET_NOT_VISIBLE),
+            Self::ChannelMismatch { .. } | Self::InvalidPageSize(_) => None,
+        }
+    }
 }
 
 /// 过滤远端 context 页，确保目标和所有可见 rows 属于同一 viewer/channel 作用域。
@@ -58,6 +77,11 @@ pub fn filter_visible_remote_rows(
         let is_target =
             crate::timeline_navigation::row_matches_message_identity(row, target_message_id);
         target_present |= is_target;
+        if is_target && row_is_revoked(row) {
+            return Err(LocateProjectionError::TargetRevoked(
+                target_message_id.to_string(),
+            ));
+        }
         let fields = crate::ws::parser::extract_post_fields(row);
         let visible = !row_is_revoked(row)
             && crate::channel_write::post_updates_from_fields(channel_id, &fields, viewer_user_id)
@@ -119,6 +143,11 @@ pub fn normalize_durable_located_window(
         let is_target =
             crate::timeline_navigation::row_matches_message_identity(&row, target_message_id);
         target_present |= is_target;
+        if is_target && row_is_revoked(&row) {
+            return Err(LocateProjectionError::TargetRevoked(
+                target_message_id.to_string(),
+            ));
+        }
         let fields = crate::ws::parser::extract_post_fields(&row);
         let visible = !row_is_revoked(&row)
             && crate::channel_write::post_updates_from_fields(channel_id, &fields, viewer_user_id)
@@ -156,6 +185,35 @@ pub fn normalize_durable_located_window(
         viewer_user_id,
     );
     Ok(shaped.as_array().cloned().unwrap_or_default())
+}
+
+/// Recover a target-state error when `TimelineNavigationState::ingest_http_body` rejected the
+/// page before the ordinary remote filter ran (for example, a stale/missing targetIndex).
+pub(crate) fn classify_remote_target_error(
+    raw_body: &[u8],
+    expected_channel_id: &str,
+    target_message_id: &str,
+    viewer_user_id: &str,
+) -> Option<LocateProjectionError> {
+    let root: Value = serde_json::from_slice(raw_body).ok()?;
+    if root.get("status").and_then(Value::as_str) != Some("SUCCESS") {
+        return None;
+    }
+    let data = root.get("data")?.as_object()?;
+    let explicit_empty = data.get("count").and_then(Value::as_u64) == Some(0);
+    let rows = match data.get("posts") {
+        Some(Value::Array(rows)) => rows.as_slice(),
+        Some(Value::Null) if explicit_empty => &[],
+        _ => return None,
+    };
+    match filter_visible_remote_rows(rows, expected_channel_id, target_message_id, viewer_user_id)
+        .err()
+    {
+        Some(LocateProjectionError::TargetMissing(_)) if !explicit_empty || !rows.is_empty() => {
+            None
+        }
+        error => error,
+    }
 }
 
 /// 识别 durable 或 wire 行中的撤回标记，不把撤回目标重新暴露为定位结果。
@@ -247,5 +305,25 @@ mod tests {
             normalize_located_window(cross_channel, "c1", "target", "u1"),
             Err(LocateProjectionError::ChannelMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn target_state_errors_keep_stable_read_codes() {
+        assert_eq!(
+            LocateProjectionError::TargetMissing("m".to_string()).stable_read_error_code(),
+            Some(TARGET_NOT_FOUND)
+        );
+        assert_eq!(
+            LocateProjectionError::TargetRevoked("m".to_string()).stable_read_error_code(),
+            Some(TARGET_REVOKED)
+        );
+        assert_eq!(
+            LocateProjectionError::TargetInvisible("m".to_string()).stable_read_error_code(),
+            Some(TARGET_NOT_VISIBLE)
+        );
+        assert_eq!(
+            LocateProjectionError::InvalidPageSize(0).stable_read_error_code(),
+            None
+        );
     }
 }

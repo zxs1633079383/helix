@@ -166,7 +166,25 @@ impl ImModule {
         };
         if let Err(error) = state.ingest_http_body(&raw) {
             tracing::warn!(error = ?error, "timeline navigation body invalid");
-            self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+            let target_error = match state.kind() {
+                crate::timeline_navigation::TimelineNavigationKind::Locate {
+                    target_message_id,
+                    ..
+                } => crate::query::render_ready::locate::classify_remote_target_error(
+                    &raw,
+                    state.channel_id().as_str(),
+                    target_message_id,
+                    self.config.auth_user_id.as_str(),
+                ),
+                crate::timeline_navigation::TimelineNavigationKind::Older { .. }
+                | crate::timeline_navigation::TimelineNavigationKind::Newer { .. } => None,
+            };
+            self.emit_timeline_navigation_failed_event_with_reason(
+                &state,
+                now_ms,
+                out,
+                target_error.as_ref(),
+            )?;
             return Ok(());
         }
         if matches!(
@@ -186,7 +204,12 @@ impl ImModule {
                         error = ?error,
                         "timeline locate target is not visible in HTTP authority"
                     );
-                    self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+                    self.emit_timeline_navigation_failed_event_with_reason(
+                        &state,
+                        now_ms,
+                        out,
+                        Some(&error),
+                    )?;
                     return Ok(());
                 }
             };
@@ -243,8 +266,19 @@ impl ImModule {
     pub(super) fn emit_timeline_navigation_failed_event(
         &mut self,
         state: &crate::timeline_navigation::TimelineNavigationState,
+        now_ms: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        self.emit_timeline_navigation_failed_event_with_reason(state, now_ms, out, None)
+    }
+
+    /// Emit the existing read-relay failure while preserving target-state codes for locate.
+    fn emit_timeline_navigation_failed_event_with_reason(
+        &mut self,
+        state: &crate::timeline_navigation::TimelineNavigationState,
         _now_ms: u64,
         out: &mut EffectSink,
+        locate_error: Option<&crate::query::render_ready::locate::LocateProjectionError>,
     ) -> Result<(), ImError> {
         self.clear_timeline_navigation_pending(state);
         let page_direction = match state.kind() {
@@ -291,10 +325,12 @@ impl ImModule {
         // Locate window lifecycle filtering belongs to Angular; Helix only correlates reqId.
         let _ = navigation_token;
         if let Some(request_id) = state.request_id() {
-            out.push(crate::read_relay::emit_read_error(
-                request_id,
-                "timeline locate query failed before durable result",
-            ));
+            let message = locate_error
+                .and_then(
+                    crate::query::render_ready::locate::LocateProjectionError::stable_read_error_code,
+                )
+                .unwrap_or("timeline locate query failed before durable result");
+            out.push(crate::read_relay::emit_read_error(request_id, message));
         }
         Ok(())
     }
@@ -509,7 +545,21 @@ impl ImModule {
                         error = ?error,
                         "timeline locate exact durable projection failed closed"
                     );
-                    self.emit_timeline_navigation_failed_event(&state, now_ms, out)?;
+                    let target_state_error = matches!(
+                        &error,
+                        crate::query::render_ready::locate::LocateProjectionError::TargetRevoked(
+                            _
+                        ) | crate::query::render_ready::locate::LocateProjectionError::TargetInvisible(
+                            _
+                        )
+                    )
+                    .then_some(&error);
+                    self.emit_timeline_navigation_failed_event_with_reason(
+                        &state,
+                        now_ms,
+                        out,
+                        target_state_error,
+                    )?;
                     return Ok(());
                 }
             },

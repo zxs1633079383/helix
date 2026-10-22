@@ -672,9 +672,9 @@ fn g11d_locate_deduplicates_out_of_order_readback() {
     );
 }
 
-/// Locate authority 缺失目标时必须失败保旧，不能用其它 rows 猜测 targetIndex。
+/// Locate authority 非空响应缺失目标时必须保留通用错误，不能把合同失败猜成删除。
 #[test]
-fn g11d_locate_missing_target_fails_before_persist() {
+fn g11d_locate_nonempty_missing_target_keeps_generic_error() {
     let mut harness = scoped_harness(&[CHANNEL]);
     attach_latest_window(&mut harness);
     harness.step(
@@ -688,7 +688,34 @@ fn g11d_locate_missing_target_fails_before_persist() {
     );
     let events = emitted_events(&harness);
     assert_eq!(events.len(), 1);
-    assert!(events[0]["data"].get("error").is_some());
+    assert!(events[0]["data"]["error"].as_str().is_some_and(|error| {
+        error.contains("timeline locate query failed before durable result")
+            && !error.contains("TARGET_NOT_FOUND: ")
+    }));
+    assert!(harness
+        .sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Persist { .. })));
+}
+
+/// Locate authority 明确返回 count=0 空结果时，read error 才能归类为目标缺失。
+#[test]
+fn g11d_locate_empty_authority_has_stable_not_found_error() {
+    let mut harness = scoped_harness(&[CHANNEL]);
+    attach_latest_window(&mut harness);
+    harness.step(
+        locate_command_with("mv3-g11d-not-found", "req-empty-missing", "missing"),
+        6,
+    );
+    let http = only_http(&harness, "/posts/postContext");
+    let empty = Bytes::from_static(br#"{"status":"SUCCESS","data":{"count":0,"posts":[]}}"#);
+    harness.step(port_reply_with_body(http.raw(), enveloped(empty)), 7);
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert!(events[0]["data"]["error"]
+        .as_str()
+        .is_some_and(|error| error.contains("TARGET_NOT_FOUND: ")));
     assert!(harness
         .sink
         .as_slice()
@@ -883,7 +910,9 @@ fn g11d_revoked_target_has_correlated_error_without_persist() {
     let events = emitted_events(&harness);
     assert_eq!(events.len(), 1);
     assert_eq!(events[0]["event"], "im:read:result");
-    assert!(events[0]["data"].get("error").is_some());
+    assert!(events[0]["data"]["error"]
+        .as_str()
+        .is_some_and(|error| error.contains("TARGET_REVOKED: ")));
     assert!(harness
         .sink
         .as_slice()
@@ -892,6 +921,173 @@ fn g11d_revoked_target_has_correlated_error_without_persist() {
     assert!(!serde_json::to_string(&events)
         .unwrap()
         .contains("im:timeline:"));
+}
+
+/// Locate authority 明确返回受众不可见的目标时，read error 必须保留稳定分类。
+#[test]
+fn g11d_invisible_target_has_stable_correlated_error_without_persist() {
+    let mut harness = scoped_harness(&[CHANNEL]);
+    attach_latest_window(&mut harness);
+    harness.step(locate_command(3), 6);
+    let http = only_http(&harness, "/posts/postContext");
+    let mut invisible: Value = serde_json::from_slice(locate_posts().as_ref()).unwrap();
+    invisible["data"]["posts"][2]["viewers"] = json!(["g11d-other"]);
+    harness.step(
+        port_reply_with_body(
+            http.raw(),
+            enveloped(Bytes::from(serde_json::to_vec(&invisible).unwrap())),
+        ),
+        7,
+    );
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["event"], "im:read:result");
+    assert!(events[0]["data"]["error"]
+        .as_str()
+        .is_some_and(|error| error.contains("TARGET_NOT_VISIBLE: ")));
+    assert!(harness
+        .sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Persist { .. })));
+}
+
+/// Durable readback 发现目标已撤回时，必须沿同一 read-relay 通道返回撤回分类。
+#[test]
+fn g11d_revoked_target_in_durable_readback_has_stable_error() {
+    let mut harness = scoped_harness(&[CHANNEL]);
+    attach_latest_window(&mut harness);
+    harness.step(locate_command(3), 6);
+    let http = only_http(&harness, "/posts/postContext");
+    harness.step(
+        port_reply_with_body(http.raw(), enveloped(locate_posts())),
+        7,
+    );
+    let cache = only_cache_write(&harness);
+    harness.step(port_reply_with_body(cache.raw(), Bytes::new()), 8);
+
+    let mut durable = durable_rows_value();
+    durable[2]["revoke"] = json!(true);
+    let mut readback = only_exact_message_scan(&harness);
+    for index in 1..=5 {
+        harness.step(
+            port_reply_with_body(readback.0.raw(), single_durable_row(&durable, &readback.1)),
+            8 + index,
+        );
+        if index < 5 {
+            readback = only_exact_message_scan(&harness);
+        }
+    }
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert!(events[0]["data"]["error"]
+        .as_str()
+        .is_some_and(|error| error.contains("TARGET_REVOKED: ")));
+
+    // Failure must release the reqId guard so a later retry can start authority I/O.
+    harness.step(
+        locate_command_with(
+            "srvfix00000000000000000003",
+            "req-retry-after-revoke",
+            "token-retry-after-revoke",
+        ),
+        20,
+    );
+    assert_eq!(
+        harness
+            .sink
+            .as_slice()
+            .iter()
+            .filter(|effect| matches!(effect, Effect::Http { .. }))
+            .count(),
+        1
+    );
+}
+
+/// Durable readback 发现目标对当前 viewer 不可见时，必须返回不可见分类并清理 pending。
+#[test]
+fn g11d_invisible_target_in_durable_readback_has_stable_error() {
+    let mut harness = scoped_harness(&[CHANNEL]);
+    attach_latest_window(&mut harness);
+    harness.step(locate_command(3), 6);
+    let http = only_http(&harness, "/posts/postContext");
+    harness.step(
+        port_reply_with_body(http.raw(), enveloped(locate_posts())),
+        7,
+    );
+    let cache = only_cache_write(&harness);
+    harness.step(port_reply_with_body(cache.raw(), Bytes::new()), 8);
+
+    let mut durable = durable_rows_value();
+    durable[2]["viewers"] = json!(["g11d-other"]);
+    let mut readback = only_exact_message_scan(&harness);
+    for index in 1..=5 {
+        harness.step(
+            port_reply_with_body(readback.0.raw(), single_durable_row(&durable, &readback.1)),
+            8 + index,
+        );
+        if index < 5 {
+            readback = only_exact_message_scan(&harness);
+        }
+    }
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert!(events[0]["data"]["error"]
+        .as_str()
+        .is_some_and(|error| error.contains("TARGET_NOT_VISIBLE: ")));
+
+    harness.step(
+        locate_command_with(
+            "srvfix00000000000000000003",
+            "req-retry-after-invisible",
+            "token-retry-after-invisible",
+        ),
+        20,
+    );
+    assert_eq!(
+        harness
+            .sink
+            .as_slice()
+            .iter()
+            .filter(|effect| matches!(effect, Effect::Http { .. }))
+            .count(),
+        1
+    );
+}
+
+/// Authority 包含目标但 durable exact readback 缺失目标时，必须保留通用错误。
+#[test]
+fn g11d_missing_target_in_durable_readback_keeps_generic_error() {
+    let mut harness = scoped_harness(&[CHANNEL]);
+    attach_latest_window(&mut harness);
+    harness.step(locate_command(3), 6);
+    let http = only_http(&harness, "/posts/postContext");
+    harness.step(
+        port_reply_with_body(http.raw(), enveloped(locate_posts())),
+        7,
+    );
+    let cache = only_cache_write(&harness);
+    harness.step(port_reply_with_body(cache.raw(), Bytes::new()), 8);
+
+    let durable = durable_rows_value();
+    let mut readback = only_exact_message_scan(&harness);
+    for index in 1..=3 {
+        let body = if index == 3 {
+            Bytes::from_static(b"[]")
+        } else {
+            single_durable_row(&durable, &readback.1)
+        };
+        harness.step(port_reply_with_body(readback.0.raw(), body), 8 + index);
+        if index < 3 {
+            readback = only_exact_message_scan(&harness);
+        }
+    }
+    let events = emitted_events(&harness);
+    assert_eq!(events.len(), 1);
+    assert!(events[0]["data"]["error"].as_str().is_some_and(|error| {
+        error.contains("timeline locate query failed before durable result")
+            && !error.contains("TARGET_NOT_FOUND: ")
+    }));
 }
 
 /// 隐藏前置消息被过滤后，locate 的 targetIndex 必须按可见 durable 窗口重算。

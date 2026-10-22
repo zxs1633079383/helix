@@ -1,3 +1,6 @@
+✅ DONE(local): mentions 实时投影已补齐；SQLite8项、IM库501项、core/五crate/WASM与客户端7项通过，字段删除mutation失败；既有footer断言失败和真实UI未验收见本任务交接。
+🎯 EXPECT 实时 received 保留 mentions（含空数组）；真实Tick/SQLite先红后绿，客户端旧@清除后新@重新显示，会议任务点击移除不变；本地提交不发布。| 赌注 低 | 可逆 是 | @2026-10-22
+- 交接：docs/交接/1022-底部艾特提醒/handoff.md
 ✅ DONE(release): Helix 0.1.82四包、源码与Tag已发布推送；客户端dev-message/dev四依赖与lock已推送，registry checksum和远端SHA一致。证据见1021频道交接；未构建安装包，真实UI/CI未验收。
 🎯 EXPECT 发布Helix 0.1.82四包并提交Tag，客户端四依赖及锁文件同步至dev-message/dev，远端回读一致。| 赌注 中 | 可逆 发布否 | @2026-10-21
 ✅ DONE(local): 普通频道群名及HTTP旧回包红测转绿；9项频道SQLite+4项置顶、604项IM定向、五crate/core/Web守卫/WASM通过。残余版本碰撞与专用生命周期风险见 docs/交接/1021-频道属性防回退/handoff.md；本地提交，不发布。

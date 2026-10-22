@@ -823,3 +823,77 @@ async fn buffered_empty_edits_preserve_existing_urgent_data() {
     let cursor = get_row(&fixture, "channel_event_cursor", "channel_id", CHANNEL).await;
     assert_eq!(integer(&cursor, "last_event_seq"), 3);
 }
+
+/// @ 受众在真实落库和 received 中一致；重复回声不重发，卡片 props 不受影响。
+#[tokio::test]
+async fn mentions_survive_persist_and_received_for_footer_notifications() {
+    let mut fixture = fixture("", 13, 0).await;
+    let mut received = Vec::new();
+    for (index, mentions, props) in [
+        (1, json!([RECEIVER]), json!({})),
+        (2, json!([RECEIVER]), json!({})),
+        (
+            3,
+            json!([]),
+            json!({"meetingCardBlock":{"detail":{"title":"会议"}}}),
+        ),
+        (
+            4,
+            json!([]),
+            json!({"taskCardBlock":{"detail":{"title":"任务"}}}),
+        ),
+        (5, json!([OUTSIDER]), json!({})),
+    ] {
+        let Tick::Inbound(frame) = post_frame(index, &sid(index), "notification") else {
+            panic!("expected inbound");
+        };
+        let mut wire: Value = serde_json::from_slice(&frame.0).unwrap();
+        wire["data"]["post"]["mentions"] = mentions.clone();
+        wire["data"]["post"]["props"] = props.clone();
+        let tick = Tick::Inbound(InboundBytes(serde_json::to_vec(&wire).unwrap().into()));
+        fixture
+            .module
+            .handle(&tick, 1_000, &mut fixture.sink)
+            .unwrap();
+        assert!(
+            !fixture
+                .sink
+                .as_slice()
+                .iter()
+                .any(|effect| matches!(effect, Effect::Emit { .. })),
+            "no pre-persist event"
+        );
+        let result = pump(&mut fixture, false).await;
+        assert!(result.error.is_none(), "{:?}", result.error);
+        let row = get_row(&fixture, "message", "id", &sid(index)).await;
+        assert_eq!(
+            serde_json::from_str::<Value>(text(&row, "mentions")).unwrap(),
+            mentions
+        );
+        let events = named_events(&result.trace, "im:post:received");
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0]["data"]["mentions"], mentions,
+            "stored mentions must reach received"
+        );
+        if props != json!({}) {
+            assert_eq!(events[0]["data"]["props"], props);
+        }
+        received.push(events[0].clone());
+        fixture
+            .module
+            .handle(&tick, 1_001, &mut fixture.sink)
+            .unwrap();
+        let duplicate = pump(&mut fixture, false).await;
+        assert!(duplicate.error.is_none());
+        assert!(named_events(&duplicate.trace, "im:post:received").is_empty());
+    }
+    // 显式生成客户端合同 fixture；内容只取公开 Tick 实际释放的事件。
+    if let Ok(path) = std::env::var("HELIX_MENTION_FIXTURE_PATH") {
+        std::fs::write(
+            path,
+            serde_json::to_string_pretty(&received).unwrap() + "\n",
+        )
+        .unwrap();
+    }
+}

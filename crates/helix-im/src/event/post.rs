@@ -168,6 +168,8 @@ pub fn authority_projection(
         "type": fields.msg_type,
         "createAt": fields.create_at,
         "sendStatus": "sent",
+        // 与持久化/历史查询共用 authority；空数组也显式输出，避免客户端误判新 @。
+        "mentions": fields.mentions,
     });
     if !fields.user_snapshot.trim().is_empty() {
         received_data["userSnapshot"] = serde_json::from_str(&fields.user_snapshot)

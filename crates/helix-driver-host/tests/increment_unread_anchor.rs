@@ -886,8 +886,9 @@ async fn reaction_http_effects(module: &mut ImModule, member: Value, ack: bool) 
     sink
 }
 
+/// 真实SQLite保留新版WS，查询/确认共用一次只读恢复并返回新版绝对态。
 #[tokio::test]
-async fn cold_query_and_ack_heal_legacy_cache_and_reject_newer_readback() {
+async fn cold_query_and_ack_heal_cache_and_requery_newer_readback() {
     for ack in [false, true] {
         for newer_race in [false, true] {
             let (storage, mut module) = setup().await;
@@ -941,21 +942,73 @@ async fn cold_query_and_ack_heal_legacy_cache_and_reject_newer_readback() {
                 module.handle(&Tick::Inbound(InboundBytes(serde_json::to_vec(&json!({"action":"member_projection","data":complete_member(62,"newer-62")})).unwrap().into())),1004,&mut newer).unwrap();
                 drain(&storage, &mut module, newer).await;
             }
-            let events = drain(&storage, &mut module, readback).await;
+            let events = if newer_race {
+                let [Effect::Persist { corr, ops }] = readback.as_slice() else {
+                    panic!("one scoped readback expected")
+                };
+                let outcome = execute_storage_ops(&storage, ops).await;
+                let mut retry = EffectSink::new();
+                module
+                    .handle(
+                        &Tick::PortReply {
+                            corr: *corr,
+                            outcome,
+                        },
+                        1005,
+                        &mut retry,
+                    )
+                    .unwrap();
+                let [Effect::Http { corr, req }] = retry.as_slice() else {
+                    panic!(
+                        "newer SQLite row must requery authority: {:?}",
+                        retry.as_slice()
+                    )
+                };
+                assert!(
+                    req.url.ends_with("/posts/reactionUnread"),
+                    "ack cannot replay"
+                );
+                let member = complete_member(62, "newer-62");
+                let body = json!({"status":"SUCCESS","data":{"count":member["reactionUnreadCount"],"nextTarget":{"postId":"reacted-post","revision":"62"},"memberProjection":member}});
+                let reply = json!({"status":200,"headers":{},"body":helix_driver_host::base64_encode(&serde_json::to_vec(&body).unwrap())});
+                let mut fresh = EffectSink::new();
+                module
+                    .handle(
+                        &Tick::PortReply {
+                            corr: *corr,
+                            outcome: PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                                serde_json::to_vec(&reply).unwrap().into(),
+                            )),
+                        },
+                        1006,
+                        &mut fresh,
+                    )
+                    .unwrap();
+                drain(&storage, &mut module, fresh).await
+            } else {
+                drain(&storage, &mut module, readback).await
+            };
             let result = events
                 .iter()
                 .find(|event| event["event"] == "im:read:result")
                 .expect("one terminal");
+            assert!(result["data"].get("error").is_none(), "{result}");
+            assert_eq!(result["data"]["req_id"], "cold-reaction");
+            assert_eq!(
+                result["data"]["body"]["data"]["count"],
+                if newer_race || !ack { 2 } else { 0 }
+            );
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|event| event["event"] == "im:read:result")
+                    .count(),
+                1
+            );
             if newer_race {
                 assert_eq!(
-                    result["data"]["error"],
-                    "REACTION_UNREAD_PROJECTION_CHANGED"
-                );
-            } else {
-                assert!(result["data"].get("error").is_none(), "{result}");
-                assert_eq!(
-                    result["data"]["body"]["data"]["count"],
-                    if ack { 0 } else { 2 }
+                    result["data"]["body"]["data"]["memberProjection"]["projectionRevision"],
+                    62
                 );
             }
         }

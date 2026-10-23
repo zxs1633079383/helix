@@ -9,10 +9,13 @@ use helix_core::{effect::Effect, tick::PortOutcome, EffectSink};
 use serde_json::Value;
 
 impl ImModule {
+    /// 校验远端绝对态后持久化，保留原查询范围与恢复预算直到读回终态。
     pub(super) fn reaction_unread_http_reply(
         &mut self,
         req_id: String,
         channel: Option<&str>,
+        post_ids: Option<Value>,
+        retried: bool,
         outcome: &PortOutcome,
         now_ms: u64,
         out: &mut EffectSink,
@@ -104,6 +107,8 @@ impl ImModule {
                 body,
                 expected: Box::new(projection),
                 readback: false,
+                post_ids,
+                retried,
             },
         );
         out.push(Effect::PersistAtomic {
@@ -118,6 +123,7 @@ impl ImModule {
         Ok(())
     }
 
+    /// 旧结果不得覆盖新版；仅真正更高版本可用一次只读重查收敛，其他不一致继续失败。
     pub(super) fn reaction_unread_projection_reply(
         &mut self,
         req_id: String,
@@ -125,6 +131,8 @@ impl ImModule {
         body: Value,
         expected: Box<MemberChannelUpdate>,
         readback: bool,
+        post_ids: Option<Value>,
+        retried: bool,
         outcome: &PortOutcome,
         now_ms: u64,
         out: &mut EffectSink,
@@ -153,6 +161,8 @@ impl ImModule {
                     body,
                     expected,
                     readback: true,
+                    post_ids,
+                    retried,
                 },
             );
             out.push(Effect::Persist {
@@ -164,18 +174,35 @@ impl ImModule {
             });
             return Ok(());
         }
-        let matches = crate::channel_update::member_channel_from_reply(
+        let actual = crate::channel_update::member_channel_from_reply(
             reply.0.as_ref(),
             channel_id,
             &self.config.auth_user_id,
             now_ms,
-        )
-        .is_some_and(|actual| {
+        );
+        let matches = actual.as_ref().is_some_and(|actual| {
             actual.projection_revision == expected.projection_revision
                 && actual.effect_id == expected.effect_id
                 && crate::channel_update::member_projection_matches(&expected, &actual)
         });
         if !matches {
+            let newer = actual.as_ref().is_some_and(|actual| {
+                actual.projection_revision > expected.projection_revision
+                    && crate::channel_update::require_member_projection_identity(
+                        actual,
+                        "reaction readback",
+                    )
+                    .is_ok()
+            });
+            tracing::warn!(req_id = %req_id, expected_revision = ?expected.projection_revision,
+                actual_revision = ?actual.as_ref().and_then(|value| value.projection_revision),
+                expected_reaction_count = ?expected.reaction_unread_count,
+                actual_reaction_count = ?actual.as_ref().and_then(|value| value.reaction_unread_count),
+                same_effect = actual.as_ref().is_some_and(|value| value.effect_id == expected.effect_id),
+                newer, retried, "reaction unread durable readback changed");
+            if newer && !retried {
+                return self.requery_reaction_unread(req_id, channel_id, post_ids, out);
+            }
             out.push(crate::read_relay::emit_read_error(
                 &req_id,
                 "REACTION_UNREAD_PROJECTION_CHANGED",
@@ -191,6 +218,42 @@ impl ImModule {
             out,
         )?;
         out.push(crate::read_relay::emit_read_body(&req_id, body));
+        Ok(())
+    }
+
+    /// 最多追加一次只读 HTTP；原 req_id 与 post_ids 保持，停止时由同一 corr_map 取消。
+    fn requery_reaction_unread(
+        &mut self,
+        req_id: String,
+        channel_id: ChannelId,
+        post_ids: Option<Value>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let mut args = serde_json::json!({"req_id":req_id, "channel_id":channel_id.as_str()});
+        if let Some(ids) = &post_ids {
+            args["post_ids"] = ids.clone();
+        }
+        let corr = self.alloc_corr_internal();
+        let effects = crate::commands::handle_outbound(
+            "im_reaction_unread",
+            &serde_json::to_vec(&args).map_err(|error| ImError::Parse(error.to_string()))?,
+            &self.config.api_base_url,
+            &self.config.default_api_base_url,
+            self.state.connection_id.as_deref(),
+            corr,
+        )?;
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::ReactionUnreadHttp {
+                req_id,
+                channel_id: Some(channel_id.as_str().to_owned()),
+                post_ids,
+                retried: true,
+            },
+        );
+        for effect in effects {
+            out.push(effect);
+        }
         Ok(())
     }
 }

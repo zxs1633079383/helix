@@ -576,6 +576,14 @@ pub enum CorrelationContext {
     /// 读族无 WS 回声、HTTP 响应体即数据 → 注册本上下文，`handle_port_reply` 按命令身份
     /// 透传或投影 `im:read:result{req_id, body}`。写族不注册（fire-and-forget）。
     /// `req_id` 前端 bridge 注入（owned String，跨 step 存活，HX-C002；与 corr 解耦）。
+    /// 回应查询保留最多100个目标与单次恢复预算；确认成功后仅重查，不重放确认。
+    ReactionUnreadHttp {
+        req_id: String,
+        channel_id: Option<String>,
+        post_ids: Option<serde_json::Value>,
+        retried: bool,
+    },
+
     /// Personal reaction HTTP response awaiting durable projection and matching readback.
     ReactionUnreadProjection {
         req_id: String,
@@ -583,6 +591,8 @@ pub enum CorrelationContext {
         body: serde_json::Value,
         expected: Box<crate::channel_update::MemberChannelUpdate>,
         readback: bool,
+        post_ids: Option<serde_json::Value>,
+        retried: bool,
     },
 
     OutboundReadReply {
@@ -913,7 +923,8 @@ impl CorrelationContext {
             Self::OutboundPinnedReply { req_id, .. } => Some(req_id.as_str()),
             Self::PinnedProjectionReadback { req_id, .. }
             | Self::PinnedProjectionPersist { req_id, .. } => Some(req_id.as_str()),
-            Self::ReactionUnreadProjection { req_id, .. } => Some(req_id.as_str()),
+            Self::ReactionUnreadHttp { req_id, .. }
+            | Self::ReactionUnreadProjection { req_id, .. } => Some(req_id.as_str()),
             Self::OutboundReadReply { req_id, .. } | Self::OutboundWriteReply { req_id } => {
                 Some(req_id.as_str())
             }

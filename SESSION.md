@@ -1282,3 +1282,7 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 - 🎯 EXPECT 2026-10-21 PRE Storage(0)：用19489事件+只读备份复现type2缺行回滚，修复权威快照补齐且不清缓存/跳游标；交接见客户端 docs/交接/1021-PRE同步落库失败/handoff.md。
 
 - ✅ DONE 2026-10-21 PRE Storage(0)：19489历史父消息type2缺行回滚已定位并修复；52项定向通过，真实响应763事件在副本推进至20251；未发布/未做现场UI恢复，证据与交接同上。
+
+🎯 EXPECT 回应HTTP结果被更高版本成员投影抢先提交时最多只读重查一次，旧body不Emit、ack不重放；同版冲突继续失败。| 赌注 中 | 可逆 是 | @2026-10-23
+- 交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/Mac唤醒回应弹窗/handoff.md；分支 reactor/MessageV3-helix，不删除、不push。
+✅ DONE 新版竞争有界只读重查、自动来源分类及安全展示记录已实现；G13 19项、真实SQLite定向回归、crate check及客户端45项分批定向通过。真实Tauri/发布未验收；另有分页与工具栏类型检查失败，详见交接。

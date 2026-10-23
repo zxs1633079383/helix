@@ -516,6 +516,15 @@ fn reaction_response(count: i64) -> Value {
 
 /// Authorize the visible channel through the public dialog read before requesting personal state.
 fn reaction_request(replay: &mut Replay, ack: bool) -> TestResult<Correlation> {
+    reaction_request_with_posts(replay, ack, None)
+}
+
+/// 仅竞争回归传入可见目标过滤，标准canonical输入保持原样。
+fn reaction_request_with_posts(
+    replay: &mut Replay,
+    ack: bool,
+    post_ids: Option<Value>,
+) -> TestResult<Correlation> {
     let query = replay.command_corr("im_query_dialog_list", json!({}))?;
     replay.reply(
         query,
@@ -523,9 +532,24 @@ fn reaction_request(replay: &mut Replay, ack: bool) -> TestResult<Correlation> {
         CREATED_AT as u64,
     )?;
     replay.reply_dialog_members(7, 0, 0, CREATED_AT as u64)?;
-    replay.command_corr(if ack {"im_reaction_unread_ack"} else {"im_reaction_unread"},
-        if ack {json!({"channel_id":CHANNEL_ID,"req_id":"reaction-request","post_id":"reaction-post","observed_revision":"9007199254740993"})}
-        else {json!({"channel_id":CHANNEL_ID,"req_id":"reaction-request"})})
+    let mut args = if ack {
+        json!({"channel_id":CHANNEL_ID,"req_id":"reaction-request","post_id":"reaction-post","observed_revision":"9007199254740993"})
+    } else {
+        json!({"channel_id":CHANNEL_ID,"req_id":"reaction-request"})
+    };
+    if !ack {
+        if let Some(ids) = post_ids {
+            args["post_ids"] = ids;
+        }
+    }
+    replay.command_corr(
+        if ack {
+            "im_reaction_unread_ack"
+        } else {
+            "im_reaction_unread"
+        },
+        args,
+    )
 }
 
 /// Use the real driver HTTP envelope at the public PortReply boundary.
@@ -672,9 +696,9 @@ fn reaction_commands_reject_untrusted_http_authority() -> TestResult<()> {
     Ok(())
 }
 
-/// A newer private WS projection may win before HTTP readback; never emit the stale count.
+/// 同版字段冲突不能被视为可恢复竞争，必须失败且不产生新的HTTP。
 #[test]
-fn reaction_commands_reject_superseded_durable_projection() -> TestResult<()> {
+fn reaction_commands_reject_conflicting_durable_projection() -> TestResult<()> {
     let mut replay = Replay::new();
     let corr = reaction_request(&mut replay, true)?;
     let body = reaction_response(0);
@@ -683,8 +707,6 @@ fn reaction_commands_reject_superseded_durable_projection() -> TestResult<()> {
     replay.reply(persist, Vec::new(), CREATED_AT as u64 + 2)?;
     let readback = replay.only_corr()?;
     let mut row = body["data"]["memberProjection"].clone();
-    row["projectionRevision"] = json!(20);
-    row["effectId"] = json!("new-reaction");
     row["reactionUnreadCount"] = json!(1);
     replay.reply(
         readback,
@@ -697,6 +719,197 @@ fn reaction_commands_reject_superseded_durable_projection() -> TestResult<()> {
         events[0]["data"]["error"],
         "REACTION_UNREAD_PROJECTION_CHANGED"
     );
+    Ok(())
+}
+
+/// 新版 WS 抢先持久化后只读重查一次，原 req_id 与可见目标过滤保持，不重放 ack。
+#[test]
+fn reaction_commands_requery_newer_projection_without_replaying_ack() -> TestResult<()> {
+    for ack in [false, true] {
+        let mut replay = Replay::new();
+        let http = reaction_request_with_posts(&mut replay, ack, Some(json!(["reaction-post"])))?;
+        let body = reaction_response(1);
+        replay.reply(http, reaction_http(&body)?, CREATED_AT as u64 + 1)?;
+        let persist = replay.only_corr()?;
+        replay.reply(persist, Vec::new(), CREATED_AT as u64 + 2)?;
+        let readback = replay.only_corr()?;
+        let mut newer = body["data"]["memberProjection"].clone();
+        newer["projectionRevision"] = json!(20);
+        newer["effectId"] = json!("new-reaction");
+        replay.reply(
+            readback,
+            json!([newer.clone()]).to_string().into_bytes(),
+            CREATED_AT as u64 + 3,
+        )?;
+        assert!(
+            replay.events()?.is_empty(),
+            "superseded body must not finish request"
+        );
+        let retry = replay.only_corr()?;
+        let [Effect::Http { req, .. }] = replay.sink.as_slice() else {
+            return Err("newer durable projection must trigger one authority query".into());
+        };
+        assert!(
+            req.url.ends_with("/posts/reactionUnread"),
+            "ack must not replay"
+        );
+        let wire: Value = serde_json::from_slice(req.body.as_ref().ok_or("missing retry body")?)
+            .map_err(|error| error.to_string())?;
+        assert_eq!(
+            wire["postIds"],
+            if ack {
+                Value::Null
+            } else {
+                json!(["reaction-post"])
+            }
+        );
+        assert!(wire.get("observedRevision").is_none());
+        let mut fresh = reaction_response(0);
+        fresh["data"]["memberProjection"] = newer;
+        fresh["data"]["memberProjection"]["reactionUnreadCount"] = json!(0);
+        replay.reply(retry, reaction_http(&fresh)?, CREATED_AT as u64 + 4)?;
+        let persist = replay.only_corr()?;
+        replay.reply(persist, Vec::new(), CREATED_AT as u64 + 5)?;
+        let readback = replay.only_corr()?;
+        replay.reply(
+            readback,
+            json!([fresh["data"]["memberProjection"]])
+                .to_string()
+                .into_bytes(),
+            CREATED_AT as u64 + 6,
+        )?;
+        let events = replay.events()?;
+        let results: Vec<_> = events
+            .iter()
+            .filter(|e| e["event"] == "im:read:result")
+            .collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["data"]["req_id"], "reaction-request");
+        assert_eq!(results[0]["data"]["body"]["data"]["count"], 0);
+        replay.reply(retry, reaction_http(&fresh)?, CREATED_AT as u64 + 7)?;
+        assert!(
+            replay.sink.as_slice().is_empty(),
+            "late HTTP must not emit twice"
+        );
+    }
+    Ok(())
+}
+
+/// 恢复预算耗尽必须保留失败；重查各异步阶段可取消，迟到回包无终态。
+#[test]
+fn reaction_requery_is_bounded_and_cancelled_at_each_stage() -> TestResult<()> {
+    for cancel_stage in 0..4 {
+        let mut replay = Replay::new();
+        let http = reaction_request(&mut replay, false)?;
+        let mut body = reaction_response(1);
+        replay.reply(http, reaction_http(&body)?, CREATED_AT as u64 + 1)?;
+        let persist = replay.only_corr()?;
+        replay.reply(persist, Vec::new(), CREATED_AT as u64 + 2)?;
+        let readback = replay.only_corr()?;
+        body["data"]["memberProjection"]["projectionRevision"] = json!(20);
+        body["data"]["memberProjection"]["effectId"] = json!("newer-20");
+        replay.reply(
+            readback,
+            json!([body["data"]["memberProjection"]])
+                .to_string()
+                .into_bytes(),
+            CREATED_AT as u64 + 3,
+        )?;
+        let mut corr = replay.only_corr()?;
+        if cancel_stage >= 1 {
+            replay.reply(corr, reaction_http(&body)?, CREATED_AT as u64 + 4)?;
+            corr = replay.only_corr()?;
+        }
+        if cancel_stage >= 2 {
+            replay.reply(corr, Vec::new(), CREATED_AT as u64 + 5)?;
+            corr = replay.only_corr()?;
+        }
+        if cancel_stage == 3 {
+            body["data"]["memberProjection"]["projectionRevision"] = json!(21);
+            body["data"]["memberProjection"]["effectId"] = json!("newer-21");
+            replay.reply(
+                corr,
+                json!([body["data"]["memberProjection"]])
+                    .to_string()
+                    .into_bytes(),
+                CREATED_AT as u64 + 6,
+            )?;
+            assert!(replay.only_corr().is_err(), "retry must not loop");
+            let events = replay.events()?;
+            assert_eq!(events.len(), 1);
+            assert_eq!(
+                events[0]["data"]["error"],
+                "REACTION_UNREAD_PROJECTION_CHANGED"
+            );
+        } else {
+            replay.sink.clear();
+            replay
+                .module
+                .on_stop(&mut replay.sink)
+                .map_err(|error| error.to_string())?;
+            let events = replay.events()?;
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0]["data"]["error"], "CANCELLED");
+        }
+        replay.reply(corr, reaction_http(&body)?, CREATED_AT as u64 + 7)?;
+        assert!(replay.sink.as_slice().is_empty());
+    }
+    Ok(())
+}
+
+/// 重查各阶段的真实端口失败仍终止，错误不能变成空列表或触发第三次网络尝试。
+#[test]
+fn reaction_requery_port_failures_remain_terminal() -> TestResult<()> {
+    for stage in 0..3 {
+        let mut replay = Replay::new();
+        let http = reaction_request(&mut replay, false)?;
+        let mut body = reaction_response(1);
+        replay.reply(http, reaction_http(&body)?, CREATED_AT as u64 + 1)?;
+        let persist = replay.only_corr()?;
+        replay.reply(persist, Vec::new(), CREATED_AT as u64 + 2)?;
+        let readback = replay.only_corr()?;
+        body["data"]["memberProjection"]["projectionRevision"] = json!(20);
+        body["data"]["memberProjection"]["effectId"] = json!("retry-20");
+        replay.reply(
+            readback,
+            json!([body["data"]["memberProjection"]])
+                .to_string()
+                .into_bytes(),
+            CREATED_AT as u64 + 3,
+        )?;
+        let mut corr = replay.only_corr()?;
+        if stage >= 1 {
+            replay.reply(corr, reaction_http(&body)?, CREATED_AT as u64 + 4)?;
+            corr = replay.only_corr()?;
+        }
+        if stage >= 2 {
+            replay.reply(corr, Vec::new(), CREATED_AT as u64 + 5)?;
+            corr = replay.only_corr()?;
+        }
+        replay.reply_error(
+            corr,
+            if stage == 0 {
+                PortError::Timeout
+            } else {
+                PortError::Storage(500)
+            },
+            CREATED_AT as u64 + 6,
+        )?;
+        assert!(replay.only_corr().is_err());
+        let events = replay.events()?;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["data"]["req_id"], "reaction-request");
+        assert_eq!(
+            events[0]["data"]["error"],
+            if stage == 0 {
+                "REACTION_UNREAD_REQUEST_FAILED"
+            } else {
+                "REACTION_UNREAD_PERSIST_FAILED"
+            }
+        );
+        replay.reply(corr, reaction_http(&body)?, CREATED_AT as u64 + 7)?;
+        assert!(replay.sink.as_slice().is_empty());
+    }
     Ok(())
 }
 

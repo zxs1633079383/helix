@@ -659,6 +659,7 @@ pub enum CorrelationContext {
     /// G16b 成员变更写集的单次持久屏障；成功前成员终态事件不可见。
     ChannelMemberUpdatePersist {
         channel_id: ChannelId,
+        roster_version: i64,
         event_seq: Option<crate::state::Seq>,
         viewer_rejoined: bool,
         causation_id: Option<String>,

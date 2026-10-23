@@ -174,6 +174,14 @@ pub(crate) fn compile_increment_effects(
         if let Some((cols, exclude)) =
             crate::channel_write::program_full(&data, ctx.auth_user_id, ctx.now_ms)
         {
+            if crate::channel::roster_fence::has_roster(&data) {
+                effects.push(Effect::PersistFire {
+                    ops: vec![crate::channel::roster_fence::write(
+                        channel_id,
+                        crate::channel::roster_fence::revision(&data),
+                    )],
+                });
+            }
             effects.push(crate::acl::to_effect::upsert_channel_full(cols, exclude));
             // 快照可能只更新topCount或保持同数量；集合新鲜度不能由计数推断。
             if let Some(invalidation) = ctx

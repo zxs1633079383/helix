@@ -393,6 +393,8 @@ pub struct ImState {
     pub(crate) pinned_projection_dirty: std::collections::BTreeSet<ChannelId>,
     /// 已观察共享快照水位，阻止较早读回执在较新更新后发布。
     pub(crate) channel_snapshot_versions: BTreeMap<ChannelId, (i64, u64)>,
+    /// 已提交成员水位的快速过滤缓存；数据库fence仍负责冷启动与跨队列安全。
+    pub(crate) member_roster_versions: BTreeMap<ChannelId, i64>,
     /// 每频道请求/失效代次；阻止跨代HTTP、存储读写回包发布旧成功。
     pub(crate) pinned_projection_epochs: BTreeMap<ChannelId, u64>,
 
@@ -542,6 +544,7 @@ impl ImState {
             pinned_projection_dirty: Default::default(),
             pinned_projection_epochs: BTreeMap::new(),
             channel_snapshot_versions: BTreeMap::new(),
+            member_roster_versions: BTreeMap::new(),
             query_session_epoch: 0,
         }
     }
@@ -680,6 +683,7 @@ impl ImState {
         self.committed_channel_creates.clear();
         self.inflight_member_update_seqs.clear();
         self.committed_member_update_seqs.clear();
+        self.member_roster_versions.clear();
         self.inflight_member_role_updates.clear();
         self.committed_post_reads.clear();
         self.chain_mutations.clear();

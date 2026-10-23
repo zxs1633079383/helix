@@ -7,3 +7,5 @@ pub mod older_context;
 pub mod write;
 
 pub use gate::*;
+
+pub(crate) mod roster_fence;

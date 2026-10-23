@@ -1963,11 +1963,18 @@ impl ImModule {
 
             CorrelationContext::ChannelMemberUpdatePersist {
                 channel_id,
+                roster_version,
                 event_seq,
                 viewer_rejoined,
                 causation_id,
             } => match outcome {
                 PortOutcome::Ok(_) => {
+                    let known = self
+                        .state
+                        .member_roster_versions
+                        .entry(channel_id)
+                        .or_default();
+                    *known = (*known).max(roster_version);
                     // durable is_remove=0 成功后才解除 viewer-local terminal，失败时继续保持离场态。
                     if viewer_rejoined {
                         if let Some(channel) = self.state.channels.get_mut(&channel_id) {

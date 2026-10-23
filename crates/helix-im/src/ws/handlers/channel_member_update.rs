@@ -48,6 +48,15 @@ impl WsMessageHandler for ChannelMemberUpdateHandler {
             return Ok(());
         };
 
+        let roster_version = crate::channel::roster_fence::revision(data);
+        if ctx
+            .state
+            .member_roster_versions
+            .get(&channel_id)
+            .is_some_and(|known| roster_version < *known)
+        {
+            return Ok(());
+        }
         let event_seq = frame.event_seq();
         if event_seq.is_some_and(|seq| {
             ctx.state
@@ -82,6 +91,7 @@ impl WsMessageHandler for ChannelMemberUpdateHandler {
             corr,
             crate::state::CorrelationContext::ChannelMemberUpdatePersist {
                 channel_id,
+                roster_version,
                 event_seq,
                 viewer_rejoined,
                 causation_id: event_seq.map(|seq| format!("channel-member-update:{}", seq.0)),
@@ -210,7 +220,10 @@ fn channel_full_and_member_ops(
     }
 
     // path1 全 54 列 upsert（user_id 写 host 注入真身份 ctx.auth_user_id；now_ms host 经 Clock 注入）。
-    let mut ops = Vec::new();
+    let mut ops = vec![crate::channel::roster_fence::write(
+        channel_id,
+        crate::channel::roster_fence::revision(data),
+    )];
     if let Some((cols, exclude)) =
         crate::channel_write::program_full(data, ctx.auth_user_id, ctx.now_ms)
     {

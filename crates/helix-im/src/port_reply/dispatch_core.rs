@@ -658,6 +658,17 @@ impl ImModule {
                     error = ?error,
                     "channel-sync-ready 未触发：increment 批次持久化失败，保留旧会话"
                 );
+                // 旧成员fence使整批原子回滚时，从权威分页重建清单，避免连带丢掉其他群。
+                // 复用既有单页在途/64群背压；分页失败保留失败终态，不递归重试或无限建请求。
+                if matches!(error, helix_core::tick::PortError::Storage(1)) {
+                    let cursors = self
+                        .state
+                        .channels
+                        .iter()
+                        .map(|(id, channel)| (*id, channel.cursor.value()))
+                        .collect();
+                    self.start_increment_pull(0, cursors, out);
+                }
             }
         }
         Ok(())
@@ -1297,16 +1308,17 @@ impl ImModule {
         );
         out.push(helix_core::Effect::PersistAtomic {
             corr,
-            ops: vec![helix_core::effect::StorageOp::BatchUpsert(
-                helix_core::effect::UpsertSpec {
+            ops: vec![
+                crate::channel::roster_fence::write(channel_id, 0),
+                helix_core::effect::StorageOp::BatchUpsert(helix_core::effect::UpsertSpec {
                     version_column: None,
                     update_guard: None,
                     table: "channel_member",
                     rows: upsert_rows,
                     conflict_key: Some("channel_id,user_id"),
                     exclude_from_update: vec!["team_id", "nick_name"],
-                },
-            )],
+                }),
+            ],
         });
         Ok(())
     }

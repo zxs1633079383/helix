@@ -1,3 +1,4 @@
+✅ DONE(local): 成员投影持久版本表与内存旧帧过滤；真实SQLite 9项边界、533项IM回归及三端编译通过。schema已获用户批准；未发布/部署/修改运行库。跨仓证据见 /System/Volumes/Data/workspace/golang/cses-im-server/docs/交接/成员变更角色投影/handoff.md。@2026-10-23
 ✅ DONE(release): Helix0.1.85四包/版本提交/注释Tag已发布推送；客户端dev-message/dev依赖及回归已push且远端SHA一致；不构建安装包，真实UI/CI未验收。见本任务交接。
 🎯 EXPECT 发布下一Helix patch四包并提交注释Tag；客户端dev-message/dev四依赖与lock同步并push，远端回读一致；不构建安装包。| 赌注 中 | 可逆 发布否 | @2026-10-22
 ✅ DONE(local): mentions 实时投影已补齐；SQLite8项、IM库501项、core/五crate/WASM与客户端7项通过，字段删除mutation失败；既有footer断言失败和真实UI未验收见本任务交接。

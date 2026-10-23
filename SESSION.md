@@ -1,3 +1,4 @@
+✅ DONE(release): 成员角色保护四公共crate 0.1.86已发布并可解析；9项SQLite回归通过；客户端依赖接入进行中。跨仓证据见Go成员变更角色投影交接。@2026-10-23
 ✅ DONE(local): 成员投影持久版本表与内存旧帧过滤；真实SQLite 9项边界、533项IM回归及三端编译通过。schema已获用户批准；未发布/部署/修改运行库。跨仓证据见 /System/Volumes/Data/workspace/golang/cses-im-server/docs/交接/成员变更角色投影/handoff.md。@2026-10-23
 ✅ DONE 六处版本入口与received.mentions说明已对齐，静态聚焦检查通过；整体PARTIAL，最终发布结果见本轮交接所指日检报告。
 🎯 EXPECT 仅修改Markdown；六处公共版本入口与manifest一致，received.mentions说明可由源码及已有测试核对；聚焦静态检查通过，历史缺口单列。 | 赌注 中 | 可逆 是 | @2026-10-23（北京时间）

@@ -5,7 +5,7 @@
 
 ```toml
 [dependencies]
-helix-im = "=0.1.76"
+helix-im = "=0.1.85"
 ```
 
 本项目采用 `MIT OR Apache-2.0` 双许可证。
@@ -41,6 +41,15 @@ helix-im = "=0.1.76"
 `im:post:sent.data.requestId` 可选，来自本端发送的 `req_id`，仅在权威 WS / sync 对账以及发送终态写入成功后释放。
 `im:post:received.data.requestId` 可选，只在命中本端 pending forward 的请求及目标、原子提交和成员读回成功后释放；接收方、重复目标和 HTTP admission 不携带该成功关联。
 Host 可按提交前登记的请求匹配最近转发目标；不得把 `im:post:batch-result` 的 accepted/pending 当作送达。字段不进入 Go Post、持久消息体或 core/driver 协议，旧消费者可忽略。
+
+### 实时消息的 @ 受众
+
+`im:post:received.data.mentions` 直接输出 authority 中的受众，空数组也显式保留；
+不由客户端根据消息文本或当前群成员推断。实现见
+[`event/post.rs`](src/event/post.rs) 的 `authority_projection`。
+已有隔离 SQLite 回归 `mentions_survive_persist_and_received_for_footer_notifications`
+位于 [`empty_json_delivery.rs`](../helix-driver-host/tests/empty_json_delivery.rs)，
+核对持久化与 received 受众一致、空数组和重复回声不重发。本轮仅核对源码与断言，未重跑测试或验证真实 UI。
 
 ## 全局书签与本机历史
 

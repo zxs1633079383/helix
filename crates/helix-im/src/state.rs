@@ -395,6 +395,8 @@ pub struct ImState {
     pub(crate) channel_snapshot_versions: BTreeMap<ChannelId, (i64, u64)>,
     /// 已提交成员水位的快速过滤缓存；数据库fence仍负责冷启动与跨队列安全。
     pub(crate) member_roster_versions: BTreeMap<ChannelId, i64>,
+    /// Fixed-post-seq authority observed in this account; disjoint query ranges share the fence.
+    pub(crate) sequence_authority_versions: BTreeMap<ChannelId, (i64, i64)>,
     /// 每频道请求/失效代次；阻止跨代HTTP、存储读写回包发布旧成功。
     pub(crate) pinned_projection_epochs: BTreeMap<ChannelId, u64>,
 
@@ -545,6 +547,7 @@ impl ImState {
             pinned_projection_epochs: BTreeMap::new(),
             channel_snapshot_versions: BTreeMap::new(),
             member_roster_versions: BTreeMap::new(),
+            sequence_authority_versions: BTreeMap::new(),
             query_session_epoch: 0,
         }
     }

@@ -303,7 +303,9 @@ impl RenderScope {
             let timeline_read = if envelope.event == "im:read:result" {
                 serde_json::from_str::<TimelineRead<'_>>(envelope.data.get())
                     .ok()
-                    .filter(|read| matches!(read.body.operation, "older" | "newer" | "locate"))
+                    .filter(|read| {
+                        matches!(read.body.operation, "latest" | "older" | "newer" | "locate")
+                    })
             } else {
                 None
             };

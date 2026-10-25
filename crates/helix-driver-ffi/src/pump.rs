@@ -136,6 +136,13 @@ pub fn run(args: PumpArgs) {
             }
         }
 
+        // The optional index is additive and must not replay existing content migrations.
+        for &sql in helix_im::IM_TIMELINE_SEQ_SCHEMA {
+            if let Err(error) = storage.execute_raw(sql).await {
+                tracing::warn!(%error, "optional sequence pagination schema unavailable");
+            }
+        }
+
         // ── event sink（FFI 批处理 egress）先建：HTTP 业务 outcome 回报复用同一出口。
         let event_sink = Arc::new(
             FfiEventSink::new(args.vtable).with_metric_sink(Arc::clone(&args.metrics)),

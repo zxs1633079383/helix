@@ -2444,6 +2444,9 @@ impl ImModule {
             }
 
             // G10b/G11a HTTP 回包必须先进入 message upsert 屏障。
+            CorrelationContext::SequenceQuery { pending } => {
+                self.sequence_reply(pending, outcome, out);
+            }
             CorrelationContext::TimelineNavigationHttp { state } => {
                 self.handle_timeline_navigation_http_reply(state, outcome, now_ms, out)?;
             }

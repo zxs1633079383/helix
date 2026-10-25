@@ -814,7 +814,7 @@ impl ImModule {
     ///
     /// 只取有服务端 id 的行（本地未对账行的时间来自客户端时钟，不能反过来抬高下界）。
     /// 每页一次 O(R) 扫描，R 为本页行数（有界）；不读 DOM、不发额外查询。
-    fn observe_rows_create_at(&mut self, channel_id: ChannelId, rows: &[Value]) {
+    pub(crate) fn observe_rows_create_at(&mut self, channel_id: ChannelId, rows: &[Value]) {
         let newest = rows
             .iter()
             .filter(|row| {

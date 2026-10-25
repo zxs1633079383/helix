@@ -92,6 +92,7 @@ pub fn capabilities_json() -> Vec<u8> {
         "commandNetworkModes": super::command_network_inventory(),
         "events": PUBLIC_EVENTS,
         "features": {
+            "timelineSequencePaginationV2": true,
             "postChainCategoryMode": true,
             "postChainCategoryWireVersion": 3,
             "pendingSendTimeoutUnsend": true,

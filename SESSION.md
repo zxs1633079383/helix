@@ -1,3 +1,4 @@
+🎯 EXPECT 当前分支合入远端两提交后，seq 33 项与回应回归通过；按既定 patch 流程发布四包、提交注释 Tag 并 push，客户端四依赖精确接入 registry；不切分支/工作区，不发布桌面安装包。| 赌注 中 | 可逆 发布否 | @2026-10-26
 ✅ DONE(release): 成员角色保护四公共crate 0.1.86已发布并可解析；9项SQLite回归通过；客户端dev-message/dev四依赖与lock已push且远端一致，Rust应用库及native检查通过；未构建安装包、未做真实UI验收。跨仓证据见Go成员变更角色投影交接。@2026-10-23
 ✅ DONE(local): 成员投影持久版本表与内存旧帧过滤；真实SQLite 9项边界、533项IM回归及三端编译通过。schema已获用户批准；未发布/部署/修改运行库。跨仓证据见 /System/Volumes/Data/workspace/golang/cses-im-server/docs/交接/成员变更角色投影/handoff.md。@2026-10-23
 ✅ DONE 六处版本入口与received.mentions说明已对齐，静态聚焦检查通过；整体PARTIAL，最终发布结果见本轮交接所指日检报告。
@@ -1279,3 +1280,6 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 - 🎯 EXPECT 2026-10-21 PRE Storage(0)：用19489事件+只读备份复现type2缺行回滚，修复权威快照补齐且不清缓存/跳游标；交接见客户端 docs/交接/1021-PRE同步落库失败/handoff.md。
 
 - ✅ DONE 2026-10-21 PRE Storage(0)：19489历史父消息type2缺行回滚已定位并修复；52项定向通过，真实响应763事件在副本推进至20251；未发布/未做现场UI恢复，证据与交接同上。
+🎯 EXPECT 消息固定 seq 的历史/定位 local-first：独立 seq slot schema、不改变 event 表与同步 cursor；缺段与缺正文才补查，连续不可见段按扫描游标有界续扫；只有 PersistOk 后读回发布，旧服务明确回退旧协议；公开命令红绿与 host/native/FFI/Web 适用检查，真实桌面由客户端主任务验证。本轮不发布、不改版本、不提交。| 赌注 高 | 可逆 是 | @2026-10-23
+
+✅ DONE(local candidate): 固定 post seq 分页共享实现完成，公开8项/真实SQLite19项回归通过；旧SQL指纹不变，五crate/WASM/clippy通过，广域存量夹具失败单列。真实Go/Tauri/WDIO由客户端主任务验收；未提版、提交或发布。见 docs/交接/1023-固定消息序号分页/handoff.md。| @2026-10-23

@@ -28,6 +28,9 @@ impl ImModule {
         payload: &[u8],
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if crate::query::sequence::enabled(name, payload) {
+            return self.sequence_command(name, payload, out);
+        }
         match name {
             "im_query_messages_by_channel" => {
                 self.dispatch_message_query(payload, out)?;

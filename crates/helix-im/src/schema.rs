@@ -26,6 +26,11 @@ pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
         scope_col: Some("channel_id"),
     },
     SparseTableSpec {
+        table: "message_sequence_slot",
+        identity_cols: &["slot_key"],
+        scope_col: Some("channel_id"),
+    },
+    SparseTableSpec {
         table: "im_recent_history",
         identity_cols: &["scope", "kind"],
         scope_col: Some("scope"),

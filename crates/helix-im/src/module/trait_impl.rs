@@ -203,6 +203,8 @@ impl ImModule {
                         // 原始 HTTP 读体可能不带频道/公司字段；切换身份时显式结束旧请求，
                         // A→B→A 后的迟到回包也不能重新晋升为当前公司的投影。
                         self.cancel_pending_reads(out);
+                        self.cancel_sequence_queries(None, out);
+                        self.state.sequence_authority_versions.clear();
                         self.finish_sync_observation(
                             crate::sync_observation::SyncResult::Cancelled,
                         );
@@ -790,6 +792,9 @@ impl ImModule {
             }
 
             Tick::Timer(id) => {
+                if self.cancel_sequence_queries(Some(*id), out) {
+                    return Ok(());
+                }
                 if self
                     .translation_timeout(*id, out)
                     .map_err(|e| CoreError::ModuleError {
@@ -1039,6 +1044,7 @@ impl ImModule {
         }
         self.state.multipart_retry_attempts.clear();
         self.cancel_pending_reads(out);
+        self.cancel_sequence_queries(None, out);
         self.finish_sync_observation(crate::sync_observation::SyncResult::Cancelled);
         self.cancel_category(out);
         self.stop_schedule_media(out);

@@ -90,6 +90,10 @@ pub enum CorrelationContext {
     TopicInventoryCommit { parent: ChannelId },
     /// 无业务续步的写请求只结算网络失败，不推断服务端写入结果。
     OutboundWriteReply { req_id: String },
+    /// Optional sequence reads never reuse event recovery correlations or cursors.
+    SequenceQuery {
+        pending: Box<crate::query::sequence::Pending>,
+    },
     /// One immutable remote page; cancellation owns this correlation and timer.
     ForwardDetail {
         request: Box<crate::query::forward_detail::Request>,
@@ -902,6 +906,7 @@ impl CorrelationContext {
     /// 借用已有解码字段供诊断关联使用；不重新读取 Command payload。
     pub(crate) fn diagnostic_request_id(&self) -> Option<&str> {
         match self {
+            Self::SequenceQuery { pending } => Some(pending.req_id()),
             Self::ChannelSyncPage { req_id, .. } => req_id.as_deref(),
             Self::ChannelSyncPageMemberSnapshot { req_id, .. } => req_id.as_deref(),
             Self::RetrySendRehydrate { request_id, .. } => request_id.as_deref(),

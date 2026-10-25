@@ -5,7 +5,7 @@ Module 宿主与 sans-IO 执行壳。它不直接依赖 Tokio、数据库、HTTP
 
 ```toml
 [dependencies]
-cses-helix-core = "=0.1.86"
+cses-helix-core = "=0.1.87"
 ```
 
 Rust crate 名保持为 `helix_core`：

@@ -97,3 +97,19 @@ Opaque cursor 是版本 2 对象：`version/channelId/direction/nextSeq/headSeq/
 - IM 广域本轮 1748 通过、133 失败、11 ignored：延续缺外部绝对路径样本及旧 channel settings Persist 断言失败；不改本次无关夹具。
 - Host 未读测试组 16 通过、1 旧频道删除分页断言失败；该失败函数与调用路径不由本批改动，新增回应 SQLite 场景单独通过。
 - 原始日志与汇总：artifacts/post-sequence-release-20261026/merged-verification.json。
+
+### 0.1.87 发布与客户端接入结果
+
+- 四公共 crate 已按既定脚本发布到 crates.io，dry-run、八 crate check、上传和回读全部通过。版本提交 `aa0d5a7156ea6e3cb85eb6435408000b2b663c9b`；注释 Tag `helix-v-0.1.87` 已推送并核对远端一致。
+- 客户端当前 `dev-message` 的 `src-tauri/Cargo.toml` 四依赖精确固定 `=0.1.87`，锁文件仅改变这四个包的版本与 checksum。Cargo metadata 确认来自 registry，七份关键源码逐字节匹配发布源码；客户端其他既有改动保留。前端依赖变更留在当前工作区，未另行提交或 push。
+- 客户端 3 个定向 Jest 文件 / 22 项通过；A/B 在原 bundle、identifier、账号和数据库上重编签名。正式安装包升级、Windows、移动端及 5000 人容量不在本次实机验收内。
+- 发布版真实 PRE WDIO 六组通过：主窗口 / 独立窗口历史翻页、latest 进入清未读后上跳、unread 进入逐步清除后下跳。造数群已有 238 个 slot，B 可见 90、隐藏 148，两窗口全量翻到且隐藏不泄露；上跳分割线全采样 0px，首帧主窗口 346ms、独立窗口 328ms，仅为单次观测。
+- 96 条 UI 发送均经正式 API 与 PostgreSQL 回读确认：每条 seq>0、恰好一个创建 event，接收端持久阅读游标覆盖全部；主窗口 24→7→0、独立窗口 24→12→0。关群通知发生在清未读验收之后，产生额外 NOTICE；不可用关群后的 unread=1 否定此前阅读结果。
+- 本轮两测试群通过正式接口关闭，并以 `channel.delete_at>0` 核对。附加“关群立即从会话列表消失”观察超时，不能写成该 UI 行为通过；未修改本次范围外的旧频道删除投影。A/B watcher 已恢复原配置和默认关闭的 WDIO 端口，二进制与验收候选一致。
+- 旧 `cursorVersion:1` canary 响应摘要在本轮前后不变。证据：客户端 `artifacts/helix-registry-0.1.87-20261026/`（candidate、registry-source-proof、run-status、wdio-default-all、server-readback、ui-db-proof、cleanup-db-proof、restoration）。
+
+### 未关闭：造数发送进入死信
+
+240 次 HTTP 造数中序号 184/185/186 未进入 post 表；发送接口成功只表示 Pulsar 接收，不能当作落库。3 条记录均在 `message_disposition` 里为 `dead_letter_confirmed`，attempt_count=3、failure_reason=handler_error；temporaryId 为 preseqc19a06d3184/185/186。消费积压与未确认均为 0；根因未确定，不能认定与新 seq 写入无关。已有 post 的 seq 连续、无 NULL；未发生客户端漏翻已存在消息。已询问用户是否有其他消费者/运维操作。
+
+该问题不回滚已发布的不可变 crate；Helix 发布和本地客户端接入完成，全面上线验收仍有阻断，不建议以本次六组 UI 通过直接放行客户端正式版。后续需从对应 delivery/trace 排查异步消费者的 handler_error，不重放或删除死信，不自动修改 Go/运维配置。证据：fixture-db-audit、sender-disposition-audit、sender-stats。

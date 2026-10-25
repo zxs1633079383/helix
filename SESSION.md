@@ -1,3 +1,6 @@
+✅ DONE 成员持久版本说明与9项SQLite回归入口已补充，静态聚焦检查通过；整体PARTIAL，交付结果见本轮交接所指报告。
+🎯 EXPECT 仅修改Markdown；成员角色持久版本说明与当前源码、SQLite回归入口一致；聚焦静态检查通过，历史证据缺口单列。 | 赌注 中 | 可逆 是 | @2026-10-25 08:02 CST
+- 交接：docs/交接/Markdown日检-20261025/handoff.md
 ✅ DONE(release): 成员角色保护四公共crate 0.1.86已发布并可解析；9项SQLite回归通过；客户端dev-message/dev四依赖与lock已push且远端一致，Rust应用库及native检查通过；未构建安装包、未做真实UI验收。跨仓证据见Go成员变更角色投影交接。@2026-10-23
 ✅ DONE(local): 成员投影持久版本表与内存旧帧过滤；真实SQLite 9项边界、533项IM回归及三端编译通过。schema已获用户批准；未发布/部署/修改运行库。跨仓证据见 /System/Volumes/Data/workspace/golang/cses-im-server/docs/交接/成员变更角色投影/handoff.md。@2026-10-23
 ✅ DONE 六处版本入口与received.mentions说明已对齐，静态聚焦检查通过；整体PARTIAL，最终发布结果见本轮交接所指日检报告。

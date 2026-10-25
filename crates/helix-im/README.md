@@ -87,6 +87,29 @@ BOSS 角色，成员离场由 `memberChange.leave` 表达，不能从空角色�
 `cargo test -p helix-driver-host --test channel_empty_semantics_sqlite`。
 上述测试入口已核对源码与 Cargo 注册，本次纯文档日检未执行 Rust 或真实业务链验收。
 
+### 成员角色的持久版本保护
+
+[`roster_fence.rs`](src/channel/roster_fence.rs) 将服务端 `updateAt` 作为成员版本，
+缺失、非整数或负值按 0 处理；版本独立保存于
+`channel_member_roster_fence(channel_id,revision)`，不借用消息游标或未读水位。
+表定义与追加迁移见 [`schema.rs`](src/schema.rs)。
+
+成员更新把版本守卫与频道/成员写入放入同一事务，较低版本使整批回滚；
+[`dispatch.rs`](src/port_reply/dispatch.rs) 仅在持久化成功后推进内存水位并发起投影读回。
+同版本权威补水仍可修复已有角色；旧协议角色 delta 使用版本 0，不能覆盖已版本化的成员事实。
+全量补水仅在带 `members`、`memberChange`、`adminUsers`、`boss` 或 `owner` 字段时写成员守卫，
+普通标量 PATCH 不推进成员版本。入口见
+[`channel_member_update.rs`](src/ws/handlers/channel_member_update.rs)、
+[`increment_channel.rs`](src/ws/handlers/increment_channel.rs) 与
+[`dispatch_core.rs`](src/port_reply/dispatch_core.rs)。
+
+已有隔离 SQLite 回归入口：
+`cargo test -p helix-driver-host --test channel_member_roster_ordering`，源码见
+[`channel_member_roster_ordering.rs`](../helix-driver-host/tests/channel_member_roster_ordering.rs)。
+覆盖旧帧/重复、库重开、反序写入、事务回滚、旧协议角色 delta、同版本补水、群主转让、
+全局批次冲突恢复与追加迁移。本次只核对实现、测试断言与 Cargo target，未重跑 Rust 测试，
+不据此声明当前 Go/Native/UI 或大群容量通过。
+
 ## 统一失败来源
 
 [`failure_context.rs`](src/failure_context.rs) 在 Module 边界关联命令、HTTP 路径或 WS action、

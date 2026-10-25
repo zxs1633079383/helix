@@ -578,20 +578,29 @@ impl ImModule {
                                     epoch,
                                 }
                             } else {
-                                let channel_id = serde_json::from_slice::<serde_json::Value>(
+                                let args = serde_json::from_slice::<serde_json::Value>(
                                     cmd.payload.as_ref(),
                                 )
-                                .ok()
-                                .and_then(|value| {
-                                    value
-                                        .get("channel_id")
-                                        .and_then(serde_json::Value::as_str)
-                                        .map(str::to_owned)
-                                });
-                                CorrelationContext::OutboundReadReply {
-                                    req_id,
-                                    command: name.to_string(),
-                                    channel_id,
+                                .ok();
+                                let channel_id = args
+                                    .as_ref()
+                                    .and_then(|value| value.get("channel_id"))
+                                    .and_then(serde_json::Value::as_str)
+                                    .map(str::to_owned);
+                                if matches!(name, "im_reaction_unread" | "im_reaction_unread_ack") {
+                                    CorrelationContext::ReactionUnreadHttp {
+                                        req_id,
+                                        channel_id,
+                                        post_ids: args
+                                            .and_then(|value| value.get("post_ids").cloned()),
+                                        retried: false,
+                                    }
+                                } else {
+                                    CorrelationContext::OutboundReadReply {
+                                        req_id,
+                                        command: name.to_string(),
+                                        channel_id,
+                                    }
                                 }
                             };
                             self.state.corr_map.insert(corr, ctx);
@@ -1009,7 +1018,8 @@ impl ImModule {
             .corr_map
             .iter()
             .filter_map(|(corr, context)| match context {
-                CorrelationContext::ReactionUnreadProjection { req_id, .. }
+                CorrelationContext::ReactionUnreadHttp { req_id, .. }
+                | CorrelationContext::ReactionUnreadProjection { req_id, .. }
                 | CorrelationContext::OutboundReadReply { req_id, .. }
                 | CorrelationContext::OutboundMembersByIds { req_id }
                 | CorrelationContext::OutboundContactCandidates { req_id } => {

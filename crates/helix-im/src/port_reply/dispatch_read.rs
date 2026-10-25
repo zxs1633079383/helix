@@ -894,19 +894,9 @@ impl ImModule {
         command: &str,
         channel_id: Option<&str>,
         outcome: &PortOutcome,
-        now_ms: u64,
+        _now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        // 私有回应结果必须经过成员投影持久化及匹配读回，不能直接透传 HTTP 成功。
-        if matches!(command, "im_reaction_unread" | "im_reaction_unread_ack") {
-            return self.reaction_unread_http_reply(
-                req_id.clone(),
-                channel_id,
-                outcome,
-                now_ms,
-                out,
-            );
-        }
         if command == crate::bookmark_count::COMMAND {
             return self.bookmark_count_reply(outcome, out);
         }

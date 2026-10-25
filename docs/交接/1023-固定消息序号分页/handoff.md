@@ -89,3 +89,11 @@ Opaque cursor 是版本 2 对象：`version/channelId/direction/nextSeq/headSeq/
 ## 2026-10-26 发布准备
 
 用户已授权合并、发布 Helix 下一 patch、push 并应用到当前客户端分支。PRE f85109e7 已通过真实 A/B 主窗口与独立窗口 6 组 WDIO；96 条 UI 消息的 seq、创建 event 与接收未读经数据库核对通过。证据在客户端 `artifacts/post-sequence-deployed-20261026/`，Go `docs/交接/post-sequence-default-read-deployed-20261026.json`。这部分证明待合并前的当前 seq 候选；合并及发布版接入后继续按影响范围验证。
+
+### 合入远端后的验证
+
+- 已合入远端两提交，seq 与回应的 correlation/取消/回包分派并存；仅 SESSION 两处记录冲突，保留双方。
+- seq 33、回应 sans-IO 19、回应 SQLite 1，共 53 项聚焦通过；五 crate check、core tests、WASM 通过，core 依赖树无运行时依赖。
+- IM 广域本轮 1748 通过、133 失败、11 ignored：延续缺外部绝对路径样本及旧 channel settings Persist 断言失败；不改本次无关夹具。
+- Host 未读测试组 16 通过、1 旧频道删除分页断言失败；该失败函数与调用路径不由本批改动，新增回应 SQLite 场景单独通过。
+- 原始日志与汇总：artifacts/post-sequence-release-20261026/merged-verification.json。

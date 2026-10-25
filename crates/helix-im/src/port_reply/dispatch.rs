@@ -1783,15 +1783,34 @@ impl ImModule {
             CorrelationContext::ForwardDetail { request, timer } => {
                 self.forward_detail_reply(*request, timer, outcome, out);
             }
+            CorrelationContext::ReactionUnreadHttp {
+                req_id,
+                channel_id,
+                post_ids,
+                retried,
+            } => {
+                self.reaction_unread_http_reply(
+                    req_id,
+                    channel_id.as_deref(),
+                    post_ids,
+                    retried,
+                    outcome,
+                    now_ms,
+                    out,
+                )?;
+            }
             CorrelationContext::ReactionUnreadProjection {
                 req_id,
                 channel_id,
                 body,
                 expected,
                 readback,
+                post_ids,
+                retried,
             } => {
                 self.reaction_unread_projection_reply(
-                    req_id, channel_id, body, expected, readback, outcome, now_ms, out,
+                    req_id, channel_id, body, expected, readback, post_ids, retried, outcome,
+                    now_ms, out,
                 )?;
             }
             CorrelationContext::OutboundReadReply {

@@ -1292,4 +1292,5 @@ Markdown结果：send_build为TEXT/文本模板派生CommonMark摘要，message�
 🎯 EXPECT 回应HTTP结果被更高版本成员投影抢先提交时最多只读重查一次，旧body不Emit、ack不重放；同版冲突继续失败。| 赌注 中 | 可逆 是 | @2026-10-23
 - 交接：/System/Volumes/Data/workspace/angular/visual/cses-client/docs/交接/Mac唤醒回应弹窗/handoff.md；分支 reactor/MessageV3-helix，不删除、不push。
 ✅ DONE 新版竞争有界只读重查、自动来源分类及安全展示记录已实现；G13 19项、真实SQLite定向回归、crate check及客户端45项分批定向通过。真实Tauri/发布未验收；另有分页与工具栏类型检查失败，详见交接。
+✅ DONE(release): 关闭群修复 0.1.88 四包、发布提交 835f7952、注释 Tag 已发布推送；前端当前分支四依赖及 lock 接入 registry，移除临时 patch，373 份源码及 checksum 一致。本轮按用户要求不跑前端测试；证据见 docs/closed-channel-sequence-20261026.md。@2026-10-26
 🎯 EXPECT 当前分支对齐远端文档后发布关闭群修复 0.1.88 四包并 push 注释 Tag；前端四依赖改为 registry 精确版本且移除临时 path patch，本轮不跑前端测试。| 赌注 中 | 可逆 发布否 | @2026-10-26

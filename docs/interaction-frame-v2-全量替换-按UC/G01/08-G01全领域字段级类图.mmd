@@ -1,0 +1,312 @@
+classDiagram
+direction LR
+
+class ComposerIntent {
+  +string channel_id
+  +string type
+  +string text
+  +object props
+  +ReplyInput replied
+  +string req_id
+}
+
+class ReplyInput {
+  +string id
+  +string reply_id
+  +string reply_root_id
+  +string reply_first_level_id
+}
+
+class AcceptedCommand {
+  +string reqId
+  +string command
+  +string helixCommand
+  +bool accepted
+}
+
+class AppCommand {
+  +Cow name
+  +Bytes payload
+}
+
+class Tick {
+  <<enumeration>>
+  Inbound InboundBytes
+  PortReply corr outcome
+  Timer TimerId
+  Command AppCommand
+  Connected TransportId
+  Disconnected TransportId
+}
+
+class Effect {
+  <<enumeration>>
+  Persist corr ops
+  Http corr req
+  Emit event
+  ScheduleTimer id after_ms
+  CancelTimer id
+}
+
+class PendingSend {
+  +TemporaryId temporary_id
+  +SendStatus status
+  +TimerId timeout_timer
+  +Correlation persist_corr
+  +string connection_id
+  +string request_id
+  +object body
+  +bool http_started
+  +usize remaining_uploads
+  +bool upload_failed
+}
+
+class LocalMessageRow {
+  +string temporary_id PK
+  +string id
+  +string channel_id
+  +string user_id
+  +string type
+  +string message
+  +json props
+  +json viewers
+  +json user_snapshot
+  +json mentions
+  +string simple_message
+  +string reply_id
+  +string reply_root_id
+  +string reply_first_level_id
+  +u64 event_seq
+  +string send_status
+  +bool revoke
+  +i64 create_at
+  +i64 update_at
+}
+
+class CreatePostBody {
+  +string[] viewers
+  +string message
+  +json mentions
+  +string temporaryId
+  +string type
+  +string simpleMessage
+  +string channelId
+  +string userId
+  +string teamId
+  +UserSnapshot userSnapshot
+  +string id
+  +json props
+  +string topicId
+  +bool revoke
+  +i64 createAt
+  +string replyId
+  +string replyRootId
+  +string replyFirstLevelId
+}
+
+class UserSnapshot {
+  +string orgName
+  +string deptName
+  +string userName
+  +string userId
+  +string teamId
+}
+
+class InteractionFrameV2 {
+  +u32 schemaVersion
+  +string transactionId
+  +string causationId
+  +InteractionRuntimeVm runtime
+  +SurfaceMutationV2[] mutations
+  +UiDirective[] directives
+}
+
+class InteractionRuntimeVm {
+  +ConnectionState connection
+  +InitialSyncState initialSync
+  +RecoveryState recovery
+}
+
+class SurfaceMutationV2 {
+  +SurfaceId surface
+  +SurfaceScope scope
+  +u64 revision
+  +u64 baseRevision
+  +string causationId
+  +TypedSurfaceMutation mutation
+  +u64 surfaceEpoch
+}
+
+class TimelineScope {
+  +string kind=timeline
+  +string channelId
+  +string windowToken
+}
+
+class TimelinePatch {
+  +string kind=timelinePatch
+  +ReplaceView patch
+}
+
+class ReplaceView {
+  +string kind=replaceView
+  +TimelineWindowVm view
+}
+
+class TimelineWindowVm {
+  +string channelId
+  +TimelineAnchorVm anchor
+  +MessageVm[] items
+  +string firstUnreadMessageId
+  +string targetMessageId
+  +WindowPageVm page
+  +SurfaceLoadState state
+}
+
+class MessageVm {
+  +string id
+  +string channelId
+  +u64 eventSeq
+  +UserRefVm author
+  +i64 createdAt
+  +MessageContentVm content
+  +DeliveryVm delivery
+  +ActionBinding[] actions
+  +MessageQuickActionVm[] quickActions
+  +string replyId
+  +string replyRootId
+  +string replyFirstLevelId
+  +ReplySummaryVm replySummary
+  +ReplyThreadSummaryVm replyThread
+  +MessageReactionVm[] reactions
+  +SurfaceDataVm readReceipt
+  +SurfaceDataVm templateConfirmation
+  +SurfaceDataVm urgency
+  +bool pinned
+  +bool bookmarked
+  +SurfaceDataVm topicLink
+}
+
+class ActionBinding {
+  +string actionRef
+  +string kind
+  +string inputShape
+  +u64 surfaceEpoch
+  +bool enabled
+  +string disabledReason
+}
+
+class ActionInvocationEnvelope {
+  +u32 schemaVersion
+  +string requestId
+  +string actorId
+  +SurfaceId surface
+  +SurfaceScope scope
+  +u64 surfaceEpoch
+  +u64 observedRevision
+  +ActionInvocation invocation
+}
+
+class ActionInvocation {
+  +string actionRef
+  +Map input
+}
+
+class DeliveryVm {
+  <<enumeration>>
+  Uploading progressPercent
+  Sending
+  Sent
+  Failed reason retryable
+  Recalled
+}
+
+class UiDirective {
+  +string directiveId
+  +string kind
+}
+
+class SurfaceRuntime {
+  -Map slots
+  -Map states
+  -Map recentTransactions
+  -Map pendingByRequestId
+  -InteractionRuntimeVm runtimeState
+  +ingestTransportFrame()
+  +applyDecodedFrame()
+  +attach()
+}
+
+class SurfaceSlotState {
+  +Vm vm
+  +u64 surfaceEpoch
+  +u64 revision
+  +SlotStatus status
+}
+
+class FrameApplied {
+  +string transactionId
+  +u32 appliedSlots
+  +FrameAppliedResult result
+}
+
+class DialogListVm {
+  +DialogSectionVm[] sections
+  +SurfaceLoadState state
+}
+
+class DialogRowVm {
+  +string channelId
+  +ChannelKind channelKind
+  +string rootMessageId
+  +ChannelTitleRef title
+  +ChannelAvatarRef avatar
+  +string companyTag
+  +PreviewVm preview
+  +i64 lastActivityAt
+  +u32 unreadCount
+  +u32 mentionCount
+  +u32 urgentCount
+  +u32 topicCount
+  +u32 memberCount
+  +string[] memberLeaves
+  +bool hasScheduledMessage
+  +bool isTop
+  +NotificationMode notificationMode
+  +ChannelLifecycleVm lifecycle
+  +u64 settingsVersion
+  +string purpose
+  +string header
+  +ActionBinding[] actions
+}
+
+ComposerIntent --> ReplyInput
+ComposerIntent --> AppCommand : JSON payload
+AppCommand --> Tick : Tick.Command
+Tick --> PendingSend : handle_send_message
+PendingSend --> Effect : declares I/O
+PendingSend --> CreatePostBody
+CreatePostBody --> UserSnapshot
+Effect --> LocalMessageRow : Persist then PortReply
+LocalMessageRow --> TimelineWindowVm : authoritative readback
+TimelineWindowVm *-- MessageVm
+MessageVm *-- DeliveryVm
+MessageVm *-- ActionBinding
+TimelinePatch *-- ReplaceView
+ReplaceView *-- TimelineWindowVm
+SurfaceMutationV2 *-- TimelineScope
+SurfaceMutationV2 *-- TimelinePatch
+InteractionFrameV2 *-- InteractionRuntimeVm
+InteractionFrameV2 *-- SurfaceMutationV2
+InteractionFrameV2 *-- UiDirective
+SurfaceRuntime --> InteractionFrameV2 : strict decode and stage
+SurfaceRuntime *-- SurfaceSlotState
+SurfaceRuntime --> FrameApplied : after atomic swap
+ActionBinding --> ActionInvocationEnvelope : copied verbatim when invoked
+ActionInvocationEnvelope *-- ActionInvocation
+DialogListVm *-- DialogRowVm
+DialogRowVm *-- ActionBinding
+
+note for ComposerIntent "CURRENT G01 ingress is direct im_send_message.\nIt does not invoke an ActionBinding."
+note for ActionBinding "The G01 timeline rows contain reply, forward, react,\nurgent, revoke, retry and other projected capabilities.\nThey act on an existing row, not on message creation."
+note for DialogListVm "It is not inside the direct sending/sent replay.\nA later WS post may enter DialogPatchByPost and emit\nDialog plus paired Unread after channel write/read."

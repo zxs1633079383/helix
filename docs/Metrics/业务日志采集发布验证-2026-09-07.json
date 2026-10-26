@@ -1,0 +1,22 @@
+{
+  "observed_at": "2026-09-07T09:09:26.893559+00:00",
+  "namespace": "monitoring",
+  "daemonset": "loki-pre-promtail",
+  "syntax_check": "PASS",
+  "rollout": {
+    "currentNumberScheduled": 6,
+    "desiredNumberScheduled": 6,
+    "numberAvailable": 6,
+    "numberMisscheduled": 0,
+    "numberReady": 6,
+    "observedGeneration": 12,
+    "updatedNumberScheduled": 6
+  },
+  "only_new_stream_labels": [
+    "service_name",
+    "deployment_environment",
+    "platform"
+  ],
+  "cluster_only_gitops_source_pending": true,
+  "pre_new_go_producer_deployed": false
+}

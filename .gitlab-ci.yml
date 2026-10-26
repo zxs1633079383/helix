@@ -1,0 +1,73 @@
+# Helix CI：MessageV3 real-chain 是合并与分支流水线的唯一业务验收入口。
+# `scripts/gate.sh` 仍可供本地/人工使用，但 CI 不再把它或 api-surface 当作主门禁。
+# real-chain 的 pre/local/自定义环境由 scripts/messagev3/real-chain-environment.mjs
+# 与下列 profile/端点变量共同解析；默认 profile 为 pre，端点默认值只在该配置表维护一份。
+
+stages:
+  - messagev3
+
+variables:
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
+  CARGO_TERM_COLOR: "always"
+  CARGO_INCREMENTAL: "0"
+  MESSAGEV3_CI_IMAGE: "harbor.jinqidongli.com/infra-ops/gitlab/rust:1.95.0_with_tools_node20"
+  # 完整 Phase 批次启用最多五个频道和按账号复用的保活 WS；设为 0 可回退逐 Gate 隔离调试。
+  MESSAGEV3_PHASE_POOL: "1"
+  RUNNER_SCRIPT_TIMEOUT: "5m"
+
+default:
+  # real-chain 只需要现有 Rust/Cargo 与 Node.js 20+，不执行 WASM、fmt 或 clippy。
+  # 若私仓现有 Rust 镜像未烤入 Node，可在 GitLab 项目变量覆盖 MESSAGEV3_CI_IMAGE，
+  # 或由 ops 更新同名镜像；不能在 job 中临时联网安装运行时。
+  image: "$MESSAGEV3_CI_IMAGE"
+  tags:
+    - docker
+  cache:
+    key:
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo/registry/index/
+      - .cargo/registry/cache/
+      - .cargo/git/db/
+      - target/
+  before_script:
+    - command -v node >/dev/null 2>&1 || { echo "❌ CI image lacks Node.js 20+; set MESSAGEV3_CI_IMAGE"; exit 1; }
+    - |
+      node -e 'const major = Number(process.versions.node.split(".")[0]); if (major < 20) { console.error(`❌ Node.js 20+ required, found ${process.version}`); process.exit(1); }'
+    - rustc --version && cargo --version
+
+messagev3-real-chain:
+  stage: messagev3
+  resource_group: messagev3-pre
+  timeout: 6m
+  script:
+    # PRE 测试账号池由 real-chain 配置内置，运维无需额外配置凭据变量。
+    - node scripts/messagev3/phase1-5-real-chain.mjs --all --env pre
+  artifacts:
+    when: always
+    paths:
+      - artifacts/messagev3-phase1-5-real-chain/
+    expire_in: 14 days
+  rules:
+    - if: '$MESSAGEV3_DIAGNOSE == "1"'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+
+# 显式变量触发一次诊断；普通 push 继续运行完整业务验收。
+messagev3-diagnose:
+  stage: messagev3
+  resource_group: messagev3-pre
+  timeout: 6m
+  script:
+    - node scripts/messagev3/ci-diagnose.mjs
+    - node scripts/messagev3/phase1-5-real-chain.mjs --gate MV3-G07B --env pre
+  artifacts:
+    when: always
+    paths:
+      - artifacts/messagev3-diagnose/
+      - artifacts/messagev3-phase1-5-real-chain/
+    expire_in: 7 days
+  rules:
+    - if: '$MESSAGEV3_DIAGNOSE == "1"'

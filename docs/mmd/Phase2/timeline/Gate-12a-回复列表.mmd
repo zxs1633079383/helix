@@ -1,0 +1,45 @@
+%% Phase2 / timeline / MV3-G12a 回复列表
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/timeline/mv3-g12a/contract.json
+%% 实现真源: crates/helix-im/src/port_reply/dispatch.rs::OutboundReplies；Go internal/api/post/handlers_read.go；internal/app/cses_post_read.go
+%% UI owners: packages/message/src/lib/services/reply-thread.service.ts:1；packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员点消息的「N 条回复」，抽屉按独立分页列出回复，并依据真实 hasMore 继续加载
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: getReplies(payload)
+    Gate->>Native: invokeAccepted("im_get_replies", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_get_replies", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_get_replies", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 打开某条消息的回复线程 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /api/cses/posts/getReplies（返回 rootPost/replies/hasMore/pageNumber/pageSize；pageSize 默认20，上限60）
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>IM: normalize_replies；校验 viewer、revision 与分页，生成 thread 投影
+  Note over IM,DB: 当前 OutboundReplies 分支无 SQLite 写入或读回，不推进 timeline cursor
+  IM->>Sink: Effect::Emit im:timeline:thread（请求关联结果）
+  Sink-->>Gate: im:__bus__ 按 req_id 或 requestId 结算等待者
+  Gate-->>UI: render absolute snapshot or query result
+  Note over IM,Gate: HTTP或解析失败时 normalize_replies 不发布成功 thread；客户端等待者按现有超时失败，不画成同步 Err 回传
+  Note over IM,DB: 关键效果：一次权威 getReplies 响应同时返回 rootPost、当前页 replies 与真实 hasMore；replies 按 createAt 稳定升序且页内按 id ／／ temporaryId 去重；rootPost 与 replies 必须来自同一次 reqId 关联结果；不得再发 getPosts([replyId])，无回复时仍返回 rootPost + replies=[] + hasMore=false；hasMore 只能由 Go 多取一条或等价权威查询计算；true 时客户端以同 replyId 请求下一 pageNumber，false 时停止加载；抽屉内新发的回复由 sendMessage 双写 messages + replies 索引，getReplies 立即可见（根消息 replyCount+1 与 postUpdated(root) 由 G01k 承担）
+  Note over UI,Web: 关键负向：不得额外调用 G11g getPosts([replyId]) 获取 rootPost；同一抽屉首屏只能有一次回复业务请求；pageSize 缺省必须是 20，显式值只允许 1..60；Go 已校验分页上限，源码存在不等于本轮真实链 PASS；不得由 Angular 截断数组、按 replyCount 猜测 hasMore、硬编码 false，或在响应缺 hasMore 时静默默认 false
+  Note over E,Sink: 结果出口：im:timeline:thread；读结果与业务广播区分，不能把无广播理解为无 Effect::Emit

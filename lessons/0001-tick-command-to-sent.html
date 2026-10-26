@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 1 课：从 Tick::Command 到 sent</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <div class="eyebrow">第 1 课 · Helix MessageV3</div>
+  <h1>一条消息，怎样从 <code>Tick::Command</code> 走到 <code>sent</code>？</h1>
+  <p class="lede">今天只拿到一个胜利：以后看到“发送成功”，你能问出它到底停在了哪一跳；并且能从 G01a 测试入口顺着源码走完一次。</p>
+  <p><a href="../reference/0001-发送链速查.html">先打开一页式速查表 →</a></p>
+
+  <div class="callout">
+    <strong>先记住：</strong>发送不是一个瞬间，而是一个小型状态机。用户点击发送只是“意图”；<code>sending</code> 是本地已经保存的乐观事实；<code>sent</code> 要等服务器的 WebSocket <code>post</code> echo，并且最终事实经过持久化与 read-back。
+  </div>
+
+  <h2>1. 先看总地图</h2>
+  <div class="flow">
+    <div class="flow-step"><div class="flow-num">1</div><div class="flow-card"><strong><code>Tick::Command</code>：用户说“我要发”</strong><small><code>AppCommand { name: "im_send_message", payload: JSON bytes }</code></small></div></div>
+    <div class="flow-step"><div class="flow-num">2</div><div class="flow-card"><strong>Helix-im：先建一条本地乐观消息</strong><small><code>message.send_status = "sending"</code>，并记住 <code>temporaryId</code> 和 <code>corr</code>。</small></div></div>
+    <div class="flow-step"><div class="flow-num">3</div><div class="flow-card"><strong><code>Persist</code> 完成后才公开 <code>im:post:sending</code></strong><small>数据库写成功的回灌叫 <code>PortReply::Ok</code>；源码里没有名为 <code>PersistOk</code> 的类型。</small></div></div>
+    <div class="flow-step"><div class="flow-num">4</div><div class="flow-card"><strong>再发 HTTP <code>POST /posts/create</code>，并启动超时 timer</strong><small>HTTP 2xx 只表示 admission；状态仍然是 <code>Sending</code>。</small></div></div>
+    <div class="flow-step"><div class="flow-num">5</div><div class="flow-card"><strong>WS <code>post</code> echo：服务器把事实送回来</strong><small>Helix 用 <code>temporaryId</code> 找回本地行，得到服务器 <code>id</code>。</small></div></div>
+    <div class="flow-step"><div class="flow-num">6</div><div class="flow-card"><strong>MessageV3 原子提交 + read-back 后才 emit 终态</strong><small><code>im:post:received</code> 的 <code>data.sendStatus</code> 是 <code>"sent"</code>。</small></div></div>
+  </div>
+
+  <h2>2. G01a 测试类到底从哪里开始？</h2>
+  <p>你给的文件不是“发送实现”，而是一个 <strong>测试入口</strong>。它把场景参数交给共享测试器：</p>
+  <pre><code>#[tokio::test]
+async fn mv3_g01a_real_chain() {
+    shared::assert_isolated_send(...).await
+        .unwrap_or_else(|error| panic!("MV3-G01a FAIL: {error}"));
+}</code></pre>
+  <p>读这个文件时先问三个问题：</p>
+  <ol>
+    <li><strong>谁注册它？</strong> <code>tests/message_v3_domain.rs</code> 用 <code>#[path]</code> 把目录文件注册进 <code>message_v3_domain</code> target。</li>
+    <li><strong>谁做事情？</strong> <code>shared::assert_isolated_send</code> 负责建频道、跑发送链、关频道；具体装配在 <code>shared::run_helix_send</code>。</li>
+    <li><strong>失败怎样出来？</strong> helper 返回 <code>Result&lt;T, String&gt;</code>；<code>?</code> 会提前返回错误，最外层 <code>unwrap_or_else</code> 把错误变成测试失败。</li>
+  </ol>
+  <p>建议先用这个聚焦命令运行一个测试（本轮没有执行它）：</p>
+  <pre><code>cargo test -p helix-driver-native --test message_v3_domain \
+  phase1_post_g01a::mv3_g01a_real_chain -- \
+  --nocapture --test-threads=1</code></pre>
+  <p class="muted">它需要真实 Go <code>8066</code>、登录凭据和可用 WebSocket。没有这些前置，应该记录 <code>BLOCKED_PRECONDITION</code> 或 <code>UNVERIFIED</code>，不是把 health 200 当业务成功。</p>
+
+  <h2>3. 从入口开始读 Rust</h2>
+  <p>先不要被 Rust 语法吓到。把它当成“一个带标签的消息包”：</p>
+  <pre><code>pub enum Tick {
+    Command(AppCommand),
+    PortReply { corr: Correlation, outcome: PortOutcome },
+    Inbound(InboundBytes),
+    // ...
+}</code></pre>
+  <p><code>enum</code> 的意思是：<code>Tick</code> 只能是这些情况之一。<code>match</code> 就是“看它是哪一种，再走对应分支”。在 <a href="../crates/helix-core/src/engine.rs">core engine</a> 中，<code>Command</code> 会走模块的 <code>accepts()</code> 和 <code>handle()</code>；<code>PortReply</code> 不重新扫描模块，而是用 <code>corr_map</code> 找回原来的业务请求。</p>
+
+  <p>发送命令的模块分支很直白：</p>
+  <pre><code>"im_send_message" => {
+    self.handle_send_message(cmd.payload.as_ref(), now_ms, out)?;
+}</code></pre>
+  <p>这里的 <code>out</code> 是 <code>EffectSink</code>。你可以先把它理解成“待办清单”：业务层把 <code>Persist</code>、<code>Http</code>、<code>Emit</code> 放进去，真正执行 I/O 的是 driver。</p>
+
+  <h2>4. 为什么先是 sending？</h2>
+  <p><a href="../crates/helix-im/src/send/flow.rs"><code>handle_send_message</code></a> 做三件重要的事：</p>
+  <ol>
+    <li>解析 payload，补上频道、身份、时间和 Helix 铸造的 <code>temporaryId</code>。</li>
+    <li>构造一条写入 <code>message</code> 表的 <code>Persist</code>，其中 <code>send_status</code> 是 <code>"sending"</code>。</li>
+    <li>注册 <code>PendingSend</code>，先标成内存状态 <code>Local</code>，等待这次 P1 写入完成。</li>
+  </ol>
+  <p>关键顺序不是“代码恰好这样写”，而是一个不变量：P1 没有成功，就不能向 UI 宣布 sending，也不能抢跑 HTTP。测试 <a href="../crates/helix-im/tests/send_test.rs">send_test.rs</a> 明确断言了这一点。</p>
+
+  <div class="status-grid">
+    <div class="status local"><h3>Local</h3><p>内存里有 pending，P1 还没确认。UI 不应把它当成已进入发送阶段。</p></div>
+    <div class="status sending"><h3>Sending</h3><p>P1 <code>Ok</code> 后，内存变为 <code>Sending</code>，并 emit <code>im:post:sending</code>。</p></div>
+    <div class="status sent"><h3>Sent</h3><p>WS echo 带服务器 <code>id</code> 后，按 <code>temporaryId</code> 写入 <code>sent</code> 并取消 timer。</p></div>
+    <div class="status failed"><h3>UnSend</h3><p>HTTP/持久化失败或超时会写 <code>unsend</code>，并 emit <code>im:post:send-failed</code>。</p></div>
+  </div>
+
+  <h2>5. 为什么 HTTP 2xx 还不是 sent？</h2>
+  <p>因为当前协议把“请求被接纳”和“服务器事实已经通过实时通道回来”分开。<a href="../crates/helix-im/src/port_reply/dispatch_core.rs">HTTP reply handler</a> 对普通文本的 <code>PortOutcome::Ok</code> 不直接发布 sent；它只结束 HTTP 这一跳，消息仍是 <code>Sending</code>。</p>
+  <p>真正的确认是 WebSocket 的 <code>action == "post"</code>。这不是 <code>posted</code>。在 <a href="../crates/helix-im/src/ws/handlers/post.rs">post handler</a> 里，Helix 先做 echo 对账，再继续走 MessageV3 gate。</p>
+
+  <h2>6. temporaryId 为什么不能被删？</h2>
+  <p>服务器返回的是新的 <code>id</code>，但本地乐观行最初没有这个 id。<code>temporaryId</code> 就像快递单上的临时追踪号：</p>
+  <pre><code>本地乐观行:  temporaryId = tmp-123, id = ""
+WS echo:    temporaryId = tmp-123, id = srv-456
+对账结果:   temporaryId = tmp-123, id = srv-456, send_status = "sent"</code></pre>
+  <p>所以成功后两个字段都保留：<code>id</code> 是服务器主键，<code>temporaryId</code> 是本地对账锚点。<a href="../crates/helix-im/src/ws/handlers/post_echo_settle.rs">echo settle</a> 同时做三件事：写 sent、取消 timer、移除 <code>pending_sends</code> 和旧的 <code>corr_map</code> 路由。</p>
+
+  <h2>7. 最后的收尾：为什么还要 PersistAtomic 和 read-back？</h2>
+  <p>WS echo 只是把服务器事实送到 Helix。MessageV3 还要求：先把 message、channel、member、cursor 等相关事实作为一个原子批次提交；成功后，再按当前 viewer 做一次 read-back。只有 read-back 成功，才允许构造：</p>
+  <pre><code>{
+  "event": "im:post:received",
+  "data": {
+    "id": "srv-456",
+    "temporaryId": "tmp-123",
+    "sendStatus": "sent"
+  }
+}</code></pre>
+  <p>这就是“可见成功”落后于“durable 事实”的原因：不能让 UI 先看到成功，而本地数据库还没提交。</p>
+
+  <h2>8. 把 G01a 的 WS / HTTP / SQLite / Emit 对上</h2>
+  <p>下面是测试函数实际做的事。注意：<strong>observer WS</strong> 和 <strong>actor WS</strong> 是两条不同角色的连接。</p>
+  <table>
+    <thead><tr><th>顺序</th><th>源码动作</th><th>断言</th><th>它能证明什么</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>remote_setup → create_channel</code></td><td>健康、登录、频道 query/member snapshot</td><td>本轮有真实 Go 频道前置；不证明发送成功</td></tr>
+      <tr><td>2</td><td><code>open_raw_ws(observer)</code></td><td>等待 <code>hello</code></td><td>observer 能看真实 Go 广播；它不驱动 Helix</td></tr>
+      <tr><td>3</td><td><code>open_test_storage()</code> + <code>IM_SCHEMA</code></td><td>使用临时 SQLite</td><td>本轮有 run-owned durable store；不证明已有共享库</td></tr>
+      <tr><td>4</td><td><code>NativeTransport(actor, tick_tx)</code> + engine</td><td><code>im:connection:established</code></td><td>actor WS 入站会变成 <code>Tick::Inbound</code>；不证明业务写入</td></tr>
+      <tr><td>5</td><td><code>tick_tx.send(Tick::Command(...))</code></td><td>命令名 <code>im_send_message</code></td><td>从公开 Command seam 注入；不等于已发 HTTP</td></tr>
+      <tr><td>6</td><td>EventSink 等 <code>im:post:sending</code></td><td>提取 <code>temporaryId</code>，SQLite 行为 <code>sending</code></td><td>P1 乐观事实已落库并公开；不证明远端成功</td></tr>
+      <tr><td>7</td><td>observer 等 WS <code>action=post</code></td><td><code>temporaryId</code> 匹配</td><td>真实 Go 向 observer 广播了 post；不证明 actor 已消费</td></tr>
+      <tr><td>8</td><td>EventSink 等 <code>im:post:received</code></td><td>同一 <code>temporaryId</code></td><td>Helix 已产出终态事件；还不是 Tauri/Angular DOM 证据</td></tr>
+      <tr><td>9</td><td><code>wait_message_status</code></td><td>SQLite <code>send_status=sent</code></td><td>本地 durable 终态已收敛</td></tr>
+      <tr><td>10</td><td><code>to_bus_envelope</code></td><td>channel 为 <code>im:post:received</code></td><td>DomainEvent 能映射 bus；当前不是实际 <code>app.emit</code></td></tr>
+      <tr><td>11</td><td>shutdown、关 WS、删临时 DB、<code>channel/close</code></td><td>清理返回成功</td><td>本轮资源尝试释放；失败路径中途 <code>?</code> 仍可能跳过部分清理</td></tr>
+    </tbody>
+  </table>
+  <p>因此 <code>assert_send_chain</code> 最终检查的是 <code>received</code>、SQLite <code>sent</code> 和内存 bus channel，然后写 evidence。当前实现的一个关键缺口是：evidence 里的 <code>"http_business": "status=SUCCESS"</code> 是固定写入的描述，并不是测试捕获到的 <code>/posts/create</code> response 断言；G01a 也没有真实 Tauri <code>app.emit</code> 或 Angular/DOM 断言。</p>
+
+  <h2>9. driver 做什么？</h2>
+  <p>Helix-im 只产出 Effect，不自己访问 SQLite、HTTP 或 WS。<a href="../crates/helix-driver-host/src/engine.rs">host engine</a> 取出 Tick，调用 core 的 <code>step()</code>，再把 Effect 分发给对应 port：</p>
+  <table>
+    <thead><tr><th>Effect</th><th>driver 做的事</th><th>回到 Helix 的形式</th></tr></thead>
+    <tbody>
+      <tr><td><code>Persist</code></td><td>写 SQLite</td><td><code>Tick::PortReply { corr, Ok/Err }</code></td></tr>
+      <tr><td><code>PersistAtomic</code></td><td>一个 SQLite transaction</td><td>同样按 <code>corr</code> 回灌</td></tr>
+      <tr><td><code>Http</code></td><td>调用 <code>HttpRequester</code></td><td>HTTP envelope 包在 <code>PortReply</code> 里</td></tr>
+      <tr><td><code>Send</code></td><td>调用 WS <code>FrameSender</code></td><td>不代表对方已送达</td></tr>
+      <tr><td><code>Emit</code></td><td>调用 <code>EventSink</code>；native 再转 bus envelope</td><td>事件 bytes 交给宿主</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warning">
+    <strong>证据等级提醒：</strong>本课是基于当前源码和 focused/真实链测试代码的阅读课。本轮没有运行 Cargo，也没有启动真实 Go、Tauri 或 Angular DOM，因此结论是“源码链已核对、运行态未验证”，不是本轮 REAL_NATIVE_CHAIN PASS。
+  </div>
+
+  <h2>10. 现在轮到你：三题回忆练习</h2>
+  <form class="exercise" id="send-chain-quiz" onsubmit="event.preventDefault(); checkSendChainQuiz();">
+    <fieldset class="quiz-question"><legend>1. 哪个时刻允许 emit <code>im:post:sending</code>？</legend>
+      <label><input type="radio" name="q1" value="command"> Command 一进入 handler</label>
+      <label><input type="radio" name="q1" value="p1-ok"> P1 Persist 返回 Ok</label>
+      <label><input type="radio" name="q1" value="http-2xx"> HTTP 返回 2xx</label>
+    </fieldset>
+    <fieldset class="quiz-question"><legend>2. 哪个事实把消息从 sending 推向 sent？</legend>
+      <label><input type="radio" name="q2" value="http-2xx"> HTTP 返回 2xx</label>
+      <label><input type="radio" name="q2" value="ws-echo"> WS 的 <code>post</code> echo</label>
+      <label><input type="radio" name="q2" value="dom"> DOM 显示了气泡</label>
+    </fieldset>
+    <fieldset class="quiz-question"><legend>3. 为什么成功后仍保留 temporaryId？</legend>
+      <label><input type="radio" name="q3" value="display-only"> 只是给 UI 显示</label>
+      <label><input type="radio" name="q3" value="temporary-anchor"> 它是本地行和服务器 echo 的对账锚点</label>
+      <label><input type="radio" name="q3" value="retry-only"> 只为失败重试保留</label>
+    </fieldset>
+    <div class="quiz-actions"><button type="submit">检查答案</button><span id="quiz-feedback" class="feedback" aria-live="polite"></span></div>
+  </form>
+
+  <div class="source">
+    <h2>推荐原始材料</h2>
+    <p>先读你指定的 <a href="../crates/helix-driver-native/tests/messageV3-domain/Phase1/Post/G01a/main.rs">Native G01a 入口</a> 和 <a href="../crates/helix-driver-native/tests/messageV3-domain/shared/mod.rs">shared::run_helix_send</a>，再回到 <a href="../crates/helix-im/src/send/flow.rs">send/flow.rs</a> 对照业务实现。Rust 语法卡住时，查官方 <a href="https://doc.rust-lang.org/book/ch06-00-enums.html">Enums</a>、<a href="https://doc.rust-lang.org/book/ch09-00-en-error-handling.html">Error Handling</a> 和 <a href="https://doc.rust-lang.org/cargo/commands/cargo-test.html">cargo test</a>。</p>
+  </div>
+
+  <p class="footer-note">下一节可以继续读“一个 Persist Effect 怎样通过 host worker 变成 PortReply”，也可以把你对上面三题的答案发给我。我会根据你的答案更新下一课难度；有任何一行 Rust 看不懂，直接贴行号问我。</p>
+</main>
+<script src="../assets/retrieval.js"></script>
+</body>
+</html>

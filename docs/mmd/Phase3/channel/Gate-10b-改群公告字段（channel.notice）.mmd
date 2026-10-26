@@ -1,0 +1,61 @@
+%% Phase3 / channel / MV3-G10b 改群公告字段（channel.notice）
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel/mv3-g10b/contract.json
+%% UI owners: packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：有权限的成员修改单值群提示后，群设置页和频道横幅显示同一段提示；公告列表仍由 ANNOUNCEMENT 独立管理。
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: changeChannelSettings(payload)
+    Gate->>Native: invokeAccepted("im_channel_change_notice", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_channel_change_notice", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_channel_change_notice", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 修改频道 notice 属性 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /channel/change/notice
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  Go-->>WS: WS authority event or canonical result
+  WS->>E: Tick::Inbound(authority bytes)
+  E->>IM: apply authoritative event before settlement
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction channel + members + cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM->>Sink: Effect::Emit {event,data}（im:channel:update）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
+  Sink-->>FFI: FFI batch raw {event,data}
+  Sink-->>Web: Web EventBatch raw {event,data}
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：channel.props.notice === 入参 notice，并作为单值群提示/频道横幅渲染；channel.props 内其他键逐键保留；ANNOUNCEMENT 列表条目、已读状态与排序均保持原值；修改 notice 不创建、更新或删除公告条目
+  Note over UI,Web: 关键负向：不得与 MV3-G07（ANNOUNCEMENT 列表）混为一谈：本 Gate 只改 channel.props.notice 单值提示，不产生公告条目、不进公告列表；notice 与 ANNOUNCEMENT 不得互相同步：修改任一方时另一方的内容、条目数、已读态和排序必须逐值不变
+  Note over E,Sink: 原始事件名（按触发分支）：im:channel:update；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

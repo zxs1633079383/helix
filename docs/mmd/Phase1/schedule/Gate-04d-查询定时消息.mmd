@@ -1,0 +1,20 @@
+%% Phase1 / schedule / MV3-G04d 查询定时消息
+%% 机器真源: phase1.manifest.json；Helix im_get_schedule/read.rs/dispatch_read.rs；Go posts/getSchedule；Angular schedule projection
+sequenceDiagram
+  participant UI as Angular schedule bar
+  participant P as MessageV3ImGate
+  participant T as Tauri im_get_schedule
+  participant H as Helix Tick / outbound read
+  participant G as Go IM Server
+  participant B as EventSink im:__bus__
+  participant S as Angular schedule signal
+  UI->>P: getSchedule(channelId)
+  P->>T: invokeResult im_get_schedule
+  T->>H: Tick::Command(req_id,channelId)
+  H->>G: Effect::Http GET /api/cses/posts/getSchedule
+  G-->>H: schedule projection or null
+  H->>H: Tick::PortReply(Http Ok) / correlate req_id
+  H->>B: Effect::Emit im:read:result
+  B->>S: resolve schedule read waiter
+  S-->>UI: render message/type/props/schedulePostAt or empty
+  Note over H,B: 只读 Gate 不写 SQLite/Go PostgreSQL，不等待 WS；HTTP 2xx 不等于已渲染

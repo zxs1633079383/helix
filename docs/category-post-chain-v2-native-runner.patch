@@ -1,0 +1,295 @@
+--- a/category-native-smoke/src/evidence.rs
++++ b/category-native-smoke/src/evidence.rs
+@@ -18,7 +18,8 @@
+ #[derive(Default)]
+ struct State {
+     rows: Vec<Value>,
+-    http: BTreeMap<u64, String>,
++    http: BTreeMap<u64, Value>,
++    invalid_category_transport: bool,
+     overflow: bool,
+ }
+ #[derive(Clone, Default)]
+@@ -159,6 +160,66 @@
+     json!(shapes)
+ }
+ 
++/// Classify actual outbound v2 path/mode/view into eleven semantic actions without retaining payloads.
++fn category_transport(req: &HttpRequest) -> Value {
++    let url = url::Url::parse(&req.url).ok();
++    let path = url.as_ref().map(|u| u.path()).unwrap_or("");
++    let old = path.contains("/category-chain/");
++    let shared = path.contains("/post-chain/");
++    let body = req
++        .body
++        .as_ref()
++        .filter(|b| b.len() <= 256 * 1024)
++        .and_then(|b| serde_json::from_slice::<Value>(b).ok())
++        .unwrap_or(Value::Null);
++    let mode = match body.get("mode") {
++        Some(Value::String(v)) if v == "CATEGORY" => "CATEGORY",
++        Some(Value::String(v)) if v == "TEXT" => "TEXT",
++        None => "MISSING",
++        _ => "INVALID",
++    };
++    let view = match body.get("view") {
++        Some(Value::String(v)) if v == "card" => Some("card"),
++        Some(Value::String(v)) if v == "mine" => Some("mine"),
++        Some(Value::String(v)) if v == "entries" => Some("entries"),
++        None => None,
++        _ => Some("INVALID"),
++    };
++    let safe_path = match path {
++        "/api/cses/post-chain/capabilities" => "capabilities",
++        "/api/cses/post-chain/create" => "create",
++        "/api/cses/post-chain/update-draft" => "update-draft",
++        "/api/cses/post-chain/publish" => "publish",
++        "/api/cses/post-chain/append" => "append",
++        "/api/cses/post-chain/get" => "get",
++        "/api/cses/post-chain/close" => "close",
++        "/api/cses/post-chain/retract" => "retract",
++        "/api/cses/post-chain/reconcile" => "reconcile",
++        _ => "other",
++    };
++    let action = if req.method == "POST" && mode == "CATEGORY" {
++        match (safe_path, view) {
++            ("capabilities", None) => "capabilities",
++            ("create", None) => "create-draft",
++            ("update-draft", None) => "update-draft",
++            ("publish", None) => "publish",
++            ("append", None) => "set-participation",
++            ("get", Some("card")) => "get",
++            ("get", Some("mine")) => "my-participation",
++            ("get", Some("entries")) => "entries",
++            ("close", None) => "close",
++            ("retract", None) => "retract",
++            ("reconcile", None) => "reconcile",
++            _ => "other",
++        }
++    } else {
++        "other"
++    };
++    json!({"action":action,"path":if safe_path=="other" { "other".to_owned() } else { format!("/api/cses/post-chain/{safe_path}") },
++        "mode":mode,"view":view,"legacyCategoryUrl":old,
++        "categoryTransportViolation": old || ((shared || mode=="CATEGORY") && action=="other")})
++}
++
+ impl Evidence {
+     /// Keep diagnostics bounded; overflow makes the final result incomplete.
+     pub fn push(&self, kind: &str, mut row: Value) {
+@@ -174,7 +235,28 @@
+     /// Snapshot safe evidence only; credentials and full payloads were never stored here.
+     pub fn snapshot(&self) -> Value {
+         let s = self.0.lock().unwrap();
+-        json!({"overflow":s.overflow,"hops":s.rows})
++        let successful: Vec<_> = s
++            .rows
++            .iter()
++            .filter(|row| {
++                row["hop"] == "http_reply"
++                    && row["action"] != "other"
++                    && row["businessStatus"] == "SUCCESS"
++                    && row["httpStatus"]
++                        .as_u64()
++                        .is_some_and(|status| (200..300).contains(&status))
++            })
++            .collect();
++        let paths: std::collections::BTreeSet<_> = successful
++            .iter()
++            .filter_map(|r| r["path"].as_str())
++            .collect();
++        let views: std::collections::BTreeSet<_> = successful
++            .iter()
++            .filter_map(|r| r["view"].as_str())
++            .collect();
++        json!({"overflow":s.overflow,"hops":s.rows,"categoryTransportValid":!s.invalid_category_transport,
++            "successfulHttpPaths":paths,"successfulGetViews":views})
+     }
+     /// All eleven business HTTP completions must be observed, not inferred from a health check.
+     pub fn missing_routes(&self) -> Vec<&'static str> {
+@@ -229,7 +311,16 @@
+                 let action = self.0.lock().unwrap().http.remove(&corr.raw());
+                 let mut row = json!({"corr":corr.raw(),"ok":matches!(outcome,PortOutcome::Ok(_))});
+                 if let Some(action) = action {
+-                    row["action"] = json!(action);
++                    for key in [
++                        "action",
++                        "path",
++                        "mode",
++                        "view",
++                        "legacyCategoryUrl",
++                        "categoryTransportViolation",
++                    ] {
++                        row[key] = action[key].clone();
++                    }
+                     if let PortOutcome::Ok(bytes) = outcome {
+                         if let Ok(env) = serde_json::from_slice::<Value>(&bytes.0) {
+                             row["httpStatus"] = env["status"].clone();
+@@ -267,23 +358,16 @@
+     }
+     /// Preserve requests unchanged and associate HTTP completion with its production correlation.
+     fn on_http_dispatch(&self, corr: Option<Correlation>, req: &mut HttpRequest) {
+-        let action = req
+-            .url
+-            .split("/category-chain/")
+-            .nth(1)
+-            .and_then(|s| s.split(['?', '#']).next())
+-            .unwrap_or("other");
+-        if let Some(c) = corr {
+-            self.0
+-                .lock()
+-                .unwrap()
+-                .http
+-                .insert(c.raw(), action.to_owned());
+-        }
+-        self.push(
+-            "http_dispatch",
+-            json!({"corr":corr.map(|c|c.raw()),"action":action}),
+-        );
++        let mut route = category_transport(req);
++        {
++            let mut state = self.0.lock().unwrap();
++            state.invalid_category_transport |= route["categoryTransportViolation"] == true;
++            if let Some(c) = corr {
++                state.http.insert(c.raw(), route.clone());
++            }
++        }
++        route["corr"] = json!(corr.map(|c| c.raw()));
++        self.push("http_dispatch", route);
+     }
+     /// Uploads are not part of this smoke; retain only their occurrence.
+     fn on_upload_dispatch(&self, _: Option<Correlation>, _: &FileUploadRequest) {
+@@ -347,3 +431,117 @@
+         assert_eq!(bounded[0]["displayName"]["charsCapped2001"], 2001);
+     }
+ }
++
++#[cfg(test)]
++mod transport_tests {
++    use super::*;
++    use helix_core::tick::ReplyBytes;
++    /// Real trace dispatch/reply hooks must associate mode/view and leave requests untouched.
++    fn observe(evidence: &Evidence, corr: u64, path: &str, body: Value) {
++        let mut req = HttpRequest {
++            method: "POST".to_owned(),
++            url: format!("http://127.0.0.1:12345/api/cses/{path}"),
++            headers: vec![],
++            body: Some(Bytes::from(serde_json::to_vec(&body).unwrap())),
++        };
++        let before = req.body.clone();
++        evidence.on_http_dispatch(Some(Correlation::from_raw(corr)), &mut req);
++        assert_eq!(req.body, before);
++        let reply = json!({"status":200,"body":base64::engine::general_purpose::STANDARD.encode(br#"{"status":"SUCCESS","data":{}}"#)});
++        evidence.on_tick_start(
++            &Tick::PortReply {
++                corr: Correlation::from_raw(corr),
++                outcome: PortOutcome::Ok(ReplyBytes(Bytes::from(
++                    serde_json::to_vec(&reply).unwrap(),
++                ))),
++            },
++            None,
++        );
++    }
++    /// Nine successful paths are insufficient without all eleven semantic actions and all three get views.
++    #[test]
++    fn v2_requires_eleven_semantics_nine_paths_and_three_views() {
++        let evidence = Evidence::default();
++        for (i, path) in [
++            "capabilities",
++            "create",
++            "update-draft",
++            "publish",
++            "append",
++            "close",
++            "retract",
++            "reconcile",
++        ]
++        .into_iter()
++        .enumerate()
++        {
++            observe(
++                &evidence,
++                i as u64,
++                &format!("post-chain/{path}"),
++                json!({"mode":"CATEGORY"}),
++            );
++        }
++        observe(
++            &evidence,
++            9,
++            "post-chain/get",
++            json!({"mode":"CATEGORY","view":"card"}),
++        );
++        assert_eq!(
++            evidence.missing_routes(),
++            vec!["my-participation", "entries"]
++        );
++        observe(
++            &evidence,
++            10,
++            "post-chain/get",
++            json!({"mode":"CATEGORY","view":"mine"}),
++        );
++        observe(
++            &evidence,
++            11,
++            "post-chain/get",
++            json!({"mode":"CATEGORY","view":"entries"}),
++        );
++        assert!(evidence.missing_routes().is_empty());
++        let trace = evidence.snapshot();
++        assert_eq!(trace["successfulHttpPaths"].as_array().unwrap().len(), 9);
++        assert_eq!(
++            trace["successfulGetViews"],
++            json!(["card", "entries", "mine"])
++        );
++        assert_eq!(trace["categoryTransportValid"], true);
++        // A later legacy request invalidates the run even after all successful semantics exist.
++        observe(
++            &evidence,
++            12,
++            "category-chain/get",
++            json!({"mode":"CATEGORY"}),
++        );
++        assert_eq!(evidence.snapshot()["categoryTransportValid"], false);
++    }
++    /// HTTP SUCCESS cannot hide an absent/wrong mode, absent/wrong get view, or a legacy URL.
++    #[test]
++    fn v2_rejects_wrong_modes_views_and_legacy_urls() {
++        for (path, body) in [
++            ("post-chain/get", json!({"view":"mine"})),
++            ("post-chain/get", json!({"mode":"TEXT","view":"mine"})),
++            ("post-chain/get", json!({"mode":null,"view":"mine"})),
++            ("post-chain/get", json!({"mode":"CATEGORY"})),
++            (
++                "post-chain/get",
++                json!({"mode":"CATEGORY","view":"unknown"}),
++            ),
++            (
++                "category-chain/my-participation",
++                json!({"mode":"CATEGORY"}),
++            ),
++        ] {
++            let evidence = Evidence::default();
++            observe(&evidence, 1, path, body);
++            assert_eq!(evidence.missing_routes().len(), 11);
++            assert_eq!(evidence.snapshot()["categoryTransportValid"], false);
++        }
++    }
++}
+--- a/category-native-smoke/src/main.rs
++++ b/category-native-smoke/src/main.rs
+@@ -69,11 +69,12 @@
+     let complete = result.is_ok()
+         && cleanup.is_ok()
+         && trace["overflow"] == false
++        && trace["categoryTransportValid"] == true
+         && missing_routes.is_empty();
+     write_json(&directory.join("private-resources.json"), &resources)?;
+     write_json(
+         &directory.join("evidence.json"),
+-        &json!({"status":if complete {"PASS"}else{"INCOMPLETE"},"evidenceLevel":"LIVE_NATIVE_SMOKE","result":result.as_ref().err(),"cleanup":cleanup.as_ref().err(),"trace":trace,"missingSuccessfulHttpRoutes":missing_routes,"notProven":["Go SQL/outbox inspection","UI/DOM","fault-injection recovery","Web/FFI"],"databaseBinding":"operator declaration only; runner does not inspect Go database"}),
++        &json!({"status":if complete {"PASS"}else{"INCOMPLETE"},"evidenceLevel":"LIVE_NATIVE_SMOKE","wireContract":"CATEGORY_POST_CHAIN_WIRE/v2","result":result.as_ref().err(),"cleanup":cleanup.as_ref().err(),"trace":trace,"missingSuccessfulHttpRoutes":missing_routes,"notProven":["Go SQL/outbox inspection","UI/DOM","fault-injection recovery","Web/FFI"],"databaseBinding":"operator declaration only; runner does not inspect Go database"}),
+     )?;
+     println!("evidence: {}", directory.join("evidence.json").display());
+     if complete {

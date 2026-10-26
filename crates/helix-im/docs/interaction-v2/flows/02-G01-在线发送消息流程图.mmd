@@ -1,0 +1,40 @@
+flowchart TD
+    ENTER["GS04 bundle already applied\nmessage.composer@Channel has live message.create binding"] --> EDIT["User enters text and presses Enter"]
+    EDIT --> OVERLAY["PC / Mobile overlay\nclear visible editor immediately\nretain request-scoped recovery draft"]
+    OVERLAY --> INVOKE["ActionInvocationEnvelope v2\nrequestId + actionRef + scope/epoch/revision + Text input"]
+    INVOKE --> TICK["Tick::Command InvokeAction"]
+    TICK --> AUTH{"binding / actor / channel / epoch / revision / codec valid?"}
+
+    AUTH -->|"no"| REJECT["InteractionActionReceipt rejected\noverlay restores recovery draft\nno Message Row and no Frame"]
+    AUTH -->|"yes"| ACCEPT["InteractionActionReceipt accepted\nallocate temporaryId\ncreate PendingSend"]
+    ACCEPT --> LOCAL_PERSIST["Effect::PersistAtomic\ntemporary Message Sending + PendingSend"]
+    LOCAL_PERSIST --> LOCAL_OK{"Tick::PortReply PersistOk?"}
+    LOCAL_OK -->|"no"| PERSIST_FAIL["No Sending Frame\nrestore recovery draft\nrecord storage failure"]
+
+    LOCAL_OK -->|"yes"| SENDING_COMPOSE["SurfaceComposer\ntimeline + dialog + attached thread only"]
+    SENDING_COMPOSE --> SENDING_FRAME["InteractionFrame v2 #sending\nMessageRow temporaryId / delivery=Sending\nClearComposerDraft requestId directive"]
+    SENDING_FRAME --> CACHE["PC / Mobile Frame Cache\nvalidate whole Frame then atomic apply"]
+    CACHE --> CACHE_OK{"Frame valid?"}
+    CACHE_OK -->|"no"| FRAME_RESYNC["Reject whole Frame\nrequest snapshot\ndo not insert a row locally"]
+    CACHE_OK -->|"yes"| APPLIED["FrameApplied\nthen ClearComposerDraft / DirectiveApplied"]
+
+    SENDING_FRAME --> POST["Effect::Http CreatePost\nEffect::ScheduleTimer send timeout"]
+    POST --> HTTP_OK{"HTTP 2xx?"}
+    HTTP_OK -->|"yes"| AWAIT_ECHO["transport accepted only\nno Sent Frame"]
+    HTTP_OK -->|"no / timeout"| FAILURE_PERSIST["PersistAtomic delivery=Failed\nretryability from policy"]
+    FAILURE_PERSIST --> FAILED_FRAME["Frame: same temporary row Failed\nretrySend row ActionBinding only when allowed"]
+    AWAIT_ECHO --> ECHO["Tick::Inbound authoritative WS post echo\nor authoritative sync fact"]
+    ECHO --> CANONICAL_PERSIST["Effect::PersistAtomic\ncanonical Message + temporaryId to serverId settle + cursor"]
+    CANONICAL_PERSIST --> CANONICAL_OK{"PersistOk?"}
+    CANONICAL_OK -->|"no"| KEEP_SENDING["Keep last committed Sending row\nenter recovery, no false Sent"]
+    CANONICAL_OK -->|"yes"| SENT_COMPOSE["SurfaceComposer\nreplace same logical row / canonical dialog preview"]
+    SENT_COMPOSE --> SENT_FRAME["InteractionFrame v2 #sent\ndelivery=Sent, one logical message only"]
+    SENT_FRAME --> SENT_CACHE["Frame Cache atomic apply\nFrameApplied"]
+
+    ECHO --> RECEIVER_PERSIST["Receiver session separately\nPersistAtomic canonical Message + ViewerState"]
+    RECEIVER_PERSIST --> RECEIVER_FRAME["Receiver Frame\ndialog + unread + attached timeline/thread"]
+
+    classDef success fill:#d7f5df,stroke:#287a3d,color:#122
+    classDef failure fill:#ffe2e2,stroke:#a43a3a,color:#211
+    class AUTH,LOCAL_OK,CACHE_OK,CANONICAL_OK success
+    class REJECT,PERSIST_FAIL,FRAME_RESYNC,FAILURE_PERSIST,KEEP_SENDING failure

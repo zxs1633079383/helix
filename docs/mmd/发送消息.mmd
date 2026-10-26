@@ -1,0 +1,62 @@
+%% 根参考图：文本与任务/会议卡片共用 im_send_message；评分卡走独立 engagement command
+%% 真源: cses-client MessageService/TaskApiService/MeetingListService；Helix send + engagement；Go posts；Java task/meeting/average
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Biz as Java business API
+  participant Port as MessageService / MessageV3ImGate
+  participant T as Tauri command
+  participant H as Helix Tick / Command
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant PG as PostgreSQL
+  participant WS as WebSocket
+  participant Bus as EventSink im:__bus__
+  participant Store as Angular store / signal
+  participant View as Message component
+  alt 普通文本、任务卡或会议卡
+    opt 任务卡或会议卡的业务对象前置
+      UI->>Biz: POST /taskManage/task/create or /meeting/create
+    Biz-->>UI: business id
+    UI->>Biz: POST /taskManage/task/detail or /meeting/getDetail
+    Biz-->>UI: task or meeting detail
+    end
+    UI->>Port: sendMessage(TEXT 文本或 TASK_CARD/meetingCardBlock)
+    Port->>T: im_send_message
+    T->>H: Tick::Command(im_send_message)
+    H->>DB: Persist optimistic message(sending)
+    DB-->>H: PortReply(PersistOk)
+    H->>Bus: im:post:sending
+    opt 已 attach timeline 的普通发送
+      H->>DB: timeline 持久事实读回
+      DB-->>H: PortReply(readback)
+      H->>Bus: timeline 窗口投影
+    end
+    H->>Go: Effect::Http POST /api/cses/posts/create
+    Go->>PG: post/channel/channel_member/channel_event
+    Go-->>H: HTTP 2xx admission
+    Go-->>WS: post（与 HTTP 回包先后不固定）
+    WS->>H: Tick::Inbound(post)
+    H->>DB: PersistAtomic canonical projection
+    DB-->>H: PortReply(PersistOk)
+    H->>DB: 权威事实读回
+    DB-->>H: PortReply(readback)
+    H->>Bus: 发送者 im:post:sent；接收者 im:post:received
+  else 评分卡
+    UI->>Port: publishAverageScore(AverageScore DTO)
+    Port->>T: im_average_publish
+    T->>H: Tick::Command(im_average_publish)
+    H->>Biz: Effect::Http POST /average/publish
+    Biz->>Biz: create AverageScore business object
+    Biz->>Go: ImService.createPosts(type=AVERAGE_SCORE,props.averageScore)
+    Go->>PG: post/channel/channel_member/channel_event
+    Go-->>H: Java HTTP response is not UI terminal
+    Go-->>WS: post_update
+    WS->>H: Tick::Inbound(post_update)
+    H->>DB: PersistAtomic canonical projection
+    DB-->>H: PortReply(PersistOk)
+    H->>Bus: im:post:updated
+  end
+  Bus->>Store: IpcEventService upsert
+  Store->>View: MessageTaskContentComponent / meeting-card-block / MessageAverageScoreContentComponent
+  Note over UI,View: 创建业务对象、发送卡片、HTTP 返回、WS 收帧、PersistOk、UI 渲染分别对账

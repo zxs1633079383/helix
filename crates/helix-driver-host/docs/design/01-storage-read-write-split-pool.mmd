@@ -1,0 +1,48 @@
+%% Helix · helix-driver-host · Storage 读写分离池
+%% 真源：src/storage.rs（HostStorage / ReadPool / open_writer / open_reader / with_reader）
+%% 关联：HX-C006（spawn_blocking 隔离同步 C 调用）· ADR-005（FFI 同步调用包 spawn_blocking）· ADR-007（host 单一真源）
+flowchart TD
+    subgraph OPEN["open_sqlite_url() — 非热路径，建池一次性 ✅"]
+        URL["sqlite: URL\n（保留 query：cache=shared / mode=memory）"]
+        SHARE{"target 支持\n多连接共享？\n（文件库 / cache=shared 内存库）"}
+        URL --> SHARE
+    end
+
+    subgraph WRITEPOOL["写池 N=1（串行保序）✅"]
+        W["writer: Arc&lt;Mutex&lt;Connection&gt;&gt;\nflags: READ_WRITE | CREATE | URI | NO_MUTEX\nWAL 单写者 → 写串行本就正确"]
+    end
+
+    subgraph READPOOL["读池 N=4（WAL 并发快照）✅"]
+        SEM["permits: Semaphore(4)\n满载 acquire().await 异步挂起\n→ 背压自然传导，不占线程"]
+        IDLE["idle: Mutex&lt;Vec&lt;Connection&gt;&gt;\n空闲只读连接栈（借/还）"]
+        R1["reader ×4\nflags: READ_ONLY | URI | NO_MUTEX\nbusy_timeout=5000"]
+        SEM --> IDLE --> R1
+    end
+
+    SHARE -->|"是"| READPOOL
+    SHARE -->|"否（独占内存库）\n读回退写连接"| WRITEPOOL
+    SHARE --> WRITEPOOL
+
+    subgraph MIGRATE["migrate() — open 时设库级属性，不在热路径 ✅"]
+        PRAGMA["PRAGMA journal_mode=WAL\nsynchronous=NORMAL\nbusy_timeout=5000\nCREATE _helix_monotonic"]
+    end
+    W --> MIGRATE
+
+    subgraph ROUTE["StorageOp 按读/写分流路由"]
+        WRITE_OPS["写 op：batch_upsert / batch_update / batch_delete\nmonotonic_upsert / guarded_bump / scoped_guarded_bump"]
+        READ_OPS["读 op：get / scoped_get / scan（with_reader）"]
+        ATOMIC_OPS["原子写：Effect::PersistAtomic\n→ Storage::atomic_write（整批事务）"]
+    end
+
+    WRITE_OPS -->|"writer.lock() 串行"| W
+    ATOMIC_OPS -->|"writer.lock() 单事务"| W
+    READ_OPS -->|"先 acquire permit → pop 借连接"| SEM
+
+    subgraph BLOCKING["spawn_blocking 隔离 ✅ HX-C006 / ADR-005"]
+        SB["每个 rusqlite 同步 C 调用\n全包 tokio::task::spawn_blocking\n→ 不阻塞 tokio worker 线程"]
+    end
+    W --> BLOCKING
+    R1 --> BLOCKING
+
+    note["WAL 不变量：读者读快照不阻塞写者，\n写者也不阻塞读者 → 真并发\n（NO_MUTEX：连接已被 Rust Mutex/只读池独占，\n免 SQLite 内部串行锁双重开销，B2）"]
+    BLOCKING -.-> note

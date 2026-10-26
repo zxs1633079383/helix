@@ -1,0 +1,11 @@
+flowchart LR
+    A["打开回复抽屉、加载分支或发送回复"] --> B["查询与回复发送均为 direct command"]
+    B --> C["im_get_replies / im_get_reply_branch"]
+    C --> D["ImModule::handle"]
+    D --> E["Effect: http_read / projection"]
+    E --> F{"PersistOk / authority read"}
+    F --> G["InteractionFrameV2 schemaVersion=2"]
+    G --> H["Surface: message.thread-detail"]
+    H --> I["Native opaque sink"]
+    I --> J["SurfaceRuntime atomic apply"]
+    J --> K["回复线程与分支 UI"]

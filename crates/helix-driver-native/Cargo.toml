@@ -1,0 +1,61 @@
+[package]
+name        = "helix-driver-native"
+version     = "0.1.87"
+edition     = "2021"
+authors     = ["CSES Team"]
+license     = "MIT OR Apache-2.0"
+description = "Helix 的 Tokio Native 平台驱动"
+repository  = "https://git.yundiz.com/cses/go/helix"
+readme      = "README.md"
+include     = ["/src/**", "/README.md"]
+
+# native driver：tokio multi-thread + shared host storage/network wrappers
+# tokio::spawn 在此 crate 的 engine_loop.rs，不在 helix-core
+
+[dependencies]
+helix-core = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.87" }
+helix-driver-host = { path = "../helix-driver-host", version = "=0.1.87" }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+thiserror   = { workspace = true }
+bytes       = { workspace = true }
+tracing     = { workspace = true }
+
+# 运行时（仅 native）
+tokio       = { version = "1", features = ["full"] }
+async-trait = { workspace = true }
+
+# driver 层是 ambient API（SystemTime/线程）的唯一合法落点 → 不开 disallowed deny
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+disallowed_methods = "allow"
+disallowed_macros = "allow"
+
+[dev-dependencies]
+criterion = "0.5"
+# transport_inbound 集成测试用：起本地 WS server 发帧，验入站 Tick::Inbound 接线（A2）。
+# 协议执行已迁 helix-driver-host，故这两条仅测试侧需要。
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+helix-im = { path = "../helix-im", version = "=0.1.87" }
+sha2 = "0.10"
+
+[[bench]]
+name = "storage_upsert"
+harness = false
+
+[[bench]]
+name = "engine_bench"
+harness = false
+
+[[test]]
+name = "message_v3_phase1_real_go"
+path = "tests/message_v3_phase1_real_go.rs"
+
+[[test]]
+name = "message_v3_domain"
+path = "tests/message_v3_domain.rs"
+
+[[test]]
+name = "translation_real"
+path = "tests/translation_real.rs"

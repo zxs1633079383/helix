@@ -1,0 +1,44 @@
+%% Phase4 / bookmark / MV3-G05i 创建书签
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/bookmark/mv3-g05i/contract.json
+%% Helix 真源: crates/helix-im/src/port_reply/dispatch_read.rs::handle_outbound_read_reply；crates/helix-im/src/bookmark_count.rs::bookmark_write_reply
+%% UI owners: packages/message/src/lib/components/chat-content/chat-content-base.component.ts:1；packages/message/src/lib/services/toolbar-command/commands/bookmark.command.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员对一条或多条消息点「收藏」，之后能在书签抽屉里找回
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: createBookmark(payload)
+    Gate->>Native: invokeReadResult("im_bookmark_create", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_bookmark_create", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_bookmark_create", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 收藏消息为书签 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /post/bookmark/create
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>IM: 按 affectedCount/countDelta 更新内存书签计数；无本地书签落库
+  IM->>Sink: Effect::Emit im:read:result（请求关联结果）
+  Sink-->>Gate: im:__bus__ 按 req_id 或 requestId 结算等待者
+  Gate-->>UI: render absolute snapshot or query result
+  Note over IM,Gate: HTTP或信封失败经 im:read:result.error 关联回灌；业务失败由结果 body 保留，不伪造成功
+  Note over IM,DB: 关键效果：仅向 session.currentUserId 在该 account/team + channelId 下的私有书签集合追加合法 postIds；以 (account/team,userId,channelId,postId) 幂等，重复收藏后集合长度不变；Port 返回 status:'SUCCESS'；书签是 persona-local：同频道其他用户的书签集合、数量和排序全部零变化，且对端 events 为 []
+  Note over UI,Web: 关键负向：目标固定 fail closed：请求体出现 userId 必须结构化拒绝；actor 只能由 Go session.currentUserId 注入；纯写不 emit：本次调用期间 events 长度恒为 0（不得产生 postUpdated / channelUpdate）
+  Note over E,Sink: 结果出口：im:read:result；读结果与业务广播区分，不能把无广播理解为无 Effect::Emit

@@ -1,0 +1,10 @@
+%% Phase5 / acceptance / CHAIN-ACC-G01 跨域验收
+%% 合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/scripts/message-v3/reference/phases/phase5.manifest.json
+%% UI owners: packages/message/src/lib/services/chain/chain-facade.service.ts；packages/message/src/lib/services/category-chain/category-chain-facade.service.ts
+flowchart LR
+  C["Common 6 Gate 源码链路"] --> A["Phase5 12 Gate 合同分母"]
+  T["Text 2 Gate 源码链路"] --> A
+  CAT["Category 3 Gate 已有三仓实现"] --> A
+  A --> N["跨域运行态验收 NOT_VERIFIED"]
+  N --> E["需同轮关联 HTTP/WS、Helix 持久事实、事件和 UI 终态"]
+  E --> X["本轮未运行；源码存在不能晋级为整体 PASS"]

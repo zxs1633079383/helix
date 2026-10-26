@@ -1,0 +1,11 @@
+flowchart LR
+    A["点击定位消息"] --> B["当前 MessageV4 handler 走 direct query；Helix timeline 也可声明 locate binding"]
+    B --> C["im_get_posts"]
+    C --> D["ImModule::handle"]
+    D --> E["Effect: http_read / storage_upsert / projection"]
+    E --> F{"PersistOk / authority read"}
+    F --> G["InteractionFrameV2 schemaVersion=2"]
+    G --> H["Surface: message.timeline"]
+    H --> I["Native opaque sink"]
+    I --> J["SurfaceRuntime atomic apply"]
+    J --> K["按 postId 定位 UI"]

@@ -1,0 +1,25 @@
+%% Phase2 / read / MV3-G06e 未读总数投影与角标
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/read/mv3-g06e/contract.json
+%% UI owners: packages/message/src/lib/services/message-unread-total.ts:1；packages/message/src/lib/services/messageDialog.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员在任意页面都能从侧边栏菜单角标看到消息总未读数
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=not_applicable；helix=not_applicable；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  UI->>Gate: 未读总数投影与角标(payload)
+  Gate-->>UI: 当前客户端路由结果或受控空结果
+  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
+  Note over IM,DB: 关键效果：每次 groupedDialogs 投影变化后，以单次 O(n) 扫描按左侧一级可见项（置顶 + mixedDialogs）求和 Go 绝对 unreadCount；隐藏的 moduleDialogs children 不计入；只读依赖：groupedDialogs$ 比较器读 unreadCount 驱动重算；distinctUntilChanged 保证无变化时不重复下发（避免抖动触发下游 IPC）；投影结果只喂菜单角标 + sidebarOverlay toolbar:updateUnread + 呼吸灯；它不改变任一 channel.unreadCount，persona-local 对端零感知且 ImGate events 为 []
+  Note over UI,Web: 关键负向：话题频道（type === 'T'）不得计入一级列表未读总数；同一 channel id 不得在置顶组与 mixedDialogs 重复计数；免打扰只影响展示策略，不得创造第二份未读权威；不得产生任何 Port 调用（本 Gate 无 Port）：gate spy 调用次数恒 0
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

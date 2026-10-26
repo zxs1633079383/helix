@@ -1,0 +1,110 @@
+sequenceDiagram
+    autonumber
+    actor User as User
+    participant Composer as MessageUiComposer
+    participant Shell as ShellService
+    participant Port as HelixCommandPort
+    participant Tauri as Tauri im_send_message
+    participant Module as ImModule
+    participant Pending as PendingSend
+    participant Driver as Native Driver
+    participant SQLite as SQLite message
+    participant Projector as Timeline Projector
+    participant Sink as Native Opaque Frame Sink
+    participant Bus as im:__bus__
+    participant Runtime as Angular SurfaceRuntime
+    participant DOM as Timeline DOM
+    participant Go as Go posts/create
+    participant PG as PostgreSQL transaction
+    participant WS as WebSocket post
+
+    User->>Composer: enter text and click send
+    Composer->>Shell: sendText(text)
+    Shell->>Shell: active channel and req_id
+    Shell->>Port: invoke im_send_message with payload
+    Port->>Tauri: invokeCommand command plus payload wrapper
+    Tauri-->>Port: AcceptedCommand
+    Port-->>Shell: Promise resolved
+    Note over Tauri,Shell: accepted=true means queued only
+
+    Tauri->>Module: Tick::Command AppCommand
+    Module->>Module: validate channel and allocate temporaryId
+    Module->>Module: build CreatePostBody
+    Module->>Pending: insert status=Local and correlations
+    Module-->>Driver: Effect::Persist P1 optimistic message
+    Module-->>Driver: Effect::Emit im:post:sending legacy diagnostic
+    Note over Module,Driver: no HTTP yet for ordinary text
+
+    Driver->>SQLite: BatchUpsert message send_status=sending
+    SQLite-->>Module: Tick::PortReply P1 Ok
+    Module->>Pending: status Local to Sending
+    Module-->>Driver: read attached latest timeline
+    Driver->>SQLite: Query timeline window
+    SQLite-->>Module: Tick::PortReply rows
+    Module->>Projector: compose TimelineWindowVm
+    Projector-->>Driver: Effect::Emit InteractionFrameV2 sending
+    Projector-->>Driver: Effect::Http posts/create
+    Projector-->>Driver: Effect::ScheduleTimer 15 seconds
+    Note over Projector,Driver: HTTP is released only after the sending Frame path is formed
+
+    Driver->>Sink: DomainEventBytes event plus full V2 data
+    Sink->>Sink: validate envelope object and schemaVersion=2 only
+    Sink-->>Bus: emit_str im:__bus__ without business rewrite
+    Bus->>Runtime: ProjectionBus to ProjectionStore to ingestTransportFrame
+    Runtime->>Runtime: decode all fields and reject unknowns
+    Runtime->>Runtime: check duplicate transaction and attached slot
+    Runtime->>Runtime: stage epoch revision and replaceView
+    Runtime->>Runtime: atomically swap staged slots plus runtime
+    Runtime-->>Tauri: FrameApplied transactionId appliedSlots result
+    Runtime-->>DOM: render MessageVm delivery=sending
+
+    Driver->>Go: POST /api/cses/posts/create with Cses-Track-Id
+    Go->>PG: idempotency plus post plus counters plus event plus outbox
+    PG-->>Go: commit postId and eventSeq
+    Go-->>Module: Tick::PortReply HTTP SUCCESS
+
+    alt SUCCESS with server id
+        Module->>Pending: reconcile id and sent
+    else SUCCESS without server id
+        Module->>Pending: mark sent but keep identity pending
+    else PortError
+        Module->>Pending: mark unsend immediately
+    else malformed or non-SUCCESS
+        Module->>Pending: wait for Timer
+    end
+
+    Pending-->>Driver: Effect::Persist terminal row
+    Pending-->>Driver: Effect::CancelTimer when terminal is known
+    Driver->>SQLite: upsert id and send_status
+    SQLite-->>Module: Tick::PortReply terminal PersistOk
+    Module-->>Driver: read attached latest timeline again
+    Driver->>SQLite: Query timeline window
+    SQLite-->>Module: Tick::PortReply terminal rows
+    Module->>Projector: compose TimelineWindowVm
+    Projector-->>Driver: Effect::Emit InteractionFrameV2 sent or failed
+    Driver->>Sink: opaque V2 event
+    Sink-->>Bus: im:__bus__
+    Bus->>Runtime: full terminal Frame
+    Runtime->>Runtime: stage then atomic swap
+    Runtime-->>Tauri: FrameApplied
+    Runtime-->>DOM: same logical row becomes sent or failed
+
+    PG-->>WS: committed outbox publishes event=post
+    WS-->>Module: Tick::Inbound post with temporaryId and eventSeq
+    Module->>Pending: idempotent reconcile if still pending
+    Module-->>Driver: Persist authoritative identity and event order
+    opt post is gate-applied and dialog slot is materialized
+        Module-->>Driver: Persist channel GuardedBump plus Get channel
+        Driver->>SQLite: write counters and read authoritative channel row
+        SQLite-->>Module: Tick::PortReply DialogPatchByPost
+        Module->>Projector: rebuild full DialogListVm
+        Projector-->>Driver: Effect::Emit dialog Frame
+        Note over Projector,Driver: mutations always include left-dialog-list and may pair unread-summary
+        Driver->>Sink: opaque V2 event
+        Sink-->>Bus: im:__bus__
+        Bus->>Runtime: dialog and optional unread transaction
+        Runtime-->>DOM: dialog preview activity badges and ordering update atomically
+    end
+    Note over WS,DOM: observer follows its own inbound Persist barrier and Timeline Frame
+    Note over Projector,Runtime: CURRENT sending and sent are two timeline-only Frames
+    Note over Runtime,DOM: a WS-derived dialog Frame is conditional and independently correlated, not a fixed third command Frame

@@ -1,0 +1,42 @@
+# helix-driver-ffi — 设计图索引
+
+> Flutter FFI 端 driver（C-ABI / uniffi）的结构与数据流沉淀。
+> 图以 mermaid `.mmd` 落盘，真源 = `crates/helix-driver-ffi/src/{api.rs,api/handle.rs,pump.rs,event_sink.rs,http.rs,lib.rs}`。
+> F4 已落地：FFI pump 线程直接装配 shared host `run_engine_loop`、`HostStorage`、`SharedHttpClient`
+> 与 `SharedWsClient`，C++ 侧只通过 C ABI 发命令和接收批量事件。crate 行为真源 = [`../../AGENTS.md`](../../AGENTS.md)。
+> ⚠️ 下方 `.mmd` 图为 F4 落地前快照，「左现状断头 / engine 不被驱动」部分已过时，待重绘（图例见文末）。
+
+## 图清单
+
+| 图 | 文件 | 一句话 |
+|---|---|---|
+| **设计思想** | [`cpp-direct/00-设计思想.md`](cpp-direct/00-设计思想.md) | FFI crate 角色宣言：为什么消灭 Dart 中间层 / Rust 持 WS 持 SQLite / FfiEventSink 批处理 / helix_query blocked-on-IM 来龙去脉 |
+| ① C-ABI 边界全景 | [`01-c-abi-boundary.mmd`](01-c-abi-boundary.mmd) | C++/Flutter host ↔ C-ABI 导出函数 ↔ HelixHandle / pump；create/destroy/header/command/query 已接，storage 由 pump 直接装配 `HostStorage`（`helix_on_ws_frame/on_http_response` 已删，入站走 `with_inbound_tick`） |
+| ② F4 后数据流 | [`02-dataflow-current-vs-f4.mmd`](02-dataflow-current-vs-f4.mmd) | C++ 命令 / shared WS 入站 → Tick → shared host engine → Persist/Http/Send/Emit，Persist 经 `HostStorage`，Emit 经批量 C++ vtable |
+| ③ FFI 内存安全边界（HX-C006） | [`03-ffi-memory-safety.mmd`](03-ffi-memory-safety.mmd) | ① opaque ptr 单 owner（into_raw/from_raw 各一次 + null-check）② panic=abort 不跨 extern C unwind ③ C 侧 buffer 立即 to_vec 拷贝不持有（ACL-3）④ ffi_str 零信任守卫（null/utf8/invalid 错误码） |
+
+## ✅ 已落地（src 已实装，含 F4）
+
+- **C-ABI 导出**：推荐 `helix_create_with_endpoints(go, java, ws, vtable)` 显式注入双 HTTP
+  origin；兼容 `helix_create_with_network(go, ws, vtable)` 保留原 ABI、Java 为空且不推测。
+  其余为 `helix_destroy` / `helix_set_header` / `helix_remove_header` /
+  `helix_command` / `helix_query`（仅元信息）/ `helix_query_free`；MessageV3 业务 action
+  统一作为公开 command 数据进入 `helix_command`，不再保留独立 UI action ABI。
+  > 注：旧 `helix_on_ws_frame` / `helix_on_http_response` **已删**——入站帧由 `SharedWsClient::with_inbound_tick` 在 Rust 内部直发 `Tick::Inbound`，不再经 C++（见 `pump.rs`）。
+- **engine 泵（F4 ✅）**：`pump.rs` 起专用 `std::thread` + current_thread tokio runtime，`block_on` host `run_engine_loop`（复用 `helix-driver-host` 泛型泵核）；装配 storage/http/ws/eventsink/clock + `register(ImModule)`（FFI 身兼 composition root）。
+- **共享 host ports**：pump 直接装配 `HostStorage`（StorageOp 单一真源，含 BatchDelete）、`SharedWsClient`、`FfiHttpRequester(SharedHttpClient)`、`FfiEventSink`。
+- **egress 批处理（F4.3 ✅，HX-C007）**：`FfiEventSink impl EventSink + BatchSink`，每 step `flush` 整批编码成单 buffer（`batch.rs` len-prefixed）→ **一次** `CppHostVtable::on_domain_events_batch`，绝不逐条过边界。
+- **PUT 实测诊断**：`pump.rs` 仅给共享 uploader 装配 `Arc<FfiEventSink>` observer，不发异步 callback。`event_sink.rs` 独立诊断队列最多 128 项、每项最多 1024 字节，入队前限制借用 objectKey 长度；业务 Emit 保留独立原文 buffer。step flush 将两者合并进既有长度前缀 batch，一次 callback；全空不回调，无 callback 不清空诊断/不宣称交付。
+  固定信封 `{event:"helix:diagnostic:upload-response",data:{version:1,kind:"response"|"loss",method:"PUT",httpStatus,objectKey,fileSize,durationUs,sequence,droppedCount}}`。response 只含真实测量，无 HTTP response 时 status 为 null；sequence 每尝试递增、droppedCount 累计。队列溢出或编码超长产生 loss，HTTP/对象/长度/耗时均为 null、sequence 为最新被丢弃尝试；flush 按 sequence 将累计 loss 合入 accepted 记录，批内及跨批诊断序列递增，无 accepted response 时仍可单独输出 loss。不经过 core DomainEvent，也不代表持久化业务终态。
+- **C++ vtable**：`CppHostVtable { on_domain_events_batch, now_ms, ctx }`，事件按 step 批量回调（HX-C007）。
+- **FFI 内存安全（HX-C006）**：opaque ptr 单 owner + panic=abort + C 侧 buffer 立即拷贝（ACL-3）+ null / invalid-utf8 拒绝。
+
+## 仍未实装
+
+1. **Flutter 真机与跨端一致性** —— 同步业务读旁路已删除；剩余验证是 Flutter 真机 ABI 冒烟，以及同一 Tick 剧本 native/FFI byte-level parity。
+2. **Flutter 真机 smoke / F5 parity** —— 见根 [`docs/ROADMAP.md`](../../../../docs/ROADMAP.md) §一 M3 F4.5/F5。
+
+## 维护约定
+
+- 图为 source of truth 的**衍生视图**；F4 已落地，`01/02` 图的「断头 / engine 不被驱动」部分**已过时待重绘**；改 `src/*.rs` 接缝后须同步更新对应 `.mmd` 与本表。
+- ✅ 已落地用绿色 / ⏳ honest stub 用黄色 / ❌ 未接用红色（虚线）——图例三色一致。

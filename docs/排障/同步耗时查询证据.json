@@ -1,0 +1,70 @@
+{
+  "status": "PARTIAL",
+  "dashboardUid": "helix-client-channel-v1",
+  "previousVersion": 9,
+  "currentVersion": 10,
+  "oldPanelsPreserved": true,
+  "queries": [
+    {
+      "panelId": 102,
+      "title": "整轮同步开始和真正完成",
+      "apiAccepted": true,
+      "series": 0
+    },
+    {
+      "panelId": 103,
+      "title": "清单各页开始和落库完成",
+      "apiAccepted": true,
+      "series": 0
+    },
+    {
+      "panelId": 104,
+      "title": "最近一次同步开始时间",
+      "apiAccepted": true,
+      "series": 0
+    },
+    {
+      "panelId": 105,
+      "title": "最近一次同步成功完成时间",
+      "apiAccepted": true,
+      "series": 0
+    },
+    {
+      "panelId": 106,
+      "title": "整轮同步耗时分位",
+      "apiAccepted": true,
+      "series": 0
+    },
+    {
+      "panelId": 107,
+      "title": "清单单页到落库耗时分位",
+      "apiAccepted": true,
+      "series": 0
+    },
+    {
+      "panelId": 108,
+      "title": "整轮同步终态速率",
+      "apiAccepted": true,
+      "series": 0
+    },
+    {
+      "panelId": 109,
+      "title": "清单页落库终态速率",
+      "apiAccepted": true,
+      "series": 0
+    },
+    {
+      "panelId": 110,
+      "title": "服务端分页处理耗时分位",
+      "apiAccepted": true,
+      "series": 0
+    },
+    {
+      "panelId": 111,
+      "title": "服务端分页处理终态速率",
+      "apiAccepted": true,
+      "series": 0
+    }
+  ],
+  "realBusinessTriggered": false
+}

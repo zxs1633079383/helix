@@ -1,0 +1,308 @@
+//! 频道置顶集合的账号隔离本地绝对投影。
+
+use helix_core::effect::{
+    BatchDeleteSpec, BatchUpdateSpec, Correlation, Effect, GetSpec, SqlValue, StorageOp, UpsertSpec,
+};
+
+use crate::error::ImError;
+use crate::state::ChannelId;
+
+pub const QUERY_PINNED_PROJECTION: &str = "im_query_pinned_projection";
+
+/// 只接受 caller 拥有的频道与 transport correlation 字段。
+pub fn parse_channel_id(payload: &[u8]) -> Result<ChannelId, ImError> {
+    let value = serde_json::from_slice::<serde_json::Value>(payload)
+        .map_err(|error| ImError::Parse(format!("{QUERY_PINNED_PROJECTION} payload: {error}")))?;
+    let object = value.as_object().ok_or_else(|| {
+        ImError::Parse(format!(
+            "{QUERY_PINNED_PROJECTION} payload must be an object"
+        ))
+    })?;
+    for key in object.keys() {
+        if !matches!(key.as_str(), "channelId" | "channel_id" | "req_id") {
+            return Err(ImError::Parse(format!(
+                "{QUERY_PINNED_PROJECTION} field is not caller-owned: {key}"
+            )));
+        }
+    }
+    object
+        .get("channelId")
+        .or_else(|| object.get("channel_id"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(ChannelId::from_str)
+        .ok_or_else(|| ImError::Parse(format!("{QUERY_PINNED_PROJECTION} requires channelId")))
+}
+
+/// 账号与频道共同组成本地 projection key，禁止跨账号复用同名频道缓存。
+pub fn projection_key(account_id: &str, channel_id: ChannelId) -> Result<String, ImError> {
+    if account_id.is_empty() {
+        return Err(ImError::Parse(
+            "pinned projection requires RuntimeAuth account".to_string(),
+        ));
+    }
+    Ok(format!("{account_id}:{}", channel_id.as_str()))
+}
+
+/// 构造单行本地置顶投影读取，不触发 HTTP。
+pub fn query_effect(projection_key: String, channel_id: ChannelId, corr: Correlation) -> Effect {
+    Effect::Persist {
+        corr,
+        ops: vec![
+            StorageOp::Get(GetSpec {
+                table: "channel_pinned_projection",
+                key_col: "projection_key",
+                key_val: SqlValue::Text(projection_key),
+            }),
+            StorageOp::Get(GetSpec {
+                table: "channel",
+                key_col: "id",
+                key_val: SqlValue::Text(channel_id.as_str().to_string()),
+            }),
+        ],
+    }
+}
+
+/// 把一次权威 HTTP 列表保存为账号+频道单行绝对投影。
+pub fn persist_effect(
+    projection_key: String,
+    account_id: String,
+    channel_id: ChannelId,
+    raw_body: &[u8],
+    corr: Correlation,
+    revision: Option<i64>,
+) -> Result<Effect, ImError> {
+    let body = serde_json::from_slice::<serde_json::Value>(raw_body)
+        .map_err(|error| ImError::Parse(format!("pinned projection body: {error}")))?;
+    let count = body["data"]
+        .as_array()
+        .ok_or_else(|| ImError::Parse("pinned list data must be an array".into()))?
+        .len() as i64;
+    let mut guard = UpsertSpec::new(
+        "channel_pinned_fence",
+        vec![vec![
+            (
+                "projection_key".into(),
+                SqlValue::Text(projection_key.clone()),
+            ),
+            (
+                "revision".into(),
+                SqlValue::Integer(
+                    revision
+                        .unwrap_or(0)
+                        .checked_add(1)
+                        .ok_or_else(|| ImError::Parse("pinned revision exhausted".into()))?,
+                ),
+            ),
+        ]],
+        Some("projection_key"),
+    );
+    guard.update_guard = Some(helix_core::effect::UpsertGuard {
+        column: "revision",
+        expected: revision.map(SqlValue::Integer).unwrap_or(SqlValue::Null),
+    });
+    Ok(Effect::PersistAtomic {
+        corr,
+        ops: vec![
+            StorageOp::BatchUpsert(UpsertSpec::new(
+                "channel_pinned_projection",
+                vec![vec![
+                    ("projection_key".to_string(), SqlValue::Text(projection_key)),
+                    ("account_id".to_string(), SqlValue::Text(account_id)),
+                    (
+                        "channel_id".to_string(),
+                        SqlValue::Text(channel_id.as_str().to_string()),
+                    ),
+                    ("body".to_string(), SqlValue::Text(body.to_string())),
+                ]],
+                Some("projection_key"),
+            )),
+            StorageOp::BatchUpsert(guard),
+            StorageOp::BatchUpdate(BatchUpdateSpec {
+                table: "channel",
+                key_col: "id",
+                key_vals: vec![SqlValue::Text(channel_id.as_str().to_string())],
+                patch: vec![("top_count".to_string(), SqlValue::Integer(count))],
+            }),
+        ],
+    })
+}
+
+/// 生成删除+持久版本递增写集；调用方必须合并进PersistAtomic，不能直接执行PersistFire。
+pub fn invalidate_effect(account_id: &str, projection_key: String) -> Effect {
+    let mut seed = UpsertSpec::new(
+        "channel_pinned_fence",
+        vec![vec![
+            (
+                "projection_key".into(),
+                SqlValue::Text(projection_key.clone()), // hot-path-audit: ignore — 固定主键的owned参数，非消息或集合深拷贝。
+            ),
+            ("revision".into(), SqlValue::Integer(0)),
+        ]],
+        Some("projection_key"),
+    );
+    seed.exclude_from_update = vec!["revision"];
+    Effect::PersistFire {
+        ops: vec![
+            StorageOp::BatchDelete(BatchDeleteSpec {
+                table: "channel_pinned_projection",
+                scope_col: "account_id",
+                scope_val: SqlValue::Text(account_id.to_string()),
+                key_col: "projection_key",
+                key_vals: vec![SqlValue::Text(projection_key.clone())], // hot-path-audit: ignore — 固定主键的owned参数。
+            }),
+            StorageOp::BatchUpsert(seed),
+            StorageOp::ScopedGuardedBump(helix_core::effect::ScopedGuardedBumpSpec {
+                table: "channel_pinned_fence",
+                scope_col: "projection_key",
+                scope_val: SqlValue::Text(projection_key.clone()), // hot-path-audit: ignore — 固定主键的owned参数，非消息或集合深拷贝。
+                key_col: "projection_key",
+                key_val: SqlValue::Text(projection_key),
+                bump_col: "revision",
+                bump_delta: 1,
+                set_cols: vec![],
+                guard_col: "revision",
+                comparison: helix_core::effect::GuardComparison::Greater,
+                guard_val: i64::MAX,
+                additional_guard: None,
+            }),
+        ],
+    }
+}
+
+/// 把本地 Get 回包投影成 `{cached, body}`，缺行不是错误而是远端 fallback 信号。
+pub fn result_body(reply: &bytes::Bytes) -> Result<serde_json::Value, ImError> {
+    let rows = helix_core::port_codec::rows_from_reply_bytes(reply)
+        .map_err(|error| ImError::Parse(format!("pinned projection readback: {error}")))?;
+    let Some(body) = rows
+        .first()
+        .and_then(|row| row.iter().find(|(column, _)| column == "body"))
+        .and_then(|(_, value)| match value {
+            SqlValue::Text(value) => Some(value.as_str()),
+            _ => None,
+        })
+    else {
+        return Ok(serde_json::json!({ "cached": false }));
+    };
+    let body = serde_json::from_str::<serde_json::Value>(body)
+        .map_err(|error| ImError::Parse(format!("pinned projection cached body: {error}")))?;
+    // 旧版本可能只缓存了列表；摘要不一致时重新取得权威快照并原子修复。
+    let count = rows
+        .iter()
+        .flat_map(|row| row.iter())
+        .find_map(|(key, value)| match value {
+            SqlValue::Integer(count) if key == "top_count" => Some(*count),
+            _ => None,
+        });
+    if body["status"] != "SUCCESS"
+        || body["data"].as_array().map(|items| items.len() as i64) != count
+        || count.is_none()
+    {
+        return Ok(serde_json::json!({ "cached": false }));
+    }
+    Ok(serde_json::json!({ "cached": true, "body": body }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use helix_core::effect::Row;
+
+    /// 缺行是明确 cache miss，不伪装为空置顶集合。
+    #[test]
+    fn missing_row_returns_cache_miss() {
+        let reply = helix_core::port_codec::rows_to_reply_bytes(&[]);
+        assert_eq!(
+            result_body(&reply).unwrap(),
+            serde_json::json!({ "cached": false })
+        );
+    }
+
+    /// 已持久化的后端绝对响应体必须原样回放给 Host normalizer。
+    #[test]
+    fn cached_row_returns_authority_body() {
+        let row: Row = vec![(
+            "body".to_string(),
+            SqlValue::Text(
+                serde_json::json!({ "status": "SUCCESS", "data": [{ "post": { "id": "p1" } }] })
+                    .to_string(),
+            ),
+        )];
+        let reply = helix_core::port_codec::rows_to_reply_bytes(&[
+            row,
+            vec![("top_count".into(), SqlValue::Integer(1))],
+        ]);
+        let result = result_body(&reply).unwrap();
+        assert_eq!(result["cached"], true);
+        assert_eq!(result["body"]["data"][0]["post"]["id"], "p1");
+    }
+
+    /// 旧缓存摘要不一致、业务失败或列表缺失都必须回读权威，而非当成空置顶。
+    #[test]
+    fn mismatched_cached_count_requires_authority_read() {
+        for body in [
+            serde_json::json!({"status":"SUCCESS", "data":[{"post":{"id":"p1"}}]}),
+            serde_json::json!({"status":"ERROR", "data":[]}),
+            serde_json::json!({"status":"SUCCESS", "data":null}),
+        ] {
+            let rows = vec![
+                vec![("body".into(), SqlValue::Text(body.to_string()))],
+                vec![("top_count".into(), SqlValue::Integer(0))],
+            ];
+            assert_eq!(
+                result_body(&helix_core::port_codec::rows_to_reply_bytes(&rows)).unwrap(),
+                serde_json::json!({"cached":false})
+            );
+        }
+    }
+
+    /// 每次 pin/unpin 都推进失效代次并删除账号级单行投影。
+    #[test]
+    fn invalidation_advances_epoch_and_deletes_projection() {
+        let channel_id = ChannelId::from_str("chfixx0000000000000000002a").unwrap();
+        let mut state = crate::state::ImState::new();
+        let first = state
+            .invalidate_pinned_projection("user-a", channel_id)
+            .expect("valid account creates invalidation");
+        let second = state
+            .invalidate_pinned_projection("user-a", channel_id)
+            .expect("second invalidation remains valid");
+        assert_eq!(state.pinned_projection_epochs.get(&channel_id), Some(&2));
+        for effect in [first, second] {
+            assert!(matches!(
+                effect,
+                Effect::PersistFire { ops }
+                    if matches!(ops.first(), Some(StorageOp::BatchDelete(spec))
+                        if spec.table == "channel_pinned_projection"
+                            && spec.scope_col == "account_id")
+            ));
+        }
+    }
+}
+
+/// 读取持久化失效版本；必须在HTTP成功且内存代次仍有效时发出。
+pub(crate) fn fence_read(key: String, corr: Correlation) -> Effect {
+    Effect::Persist {
+        corr,
+        ops: vec![StorageOp::Get(GetSpec {
+            table: "channel_pinned_fence",
+            key_col: "projection_key",
+            key_val: SqlValue::Text(key),
+        })],
+    }
+}
+
+impl crate::module::ImModule {
+    /// 将失效与恢复事实放入同一事务，并立即阻止旧回包和未提交期间的本地缓存命中。
+    pub(crate) fn append_pinned_invalidation(
+        &mut self,
+        channel: ChannelId,
+        ops: &mut Vec<StorageOp>,
+    ) {
+        if let Some(Effect::PersistFire { ops: invalidation }) = self
+            .state
+            .invalidate_pinned_projection(&self.config.auth_user_id, channel)
+        {
+            ops.extend(invalidation);
+        }
+    }
+}

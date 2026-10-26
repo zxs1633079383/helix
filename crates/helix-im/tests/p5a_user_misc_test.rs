@@ -1,0 +1,501 @@
+//! P5a — user-misc 域 outbound（users/list·status/ids + teams×3 + modules/getAll +
+//! notification/loadSend + search 四件套）集成测试。
+//!
+//! 回归锚: P5a
+//!
+//! 覆盖维度（02 文档 P5a gate + 03 测试矩阵 P5a 行）：
+//! - 每命令 1 正常路径：endpoint url + body casing 断言（锚现网 Go json tag 逐字，不自造 fixture，C5）
+//!   · users/list → camelCase `channelId`（user.go:23）
+//!   · users/status/ids → `userIds:[]`（user.go:43，presence 接管 D2）
+//!   · teams/member/quit → `{userId,teamId}`（quit_team.go:3-6）
+//!   · notification/loadSend → `{page,size,state?}`（NotificationReq + Page）
+//!   · Search Gate 四件套：有界筛选/游标、req_id 本地 correlation、Go camelCase wire
+//! - endpoint 前缀：users/teams/modules/notification/search 各自子路由
+//! - 源 bug 移植纪律：4 处源 bug 属服务端响应/handler 态，outbound 只 build 请求体，不绕过/不预修
+//!   （本测试断言 outbound endpoint+body 与现网 decode 结构一致，不在 build 层裁决响应 bug）
+//! - PERSONAL_USER_FORBIDDEN：teams/* 的 403 响应码（personal_guard.go:13 verbatim），响应态
+//!   → 文档断言侧记录（见 personal_user_forbidden_is_response_side 注释断言）
+//! - health 裸 {"status":"OK"}：响应态特例（health.go ReturnStatusOK），非 outbound build 关切
+//! - search channelDetails 第四 key：do=searchAll 响应含 channels/users/channelDetails（cses_search.go），响应态
+//! - 搜索权限防漏：userId/teamId/companyId 与 sort 由服务端权威决定，前端下发即拒绝
+//! - 边界零信任：缺必填 → Err 不 panic（require_str / require_str_array）
+//! - registry 性质：11 命令全 is_outbound 命中 + 全可 dispatch（注册数==命令数，无重复/漏）
+//!
+//! 可证伪（HX-C011）：改错任一 endpoint / casing → 对应断言 FAIL；把 users/list 写 snake `channel_id`
+//! / search 写 snake key / 让 search 下发 user_id → 断言 FAIL；删某命令注册 → registry 计数 +
+//! is_outbound FAIL；放松必填校验 → Err 断言 FAIL。
+
+use helix_core::effect::{Effect, HttpRequest};
+use helix_core::{AuthKind, Correlation, AUTH_KIND_HEADER};
+use helix_im::commands::{handle_outbound, is_outbound, is_read};
+use serde_json::{json, Value};
+
+const BASE: &str = "http://x/api/cses";
+
+fn corr() -> Correlation {
+    Correlation::from_raw(5)
+}
+
+/// 取出单条 Http 的 (url, body-json)；非单条 Http → panic。
+fn one_http(effects: Vec<Effect>) -> (String, Value) {
+    assert_eq!(effects.len(), 1, "user-misc 命令当前恒产单条 Effect::Http");
+    let req = one_http_req(effects);
+    let body: Value = serde_json::from_slice(&req.body.unwrap()).unwrap();
+    (req.url, body)
+}
+
+/// 取出单条 Http request；用于 method / header 契约断言。
+fn one_http_req(effects: Vec<Effect>) -> HttpRequest {
+    assert_eq!(effects.len(), 1, "user-misc 命令当前恒产单条 Effect::Http");
+    match effects.into_iter().next().unwrap() {
+        Effect::Http { req, .. } => req,
+        other => panic!("expected Effect::Http, got {other:?}"),
+    }
+}
+
+fn run(name: &str, payload: Value) -> Vec<Effect> {
+    handle_outbound(
+        name,
+        &serde_json::to_vec(&payload).unwrap(),
+        BASE,
+        BASE,
+        Some("conn-5a"),
+        corr(),
+    )
+    .expect("handle_outbound should not fail")
+}
+
+fn err(name: &str, payload: Value) -> bool {
+    handle_outbound(
+        name,
+        &serde_json::to_vec(&payload).unwrap(),
+        BASE,
+        BASE,
+        None,
+        corr(),
+    )
+    .is_err()
+}
+
+// ── users/* ──────────────────────────────────────────────────────────────────────
+
+#[test]
+fn list_users_builds_camel_channel_id_body() {
+    // 真源 `{channelId}`（user.go:23 `ChannelId string json:"channelId"`）
+    let (url, body) = one_http(run("im_list_users", json!({ "channel_id": "cU" })));
+    assert_eq!(url, "http://x/api/cses/users/list");
+    assert_eq!(body["channelId"], "cU");
+    assert!(
+        body.get("channel_id").is_none(),
+        "users/list body 必须 camelCase channelId（user.go:23），禁 snake"
+    );
+    assert!(err("im_list_users", json!({}))); // 缺 channel_id
+}
+
+#[test]
+fn get_user_statuses_builds_userids_array_presence() {
+    // presence 接管（D2）：真源 `{userIds:[]string}`（user.go:43）
+    let (url, body) = one_http(run(
+        "im_get_user_statuses",
+        json!({ "user_ids": ["u1", "u2"] }),
+    ));
+    assert_eq!(url, "http://x/api/cses/users/status/ids");
+    assert_eq!(body["userIds"][0], "u1");
+    assert_eq!(body["userIds"][1], "u2");
+    assert!(body["userIds"].is_array());
+    assert!(err("im_get_user_statuses", json!({ "user_ids": [] }))); // 空 → Err
+    assert!(err("im_get_user_statuses", json!({ "user_ids": [1] }))); // 非 string
+    assert!(err("im_get_user_statuses", json!({}))); // 缺
+}
+
+// ── teams/* ───────────────────────────────────────────────────────────────────────
+
+#[test]
+fn team_upsert_builds_team_object_from_structured_args() {
+    // body 成形下沉 helix（薄壳合规）：壳传 {display_name,self_id,team_id,member_ids}，helix 拼
+    // CreateChannelSpecifyOwner team 对象（无外层包裹·wire body 即 team·team.go:63）。
+    let (url, body) = one_http(run(
+        "im_team_upsert",
+        json!({ "display_name": "公司大群", "self_id": "u1", "team_id": "t1", "member_ids": ["a"] }),
+    ));
+    assert_eq!(url, "http://x/api/cses/teams/upsert");
+    assert_eq!(body["displayName"], "公司大群");
+    assert_eq!(body["teamId"], "t1");
+    assert_eq!(body["type"], "P");
+    assert_eq!(body["owner"]["id"], "u1");
+    assert_eq!(body["owner"]["role"], "CREATOR");
+    assert_eq!(body["users"][0]["role"], "CREATOR"); // self
+    assert_eq!(body["users"][1]["id"], "a"); // member
+    assert_eq!(body["forceCreate"], true);
+    assert!(err("im_team_upsert", json!({}))); // 缺 display_name/self_id
+    assert!(err("im_team_upsert", json!({ "display_name": "g" }))); // 缺 self_id
+}
+
+#[test]
+fn team_member_add_passes_through_event_object() {
+    // 真源 ChannelMemberEvent（team.go:42 decode）整对象透传
+    let event = json!({ "channelId": "c1", "userIds": ["u"], "type": "add" });
+    let (url, body) = one_http(run("im_team_member_add", json!({ "event": event })));
+    assert_eq!(url, "http://x/api/cses/teams/member/add");
+    assert_eq!(body["channelId"], "c1");
+    assert_eq!(body["type"], "add");
+    assert!(err("im_team_member_add", json!({}))); // 缺 event
+    assert!(err("im_team_member_add", json!({ "event": [] }))); // 非对象
+}
+
+#[test]
+fn team_quit_builds_user_team_body() {
+    // 真源 QuitTeamReq{userId,teamId}（quit_team.go:3-6）。无响应体是服务端 handler 态（透传不影响 build）。
+    // Task1 只验 method/url/body；session 鉴权意图单列到 Task2，避免把两个契约耦在同一个回归点里。
+    let req = one_http_req(run(
+        "im_team_quit",
+        json!({ "user_id": "uQ", "team_id": "tQ" }),
+    ));
+    assert_eq!(
+        req.method, "DELETE",
+        "teams/member/quit 现网是 HTTP DELETE，不能继续由 registry 写死 POST"
+    );
+    let body: Value = serde_json::from_slice(&req.body.unwrap()).unwrap();
+    assert_eq!(req.url, "http://x/api/cses/teams/member/quit");
+    assert_eq!(body["userId"], "uQ");
+    assert_eq!(body["teamId"], "tQ");
+    assert!(err("im_team_quit", json!({ "user_id": "u" }))); // 缺 team_id
+    assert!(err("im_team_quit", json!({ "team_id": "t" }))); // 缺 user_id
+}
+
+#[test]
+fn team_quit_marks_session_auth_kind() {
+    let req = one_http_req(run(
+        "im_team_quit",
+        json!({ "user_id": "uQ", "team_id": "tQ" }),
+    ));
+    assert!(
+        req.headers
+            .iter()
+            .any(|(k, v)| k == AUTH_KIND_HEADER && v == AuthKind::Session.as_str()),
+        "默认 session outbound 必须显式标 X-Auth-Kind: session，供 host crosscut 注入真实 cookie"
+    );
+}
+
+// ── modules/* ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn get_all_modules_builds_empty_body() {
+    // 真源**空 body** POST（modules.go:14 不 decode；前端 message.service.ts:828 无 body）。
+    // 现网 SetMessage("channelMemberChange success") 笔误是响应态，不影响 outbound build。
+    let (url, body) = one_http(run("im_get_all_modules", json!({})));
+    assert_eq!(url, "http://x/api/cses/modules/getAll");
+    assert_eq!(body, json!({}), "modules/getAll 请求体为空对象");
+    // 即便前端塞了无关字段，build 仍产空 body（不泄漏 UI 字段到 wire）。
+    let (_url, body2) = one_http(run("im_get_all_modules", json!({ "junk": 1 })));
+    assert_eq!(body2, json!({}));
+}
+
+// ── notification/* ────────────────────────────────────────────────────────────────
+
+#[test]
+fn load_send_notifications_builds_page_state_body() {
+    // 真源 NotificationReq{Page{page,size}, state}（NotificationReq.go + page.go）。
+    // loadSend↔loadTarget handler 互换是服务端响应态，outbound endpoint 锚 notification/loadSend。
+    let (url, body) = one_http(run(
+        "im_load_send_notifications",
+        json!({ "page": 1, "size": 10, "state": "unread" }),
+    ));
+    assert_eq!(url, "http://x/api/cses/notification/loadSend");
+    assert_eq!(body["page"], 1);
+    assert_eq!(body["size"], 10);
+    assert_eq!(body["state"], "unread");
+}
+
+#[test]
+fn load_send_notifications_state_optional_and_page_size_required() {
+    let (_url, body) = one_http(run(
+        "im_load_send_notifications",
+        json!({ "page": 2, "size": 20 }),
+    ));
+    assert_eq!(body["page"], 2);
+    assert_eq!(body["size"], 20);
+    assert!(body.get("state").is_none(), "state 仅显式给出时下发");
+    assert!(err("im_load_send_notifications", json!({ "size": 10 }))); // 缺 page
+    assert!(err("im_load_send_notifications", json!({ "page": 1 }))); // 缺 size
+    assert!(err(
+        "im_load_send_notifications",
+        json!({ "page": "x", "size": 10 })
+    )); // page 非 int
+}
+
+// ── Search Gate 四件套（public snake_case → Go camelCase）─────────────────────────
+
+/// post 搜索把可组合筛选精确转换为 Go wire，并保留 req_id 仅作本地 correlation。
+#[test]
+fn search_post_builds_bounded_camel_body() {
+    let (url, body) = one_http(run(
+        "im_search_post",
+        json!({
+            "req_id": "search-post-1",
+            "keyword": "hi",
+            "channel_id": "cS",
+            "sender_ids": ["u1"],
+            "content_types": ["FILE"],
+            "start_at": 10,
+            "end_at": 20,
+            "cursor": "next",
+            "page_size": 20
+        }),
+    ));
+    assert_eq!(url, "http://x/api/cses/search/post");
+    assert_eq!(
+        body,
+        json!({
+            "keyword": "hi",
+            "channelId": "cS",
+            "senderUserIds": ["u1"],
+            "contentTypes": ["FILE"],
+            "startAt": 10,
+            "endAt": 20,
+            "cursor": "next",
+            "pageSize": 20
+        })
+    );
+}
+
+/// user/channel 使用单 cursor；do 精确上行三段独立 cursor。
+#[test]
+fn search_user_channel_do_share_keyword_search_body() {
+    for (name, ep) in [
+        ("im_search_user", "search/user"),
+        ("im_search_channel", "search/channel"),
+    ] {
+        let (url, body) = one_http(run(
+            name,
+            json!({ "req_id": "rq-1", "keyword": "q", "cursor": "c", "page_size": 10 }),
+        ));
+        assert_eq!(url, format!("http://x/api/cses/{ep}"));
+        assert_eq!(
+            body,
+            json!({ "keyword": "q", "cursor": "c", "pageSize": 10 })
+        );
+        assert!(is_read(name), "{name} 必须注册为读族");
+    }
+    let (url, body) = one_http(run(
+        "im_search_do",
+        json!({
+            "req_id":"rq-do", "keyword":"q", "user_cursor":"u",
+            "channel_cursor":"c", "message_group_cursor":"m", "page_size":10
+        }),
+    ));
+    assert_eq!(url, "http://x/api/cses/search/do");
+    assert_eq!(
+        body,
+        json!({
+            "keyword":"q", "userCursor":"u", "channelCursor":"c",
+            "messageGroupCursor":"m", "pageSize":10
+        })
+    );
+    assert!(is_read("im_search_do"));
+}
+
+/// 搜索边界兼容 legacy scope 但不上行；拒绝缺 req_id、空筛选、非法 scope/时间和越界页长。
+#[test]
+fn search_boundaries_fail_closed() {
+    let (_, channel_only) = one_http(run(
+        "im_search_post",
+        json!({ "req_id": "channel-only", "channel_id": " c1 " }),
+    ));
+    assert_eq!(channel_only, json!({ "channelId": "c1" }));
+    let (_, scoped) = one_http(run(
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "channel", "keyword": "x" }),
+    ));
+    assert!(scoped.get("scope").is_none());
+    assert!(scoped.get("channelId").is_none());
+    let (_, flat) = one_http(run(
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "global", "channel_id": "c", "keyword": "x" }),
+    ));
+    assert_eq!(flat["channelId"], "c");
+    assert!(flat.get("scope").is_none());
+    assert!(err(
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "global" })
+    ));
+    assert!(err(
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "invalid", "keyword": "x" })
+    ));
+    assert!(err(
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "global", "keyword": "x", "start_at": 2, "end_at": 1 })
+    ));
+    assert!(err(
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "global", "keyword": "x", "start_at": (i64::MAX as u64) + 1 })
+    ));
+    assert!(err(
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "global", "keyword": "x", "end_at": (i64::MAX as u64) + 1 })
+    ));
+    assert!(err(
+        "im_search_post",
+        json!({ "req_id": "r", "scope": "global", "keyword": "x", "page_size": 51 })
+    ));
+    assert!(err("im_search_user", json!({ "req_id": "r" })));
+    assert!(err("im_search_channel", json!({ "keyword": "x" })));
+    assert!(err(
+        "im_search_do",
+        json!({ "req_id": "r", "keyword": "x", "cursor": "wrong" })
+    ));
+    for payload in [
+        json!({ "req_id": "r", "keyword": "界".repeat(513) }),
+        json!({ "req_id": "r", "channel_id": "c".repeat(129) }),
+        json!({ "req_id": "r", "sender_ids": vec!["u"; 101] }),
+        json!({ "req_id": "r", "sender_ids": ["u".repeat(129)] }),
+    ] {
+        assert!(err("im_search_post", payload));
+    }
+}
+
+/// 服务端 session 权威字段和排序策略禁止从任何搜索命令透传。
+#[test]
+fn search_rejects_frontend_authority_fields() {
+    for (name, base) in [
+        (
+            "im_search_post",
+            json!({ "req_id": "r", "scope": "global", "keyword": "x" }),
+        ),
+        ("im_search_user", json!({ "req_id": "r", "keyword": "x" })),
+        (
+            "im_search_channel",
+            json!({ "req_id": "r", "keyword": "x" }),
+        ),
+        ("im_search_do", json!({ "req_id": "r", "keyword": "x" })),
+    ] {
+        for field in ["user_id", "team_id", "company_id", "sort"] {
+            let mut body = base.clone();
+            body[field] = json!("leak");
+            assert!(err(name, body), "{name} 必须拒绝 {field}");
+        }
+    }
+}
+
+// ── 源 bug / 响应态特例：文档化断言（outbound build 不裁决响应态，此处锚边界）──────────────
+
+/// PERSONAL_USER_FORBIDDEN 是 teams/* 的 403 **响应**码（personal_guard.go:13 verbatim）。
+/// outbound build 只产请求；403 + 该码由服务端写、driver/前端消费。本测试锚「不在 outbound build 层」。
+/// 验证方式：teams/* 命令正常 build 不依赖/不产出该字符串（响应态与请求态解耦）。
+#[test]
+fn personal_user_forbidden_is_response_side_not_in_outbound_body() {
+    let (_url, body) = one_http(run(
+        "im_team_upsert",
+        json!({ "display_name": "t", "self_id": "u" }),
+    ));
+    assert!(
+        !body.to_string().contains("PERSONAL_USER_FORBIDDEN"),
+        "PERSONAL_USER_FORBIDDEN 是 403 响应态，不应出现在 outbound 请求体"
+    );
+}
+
+/// health 裸 {"status":"OK"} 与 search channelDetails 第四 key 均为**响应态**（GET health /
+/// search/do searchAll 响应）——P5a outbound 不含 health 请求 build（无 body/无下沉需求），
+/// 此处锚「响应态特例不混入 outbound registry」：health 不是 outbound 命令。
+#[test]
+fn health_and_channel_details_are_response_side_not_outbound_commands() {
+    assert!(
+        !is_outbound("im_health"),
+        "health 裸信封是 GET 响应态，非 outbound build 命令"
+    );
+    // search/do 是 outbound 命令；channelDetails 第四 key 在其**响应**里（searchAll），非请求体。
+    let (_url, body) = one_http(run(
+        "im_search_do",
+        json!({ "req_id": "rq-response", "keyword": "c" }),
+    ));
+    assert!(
+        !body.to_string().contains("channelDetails"),
+        "channelDetails 是 searchAll 响应第四 key，不在 outbound 请求体"
+    );
+}
+
+// ── registry 性质：12 命令全 is_outbound 命中 + 全可 dispatch ─────────────────────
+
+/// P5a user-misc 全集（12）。改这个列表必须同步 user_misc.rs 注册文件。
+const ALL_P5A_MISC: &[(&str, fn() -> Value)] = &[
+    ("im_list_users", || json!({ "channel_id": "c" })),
+    ("im_user_candidates", || json!({})),
+    ("im_get_user_statuses", || json!({ "user_ids": ["u"] })),
+    (
+        "im_team_upsert",
+        || json!({ "display_name": "t", "self_id": "u" }),
+    ),
+    (
+        "im_team_member_add",
+        || json!({ "event": { "channelId": "c" } }),
+    ),
+    ("im_team_quit", || json!({ "user_id": "u", "team_id": "t" })),
+    ("im_get_all_modules", || json!({})),
+    (
+        "im_load_send_notifications",
+        || json!({ "page": 1, "size": 10 }),
+    ),
+    (
+        "im_search_post",
+        || json!({ "req_id": "r", "scope": "channel", "channel_id": "c", "keyword": "x" }),
+    ),
+    (
+        "im_search_user",
+        || json!({ "req_id": "r", "keyword": "x" }),
+    ),
+    (
+        "im_search_channel",
+        || json!({ "req_id": "r", "keyword": "x" }),
+    ),
+    ("im_search_do", || json!({ "req_id": "r", "keyword": "x" })),
+];
+
+#[test]
+fn registry_covers_all_p5a_misc_commands() {
+    for (name, _) in ALL_P5A_MISC {
+        assert!(is_outbound(name), "{name} 应被 registry 认领");
+    }
+    // 非 user-misc 命令不被误纳
+    assert!(!is_outbound("im_send_message"));
+    assert!(!is_outbound("bogus_misc"));
+    // 不与 P3a / P5b 命令名碰撞（registry 构建无重复才能全 dispatch）
+    assert!(is_outbound("im_top20"), "P3a 命令仍在册（无被覆盖）");
+}
+
+/// 注册数 == 命令数性质：每个注册命令都能成功 dispatch（无重复 name 致 registry 构建失败）。
+/// 任一命令 inventory 注册重复 name → registry 构建 Err → handle_outbound 全 Err → 本测试 FAIL。
+#[test]
+fn every_p5a_misc_command_is_dispatchable() {
+    assert_eq!(ALL_P5A_MISC.len(), 12, "P5a user-misc 应为 12 命令");
+    for (name, mk) in ALL_P5A_MISC {
+        let effects = run(name, mk());
+        assert_eq!(effects.len(), 1, "{name} 应产单条 Effect::Http");
+        assert!(
+            matches!(effects[0], Effect::Http { .. }),
+            "{name} 应产 Effect::Http"
+        );
+    }
+}
+
+/// handle_outbound 错误闭包路径（边界零信任，不 panic）：坏 JSON payload。
+#[test]
+fn handle_outbound_bad_payload_is_error_not_panic() {
+    assert!(handle_outbound("im_list_users", b"{not json", BASE, BASE, None, corr()).is_err());
+}
+
+// Presence opts in to timestamps without changing the existing flat-map query contract.
+#[test]
+fn user_status_metadata_is_explicit_and_boolean() {
+    let (_, body) = one_http(run(
+        "im_get_user_statuses",
+        json!({"user_ids":["u1"],"include_metadata":true}),
+    ));
+    assert_eq!(body["includeMetadata"], true);
+    let (_, body) = one_http(run("im_get_user_statuses", json!({"user_ids":["u1"]})));
+    assert!(body.get("includeMetadata").is_none());
+    assert!(err(
+        "im_get_user_statuses",
+        json!({"user_ids":["u1"],"include_metadata":"true"})
+    ));
+}

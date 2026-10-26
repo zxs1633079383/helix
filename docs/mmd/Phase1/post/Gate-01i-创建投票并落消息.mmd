@@ -1,0 +1,30 @@
+%% Phase1 / post / MV3-G01i 创建投票并落消息
+%% 机器真源: cses-client phase1.manifest.json；MessageService.publishVote；Helix vote_score.rs；Java /vote/createVote；Go post_update；Angular vote card
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageService / MessageV3ImGate
+  participant Native as Tauri im_vote_create
+  participant E as Helix Tick / vote_score
+  participant Java as Java CSES
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant PG as PostgreSQL
+  participant WS as WS inbound
+  participant Sink as EventSink im:__bus__
+  participant Store as Angular message store
+  participant View as Vote card component
+  UI->>Gate: openCreateVote() / publishVote(dto)
+  Gate->>Native: invoke im_vote_create
+  Native->>E: Tick::Command(im_vote_create)
+  E->>Java: Effect::Http POST /vote/createVote
+  Java->>Go: 创建 VOTE post
+  Go->>PG: post/channel/channel_member/channel_event
+  Go-->>E: HTTP 2xx 不是投票卡渲染终态
+  Go-->>WS: post_update(type=VOTE)
+  WS->>E: Tick::Inbound(post_update)
+  E->>DB: PersistAtomic(message/channel/cursor)
+  DB-->>E: PortReply(PersistOk)
+  E->>Sink: im:post:updated
+  Sink->>Store: IpcEventService upsert VOTE
+  Store->>View: props.vote signal 渲染投票卡

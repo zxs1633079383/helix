@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "g01-report-v1.schema.json",
+  "title": "G01 WDIO Report V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "gate",
+    "candidateId",
+    "startedAt",
+    "endedAt",
+    "exitCode",
+    "cases",
+    "artifacts",
+    "redactionVerdict"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "gate": { "const": "G01" },
+    "candidateId": { "type": "string", "minLength": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "endedAt": { "type": "string", "format": "date-time" },
+    "exitCode": { "type": "integer", "minimum": 0 },
+    "redactionVerdict": { "enum": ["pass", "fail"] },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "caseId",
+          "lane",
+          "evidenceLevel",
+          "status",
+          "claimBoundary",
+          "timing",
+          "retryCount",
+          "artifacts"
+        ],
+        "properties": {
+          "caseId": { "type": "string", "minLength": 1 },
+          "lane": {
+            "enum": ["ui", "mock", "integration", "single-real", "dual-real", "report"]
+          },
+          "evidenceLevel": {
+            "enum": ["ui-only", "mock", "integration", "single-real-chain", "dual-real-chain"]
+          },
+          "status": { "enum": ["passed", "failed", "blocked", "skipped", "flaky"] },
+          "claimBoundary": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" }
+          },
+          "timing": { "$ref": "#/$defs/timing" },
+          "retryCount": { "type": "integer", "minimum": 0 },
+          "firstFailure": { "type": ["object", "null"] },
+          "artifacts": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/artifact" }
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/artifact" }
+    }
+  },
+  "$defs": {
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "setupMs",
+        "actionMs",
+        "commandAckMs",
+        "frameMs",
+        "domMs",
+        "evidenceMs",
+        "screenshotMs",
+        "reportMs",
+        "totalMs"
+      ],
+      "properties": {
+        "setupMs": { "type": "integer", "minimum": 0 },
+        "actionMs": { "type": "integer", "minimum": 0 },
+        "commandAckMs": { "type": "integer", "minimum": 0 },
+        "frameMs": { "type": "integer", "minimum": 0 },
+        "domMs": { "type": "integer", "minimum": 0 },
+        "evidenceMs": { "type": "integer", "minimum": 0 },
+        "screenshotMs": { "type": "integer", "minimum": 0 },
+        "reportMs": { "type": "integer", "minimum": 0 },
+        "totalMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "sha256", "size"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "persona": { "enum": ["actor", "observer"] },
+        "path": { "type": "string", "pattern": "^(?!/)(?!.*\\.\\.).+$" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "size": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

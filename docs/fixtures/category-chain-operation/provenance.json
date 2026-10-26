@@ -1,0 +1,28 @@
+{
+  "evidenceLevel": "FOCUSED",
+  "producer": "public ImModule::handle -> matched HTTP PortReply -> PersistAtomic/read-back -> Effect::Emit; failures from Timer/business PortReply",
+  "format": "JSON decoded from actual Emit bytes and pretty-printed; no hand-authored output fields",
+  "updateCommand": "HELIX_UPDATE_CATEGORY_OPERATION_FIXTURES=1 CARGO_HOME=/tmp/helix-category-cargo-home cargo test --offline -j2 -p helix-im --test category_chain_lifecycle",
+  "verifyCommand": "CARGO_HOME=/tmp/helix-category-cargo-home cargo test --offline -j2 -p helix-im --test category_chain_lifecycle",
+  "gitHead": "caf20f3bac9cf72bf2cc7509d2db8571c5055e4c",
+  "workingTree": "2026-09-09 submission candidate; source and fixture SHA-256 identify the verified content",
+  "sources": {
+    "crates/helix-im/src/category_chain/runtime.rs": "1591c7711b11fb4b738a79c6de5bac79fa3f23dd5739fc89b4d71a3b44d75463",
+    "crates/helix-im/tests/category_chain_lifecycle.rs": "f55cb4f402b9032f100d3173de7da82d415508181709a701a387a8394587e0dc",
+    "crates/helix-im/src/category_chain/wire.rs": "62f085fff24c86fe64723a625e0e6549e6d57b17f0299c04b462a0ab704b33e8"
+  },
+  "fixtures": {
+    "create-draft.json": "a72d71f0ef04e8d119c5711955993a641ace7f865492b647ac83391cd8f2155c",
+    "publish.json": "79419f5f3ab48a509e2e71aab2709859c1cfe4e8fdf9d7f17379ddd5ade037f9",
+    "reconcile-confirmed.json": "f7bda6387bb0240d5631cf6b46d0b754ac6856ed33ab49881b55632ea881003f",
+    "reconciling.json": "e8e3834e41f9492ba099551830f20726115444e8c1f2350d8ee85beecf278515",
+    "rejected.json": "93df612fd07356119ac86d01f983144937e3f012ee433afec2f45560b6b6225e"
+  },
+  "notProven": [
+    "real Go HTTP/WS",
+    "Native runtime",
+    "client TypeScript decoder",
+    "UI/DOM"
+  ],
+  "validation": "2026-09-09: category_chain_lifecycle 39/39 PASS; ordinary verify run compared actual Emit JSON with all five fixtures"
+}

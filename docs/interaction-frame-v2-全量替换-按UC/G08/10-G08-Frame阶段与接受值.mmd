@@ -1,0 +1,18 @@
+flowchart TD
+  START["G08 scenario start"] --> S1
+  S1["1. schedule-command"]
+  S2["2. http-authority"]
+  S3["3. post-schedule-created-inbound"]
+  S4["4. schedule-summary-frame"]
+  S1 --> S2
+  S2 --> S3
+  S3 --> S4
+  S4 --> ACK["FrameApplied + typed render"]
+  ACK --> REPORT["stage report + evidence"]
+
+  VALUES["接受值：声明 Surface 为 message.channel-summary；owner-only schedule hydrate 至少包含 channelId/scheduleId/scheduleOwnerUserId/scheduleMessage"]
+  RULE["不变量：observer 与跨频道不得读取 owner-only schedule 内容；UI 不可先写本地 scheduled badge"]
+  DRIFT["当前漂移：ChannelSummaryVm 当前没有显式 schedule 字段，focused test 也只验证 owner hydrate；这是 Fixture/WDIO 前必须解决的 CONTRACT_DRIFT"]
+  VALUES -.约束.-> ACK
+  RULE -.fail closed.-> REPORT
+  DRIFT -.BLOCKED until reconciled.-> REPORT

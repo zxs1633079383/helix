@@ -1,0 +1,225 @@
+--- a/crates/helix-im/src/category_chain/wire.rs
++++ b/crates/helix-im/src/category_chain/wire.rs
+@@ -30,7 +30,7 @@
+ const MIN_CATEGORIES: usize = 2;
+ const MAX_ENTRIES_PAGE: usize = 100;
+ 
+-/// 把分类接龙 command 转成 Go endpoint 与 lowerCamelCase body。
++/// 分类语义保持原样，仅在 HTTP 边界统一注入 post-chain v2 的 mode/view。
+ ///
+ /// req_id 只用于 Helix 本地 read correlation，永远不进入 Go body；嵌套 audience、
+ /// categories 和 selections 已经是 camelCase 合同，校验后原样保留。未知字段和服务端
+@@ -40,7 +40,7 @@
+         let object = object(args, command)?;
+         reject_unknown(object, &["req_id"], command)?;
+         check_req_id(object, command)?;
+-        return Ok(("category-chain/capabilities", Value::Object(Map::new())));
++        return Ok(("post-chain/capabilities", serde_json::json!({"mode":"CATEGORY"})));
+     }
+ 
+     if !COMMANDS.contains(&command) {
+@@ -49,7 +49,7 @@
+ 
+     let input = object(args, command)?;
+     check_req_id(input, command)?;
+-    let body = match command {
++    let mut body = match command {
+         "category_chain_create_draft" => build_draft(command, input, false)?,
+         "category_chain_update_draft" => build_draft(command, input, true)?,
+         "category_chain_publish" => build_publish(command, input)?,
+@@ -64,18 +64,30 @@
+     };
+ 
+     let path = match command {
+-        "category_chain_create_draft" => "category-chain/create-draft",
+-        "category_chain_update_draft" => "category-chain/update-draft",
+-        "category_chain_publish" => "category-chain/publish",
+-        "category_chain_get" => "category-chain/get",
+-        "category_chain_get_mine" => "category-chain/my-participation",
+-        "category_chain_set_participation" => "category-chain/set-participation",
+-        "category_chain_entries" => "category-chain/entries",
+-        "category_chain_reconcile" => "category-chain/reconcile",
+-        "category_chain_close" => "category-chain/close",
+-        "category_chain_retract" => "category-chain/retract",
++        "category_chain_create_draft" => "post-chain/create",
++        "category_chain_update_draft" => "post-chain/update-draft",
++        "category_chain_publish" => "post-chain/publish",
++        "category_chain_get" => "post-chain/get",
++        "category_chain_get_mine" => "post-chain/get",
++        "category_chain_set_participation" => "post-chain/append",
++        "category_chain_entries" => "post-chain/get",
++        "category_chain_reconcile" => "post-chain/reconcile",
++        "category_chain_close" => "post-chain/close",
++        "category_chain_retract" => "post-chain/retract",
+         _ => return Err(parse_error(command, "unknown command")),
+     };
++
++    // Transport discriminators are derived from the registered semantic command, never caller authority.
++    body["mode"] = Value::String("CATEGORY".to_owned());
++    let view = match command {
++        "category_chain_get" => Some("card"),
++        "category_chain_get_mine" => Some("mine"),
++        "category_chain_entries" => Some("entries"),
++        _ => None,
++    };
++    if let Some(view) = view {
++        body["view"] = Value::String(view.to_owned());
++    }
+ 
+     let body_size = serde_json::to_vec(&body)
+         .map_err(|error| serialize_error(command, error.to_string()))?
+--- a/crates/helix-im/src/client_api/capabilities.rs
++++ b/crates/helix-im/src/client_api/capabilities.rs
+@@ -65,6 +65,7 @@
+ 
+ pub const META_QUERIES: &[&str] = &["helix_capabilities", "helix_version"];
+ 
++/// Describe the loaded module; postChainCategoryMode identifies the shared HTTP v2 transport.
+ pub fn capabilities_json() -> Vec<u8> {
+     let mut commands = crate::outbound::outbound_command_names();
+     commands.push("im_send_message");
+@@ -83,6 +84,7 @@
+         "queries": queries,
+         "events": PUBLIC_EVENTS,
+         "features": {
++            "postChainCategoryMode": true,
+             "pendingSendTimeoutUnsend": true,
+             "sendFailedProjection": true,
+             "helixOwnedTemporaryId": true,
+--- a/crates/helix-im/tests/category_chain_lifecycle.rs
++++ b/crates/helix-im/tests/category_chain_lifecycle.rs
+@@ -1259,3 +1259,134 @@
+             .is_some_and(|s| !s.is_empty()));
+     }
+ }
++
++/// Drive only the real pre-HTTP storage barrier (publish identity); never synthesize authority.
++fn category_mode_http(alias: &str, args: Value) -> (String, Value) {
++    let mut h = Harness::new_with_identity(&[1], "user-a", "tenant-a", "", "", "");
++    let cmd = helix_im::client_api::build_command(alias, &serde_json::to_vec(&args).unwrap()).unwrap();
++    h.step(Tick::Command(cmd), 1000);
++    let mut store = Store::new();
++    for _ in 0..4 {
++        assert!(!h.sink.as_slice().iter().any(|e| matches!(e, Effect::Emit { .. })));
++        if let Some((url, body)) = h.sink.as_slice().iter().find_map(|e| match e {
++            Effect::Http { req, .. } => Some((req.url.to_string(), serde_json::from_slice(req.body.as_ref().unwrap()).unwrap())),
++            _ => None,
++        }) { return (url, body); }
++        let (corr, body) = h.sink.as_slice().iter().find_map(|e| match e {
++            Effect::Persist { corr, ops } | Effect::PersistAtomic { corr, ops } => Some((*corr, storage_reply(ops, &mut store))),
++            _ => None,
++        }).expect("command must dispatch HTTP or its publish identity barrier");
++        h.step(Tick::PortReply { corr, outcome:PortOutcome::Ok(ReplyBytes(Bytes::from(serde_json::to_vec(&body).unwrap()))) }, 1001);
++    }
++    panic!("publish identity did not lead to HTTP");
++}
++
++/// All eleven semantic commands share post-chain transport; get views and string CAS stay distinct.
++#[test]
++fn post_chain_mode_v2_maps_all_category_commands() {
++    let scope = json!({"channelId":cid(1),"chainId":"chain-a","req_id":"read-mode"});
++    let draft = json!({"channelId":cid(1),"title":"活动","description":"","example":"",
++        "deadlineAt":1789113600000_i64,"audience":{"mode":"CHANNEL_SNAPSHOT"},
++        "categories":[{"clientId":"a","name":"室内"},{"clientId":"b","name":"户外"}],"clientMutationId":"draft-mode"});
++    let mut update = draft.clone();
++    update["chainId"] = json!("chain-a");
++    update["expectedDefinitionRevision"] = json!("9007199254740993");
++    let cases = [
++        ("capabilities", json!({"req_id":"cap-mode"}), "capabilities", None),
++        ("create_draft", draft, "create", None),
++        ("update_draft", update, "update-draft", None),
++        ("publish", json!({"channelId":cid(1),"chainId":"chain-a","expectedDefinitionRevision":"9007199254740993","clientMutationId":"publish-mode"}), "publish", None),
++        ("get", scope.clone(), "get", Some("card")),
++        ("get_mine", scope.clone(), "get", Some("mine")),
++        ("entries", json!({"channelId":cid(1),"chainId":"chain-a","categoryId":"a","cursor":"opaque:cursor","limit":5,"req_id":"entries-mode"}), "get", Some("entries")),
++        ("set_participation", json!({"channelId":cid(1),"chainId":"chain-a","expectedParticipationRevision":"9007199254740993","selections":[{"categoryId":"a","content":"一"},{"categoryId":"b","content":"二"}],"clientMutationId":"set-mode"}), "append", None),
++        ("close", json!({"channelId":cid(1),"chainId":"chain-a","expectedRevision":"9007199254740993","clientMutationId":"close-mode"}), "close", None),
++        ("retract", json!({"channelId":cid(1),"chainId":"chain-a","expectedRevision":"9007199254740993","clientMutationId":"retract-mode"}), "retract", None),
++        ("reconcile", json!({"channelId":cid(1),"chainId":"chain-a","clientMutationId":"set-mode","req_id":"reconcile-mode"}), "reconcile", None),
++    ];
++    for (suffix, args, route, view) in cases {
++        let (url, body) = category_mode_http(&format!("im_category_chain_{suffix}"), args);
++        assert!(url.ends_with(&format!("/post-chain/{route}")), "{suffix}: {url}");
++        assert_eq!(body["mode"], "CATEGORY", "{suffix}");
++        assert_eq!(body.get("view").and_then(Value::as_str), view, "{suffix}");
++        assert!(body.get("req_id").is_none() && body.get("reqId").is_none());
++        if suffix == "capabilities" { assert_eq!(body, json!({"mode":"CATEGORY"})); }
++        if suffix == "get" || suffix == "get_mine" {
++            assert_eq!(body, json!({"mode":"CATEGORY","view":view,"channelId":cid(1),"chainId":"chain-a"}));
++        }
++        if suffix == "entries" {
++            assert_eq!(body, json!({"mode":"CATEGORY","view":"entries","channelId":cid(1),"chainId":"chain-a","categoryId":"a","cursor":"opaque:cursor","limit":5}));
++        }
++        if suffix == "update_draft" || suffix == "publish" { assert_eq!(body["expectedDefinitionRevision"], "9007199254740993"); }
++        if suffix == "set_participation" {
++            assert_eq!(body["expectedParticipationRevision"], "9007199254740993");
++            assert_eq!(body["selections"], json!([{"categoryId":"a","content":"一"},{"categoryId":"b","content":"二"}]));
++            assert!(body.get("text").is_none() && body.get("attachments").is_none());
++        }
++        if suffix == "retract" { assert!(body.get("entryId").is_none()); }
++    }
++    let (_, cancel) = category_mode_http("im_category_chain_set_participation", json!({"channelId":cid(1),"chainId":"chain-a","expectedParticipationRevision":"2","selections":[],"clientMutationId":"cancel-mode"}));
++    assert_eq!(cancel["selections"], json!([]));
++    assert_eq!(cancel["mode"], "CATEGORY");
++}
++
++/// Caller fields cannot override the transport-owned mode/view or turn anchor retraction into entry removal.
++#[test]
++fn post_chain_mode_v2_rejects_category_transport_overrides() {
++    use helix_core::Module;
++    for (alias, extra) in [
++        ("im_category_chain_get", json!({"mode":"TEXT"})),
++        ("im_category_chain_get", json!({"mode":null})),
++        ("im_category_chain_get", json!({"mode":42})),
++        ("im_category_chain_get", json!({"mode":"UNKNOWN"})),
++        ("im_category_chain_get", json!({"view":"entries"})),
++        ("im_category_chain_get_mine", json!({"categoryId":"a"})),
++        ("im_category_chain_retract", json!({"entryId":"entry-a","expectedRevision":"1","clientMutationId":"wrong-retract"})),
++    ] {
++        let mut args = json!({"channelId":cid(1),"chainId":"chain-a","req_id":"invalid-mode"});
++        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
++        let cmd = helix_im::client_api::build_command(alias,&serde_json::to_vec(&args).unwrap()).unwrap();
++        let mut h = Harness::new_with_identity(&[1], "user-a", "tenant-a", "", "", "");
++        assert!(h.module.handle(&Tick::Command(cmd),1000,&mut h.sink).is_err(),"{alias}");
++        assert!(!h.sink.as_slice().iter().any(|e| matches!(e,Effect::Http { .. }|Effect::Persist { .. }|Effect::PersistAtomic { .. })),"{alias}");
++    }
++    assert!(helix_im::client_api::build_command("im_category_chain_mark_read",b"{}").is_err());
++}
++
++/// Legacy TEXT payloads omit mode outside create; all nine endpoints and numeric revisions are unchanged.
++#[test]
++fn post_chain_mode_v2_preserves_text_nine_actions_without_mode() {
++    for (suffix, extra, expected_extra) in [
++        ("create", json!({"title":"TEXT"}), json!({"title":"TEXT","mode":"TEXT"})),
++        ("update_draft", json!({"expectedRevision":3}), json!({"expectedRevision":3})),
++        ("publish", json!({"expectedRevision":3}), json!({"expectedRevision":3})),
++        ("append", json!({"text":"entry"}), json!({"text":"entry","attachments":[]})),
++        ("get", json!({"middleCursor":"old-cursor","limit":10}), json!({"middleCursor":"old-cursor","limit":10})),
++        ("close", json!({"expectedRevision":3}), json!({"expectedRevision":3})),
++        ("retract", json!({"entryId":"entry-a","expectedRevision":3}), json!({"entryId":"entry-a","expectedRevision":3})),
++        ("reconcile", json!({}), json!({})),
++        ("mark_read", json!({"lastEventSeq":7,"lastReadAt":1000}), json!({"lastEventSeq":7,"lastReadAt":1000})),
++    ] {
++        let mut args=json!({"channelId":cid(1),"chainId":"text-chain","clientMutationId":"text-mutation"});
++        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
++        if suffix=="get" { args.as_object_mut().unwrap().remove("clientMutationId"); }
++        let cmd=helix_im::client_api::build_command(&format!("im_post_chain_{suffix}"),&serde_json::to_vec(&args).unwrap()).unwrap();
++        let effects=helix_im::outbound::handle_outbound(cmd.name.as_ref(),&cmd.payload,"http://fixture/api/cses","",None,Correlation::from_raw(1)).unwrap();
++        let (url,body)=effects.iter().find_map(|e|match e {Effect::Http { req,.. }=>Some((&req.url,serde_json::from_slice::<Value>(req.body.as_ref().unwrap()).unwrap())),_=>None}).unwrap();
++        let mut expected=json!({"channelId":cid(1),"chainId":"text-chain","clientMutationId":"text-mutation"});
++        if suffix=="get" { expected.as_object_mut().unwrap().remove("clientMutationId"); }
++        expected.as_object_mut().unwrap().extend(expected_extra.as_object().unwrap().clone());
++        assert_eq!(url, &format!("http://fixture/api/cses/post-chain/{}",suffix.replace('_',"-")));
++        assert_eq!(body, expected, "{suffix}");
++    }
++}
++
++/// Loaded-module feature identifies the new transport; canonical registry names are not public aliases.
++#[test]
++fn post_chain_mode_v2_feature_and_canonical_registration() {
++    let caps: Value=serde_json::from_slice(&helix_im::client_api::capabilities_json()).unwrap();
++    assert_eq!(caps["features"]["postChainCategoryMode"],true);
++    let commands=caps["commands"].as_array().unwrap();
++    assert!(commands.iter().any(|c|c=="category_chain_capabilities"));
++    assert!(!commands.iter().any(|c|c=="im_category_chain_capabilities"));
++}

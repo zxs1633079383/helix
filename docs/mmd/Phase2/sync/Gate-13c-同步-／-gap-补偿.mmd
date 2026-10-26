@@ -1,0 +1,52 @@
+%% Phase2 / sync / MV3-G13c 同步 / gap 补偿
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/sync/mv3-g13c/contract.json
+%% UI owners: /System/Volumes/Data/workspace/angular/visual/helix/crates/helix-im/src/module/trait_impl.rs::启动扫描 channel_event_cursor 后恢复；/System/Volumes/Data/workspace/angular/visual/helix/crates/helix-im/src/ws/handlers/increment_channel_end.rs::hello 全局 increment-end 主动补偿；/System/Volumes/Data/workspace/angular/visual/helix/crates/helix-im/src/ws/handlers/pong.rs::heartbeat gaps / hashMismatch 补偿
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员合盖 / 断网一段时间后回来，期间的新消息、编辑、撤回、已读全部补齐，且不重复也不遗漏
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=missing；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  UI->>Gate: 订阅 同步 / gap 补偿（当前 Gate 由 inbound event 驱动）
+  Go-->>WS: authority event / channel update
+  WS->>E: Tick::Inbound(bytes)
+  E->>IM: dispatch inbound event
+  IM->>IM: 校验 event_seq、generation、viewer scope 与幂等键
+  IM->>Host: Effect::Http POST /api/cses/channel/sync/notify + append-only channel_event / per-channel event_seq
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction channel/event_seq + sync cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM->>Sink: Effect::Emit {event,data}（im:post:received，im:post:updated，im:post:deleted，im:post:batch-updated，im:channel:update）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
+  Sink-->>FFI: FFI batch raw {event,data}
+  Sink-->>Web: Web EventBatch raw {event,data}
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：本端 per-channel cursor 只从账号库读取，并与消息、频道绝对投影在同一持久化事务成功后单调推进至已覆盖的 event_seq；事务失败不得推进，补齐区间为 (本端 eventSeq, 服务端最新] 左开右闭；对端独立维护自己的 cursor：禁止把本端 cursor 值复制给对端（每个 viewer 的 cursor 各自推进）；channel_event 类型映射：New=1 → postReceived / Edit=2 → postUpdated / Delete=3 → postDeleted（含离线撤回重放）/ Read=6 → snapshotId 对齐的有序 ID/绝对 receipt 投影 / Close=7 → 频道关闭态；Angular 不见 readBits；gap 大于 5000 只表示超过单次恢复的回放预算，不表示 channel_event 已过 retention；TooLong 只重建命中的单频道，保留旧历史可读，权威窗口拉取成功后把窗口与 cursor 原子覆盖，失败则旧窗口与 cursor 均保持不变
+  Note over UI,Web: 关键负向：Angular 不得拥有 syncChannels 业务 Port、cursor map、gap/TooLong 判断、重连补偿队列或 visibility 触发状态机；现存 Pending 空实现不得被扩成第二套同步内核；eventSeq 不得与业务行序号（消息 ordering / 消息 id）同源：Mock 已用 localIdSeq 与 channelEventSeq 解耦，禁止回退到 mock-msg-$seq 与 eventSeq 同源的形态（违反 Go「事件序号与业务行序号解耦」）；不得把 5000 描述为 channel_event retention 边界；当前 Go 没有物理保留窗口或 minAvailableSeq 合同，5000 仅是回放预算
+  Note over E,Sink: 原始事件名（按触发分支）：im:post:received，im:post:updated，im:post:deleted，im:post:batch-updated，im:channel:update；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

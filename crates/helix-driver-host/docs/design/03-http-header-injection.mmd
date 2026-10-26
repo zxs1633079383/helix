@@ -1,0 +1,40 @@
+%% Helix · helix-driver-host · HTTP header 注入链
+%% 真源：src/network.rs（HostNetworkConfig / HostHeaderRegistry / SharedHttpClient.prepare / request / SharedWsClient.connect）
+%% 关联：HTTP-4（parking_lot RwLock 无 poison，对齐现网 cses-client）· ADR-007（host 单一真源）
+flowchart TD
+    subgraph CFG["HostNetworkConfig（平台壳提供，启动期一次）✅"]
+        C1["api_base_url / ws_url"]
+        C2["timeout（默认 30s）"]
+        C3["user_agent（可选）"]
+    end
+
+    subgraph REG["HostHeaderRegistry（运行时可变 header 快照）✅"]
+        R1["inner: Arc&lt;parking_lot::RwLock&lt;HeaderMap&gt;&gt;\n⚑ HTTP-4：无 poison，panic 时不静默丢头"]
+        R2["set_header / remove_header / replace_headers\n（平台壳在 token 刷新 / 登录后更新）"]
+        R3["snapshot() → 读锁克隆当前 HeaderMap"]
+        R1 --- R2 --- R3
+    end
+
+    CFG -->|"SharedHttpClient::with_registry\n建 reqwest Client（timeout + UA）"| HTTP
+    REG -->|"共享同一 registry"| HTTP
+    REG -->|"共享同一 registry"| WS
+
+    subgraph HTTP["SharedHttpClient — 每请求注入链 ✅"]
+        H1["prepare(req)：\n① snapshot() 取最新 header 快照\n② 叠加 config.user_agent\n③ 叠加 req.headers（逐请求覆盖）"]
+        H2["resolve_http_url：相对路径 join api_base_url；绝对 URL 直用"]
+        H3["request()：reqwest builder\n.header(..) 逐条注入 → .body → .send()"]
+        H1 --> H2 --> H3
+    end
+
+    subgraph WS["SharedWsClient.connect — 握手注入 ✅"]
+        W1["into_client_request(ws_url)"]
+        W2["snapshot().iter() → request.headers_mut().insert\n（同一 registry，与 HTTP 共享 token）"]
+        W3["叠加 user_agent → connect_async"]
+        W1 --> W2 --> W3
+    end
+
+    H3 -->|"出站"| OUT["reqwest 出站请求\n（status / headers / body → HttpResponse）"]
+    W3 -->|"出站"| WSOUT["WS 升级握手携带最新 token"]
+
+    note["登录/鉴权在 Helix 之外：\n平台壳只负责把最新 header 写进 registry，\n这些 client 只注入快照，不管 token 怎么来"]
+    REG -.-> note

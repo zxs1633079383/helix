@@ -1,0 +1,21 @@
+%% Phase4 / search / MV3-G14c 跨会话消息搜索并分组
+%% 机器真源: cses-client phase4.manifest.json；Helix im_search_do；Java /search/do；Angular historical-records search window
+sequenceDiagram
+  autonumber
+  participant UI as HistoricalRecordsSearchWindow
+  participant P as MessageV3ImGate
+  participant T as Tauri im_search_do
+  participant H as Helix Tick / search outbound
+  participant J as Java search gateway
+  participant B as EventSink im:__bus__
+  participant S as Angular grouped result signal
+  UI->>P: searchMessagesGrouped(keyword,limit)
+  P->>T: invoke im_search_do
+  T->>H: Tick::Command(im_search_do, req_id)
+  H->>J: Effect::Http POST /search/do
+  J-->>H: channelId,channel,items
+  H->>H: Tick::PortReply(Http Ok) / validate and correlate
+  H->>B: Effect::Emit im:read:result(req_id,data)
+  B->>S: group by channelId, retain createAt order
+  S->>UI: grouped list and target-message navigation
+  Note over H,B: 无匹配返回空集合；只读链没有 PersistOk 或 WS 终态

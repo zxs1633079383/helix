@@ -1,0 +1,3 @@
+# 格式锁定（Bun 对齐 2.3）：默认风格，先统一再演进；改动需全员（含 agent prompt）同步
+edition = "2021"
+max_width = 100

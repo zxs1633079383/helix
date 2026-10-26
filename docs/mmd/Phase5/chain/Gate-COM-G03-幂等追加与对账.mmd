@@ -1,0 +1,26 @@
+%% Phase5 / CHAIN / CHAIN-COM-G03 幂等追加与对账
+%% 机器真源: phase5.manifest.json；post_chain_append/reconcile；chain_mutation；chain-entry-seq
+%% UI owners: packages/message/src/lib/services/chain/chain-facade.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:4295
+sequenceDiagram
+  participant UI as Chain composer
+  participant F as ChainFacadeService
+  participant T as Tauri bridge
+  participant H as Helix Tick / chain
+  participant G as Go post-chain
+  participant PG as PostgreSQL
+  participant DB as SQLite
+  participant B as EventSink im:__bus__
+  participant S as ChainProjectionStore
+  UI->>F: append(chainId,text,attachments,categoryIds,clientMutationId,operationId,deviceId,userSnapshot)
+  F->>T: im_post_chain_append
+  T->>H: Tick::Command(post_chain_append)
+  H->>G: Effect::Http POST /api/cses/post-chain/append
+  G->>PG: transaction chain_entry + chain_mutation + participant
+  G-->>H: canonical summary/entry/window/viewer
+  H->>DB: PersistAtomic chain_summary/chain_entry/chain_window/chain_mutation
+  DB-->>H: PortReply(PersistOk)
+  H->>B: im:post_chain:upsert
+  B->>S: entriesById / mutationById
+  S-->>UI: chain-entry-seq / chain-entry-identity
+  F->>T: im_post_chain_reconcile on uncertainty
+  T->>H: post_chain_reconcile -> POST /reconcile -> im:post_chain:reconcile

@@ -1,0 +1,33 @@
+classDiagram
+direction LR
+
+class MessageV4 {
+  +intent()
+  +renderTypedVm()
+}
+class CommandIngress {
+  +commands: im_make_topic, im_create_channel
+}
+class ImModule {
+  +handle()
+  +produceEffects()
+}
+class PersistBarrier {
+  +contracts: channel, message, reply_tree, channel_member
+}
+class InteractionFrameV2 {
+  +schemaVersion: 2
+  +surfaces: message.channel-summary, message.thread-detail, message.member-roster
+}
+class SurfaceRuntime {
+  +stage()
+  +atomicApply()
+  +frameApplied()
+}
+
+MessageV4 --> CommandIngress : intent
+CommandIngress --> ImModule : command/inbound
+ImModule --> PersistBarrier : Effect
+PersistBarrier --> InteractionFrameV2 : committed facts
+InteractionFrameV2 --> SurfaceRuntime : opaque frame
+SurfaceRuntime --> MessageV4 : typed VM

@@ -1,0 +1,65 @@
+classDiagram
+direction LR
+
+class Intent {
+  +gate: G-14, G-14a
+  +entry: 单条可见上报；模板确认已收到
+}
+class CanonicalCommand {
+  +name: im_post_read, im_template_received
+  +payload: strict object
+}
+class Tick {
+  +Command
+  +Inbound
+  +PortReply
+}
+class Effect {
+  +Http
+  +Persist
+  +ScheduleTimer
+  +Emit
+}
+class InteractionFrameV2 {
+  +schemaVersion: 2
+  +transactionId: string
+  +causationId: string?
+  +runtime: InteractionRuntimeVm
+  +mutations: SurfaceMutationV2[]
+  +directives: UiDirective[]
+}
+class SurfaceMutationV2 {
+  +surface: message.participant-receipts, message.timeline
+  +scope: SurfaceScope
+  +revision: u64
+  +baseRevision: u64?
+  +surfaceEpoch: u64
+  +causationId: string?
+  +mutation: TypedSurfaceMutation
+}
+class PcSurfaceRuntime {
+  +stage(frame)
+  +atomicApply()
+  +frameApplied()
+  +typedDom()
+}
+class MobileSurfaceRuntime {
+  +ingest(frame)
+  +atomicApply()
+  +ackNext()
+  +viewJson()
+}
+class Venus {
+  +dispatchCanonicalCommand()
+  +pumpDomainEvents()
+  +im.surface.view()
+}
+
+Intent --> CanonicalCommand
+CanonicalCommand --> Tick
+Tick --> Effect
+Effect --> InteractionFrameV2 : committed authority
+InteractionFrameV2 *-- SurfaceMutationV2
+InteractionFrameV2 --> PcSurfaceRuntime
+InteractionFrameV2 --> MobileSurfaceRuntime
+MobileSurfaceRuntime --> Venus

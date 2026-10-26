@@ -1,0 +1,46 @@
+%% RETIRED_HISTORICAL: 旧模块布局与 raw im:* 事件阶段快照，不作为当前实现真源。
+%% helix-im 设计图 01 —— WS 帧入站全链路（原始 bytes → 落库 + im:* 事件）
+%% 真源: src/ws/{frame.rs, registry.rs, handlers/*.rs}, src/channel.rs, src/module.rs::dispatch_ws_frame
+%% 关联: HX-C005（&'static str 零分配 action）/ HX-C008（cursor 锚 nextSeq · gate 续拉）
+flowchart TD
+    RAW["原始 WS bytes（Tick::Inbound）"] --> PARSE
+
+    subgraph PARSE_LAYER["一趟解析 · WsFrame::parse（frame.rs）✅"]
+        PARSE["serde_json::from_slice → root Value\n坏 JSON → InvalidWsFrame → 静默丢（噪音不升级）"]
+        ACTION["frame.action()：惰性读 root.action &str\n无 action 字段 → __legacy_event__\nHX-C005 不每帧堆分配 String ✅"]
+        PARSE --> ACTION
+    end
+
+    ACTION --> REG{"registry by action\ninventory submit + OnceLock O(1) ✅\n（registry.rs build_registry：去重 + action 自洽校验）"}
+
+    REG -->|"hello"| H_HELLO["hello handler ✅\nconn=Connected + 存 connectionId\nreset_increment_batch（会话边界）\nemit im:connection:established\n→ increment HTTP trigger（带已知 cursor）\nemit im:channels:loaded"]
+    REG -->|"post（真 Go 在线新消息）"| H_POST["post handler ✅\n① reconcile_post_echo（先做·解耦 gate）\n② ch.ingest（落库 + cursor 推进）"]
+    REG -->|"posted（echo 对账）"| H_POSTED["posted handler ✅\nparse_echo 三态：\nSome=本端echo / None=他人推送忽略 / Err=畸形\nreconcile + cursor 独立推进"]
+    REG -->|"increment_channel"| H_INC["increment_channel handler ✅\n注册/更新 channel（cursor 种子）\n记 increment_fetched + increment_target\nneedSync=false → need_sync_skip\nemit im:channel:increment"]
+    REG -->|"increment_channel_end"| H_INCEND["increment_channel_end handler ✅\nchannelId 有 → emit im:channel:update（子主题）\nchannelId 无（global）→ proactive resync\n（fetched − skip，排序后逐 channel sync）\n+ B2 冷启动自愈 heal_once"]
+    REG -->|"__legacy_event__（无 action）"| H_LEG["legacy_event handler ✅\nparse_inbound_value（复用已解析 root）\n→ ch.ingest（gate）"]
+    REG -->|"status_change / typing / presence /\nmultiple_channels_viewed"| H_IGN["ignored handler ✅\n纯 no-op（运维事件不落库不推 cursor）"]
+    REG -->|"未知 action"| ERR["UnsupportedWsAction（生产可观测）⚠️"]
+
+    H_POST --> GATE
+    H_LEG --> GATE
+    H_HELLO --> HTTP_INC["Effect::Http（/channels/load/increment）\n触发真 Go 回推 increment_channel×N"]
+    H_INCEND --> SYNC_HTTP["Effect::Http（/channel/sync/notify）\n→ 离线 pull（见图 03）"]
+
+    subgraph GATE_LAYER["channel gate（ch.ingest · channel.rs · 见图 04）"]
+        GATE{"seq vs cursor+1"}
+        GATE -->|"== cursor+1"| APPLY["apply_and_flush_contiguous ✅\nPersistFire upsert + cursor 推进\n+ flush 连续段"]
+        GATE -->|"<= cursor"| DUP["dup drop（幂等）"]
+        GATE -->|"> cursor+1"| BUF["buffer + arm 1s gate timer\n（缺口 → 1s 后 sync/notify）"]
+    end
+
+    APPLY --> EFF
+    H_POSTED --> RECON["PendingSend.reconcile（见图 02）\n+ cursor 独立推进 advance_cursor"]
+    RECON --> EFF
+
+    subgraph EFF_LAYER["Effect 输出（out.push · 同步纯函数副作用）"]
+        EFF["Effect::PersistFire / Persist → 落 message 表（PK temporary_id，O(1) upsert）✅"]
+        EMIT["Effect::Emit → im:post:received 等 → 经 im:__bus__ 单总线给前端 ✅"]
+        ADV["Effect::PersistFire monotonic_upsert → _helix_monotonic（持久化 cursor）✅"]
+        EFF --- EMIT --- ADV
+    end

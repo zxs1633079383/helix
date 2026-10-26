@@ -1,0 +1,59 @@
+%% Phase1 / schedule / MV3-G04b 取消 / 删除定时消息
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/schedule/mv3-g04b/contract.json
+%% UI owners: packages/message/src/lib/services/messageContainerShared.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant PS as Pending or local state
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员点定时提示条上的删除，待发消息消失，提示条同时消失
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=full；dual=no；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: cancelSchedule(payload)
+    Gate->>Native: invokeAccepted("im_cancel_schedule", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_cancel_schedule", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_cancel_schedule", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 撤掉待发定时消息 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /posts/cancelSchedule
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction schedule + channel + cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM->>Sink: Effect::Emit {event,data}（im:channel:schedule-canceled）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
+  Sink-->>FFI: FFI batch raw {event,data}
+  Sink-->>Web: Web EventBatch raw {event,data}
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：内存待发对象置 null，MV3-G04d 的 getSchedule 之后必须返回 null；channel.hasSchedulePost === false，提示条消失；接收者侧 events 为空、无状态变化（persona-local，不传播）
+  Note over UI,Web: 关键负向：取消后不得仍能被 getSchedule 读到（残留会让提示条复活并可能到点二次发送）；不得产生 postReceived / channelUpdateByPost（取消不是发送）；Object.entries(patch) 必须先 filter 掉 undefined 再 spread，禁止让 partial patch 把已有本地字段覆盖成 undefined
+  Note over E,Sink: 原始事件名（按触发分支）：im:channel:schedule-canceled；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

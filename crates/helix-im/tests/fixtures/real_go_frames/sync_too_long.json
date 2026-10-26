@@ -1,0 +1,8 @@
+// ⚠️ 占位（PLACEHOLDER · 待真抓）—— 非真 Go 抓帧，按 parser::parse_sync_response 文档 wire 形态手填。
+// 真抓法: HELIX_DUMP_FRAMES=1 跑 dev 循环（离线积压超服务端窗口触发 too_long），driver HTTP 层落
+//         target="helix_http_frames" 的 "RAW HTTP response ... url=.../channel/sync/notify" 行，抠 body。
+//         覆盖本文件后删本警告头，并加进 golden_replay_test 的真帧断言。
+// 形态: HTTP /channel/sync/notify reply；kind=="too_long"；resetTo=maxSeq（客户端清内存重拉，
+//       gate 不变量：清内存不清表，HX-C008）。
+// 解析路径: parser::parse_sync_response → SyncResponse::TooLong{reset_to}。
+{"status":"SUCCESS","data":{"entries":[{"channelId":"rmibkwkjwidhdx5xy8pyse6a3r","kind":"too_long","events":[],"nextSeq":null,"resetTo":40114}],"serverTime":1700000000}}

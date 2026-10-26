@@ -1,0 +1,24 @@
+%% Phase5 / CHAIN / CHAIN-COM-G06 生命周期与已读
+%% 机器真源: phase5.manifest.json；post_chain_close/retract/mark_read；chain_viewer
+%% UI owners: packages/message/src/lib/services/chain/chain-facade.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:4295
+sequenceDiagram
+  participant UI as MessageChainContentComponent
+  participant F as ChainFacadeService
+  participant T as Tauri bridge
+  participant H as Helix Tick / chain
+  participant G as Go post-chain lifecycle handlers
+  participant PG as PostgreSQL chain/viewer_state
+  participant DB as SQLite chain_summary/chain_viewer
+  participant B as EventSink im:__bus__
+  participant S as ChainProjectionStore
+  UI->>F: close/retract/markRead(chainId,expectedRevision,lastReadSeq,clientMutationId,operationId,deviceId)
+  F->>T: im_post_chain_close/retract/mark_read
+  T->>H: Tick::Command(post_chain_*)
+  H->>G: POST /api/cses/post-chain/close, /retract, /mark-read
+  G->>PG: UPDATE chain or chain_viewer_state
+  G-->>H: summary/viewer DTO
+  H->>DB: PersistAtomic chain_summary/chain_viewer/chain_mutation
+  DB-->>H: PortReply(PersistOk)
+  H->>B: im:post_chain:close/retract/read_cursor
+  B->>S: chainById / viewerById
+  S-->>UI: chain-status / chain-read-state

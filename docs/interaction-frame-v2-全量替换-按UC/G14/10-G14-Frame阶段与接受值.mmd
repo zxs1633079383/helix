@@ -1,0 +1,18 @@
+flowchart TD
+  START["G14 scenario start"] --> S1
+  S1["1. single-read-command"]
+  S2["2. read-receipts-frame"]
+  S3["3. template-received-command"]
+  S4["4. template-timeline-frame"]
+  S1 --> S2
+  S2 --> S3
+  S3 --> S4
+  S4 --> ACK["FrameApplied + typed render"]
+  ACK --> REPORT["stage report + evidence"]
+
+  VALUES["接受值：ParticipantReceiptsVm(kind=read)；模板使用 MessageVm.templateConfirmation，不得与 read receipt 合并成本地 bool"]
+  RULE["不变量：im_post_read 只接受 channel_id + posts；im_template_received 只声明 received，不冒充 template confirmation authority"]
+  DRIFT["当前漂移：当前 template confirmation projector 在 authority unavailable 时 fail closed；需要分别固化 received 与 confirmation 的正负 Fixture。Matrix 说明仍写 camel postId，而当前 builder/test canonical 输入为 snake_case post_id"]
+  VALUES -.约束.-> ACK
+  RULE -.fail closed.-> REPORT
+  DRIFT -.BLOCKED until reconciled.-> REPORT

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "helix-im/gate-artifact.schema.json",
+  "title": "Helix Gate Artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "gate_id", "perspective", "events", "storage_basis"],
+  "properties": {
+    "schema_version": {
+      "const": "helix-im-gate-artifact/v1"
+    },
+    "gate_id": {
+      "type": "string",
+      "pattern": "^G-(?:S[1-4]|[0-9]{2}[a-z]?)$"
+    },
+    "perspective": {
+      "enum": ["sender", "receiver"]
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "./message-v3-event.schema.json"
+      }
+    },
+    "storage_basis": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["table", "columns"],
+        "properties": {
+          "table": { "type": "string" },
+          "columns": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

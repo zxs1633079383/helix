@@ -1,0 +1,39 @@
+%% Phase1 / post / MV3-G01h 发送任务卡
+%% 机器真源: cses-client phase1.manifest.json；TaskApiService/buildTaskCardMessage；Helix im_send_message；Go posts/create；Angular MessageTaskContentComponent
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as TaskApiService / MessageV3ImGate
+  participant Native as Tauri im_send_message
+  participant E as Helix Tick / im_send_message
+  participant Java as Java CSES
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant PG as PostgreSQL
+  participant WS as WS inbound
+  participant Sink as EventSink im:__bus__
+  participant Store as Angular message store
+  participant View as MessageTaskContentComponent
+  UI->>Gate: TaskApiService.create POST /taskManage/task/create
+  Gate->>Java: CreateTaskDto
+  Java-->>Gate: taskId
+  UI->>Gate: sendTaskCardById(taskId)
+  Gate->>Java: POST /taskManage/task/detail
+  Java-->>Gate: TaskDetail
+  Gate->>Gate: buildTaskCardMessage(type=TASK_CARD, props.taskCard/taskCardBlock)
+  Gate->>Native: MessageService.sendMessage
+  Native->>E: Tick::Command(im_send_message)
+  E->>DB: Persist optimistic message(sending)
+  DB-->>E: PortReply(PersistOk)
+  E->>Sink: im:post:sending
+  E->>Go: Effect::Http POST /api/cses/posts/create
+  Go->>PG: post/channel/channel_member/channel_event
+  Go-->>E: HTTP 2xx admission
+  Go-->>WS: post
+  WS->>E: Tick::Inbound(post)
+  E->>DB: PersistAtomic canonical message/channel/cursor
+  DB-->>E: PortReply(PersistOk)
+  E->>Sink: im:post:received
+  Sink->>Store: IpcEventService upsert TASK_CARD
+  Store->>View: props.taskCard signal 渲染任务卡
+  Note over UI,View: 创建任务与发送任务卡是两段链路；离线先保留 sending 投影，权威 post 回声后才成为 sent

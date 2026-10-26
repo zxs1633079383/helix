@@ -1,0 +1,2202 @@
+{
+  "source_repository": "helix",
+  "source_commit": "1e9b006bbcb61be8575e7909d854f7039888c745",
+  "source_branch": "reactor/MessageV3-helix",
+  "mode": "sanitized-source-snapshot-no-history",
+  "excluded": [
+    {
+      "path": "SESSION.md",
+      "reason": "会话历史或真实用户组织数据"
+    },
+    {
+      "path": ".agents/README.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/hooks.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/feature.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions.yml",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/init-options.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/integration.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": "perf/reports/.gitignore",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": ".specify/memory/constitution.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/memory/.constitution-template.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/workflows/workflow-registry.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions/.registry",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/integrations/codex.manifest.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/integrations/speckit.manifest.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/templates/constitution-template.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/templates/checklist-template.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/templates/tasks-template.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/templates/spec-template.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/templates/plan-template.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/scripts/bash/common.sh",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/scripts/bash/setup-plan.sh",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/scripts/bash/setup-tasks.sh",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/scripts/bash/check-prerequisites.sh",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/scripts/bash/create-new-feature.sh",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions-src/helix-loop/extension.yml",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions-src/helix-loop/README.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions-src/helix-loop/tests/test_uninstall_profile.py",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions-src/helix-loop/tests/test_loop_engine.py",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions-src/helix-loop/scripts/loop_engine.py",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions-src/helix-loop/scripts/uninstall_profile.py",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions-src/helix-loop/commands/uninstall.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions-src/helix-loop/commands/advance.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions/helix-loop/extension.yml",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions/helix-loop/README.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions/.cache/catalog-ebf165086500aab1-metadata.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions/.cache/catalog-metadata.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions/.cache/catalog-ebf165086500aab1.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions/.cache/catalog.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions/helix-loop/tests/test_uninstall_profile.py",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions/helix-loop/tests/test_loop_engine.py",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions/helix-loop/scripts/loop_engine.py",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions/helix-loop/scripts/uninstall_profile.py",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions/helix-loop/commands/uninstall.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/extensions/helix-loop/commands/advance.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".specify/workflows/speckit/workflow.yml",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/install.sh",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/README.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/agents/helix-otel-prometheus-metrics-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/agents/helix-otel-prometheus-metrics-agent.toml",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/agents/helix-researcher.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/agents/helix-dev.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/knowledge/helix_knowledge.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/scripts/distill_project.py",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/scripts/evaluate.py",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/skills/helix-knowledge/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/skills/otel-prometheus-metrics/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/skills/otel-prometheus-metrics/references/metric-contract.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/skills/otel-prometheus-metrics/references/runtime-verification.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/skills/otel-prometheus-metrics/agents/openai.yaml",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".codex/autoresearch/helix/skills/otel-prometheus-metrics/scripts/verify_prometheus_metric.py",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": "docs/交接/pinned-count-20261018.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/global-bookmarks-20261006.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/emoji-history-20261006.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/reaction-feedback-20261006.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/2026-08-31-同步事件对齐worktree合并交接.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/member-projection-cold-recovery-20261012.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/bookmark-count-20261007.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/rich-upload-progress-20261009.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/revoke-deadline-20261010.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/reports/0901-跨仓Phase1-5验收报告.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/reports/2026-08-12-Rust-OpenTelemetry-Metrics-GitHub调研.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/reports/0907-PRE四项验收复核与修复.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/reports/helix-并发承压评估-2026-06-11.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/reports/0902-HelixPhase1-5与Java-Go投影测试报告.html",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/Markdown日检-20261025/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/presence-opt-20261019/v2-joint-result.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/presence-opt-20261019/flicker-dom-result.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/presence-opt-20261019/v2-known-failures.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/presence-opt-20261019/v2-corrected-result.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/presence-opt-20261019/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1014-visible-reaction-query/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/两轮未读修复/baseline-comparison.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/两轮未读修复/verified-source-fingerprint.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/两轮未读修复/release-0.1.28.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/两轮未读修复/修复说明.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/两轮未读修复/独立审查.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/Markdown日检-20261015/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/Markdown日检-20261023/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1018-pinned-result/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1014-分片上传与续传/contract.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1014-分片上传与续传/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/0910-发布Helix并更新客户端/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/task-6aacb31382481a450ebfd3aa/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1012-TooLong恢复/验收记录.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1012-TooLong恢复/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/Mac唤醒回应弹窗/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/0917-PRE-Pulsar-post诊断/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/helix-0.1.52/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1013-MR11与15定向修复/PC导航核对.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1013-MR11与15定向修复/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1022-底部艾特提醒/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/0915-Helix公共包体积/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/统一错误来源-20261007/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1021-频道属性防回退/审查.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1021-频道属性防回退/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/Markdown日检-20260912/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/Markdown日检-20261008/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/Markdown日检-20261009/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1013-成员空列表修复/验证记录.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1013-成员空列表修复/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1021-离线置顶缓存/审查.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1021-离线置顶缓存/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/Markdown日检-20261007/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1014-unread-boundary/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/Markdown日检-20261010/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1013-空JSON消息链修复/验证记录.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1013-空JSON消息链修复/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/Markdown日检-20261011/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/Markdown日检-20261020/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1013-历史引用空值修复/双仓影响审查.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1013-历史引用空值修复/验证记录.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1013-历史引用空值修复/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/每日AI感悟/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1014-hydration终态修复/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/三仓流程图对齐/验证结果.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/三仓流程图对齐/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1023-固定消息序号分页/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1013-presence-release/registry-verification.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1013-presence-release/registry-0.1.62.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1013-presence-release/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/0917-同步远端代码/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/0910-合并冲突/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/Markdown日检-20260911/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/归档会话列表/handoff.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1010-会话恢复红测/证据/helix-red.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1010-会话恢复红测/证据/helix-target.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1012-TooLong恢复/证据/native-race.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1012-TooLong恢复/证据/red.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1012-TooLong恢复/证据/独占Go夹具.go.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1012-TooLong恢复/证据/buffer.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1012-TooLong恢复/证据/native-stable.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1012-TooLong恢复/证据/代码身份.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1012-TooLong恢复/证据/im-suite-partial.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1012-TooLong恢复/证据/native-race.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1012-TooLong恢复/证据/native-stable.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1012-TooLong恢复/证据/check.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "docs/交接/1012-TooLong恢复/证据/focused.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": ".agents/tools/registry.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/bin/agentctl.py",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/references/reference-lock.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/README.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/project-domain-map.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/schemas/task-capsule.schema.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/schemas/route-result.schema.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/schemas/agent-report.schema.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/schemas/run-meta.schema.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/schemas/gate-contract.schema.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/schemas/strict-matrix-requirements.schema.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/examples/sample-gate-contract.yaml",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/examples/sample-agent-report.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/examples/sample-route-result.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/examples/sample-strict-matrix-requirements.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/scripts/agent-route",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/scripts/agent-sync-references",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/scripts/agent-render-prompt",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/scripts/agent-new-run",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/scripts/agent-check-report",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/scripts/agent-sync-constraints",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/scripts/agent-check-constraints",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/scripts/agent-clean-runs",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/scripts/agent-collect-context",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/templates/worktree-agent-task.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/templates/agent-task.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/templates/gate-contract.yaml",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/templates/reviewer-task.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/templates/strict-matrix-requirements.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/templates/swarm-spec.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/templates/tdd-implementation-plan.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/manifests/references.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/manifests/retention.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/manifests/agents.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/manifests/domains.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/manifests/modules.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/manifests/constraint-subscriptions.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/router/project-router.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/router/workflow-patterns.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/router/routes.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/speckit-checklist/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/helix-replay-test/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/helix-hot-path-write-audit/example-violation.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/helix-hot-path-write-audit/test-audit.sh",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/helix-hot-path-write-audit/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/helix-hot-path-write-audit/audit.sh",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/speckit-constitution/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/speckit-implement/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/messagev3-cross-layer-coding/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/speckit-converge/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/speckit-taskstoissues/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/speckit-clarify/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/speckit-plan/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/speckit-analyze/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/helix-loop-engine/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/speckit-helix-loop-advance/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/helix-command-driver-host-test/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/messagev3-cross-layer-emit-diagnosis/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/speckit-specify/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/helix-stress-verify/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/speckit-helix-loop-uninstall/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/helix-new-module/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/speckit-tasks/SKILL.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/messagev3-cross-layer-emit-diagnosis/references/source-map.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/messagev3-cross-layer-emit-diagnosis/agents/openai.yaml",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/helix-command-driver-host-test/references/command-adapter-matrix.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/helix-command-driver-host-test/agents/openai.yaml",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/skills/messagev3-cross-layer-coding/agents/openai.yaml",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/runtime-core-domain-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/mobile-ffi-domain-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/helix-gate-frame-producer-domain-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/host-io-domain-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/native-tauri-domain-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/harness-governance-domain-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/frame-fixture-supply-chain-domain-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/im-channel-domain-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/projection-observability-domain-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/im-message-domain-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/im-sync-domain-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/reviewers/test-reviewer-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/reviewers/cross-platform-gate-reviewer-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/reviewers/contract-reviewer-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/reviewers/evidence-reviewer-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/reviewers/harness-reviewer-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/project/gate-contract-specification-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/project/gate-acceptance-orchestrator-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/project/project-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/im-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/driver-ffi-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/host-cli-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/core-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/driver-host-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/driver-native-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/governance-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/driver-web-agent.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/driver-host/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/core/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/driver-ffi/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/driver-native/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/driver-web/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/governance/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/im/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/modules/host-cli/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/projection-observability/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/im-channel/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/native-tauri/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/im-sync/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/host-io/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/frame-fixture-supply-chain/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/mobile-ffi/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/helix-gate-frame-producer/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/runtime-core/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/im-message/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/agents/domains/harness-governance/AGENTS.md",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/domains/im-channel.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/domains/harness-governance.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/domains/helix-gate-frame-producer.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/domains/im-message.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/domains/host-io.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/domains/runtime-core.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/domains/im-sync.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/domains/frame-fixture-supply-chain.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/domains/native-tauri.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/domains/projection-observability.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/domains/mobile-ffi.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/modules/driver-web.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/modules/driver-host.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/modules/governance.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/modules/im.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/modules/driver-native.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/modules/host-cli.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/modules/core.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/diagrams/modules/driver-ffi.mmd",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/tools/schemas/store-inspect-input.schema.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": ".agents/tools/schemas/store-inspect-output.schema.json",
+      "reason": "本地工具状态或缓存"
+    },
+    {
+      "path": "specs/037-ifv2-g-12-reply-thread/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/037-ifv2-g-12-reply-thread/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/025-ifv2-g-02-document-message/evidence/V-006-attempt1-invalid-cli.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/025-ifv2-g-02-document-message/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/025-ifv2-g-02-document-message/evidence/V-004-pc-mock-report.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/025-ifv2-g-02-document-message/evidence/V-006-mobile-contract.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/025-ifv2-g-02-document-message/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/025-ifv2-g-02-document-message/evidence/V-003-canonical-fixture.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/025-ifv2-g-02-document-message/evidence/V-002-helix-scenario.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/025-ifv2-g-02-document-message/evidence/V-005-pc-real.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/025-ifv2-g-02-document-message/evidence/V-007-cross-repo-review.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/025-ifv2-g-02-document-message/evidence/V-001-helix-build.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/V-005-dual-real.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/V-004-single-real-retry-1.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/V-008-redaction.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/V-004-single-real.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/V-003-integration.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/V-007-performance-retry-1.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/V-008-redaction-retry-2.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/final-diff-check.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/V-008-redaction-retry-1.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/V-002-mock-ui.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/final-client-contracts.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/V-007-performance.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/V-006-report-v1.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/V-008-failure-proof-source.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/final-helix-contract.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/019-g01-wdio-five-phases/evidence/V-001-production-boundary.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/005-g05-forward/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/005-g05-forward/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/013-g13-channel-read/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/013-g13-channel-read/evidence/angular-focused.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/013-g13-channel-read/evidence/rust-focused.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/013-g13-channel-read/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/028-ifv2-g-04a-offline-revoke/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/028-ifv2-g-04a-offline-revoke/evidence/V-004-pc-mock-report.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/028-ifv2-g-04a-offline-revoke/evidence/V-006-mobile-contract.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/028-ifv2-g-04a-offline-revoke/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/028-ifv2-g-04a-offline-revoke/evidence/V-003-canonical-fixture.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/028-ifv2-g-04a-offline-revoke/evidence/V-002-helix-scenario.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/028-ifv2-g-04a-offline-revoke/evidence/V-005-pc-real.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/028-ifv2-g-04a-offline-revoke/evidence/V-007-cross-repo-review.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/028-ifv2-g-04a-offline-revoke/evidence/V-001-helix-build.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/045-ifv2-g-16c-channel-settings/evidence/v003-fixture-parity.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/045-ifv2-g-16c-channel-settings/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/045-ifv2-g-16c-channel-settings/evidence/v007-review.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/045-ifv2-g-16c-channel-settings/evidence/v004-pc-mock.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/045-ifv2-g-16c-channel-settings/evidence/v001-helix-build.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/045-ifv2-g-16c-channel-settings/evidence/v006-mobile.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/045-ifv2-g-16c-channel-settings/evidence/v002-helix-scenario.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/045-ifv2-g-16c-channel-settings/evidence/v005-pc-real.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/045-ifv2-g-16c-channel-settings/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/016-g16-channel-governance/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/016-g16-channel-governance/evidence/angular-focused.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/016-g16-channel-governance/evidence/rust-focused.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/016-g16-channel-governance/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/007-g07-urgent/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/007-g07-urgent/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/046-timeline-v3-delta-window/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/046-timeline-v3-delta-window/evidence/helix-production-gates.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/046-timeline-v3-delta-window/evidence/real-lanes.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/046-timeline-v3-delta-window/evidence/go-timeline-v3.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/046-timeline-v3-delta-window/evidence/source-lock.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/046-timeline-v3-delta-window/evidence/mobile-gtest.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/046-timeline-v3-delta-window/evidence/final-static.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/046-timeline-v3-delta-window/evidence/pc-wdio.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/046-timeline-v3-delta-window/evidence/cross-client-parity.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/046-timeline-v3-delta-window/evidence/gate-inventory.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/011-g11-locate-message/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/011-g11-locate-message/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/040-ifv2-g-14a-template-received/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/040-ifv2-g-14a-template-received/evidence/V-002-helix-fixture.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/040-ifv2-g-14a-template-received/evidence/V-006-mobile-contract.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/040-ifv2-g-14a-template-received/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/040-ifv2-g-14a-template-received/evidence/V-004-pc-mock.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/040-ifv2-g-14a-template-received/evidence/V-005-pc-real.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/040-ifv2-g-14a-template-received/evidence/V-007-cross-repo-review.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/040-ifv2-g-14a-template-received/evidence/V-001-helix-scenario.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/036-ifv2-g-11-locate-message/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/036-ifv2-g-11-locate-message/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/029-ifv2-g-05-forward-message/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/029-ifv2-g-05-forward-message/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/v004-pc-contracts.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/v005-pc-dual-real.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/v006-mobile-contract.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/v001-v003-helix.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/v004-pc-mock.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/v005-pc-single-real.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/043-ifv2-g-16-channel-close-leave/evidence/v006-mobile-uc16-real.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/031-ifv2-g-07-urgent-message/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/031-ifv2-g-07-urgent-message/evidence/v001-helix-flow.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/031-ifv2-g-07-urgent-message/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/031-ifv2-g-07-urgent-message/evidence/v002-helix-fixture.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/035-ifv2-g-10a-load-older/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/035-ifv2-g-10a-load-older/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/009-g09-schedule-cancel/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/009-g09-schedule-cancel/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/018-interaction-frame-v2-cutover/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/018-interaction-frame-v2-cutover/evidence/V-005-g-s3-t097-fail.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/018-interaction-frame-v2-cutover/evidence/V-006-pre-v1-delete-first-25-r6-reducer.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/018-interaction-frame-v2-cutover/evidence/V-010-post-all-v1-delete-native-25-pass.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/018-interaction-frame-v2-cutover/evidence/V-005-native-first-run-blocked.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/018-interaction-frame-v2-cutover/evidence/V-008-post-v1-delete-native-25-pass.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/018-interaction-frame-v2-cutover/evidence/V-009-post-all-v1-delete-r6-reducer.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/023-ifv2-g-s3-pong-gap-recovery/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/023-ifv2-g-s3-pong-gap-recovery/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/023-ifv2-g-s3-pong-gap-recovery/evidence/gs3-four-repo-verification.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/034-ifv2-g-10-timeline-window/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/034-ifv2-g-10-timeline-window/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/014-g14-receipt-template/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/014-g14-receipt-template/evidence/angular-focused.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/014-g14-receipt-template/evidence/rust-focused.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/014-g14-receipt-template/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/033-ifv2-g-09-schedule-cancel/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/033-ifv2-g-09-schedule-cancel/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/024-ifv2-g-s4-unknown-channel-hydration/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/024-ifv2-g-s4-unknown-channel-hydration/evidence/gs4-four-repo-verification.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/024-ifv2-g-s4-unknown-channel-hydration/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/027-ifv2-g-04-online-revoke/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-004-pc-mock-report.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-006-mobile-contract.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/027-ifv2-g-04-online-revoke/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-003-canonical-fixture.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-002-helix-scenario.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-005-pc-real.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-007-cross-repo-review.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-001-helix-build.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/041-ifv2-g-15a-create-channel/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-003-helix-fixture.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-006-mobile-contract.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-008-mobile-shared-regression-blocked.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/041-ifv2-g-15a-create-channel/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-004-pc-mock.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-002-helix-scenario.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-005-pc-real.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-007-cross-repo-review.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-001-helix-build.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/015-g15-channel-topic/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/015-g15-channel-topic/evidence/angular-focused.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/015-g15-channel-topic/evidence/rust-focused.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/015-g15-channel-topic/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-004-pc-mock-report.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-006-mobile-contract.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-003-canonical-fixture.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-002-helix-scenario.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-005-pc-real.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-007-cross-repo-review.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-001-helix-build.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/026-ifv2-g-03a-retry-failed-send/evidence/V-006-attempt1-zero-tests.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/017-uc04-16-native-e2e/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/017-uc04-16-native-e2e/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/010-g10-timeline-window/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/010-g10-timeline-window/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/004-g04-revoke/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/004-g04-revoke/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/006-g06-reaction/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/006-g06-reaction/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/021-ifv2-g-s1-cold-start-sync/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/021-ifv2-g-s1-cold-start-sync/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/021-ifv2-g-s1-cold-start-sync/evidence/2026-07-27-cold-start-closure.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/021-ifv2-g-s1-cold-start-sync/evidence/2026-07-26-implementation-status.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p7-final-validation.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p2-g14-final.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p4-g10-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p3-g09-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p2-g06-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p2-g14a-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p4-g10b-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p4-g10a-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p2-g14-verified.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p2-g05-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p1-baseline-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p0-static-cutover-pass.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p2-g07-final.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p4-g11a-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p4-g10d-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p7-evidence-manifest-reconciled.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p4-g10c-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p0-contract-red.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/pre-implement-hook-blocked.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p2-g07-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p2-g14-clean.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p2-g02-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p4-g11-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p3-g08-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p0-gate-registry-red.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p2-g03a-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p2-g04a-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p0-contract-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p7-final-validation-failed.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/047-im-event-gate-inventory/evidence/p2-g04-focused.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/030-ifv2-g-06-quick-reaction/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/030-ifv2-g-06-quick-reaction/evidence/v001-helix-flow.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/030-ifv2-g-06-quick-reaction/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/030-ifv2-g-06-quick-reaction/evidence/v002-helix-fixture.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/008-g08-schedule-create/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/008-g08-schedule-create/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/039-ifv2-g-14-post-read/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/039-ifv2-g-14-post-read/evidence/V-002-V-003-helix-tests.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/039-ifv2-g-14-post-read/evidence/V-006-mobile-contract.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/039-ifv2-g-14-post-read/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/039-ifv2-g-14-post-read/evidence/V-004-pc-mock-attempt1.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/039-ifv2-g-14-post-read/evidence/V-004-pc-mock.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/039-ifv2-g-14-post-read/evidence/V-005-pc-real.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/039-ifv2-g-14-post-read/evidence/V-007-cross-repo-review.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/039-ifv2-g-14-post-read/evidence/V-001-helix-build.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/039-ifv2-g-14-post-read/evidence/V-001-helix-runtime-boundary.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/022-ifv2-g-s2-offline-sync-notify/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/022-ifv2-g-s2-offline-sync-notify/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/042-ifv2-g-15-create-topic/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/042-ifv2-g-15-create-topic/evidence/v005-pc-real.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/042-ifv2-g-15-create-topic/evidence/v007-cross-repo-review.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/042-ifv2-g-15-create-topic/evidence/v004-pc-mock.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/042-ifv2-g-15-create-topic/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/042-ifv2-g-15-create-topic/evidence/v006-mobile-contract.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/042-ifv2-g-15-create-topic/evidence/v003-canonical-fixture.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/042-ifv2-g-15-create-topic/evidence/v001-helix-producer.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/042-ifv2-g-15-create-topic/evidence/v002-helix-scenario.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v003-fixture-parity.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v007-review.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v004-pc-mock.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v001-helix-build.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v006-mobile.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v002-helix-scenario.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v005-pc-real.txt",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/038-ifv2-g-13-channel-read/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/038-ifv2-g-13-channel-read/evidence/V-006-mobile-contract.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/038-ifv2-g-13-channel-read/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/038-ifv2-g-13-channel-read/evidence/V-004-pc-mock.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/038-ifv2-g-13-channel-read/evidence/V-003-canonical-fixture.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/038-ifv2-g-13-channel-read/evidence/V-002-helix-scenario.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/038-ifv2-g-13-channel-read/evidence/V-005-pc-real.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/038-ifv2-g-13-channel-read/evidence/V-007-cross-repo-review.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/038-ifv2-g-13-channel-read/evidence/V-001-helix-build.log",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/032-ifv2-g-08-schedule-create/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/032-ifv2-g-08-schedule-create/evidence/gate-report.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/012-g12-reply-thread/evidence/evidence.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "specs/012-g12-reply-thread/evidence/final-native.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/summary.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/helix-driver-native-0.1.22.crate",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/helix-im-0.1.22.crate",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/helix-driver-host.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/cses-helix-core-0.1.21.crate",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/cses-helix-core.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/helix-perf.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/cses-helix-core-0.1.22.crate",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/helix-driver-web.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/helix-im.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/helix-driver-ffi.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/helix-host-cli.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/helix-driver-host-0.1.22.crate",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/公共包体积-20260915/helix-driver-native.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/forward-snapshot-20260916/REPORT.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/1021-pinned-sync/channel_scalar_ordering_probe.rs",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/increment-pull-20260908/验收摘要.json",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/message-v3-phase1/pc-mobile-byte-exact-and-strict-matrix.md",
+      "reason": "运行证据或历史交接"
+    },
+    {
+      "path": "artifacts/message-v3-phase1/verification/three-targets.md",
+      "reason": "运行证据或历史交接"
+    }
+  ],
+  "modified": [],
+  "source_file_count": 2099
+}

@@ -1,0 +1,18 @@
+%% Phase2 / sync / MV3-G13d 子话题查询
+%% 机器真源: phase2.manifest.json；Helix query/core.rs/dispatch.rs；tenant SQLite channel projection；Angular HelixTauriImGate
+sequenceDiagram
+  participant UI as Angular topic list
+  participant P as MessageV3ImGate
+  participant T as Tauri im_query_subtopics
+  participant H as Helix Tick / query core
+  participant DB as tenant SQLite channel
+  UI->>P: querySubtopics(parentChannelId)
+  P->>T: im_query_subtopics(req_id,parentChannelId)
+  T->>H: Tick::Command(im_query_subtopics)
+  H->>DB: Effect::Persist Scan visible channels for account/team
+  DB-->>H: PortReply(items)
+  H->>H: filter rootId=parentChannelId and type=T
+  H-->>T: correlated Command Result items
+  T-->>P: ChannelProjection[]
+  P-->>UI: topic-list signal render or []
+  Note over H,DB: 本地只读，无 HTTP、WS、PersistAtomic 写入或 EventSink 事件；空 parentChannelId fail-closed 为 []

@@ -1,0 +1,61 @@
+%% Helix · helix-driver-host · 读写/读读/写读 并发交织图
+%% 真源：src/storage.rs（HostStorage / ReadPool）· src/engine.rs · src/spawner.rs（BoundedSpawner N=1）
+%% 关联约束：HX-C005（热路径 O(1)）· HX-C006（spawn_blocking 隔离）· HX-C010（确定性有序）
+
+flowchart TD
+    subgraph ENTRIES["三类入口并发到 HostStorage"]
+        WS["① WS 入站帧\nTick::Inbound → step → Effect::Persist\n（写：batch_upsert / monotonic_upsert）"]
+        HTTP["② HTTP sync pull\nPortReply → step → Effect::Persist + Get/ScopedGet/Scan\n（读 + 写混合）"]
+        QUERY["③ 业务查询 Command（FFI helix_command）\n异步进入 Helix → Effect::Persist Get/Scan\nhelix_query 仅保留 capabilities/version 元信息"]
+    end
+
+    subgraph ENGINE["engine.rs · run_engine_loop（泵主循环）"]
+        BIASED["biased select!:\n① reply_rx（PortReply/Progress 优先）\n② transport_rx（连接句柄注册）\n③ shutdown_rx\n④ tick_rx（入站）\n连续 64 条回灌后强制取 1 条入站"]
+        STEP["shell.step(tick, now_ms)\n→ Vec&lt;Effect&gt;（纯同步）"]
+        DISPATCH["dispatch_effects()\n按 Effect 类型分流"]
+    end
+
+    WS --> BIASED
+    HTTP --> BIASED
+    BIASED --> STEP --> DISPATCH
+
+    subgraph WRITE_PATH["写路径（Effect::Persist）"]
+        BS["BoundedSpawner&lt;StorageOps&gt;\nN=1（同 key 写序不变量3）\nOverflow::Block → 满则背压回 tick_tx\nqueue_cap = PERSIST_QUEUE_CAP (1024)"]
+        SB_W["spawn_blocking → writer.lock()\n取 Mutex&lt;Connection&gt;\n（HX-C006：同步 C 调用卸到 blocking pool）"]
+        WAL_W["SQLite WAL 写者\n① batch_upsert：整批一事务（E2）\n② monotonic_upsert：MAX guard 防回退\n③ batch_update：单条 UPDATE WHERE PK\n全部 O(1)（HX-C005）"]
+    end
+
+    subgraph READ_PATH["读路径（Effect::Persist Get/ScopedGet/Scan）"]
+        RP["ReadPool\npermits: Semaphore(4)\nidle: Mutex&lt;Vec&lt;Connection&gt;&gt;（借/还）"]
+        ACQUIRE["acquire_owned().await\n满载（4 连接全用）时异步挂起\n→ 背压自然传导，不占线程"]
+        POP["spawn_blocking → idle.lock().pop()\n（持 permit = idle 必有 conn，不会 pop 空）"]
+        WAL_R["SQLite WAL 读者（READ_ONLY 连接）\nWAL 快照隔离：看 writer 上次提交的快照\n不被 writer 阻塞 → 真并发"]
+        RETURN["归还 conn → idle.push()\n→ drop permit 释放并发额度"]
+    end
+
+    subgraph FALLBACK["回退路径（target_supports_shared_readers=false）"]
+        FB["独占内存库（:memory: 无 cache=shared）\n无只读池 → 读退到 writer.lock() 串行\n语义正确，牺牲并发度"]
+    end
+
+    DISPATCH -->|"Persist（写 ops）"| BS
+    BS --> SB_W --> WAL_W
+    DISPATCH -->|"Persist（读 ops：Get/ScopedGet/Scan）"| RP
+    RP --> ACQUIRE --> POP --> WAL_R --> RETURN
+    RP -->|"readers=None"| FB --> SB_W
+
+    subgraph CONCURRENCY["并发交织语义"]
+        RR["读读（Read-Read）：\nN≤4 → WAL 各自快照，真并发\nN>4 → Semaphore 异步挂起，背压"]
+        RW["读写（Read-Write）：\nWAL：reader 看 writer 上次提交快照\n不互斥 → 读写可同时进行\ncursor 单调性靠 writer 串行（N=1）保证"]
+        WR["写读（Write-Read）：\nwriter Mutex 不阻塞 WAL reader\nReader 走独立 READ_ONLY 连接\n→ 读写真并发"]
+    end
+
+    WAL_W -.->|"WAL 文件"| WAL_R
+    RR -.-> RP
+    RW -.-> WAL_W
+    WR -.-> WAL_R
+
+    subgraph FFI_NATIVE["FFI current_thread vs native multi_thread"]
+        NATIVE["native：new_multi_thread\nspawn_blocking → OS 线程池（默认 512 线程）\n最大读写并发度更高"]
+        FFI["FFI：new_current_thread(.enable_all())\nspawn_blocking 同样卸到 tokio blocking pool\n不阻塞 pump 单线程\n并发度与 native 相同（blocking pool 独立）"]
+    end
+    SB_W -.-> FFI_NATIVE

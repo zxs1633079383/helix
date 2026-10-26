@@ -1,0 +1,704 @@
+{
+  "schemaVersion": 1,
+  "uid": "helix-client-channel-v1",
+  "title": "登录与群聊：消息接收、保存和补齐情况",
+  "snapshot": "../../docs/Metrics/客户端指标快照-2026-09-07.json",
+  "review": "APPROVED_ARTIFACT_ONLY",
+  "diagnosticsStatus": "PRE_GO_NATIVE_VERIFIED_CLIENT_TERMINAL_PENDING",
+  "diagnosticService": "helix-im-diagnostics",
+  "maxLogLines": 1000,
+  "scopeFields": [
+    "tenant_id",
+    "user_id",
+    "channel_id",
+    "login_attempt_id",
+    "device_session_id"
+  ],
+  "defaults": {
+    "environment": "pre",
+    "service": "cses-client-pre",
+    "prometheusUid": "prometheus",
+    "lokiUid": "ef65piv34jegwd"
+  },
+  "plannedLabels": {
+    "platform": [
+      "native",
+      "ffi",
+      "web",
+      "host"
+    ],
+    "path": [
+      "live_ws",
+      "sync_replay",
+      "offline_recovery"
+    ],
+    "trigger": [
+      "login",
+      "reconnect",
+      "notify",
+      "gap",
+      "manual"
+    ],
+    "seq_domain": [
+      "event_seq",
+      "stream_seq",
+      "ws_delivery_seq"
+    ],
+    "visibility": [
+      "visible",
+      "redacted",
+      "filtered",
+      "unknown"
+    ],
+    "stage": [
+      "auth",
+      "store",
+      "hello",
+      "inventory",
+      "ws",
+      "accepted",
+      "persist",
+      "projection",
+      "renderer",
+      "export"
+    ],
+    "result": [
+      "success",
+      "partial",
+      "failed",
+      "timeout",
+      "cancelled",
+      "interrupted",
+      "unknown"
+    ],
+    "reason": [
+      "none",
+      "auth_failed",
+      "tenant_mismatch",
+      "store_open_failed",
+      "hello_timeout",
+      "membership_missing",
+      "page_missing",
+      "page_stalled",
+      "persist_failed",
+      "projection_failed",
+      "renderer_failed",
+      "visibility_skipped",
+      "retention_compacted",
+      "reorder_recovered",
+      "replay_deduplicated",
+      "protocol_mismatch",
+      "confirmed_missing",
+      "capacity_limit",
+      "export_failed",
+      "shutdown",
+      "deadline",
+      "unknown",
+      "other"
+    ]
+  },
+  "metrics": [
+    {
+      "name": "otel_helix_command_to_http_dispatch_seconds",
+      "type": "histogram",
+      "title": "点击操作后多久开始请求",
+      "group": "点击操作后是否及时完成",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_command_to_http_response_seconds",
+      "type": "histogram",
+      "title": "点击操作后多久收到响应",
+      "group": "点击操作后是否及时完成",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_command_to_persist_reply_seconds",
+      "type": "histogram",
+      "title": "点击操作后多久完成保存",
+      "group": "点击操作后是否及时完成",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_command_to_projection_emit_seconds",
+      "type": "histogram",
+      "title": "点击操作后多久通知页面更新",
+      "group": "点击操作后是否及时完成",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_core_empty_effect_total",
+      "type": "counter",
+      "title": "有多少次处理无需后续操作",
+      "group": "客户端处理用户事件是否顺畅",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_core_step_duration_seconds",
+      "type": "histogram",
+      "title": "处理一次用户事件要多久",
+      "group": "客户端处理用户事件是否顺畅",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_effect_amplification_ratio",
+      "type": "histogram",
+      "title": "一次用户事件引发多少后续操作",
+      "group": "处理结果是否及时交付页面",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_effect_bytes_per_tick",
+      "type": "histogram",
+      "title": "一次用户事件产生多少数据",
+      "group": "处理结果是否及时交付页面",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_effect_dispatch_duration_seconds",
+      "type": "histogram",
+      "title": "派发后续操作要多久",
+      "group": "处理结果是否及时交付页面",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_effects_per_tick",
+      "type": "histogram",
+      "title": "一次用户事件需要多少处理步骤",
+      "group": "处理结果是否及时交付页面",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_effects_total",
+      "type": "counter",
+      "title": "客户端正在执行多少后续操作",
+      "group": "处理结果是否及时交付页面",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_engine_loop_iteration_seconds",
+      "type": "histogram",
+      "title": "客户端完成一轮处理要多久",
+      "group": "客户端处理用户事件是否顺畅",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_event_batch_size",
+      "type": "histogram",
+      "title": "每次向页面交付多少条更新",
+      "group": "处理结果是否及时交付页面",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_event_emit_duration_seconds",
+      "type": "histogram",
+      "title": "向页面交付更新要多久",
+      "group": "处理结果是否及时交付页面",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_event_emitted_total",
+      "type": "counter",
+      "title": "页面收到了多少次更新通知",
+      "group": "处理结果是否及时交付页面",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_http_inflight",
+      "type": "gauge",
+      "title": "有多少请求正在等待响应",
+      "group": "请求是否及时返回",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_http_queue_wait_seconds",
+      "type": "histogram",
+      "title": "请求发出前排队多久",
+      "group": "请求是否及时返回",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_http_request_bytes",
+      "type": "histogram",
+      "title": "每次请求发送多少数据",
+      "group": "请求是否及时返回",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_http_request_duration_seconds",
+      "type": "histogram",
+      "title": "请求响应要等多久",
+      "group": "请求是否及时返回",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_http_response_bytes",
+      "type": "histogram",
+      "title": "每次请求返回多少数据",
+      "group": "请求是否及时返回",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_http_status_total",
+      "type": "counter",
+      "title": "请求返回了哪些结果",
+      "group": "请求是否及时返回",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_im_tick_stage_duration_seconds",
+      "type": "histogram",
+      "title": "消息在各处理阶段耗时多久",
+      "group": "消息处理在哪一步耗时",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_dropped_total",
+      "type": "counter",
+      "title": "有多少观测记录未能保留",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_export_batch_size",
+      "type": "histogram",
+      "title": "每次上传多少指标记录",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_export_duration_seconds",
+      "type": "histogram",
+      "title": "上传指标要多久",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_export_errors_total",
+      "type": "counter",
+      "title": "指标上传失败了多少次",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_exporter_state",
+      "type": "gauge",
+      "title": "指标上传是否正常工作",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_last_success_age_seconds",
+      "type": "gauge",
+      "title": "多久没有成功上传指标",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_queue_capacity",
+      "type": "gauge",
+      "title": "指标最多能排队多少条",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_metrics_queue_depth",
+      "type": "gauge",
+      "title": "有多少指标正在等待上传",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_operations_total",
+      "type": "counter",
+      "title": "客户端处理了多少操作",
+      "group": "客户端处理用户事件是否顺畅",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_persist_queue_wait_seconds",
+      "type": "histogram",
+      "title": "保存消息前排队多久",
+      "group": "消息是否及时保存到本机",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_pool_enqueue_block_seconds",
+      "type": "histogram",
+      "title": "后台任务提交时阻塞多久",
+      "group": "后台任务是否排队积压",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_pool_execution_seconds",
+      "type": "histogram",
+      "title": "后台任务执行要多久",
+      "group": "后台任务是否排队积压",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_pool_inflight_ratio",
+      "type": "gauge",
+      "title": "后台处理能力使用了多少",
+      "group": "后台任务是否排队积压",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_pool_queue_depth_ratio",
+      "type": "gauge",
+      "title": "后台等待队列占用了多少",
+      "group": "后台任务是否排队积压",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_pool_queue_residency_seconds",
+      "type": "histogram",
+      "title": "后台任务排队多久",
+      "group": "后台任务是否排队积压",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_port_pending_ratio",
+      "type": "gauge",
+      "title": "有多少操作仍在等待完成",
+      "group": "后台任务是否排队积压",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_port_reply_queue_depth_ratio",
+      "type": "gauge",
+      "title": "已完成结果的等待队列是否拥挤",
+      "group": "后台任务是否排队积压",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_port_reply_queue_wait_seconds",
+      "type": "histogram",
+      "title": "处理完成结果排队多久",
+      "group": "后台任务是否排队积压",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_port_reply_total",
+      "type": "counter",
+      "title": "有多少操作返回了结果",
+      "group": "后台任务是否排队积压",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_port_roundtrip_seconds",
+      "type": "histogram",
+      "title": "后台操作从开始到返回要多久",
+      "group": "后台任务是否排队积压",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_process_resident_memory_bytes",
+      "type": "gauge",
+      "title": "客户端占用多少内存",
+      "group": "客户端运行是否占用过多资源",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_spans_created_total",
+      "type": "counter",
+      "title": "记录了多少次操作过程",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_spans_sampled_total",
+      "type": "counter",
+      "title": "保留了多少次操作过程用于分析",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_storage_batch_rows",
+      "type": "histogram",
+      "title": "每次批量保存多少条数据",
+      "group": "消息是否及时保存到本机",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_storage_inflight_ratio",
+      "type": "gauge",
+      "title": "保存任务使用了多少处理能力",
+      "group": "消息是否及时保存到本机",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_storage_rows_total",
+      "type": "counter",
+      "title": "已保存多少行本地数据",
+      "group": "消息是否及时保存到本机",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_storage_tx_duration_seconds",
+      "type": "histogram",
+      "title": "本地数据提交要多久",
+      "group": "消息是否及时保存到本机",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_telemetry_canary_total",
+      "type": "counter",
+      "title": "观测通道自检触发了多少次",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_tick_inflight_ratio",
+      "type": "gauge",
+      "title": "用户事件处理能力使用了多少",
+      "group": "客户端处理用户事件是否顺畅",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_tick_queue_capacity",
+      "type": "gauge",
+      "title": "用户事件最多能排队多少条",
+      "group": "客户端处理用户事件是否顺畅",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_tick_queue_depth",
+      "type": "gauge",
+      "title": "有多少用户事件等待处理",
+      "group": "客户端处理用户事件是否顺畅",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_tick_queue_wait_seconds",
+      "type": "histogram",
+      "title": "用户事件处理前排队多久",
+      "group": "客户端处理用户事件是否顺畅",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ticks_total",
+      "type": "counter",
+      "title": "客户端处理了多少次用户事件",
+      "group": "客户端处理用户事件是否顺畅",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_timer_active_ratio",
+      "type": "gauge",
+      "title": "延时任务使用了多少容量",
+      "group": "延时任务是否准时执行",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_timer_delivery_wait_seconds",
+      "type": "histogram",
+      "title": "延时任务触发后等待多久",
+      "group": "延时任务是否准时执行",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_timer_fired_total",
+      "type": "counter",
+      "title": "有多少延时任务已触发",
+      "group": "延时任务是否准时执行",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_timer_lateness_seconds",
+      "type": "histogram",
+      "title": "延时任务比计划晚了多久",
+      "group": "延时任务是否准时执行",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_timer_scheduled_total",
+      "type": "counter",
+      "title": "安排了多少次延时任务",
+      "group": "延时任务是否准时执行",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_traces_export_batch_size",
+      "type": "histogram",
+      "title": "每次上传多少操作记录",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_traces_export_duration_seconds",
+      "type": "histogram",
+      "title": "上传操作记录要多久",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_traces_exporter_state",
+      "type": "gauge",
+      "title": "操作记录上传是否正常",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_traces_last_success_age_seconds",
+      "type": "gauge",
+      "title": "多久没有成功上传操作记录",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_traces_queue_depth_ratio",
+      "type": "gauge",
+      "title": "操作记录等待队列是否拥挤",
+      "group": "观测数据是否持续上传",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ws_frame_bytes",
+      "type": "histogram",
+      "title": "连接每次收发多少数据",
+      "group": "客户端与服务器是否正常收发",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ws_frames_total",
+      "type": "counter",
+      "title": "连接收发了多少帧数据",
+      "group": "客户端与服务器是否正常收发",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ws_inbound_last_seen_age_seconds",
+      "type": "gauge",
+      "title": "多久没有收到服务器数据",
+      "group": "客户端与服务器是否正常收发",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ws_ingress_to_effect_seconds",
+      "type": "histogram",
+      "title": "收到服务器数据后多久开始处理",
+      "group": "客户端与服务器是否正常收发",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ws_ingress_to_event_seconds",
+      "type": "histogram",
+      "title": "收到服务器数据后多久通知页面",
+      "group": "客户端与服务器是否正常收发",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    },
+    {
+      "name": "otel_helix_ws_send_duration_seconds",
+      "type": "histogram",
+      "title": "向服务器发送数据要多久",
+      "group": "客户端与服务器是否正常收发",
+      "evidence": "PROM_QUERY_SNAPSHOT"
+    }
+  ],
+  "traceMetrics": [
+    {
+      "name": "otel_traces_span_metrics_calls_total",
+      "type": "counter",
+      "job": "opentelemetry-collector"
+    },
+    {
+      "name": "otel_traces_span_metrics_duration_milliseconds",
+      "type": "histogram",
+      "job": "opentelemetry-collector"
+    },
+    {
+      "name": "calls_total",
+      "type": "counter",
+      "job": "jaeger-v2"
+    },
+    {
+      "name": "duration_milliseconds",
+      "type": "histogram",
+      "job": "jaeger-v2"
+    }
+  ],
+  "syncObservationStatus": "IMPLEMENTED_PENDING_RUNTIME_VERIFICATION",
+  "syncMetrics": [
+    {
+      "name": "otel_helix_recovery_started_timestamp_seconds",
+      "kind": "gauge",
+      "owner": "helix",
+      "title": "最近一次同步开始时间"
+    },
+    {
+      "name": "otel_helix_recovery_completed_timestamp_seconds",
+      "kind": "gauge",
+      "owner": "helix",
+      "title": "最近一次同步成功完成时间"
+    },
+    {
+      "name": "otel_helix_recovery_duration_seconds",
+      "kind": "histogram",
+      "owner": "helix",
+      "title": "整轮同步耗时分位"
+    },
+    {
+      "name": "otel_helix_increment_page_duration_seconds",
+      "kind": "histogram",
+      "owner": "helix",
+      "title": "清单单页到落库耗时分位"
+    },
+    {
+      "name": "otel_helix_recovery_terminal_total",
+      "kind": "counter",
+      "owner": "helix",
+      "title": "整轮同步终态速率"
+    },
+    {
+      "name": "otel_helix_increment_page_terminal_total",
+      "kind": "counter",
+      "owner": "helix",
+      "title": "清单页落库终态速率"
+    },
+    {
+      "name": "im_sync_page_duration_seconds",
+      "kind": "histogram",
+      "owner": "go",
+      "title": "服务端分页处理耗时分位"
+    },
+    {
+      "name": "im_sync_page_requests_total",
+      "kind": "counter",
+      "owner": "go",
+      "title": "服务端分页处理终态速率"
+    }
+  ],
+  "typeCorrections": [
+    {
+      "name": "otel_helix_metrics_last_success_age_seconds",
+      "from": "histogram",
+      "to": "gauge",
+      "reason": "registry Gauge 被名称后缀 view 错误聚合；保留历史快照，恢复实际类型"
+    },
+    {
+      "name": "otel_helix_process_resident_memory_bytes",
+      "from": "histogram",
+      "to": "gauge",
+      "reason": "registry Gauge 被名称后缀 view 错误聚合；保留历史快照，恢复实际类型"
+    },
+    {
+      "name": "otel_helix_traces_last_success_age_seconds",
+      "from": "histogram",
+      "to": "gauge",
+      "reason": "registry Gauge 被名称后缀 view 错误聚合；保留历史快照，恢复实际类型"
+    },
+    {
+      "name": "otel_helix_ws_inbound_last_seen_age_seconds",
+      "from": "histogram",
+      "to": "gauge",
+      "reason": "registry Gauge 被名称后缀 view 错误聚合；保留历史快照，恢复实际类型"
+    }
+  ],
+  "baselinePanels": {
+    "total": 111,
+    "data": 96,
+    "structural": 15,
+    "targets": 176
+  }
+}

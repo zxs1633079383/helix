@@ -1,0 +1,18 @@
+flowchart TD
+  START["G06 scenario start"] --> S1
+  S1["1. react-action"]
+  S2["2. http-acceptance"]
+  S3["3. post-update-inbound"]
+  S4["4. timeline-reaction-frame"]
+  S1 --> S2
+  S2 --> S3
+  S3 --> S4
+  S4 --> ACK["FrameApplied + typed render"]
+  ACK --> REPORT["stage report + evidence"]
+
+  VALUES["接受值：MessageVm.reactions=[{emoji,count}] 与 actions[kind=react]；count 为权威聚合后的非负整数"]
+  RULE["不变量：renderer 不发送 desired_selected/user_id，也不本地增减 count；actor 由鉴权 session 注入"]
+  DRIFT["当前漂移：当前 Rust focused test 固定 command/wire/action binding，但缺少 post_update 到 reaction Frame 的 canonical replay Fixture"]
+  VALUES -.约束.-> ACK
+  RULE -.fail closed.-> REPORT
+  DRIFT -.BLOCKED until reconciled.-> REPORT

@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "helix-im/gate-migration.schema.json",
+  "title": "MessageV3 Gate Migration Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "inventory_catalog", "entries"],
+  "properties": {
+    "schema_version": {
+      "const": "helix-im-gate-migration/v1"
+    },
+    "inventory_catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v2-production",
+        "v1-inbound",
+        "v1-outbound",
+        "capability",
+        "test-fixture",
+        "client-mirror",
+        "documentation"
+      ],
+      "properties": {
+        "v2-production": { "$ref": "#/$defs/legacy_ref" },
+        "v1-inbound": { "$ref": "#/$defs/legacy_ref" },
+        "v1-outbound": { "$ref": "#/$defs/legacy_ref" },
+        "capability": { "$ref": "#/$defs/legacy_ref" },
+        "test-fixture": { "$ref": "#/$defs/legacy_ref" },
+        "client-mirror": { "$ref": "#/$defs/legacy_ref" },
+        "documentation": { "$ref": "#/$defs/legacy_ref" }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 30,
+      "maxItems": 30,
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_id",
+        "phase",
+        "state",
+        "domain",
+        "test_package",
+        "test_target",
+        "test_path",
+        "production_owners",
+        "generated_files",
+        "legacy_inventory",
+        "verification"
+      ],
+      "properties": {
+        "gate_id": {
+          "type": "string",
+          "pattern": "^G-(?:S[1-4]|[0-9]{2}[a-z]?)$"
+        },
+        "phase": {
+          "enum": ["P1", "P2", "P3", "P4", "P5", "P6"]
+        },
+        "state": {
+          "enum": [
+            "PLANNED",
+            "IN_PROGRESS",
+            "TEST_RED",
+            "MESSAGE_V3_GREEN",
+            "LEGACY_REMOVED",
+            "MIGRATED",
+            "BLOCKED"
+          ]
+        },
+        "domain": {
+          "enum": [
+            "post",
+            "schedule",
+            "timeline",
+            "read",
+            "channel",
+            "channel-member",
+            "sync"
+          ]
+        },
+        "test_package": {
+          "enum": [
+            "post",
+            "schedule",
+            "timeline",
+            "read",
+            "channel",
+            "channel_member",
+            "sync"
+          ]
+        },
+        "test_target": {
+          "type": "string",
+          "pattern": "^message_v3_(?:g|gs)[0-9]+[a-z]?$"
+        },
+        "test_path": {
+          "type": "string",
+          "pattern": "^crates/helix-im/tests/message_v3/(?:post|schedule|timeline|read|channel|channel_member|sync)/(?:g|gs)[0-9]+[a-z]?/main\\.rs$"
+        },
+        "production_owners": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "generated_files": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "inbound.json" },
+            { "const": "outbound.sender.json" },
+            { "const": "outbound.receiver.json" },
+            { "const": "provenance.json" }
+          ],
+          "items": false,
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "legacy_inventory": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "v2-production",
+              "v1-inbound",
+              "v1-outbound",
+              "capability",
+              "test-fixture",
+              "client-mirror",
+              "documentation"
+            ]
+          }
+        },
+        "verification": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "domain": { "const": "post" },
+            "test_package": { "const": "post" }
+          }
+        },
+        {
+          "properties": {
+            "domain": { "const": "schedule" },
+            "test_package": { "const": "schedule" }
+          }
+        },
+        {
+          "properties": {
+            "domain": { "const": "timeline" },
+            "test_package": { "const": "timeline" }
+          }
+        },
+        {
+          "properties": {
+            "domain": { "const": "read" },
+            "test_package": { "const": "read" }
+          }
+        },
+        {
+          "properties": {
+            "domain": { "const": "channel" },
+            "test_package": { "const": "channel" }
+          }
+        },
+        {
+          "properties": {
+            "domain": { "const": "channel-member" },
+            "test_package": { "const": "channel_member" }
+          }
+        },
+        {
+          "properties": {
+            "domain": { "const": "sync" },
+            "test_package": { "const": "sync" }
+          }
+        }
+      ]
+    },
+    "legacy_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "disposition", "evidence"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "v2_production",
+            "v1_inbound",
+            "v1_outbound",
+            "capability",
+            "test_fixture",
+            "client_mirror",
+            "documentation"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "disposition": {
+          "enum": [
+            "PENDING_REMOVAL",
+            "REMOVED",
+            "N/A",
+            "DEFERRED_BY_SCOPE"
+          ]
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

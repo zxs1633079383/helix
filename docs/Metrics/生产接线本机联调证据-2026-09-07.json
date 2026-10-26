@@ -1,0 +1,559 @@
+{
+  "status": "LOCAL_NATIVE_VERIFIED_PRE_PENDING",
+  "go_source_commit": "ddc4e00415afd4c59967bed77f060070e953ada6",
+  "helix_base_commit": "3f116faa4b4c93f1b7669d25c0b8b5c35d927a33",
+  "helix_diff_sha256": "b07662786a8e2d4b39e7978c14432fbe16c92e4e88bd0703eaf6f69b8252d5e7",
+  "native_binary_sha256": "d0ba2f5a71aad255c8bf686abbacbbf90cc6af30a3025a58ce07de93350fef6f",
+  "run_directory": "/var/folders/3g/23s26mrd00g68hgr42h3wq_40000gn/T/go-diagnostic-business-3498216840",
+  "channel_id": "pa8f14pmxfrapmfrm8rb4tohnc",
+  "received_and_relogin_sqlite_messages": [
+    {
+      "id": "1e8hfkjf3td6frjw64o493ezdr",
+      "event_seq": 5,
+      "channel_id": "pa8f14pmxfrapmfrm8rb4tohnc"
+    },
+    {
+      "id": "mgdj969q7jdkdqt96p1597zs8r",
+      "event_seq": 6,
+      "channel_id": "pa8f14pmxfrapmfrm8rb4tohnc"
+    }
+  ],
+  "cohorts": [
+    {
+      "tenant_id": "6111fb0a202d425d221c53db",
+      "user_id": "5ee72ef4f8cce9194751e677",
+      "login_attempt_id": "7569-1788778191408549000-0",
+      "device_session_id": "7569-1788778191408578000-1",
+      "channel_id": "pa8f14pmxfrapmfrm8rb4tohnc",
+      "seq_domain": "stream_seq",
+      "cohort_id": "stream_seq:59625939",
+      "observed": 1,
+      "committed": 1,
+      "failed": 0,
+      "timeout": 0,
+      "unknown": 0,
+      "evidence_complete": true
+    },
+    {
+      "tenant_id": "6111fb0a202d425d221c53db",
+      "user_id": "5d79ea1b3e9733758706929f",
+      "login_attempt_id": "7600-1788778191411997000-0",
+      "device_session_id": "7600-1788778191412025000-1",
+      "channel_id": "pa8f14pmxfrapmfrm8rb4tohnc",
+      "seq_domain": "stream_seq",
+      "cohort_id": "stream_seq:59625939",
+      "observed": 1,
+      "committed": 1,
+      "failed": 0,
+      "timeout": 0,
+      "unknown": 0,
+      "evidence_complete": true
+    }
+  ],
+  "cross_end_batch_ids": [
+    "increment-1788778191467079000",
+    "increment-1788778191469890000",
+    "increment-1788778191476261000"
+  ],
+  "go_matching_records": 8,
+  "loki_diagnostic_records": 41,
+  "real_trace_carrier_records": 14,
+  "boundaries": [
+    "Native CLI真实驱动，未执行Angular/Tauri页面操作",
+    "追加Native gRPC OTLP真实接收，与Go HTTP OTLP按Trace和父Span对账；不是PRE Collector部署证明",
+    "Go本次业务使用同步fallback，独立Pulsar测试不等于本轮业务链",
+    "未部署PRE，未发布客户端依赖"
+  ],
+  "dashboard_publication": {
+    "folderUid": "helix",
+    "id": 324,
+    "slug": "6c53980",
+    "status": "success",
+    "uid": "helix-client-channel-v1",
+    "url": "/d/helix-client-channel-v1/6c53980",
+    "version": 6
+  },
+  "actual_otlp_trace": {
+    "native_spans": 593,
+    "go_spans": 211,
+    "shared_trace_ids": [
+      "000000000000000018d304b28d8ef909",
+      "000000000000000018d304b28d91c019",
+      "000000000000000018d304b28de4972d",
+      "000000000000000018d304b28de94e35",
+      "000000000000000018d304b466c26047",
+      "71929a4c808503dc816405c873f29646",
+      "b6ee706535782a9927bed5d2bece4d8e"
+    ],
+    "cross_process_parent_edges": [
+      {
+        "child": {
+          "end_ns": 1788778641929358741,
+          "name": "/api/cses/channels/load/increment",
+          "parent_span_id": "dc0af1cb84c66f7c",
+          "span_id": "4eedf628ce698954",
+          "start_ns": 1788778641929271000,
+          "trace_id": "000000000000000018d304b28d91c019"
+        },
+        "parent": {
+          "end_ns": 1788778641928231000,
+          "name": "helix.http.dispatch",
+          "parent_span_id": "88d0e321ee3e1953",
+          "span_id": "dc0af1cb84c66f7c",
+          "start_ns": 1788778641928225000,
+          "trace_id": "000000000000000018d304b28d91c019"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641929390353,
+          "name": "/api/cses/channels/load/increment",
+          "parent_span_id": "f6c83ad46f2a415c",
+          "span_id": "5d20498518de2a0e",
+          "start_ns": 1788778641929272000,
+          "trace_id": "000000000000000018d304b28d8ef909"
+        },
+        "parent": {
+          "end_ns": 1788778641928305000,
+          "name": "helix.http.dispatch",
+          "parent_span_id": "78247091ec2863ea",
+          "span_id": "f6c83ad46f2a415c",
+          "start_ns": 1788778641928303000,
+          "trace_id": "000000000000000018d304b28d8ef909"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641929395792,
+          "name": "/api/cses/channels/load/increment",
+          "parent_span_id": "f74057dc679d0140",
+          "span_id": "700729a48d8343a2",
+          "start_ns": 1788778641929336000,
+          "trace_id": "000000000000000018d304b28de94e35"
+        },
+        "parent": {
+          "end_ns": 1788778641928754000,
+          "name": "helix.http.dispatch",
+          "parent_span_id": "7317c2e46b5e4d3b",
+          "span_id": "f74057dc679d0140",
+          "start_ns": 1788778641928748000,
+          "trace_id": "000000000000000018d304b28de94e35"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641929436324,
+          "name": "/api/cses/channels/load/increment",
+          "parent_span_id": "a1b8e93833e61285",
+          "span_id": "b21a0bc4a5395e8e",
+          "start_ns": 1788778641929373000,
+          "trace_id": "000000000000000018d304b28de4972d"
+        },
+        "parent": {
+          "end_ns": 1788778641928801000,
+          "name": "helix.http.dispatch",
+          "parent_span_id": "a513ba3acf6fcba0",
+          "span_id": "a1b8e93833e61285",
+          "start_ns": 1788778641928799000,
+          "trace_id": "000000000000000018d304b28de4972d"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778649927802610,
+          "name": "/api/cses/posts/create",
+          "parent_span_id": "373ec7bb60dca005",
+          "span_id": "f3677f571540ece7",
+          "start_ns": 1788778649863006000,
+          "trace_id": "000000000000000018d304b466c26047"
+        },
+        "parent": {
+          "end_ns": 1788778649862222000,
+          "name": "helix.http.dispatch",
+          "parent_span_id": "e6806704322f5bec",
+          "span_id": "373ec7bb60dca005",
+          "start_ns": 1788778649862219000,
+          "trace_id": "000000000000000018d304b466c26047"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641929698000,
+          "name": "helix.http.response",
+          "parent_span_id": "700729a48d8343a2",
+          "span_id": "60aa90527277612c",
+          "start_ns": 1788778641929694000,
+          "trace_id": "000000000000000018d304b28de94e35"
+        },
+        "parent": {
+          "end_ns": 1788778641929395792,
+          "name": "/api/cses/channels/load/increment",
+          "parent_span_id": "f74057dc679d0140",
+          "span_id": "700729a48d8343a2",
+          "start_ns": 1788778641929336000,
+          "trace_id": "000000000000000018d304b28de94e35"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641929760000,
+          "name": "helix.http.response",
+          "parent_span_id": "5d20498518de2a0e",
+          "span_id": "45c53ff056bf93e6",
+          "start_ns": 1788778641929757000,
+          "trace_id": "000000000000000018d304b28d8ef909"
+        },
+        "parent": {
+          "end_ns": 1788778641929390353,
+          "name": "/api/cses/channels/load/increment",
+          "parent_span_id": "f6c83ad46f2a415c",
+          "span_id": "5d20498518de2a0e",
+          "start_ns": 1788778641929272000,
+          "trace_id": "000000000000000018d304b28d8ef909"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641929964000,
+          "name": "helix.http.response",
+          "parent_span_id": "b21a0bc4a5395e8e",
+          "span_id": "31b1d8328d39c090",
+          "start_ns": 1788778641929963000,
+          "trace_id": "000000000000000018d304b28de4972d"
+        },
+        "parent": {
+          "end_ns": 1788778641929436324,
+          "name": "/api/cses/channels/load/increment",
+          "parent_span_id": "a1b8e93833e61285",
+          "span_id": "b21a0bc4a5395e8e",
+          "start_ns": 1788778641929373000,
+          "trace_id": "000000000000000018d304b28de4972d"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641952501000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "b21a0bc4a5395e8e",
+          "span_id": "405cf8fc49b37663",
+          "start_ns": 1788778641951571000,
+          "trace_id": "000000000000000018d304b28de4972d"
+        },
+        "parent": {
+          "end_ns": 1788778641929436324,
+          "name": "/api/cses/channels/load/increment",
+          "parent_span_id": "a1b8e93833e61285",
+          "span_id": "b21a0bc4a5395e8e",
+          "start_ns": 1788778641929373000,
+          "trace_id": "000000000000000018d304b28de4972d"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641952845000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "e76544ea594f705f",
+          "span_id": "e938c760d8138d16",
+          "start_ns": 1788778641952529000,
+          "trace_id": "000000000000000018d304b28de4972d"
+        },
+        "parent": {
+          "end_ns": 1788778641951304508,
+          "name": "cses.ws.fanout",
+          "parent_span_id": "bfa4f02d5f1ddfa9",
+          "span_id": "e76544ea594f705f",
+          "start_ns": 1788778641951302000,
+          "trace_id": "000000000000000018d304b28de4972d"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641953776000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "5d20498518de2a0e",
+          "span_id": "5af1422898d7ba6d",
+          "start_ns": 1788778641952869000,
+          "trace_id": "000000000000000018d304b28d8ef909"
+        },
+        "parent": {
+          "end_ns": 1788778641929390353,
+          "name": "/api/cses/channels/load/increment",
+          "parent_span_id": "f6c83ad46f2a415c",
+          "span_id": "5d20498518de2a0e",
+          "start_ns": 1788778641929272000,
+          "trace_id": "000000000000000018d304b28d8ef909"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641954057000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "30f222b72d1decb9",
+          "span_id": "0c10d30ab9ae854b",
+          "start_ns": 1788778641953805000,
+          "trace_id": "000000000000000018d304b28d8ef909"
+        },
+        "parent": {
+          "end_ns": 1788778641951864276,
+          "name": "cses.ws.fanout",
+          "parent_span_id": "8d3dc346a07bfb4b",
+          "span_id": "30f222b72d1decb9",
+          "start_ns": 1788778641951862000,
+          "trace_id": "000000000000000018d304b28d8ef909"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641929893000,
+          "name": "helix.http.response",
+          "parent_span_id": "4eedf628ce698954",
+          "span_id": "fc025a13f10073fc",
+          "start_ns": 1788778641929893000,
+          "trace_id": "000000000000000018d304b28d91c019"
+        },
+        "parent": {
+          "end_ns": 1788778641929358741,
+          "name": "/api/cses/channels/load/increment",
+          "parent_span_id": "dc0af1cb84c66f7c",
+          "span_id": "4eedf628ce698954",
+          "start_ns": 1788778641929271000,
+          "trace_id": "000000000000000018d304b28d91c019"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641952027000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "700729a48d8343a2",
+          "span_id": "af525a0e9f3f888d",
+          "start_ns": 1788778641950734000,
+          "trace_id": "000000000000000018d304b28de94e35"
+        },
+        "parent": {
+          "end_ns": 1788778641929395792,
+          "name": "/api/cses/channels/load/increment",
+          "parent_span_id": "f74057dc679d0140",
+          "span_id": "700729a48d8343a2",
+          "start_ns": 1788778641929336000,
+          "trace_id": "000000000000000018d304b28de94e35"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641952510000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "c3259729989667b7",
+          "span_id": "a55c1363b37a88f6",
+          "start_ns": 1788778641952059000,
+          "trace_id": "000000000000000018d304b28de94e35"
+        },
+        "parent": {
+          "end_ns": 1788778641950339377,
+          "name": "cses.ws.fanout",
+          "parent_span_id": "57e48507442852f8",
+          "span_id": "c3259729989667b7",
+          "start_ns": 1788778641950336000,
+          "trace_id": "000000000000000018d304b28de94e35"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641957177000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "4eedf628ce698954",
+          "span_id": "d631fe281a0dda83",
+          "start_ns": 1788778641956196000,
+          "trace_id": "000000000000000018d304b28d91c019"
+        },
+        "parent": {
+          "end_ns": 1788778641929358741,
+          "name": "/api/cses/channels/load/increment",
+          "parent_span_id": "dc0af1cb84c66f7c",
+          "span_id": "4eedf628ce698954",
+          "start_ns": 1788778641929271000,
+          "trace_id": "000000000000000018d304b28d91c019"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641957467000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "aa2fd838ce76e7dc",
+          "span_id": "80cb89fa5a4af0fd",
+          "start_ns": 1788778641957214000,
+          "trace_id": "000000000000000018d304b28d91c019"
+        },
+        "parent": {
+          "end_ns": 1788778641955926865,
+          "name": "cses.ws.fanout",
+          "parent_span_id": "f0fdf89c22e12051",
+          "span_id": "aa2fd838ce76e7dc",
+          "start_ns": 1788778641955923000,
+          "trace_id": "000000000000000018d304b28d91c019"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641972297000,
+          "name": "helix.http.response",
+          "parent_span_id": "e8261374a67922e4",
+          "span_id": "5246a9c7c0698adb",
+          "start_ns": 1788778641972296000,
+          "trace_id": "b6ee706535782a9927bed5d2bece4d8e"
+        },
+        "parent": {
+          "end_ns": 1788778641971901161,
+          "name": "/api/cses/channel/sync/notify",
+          "parent_span_id": "",
+          "span_id": "e8261374a67922e4",
+          "start_ns": 1788778641952884000,
+          "trace_id": "b6ee706535782a9927bed5d2bece4d8e"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778641973618000,
+          "name": "helix.http.response",
+          "parent_span_id": "1e2adb16cdd9777b",
+          "span_id": "2760b1d427b5dae8",
+          "start_ns": 1788778641973617000,
+          "trace_id": "71929a4c808503dc816405c873f29646"
+        },
+        "parent": {
+          "end_ns": 1788778641972898884,
+          "name": "/api/cses/channel/sync/notify",
+          "parent_span_id": "",
+          "span_id": "1e2adb16cdd9777b",
+          "start_ns": 1788778641953174000,
+          "trace_id": "71929a4c808503dc816405c873f29646"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778649907378000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "281a7312d4952418",
+          "span_id": "69d0c2ec88ce5bba",
+          "start_ns": 1788778649906628000,
+          "trace_id": "000000000000000018d304b466c26047"
+        },
+        "parent": {
+          "end_ns": 1788778649906019063,
+          "name": "cses.ws.fanout",
+          "parent_span_id": "fcacb055773cf5a4",
+          "span_id": "281a7312d4952418",
+          "start_ns": 1788778649906000000,
+          "trace_id": "000000000000000018d304b466c26047"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778649907789000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "2684803faa1fb76b",
+          "span_id": "78456d3748a209d6",
+          "start_ns": 1788778649907409000,
+          "trace_id": "000000000000000018d304b466c26047"
+        },
+        "parent": {
+          "end_ns": 1788778649906045297,
+          "name": "cses.ws.fanout",
+          "parent_span_id": "22bac526c5a3be50",
+          "span_id": "2684803faa1fb76b",
+          "start_ns": 1788778649906041000,
+          "trace_id": "000000000000000018d304b466c26047"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778649909390000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "ac1ae6b9dea392ed",
+          "span_id": "68d530315c28a5e1",
+          "start_ns": 1788778649908912000,
+          "trace_id": "000000000000000018d304b466c26047"
+        },
+        "parent": {
+          "end_ns": 1788778649906190469,
+          "name": "cses.ws.fanout",
+          "parent_span_id": "9d8faadab2289b50",
+          "span_id": "ac1ae6b9dea392ed",
+          "start_ns": 1788778649906059000,
+          "trace_id": "000000000000000018d304b466c26047"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778649907378000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "b83c36a56bec69aa",
+          "span_id": "d4caae045bfbe7b9",
+          "start_ns": 1788778649906628000,
+          "trace_id": "000000000000000018d304b466c26047"
+        },
+        "parent": {
+          "end_ns": 1788778649906033582,
+          "name": "cses.ws.fanout",
+          "parent_span_id": "b68b4f576159841b",
+          "span_id": "b83c36a56bec69aa",
+          "start_ns": 1788778649906029000,
+          "trace_id": "000000000000000018d304b466c26047"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778649907789000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "d6f2fc3c70fe5421",
+          "span_id": "1a3bfbe5d0530b1d",
+          "start_ns": 1788778649907409000,
+          "trace_id": "000000000000000018d304b466c26047"
+        },
+        "parent": {
+          "end_ns": 1788778649906050055,
+          "name": "cses.ws.fanout",
+          "parent_span_id": "a18bd200010500e6",
+          "span_id": "d6f2fc3c70fe5421",
+          "start_ns": 1788778649906048000,
+          "trace_id": "000000000000000018d304b466c26047"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778649909305000,
+          "name": "helix.tick.inbound",
+          "parent_span_id": "ac1ae6b9dea392ed",
+          "span_id": "dc3401eeed630323",
+          "start_ns": 1788778649908933000,
+          "trace_id": "000000000000000018d304b466c26047"
+        },
+        "parent": {
+          "end_ns": 1788778649906190469,
+          "name": "cses.ws.fanout",
+          "parent_span_id": "9d8faadab2289b50",
+          "span_id": "ac1ae6b9dea392ed",
+          "start_ns": 1788778649906059000,
+          "trace_id": "000000000000000018d304b466c26047"
+        }
+      },
+      {
+        "child": {
+          "end_ns": 1788778649928654000,
+          "name": "helix.http.response",
+          "parent_span_id": "f3677f571540ece7",
+          "span_id": "dc5f3a76efde4f8f",
+          "start_ns": 1788778649928653000,
+          "trace_id": "000000000000000018d304b466c26047"
+        },
+        "parent": {
+          "end_ns": 1788778649927802610,
+          "name": "/api/cses/posts/create",
+          "parent_span_id": "373ec7bb60dca005",
+          "span_id": "f3677f571540ece7",
+          "start_ns": 1788778649863006000,
+          "trace_id": "000000000000000018d304b466c26047"
+        }
+      }
+    ]
+  }
+}

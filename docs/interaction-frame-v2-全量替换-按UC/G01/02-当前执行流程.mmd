@@ -1,0 +1,11 @@
+flowchart LR
+    A["composer 输入文本并提交"] --> B["direct command；当前没有 message.create ActionBinding"]
+    B --> C["im_send_message"]
+    C --> D["ImModule::handle"]
+    D --> E["Effect: storage_upsert / http_write / timer / projection"]
+    E --> F{"PersistOk / authority read"}
+    F --> G["InteractionFrameV2 schemaVersion=2"]
+    G --> H["Surface: message.timeline"]
+    H --> I["Native opaque sink"]
+    I --> J["SurfaceRuntime atomic apply"]
+    J --> K["发送文本 UI"]

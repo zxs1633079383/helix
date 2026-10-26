@@ -1,0 +1,48 @@
+[package]
+name    = "helix-driver-ffi"
+version = "0.1.0"
+edition = "2021"
+
+# FFI driver：C ABI，编译为 cdylib + staticlib
+[lib]
+# rlib 为集成测试（`tests/`）能使用 `helix_driver_ffi::*` 所必需。
+# cdylib = C FFI 出口（生产）; staticlib = C++ direct-link; rlib = Rust 集成测试用。
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+helix-core        = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.87" }
+helix-driver-host = { path = "../helix-driver-host" }
+# helix-im：pump 线程装配 ExecutionShell 时注册 ImModule（FFI 是 driver 层，依赖业务模块装配合法）
+helix-im          = { path = "../helix-im" }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+thiserror    = { workspace = true }
+bytes        = { workspace = true }
+tracing      = { workspace = true }
+async-trait  = { workspace = true }
+futures-channel = { workspace = true }
+futures-util = "0.3"
+# parking_lot Mutex：包 tick_tx Sender（Sender 非 Sync，需 Mutex 允许 &self 发送）
+parking_lot  = "0.12"
+# tokio：tick channel(sync) + pump 专用线程的 current_thread runtime(rt) + spawn_blocking 支持(rt)
+tokio        = { version = "1", features = ["sync", "rt"] }
+
+# FFI 绑定（build.rs 调用 cbindgen 生成 helix.hpp）
+# uniffi = { version = "0.28", features = ["scaffolding"] }  # 按需开启
+
+[dev-dependencies]
+# parity 测试（f5_egress_parity）：NativeEventSink（broadcast 路径）与 FfiEventSink 对比
+helix-driver-native = { path = "../helix-driver-native" }
+helix-driver-web = { path = "../helix-driver-web" }
+serde_json  = { workspace = true }
+tokio       = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+
+[build-dependencies]
+cbindgen = "0.27"
+
+# driver 层是 ambient API（SystemTime/线程）的唯一合法落点 → 不开 disallowed deny
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+disallowed_methods = "allow"
+disallowed_macros = "allow"

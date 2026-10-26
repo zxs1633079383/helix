@@ -1,0 +1,309 @@
+//! HTTP-6 回归（dev-zlc / ADR-007 方向）：sync HTTP 回报是 ADR-007 信封
+//! `{status,headers,body:base64(裸 Go body)}`；handle_sync_reply 必须**先解信封 + base64 decode**
+//! 出裸 Go body 再喂 parse_sync_response。
+//!
+//! 回归锚: #6（离线 backfill 第二阻塞）。feat 在 driver 删信封返裸 body；dev-zlc 保 ADR-007 信封
+//! （host run_http_envelope 双端共享，native+FFI parity），改在**消费侧**（module.rs handle_sync_reply）
+//! 加解信封+内联 base64 decode 层。两端方向相反，本测试钉死 dev-zlc 方向的契约。
+//!
+//! ## Go-independent / 可证伪（双向断言）
+//!
+//! 不连真 Go：直接在 sync-pull corr 上灌信封字节 / 把同信封喂裸 parser，对比行为——
+//! - **ADR-007 2xx 成功信封**（driver 实际回灌形态，common::sync_envelope 已包）经 handle_sync_reply
+//!   解信封 + base64 decode → Persist；Persist Ok 后 Emit（>0）并推进 cursor。
+//!   证「解信封修复真把数据放行」且不绕过 G-S2/G-S3 持久屏障。
+//! - **同一信封若不解层、直喂 parse_sync_response** → status=200(int) 非 SUCCESS-string 跳过、
+//!   无 data.entries → 静默 NoChange（0 persist / 0 emit）。证「#6 bug 现场：删掉解层即离线消息
+//!   再次静默丢失」。两向一起钉死契约。
+
+mod common;
+use common::*;
+
+/// 触发一次 gate sync，返回 sync-pull 的 Http corr（与 e3/s6 测试同构）。
+fn drive_sync_pull(h: &mut Harness) -> u64 {
+    // 大缺口（seq=99 / cursor=0）→ **立即** backfill resync（根治 fix/im-sync-cursor-catchup）：
+    // sync Http 在 ingest 当步即发出，不再等 1s gate timer fire。
+    let gate = h.step(inbound_event(1, 99, 1), 1000);
+    gate.iter()
+        .find_map(|e| match e {
+            EffectKind::Http(c) => Some(*c),
+            _ => None,
+        })
+        .expect("大缺口 ingest 当步即发 sync Http（立即 backfill）")
+}
+
+#[test]
+fn http6_raw_go_body_drives_persist_and_emit() {
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    let sync_corr = drive_sync_pull(&mut h);
+
+    // 真 wire `events`+messages map 裸 Go body。用「可见」消息（msgId 在 messages map）→ 非 phantom
+    // → handle_sync_reply 解信封 + base64 decode 后既落库又 emit post:received。
+    let raw = sync_reply_events_with_messages(
+        1,
+        &[ev(1, 1, "msg_a"), ev(2, 1, "msg_b"), ev(3, 1, "msg_c")],
+        &[
+            ("msg_a", "hello a", ""),
+            ("msg_b", "hello b", ""),
+            ("msg_c", "hello c", ""),
+        ],
+        3,
+    );
+    // dev-zlc driver 把裸 body 包成 ADR-007 信封回灌；enveloped() 复刻该字节。
+    let effects = h.step(port_reply_with_body(sync_corr, enveloped(raw)), 3000);
+
+    let persist_count = effects
+        .iter()
+        .filter(|e| matches!(e, EffectKind::PersistAtomic(_)))
+        .count();
+    let emit_count_before_persist = effects
+        .iter()
+        .filter(|e| matches!(e, EffectKind::Emit))
+        .count();
+
+    assert!(
+        persist_count > 0,
+        "ADR-007 信封经解层后应产出 Persist（落库），got effects {effects:?}"
+    );
+    assert_eq!(
+        emit_count_before_persist, 0,
+        "ADR-007 解层后 mutation 仍须等待 Persist ack，got effects {effects:?}"
+    );
+
+    let persist_corr = effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::PersistAtomic(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("ADR-007 解层后必须生成相关 Persist");
+    let committed = h.step(
+        port_reply_with_body(persist_corr, bytes::Bytes::new()),
+        3_100,
+    );
+    assert!(
+        committed
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Emit)),
+        "Persist ack 后应释放 mutation 事件，got effects {committed:?}"
+    );
+}
+
+#[test]
+fn http6_legacy_envelope_is_silently_swallowed() {
+    use helix_im::parser::parse_sync_response;
+    use helix_im::sync_session::SyncResponse;
+
+    // 同样 3 条可见事件的裸 Go body，包成 ADR-007 信封。证「#6 bug 现场」：若**不**解层、直把信封
+    // 喂裸 parse_sync_response（= dev-zlc 修复前 / 删掉解信封后的行为）→ status=200(int) 非
+    // SUCCESS-string 跳过、无 data.entries → 静默 NoChange。证明删掉解层即离线消息再次丢失。
+    let raw = sync_reply_events_with_messages(
+        1,
+        &[ev(1, 1, "msg_a"), ev(2, 1, "msg_b"), ev(3, 1, "msg_c")],
+        &[
+            ("msg_a", "hello a", ""),
+            ("msg_b", "hello b", ""),
+            ("msg_c", "hello c", ""),
+        ],
+        3,
+    );
+    let envelope = enveloped(raw);
+
+    // 裸 parser 吃信封：找不到 entries → NoChange（0 persist / 0 emit 的根因）。
+    let response = parse_sync_response(envelope.as_ref(), channel_id(1))
+        .expect("信封是合法 JSON，parser 不报错，只是找不到 entries");
+    assert!(
+        matches!(response, SyncResponse::NoChange { .. }),
+        "信封未解层直喂 parser 必须静默 NoChange（0 persist / 0 emit 的 #6 bug 现场），got: {response:?}"
+    );
+}
+
+/// Sync stream 只恢复消息事实和 cursor；未读不得从消息数量推断。
+#[test]
+fn http6_offline_sync_does_not_infer_unread_from_visible_posts() {
+    use helix_core::effect::{Effect, StorageOp};
+
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    let sync_corr = drive_sync_pull(&mut h);
+    let raw = sync_reply_events_with_messages(
+        1,
+        &[ev(1, 1, "msg_a"), ev(2, 1, "msg_b"), ev(3, 1, "msg_c")],
+        &[("msg_a", "a", ""), ("msg_b", "b", ""), ("msg_c", "c", "")],
+        3,
+    );
+    // dev-zlc driver 把裸 body 包成 ADR-007 信封回灌；enveloped() 复刻该字节。
+    h.step(port_reply_with_body(sync_corr, enveloped(raw)), 3000);
+
+    // legacy fixture 没有 memberProjection，因此本批只落消息和 cursor。
+    let total_bump: i64 = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::PersistAtomic { ops, .. } => Some(
+                ops.iter()
+                    .filter_map(|op| match op {
+                        StorageOp::ScopedGuardedBump(s)
+                            if s.table == "channel_member"
+                                && s.scope_col == "channel_id"
+                                && s.key_col == "user_id"
+                                && s.bump_col == "unread_count" =>
+                        {
+                            Some(s.bump_delta)
+                        }
+                        _ => None,
+                    })
+                    .sum::<i64>(),
+            ),
+            _ => None,
+        })
+        .sum();
+
+    assert_eq!(total_bump, 0, "未读只能由 memberProjection 绝对覆盖");
+}
+
+#[test]
+fn canonical_stream_projection_and_cursor_share_one_atomic_write() {
+    use helix_core::effect::{Effect, StorageOp};
+
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    let sync_corr = drive_sync_pull(&mut h);
+    let raw = bytes::Bytes::from(
+        serde_json::json!({
+            "status": "SUCCESS",
+            "data": {"entries": [{
+                "channelId": channel_id(1).as_str(),
+                "kind": "events",
+                "streamEvents": [{
+                    "channelId": channel_id(1).as_str(),
+                    "streamSeq": 1,
+                    "eventId": "event-1",
+                    "eventType": 1,
+                    "effectId": "effect-1",
+                    "actorId": "author-1",
+                    "msgId": "msg-1",
+                    "redacted": false
+                }],
+                "messages": {"msg-1": {
+                    "id": "msg-1",
+                    "channelId": channel_id(1).as_str(),
+                    "userId": "author-1",
+                    "message": "hello",
+                    "createAt": 1
+                }},
+                "memberProjection": {
+                    "channelId": channel_id(1).as_str(),
+                    "userId": "viewer-444",
+                    "projectionRevision": 2,
+                    "effectId": "effect-1",
+                    "unreadCount": 1,
+                    "unreadPostId": "msg-1",
+                    "lastReadSeq": 0
+                },
+                "membershipState": "active",
+                "epochStartSeq": 1,
+                "nextSeq": 1
+            }]}
+        })
+        .to_string(),
+    );
+    let effects = h.step(port_reply_with_body(sync_corr, enveloped(raw)), 3_000);
+    let persist_corr = effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::PersistAtomic(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("canonical sync must persist atomically");
+    let ops = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, ops } if corr.raw() == persist_corr => Some(ops),
+            _ => None,
+        })
+        .expect("matching PersistAtomic ops");
+
+    assert!(ops
+        .iter()
+        .any(|op| matches!(op, StorageOp::ScopedGuardedBump(spec)
+        if spec.table == "channel_member" && spec.guard_col == "projection_revision")));
+    assert!(ops
+        .iter()
+        .any(|op| matches!(op, StorageOp::MonotonicUpsert(spec)
+        if spec.table == "channel_event_cursor" && spec.value_col == "last_event_seq")));
+    assert!(!ops
+        .iter()
+        .any(|op| matches!(op, StorageOp::GuardedBump(spec)
+        if spec.bump_col == "unread_count")));
+    assert!(!ops.iter().any(|op| matches!(
+        op,
+        StorageOp::Get(_)
+            | StorageOp::ScopedGet(_)
+            | StorageOp::ScopedMax(_)
+            | StorageOp::ScopedScan(_)
+            | StorageOp::Scan(_)
+    )));
+}
+
+/// 离线重放仍从 messages 快照取完整 post，并在同一事务保存 chain 事实和 cursor。
+#[test]
+fn chain_sync_replay_persists_complete_message_and_chain_facts() {
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    let corr = drive_sync_pull(&mut h);
+    let summary = serde_json::json!({"chainId":"chain-one", "channelId":cid(1), "mode":"TEXT",
+        "status":"PUBLISHED", "title":"吃饭啦", "creatorId":"author", "teamId":"tenant-1", "revision":2});
+    let raw = serde_json::to_vec(&serde_json::json!({"status":"SUCCESS", "data":{"entries":[{
+        "channelId":cid(1), "kind":"events", "nextSeq":1, "membershipState":"active", "epochStartSeq":1,
+        "memberProjection":{"channelId":cid(1), "userId":"viewer-444", "projectionRevision":2,
+            "effectId":"chain-effect-1", "unreadCount":1, "unreadPostId":sid(1), "lastReadSeq":0},
+        "streamEvents":[{"channelId":cid(1), "streamSeq":1, "eventId":"chain-sync-1", "eventType":1,
+            "msgId":sid(1), "actorId":"author", "redacted":false,
+            "payload":{"action":"im:post_chain:upsert", "channelId":cid(1), "chainSummary":summary,
+                "chainEntry":{"entryId":"entry-one", "chainId":"chain-one", "channelId":cid(1),
+                    "postId":sid(1), "authorId":"author", "teamId":"tenant-1", "text":"小胡不吃", "seq":1, "createdAt":100}}}],
+        "messages":{sid(1):{"id":sid(1), "channelId":cid(1), "userId":"author", "teamId":"tenant-1",
+            "type":"TEXT_CHAIN", "message":"小胡不吃", "viewers":["all"], "createAt":100,
+            "props":{"chain":{"chainId":"chain-one", "mode":"TEXT", "messageRole":"PARTICIPANT"}}}}
+    }]}})).unwrap();
+    let effects = h.step(port_reply_with_body(corr, enveloped(raw.into())), 3000);
+    let persist = effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::PersistAtomic(c) = e {
+                Some(*c)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let writes = format!("{:?}", h.sink.as_slice());
+    assert!(
+        writes.contains("chain_summary")
+            && writes.contains("chain_entry")
+            && writes.contains("TEXT_CHAIN")
+            && writes.contains("小胡不吃"),
+        "{writes}"
+    );
+    assert!(!writes.contains("evt:"));
+    assert!(!effects.contains(&EffectKind::Emit));
+    h.step(port_reply_ok(persist), 3001);
+    let events: Vec<serde_json::Value> = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|e| {
+            if let helix_core::Effect::Emit { event } = e {
+                Some(serde_json::from_slice(&event.0).unwrap())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(
+        events.iter().any(|e| e["event"] == "im:post_chain:upsert"),
+        "{events:?}"
+    );
+    assert_eq!(h.module.cursor_for(channel_id(1)), Some(1));
+}

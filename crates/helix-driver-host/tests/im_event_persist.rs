@@ -1,0 +1,1267 @@
+//! 真 DB 落库集成测试（防"绿测试锁死 bug"陷阱）。
+//!
+//! ## 为什么需要这个测试
+//!
+//! 此前 helix-im 的事件落库测试只断言 `Effect` 里 `StorageOp.table` 字符串，
+//! 恰好把错误表名（不存在的 `messages`）固化为期望值——绿测试反而锁死了 bug：
+//! 两条 live 写路径（WS 推送 / B-rest 增量）都写向永不存在的表，运行时必 `no such
+//! table: messages`，sync cursor 永不推进 → 无限重拉风暴。
+//!
+//! 本测试用真 `IM_SCHEMA` 建真 SQLite（rusqlite，host driver 同款执行器），
+//! 喂 `event_to_upsert_op` / `batch_upsert_events` 产物，**断言 `message` 表真有行**
+//! （而非断 Effect 字符串）。表名错配 / 缺列 / PK 撞键任一回归都会让此测试红。
+
+use helix_core::effect::{BatchUpdateSpec, GetSpec, ScanSpec, SqlValue, StorageOp, UpsertSpec};
+use helix_core::ports::Storage;
+use helix_core::tick::PortOutcome;
+use helix_driver_host::{execute_storage_ops_atomic, HostStorage};
+use helix_im::acl::sync_effects::batch_upsert_events_with_messages_and_auth;
+use helix_im::acl::to_effect::terminal_tombstone_and_cursor_op;
+use helix_im::channel::{apply_read_op, edit_content_op, event_to_upsert_op, revoke_op};
+use helix_im::parser::parse_sync_response;
+use helix_im::state::{ChannelId, Seq};
+use helix_im::sync_session::{EventEnvelope, EventKind, PostFields, SyncResponse};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static DB_SEQ: AtomicUsize = AtomicUsize::new(0);
+
+fn cid(n: u64) -> String {
+    format!("chfixx{n:020x}")
+}
+
+fn channel_id(n: u64) -> ChannelId {
+    ChannelId::from_str(&cid(n)).expect("test channel id fixture must be valid Id26")
+}
+
+fn is_duplicate_column_error(error: &impl std::fmt::Display) -> bool {
+    error.to_string().contains("duplicate column name")
+}
+
+async fn apply_im_schema(storage: &HostStorage) {
+    for &sql in helix_im::IM_SCHEMA {
+        storage
+            .execute_raw(sql)
+            .await
+            .unwrap_or_else(|e| panic!("execute_raw IM_SCHEMA failed for {sql:?}: {e:?}"));
+    }
+    for &sql in helix_im::IM_SCHEMA_MIGRATIONS {
+        if let Err(error) = storage.execute_raw(sql).await {
+            assert!(
+                is_duplicate_column_error(&error),
+                "execute_raw IM_SCHEMA_MIGRATIONS failed for {sql:?}: {error:?}"
+            );
+        }
+    }
+}
+
+/// 以真 `IM_SCHEMA` + additive migrations 建库（含 message / channel / channel_member；
+/// cursor 真源是 _helix_monotonic）。
+async fn storage_with_im_schema() -> HostStorage {
+    let seq = DB_SEQ.fetch_add(1, Ordering::Relaxed);
+    let db = format!(
+        "file:helix_im_persist_{}_{}?mode=memory&cache=shared",
+        std::process::id(),
+        seq
+    );
+    let storage = HostStorage::open_sqlite_url(&db)
+        .await
+        .expect("open storage");
+    // host-cli / FFI 启动同款：建表后执行 additive migrations，并忽略已存在列。
+    apply_im_schema(&storage).await;
+    storage
+}
+
+/// 旧库的 `CREATE TABLE IF NOT EXISTS` 不会补新增列；启动 migration 必须把
+/// `reply_count` 加回，随后同一 WS upsert 才能成功。
+#[tokio::test]
+async fn existing_message_table_adds_reply_count_before_event_persist() {
+    let seq = DB_SEQ.fetch_add(1, Ordering::Relaxed);
+    let db = format!(
+        "file:helix_im_legacy_persist_{}_{}?mode=memory&cache=shared",
+        std::process::id(),
+        seq
+    );
+    let storage = HostStorage::open_sqlite_url(&db)
+        .await
+        .expect("open legacy storage");
+    storage
+        .execute_raw(
+            "CREATE TABLE message (\
+                temporary_id TEXT PRIMARY KEY,\
+                id TEXT NOT NULL DEFAULT '',\
+                channel_id TEXT NOT NULL DEFAULT '',\
+                user_id TEXT NOT NULL DEFAULT '',\
+                type TEXT NOT NULL DEFAULT '',\
+                message TEXT NOT NULL DEFAULT '',\
+                props TEXT NOT NULL DEFAULT '',\
+                viewers TEXT NOT NULL DEFAULT '',\
+                user_snapshot TEXT NOT NULL DEFAULT '',\
+                mentions TEXT NOT NULL DEFAULT '',\
+                replied_message TEXT NOT NULL DEFAULT '',\
+                reply_messages TEXT NOT NULL DEFAULT '',\
+                reply_id TEXT NOT NULL DEFAULT '',\
+                reply_root_id TEXT NOT NULL DEFAULT '',\
+                reply_first_level_id TEXT NOT NULL DEFAULT '',\
+                expedite_map TEXT NOT NULL DEFAULT '',\
+                topic TEXT NOT NULL DEFAULT '',\
+                quick_reply TEXT NOT NULL DEFAULT '',\
+                simple_message TEXT NOT NULL DEFAULT '',\
+                read_bits TEXT NOT NULL DEFAULT '',\
+                send_status TEXT NOT NULL DEFAULT '',\
+                revoke INTEGER NOT NULL DEFAULT 0,\
+                create_at INTEGER NOT NULL DEFAULT 0,\
+                update_at INTEGER NOT NULL DEFAULT 0\
+            )",
+        )
+        .await
+        .expect("create legacy message table without reply_count");
+
+    apply_im_schema(&storage).await;
+    let mut event = post_event(42, 6, "tmp-legacy", "post-legacy", "legacy migrated");
+    event.fields.reply_count = 3;
+    let op = event_to_upsert_op(&event);
+    storage
+        .batch_upsert(match op {
+            helix_core::effect::StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected BatchUpsert, got {other:?}"),
+        })
+        .await
+        .expect("migration must add reply_count before event persist");
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    match col(&rows[0], "reply_count") {
+        Some(SqlValue::Integer(value)) => assert_eq!(*value, 3),
+        other => panic!("reply_count expected Integer(3), got {other:?}"),
+    }
+}
+
+/// 造一条 type=1 PostUpsert 事件（fields = parser 提取后的 owned typed 视图，含真 post 字段）。
+///
+/// HX-C005 后：EventEnvelope 携带 PostFields（不再持 raw JSON）；落库路径 `event_to_upsert_op`
+/// 直接读 fields。本助手直接构造 fields，等价于 parser 从 ChannelEvent wire 提取后的结果。
+fn post_event(channel: u64, seq: u64, temporary_id: &str, id: &str, text: &str) -> EventEnvelope {
+    let mut fields = PostFields::default();
+    fields.temporary_id = temporary_id.to_string();
+    fields.id = id.to_string();
+    fields.channel_id = cid(channel);
+    fields.user_id = "user-zhang".to_string();
+    fields.msg_type = "P".to_string();
+    fields.message = text.to_string();
+    fields.simple_message = text.to_string();
+    fields.props = serde_json::json!({ "channel_event_seq": seq }).to_string();
+    fields.create_at = 1_700_000_000_000_i64 + seq as i64;
+    // C2：PostFields 新增 read_bits 字段（type6 已读位 / type1 落库列）。本助手不测已读，留空。
+    fields.read_bits = String::new();
+    // A3：viewers（可见性受众）；本助手不测未读门控，留空 Vec。
+    fields.viewers = Vec::new();
+    fields.mentions = Vec::new();
+    fields.expedite_map = String::new();
+    fields.user_snapshot = String::new();
+    EventEnvelope::new(channel_id(channel), Seq(seq), EventKind::PostUpsert, fields)
+}
+
+async fn scan_message_rows(storage: &HostStorage) -> Vec<helix_core::effect::Row> {
+    storage
+        .scan(ScanSpec {
+            table: "message",
+            limit: None,
+            filter: None,
+            order_by: &[],
+        })
+        .await
+        .expect("scan message table")
+}
+
+fn col<'a>(row: &'a helix_core::effect::Row, name: &str) -> Option<&'a SqlValue> {
+    row.iter().find(|(k, _)| k == name).map(|(_, v)| v)
+}
+
+fn col_text(row: &helix_core::effect::Row, name: &str) -> String {
+    match col(row, name) {
+        Some(SqlValue::Text(s)) => s.clone(),
+        other => panic!("column {name} expected Text, got {other:?}"),
+    }
+}
+
+/// 执行 type=1 产出的真实 upsert，避免测试只比较 StorageOp 而绕过 SQLite 驱动。
+async fn apply_upsert(storage: &HostStorage, op: StorageOp) {
+    storage
+        .batch_upsert(match op {
+            StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected BatchUpsert, got {other:?}"),
+        })
+        .await
+        .expect("type=1 must persist the complete message row");
+}
+
+/// 核心回归：WS 推送路径用的在线 upsert 落到真 `message` 表（PK=temporary_id）。
+///
+/// 若回退成写 `messages` 影子表 → execute IM_SCHEMA 不建该表 → batch_upsert 抛
+/// `no such table: messages` → 此测试在 batch_upsert 即红。
+#[tokio::test]
+async fn ws_event_persists_into_678_message_table() {
+    let storage = storage_with_im_schema().await;
+    let ev = post_event(42, 7, "tmp-abc", "post-real-1", "hello world");
+
+    let op = helix_im::channel::event_to_online_upsert_op(&ev);
+    storage
+        .batch_upsert(match op {
+            helix_core::effect::StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected BatchUpsert, got {other:?}"),
+        })
+        .await
+        .expect("batch_upsert into message table must succeed (table message exists in IM_SCHEMA)");
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(
+        rows.len(),
+        1,
+        "事件必须真落 message 表一行（而非写不存在的 messages）"
+    );
+    let row = &rows[0];
+    assert_eq!(
+        col_text(row, "temporary_id"),
+        "tmp-abc",
+        "PK 取 temporary_id"
+    );
+    assert_eq!(col_text(row, "id"), "post-real-1");
+    assert_eq!(col_text(row, "channel_id"), cid(42));
+    assert_eq!(col_text(row, "message"), "hello world");
+    assert_eq!(col_text(row, "user_id"), "user-zhang");
+    assert_eq!(
+        col_text(row, "send_status"),
+        "sent",
+        "服务端确认的新 WS 行必须持久化为 sent，不能依赖查询层空值回退"
+    );
+}
+
+/// WS echo 命中本地乐观行时，gate 只覆盖服务端字段，不越权改本地发送状态。
+///
+/// 实际发送对账随后由 PendingSend::reconcile 显式写 sent 并撤 timer；这里锁住
+/// `exclude_from_update=[send_status]`，防止普通重放把 failed/unsend 静默翻回 sent。
+#[tokio::test]
+async fn ws_event_conflict_preserves_local_send_status_until_reconcile() {
+    use helix_core::effect::{StorageOp, UpsertSpec};
+
+    let storage = storage_with_im_schema().await;
+    storage
+        .batch_upsert(UpsertSpec {
+            table: "message",
+            rows: vec![vec![
+                (
+                    "temporary_id".to_string(),
+                    SqlValue::Text("tmp-optimistic".to_string()),
+                ),
+                (
+                    "send_status".to_string(),
+                    SqlValue::Text("sending".to_string()),
+                ),
+            ]],
+            conflict_key: Some("temporary_id"),
+            exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
+        })
+        .await
+        .expect("seed optimistic row");
+
+    let op = helix_im::channel::event_to_online_upsert_op(&post_event(
+        42,
+        8,
+        "tmp-optimistic",
+        "post-server-echo",
+        "settled body",
+    ));
+    storage
+        .batch_upsert(match op {
+            StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected BatchUpsert, got {other:?}"),
+        })
+        .await
+        .expect("echo upsert must update server fields");
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(col_text(&rows[0], "id"), "post-server-echo");
+    assert_eq!(
+        col_text(&rows[0], "send_status"),
+        "sending",
+        "gate 冲突更新必须保留本地发送态，终态只由 PendingSend reconcile 决定"
+    );
+}
+
+/// 在线 WS 稀疏 echo 冲突时，不得把 sync 已落地的加急/回复/已读字段擦空。
+///
+/// 该测试直接执行 `event_to_online_upsert_op` 产出的真 SQLite upsert，锁住
+/// `message_v3_commit_ops -> PersistAtomic` 的第一项写集语义；sync type=1 仍由
+/// `event_to_upsert_op` 保持全量覆盖。
+#[tokio::test]
+async fn sparse_ws_upsert_preserves_sync_rich_fields() {
+    let storage = storage_with_im_schema().await;
+    let mut seeded = post_event(42, 20, "tmp-sparse", "post-sparse", "sync rich");
+    seeded.fields.expedite_map = "{\"recipients\":{\"444\":{\"status\":0}}}".to_string();
+    seeded.fields.reply_id = "reply-parent".to_string();
+    seeded.fields.reply_root_id = "reply-root".to_string();
+    seeded.fields.reply_first_level_id = "reply-first".to_string();
+    seeded.fields.replied_message = "{\"message\":\"parent\"}".to_string();
+    seeded.fields.reply_messages = "{\"reply-child\":{\"message\":\"child\"}}".to_string();
+    seeded.fields.reply_count = 1;
+    seeded.fields.read_bits = "0010".to_string();
+    seeded.fields.snapshot_id = "snapshot-rich".to_string();
+    seeded.fields.update_at = 1_700_000_000_100;
+    apply_upsert(&storage, event_to_upsert_op(&seeded)).await;
+    storage
+        .batch_update(BatchUpdateSpec {
+            table: "message",
+            key_col: "id",
+            key_vals: vec![SqlValue::Text("post-sparse".to_string())],
+            patch: vec![(
+                "send_status".to_string(),
+                SqlValue::Text("failed".to_string()),
+            )],
+        })
+        .await
+        .expect("seed local send status");
+
+    let mut sparse = post_event(42, 21, "tmp-sparse", "post-sparse", "online body");
+    sparse.fields.user_id.clear();
+    sparse.fields.user_snapshot.clear();
+    sparse.fields.expedite_map = "{}".to_string();
+    sparse.fields.reply_id.clear();
+    sparse.fields.reply_root_id.clear();
+    sparse.fields.reply_first_level_id.clear();
+    sparse.fields.replied_message = "{}".to_string();
+    sparse.fields.reply_messages = "{}".to_string();
+    sparse.fields.reply_count = 0;
+    sparse.fields.read_bits.clear();
+    sparse.fields.snapshot_id.clear();
+    sparse.fields.viewers.clear();
+    sparse.fields.mentions.clear();
+    sparse.fields.create_at = 0;
+    sparse.fields.update_at = 0;
+
+    let online_ops = helix_im::channel_write::message_v3_commit_ops(
+        &sparse,
+        "user-zhang",
+        &serde_json::json!({}),
+    );
+    let online_message_op = online_ops
+        .into_iter()
+        .next()
+        .expect("online PersistAtomic must start with a message upsert");
+    apply_upsert(&storage, online_message_op).await;
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(col_text(row, "message"), "online body");
+    assert_eq!(col_text(row, "expedite_map"), seeded.fields.expedite_map);
+    assert_eq!(col_text(row, "reply_id"), "reply-parent");
+    assert_eq!(col_text(row, "reply_root_id"), "reply-root");
+    assert_eq!(col_text(row, "reply_first_level_id"), "reply-first");
+    assert_eq!(
+        col_text(row, "replied_message"),
+        seeded.fields.replied_message
+    );
+    assert_eq!(
+        col_text(row, "reply_messages"),
+        seeded.fields.reply_messages
+    );
+    assert!(matches!(
+        col(row, "reply_count"),
+        Some(SqlValue::Integer(1))
+    ));
+    assert_eq!(col_text(row, "read_bits"), "0010");
+    assert_eq!(col_text(row, "snapshot_id"), "snapshot-rich");
+    assert_eq!(col_text(row, "send_status"), "failed");
+    assert!(matches!(col(row, "event_seq"), Some(SqlValue::Integer(21))));
+}
+
+/// sync 路径 `batch_upsert_events` 同样真落 message 表（与 WS 路径同表同 PK）。
+#[tokio::test]
+async fn sync_events_persist_into_678_message_table() {
+    let storage = storage_with_im_schema().await;
+    let events = vec![
+        post_event(42, 10, "tmp-1", "post-1", "first"),
+        post_event(42, 11, "tmp-2", "post-2", "second"),
+        post_event(42, 12, "tmp-3", "post-3", "third"),
+    ];
+
+    for op in helix_im::acl::to_effect::batch_upsert_events(&events) {
+        storage
+            .batch_upsert(match op {
+                helix_core::effect::StorageOp::BatchUpsert(spec) => spec,
+                other => panic!("expected BatchUpsert, got {other:?}"),
+            })
+            .await
+            .expect("sync batch_upsert_events must land in message table");
+    }
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 3, "sync 三条事件全部真落 message 表");
+}
+
+/// sync type=1/2/3/6 在真 SQLite 上保留加急、回复和已读字段，并保持幂等。
+#[tokio::test]
+async fn sync_events_persist_expedite_reply_read_and_revoke_fields() {
+    let storage = storage_with_im_schema().await;
+    let mut upsert = post_event(42, 11, "tmp-rich", "post-rich", "加急消息");
+    upsert.fields.expedite_map = serde_json::json!({
+        "sender": {"id": "678", "name": "擎天柱", "teamId": ""},
+        "recipients": {
+            "444": {"name": "破坏者", "status": 0, "teamId": ""}
+        }
+    })
+    .to_string();
+    upsert.fields.reply_id = "reply-parent".to_string();
+    upsert.fields.reply_root_id = "reply-root".to_string();
+    upsert.fields.reply_first_level_id = "reply-first".to_string();
+    upsert.fields.replied_message = serde_json::json!({
+        "type": "TEXT",
+        "message": "被回复的消息",
+        "repliedUserId": "444",
+        "viewers": ["all"]
+    })
+    .to_string();
+    upsert.fields.reply_messages = serde_json::json!({
+        "reply-child": {
+            "type": "TEXT",
+            "message": "回复1",
+            "replyUserId": "444"
+        }
+    })
+    .to_string();
+    upsert.fields.reply_count = 1;
+    upsert.fields.read_bits = "0010".to_string();
+
+    apply_upsert(&storage, event_to_upsert_op(&upsert)).await;
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1, "type=1 只能落一行");
+    let row = &rows[0];
+    assert_eq!(col_text(row, "expedite_map"), upsert.fields.expedite_map);
+    assert_eq!(col_text(row, "reply_id"), "reply-parent");
+    assert_eq!(col_text(row, "reply_root_id"), "reply-root");
+    assert_eq!(col_text(row, "reply_first_level_id"), "reply-first");
+    assert_eq!(
+        col_text(row, "replied_message"),
+        upsert.fields.replied_message
+    );
+    assert_eq!(
+        col_text(row, "reply_messages"),
+        upsert.fields.reply_messages
+    );
+    assert!(matches!(
+        col(row, "reply_count"),
+        Some(SqlValue::Integer(1))
+    ));
+    assert_eq!(col_text(row, "read_bits"), "0010");
+
+    // 本地发送态是客户端权威列；type=2 不得把它改成 sent 或清空。
+    storage
+        .batch_update(BatchUpdateSpec {
+            table: "message",
+            key_col: "id",
+            key_vals: vec![SqlValue::Text("post-rich".to_string())],
+            patch: vec![(
+                "send_status".to_string(),
+                SqlValue::Text("failed".to_string()),
+            )],
+        })
+        .await
+        .expect("seed local send status");
+
+    let mut edit = upsert.clone();
+    edit.kind = EventKind::PostEdit;
+    edit.seq = Seq(12);
+    edit.fields.message = "加急消息-编辑后".to_string();
+    edit.fields.expedite_map = serde_json::json!({
+        "sender": {"id": "678", "name": "擎天柱", "teamId": ""},
+        "recipients": {
+            "444": {"name": "破坏者", "status": 1, "teamId": ""}
+        }
+    })
+    .to_string();
+    edit.fields.reply_messages = serde_json::json!({
+        "reply-child": {
+            "type": "TEXT",
+            "message": "回复1-更新",
+            "replyUserId": "444"
+        }
+    })
+    .to_string();
+    edit.fields.reply_count = 1;
+    edit.fields.read_bits = "should-stay-0010".to_string();
+    storage
+        .batch_update(match edit_content_op("post-rich", &edit.fields) {
+            StorageOp::BatchUpdate(spec) => spec,
+            other => panic!("expected BatchUpdate, got {other:?}"),
+        })
+        .await
+        .expect("type=2 must update existing message fields");
+
+    let rows = scan_message_rows(&storage).await;
+    let row = &rows[0];
+    assert_eq!(col_text(row, "message"), "加急消息-编辑后");
+    assert_eq!(col_text(row, "expedite_map"), edit.fields.expedite_map);
+    assert_eq!(col_text(row, "reply_id"), "reply-parent");
+    assert_eq!(col_text(row, "reply_messages"), edit.fields.reply_messages);
+    assert!(matches!(
+        col(row, "reply_count"),
+        Some(SqlValue::Integer(1))
+    ));
+    assert_eq!(
+        col_text(row, "read_bits"),
+        "0010",
+        "type=2 不得擦除 read_bits"
+    );
+    assert_eq!(
+        col_text(row, "send_status"),
+        "failed",
+        "type=2 不得覆盖 send_status"
+    );
+
+    // type=6 只覆盖 read_bits，其余消息字段保持 type=2 的结果。
+    storage
+        .batch_update(match apply_read_op("post-rich", "0110") {
+            StorageOp::BatchUpdate(spec) => spec,
+            other => panic!("expected BatchUpdate, got {other:?}"),
+        })
+        .await
+        .expect("type=6 must update read_bits");
+    let rows = scan_message_rows(&storage).await;
+    let row = &rows[0];
+    assert_eq!(col_text(row, "read_bits"), "0110");
+    assert_eq!(col_text(row, "expedite_map"), edit.fields.expedite_map);
+    assert_eq!(col_text(row, "reply_messages"), edit.fields.reply_messages);
+
+    // type=3 只置撤回标记，不删除加急和回复字段。
+    storage
+        .batch_update(match revoke_op("post-rich") {
+            StorageOp::BatchUpdate(spec) => spec,
+            other => panic!("expected BatchUpdate, got {other:?}"),
+        })
+        .await
+        .expect("type=3 must mark revoke");
+    let rows = scan_message_rows(&storage).await;
+    let row = &rows[0];
+    assert!(matches!(col(row, "revoke"), Some(SqlValue::Integer(1))));
+    assert_eq!(col_text(row, "expedite_map"), edit.fields.expedite_map);
+    assert_eq!(col_text(row, "reply_messages"), edit.fields.reply_messages);
+
+    // 重放同一 type=1 必须覆盖同一 temporary_id，而不是产生重复行。
+    apply_upsert(&storage, event_to_upsert_op(&upsert)).await;
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1, "重复同步必须保持单行幂等");
+}
+
+/// 真 `/sync/notify` wire 经 parser、sync effects 和 HostStorage 后仍保留 rich 字段。
+#[tokio::test]
+async fn sync_notify_wire_round_trips_rich_fields_into_sqlite() {
+    let wire = serde_json::json!({
+        "status": "SUCCESS",
+        "data": {
+            "entries": [{
+                "channelId": cid(43),
+                "kind": "events",
+                "events": [
+                    {"eventSeq": 1, "eventType": 1, "msgId": "wire-rich"},
+                    {"eventSeq": 2, "eventType": 2, "msgId": "wire-rich"},
+                    {"eventSeq": 3, "eventType": 6, "msgId": "wire-rich"}
+                ],
+                "nextSeq": 3,
+                "messages": {
+                    "wire-rich": {
+                        "id": "wire-rich",
+                        "temporaryId": "wire-rich-tmp",
+                        "channelId": cid(43),
+                        "userId": "678",
+                        "type": "TEXT",
+                        "message": "加急消息",
+                        "simpleMessage": "加急消息",
+                        "readBits": "0010",
+                        "snapshotId": "wire-snapshot",
+                        "createAt": 1700000000001_i64,
+                        "updateAt": 1700000000002_i64,
+                        "viewers": ["all"],
+                        "mentions": [],
+                        "expediteMap": {
+                            "sender": {"id": "678", "name": "擎天柱", "teamId": ""},
+                            "recipients": {
+                                "444": {"name": "破坏者", "status": 0, "teamId": ""}
+                            }
+                        },
+                        "replyId": "reply-parent",
+                        "replyRootId": "reply-root",
+                        "replyFirstLevelId": "reply-first",
+                        "repliedMessage": {
+                            "type": "TEXT",
+                            "message": "被回复的消息",
+                            "repliedUserId": "444",
+                            "viewers": ["all"]
+                        },
+                        "replyMessages": {
+                            "reply-child": {
+                                "type": "TEXT",
+                                "message": "回复1",
+                                "replyUserId": "444"
+                            }
+                        },
+                        "replyCount": 1
+                    }
+                }
+            }]
+        }
+    });
+    let parsed = parse_sync_response(
+        &serde_json::to_vec(&wire).expect("serialize wire fixture"),
+        channel_id(43),
+    )
+    .expect("真实 sync wire 应可解析");
+    let SyncResponse::Events {
+        events,
+        messages,
+        next_seq,
+        ..
+    } = parsed
+    else {
+        panic!("rich sync wire 必须解析为 Events");
+    };
+    assert_eq!(next_seq.0, 3);
+    assert_eq!(events.len(), 3);
+    assert_eq!(messages.len(), 1);
+
+    let storage = storage_with_im_schema().await;
+    let ops = batch_upsert_events_with_messages_and_auth(&events, &messages, "678");
+    assert_eq!(
+        ops.len(),
+        4,
+        "sender 视角写集 = type1(message+channel) + type2 patch + type6 readBits；未读只接受 memberProjection"
+    );
+    for op in &ops {
+        assert!(
+            matches!(
+                execute_storage_ops_atomic(&storage, std::slice::from_ref(op)).await,
+                PortOutcome::Ok(_)
+            ),
+            "sync storage op 必须真实执行成功: {op:?}"
+        );
+    }
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(col_text(row, "temporary_id"), "wire-rich-tmp");
+    assert_eq!(col_text(row, "expedite_map").contains("\"444\""), true);
+    assert_eq!(col_text(row, "reply_id"), "reply-parent");
+    assert_eq!(col_text(row, "reply_root_id"), "reply-root");
+    assert_eq!(col_text(row, "reply_first_level_id"), "reply-first");
+    assert!(col_text(row, "replied_message").contains("被回复的消息"));
+    assert!(col_text(row, "reply_messages").contains("回复1"));
+    assert!(matches!(
+        col(row, "reply_count"),
+        Some(SqlValue::Integer(1))
+    ));
+    assert_eq!(col_text(row, "read_bits"), "0010");
+}
+
+/// 同一事件 re-sync（续拉重叠批）幂等：conflict_key=temporary_id → 覆盖同行，不产生重复。
+/// 这正是修复"cursor 卡住 → 重拉同批"风暴的正确性前提：重拉必须 O(1) 覆盖不膨胀。
+#[tokio::test]
+async fn resync_same_event_is_idempotent_upsert() {
+    let storage = storage_with_im_schema().await;
+    let ev = post_event(99, 5, "tmp-dup", "post-dup", "v1");
+
+    for _ in 0..3 {
+        let op = event_to_upsert_op(&ev);
+        storage
+            .batch_upsert(match op {
+                helix_core::effect::StorageOp::BatchUpsert(spec) => spec,
+                other => panic!("expected BatchUpsert, got {other:?}"),
+            })
+            .await
+            .expect("idempotent re-upsert");
+    }
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(
+        rows.len(),
+        1,
+        "重拉同事件必须幂等覆盖（同 PK），不产生重复行"
+    );
+}
+
+/// PersistAtomic 必须把 type=2 的 0 行命中视为失败，避免消息字段未落库却推进 cursor。
+#[tokio::test]
+async fn atomic_type2_zero_rows_roll_back_cursor_and_existing_row_updates() {
+    let storage = storage_with_im_schema().await;
+    let channel = channel_id(100);
+    let seed = post_event(100, 1, "tmp-type2", "post-type2", "before");
+    let seed_op = event_to_upsert_op(&seed);
+    storage
+        .batch_upsert(match seed_op {
+            StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected seed upsert, got {other:?}"),
+        })
+        .await
+        .expect("seed type=2 row");
+
+    let mut edited = PostFields::default();
+    edited.id = "post-type2".to_string();
+    edited.msg_type = "TEXT".to_string();
+    edited.message = "after".to_string();
+    edited.props = "{\"edited\":true}".to_string();
+    edited.expedite_map = "{\"678\":true}".to_string();
+    let existing = helix_im::channel::edit_content_op("post-type2", &edited);
+    let committed = execute_storage_ops_atomic(
+        &storage,
+        &[
+            existing,
+            helix_im::acl::to_effect::advance_cursor_op(channel, Seq(2)),
+        ],
+    )
+    .await;
+    assert!(matches!(committed, helix_core::tick::PortOutcome::Ok(_)));
+
+    let row = storage
+        .get(helix_core::effect::GetSpec {
+            table: "message",
+            key_col: "id",
+            key_val: SqlValue::Text("post-type2".to_string()),
+        })
+        .await
+        .expect("read updated message")
+        .expect("updated message row");
+    assert_eq!(col_text(&row, "message"), "after");
+    assert_eq!(col_text(&row, "expedite_map"), "{\"678\":true}");
+
+    let missing = helix_im::channel::edit_content_op("post-missing", &edited);
+    let failed = execute_storage_ops_atomic(
+        &storage,
+        &[
+            missing,
+            helix_im::acl::to_effect::advance_cursor_op(channel, Seq(3)),
+        ],
+    )
+    .await;
+    assert!(matches!(failed, helix_core::tick::PortOutcome::Err(_)));
+    assert!(
+        storage
+            .get(helix_core::effect::GetSpec {
+                table: "channel_event_cursor",
+                key_col: "channel_id",
+                key_val: SqlValue::Text(cid(100)),
+            })
+            .await
+            .expect("read cursor after failed type=2")
+            .is_some(),
+        "previous successful cursor must remain, but failed batch must not advance it"
+    );
+    let cursor = storage
+        .get(helix_core::effect::GetSpec {
+            table: "channel_event_cursor",
+            key_col: "channel_id",
+            key_val: SqlValue::Text(cid(100)),
+        })
+        .await
+        .expect("read cursor value")
+        .expect("cursor from successful batch");
+    assert!(matches!(
+        col(&cursor, "last_event_seq"),
+        Some(SqlValue::Integer(2))
+    ));
+}
+
+/// 服务端推送无 temporary_id（他人消息）时，PK 回退到 id（真源 cses-client From<Post>），
+/// 仍能非空落库，不丢消息。
+#[tokio::test]
+async fn event_without_temporary_id_falls_back_to_id_as_pk() {
+    let storage = storage_with_im_schema().await;
+    // 无 temporary_id（他人消息），仅有 id —— event_to_upsert_op 走 PK 回退到 id。
+    let mut fields = PostFields::default();
+    fields.id = "server-post-id-only".to_string();
+    fields.channel_id = cid(7);
+    fields.message = "from someone else".to_string();
+    let ev = EventEnvelope::new(channel_id(7), Seq(3), EventKind::PostUpsert, fields);
+
+    let op = event_to_upsert_op(&ev);
+    storage
+        .batch_upsert(match op {
+            helix_core::effect::StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected BatchUpsert, got {other:?}"),
+        })
+        .await
+        .expect("upsert with id-as-pk");
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        col_text(&rows[0], "temporary_id"),
+        "server-post-id-only",
+        "无 temporary_id 时回退 id 作 PK"
+    );
+}
+
+/// G-03a：Native 重启后 pending_sends 为空，失败消息仍能从真 SQLite 恢复并续发 HTTP。
+#[tokio::test]
+async fn durable_failed_message_rehydrates_retry_after_module_restart() {
+    use helix_core::effect::UpsertSpec;
+    use helix_core::tick::{AppCommand, PortOutcome};
+    use helix_core::{Effect, EffectSink, Module, Tick};
+    use helix_driver_host::execute_storage_ops;
+    use helix_im::module::ImConfig;
+    use helix_im::ImModule;
+
+    let storage = storage_with_im_schema().await;
+    storage
+        .batch_upsert(UpsertSpec {
+            table: "message",
+            rows: vec![vec![
+                (
+                    "temporary_id".to_string(),
+                    SqlValue::Text("tmp-restart-retry".to_string()),
+                ),
+                ("id".to_string(), SqlValue::Text(String::new())),
+                ("channel_id".to_string(), SqlValue::Text(cid(1))),
+                (
+                    "message".to_string(),
+                    SqlValue::Text("retry after restart".to_string()),
+                ),
+                ("type".to_string(), SqlValue::Text("TEXT".to_string())),
+                ("props".to_string(), SqlValue::Text("{}".to_string())),
+                (
+                    "viewers".to_string(),
+                    SqlValue::Text("[\"all\"]".to_string()),
+                ),
+                ("mentions".to_string(), SqlValue::Text("[]".to_string())),
+                (
+                    "send_status".to_string(),
+                    SqlValue::Text("unsend".to_string()),
+                ),
+                ("create_at".to_string(), SqlValue::Integer(1_234)),
+            ]],
+            conflict_key: Some("temporary_id"),
+            exclude_from_update: Vec::new(),
+            version_column: None,
+            update_guard: None,
+        })
+        .await
+        .expect("seed durable failed message");
+
+    let mut module = ImModule::new(ImConfig {
+        api_base_url: "http://go.test/api/cses".to_string(),
+        auth_user_id: "user-after-restart".to_string(),
+        company_id: "team-after-restart".to_string(),
+        send_timeout_ms: 15_000,
+        ..Default::default()
+    });
+    let mut sink = EffectSink::new();
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "message_id": "tmp-restart-retry",
+        "req_id": "mrc:G-03a:sqlite"
+    }))
+    .unwrap();
+    module
+        .handle(
+            &Tick::Command(AppCommand::new("im_retry_send", payload)),
+            5_000,
+            &mut sink,
+        )
+        .expect("retry command");
+
+    let (lookup_corr, lookup_ops) = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops } => Some((*corr, ops.clone())),
+            _ => None,
+        })
+        .expect("restart retry must query storage");
+    let outcome = execute_storage_ops(&storage, &lookup_ops).await;
+    assert!(matches!(outcome, PortOutcome::Ok(_)));
+
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: lookup_corr,
+                outcome,
+            },
+            5_010,
+            &mut sink,
+        )
+        .expect("durable retry reply");
+
+    let (send_persist_corr, send_persist_ops) = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops } => Some((*corr, ops.clone())),
+            _ => None,
+        })
+        .expect("rehydrated retry must re-enter the optimistic persist barrier");
+    let send_persist_outcome = execute_storage_ops(&storage, &send_persist_ops).await;
+    assert!(matches!(send_persist_outcome, PortOutcome::Ok(_)));
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: send_persist_corr,
+                outcome: send_persist_outcome,
+            },
+            5_020,
+            &mut sink,
+        )
+        .expect("rehydrated optimistic persist reply");
+
+    let http_body = sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Http { req, .. } => req
+            .body
+            .as_ref()
+            .and_then(|body| serde_json::from_slice::<serde_json::Value>(body).ok()),
+        _ => None,
+    });
+    let http_body = http_body.expect("rehydrated retry must emit posts/create HTTP");
+    assert_eq!(http_body["temporaryId"], "tmp-restart-retry");
+    assert_eq!(http_body["channelId"], cid(1));
+    assert_eq!(http_body["message"], "retry after restart");
+    assert!(
+        sink.as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::ScheduleTimer { .. })),
+        "rehydrated retry must arm a fresh timeout"
+    );
+
+    for effect in sink.as_slice() {
+        if let Effect::PersistFire { ops } = effect {
+            let result = execute_storage_ops(&storage, ops).await;
+            assert!(matches!(result, PortOutcome::Ok(_)));
+        }
+    }
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        col_text(&rows[0], "send_status"),
+        "sending",
+        "真实 SQLite 失败行必须在续发时恢复 sending"
+    );
+}
+
+/// T095：Host SQLite 必须把 closed marker 与 cursor 放在同一笔事务。后续任一写失败时，
+/// 先前的 tombstone upsert 必须回滚，不能留下「已关闭但 cursor 未确认」的半状态。
+#[tokio::test]
+async fn terminal_tombstone_atomic_write_commits_or_rolls_back_as_one_host_transaction() {
+    let storage = storage_with_im_schema().await;
+    let channel = channel_id(71);
+    let terminal = terminal_tombstone_and_cursor_op(channel, Seq(42));
+    let failed = execute_storage_ops_atomic(
+        &storage,
+        &[
+            terminal.clone(),
+            StorageOp::BatchUpdate(BatchUpdateSpec {
+                table: "table_that_does_not_exist",
+                key_col: "id",
+                key_vals: vec![SqlValue::Text("never".to_string())],
+                patch: vec![("state".to_string(), SqlValue::Text("closed".to_string()))],
+            }),
+        ],
+    )
+    .await;
+    assert!(matches!(failed, helix_core::tick::PortOutcome::Err(_)));
+    assert!(
+        storage
+            .get(GetSpec {
+                table: "channel_event_cursor",
+                key_col: "channel_id",
+                key_val: SqlValue::Text(channel.as_str().to_string()),
+            })
+            .await
+            .expect("rollback verification query")
+            .is_none(),
+        "failed atomic batch must not leave a terminal marker behind"
+    );
+
+    let committed = execute_storage_ops_atomic(&storage, &[terminal]).await;
+    assert!(matches!(committed, helix_core::tick::PortOutcome::Ok(_)));
+    let row = storage
+        .get(GetSpec {
+            table: "channel_event_cursor",
+            key_col: "channel_id",
+            key_val: SqlValue::Text(channel.as_str().to_string()),
+        })
+        .await
+        .expect("committed cursor query")
+        .expect("terminal cursor row");
+    assert!(matches!(
+        col(&row, "last_event_seq"),
+        Some(SqlValue::Integer(42))
+    ));
+    assert!(matches!(
+        col(&row, "terminal_event_seq"),
+        Some(SqlValue::Integer(42))
+    ));
+}
+
+/// GS01-GS04 的 recovery evidence 不能只验证建表。coverage、ledger 与 cursor 以后会被
+/// 放进同一 PersistAtomic；这里先锁住 driver 对新增两张业务表的通用事务语义：后续写失败时，
+/// 已执行的 coverage/ledger upsert 都不能残留。
+#[tokio::test]
+async fn recovery_ledger_and_coverage_migrate_idempotently_and_roll_back_together() {
+    let storage = storage_with_im_schema().await;
+    let coverage = "coverage-rollback-1";
+    let ledger = StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel_event_ledger",
+        rows: vec![vec![
+            (
+                "tenant_id".to_string(),
+                SqlValue::Text("team-1".to_string()),
+            ),
+            ("channel_id".to_string(), SqlValue::Text(cid(81))),
+            ("event_seq".to_string(), SqlValue::Integer(7)),
+            ("event_kind".to_string(), SqlValue::Text("post".to_string())),
+            (
+                "message_id".to_string(),
+                SqlValue::Text("post-7".to_string()),
+            ),
+            (
+                "event_hash".to_string(),
+                SqlValue::Text("event-hash-7".to_string()),
+            ),
+            (
+                "coverage_id".to_string(),
+                SqlValue::Text(coverage.to_string()),
+            ),
+            ("applied_at_ms".to_string(), SqlValue::Integer(7_000)),
+        ]],
+        conflict_key: Some("tenant_id,channel_id,event_seq"),
+        exclude_from_update: Vec::new(),
+        version_column: None,
+        update_guard: None,
+    });
+    let coverage_op = StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel_sync_coverage",
+        rows: vec![vec![
+            (
+                "coverage_id".to_string(),
+                SqlValue::Text(coverage.to_string()),
+            ),
+            (
+                "tenant_id".to_string(),
+                SqlValue::Text("team-1".to_string()),
+            ),
+            ("channel_id".to_string(), SqlValue::Text(cid(81))),
+            ("from_seq".to_string(), SqlValue::Integer(7)),
+            ("to_seq".to_string(), SqlValue::Integer(7)),
+            ("event_count".to_string(), SqlValue::Integer(1)),
+            (
+                "facts_hash".to_string(),
+                SqlValue::Text("facts-hash-7".to_string()),
+            ),
+            (
+                "correlation_id".to_string(),
+                SqlValue::Text("corr-7".to_string()),
+            ),
+            (
+                "commit_state".to_string(),
+                SqlValue::Text("committed".to_string()),
+            ),
+            ("committed_at_ms".to_string(), SqlValue::Integer(7_000)),
+        ]],
+        conflict_key: Some("coverage_id"),
+        exclude_from_update: Vec::new(),
+        version_column: None,
+        update_guard: None,
+    });
+
+    let failed = execute_storage_ops_atomic(
+        &storage,
+        &[
+            coverage_op.clone(),
+            ledger.clone(),
+            StorageOp::BatchUpdate(BatchUpdateSpec {
+                table: "table_that_does_not_exist",
+                key_col: "id",
+                key_vals: vec![SqlValue::Text("rollback".to_string())],
+                patch: vec![("state".to_string(), SqlValue::Text("bad".to_string()))],
+            }),
+        ],
+    )
+    .await;
+    assert!(matches!(failed, helix_core::tick::PortOutcome::Err(_)));
+    assert!(storage
+        .get(GetSpec {
+            table: "channel_sync_coverage",
+            key_col: "coverage_id",
+            key_val: SqlValue::Text(coverage.to_string()),
+        })
+        .await
+        .expect("coverage rollback query")
+        .is_none());
+    assert!(storage
+        .scan(ScanSpec {
+            table: "channel_event_ledger",
+            limit: None,
+            filter: None,
+            order_by: &[]
+        })
+        .await
+        .expect("ledger rollback query")
+        .is_empty());
+
+    let committed = execute_storage_ops_atomic(&storage, &[coverage_op, ledger]).await;
+    assert!(matches!(committed, helix_core::tick::PortOutcome::Ok(_)));
+    assert!(storage
+        .get(GetSpec {
+            table: "channel_sync_coverage",
+            key_col: "coverage_id",
+            key_val: SqlValue::Text(coverage.to_string()),
+        })
+        .await
+        .expect("coverage committed query")
+        .is_some());
+}
+
+/// 回归锚：PRE 19489 reply-parent type2 到达时，本地尚未加载历史父消息。
+#[tokio::test]
+async fn sync_edit_snapshot_repairs_missing_history_without_replacing_local_authority() {
+    let storage = storage_with_im_schema().await;
+    let channel = channel_id(19489);
+    let mut event = post_event(
+        19489,
+        19489,
+        "tmp-history-parent",
+        "history-parent",
+        "edited",
+    );
+    event.kind = EventKind::PostEdit;
+    event.fields.viewers = vec!["all".into()];
+    event.fields.read_bits = "snapshot-bits".into();
+    event.fields.reply_messages = r#"{"child":{"type":"TEXT"}}"#.into();
+    event.fields.reply_count = 1;
+    let messages =
+        std::collections::HashMap::from([("history-parent".into(), event.fields.clone())]);
+    let mut ops = batch_upsert_events_with_messages_and_auth(&[event.clone()], &messages, "viewer");
+    ops.push(helix_im::acl::to_effect::advance_cursor_op(
+        channel,
+        Seq(19489),
+    ));
+    storage
+        .atomic_write(ops.clone())
+        .await
+        .expect("full visible snapshot must repair missing historical parent");
+    let row = storage
+        .get(GetSpec {
+            table: "message",
+            key_col: "id",
+            key_val: SqlValue::Text("history-parent".into()),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(col_text(&row, "message"), "edited");
+    assert_eq!(col_text(&row, "read_bits"), "snapshot-bits");
+    assert!(matches!(
+        col(&row, "reply_count"),
+        Some(SqlValue::Integer(1))
+    ));
+    storage.execute_raw("UPDATE message SET read_bits='newer-bits', send_status='failed', create_at=123, event_seq=77 WHERE id='history-parent'").await.unwrap();
+    storage
+        .atomic_write(ops)
+        .await
+        .expect("replay must be idempotent");
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(col_text(&rows[0], "read_bits"), "newer-bits");
+    assert_eq!(col_text(&rows[0], "send_status"), "failed");
+    assert!(matches!(
+        col(&rows[0], "create_at"),
+        Some(SqlValue::Integer(123))
+    ));
+    assert!(matches!(
+        col(&rows[0], "event_seq"),
+        Some(SqlValue::Integer(77))
+    ));
+    assert!(ops_forbidden_channel_update(
+        &batch_upsert_events_with_messages_and_auth(&[event], &messages, "viewer")
+    ));
+}
+
+/// 编辑补行不得生成新消息的频道摘要或未读写操作。
+fn ops_forbidden_channel_update(ops: &[StorageOp]) -> bool {
+    ops.iter().all(|op| {
+        matches!(op, StorageOp::BatchUpsert(s) if s.table == "message")
+            || matches!(op, StorageOp::BatchUpdate(s) if s.table == "message")
+    })
+}
+
+/// 缺少身份、跨群、不可见或无 canonical temporary_id 时，不得制造历史消息。
+#[tokio::test]
+async fn sync_edit_incomplete_or_invisible_snapshot_keeps_cursor_blocked() {
+    for case in 0..6 {
+        let storage = storage_with_im_schema().await;
+        let mut event = post_event(19490, 2, "tmp-missing", "missing", "edit");
+        event.kind = EventKind::PostEdit;
+        event.fields.viewers = vec!["all".into()];
+        match case {
+            0 => event.fields.temporary_id.clear(),
+            1 => event.fields.user_id.clear(),
+            2 => event.fields.channel_id = cid(99),
+            3 => event.fields.create_at = 0,
+            4 => event.fields.viewers = vec!["other-viewer".into()],
+            _ => event.fields.id = "different-id".into(),
+        }
+        let messages = std::collections::HashMap::from([("missing".into(), event.fields.clone())]);
+        let mut ops = batch_upsert_events_with_messages_and_auth(&[event], &messages, "viewer");
+        ops.push(helix_im::acl::to_effect::advance_cursor_op(
+            channel_id(19490),
+            Seq(2),
+        ));
+        assert!(
+            storage.atomic_write(ops).await.is_err(),
+            "case {case} must fail closed"
+        );
+        assert!(scan_message_rows(&storage).await.is_empty());
+        assert!(storage
+            .get(GetSpec {
+                table: "channel_event_cursor",
+                key_col: "channel_id",
+                key_val: SqlValue::Text(cid(19490))
+            })
+            .await
+            .unwrap()
+            .is_none());
+    }
+}
+
+/// 先补历史行后遇到真实 SQL 失败，整批回滚，不能留下新行或已推进游标。
+#[tokio::test]
+async fn sync_edit_repair_rolls_back_with_remaining_batch_failure() {
+    let storage = storage_with_im_schema().await;
+    let mut event = post_event(19491, 2, "tmp-parent", "parent", "edit");
+    event.kind = EventKind::PostEdit;
+    event.fields.viewers = vec!["all".into()];
+    let messages = std::collections::HashMap::from([("parent".into(), event.fields.clone())]);
+    let mut ops = batch_upsert_events_with_messages_and_auth(&[event], &messages, "viewer");
+    ops.push(helix_im::acl::to_effect::advance_cursor_op(
+        channel_id(19491),
+        Seq(2),
+    ));
+    ops.push(StorageOp::BatchUpdate(BatchUpdateSpec {
+        table: "missing_table",
+        key_col: "id",
+        key_vals: vec![SqlValue::Text("x".into())],
+        patch: vec![("value".into(), SqlValue::Integer(1))],
+    }));
+    assert!(storage.atomic_write(ops).await.is_err());
+    assert!(scan_message_rows(&storage).await.is_empty());
+    assert!(storage
+        .get(GetSpec {
+            table: "channel_event_cursor",
+            key_col: "channel_id",
+            key_val: SqlValue::Text(cid(19491))
+        })
+        .await
+        .unwrap()
+        .is_none());
+}

@@ -1,0 +1,297 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-25",
+  "sourcePins": {
+    "helix": "918999d649007d92b085d8f5aba73329c9241ee4",
+    "csesClient": "13e42ef2793ea5c9f39b29f5d1ce86b1aca074db",
+    "mobile": "674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21"
+  },
+  "master": {
+    "featureDirectory": "specs/020-ifv2-three-repo-uc-control",
+    "plan": "specs/020-ifv2-three-repo-uc-control/plan.md",
+    "tasks": "specs/020-ifv2-three-repo-uc-control/tasks.md"
+  },
+  "baseline": {
+    "gateId": "G-01",
+    "featureDirectory": "specs/019-g01-wdio-five-phases",
+    "plan": "specs/019-g01-wdio-five-phases/plan.md",
+    "tasks": "specs/019-g01-wdio-five-phases/tasks.md"
+  },
+  "gates": [
+    {
+      "order": 2,
+      "gateId": "G-02",
+      "title": "发文档",
+      "prerequisiteGate": "G-01",
+      "featureDirectory": "specs/025-ifv2-g-02-document-message",
+      "plan": "specs/025-ifv2-g-02-document-message/plan.md",
+      "tasks": "specs/025-ifv2-g-02-document-message/tasks.md",
+      "quickstart": "specs/025-ifv2-g-02-document-message/quickstart.md",
+      "contracts": "specs/025-ifv2-g-02-document-message/contracts/"
+    },
+    {
+      "order": 3,
+      "gateId": "G-03a",
+      "title": "重发失败",
+      "prerequisiteGate": "G-02",
+      "featureDirectory": "specs/026-ifv2-g-03a-retry-failed-send",
+      "plan": "specs/026-ifv2-g-03a-retry-failed-send/plan.md",
+      "tasks": "specs/026-ifv2-g-03a-retry-failed-send/tasks.md",
+      "quickstart": "specs/026-ifv2-g-03a-retry-failed-send/quickstart.md",
+      "contracts": "specs/026-ifv2-g-03a-retry-failed-send/contracts/"
+    },
+    {
+      "order": 4,
+      "gateId": "G-04",
+      "title": "撤回",
+      "prerequisiteGate": "G-03a",
+      "featureDirectory": "specs/027-ifv2-g-04-online-revoke",
+      "plan": "specs/027-ifv2-g-04-online-revoke/plan.md",
+      "tasks": "specs/027-ifv2-g-04-online-revoke/tasks.md",
+      "quickstart": "specs/027-ifv2-g-04-online-revoke/quickstart.md",
+      "contracts": "specs/027-ifv2-g-04-online-revoke/contracts/"
+    },
+    {
+      "order": 5,
+      "gateId": "G-04a",
+      "title": "离线撤回重放",
+      "prerequisiteGate": "G-04",
+      "featureDirectory": "specs/028-ifv2-g-04a-offline-revoke",
+      "plan": "specs/028-ifv2-g-04a-offline-revoke/plan.md",
+      "tasks": "specs/028-ifv2-g-04a-offline-revoke/tasks.md",
+      "quickstart": "specs/028-ifv2-g-04a-offline-revoke/quickstart.md",
+      "contracts": "specs/028-ifv2-g-04a-offline-revoke/contracts/"
+    },
+    {
+      "order": 6,
+      "gateId": "G-05",
+      "title": "转发/合并转发",
+      "prerequisiteGate": "G-04a",
+      "featureDirectory": "specs/029-ifv2-g-05-forward-message",
+      "plan": "specs/029-ifv2-g-05-forward-message/plan.md",
+      "tasks": "specs/029-ifv2-g-05-forward-message/tasks.md",
+      "quickstart": "specs/029-ifv2-g-05-forward-message/quickstart.md",
+      "contracts": "specs/029-ifv2-g-05-forward-message/contracts/"
+    },
+    {
+      "order": 7,
+      "gateId": "G-06",
+      "title": "快捷回复 emoji",
+      "prerequisiteGate": "G-05",
+      "featureDirectory": "specs/030-ifv2-g-06-quick-reaction",
+      "plan": "specs/030-ifv2-g-06-quick-reaction/plan.md",
+      "tasks": "specs/030-ifv2-g-06-quick-reaction/tasks.md",
+      "quickstart": "specs/030-ifv2-g-06-quick-reaction/quickstart.md",
+      "contracts": "specs/030-ifv2-g-06-quick-reaction/contracts/"
+    },
+    {
+      "order": 8,
+      "gateId": "G-07",
+      "title": "加急 + 确认",
+      "prerequisiteGate": "G-06",
+      "featureDirectory": "specs/031-ifv2-g-07-urgent-message",
+      "plan": "specs/031-ifv2-g-07-urgent-message/plan.md",
+      "tasks": "specs/031-ifv2-g-07-urgent-message/tasks.md",
+      "quickstart": "specs/031-ifv2-g-07-urgent-message/quickstart.md",
+      "contracts": "specs/031-ifv2-g-07-urgent-message/contracts/"
+    },
+    {
+      "order": 9,
+      "gateId": "G-08",
+      "title": "定时消息",
+      "prerequisiteGate": "G-07",
+      "featureDirectory": "specs/032-ifv2-g-08-schedule-create",
+      "plan": "specs/032-ifv2-g-08-schedule-create/plan.md",
+      "tasks": "specs/032-ifv2-g-08-schedule-create/tasks.md",
+      "quickstart": "specs/032-ifv2-g-08-schedule-create/quickstart.md",
+      "contracts": "specs/032-ifv2-g-08-schedule-create/contracts/"
+    },
+    {
+      "order": 10,
+      "gateId": "G-09",
+      "title": "取消定时",
+      "prerequisiteGate": "G-08",
+      "featureDirectory": "specs/033-ifv2-g-09-schedule-cancel",
+      "plan": "specs/033-ifv2-g-09-schedule-cancel/plan.md",
+      "tasks": "specs/033-ifv2-g-09-schedule-cancel/tasks.md",
+      "quickstart": "specs/033-ifv2-g-09-schedule-cancel/quickstart.md",
+      "contracts": "specs/033-ifv2-g-09-schedule-cancel/contracts/"
+    },
+    {
+      "order": 11,
+      "gateId": "G-10",
+      "title": "切群首屏",
+      "prerequisiteGate": "G-09",
+      "featureDirectory": "specs/034-ifv2-g-10-timeline-window",
+      "plan": "specs/034-ifv2-g-10-timeline-window/plan.md",
+      "tasks": "specs/034-ifv2-g-10-timeline-window/tasks.md",
+      "quickstart": "specs/034-ifv2-g-10-timeline-window/quickstart.md",
+      "contracts": "specs/034-ifv2-g-10-timeline-window/contracts/"
+    },
+    {
+      "order": 12,
+      "gateId": "G-10a",
+      "title": "上拉更早历史",
+      "prerequisiteGate": "G-10",
+      "featureDirectory": "specs/035-ifv2-g-10a-load-older",
+      "plan": "specs/035-ifv2-g-10a-load-older/plan.md",
+      "tasks": "specs/035-ifv2-g-10a-load-older/tasks.md",
+      "quickstart": "specs/035-ifv2-g-10a-load-older/quickstart.md",
+      "contracts": "specs/035-ifv2-g-10a-load-older/contracts/"
+    },
+    {
+      "order": 13,
+      "gateId": "G-11",
+      "title": "按 postId 定位",
+      "prerequisiteGate": "G-10a",
+      "featureDirectory": "specs/036-ifv2-g-11-locate-message",
+      "plan": "specs/036-ifv2-g-11-locate-message/plan.md",
+      "tasks": "specs/036-ifv2-g-11-locate-message/tasks.md",
+      "quickstart": "specs/036-ifv2-g-11-locate-message/quickstart.md",
+      "contracts": "specs/036-ifv2-g-11-locate-message/contracts/"
+    },
+    {
+      "order": 14,
+      "gateId": "G-12",
+      "title": "回复列表/分支",
+      "prerequisiteGate": "G-11",
+      "featureDirectory": "specs/037-ifv2-g-12-reply-thread",
+      "plan": "specs/037-ifv2-g-12-reply-thread/plan.md",
+      "tasks": "specs/037-ifv2-g-12-reply-thread/tasks.md",
+      "quickstart": "specs/037-ifv2-g-12-reply-thread/quickstart.md",
+      "contracts": "specs/037-ifv2-g-12-reply-thread/contracts/"
+    },
+    {
+      "order": 15,
+      "gateId": "G-13",
+      "title": "会话已读",
+      "prerequisiteGate": "G-12",
+      "featureDirectory": "specs/038-ifv2-g-13-channel-read",
+      "plan": "specs/038-ifv2-g-13-channel-read/plan.md",
+      "tasks": "specs/038-ifv2-g-13-channel-read/tasks.md",
+      "quickstart": "specs/038-ifv2-g-13-channel-read/quickstart.md",
+      "contracts": "specs/038-ifv2-g-13-channel-read/contracts/"
+    },
+    {
+      "order": 16,
+      "gateId": "G-14",
+      "title": "单条已读",
+      "prerequisiteGate": "G-13",
+      "featureDirectory": "specs/039-ifv2-g-14-post-read",
+      "plan": "specs/039-ifv2-g-14-post-read/plan.md",
+      "tasks": "specs/039-ifv2-g-14-post-read/tasks.md",
+      "quickstart": "specs/039-ifv2-g-14-post-read/quickstart.md",
+      "contracts": "specs/039-ifv2-g-14-post-read/contracts/"
+    },
+    {
+      "order": 17,
+      "gateId": "G-14a",
+      "title": "模板已收到",
+      "prerequisiteGate": "G-14",
+      "featureDirectory": "specs/040-ifv2-g-14a-template-received",
+      "plan": "specs/040-ifv2-g-14a-template-received/plan.md",
+      "tasks": "specs/040-ifv2-g-14a-template-received/tasks.md",
+      "quickstart": "specs/040-ifv2-g-14a-template-received/quickstart.md",
+      "contracts": "specs/040-ifv2-g-14a-template-received/contracts/"
+    },
+    {
+      "order": 18,
+      "gateId": "G-15a",
+      "title": "创建群聊",
+      "prerequisiteGate": "G-14a",
+      "featureDirectory": "specs/041-ifv2-g-15a-create-channel",
+      "plan": "specs/041-ifv2-g-15a-create-channel/plan.md",
+      "tasks": "specs/041-ifv2-g-15a-create-channel/tasks.md",
+      "quickstart": "specs/041-ifv2-g-15a-create-channel/quickstart.md",
+      "contracts": "specs/041-ifv2-g-15a-create-channel/contracts/"
+    },
+    {
+      "order": 19,
+      "gateId": "G-15",
+      "title": "创建话题",
+      "prerequisiteGate": "G-15a",
+      "featureDirectory": "specs/042-ifv2-g-15-create-topic",
+      "plan": "specs/042-ifv2-g-15-create-topic/plan.md",
+      "tasks": "specs/042-ifv2-g-15-create-topic/tasks.md",
+      "quickstart": "specs/042-ifv2-g-15-create-topic/quickstart.md",
+      "contracts": "specs/042-ifv2-g-15-create-topic/contracts/"
+    },
+    {
+      "order": 20,
+      "gateId": "G-16",
+      "title": "关闭/退出群",
+      "prerequisiteGate": "G-15",
+      "featureDirectory": "specs/043-ifv2-g-16-channel-close-leave",
+      "plan": "specs/043-ifv2-g-16-channel-close-leave/plan.md",
+      "tasks": "specs/043-ifv2-g-16-channel-close-leave/tasks.md",
+      "quickstart": "specs/043-ifv2-g-16-channel-close-leave/quickstart.md",
+      "contracts": "specs/043-ifv2-g-16-channel-close-leave/contracts/"
+    },
+    {
+      "order": 21,
+      "gateId": "G-16b",
+      "title": "member leave 广播",
+      "prerequisiteGate": "G-16",
+      "featureDirectory": "specs/044-ifv2-g-16b-member-leave-broadcast",
+      "plan": "specs/044-ifv2-g-16b-member-leave-broadcast/plan.md",
+      "tasks": "specs/044-ifv2-g-16b-member-leave-broadcast/tasks.md",
+      "quickstart": "specs/044-ifv2-g-16b-member-leave-broadcast/quickstart.md",
+      "contracts": "specs/044-ifv2-g-16b-member-leave-broadcast/contracts/"
+    },
+    {
+      "order": 22,
+      "gateId": "G-16c",
+      "title": "群属性修改",
+      "prerequisiteGate": "G-16b",
+      "featureDirectory": "specs/045-ifv2-g-16c-channel-settings",
+      "plan": "specs/045-ifv2-g-16c-channel-settings/plan.md",
+      "tasks": "specs/045-ifv2-g-16c-channel-settings/tasks.md",
+      "quickstart": "specs/045-ifv2-g-16c-channel-settings/quickstart.md",
+      "contracts": "specs/045-ifv2-g-16c-channel-settings/contracts/"
+    },
+    {
+      "order": 23,
+      "gateId": "G-S1",
+      "title": "hello 全量增量",
+      "prerequisiteGate": "G-16c",
+      "featureDirectory": "specs/021-ifv2-g-s1-cold-start-sync",
+      "plan": "specs/021-ifv2-g-s1-cold-start-sync/plan.md",
+      "tasks": "specs/021-ifv2-g-s1-cold-start-sync/tasks.md",
+      "quickstart": "specs/021-ifv2-g-s1-cold-start-sync/quickstart.md",
+      "contracts": "specs/021-ifv2-g-s1-cold-start-sync/contracts/"
+    },
+    {
+      "order": 24,
+      "gateId": "G-S2",
+      "title": "sync notify",
+      "prerequisiteGate": "G-S1",
+      "featureDirectory": "specs/022-ifv2-g-s2-offline-sync-notify",
+      "plan": "specs/022-ifv2-g-s2-offline-sync-notify/plan.md",
+      "tasks": "specs/022-ifv2-g-s2-offline-sync-notify/tasks.md",
+      "quickstart": "specs/022-ifv2-g-s2-offline-sync-notify/quickstart.md",
+      "contracts": "specs/022-ifv2-g-s2-offline-sync-notify/contracts/"
+    },
+    {
+      "order": 25,
+      "gateId": "G-S3",
+      "title": "心跳 gap 补偿",
+      "prerequisiteGate": "G-S2",
+      "featureDirectory": "specs/023-ifv2-g-s3-pong-gap-recovery",
+      "plan": "specs/023-ifv2-g-s3-pong-gap-recovery/plan.md",
+      "tasks": "specs/023-ifv2-g-s3-pong-gap-recovery/tasks.md",
+      "quickstart": "specs/023-ifv2-g-s3-pong-gap-recovery/quickstart.md",
+      "contracts": "specs/023-ifv2-g-s3-pong-gap-recovery/contracts/"
+    },
+    {
+      "order": 26,
+      "gateId": "G-S4",
+      "title": "陌生 channel 兜底",
+      "prerequisiteGate": "G-S3",
+      "featureDirectory": "specs/024-ifv2-g-s4-unknown-channel-hydration",
+      "plan": "specs/024-ifv2-g-s4-unknown-channel-hydration/plan.md",
+      "tasks": "specs/024-ifv2-g-s4-unknown-channel-hydration/tasks.md",
+      "quickstart": "specs/024-ifv2-g-s4-unknown-channel-hydration/quickstart.md",
+      "contracts": "specs/024-ifv2-g-s4-unknown-channel-hydration/contracts/"
+    }
+  ]
+}

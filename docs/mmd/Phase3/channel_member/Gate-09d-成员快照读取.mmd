@@ -1,0 +1,49 @@
+%% Phase3 / channel_member / MV3-G09d 成员快照读取
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel_member/mv3-g09d/contract.json
+%% 实现真源: crates/helix-im/src/port_reply_emit.rs::emit_members_by_ids；Go internal/api/channel/handlers_channel.go::loadChannelMembersByIds
+%% UI owners: packages/message/src/lib/services/message.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员打开加急弹窗、未读成员列表或 @ 候选名单时，看到该会话的完整成员，而不是空列表或「消息数据异常」。
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=implemented；helix=full；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: loadChannelMembersByIds(channelId)
+    Gate->>Native: invokeReadResult("im_channels_members_by_ids", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_channels_members_by_ids", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_channels_members_by_ids", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 组装频道成员全集快照 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /api/cses/channels/member/byIds；body.channelIds
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>IM: 校验返回频道可见范围，规范化成员快照
+  IM->>Sink: Effect::Emit im:read:result（req_id + body）
+  Sink-->>Gate: 原始事件按 req_id 结算 invokeReadResult
+  Gate-->>UI: normalizeChannelMemberRoster
+  loop 返回的每个可见频道
+    IM->>Sink: Effect::Emit im:channel:members（snapshot）
+    Sink-->>UI: 原始成员投影
+  end
+  Note over IM,DB: 当前 byIds 分支不等待 WS，不写 SQLite，也不推进 cursor
+  Note over IM,Gate: HTTP或信封失败经 im:read:result.error 关联回灌；业务失败由结果 body 保留，不伪造成功
+  Note over IM,DB: 关键效果：Go 按 channelIds 返回成员 map；身份来自认证 session；失败不伪造空的成功成员快照
+  Note over UI,Web: 关键负向：不得用频道增量代替完整 roster；此请求没有 startTime 参数，不依赖消息创建时间过滤
+  Note over E,Sink: 原始事件为 im:read:result 与 im:channel:members；不生成 channelIncrement

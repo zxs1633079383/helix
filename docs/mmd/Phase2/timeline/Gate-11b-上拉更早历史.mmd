@@ -1,0 +1,57 @@
+%% Phase2 / timeline / MV3-G11b 上拉更早历史
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/timeline/mv3-g11b/contract.json
+%% UI owners: packages/message/src/lib/services/chatContentShared.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员往上滚到顶，按客户端给定页长加载更早消息，未给定时加载 20 条
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=not_applicable；helix=partial；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: queryMessages(payload)
+    Gate->>Native: invokeAccepted("im_load_older_context", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_load_older_context", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_load_older_context", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 向上翻更旧消息 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /api/cses/posts/getPostsAfterIndex（cursorVersion=1，direction=older；已支持默认 20 / 最大 60）
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction message window + timeline cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM->>Sink: Effect::Emit im:read:result（请求关联结果）
+  Sink-->>Gate: im:__bus__ 按 req_id 或 requestId 结算等待者
+  Gate-->>UI: render absolute snapshot or query result
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：返回权威锚点之前最多 limit 条，按稳定时间线顺序升序；窗口边界与 opaque cursor 由 Helix/Go 提供，Angular 不扫描全量缓存推导；一个 reqId 只返回一个 terminal QueryMessagesResult；hasOlder / hasNewer 与 olderCursor / newerCursor 描述该窗口的双向边界；插入方式为头部拼接 newMessages = [...list, ...messages]，插入后必须保持滚动位置（锚点补偿），可视首条不得跳动；hasData = list.length 大于 0；无更旧数据时返回原 messages 引用语义（不得把列表置空）
+  Note over UI,Web: 关键负向：锚点未命中已附着窗口时不得静默回落 latest 尾窗；必须以同 reqId 的关联失败结束，调用方保留当前已渲染列表；limit 缺省必须是 20，显式值只允许 1..60；超过 60 不得产生 I/O；同一请求不得产生零个或多个 terminal 结果，也不得用其他 reqId 的结果结算当前 Promise
+  Note over E,Sink: 结果出口：im:read:result；读结果与业务广播区分，不能把无广播理解为无 Effect::Emit

@@ -1,0 +1,20 @@
+flowchart TD
+  START["G10 scenario start"] --> S1
+  S1["1. surface-attach"]
+  S2["2. local-coverage-decision"]
+  S3["3. timeline-snapshot"]
+  S4["4. older-command"]
+  S5["5. replace-view-patch"]
+  S1 --> S2
+  S2 --> S3
+  S3 --> S4
+  S4 --> S5
+  S5 --> ACK["FrameApplied + typed render"]
+  ACK --> REPORT["stage report + evidence"]
+
+  VALUES["接受值：TimelineWindowVm{channelId,anchor,items,firstUnreadMessageId?,targetMessageId?,page,state}；page 含 windowToken/hasOlder/hasNewer/hasMore"]
+  RULE["不变量：Complete 分支零 HTTP；Partial/Miss 才回源；补窗保持 windowToken 并用完整 bounded replace-view，不由 UI merge/sort"]
+  DRIFT["当前漂移：Rust 已有窗口 patch focused test，Mobile 也有 UC10 command GTest；按 Complete/Partial/Miss 的 canonical Frame inventory 与 WDIO 新 lane 尚未建立"]
+  VALUES -.约束.-> ACK
+  RULE -.fail closed.-> REPORT
+  DRIFT -.BLOCKED until reconciled.-> REPORT

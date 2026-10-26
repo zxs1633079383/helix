@@ -1,0 +1,998 @@
+//! Channel-list render-ready projection.
+//!
+//! Storage scans use the SQLite column names from `channel` (mostly snake_case),
+//! while MessageV3 binds the camelCase channel contract. Keep this conversion at
+//! the Helix boundary so every channel-list producer shares the same projection.
+
+use serde_json::{json, Map, Value};
+use std::collections::HashSet;
+
+/// Pick the first channel field that exists, retaining its original JSON type.
+fn pick(row: &Value, keys: &[&str]) -> Value {
+    keys.iter()
+        .find_map(|key| row.get(*key).cloned())
+        .unwrap_or(Value::Null)
+}
+
+/// Parse a JSON-backed channel field without turning an invalid value into a raw string.
+fn json_field(row: &Value, keys: &[&str], fallback: Value) -> Value {
+    match pick(row, keys) {
+        Value::String(raw) => serde_json::from_str::<Value>(&raw)
+            .ok()
+            .filter(|value| !value.is_null())
+            .unwrap_or(fallback),
+        Value::Null => fallback,
+        value => value,
+    }
+}
+
+/// Parse JSON-backed data but retain legitimate scalar channel values such as `IGNORE` or source names.
+fn json_field_or_value(row: &Value, keys: &[&str], fallback: Value) -> Value {
+    match pick(row, keys) {
+        Value::String(raw) if raw.is_empty() => fallback,
+        Value::String(raw) => {
+            serde_json::from_str::<Value>(&raw).unwrap_or_else(|_| Value::String(raw))
+        }
+        Value::Null => fallback,
+        value => value,
+    }
+}
+
+fn has_any_field(row: &Value, keys: &[&str]) -> bool {
+    keys.iter().any(|key| row.get(*key).is_some())
+}
+
+fn roster_member_id(value: &Value) -> Option<String> {
+    let object = value.as_object()?;
+    ["userId", "user_id", "id"]
+        .iter()
+        .find_map(|key| object.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn roster_member_count(row: &Value) -> Option<usize> {
+    match pick(row, &["member_count", "memberCount"]) {
+        Value::Number(value) => value
+            .as_u64()
+            .map(|count| count as usize)
+            .filter(|count| *count > 0),
+        Value::String(value) => value.parse::<usize>().ok().filter(|count| *count > 0),
+        _ => None,
+    }
+}
+
+/// Read a complete split member projection. A channel row alone is intentionally sparse.
+fn complete_roster_projection(row: &Value) -> Option<(Value, Value, Value, Value, usize)> {
+    let member_keys = ["members"];
+    let admin_keys = ["admin_users", "adminUsers"];
+    let boss_keys = ["boss"];
+    let owner_keys = ["owner"];
+    if !has_any_field(row, &member_keys)
+        || !has_any_field(row, &admin_keys)
+        || !has_any_field(row, &boss_keys)
+        || !has_any_field(row, &owner_keys)
+    {
+        return None;
+    }
+    let members = json_field(row, &member_keys, Value::Null);
+    let admins = json_field(row, &admin_keys, Value::Null);
+    let bosses = json_field(row, &boss_keys, Value::Null);
+    let owner = json_field(row, &owner_keys, Value::Null);
+    if !members.is_array() || !admins.is_array() || !bosses.is_array() {
+        return None;
+    }
+    if !owner.is_null() && roster_member_id(&owner).is_none() {
+        return None;
+    }
+    let mut ids = HashSet::new();
+    let owner_iter = (!owner.is_null()).then_some(&owner);
+    for member in members
+        .as_array()
+        .into_iter()
+        .flatten()
+        .chain(admins.as_array().into_iter().flatten())
+        .chain(bosses.as_array().into_iter().flatten())
+        .chain(owner_iter)
+    {
+        let id = roster_member_id(member)?;
+        if !ids.insert(id) {
+            return None;
+        }
+    }
+    let count = roster_member_count(row)?;
+    if ids.len() != count {
+        return None;
+    }
+    Some((members, admins, bosses, owner, count))
+}
+
+/// Shape the persisted last-post object with the same message contract as the timeline.
+fn shape_last_post(value: Value) -> Value {
+    match value {
+        Value::Object(_) => super::core::shape_row(&value, ""),
+        _ => json!({}),
+    }
+}
+
+/// Add one snake/camel alias to the render-ready channel object.
+fn insert_alias(output: &mut Map<String, Value>, row: &Value, name: &str, keys: &[&str]) {
+    let value = pick(row, keys);
+    if !value.is_null() {
+        output.insert(name.to_string(), value);
+    }
+}
+
+/// Keep persisted urgent counters non-negative while preserving ordinary JSON values.
+fn non_negative_count(value: Value) -> Value {
+    match &value {
+        Value::Number(number) if number.as_f64().is_some_and(|value| value < 0.0) => Value::from(0),
+        Value::String(raw) if raw.trim().parse::<f64>().is_ok_and(|value| value < 0.0) => {
+            Value::from(0)
+        }
+        _ => value,
+    }
+}
+
+/// Write the urgent counter under every existing alias so legacy rows cannot leak a negative value.
+fn insert_non_negative_count_alias(
+    output: &mut Map<String, Value>,
+    row: &Value,
+    name: &str,
+    keys: &[&str],
+) {
+    let value = non_negative_count(pick(row, keys));
+    if value.is_null() {
+        return;
+    }
+    output.insert(name.to_string(), value.clone());
+    for key in keys {
+        if output.contains_key(*key) {
+            output.insert((*key).to_string(), value.clone());
+        }
+    }
+}
+
+/// Convert persisted SQLite boolean integers into the render-ready JSON boolean contract.
+fn insert_bool_alias(output: &mut Map<String, Value>, row: &Value, name: &str, keys: &[&str]) {
+    let value = match pick(row, keys) {
+        Value::Bool(value) => Some(value),
+        Value::Number(value) => value.as_i64().map(|value| value != 0),
+        _ => None,
+    };
+    if let Some(value) = value {
+        output.insert(name.to_string(), Value::Bool(value));
+    }
+}
+
+/// Read a persisted capability without accepting stringly-typed authority values.
+fn persisted_bool(row: &Value, keys: &[&str]) -> Option<bool> {
+    let mut parsed = None;
+    for key in keys {
+        let Some(value) = row.get(*key) else {
+            continue;
+        };
+        let Some(current) = (match value {
+            Value::Bool(value) => Some(*value),
+            Value::Number(value) => match value.as_i64() {
+                Some(0) => Some(false),
+                Some(1) => Some(true),
+                _ => None,
+            },
+            _ => None,
+        }) else {
+            // An invalid alias is an authority conflict, never a reason to trust another alias.
+            return None;
+        };
+        if parsed.is_some_and(|previous| previous != current) {
+            return None;
+        }
+        parsed = Some(current);
+    }
+    parsed
+}
+
+/// Read a persisted role and normalize Go/Helix owner/admin aliases for capability checks.
+fn persisted_role(row: &Value) -> Option<String> {
+    row.get("role")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .map(str::to_ascii_uppercase)
+        .and_then(|role| {
+            let canonical = match role.as_str() {
+                "OWNER" | "CREATOR" => "CREATOR",
+                "ADMIN" | "MANAGER" | "MANGER" => "MANAGER",
+                "MEMBER" => "MEMBER",
+                "BOSS" => "BOSS",
+                _ => return None,
+            };
+            Some(canonical.to_string())
+        })
+}
+
+/// Read a persisted permission threshold and fail closed for invalid values.
+fn persisted_role_value(row: &Value, keys: &[&str]) -> Option<String> {
+    let mut parsed = None;
+    for key in keys {
+        let Some(value) = row.get(*key).and_then(Value::as_str) else {
+            if row.get(*key).is_some() {
+                return None;
+            }
+            continue;
+        };
+        let normalized = value.trim().to_ascii_uppercase();
+        if !matches!(
+            normalized.as_str(),
+            "CREATOR" | "MANAGER" | "MEMBER" | "BOSS"
+        ) {
+            return None;
+        }
+        if parsed
+            .as_deref()
+            .is_some_and(|previous| previous != normalized)
+        {
+            return None;
+        }
+        parsed = Some(normalized);
+    }
+    parsed
+}
+
+/// Compare role thresholds using the Go ordering: BOSS, CREATOR, MANAGER, MEMBER.
+fn role_at_or_above(role: Option<&str>, required: Option<&str>) -> bool {
+    let role_level = match role {
+        Some("BOSS") => 0,
+        Some("CREATOR") => 1,
+        Some("MANAGER") => 2,
+        Some("MEMBER") => 3,
+        _ => return false,
+    };
+    let required_level = match required {
+        Some("BOSS") => 0,
+        Some("CREATOR") => 1,
+        Some("MANAGER") => 2,
+        Some("MEMBER") => 3,
+        _ => return false,
+    };
+    role_level <= required_level
+}
+
+/// Derive a threshold capability while distinguishing a missing policy from an invalid one.
+fn derived_threshold_capability(row: &Value, role: Option<&str>, keys: &[&str]) -> bool {
+    let required = persisted_role_value(row, keys);
+    if required.is_some() {
+        return role_at_or_above(role, required.as_deref());
+    }
+    // A role-readback row can omit thresholds when the channel row is unavailable; only the
+    // canonical owner may safely default to true because it is above every valid gate.
+    !keys.iter().any(|key| row.get(*key).is_some()) && role == Some("CREATOR")
+}
+
+/// Project absolute settings/member capabilities, preserving persisted Go fields when present.
+fn insert_viewer_capabilities(output: &mut Map<String, Value>, row: &Value) {
+    let role = persisted_role(row);
+    let is_open = matches!(
+        pick(row, &["type"]),
+        Value::String(ref value) if value.eq_ignore_ascii_case("O")
+    );
+    let admin_role = matches!(role.as_deref(), Some("CREATOR" | "MANAGER"))
+        || (is_open && matches!(role.as_deref(), Some("BOSS")));
+    let change_role = matches!(role.as_deref(), Some("CREATOR"))
+        || (is_open && matches!(role.as_deref(), Some("BOSS")));
+    let derived_settings = admin_role;
+    let derived_members = admin_role;
+    let derived_mention = derived_threshold_capability(
+        row,
+        role.as_deref(),
+        &["mention_permission", "mentionPermission"],
+    );
+    let derived_notice = derived_threshold_capability(
+        row,
+        role.as_deref(),
+        &["notice_permission", "noticePermission"],
+    );
+    let derived_top =
+        derived_threshold_capability(row, role.as_deref(), &["top_permission", "topPermission"]);
+    let can_edit = persisted_bool(
+        row,
+        &["can_edit_channel_settings", "canEditChannelSettings"],
+    )
+    .unwrap_or(derived_settings);
+    let can_manage_settings =
+        persisted_bool(row, &["can_manage_settings", "canManageSettings"]).unwrap_or(can_edit);
+    let can_manage_members =
+        persisted_bool(row, &["can_manage_members", "canManageMembers"]).unwrap_or(derived_members);
+    // 邀请与移除独立：从服务端字段或持久化的已确认角色生成，Angular 不推导角色。
+    let ordinary_group = matches!(pick(row, &["type"]).as_str(), Some("P" | "G"));
+    let invite_role = matches!(
+        role.as_deref(),
+        Some("CREATOR" | "MANAGER" | "MEMBER" | "BOSS")
+    );
+    let can_invite_members = ordinary_group
+        && persisted_bool(row, &["can_invite_members", "canInviteMembers"]).unwrap_or(invite_role);
+    let can_mention_all =
+        persisted_bool(row, &["can_mention_all", "canMentionAll"]).unwrap_or(derived_mention);
+    let can_publish_notice =
+        persisted_bool(row, &["can_publish_notice", "canPublishNotice"]).unwrap_or(derived_notice);
+    let can_change_permissions =
+        persisted_bool(row, &["can_change_permissions", "canChangePermissions"])
+            .unwrap_or(change_role);
+    let can_pin_message = pick(row, &["type"]).as_str() != Some("D")
+        && persisted_bool(row, &["can_pin_message", "canPinMessage"]).unwrap_or(derived_top);
+    output.insert(
+        "canInviteMembers".to_string(),
+        Value::Bool(can_invite_members),
+    );
+    output.insert("canEditChannelSettings".to_string(), Value::Bool(can_edit));
+    output.insert(
+        "canManageSettings".to_string(),
+        Value::Bool(can_manage_settings),
+    );
+    output.insert(
+        "canManageMembers".to_string(),
+        Value::Bool(can_manage_members),
+    );
+    output.insert("canMentionAll".to_string(), Value::Bool(can_mention_all));
+    output.insert(
+        "canPublishNotice".to_string(),
+        Value::Bool(can_publish_notice),
+    );
+    output.insert(
+        "canChangePermissions".to_string(),
+        Value::Bool(can_change_permissions),
+    );
+    output.insert("canPinMessage".to_string(), Value::Bool(can_pin_message));
+}
+
+/// Project one storage channel row into the MessageV3 channel-list contract.
+pub(crate) fn shape_channel_row(row: &Value) -> Value {
+    let Some(object) = row.as_object() else {
+        return json!({});
+    };
+    let mut output = object.clone();
+
+    insert_alias(&mut output, row, "id", &["id"]);
+    insert_bool_alias(&mut output, row, "close", &["is_closed", "close"]);
+    insert_alias(
+        &mut output,
+        row,
+        "channelId",
+        &["channel_id", "channelId", "id"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "displayName",
+        &["display_name", "displayName"],
+    );
+    insert_alias(&mut output, row, "type", &["type"]);
+    insert_alias(&mut output, row, "teamId", &["team_id", "teamId"]);
+    insert_alias(
+        &mut output,
+        row,
+        "companyId",
+        &["company_id", "companyId", "team_id", "teamId"],
+    );
+    // Go still exposes channel.update_at for legacy settingVersion readers and the
+    // permissionRevision read-side ordering hint; permission writes no longer send it
+    // as a CAS condition. Prefer explicit columns when a newer schema has them.
+    insert_alias(
+        &mut output,
+        row,
+        "settingVersion",
+        &[
+            "setting_version",
+            "settingVersion",
+            "updated_at",
+            "updateAt",
+        ],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "permissionRevision",
+        &[
+            "permission_revision",
+            "permissionRevision",
+            "updated_at",
+            "updateAt",
+        ],
+    );
+    insert_alias(&mut output, row, "userId", &["user_id", "userId"]);
+    insert_alias(&mut output, row, "isActive", &["is_active", "isActive"]);
+    insert_alias(
+        &mut output,
+        row,
+        "unreadCount",
+        &["unread_count", "unreadCount"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "reactionUnreadCount",
+        &["reaction_unread_count", "reactionUnreadCount"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "unreadPostId",
+        &["unread_post_id", "unreadPostId", "unReadPostId"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "mentionCount",
+        &["mention_count", "mentionCount"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "mentionCountRoot",
+        &["mention_count_root", "mentionCountRoot"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "mentionUser",
+        &["mention_user", "mentionUser"],
+    );
+    insert_non_negative_count_alias(
+        &mut output,
+        row,
+        "urgentCount",
+        &["urgent_count", "urgentCount"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "lastPostAt",
+        &["last_post_at", "lastPostAt"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "lastRootPostAt",
+        &["last_root_post_at", "lastRootPostAt"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "lastEventSeq",
+        &["last_event_seq", "lastEventSeq"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "lastReadSeq",
+        &["last_read_seq", "lastReadSeq"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "projectionRevision",
+        &["projection_revision", "projectionRevision"],
+    );
+    insert_alias(&mut output, row, "topCount", &["top_count", "topCount"]);
+    insert_alias(&mut output, row, "isRemove", &["is_remove", "isRemove"]);
+    insert_alias(&mut output, row, "deleteAt", &["delete_at", "deleteAt"]);
+    insert_alias(&mut output, row, "role", &["role"]);
+    insert_viewer_capabilities(&mut output, row);
+    insert_alias(&mut output, row, "orient", &["orient"]);
+    insert_alias(&mut output, row, "purpose", &["purpose"]);
+    insert_alias(
+        &mut output,
+        row,
+        "pictureType",
+        &["picture_type", "pictureType"],
+    );
+    insert_alias(&mut output, row, "rootId", &["root_id", "rootId"]);
+    insert_alias(
+        &mut output,
+        row,
+        "rootPostId",
+        &["root_post_id", "rootPostId"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "threadCount",
+        &["thread_count", "threadCount"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "topicMsgCount",
+        &["topic_msg_count", "topicMsgCount"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "adminMaxCount",
+        &["admin_max_count", "adminMaxCount"],
+    );
+    insert_bool_alias(
+        &mut output,
+        row,
+        "hasUrgentPost",
+        &["has_urgent_post", "hasUrgentPost"],
+    );
+    insert_bool_alias(
+        &mut output,
+        row,
+        "hasSchedulePost",
+        &["has_schedule_post", "hasSchedulePost"],
+    );
+    // SQLite 0/1 只能在 Helix 转为布尔，旧别名不能让 Host 校验再次拒绝规范字段。
+    if let Some(value) = output.get("hasSchedulePost").cloned() {
+        if output.contains_key("has_schedule_post") {
+            output.insert("has_schedule_post".into(), value);
+        }
+    }
+    insert_alias(&mut output, row, "createBy", &["create_by", "createBy"]);
+    insert_alias(&mut output, row, "updateBy", &["update_by", "updateBy"]);
+    insert_alias(
+        &mut output,
+        row,
+        "urgentCurrentName",
+        &["urgent_current_name", "urgentCurrentName"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "mentionPermission",
+        &["mention_permission", "mentionPermission"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "noticePermission",
+        &["notice_permission", "noticePermission"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "topPermission",
+        &["top_permission", "topPermission"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "postMapDaily",
+        &["post_map_daily", "postMapDaily"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "subtopicsLoadedAt",
+        &["subtopics_loaded_at", "subtopicsLoadedAt"],
+    );
+    if row
+        .get("topic_inventory_version")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(0)
+        > 0
+    {
+        if let Some(ids) = row
+            .get("topic_inventory_ids")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+        {
+            output.insert("topicChannelIds".into(), ids);
+            output.insert(
+                "topicInventoryVersion".into(),
+                serde_json::Value::String(row["topic_inventory_version"].to_string()),
+            );
+        }
+    }
+
+    insert_alias(
+        &mut output,
+        row,
+        "scheduleId",
+        &["schedule_id", "scheduleId"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "scheduleOwnerUserId",
+        &["schedule_owner_user_id", "scheduleOwnerUserId"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "scheduleMessage",
+        &["schedule_message", "scheduleMessage"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "scheduleMessagePreview",
+        &["schedule_message_preview", "scheduleMessagePreview"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "scheduleSendAt",
+        &["schedule_send_at", "scheduleSendAt"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "scheduleStatus",
+        &["schedule_status", "scheduleStatus"],
+    );
+    insert_alias(
+        &mut output,
+        row,
+        "scheduleRevision",
+        &["schedule_revision", "scheduleRevision"],
+    );
+    insert_bool_alias(
+        &mut output,
+        row,
+        "channelIsTop",
+        &["is_top", "channelIsTop"],
+    );
+    insert_alias(&mut output, row, "createAt", &["created_at", "createAt"]);
+    insert_alias(&mut output, row, "updateAt", &["updated_at", "updateAt"]);
+
+    output.insert(
+        "lastPost".to_string(),
+        shape_last_post(json_field(row, &["last_post", "lastPost"], json!({}))),
+    );
+    output.insert(
+        "mentionList".to_string(),
+        json_field(row, &["mention_list", "mentionList"], json!([])),
+    );
+    output.insert(
+        "urgentPostList".to_string(),
+        json_field(row, &["urgent_post_list", "urgentPostList"], json!([])),
+    );
+    for key in [
+        "members",
+        "admin_users",
+        "adminUsers",
+        "boss",
+        "owner",
+        "member_count",
+        "memberCount",
+    ] {
+        output.remove(key);
+    }
+    if let Some((members, admins, bosses, owner, member_count)) = complete_roster_projection(row) {
+        output.insert("members".to_string(), members);
+        output.insert("adminUsers".to_string(), admins);
+        output.insert("boss".to_string(), bosses);
+        output.insert("owner".to_string(), owner);
+        output.insert("memberCount".to_string(), Value::from(member_count as u64));
+    }
+    // Go increment and notify-only WS both expose the viewer mode as one scalar string;
+    // retain that render-ready shape instead of inventing a nested notifyProps object.
+    output.insert(
+        "notifyProps".to_string(),
+        json_field_or_value(row, &["notify_props", "notifyProps"], json!({})),
+    );
+    output.insert("props".to_string(), json_field(row, &["props"], json!({})));
+    output.insert(
+        "source".to_string(),
+        json_field_or_value(row, &["source"], json!({})),
+    );
+    output.insert(
+        "picture".to_string(),
+        json_field(row, &["picture"], json!({})),
+    );
+    output.insert(
+        "targetUsers".to_string(),
+        json_field(row, &["target_users", "targetUsers"], json!([])),
+    );
+    output.insert(
+        "draft".to_string(),
+        json_field(row, &["draft"], Value::Null),
+    );
+    Value::Object(output)
+}
+
+/// Project every object in a channel scan while retaining empty channels.
+pub(crate) fn shape_channel_rows(rows: &Value) -> Value {
+    Value::Array(
+        rows.as_array()
+            .into_iter()
+            .flatten()
+            .filter(|row| row.is_object())
+            .map(shape_channel_row)
+            .collect(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn topic_inventory_projection_preserves_int64_precision() {
+        let rows = json!([{"id":"parent", "topic_inventory_version":9007199254740993_i64,"topic_inventory_ids":"[\"topic\"]","thread_count":1}]);
+        let shaped = shape_channel_rows(&rows);
+        assert_eq!(shaped[0]["topicInventoryVersion"], "9007199254740993");
+        assert_eq!(shaped[0]["topicChannelIds"], json!(["topic"]));
+    }
+
+    /// Channel scans expose the camel fields and a shaped last post to MessageV3.
+    #[test]
+    fn shapes_snake_channel_rows_without_dropping_empty_channels() {
+        let rows = json!([
+            {
+                "id": "channel-1",
+                "display_name": "测试群",
+                "type": "P",
+                "unread_count": 2,
+                "mention_count": 1,
+                "urgent_count": 3,
+                "has_urgent_post": 1,
+                "last_event_seq": 151,
+                "last_read_seq": 9,
+                "projection_revision": 12,
+                "is_top": 1,
+                "picture_type": "USER",
+                "picture": "{\"userIds\":[\"444\"]}",
+                "notify_props": "IGNORE",
+                "source": "sync_events",
+                "last_post": "{\"id\":\"post-1\",\"temporary_id\":\"tmp-1\",\"channel_id\":\"channel-1\",\"user_id\":\"444\",\"user_snapshot\":\"{\\\"userName\\\":\\\"破坏者\\\"}\",\"message\":\"回复消息\",\"type\":\"TEXT\"}"
+            },
+            { "id": "channel-2", "display_name": "空群" }
+        ]);
+
+        let shaped = shape_channel_rows(&rows);
+        assert_eq!(shaped[0]["displayName"], "测试群");
+        assert_eq!(shaped[0]["unreadCount"], 2);
+        assert_eq!(shaped[0]["urgentCount"], 3);
+        assert_eq!(shaped[0]["hasUrgentPost"], true);
+        assert_eq!(shaped[0]["lastEventSeq"], 151);
+        assert_eq!(shaped[0]["lastReadSeq"], 9);
+        assert_eq!(shaped[0]["projectionRevision"], 12);
+        assert_eq!(shaped[0]["channelIsTop"], true);
+        assert_eq!(shaped[0]["picture"]["userIds"][0], "444");
+        assert_eq!(shaped[0]["notifyProps"], "IGNORE");
+        assert_eq!(shaped[0]["source"], "sync_events");
+        assert_eq!(shaped[0]["lastPost"]["message"], "回复消息");
+        assert_eq!(shaped[1]["displayName"], "空群");
+        assert_eq!(shaped.as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn omits_split_roster_for_channel_only_rows() {
+        let shaped = shape_channel_row(&json!({
+            "id": "channel-only",
+            "members": "[]",
+            "admin_users": "[]",
+            "boss": "[]",
+            "owner": "{}",
+            "member_count": 0
+        }));
+
+        assert!(!shaped.as_object().unwrap().contains_key("members"));
+        assert!(!shaped.as_object().unwrap().contains_key("adminUsers"));
+        assert!(!shaped.as_object().unwrap().contains_key("boss"));
+        assert!(!shaped.as_object().unwrap().contains_key("owner"));
+        assert!(!shaped.as_object().unwrap().contains_key("memberCount"));
+    }
+
+    #[test]
+    fn keeps_complete_split_roster_and_total_member_count() {
+        let shaped = shape_channel_row(&json!({
+            "id": "channel-complete",
+            "members": "[{\"userId\":\"member-1\"}]",
+            "admin_users": "[{\"userId\":\"admin-1\"}]",
+            "boss": "[]",
+            "owner": "{\"userId\":\"owner-1\"}",
+            "member_count": 3
+        }));
+
+        assert_eq!(shaped["members"][0]["userId"], "member-1");
+        assert_eq!(shaped["adminUsers"][0]["userId"], "admin-1");
+        assert_eq!(shaped["boss"], json!([]));
+        assert_eq!(shaped["owner"]["userId"], "owner-1");
+        assert_eq!(shaped["memberCount"], 3);
+    }
+
+    /// Legacy negative urgent counters become zero without changing the urgent post list.
+    #[test]
+    fn clamps_negative_urgent_count_for_snake_and_camel_rows() {
+        let rows = json!([
+            {
+                "id": "channel-negative-snake",
+                "urgent_count": -2,
+                "urgent_post_list": "[\"post-1\"]"
+            },
+            {
+                "id": "channel-negative-camel",
+                "urgentCount": -3,
+                "urgentPostList": ["post-2"]
+            }
+        ]);
+
+        let shaped = shape_channel_rows(&rows);
+        assert_eq!(shaped[0]["urgentCount"], 0);
+        assert_eq!(shaped[0]["urgent_count"], 0);
+        assert_eq!(shaped[0]["urgentPostList"], json!(["post-1"]));
+        assert_eq!(shaped[1]["urgentCount"], 0);
+        assert_eq!(shaped[1]["urgentPostList"], json!(["post-2"]));
+    }
+
+    /// A single legacy negative row must not invalidate a twenty-row channel page.
+    #[test]
+    fn keeps_twenty_row_page_renderable_with_one_negative_urgent_count() {
+        let rows = Value::Array(
+            (0..20)
+                .map(|index| {
+                    json!({
+                        "id": format!("channel-{index}"),
+                        "urgent_count": if index == 7 { -1 } else { index },
+                    })
+                })
+                .collect(),
+        );
+
+        let shaped = shape_channel_rows(&rows);
+        assert_eq!(shaped.as_array().map(Vec::len), Some(20));
+        assert_eq!(shaped[7]["urgentCount"], 0);
+        assert_eq!(shaped[6]["urgentCount"], 6);
+        assert_eq!(shaped[19]["urgentCount"], 19);
+    }
+
+    /// 普通成员的邀请与移除能力必须独立，旧持久化角色也能生成邀请投影。
+    #[test]
+    fn invitation_is_independent_from_member_management() {
+        let member = shape_channel_row(&json!({"id":"c", "type":"P", "role":"MEMBER"}));
+        assert_eq!(member["canInviteMembers"], true);
+        assert_eq!(member["canManageMembers"], false);
+        for kind in ["O", "D", "T"] {
+            let row = shape_channel_row(&json!({"type":kind,"role":"MEMBER"}));
+            assert_eq!(row["canInviteMembers"], false);
+        }
+        let denied =
+            shape_channel_row(&json!({"type":"P","role":"MEMBER","canInviteMembers":false}));
+        assert_eq!(denied["canInviteMembers"], false);
+    }
+
+    /// Channel pages expose the Go-equivalent absolute capabilities for every persisted viewer role.
+    #[test]
+    fn projects_viewer_capabilities_from_authoritative_role() {
+        let rows = json!([
+            { "id": "creator", "type": "P", "role": "CREATOR", "mentionPermission": "MANAGER", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
+            { "id": "manager", "type": "P", "role": "MANAGER", "mentionPermission": "MANAGER", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
+            { "id": "boss", "type": "O", "role": "BOSS", "mentionPermission": "MANAGER", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
+            { "id": "member", "type": "P", "role": "MEMBER", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
+            { "id": "invalid", "type": "P", "role": "UNKNOWN", "noticePermission": "MANAGER", "topPermission": "MANAGER" },
+            { "id": "missing", "type": "P" }
+        ]);
+
+        let shaped = shape_channel_rows(&rows);
+        for id in ["creator", "manager", "boss"] {
+            let row = shaped
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == id)
+                .unwrap();
+            assert_eq!(row["canManageSettings"], true, "{id}");
+            assert_eq!(row["canManageMembers"], true, "{id}");
+            assert_eq!(row["canEditChannelSettings"], true, "{id}");
+            assert_eq!(row["canChangePermissions"], id != "manager", "{id}");
+            assert_eq!(row["canMentionAll"], true, "{id}");
+            assert_eq!(row["canPublishNotice"], true, "{id}");
+            assert_eq!(row["canPinMessage"], true, "{id}");
+        }
+        for id in ["member", "invalid", "missing"] {
+            let row = shaped
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == id)
+                .unwrap();
+            assert_eq!(row["canManageSettings"], false, "{id}");
+            assert_eq!(row["canManageMembers"], false, "{id}");
+            assert_eq!(row["canEditChannelSettings"], false, "{id}");
+            assert_eq!(row["canMentionAll"], false, "{id}");
+            assert_eq!(row["canPublishNotice"], false, "{id}");
+            assert_eq!(row["canChangePermissions"], false, "{id}");
+            assert_eq!(row["canPinMessage"], false, "{id}");
+        }
+    }
+
+    /// Invalid policy values and stringly-typed booleans never grant a capability.
+    #[test]
+    fn fails_closed_for_invalid_policy_and_boolean_values() {
+        let shaped = shape_channel_row(&json!({
+            "id": "invalid-policy",
+            "type": "O",
+            "role": "BOSS",
+            "noticePermission": "UNKNOWN",
+            "topPermission": "UNKNOWN",
+            "can_publish_notice": "true",
+            "can_pin_message": 2
+        }));
+        assert_eq!(shaped["canPublishNotice"], false);
+        assert_eq!(shaped["canPinMessage"], false);
+        assert_eq!(shaped["canManageMembers"], true);
+    }
+
+    /// Persisted absolute fields win over role fallback and remain JSON booleans.
+    #[test]
+    fn preserves_persisted_viewer_capabilities_without_role_inference() {
+        let shaped = shape_channel_row(&json!({
+            "id": "channel-1",
+            "role": "MEMBER",
+            "can_manage_settings": 1,
+            "canManageMembers": false,
+        }));
+
+        assert_eq!(shaped["canManageSettings"], true);
+        assert_eq!(shaped["canManageMembers"], false);
+    }
+
+    /// 角色读回使用 OWNER/ADMIN 别名时，viewer capability 仍按 CREATOR/MANAGER 计算。
+    #[test]
+    fn normalizes_owner_and_admin_aliases_for_role_readback() {
+        let owner = shape_channel_row(&json!({
+            "id": "owner-readback",
+            "role": "OWNER",
+        }));
+        assert_eq!(owner["canEditChannelSettings"], true);
+        assert_eq!(owner["canManageMembers"], true);
+        assert_eq!(owner["canMentionAll"], true);
+        assert_eq!(owner["canPublishNotice"], true);
+        assert_eq!(owner["canChangePermissions"], true);
+        assert_eq!(owner["canPinMessage"], true);
+
+        let admin = shape_channel_row(&json!({
+            "id": "admin-readback",
+            "role": "ADMIN",
+            "mentionPermission": "MANAGER",
+            "noticePermission": "MANAGER",
+            "topPermission": "MANAGER",
+        }));
+        assert_eq!(admin["canEditChannelSettings"], true);
+        assert_eq!(admin["canManageMembers"], true);
+        assert_eq!(admin["canMentionAll"], true);
+        assert_eq!(admin["canPublishNotice"], true);
+        assert_eq!(admin["canChangePermissions"], false);
+        assert_eq!(admin["canPinMessage"], true);
+    }
+
+    /// 回归锚: legacy channel rows use the durable update timestamp as the Go CAS version.
+    #[test]
+    fn restores_cas_versions_from_legacy_updated_at_rows() {
+        let shaped = shape_channel_row(&json!({
+            "id": "channel-cas-version",
+            "type": "P",
+            "role": "CREATOR",
+            "updated_at": 1_786_001_262_956_i64,
+        }));
+
+        assert_eq!(shaped["settingVersion"], 1_786_001_262_956_i64);
+        assert_eq!(shaped["permissionRevision"], 1_786_001_262_956_i64);
+
+        let explicit = shape_channel_row(&json!({
+            "id": "channel-explicit-version",
+            "updated_at": 10_i64,
+            "setting_version": 11_i64,
+            "permission_revision": 12_i64,
+        }));
+
+        assert_eq!(explicit["settingVersion"], 11_i64);
+        assert_eq!(explicit["permissionRevision"], 12_i64);
+    }
+    /// 私聊不允许置顶，即使旧持久化权限或创建者角色曾放行。
+    #[test]
+    fn direct_channels_never_grant_pin_capability() {
+        for role in ["CREATOR", "MANAGER", "MEMBER"] {
+            for key in ["canPinMessage", "can_pin_message"] {
+                let mut row =
+                    json!({"id":"direct","type":"D","role":role,"topPermission":"MEMBER"});
+                row[key] = json!(true);
+                assert_eq!(shape_channel_row(&row)["canPinMessage"], false);
+            }
+        }
+    }
+}

@@ -1,0 +1,70 @@
+%% helix-driver-native — BoundedSpawner 统一背压模型（刀2-driver）
+%% 真源：helix-driver-host/src/spawner.rs（BoundedSpawner / Overflow / submit）· native 只负责装配
+%% 一个原语四类实例化：有界 mpsc(cap=K) + N worker + 溢出策略 + 独立 unbounded reply_tx
+%% 五不变量见 crate AGENTS.md；🔴 = 死锁红线
+flowchart TD
+    PUMP["事件泵主循环（单生产者）<br/>dispatch_effects 内 submit"]
+
+    subgraph PERSIST["① Persist BoundedSpawner ✅（per-table-set 懒建）"]
+        PQ["有界 mpsc 队列 cap=1024"]
+        PW["N=1 worker（单消费者保写序，不变量③）"]
+        PQ --> PW
+        PO{"溢出=Block ✅<br/>队满 submit().await 阻塞泵<br/>背压传导回 tick_tx（慢而不丢）"}
+    end
+
+    subgraph HTTP["② Http BoundedSpawner ✅（全局单例·必达）"]
+        HQ["有界 mpsc 队列 cap=1024"]
+        HW["N=max_http_inflight (默认8) worker<br/>抢同一队列 recv（旧 Semaphore 闸收敛进 N worker）"]
+        HQ --> HW
+        HO{"溢出=Block ✅<br/>第 N+1 条在队列等 worker·不并发齐发<br/>满则阻塞泵传导背压·绝不 drop（必达）"}
+    end
+
+    subgraph HTTPFIRE["③ HttpFire BoundedSpawner ⚠️（全局单例·可丢）"]
+        FQ["有界 mpsc 队列 cap=1024"]
+        FW["N=max_http_inflight（默认8） worker"]
+        FQ --> FW
+        FO{"溢出=DropNewest ⚠️<br/>try_send 满即丢本条（最新来的）+ warn<br/>泵永不阻塞·丢失靠 cursor-gate 重发自愈"}
+        FNOTE["⚠️ 当前零生产者<br/>helix-im 三 Http 均必达<br/>与 http_pool 类型对称 eager 建<br/>第二模块接入时重审/删"]
+    end
+
+    subgraph UPLOAD["④ UploadFile BoundedSpawner ✅（独立池·必达）"]
+        UQ["有界 mpsc 队列 cap=1024"]
+        UW["N=max_http_inflight（默认8） worker<br/>FileUploader + progress reporter"]
+        UO{"溢出=Block ✅<br/>上传终态回 PortReply；进度回 PortProgress"}
+        UQ --> UW
+    end
+
+    PUMP -->|"Effect::Persist/PersistFire<br/>routing key = 涉及全部 table 名"| PO
+    PUMP -->|"Effect::Http（corr）"| HO
+    PUMP -->|"Effect::HttpFire（无 corr）"| FO
+    PUMP -->|"Effect::UploadFile（corr）"| UO
+
+    PO -->|未满立即返回| PQ
+    HO -->|未满立即返回| HQ
+    FO --> FQ
+    FNOTE -.-> HTTPFIRE
+
+    %% ── worker 抽水（独立 task，红线②）──
+    PW -->|"run = execute_storage_ops → host SQLite"| PIO["host Storage 落盘 ✅"]
+    HW -->|"run = run_http → reqwest"| HIO["host HTTP 出站 ✅"]
+    FW -->|"run = run_http → reqwest"| HIO
+    UW -->|"run = FileUploader::upload → HTTP PUT"| UIO["host upload + progress ✅"]
+
+    %% ── PortReply 回灌（独立 unbounded，红线①）──
+    RTX["reply_tx (unbounded mpsc) ✅"]
+    PIO ==>|"corr=Some → PortReply"| RTX
+    HIO ==>|"corr=Some → PortReply"| RTX
+    UIO ==>|"corr=Some → PortReply；progress → PortProgress"| RTX
+    RTX ==>|biased 优先消费| PUMP
+
+    subgraph REDLINE["🔴 死锁安全（单向 DAG：泵等 worker·worker 不等泵）"]
+        R1["🔴 红线①：reply_tx 必须 unbounded<br/>有界 + 泵唯一消费 → Block 死锁环：<br/>泵 block 入队 → 不消费 reply → reply 满<br/>→ worker block 回报 → 不抽队列"]
+        R2["🔴 红线②：抽水绝不放泵循环<br/>任何 dispatch 末尾 await worker = 自死锁<br/>抽水物理在独立 worker task·submit 即返回"]
+    end
+
+    classDef gap fill:#fff3cd,stroke:#d39e00,color:#663c00
+    classDef red fill:#f8d7da,stroke:#dc3545,color:#721c24
+    classDef ok fill:#d4edda,stroke:#28a745,color:#155724
+    class FO,FW,FQ,FNOTE,HTTPFIRE gap
+    class RTX,R1,R2,REDLINE red
+    class PO,HO,UPLOAD,UO,PIO,HIO,UIO ok

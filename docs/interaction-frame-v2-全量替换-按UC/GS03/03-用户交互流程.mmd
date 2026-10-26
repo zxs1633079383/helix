@@ -1,0 +1,16 @@
+sequenceDiagram
+    actor User as 用户或系统
+    participant UI as MessageV4
+    participant Port as CommandPort
+    participant Helix as Helix IM
+    participant Infra as HTTP/WS/SQLite
+    participant Runtime as SurfaceRuntime
+
+    User->>UI: pong.gaps 或 hash mismatch
+    UI->>Port: Native transport -&gt; Helix sync scheduler；Angular 只消费 Frame runtime
+    Port->>Helix: im_sync_channels
+    Helix->>Infra: Effect batch
+    Infra-->>Helix: PersistOk / authority result
+    Helix-->>Runtime: InteractionFrameV2 (interaction.runtime)
+    Runtime-->>UI: atomic typed VM publish
+    Runtime-->>Helix: FrameApplied

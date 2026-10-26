@@ -1,0 +1,49 @@
+%% helix-driver-ffi — F4 后数据流
+%% 真源：api.rs / pump.rs / event_sink.rs / helix-driver-host::engine
+
+flowchart TD
+    subgraph INPUT["输入源"]
+        CMD["C++/Flutter → helix_command<br/>name + payload 立即拷贝"]
+        WSIN["SharedWsClient 读任务<br/>入站 WS frame"]
+        TIMER["host engine timer"]
+        PORT["host dispatch PortReply<br/>Persist / Http"]
+    end
+
+    subgraph TICK["Tick 队列"]
+        TCMD["Tick::Command"]
+        TIN["Tick::Inbound"]
+        TTIMER["Tick::Timer"]
+        TREPLY["Tick::PortReply"]
+    end
+
+    subgraph ENGINE["共享 host engine 核"]
+        SHELL["ExecutionShell::handle"]
+        EFFECTS["Vec<Effect>"]
+        DISPATCH["helix-driver-host dispatch<br/>按 StorageOp 表集合保序"]
+    end
+
+    subgraph PORTS["FFI 装配的 port 实现"]
+        STORE["HostStorage<br/>rusqlite shared storage<br/>BatchDelete 等 StorageOp 单一真源"]
+        HTTP["FfiHttpRequester<br/>SharedHttpClient"]
+        WS["SharedWsClient<br/>Effect::Send"]
+        SINK["FfiEventSink<br/>step 末尾批量 flush"]
+    end
+
+    HOST["CppHostVtable::on_domain_events_batch<br/>一次回调携带整批事件"]
+
+    CMD --> TCMD
+    WSIN --> TIN
+    TIMER --> TTIMER
+    PORT --> TREPLY
+
+    TCMD --> SHELL
+    TIN --> SHELL
+    TTIMER --> SHELL
+    TREPLY --> SHELL
+    SHELL --> EFFECTS --> DISPATCH
+
+    DISPATCH -->|"Effect::Persist / PersistFire"| STORE
+    DISPATCH -->|"Effect::Http / HttpFire"| HTTP
+    DISPATCH -->|"Effect::Send"| WS
+    DISPATCH -->|"Effect::Emit"| SINK
+    SINK --> HOST

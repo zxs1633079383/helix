@@ -1,0 +1,11 @@
+flowchart LR
+    A["切换频道；上拉更早历史"] --> B["Surface attach/resync + direct query"]
+    B --> C["im_query_messages_by_channel / im_load_older_context"]
+    C --> D["ImModule::handle"]
+    D --> E["Effect: local_scan / http_read / storage_upsert / projection"]
+    E --> F{"PersistOk / authority read"}
+    F --> G["InteractionFrameV2 schemaVersion=2"]
+    G --> H["Surface: message.timeline"]
+    H --> I["Native opaque sink"]
+    I --> J["SurfaceRuntime atomic apply"]
+    J --> K["首屏窗口与向前补窗 UI"]

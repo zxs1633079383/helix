@@ -1,0 +1,2673 @@
+{
+  "observedAt": "2026-09-07T07:37:27.339Z",
+  "evidenceLevel": "QUERY_API_ACCEPTANCE",
+  "promUrl": "http://192.168.6.66:30090",
+  "lokiUrl": "http://192.168.6.66:31000",
+  "snapshot": "../../docs/Metrics/客户端指标快照-2026-09-07.json",
+  "sourceRevision": "fb5346a09487d538c7dc674bc5d1f5138f5eb836",
+  "clientSourceRevision": "8d465d287fde43f8a1bfb7b3d5ffc735404d288c",
+  "selector": "{service_name=\"cses-client-pre\",__name__=~\"im_.*|otel_helix_.*\"}",
+  "realBusinessTriggered": false,
+  "runtimeRevisionVerified": false,
+  "diagnosticsStatus": "PLANNED_NO_PRODUCER",
+  "passed": 332,
+  "failed": 0,
+  "results": [
+    {
+      "panelId": 2,
+      "refId": "A",
+      "source": "loki",
+      "scope": "global",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 2,
+      "refId": "A",
+      "source": "loki",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 3,
+      "refId": "A",
+      "source": "loki",
+      "scope": "global",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 3,
+      "refId": "A",
+      "source": "loki",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 4,
+      "refId": "A",
+      "source": "loki",
+      "scope": "global",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 4,
+      "refId": "A",
+      "source": "loki",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 5,
+      "refId": "A",
+      "source": "loki",
+      "scope": "global",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 5,
+      "refId": "A",
+      "source": "loki",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 6,
+      "refId": "A",
+      "source": "loki",
+      "scope": "global",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 6,
+      "refId": "A",
+      "source": "loki",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 7,
+      "refId": "A",
+      "source": "loki",
+      "scope": "global",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 7,
+      "refId": "A",
+      "source": "loki",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 8,
+      "refId": "A",
+      "source": "loki",
+      "scope": "global",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 8,
+      "refId": "A",
+      "source": "loki",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 9,
+      "refId": "A",
+      "source": "loki",
+      "scope": "global",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 9,
+      "refId": "A",
+      "source": "loki",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 10,
+      "refId": "A",
+      "source": "loki",
+      "scope": "global",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 10,
+      "refId": "A",
+      "source": "loki",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 13,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 13,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 13,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 13,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 13,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 13,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 14,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 14,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 14,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 14,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 14,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 14,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 15,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 15,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 15,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 15,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 15,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 15,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 16,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 16,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 16,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 16,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 16,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 16,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 18,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 18,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 19,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 19,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 19,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 19,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 19,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 19,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 20,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 20,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 20,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 20,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 20,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 20,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 21,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 21,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 22,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 6
+    },
+    {
+      "panelId": 22,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 23,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 23,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 24,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 24,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 25,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 25,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 25,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 25,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 25,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 25,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 26,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 26,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 28,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 28,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 28,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 28,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 28,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 28,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 29,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 29,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 29,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 29,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 29,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 29,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 30,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 30,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 30,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 30,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 30,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 30,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 31,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 31,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 31,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 31,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 31,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 31,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 32,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 32,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 33,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 33,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 33,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 33,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 33,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 33,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 34,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 34,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 34,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 34,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 34,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 34,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 35,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 35,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 37,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 37,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 38,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 38,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 38,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 38,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 38,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 38,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 39,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 39,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 39,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 39,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 39,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 39,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 40,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 40,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 40,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 40,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 40,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 40,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 41,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 41,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 41,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 41,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 41,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 41,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 42,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 42,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 44,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 44,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 44,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 44,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 44,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 44,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 46,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 46,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 47,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 47,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 47,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 47,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 47,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 47,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 48,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 48,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 48,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 48,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 48,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 48,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 49,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 49,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 50,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 50,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 51,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 51,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 51,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 51,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 51,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 51,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 52,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 52,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 53,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 53,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 54,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 54,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 55,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 55,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 56,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 56,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 57,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 57,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 57,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 57,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 57,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 57,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 58,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 58,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 58,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 58,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 58,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 58,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 59,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 59,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 60,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 60,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 60,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 60,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 60,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 60,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 61,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 61,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 63,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 63,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 63,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 63,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 63,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 63,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 64,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 64,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 64,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 64,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 64,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 64,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 65,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 65,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 66,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 66,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 67,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 67,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 67,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 67,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 67,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 67,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 69,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 69,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 69,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 69,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 69,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 69,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 70,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 70,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 70,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 70,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 70,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 70,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 71,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 2
+    },
+    {
+      "panelId": 71,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 72,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 2
+    },
+    {
+      "panelId": 72,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 73,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 73,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 73,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 73,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 73,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 73,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 74,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 74,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 75,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 75,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 76,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 76,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 76,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 76,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 76,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 76,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 77,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 77,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 78,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 78,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 78,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 78,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 78,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 78,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 80,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 80,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 80,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 80,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 80,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 80,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 82,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 82,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 83,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 83,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 83,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 83,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 83,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 83,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 84,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 84,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 85,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 85,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 85,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 85,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 85,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 85,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 86,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 86,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 88,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 88,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 88,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 88,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 88,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 88,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 89,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 89,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 90,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 90,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 90,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 90,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 90,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 90,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 91,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 91,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 91,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 91,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 91,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 91,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 92,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 92,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 92,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 92,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 92,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 92,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 93,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 93,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 93,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 93,
+      "refId": "B",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 93,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 1
+    },
+    {
+      "panelId": 93,
+      "refId": "C",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 95,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 95,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 96,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 96,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 97,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 97,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 98,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "global",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 98,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "user",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 13,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "tenant_id",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 13,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "channel_id",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 13,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "login_attempt_id",
+      "status": "PASS",
+      "series": 0
+    },
+    {
+      "panelId": 13,
+      "refId": "A",
+      "source": "prometheus",
+      "scope": "device_session_id",
+      "status": "PASS",
+      "series": 0
+    }
+  ]
+}

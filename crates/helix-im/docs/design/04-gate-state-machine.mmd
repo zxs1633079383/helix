@@ -1,0 +1,49 @@
+%% RETIRED_HISTORICAL: 旧模块布局与 raw im:* 事件阶段快照，不作为当前实现真源。
+%% helix-im 设计图 04 —— channel gate 三阶段状态机（peek/落库/commit + cursor 单调 + too_long）
+%% 真源: src/channel.rs（Channel::{ingest,on_persist_ok,peek_up_to,commit_cursor,reset_for_too_long,buffer_and_arm_gate}）
+%% 关联: HX-C005（event_to_upsert_op 单 INSERT O(1) ON CONFLICT temporary_id，无 read-modify-write）
+%%        HX-C008（cursor 单调不回退 · gate 缺口续拉 · too_long 清内存不清表）
+stateDiagram-v2
+    [*] --> Synced: Channel::new(initial_cursor)
+
+    note left of Synced
+      不变量（channel.rs）✅
+      1. cursor 单调不减（MAX guard try_advance）
+      2. cursor 只在写成功后推（WS PersistFire 幂等 / sync PortReply Ok）
+      3. seq <= cursor 一律 dup drop（幂等去重）
+      4. WS=flush_contiguous（严格+1，遇空洞停）
+         sync=peek/commit（跳空洞到权威 next_seq）
+    end note
+
+    Synced --> Synced: ingest seq == cursor+1\napply_and_flush_contiguous ✅\nPersistFire upsert(O(1)) + try_advance\n+ emit im:post:received + flush 连续段
+    Synced --> Synced: ingest seq <= cursor\ndup drop（幂等，零副作用）
+
+    Synced --> Gapped: ingest seq > cursor+1\nbuffer.insert + arm 1s gate timer\n（gate=Some, expected=cursor+1）⚠️缺口
+    Gapped --> Gapped: 再来乱序事件\n只入 buffer，不重复 arm（gate.is_some）
+    Gapped --> Gapped: 收到 cursor+1 的事件\nflush_contiguous_from_buffer\n连续段一次性放行 + cursor 推进
+    Gapped --> Synced: buffer 连续段补齐到无缺口
+
+    Gapped --> SyncPull: gate 1s timer fire（handle_timer）\nEffect::Http sync/notify(fromSeq=cursor)\ngate=None + inflight_sync 守卫（B1）
+
+    state "sync 权威三阶段（peek→落库→commit）" as SyncPull {
+        [*] --> Peek
+        Peek: ① peek_up_to(target)（只读预览 ops，不推 cursor）
+        Peek --> Persisting: ② out.push Persist{corr, ops}（driver 落库）\npending_commits[corr]=commit_target
+        Persisting --> Committed: ③ PortReply Ok → on_persist_ok\ncommit_cursor(MAX guard) + buffer.retain(>target)\n+ flush_contiguous_from_buffer
+        Persisting --> PersistFail: ③' PortReply Err ⚠️\ncursor 不推进 + last_sync_from_seq=None（待 re-sync 恢复）
+        Committed --> [*]
+        PersistFail --> [*]
+    }
+    SyncPull --> Synced: commit 完成 cursor 推到权威水位
+
+    Gapped --> TooLong: buffer.len ≥ 16384（MAX_GATE_BUFFER）\n或 sync 返回 TooLong{reset_to}
+    Synced --> TooLong: sync 返回 TooLong{reset_to}
+    state "too_long 兜底" as TooLong {
+        note right of TooLong
+          清内存 buffer + gate=None ⚠️
+          cursor 复位 reset_to-1（不回退已落地数据）
+          emit im:sync:too_long（前端清表全量重拉）
+          SQLite 数据不清——靠 upsert 覆盖（HX-C008）
+        end note
+    }
+    TooLong --> SyncPull: 从 cursor+1 重拉缺口

@@ -1,0 +1,19 @@
+flowchart LR
+  I["Intent<br/>打开频道或显式标记频道已读"]
+  C["Canonical ingress<br/>direct command；markChannelRead ActionBinding 仍未审计"]
+  H["Helix<br/>Tick -> Effect -> Persist barrier"]
+  A["Authority<br/>Go HTTP / WS / SQLite / PG"]
+  F["InteractionFrameV2<br/>DialogListVm 对应行 badges 清零并与 UnreadSummaryVm 在同一 Frame 原子更新；read completion 必须绑定 viewer/channel authority"]
+  PC["PC<br/>WDIO Mock -> real invoke -> dual real"]
+  MOB["Mobile<br/>GN GTest -> FFI -> Venus"]
+  R["Unified report<br/>command/effect/store/frame/ack/render"]
+
+  I --> C --> H
+  H --> A --> H
+  H --> F
+  F --> PC --> R
+  F --> MOB --> R
+
+  X["FORBIDDEN<br/>端侧业务 reducer / raw fallback / receipt 冒充终态"]
+  X -.fail closed.-> PC
+  X -.fail closed.-> MOB

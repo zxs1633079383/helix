@@ -1,0 +1,59 @@
+%% Phase1 / schedule / MV3-G04e 定时消息立即发送
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/schedule/mv3-g04e/contract.json
+%% UI owners: packages/message/src/lib/components/chat-input/chat-input.component.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant PS as Pending or local state
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员点提示条上的「立即发送」，消息马上出现在时间线，提示条消失且不会到点二次发送
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=partial；helix=full；dual=yes；personaLocal=no；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: sendMessage + cancelSchedule(payload)
+    Gate->>Native: invokeAccepted("im_send_message + im_cancel_schedule", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_send_message + im_cancel_schedule", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_send_message + im_cancel_schedule", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 把待发定时消息改为立刻发出 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /posts/create + POST /posts/cancelSchedule
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Host: Effect::PersistAtomic(projection + cursor)
+  Host->>DB: transaction schedule + channel + cursor
+  DB-->>Host: PortReply(PersistOk)
+  Host->>E: Tick::PortReply(PersistOk)
+  E->>IM: release only matching authority corr
+  IM->>Host: Effect::Persist ScopedGet(readback)
+  Host->>DB: durable readback
+  DB-->>Host: PortReply(readback)
+  Host->>E: Tick::PortReply(readback)
+  E->>IM: readback is the projection source
+  IM->>Sink: Effect::Emit {event,data}（im:post:received，im:channel:update-by-post，im:channel:schedule-canceled）
+  Sink-->>UI: Native im:__bus__ 原始事件 → adapter 映射 kind → Angular 消费
+  Sink-->>FFI: FFI batch raw {event,data}
+  Sink-->>Web: Web EventBatch raw {event,data}
+  alt HTTP / PortReply / Persist error
+    IM->>IM: keep prior durable state；attach structured error to corr_key
+    IM-->>E: Err or correlated error result
+    E-->>Gate: controlled failure
+    Gate-->>UI: error / empty state；不得伪造成功事件
+  end
+  Note over IM,DB: 关键效果：发送成功后发送者侧 channel.unreadCount 绝对归零（== 0，不是递减）；频道内其它可见成员的 getMemberUnread(channelId, otherUserId).unreadCount 相比发送前恰好 +1（幂等累加）；该值必须各侧独立计算，禁止用发送者数值推导；message.readBits 长度 == channel.members.length，位序 == channel.members 顺序，发送者对应位 == '1'；接收者对应位在其调用 postRead 之前恒为 '0'，不得因发送者已读而被置 '1'
+  Note over UI,Web: 关键负向：不得留下未取消的定时（否则到点二次发送，同一条消息出现两次）；提示条清理必须按 temporaryId 精确比对，不得凭 channelId 一律清空（会误清另一条待发）；权威成功由 Helix 按 temporaryId 对账；客户端绑定投影，不重建发送状态机
+  Note over E,Sink: 原始事件名（按触发分支）：im:post:received，im:channel:update-by-post，im:channel:schedule-canceled；客户端 kind/action 由 adapter 映射，不是原始 Emit 名称

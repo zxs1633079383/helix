@@ -1,0 +1,12 @@
+{
+  "data": {
+    "chainId": "chain-a",
+    "channelId": "chfixx00000000000000000001",
+    "clientMutationId": "timeout",
+    "command": "category_chain_set_participation",
+    "errorCode": "TRANSPORT_TIMEOUT",
+    "state": "RECONCILING",
+    "viewerId": "user-a"
+  },
+  "event": "im:category_chain:operation"
+}

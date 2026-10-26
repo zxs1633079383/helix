@@ -1,0 +1,44 @@
+flowchart TD
+    START["执行者记录 runId / actor / tenant / sessionEpoch / 初始 slot revision"] --> CONNECT["GS01: Tick::Connected"]
+    CONNECT --> HELLO["Tick::Inbound hello"]
+    HELLO --> CURSOR["Effect::StorageScan channel_event_cursor"]
+    CURSOR --> INITIAL["Effect::Http LoadIncrement cursors"]
+
+    subgraph TRIGGERS["四种同步入口"]
+        INITIAL --> GS01["GS01: increment entries"]
+        NOTIFY["GS02: WS sync notify"] --> SYNC_HTTP["Effect::Http SyncNotify affected cursors"]
+        PONG["GS03: Tick::Inbound pong with gap"] --> RUNTIME_SYNC["Frame v2: runtime.recovery=syncing only"]
+        RUNTIME_SYNC --> GAP_HTTP["Effect::Http SyncNotify or reset/reload plan"]
+        UNKNOWN["GS04: unknown channel from post / deep link / sync"] --> HYDRATE_HTTP["Effect::Http LoadIncrementByChannelId"]
+    end
+
+    GS01 --> FACTS["Normalize to SyncBatchFacts\nChannel / Member / Message / ViewerState / cursor"]
+    SYNC_HTTP --> FACTS
+    GAP_HTTP --> FACTS
+    HYDRATE_HTTP --> FACTS
+
+    FACTS --> VALIDATE{"identity / event sequence / cursor / scope valid?"}
+    VALIDATE -->|"no"| RECOVERY["Do not advance cursor\nrecord structured failure / request authoritative recovery"]
+    RECOVERY --> KEEP_CACHE["Frame Cache keeps last committed slots\nruntime=failed or syncing"]
+
+    VALIDATE -->|"yes"| PERSIST["Effect::PersistAtomic\nfacts and cursor in one write set"]
+    PERSIST --> PERSIST_OK{"Tick::PortReply PersistOk?"}
+    PERSIST_OK -->|"no"| NO_BUSINESS_FRAME["No final business Frame\nno cursor advance\ncollect storage failure evidence"]
+    NO_BUSINESS_FRAME --> KEEP_CACHE
+
+    PERSIST_OK -->|"yes"| COMPOSE["helix-im SurfaceComposer\nattach-aware impact policy\nstable ordering / revision / action grants"]
+    COMPOSE --> IMPACT{"Committed facts came from which gate?"}
+    IMPACT -->|"GS01 / GS02 / GS03"| GS01_FRAME["GS01/GS02/GS03 Frame\nruntime plus affected dialog / unread / timeline / thread"]
+    IMPACT -->|"GS04"| GS04_FRAME["GS04 Frame\nsummary + composer bundle first\ntimeline only when attached"]
+
+    GS01_FRAME --> CACHE["PC / Mobile Frame Cache\nvalidate schema, scope, epoch, revision, baseRevision\ncopy-on-write atomic apply"]
+    GS04_FRAME --> CACHE
+    CACHE --> APPLY{"entire Frame valid?"}
+    APPLY -->|"no"| RESYNC["Reject whole Frame\nrequest slot snapshot resync\nnever replay raw emit"]
+    APPLY -->|"yes"| APPLIED["FrameApplied transactionId\nthen execute UiDirective and DirectiveApplied"]
+    APPLIED --> UI["Global runtime.syncing visible\nexisting valid actions remain usable\nGS04 composer actionRef appears only after bundle apply"]
+
+    classDef success fill:#d7f5df,stroke:#287a3d,color:#122
+    classDef failure fill:#ffe2e2,stroke:#a43a3a,color:#211
+    class PERSIST_OK,APPLY success
+    class RECOVERY,KEEP_CACHE,NO_BUSINESS_FRAME,RESYNC failure

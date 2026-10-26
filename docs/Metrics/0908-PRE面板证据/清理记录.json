@@ -1,0 +1,48 @@
+{
+  "time": "2026-09-08T06:05:59.387538+00:00",
+  "hosts_running": 0,
+  "port_forward_stopped": [
+    78136
+  ],
+  "removed_private_files": [
+    "actor.json",
+    "actor-v2.json",
+    "actor-v3.json",
+    "actor-final.json",
+    "actor.db",
+    "actor.db-wal",
+    "actor.db-shm",
+    "peer.json",
+    "peer-v2.json",
+    "peer-v3.json",
+    "peer-final.json",
+    "peer.db",
+    "peer.db-wal",
+    "peer.db-shm",
+    "identities.json"
+  ],
+  "remote_cleanup": {
+    "639tqcozgbbsfyrjw6nzd9sjoa": {
+      "status": "SUCCESS",
+      "matching": [
+        {
+          "id": "639tqcozgbbsfyrjw6nzd9sjoa",
+          "delete_at": null,
+          "deleteAt": 1788846320587,
+          "is_active": null
+        }
+      ]
+    },
+    "355rupjbofy8x8uchwsxpson9a": {
+      "status": "SUCCESS",
+      "matching": [
+        {
+          "id": "355rupjbofy8x8uchwsxpson9a",
+          "delete_at": null,
+          "deleteAt": 1788847231926,
+          "is_active": null
+        }
+      ]
+    }
+  }
+}

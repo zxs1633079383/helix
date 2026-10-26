@@ -1,0 +1,15 @@
+# Helix Harness 跨卡复现日志
+
+> 每次再次踩到任一 HX-C{NNN} 的坑 → 这里追一行 + 对应卡 §5 +1 + frontmatter recurrence_count +1（同 commit 三同步）。
+
+| 日期 | 卡 | session/commit | 现象 | 处置 |
+|---|---|---|---|---|
+| 2026-06-08 | HX-C001..C007 | 多专家 review wf_281205c2 | 首批 7 条约束建立（3 blocker + 5 major review 发现 + Dioxus 对照 + runtime-agnostic 规约）| 卡片创建 |
+| 2026-06-15 | HX-C005 | a0595607 review / commit c6a655a | a0595607 重构把 cursor 热路径 monotonic_upsert SQL 用 per-call `format!` 重建 String（stress-verify 对抗审揪出）| SQL 提 `&'static const`；batch 路径按形状缓存留 ROADMAP P2 E9。scope_key:String 是运行时值非违反 |
+| 2026-06-16 | HX-C008 | B3 修复（本会话）| 139 个 `sync response missing 'type'`：parser 按废弃抽象 `{type:...}` 解，真 wire 是 `{status,data:{entries:[SyncEntry]}}`；用户 challenge 后核 cses-client + Go 实证定契约 | 新建 HX-C008；parser 切真 wire + cursor 锚 nextSeq + 续拉 len≥500 + 回归测试 |
+| 2026-06-18 | HX-C010 | NS-1 修复 `2d50405`（北极星 review wf_69cf287f）| proactive-resync 从 std HashMap/HashSet 迭代序产有序 sync Effect + 单调 corr，SipHash 随机种子→同输入不同输出，破坏可回放（lifecycle_test 只断 len 掩盖乱序）| 新建 HX-C010；迭代前 `sort_unstable` 锚 ChannelId 升序 + 确定性回放测试；过回放闸门（不误伤既往 trap）|
+| 2026-06-21 | HX-C012 | 本会话「修复候选和f5」3418ac7/2664cfd | 新建 HX-C012（实质任务须开局 EXPECT·用户拍板）+ **建卡当会话即自指复发**：修复任务自身漏写开局 EXPECT | 建卡；recurrence 即记 2→3（finalize+a80cc49+本次自指）；如实记非补假 EXPECT（守 §3）；同根达 3 部分缓解回放闸门 HOLD |
+| 2026-06-23 | HX-C014 | 早安日志复盘（06-22 198 条）| 分支身份迷失：「你在哪个分支/dev-zlc 能合吗/删这个分支」一天 ≥6 次；本会话又误判主仓在 main（实际 ci/test-harbor-runner）| 新建 HX-C014 + `scripts/branch-identity.sh`（自陈，full/--session 两模式）+ SESSION §0 置顶 🧭 BRANCH-ID 唯一行；用户明确要求实现 |
+| 2026-06-23 | HX-C015 | 早安日志复盘（06-22 198 条 + 06-07 cron 119 次）| 「等 workflow/drift-review 跑完报告结果」手工催 ≥5 次 + 历史固定 10min cron 110+ 空转 | 新建 HX-C015；harness 完成自动 task-notification 回灌，禁手工轮询；外部不可追踪态才 /loop；用户明确要求实现 |
+| 2026-07-14 | HX-C003 | A4 Web Rust platform driver | `linkme` 在 native 正常，`wasm32-unknown-unknown` final build 才暴露不支持 constructors | 注册单轨迁到 `inventory`；HX-C003 激活为 native test + wasm final build + 双目标依赖边界守护 |
+| 2026-07-15 | HX-C018 | ADR-015 / dioxus-dev+crux-dev 双审查 | 旧 GOAL 把 Headless 限成数据 ViewModel-only，导致新 InteractionProtocol 被旧边界反向否决 | 用户拍板修正 GOAL；统一语义 view tree/action/directive，保留具体平台 UI 红线；新建 HX-C018 |

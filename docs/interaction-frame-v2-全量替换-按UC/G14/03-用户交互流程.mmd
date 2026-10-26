@@ -1,0 +1,16 @@
+sequenceDiagram
+    actor User as 用户或系统
+    participant UI as MessageV4
+    participant Port as CommandPort
+    participant Helix as Helix IM
+    participant Infra as HTTP/WS/SQLite
+    participant Runtime as SurfaceRuntime
+
+    User->>UI: 单条可见上报；模板确认已收到
+    UI->>Port: markMessageRead/markTemplateReceived → im_post_read / im_template_received
+    Port->>Helix: im_post_read / im_template_received
+    Helix->>Infra: Effect batch
+    Infra-->>Helix: PersistOk / authority result
+    Helix-->>Runtime: InteractionFrameV2 (message.participant-receipts / message.timeline)
+    Runtime-->>UI: atomic typed VM publish
+    Runtime-->>Helix: FrameApplied

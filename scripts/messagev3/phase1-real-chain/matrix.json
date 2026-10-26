@@ -1,0 +1,141 @@
+{
+  "$schema": "messagev3-phase1-real-chain-matrix/v1",
+  "phase": 1,
+  "gateRegistry": "specs/047-im-event-gate-inventory/contracts/message-v3-phase1-send.registry.json",
+  "clientManifest": "scripts/message-v3/reference/phases/phase1.manifest.json",
+  "clientDomainMatrix": "tests/e2e/wdio/phase1/config/domain-matrix.mjs",
+  "domains": [
+    {
+      "id": "channel-setup",
+      "name": "真实建群前置",
+      "runs": [
+        {
+          "lane": "single-real",
+          "suite": "single-real-channel-send",
+          "spec": "tests/e2e/wdio/phase1/specs/real-channel-send.e2e.ts",
+          "gates": ["MV3-G08a"]
+        }
+      ]
+    },
+    {
+      "id": "send-core",
+      "name": "发送内核与状态",
+      "runs": [
+        {
+          "lane": "dual-real",
+          "suite": "dual-real-send",
+          "spec": "tests/e2e/wdio/phase1/specs/real-channel-send.e2e.ts",
+          "gates": ["MV3-G01a", "MV3-G01b", "MV3-G01f", "MV3-G01k", "MV3-G02a"]
+        },
+        {
+          "lane": "single-real",
+          "suite": "single-real-fault",
+          "spec": "tests/e2e/wdio/phase1/specs/real-send-fault.e2e.ts",
+          "gates": ["MV3-G02b", "MV3-G02c"]
+        },
+        {
+          "lane": "multi-real",
+          "suite": "multi-real-visibility",
+          "spec": "tests/e2e/wdio/phase1/specs/real-directed-visibility.e2e.ts",
+          "gates": ["MV3-G01l"]
+        }
+      ]
+    },
+    {
+      "id": "media",
+      "name": "媒体上传",
+      "runs": [
+        {
+          "lane": "dual-real",
+          "suite": "dual-real-media",
+          "spec": "tests/e2e/wdio/phase1/specs/real-media.e2e.ts",
+          "gates": ["MV3-G01c", "MV3-G01d", "MV3-G01e", "MV3-G01g"]
+        },
+        {
+          "lane": "single-real",
+          "suite": "single-real-media-limit",
+          "spec": "tests/e2e/wdio/phase1/specs/real-media-limit.e2e.ts",
+          "gates": ["MV3-G02d"]
+        }
+      ]
+    },
+    {
+      "id": "forward",
+      "name": "转发",
+      "runs": [
+        {
+          "lane": "dual-real",
+          "suite": "dual-real-forward",
+          "spec": "tests/e2e/wdio/phase1/specs/real-forward.e2e.ts",
+          "gates": ["MV3-G03a", "MV3-G03b", "MV3-G03c"]
+        }
+      ]
+    },
+    {
+      "id": "schedule",
+      "name": "定时消息",
+      "runs": [
+        {
+          "lane": "dual-real",
+          "suite": "dual-real-schedule",
+          "spec": "tests/e2e/wdio/phase1/specs/real-schedule.e2e.ts",
+          "gates": ["MV3-G04a", "MV3-G04b", "MV3-G04c", "MV3-G04d", "MV3-G04e"]
+        }
+      ]
+    },
+    {
+      "id": "draft",
+      "name": "草稿",
+      "runs": [
+        {
+          "lane": "dual-real",
+          "suite": "dual-real-draft",
+          "spec": "tests/e2e/wdio/phase1/specs/real-draft.e2e.ts",
+          "gates": ["MV3-G02e"]
+        }
+      ]
+    },
+    {
+      "id": "announcement",
+      "name": "群公告",
+      "runs": [
+        {
+          "lane": "dual-real",
+          "suite": "dual-real-announcement",
+          "spec": "tests/e2e/wdio/phase1/specs/real-announcement.e2e.ts",
+          "gates": ["MV3-G07b"]
+        }
+      ]
+    },
+    {
+      "id": "post-actions",
+      "name": "消息操作与回执",
+      "runs": [
+        {
+          "lane": "dual-real",
+          "suite": "dual-real-actions",
+          "spec": "tests/e2e/wdio/phase1/specs/real-post-actions.e2e.ts",
+          "gates": ["MV3-G05a", "MV3-G05b", "MV3-G05c", "MV3-G05d"]
+        },
+        {
+          "lane": "multi-real",
+          "suite": "multi-real-receipts",
+          "spec": "tests/e2e/wdio/phase1/specs/real-receipts.e2e.ts",
+          "gates": ["MV3-G05e"]
+        }
+      ]
+    },
+    {
+      "id": "zero-write-and-gaps",
+      "name": "零写入与 Gap 边界",
+      "runs": [
+        {
+          "lane": "single-real",
+          "suite": "single-real-channel-send",
+          "spec": "tests/e2e/wdio/phase1/specs/real-channel-send.e2e.ts",
+          "gates": ["MV3-G05l", "MV3-G01h", "MV3-G01i", "MV3-G01j"]
+        }
+      ]
+    }
+  ]
+}

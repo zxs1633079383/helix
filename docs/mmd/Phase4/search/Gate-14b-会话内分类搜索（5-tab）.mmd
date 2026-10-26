@@ -1,0 +1,21 @@
+%% Phase4 / search / MV3-G14b 会话内分类搜索（5 tab）
+%% 机器真源: cses-client phase4.manifest.json；Helix im_search_post；Java /search/post；Angular chat-search tabs
+sequenceDiagram
+  autonumber
+  participant UI as ChatSearch tabs
+  participant P as MessageV3ImGate
+  participant T as Tauri im_search_post
+  participant H as Helix Tick / search outbound
+  participant J as Java search gateway
+  participant B as EventSink im:__bus__
+  participant S as Angular tab result signal
+  UI->>P: searchInChannel(channelId,keyword,type,pageNumber,pageSize)
+  P->>T: invoke im_search_post
+  T->>H: Tick::Command(im_search_post, req_id)
+  H->>J: Effect::Http POST /search/post
+  J-->>H: items,total,hasMore
+  H->>H: Tick::PortReply(Http Ok) / DTO validation
+  H->>B: Effect::Emit im:read:result(req_id,data)
+  B->>S: resolve request and update active tab signal
+  S->>UI: all / media / link / file / topic tab rendering
+  Note over H,B: 查询不写 PostgreSQL 或 SQLite，也不等待 WS；HTTP 状态本身不是可渲染结果

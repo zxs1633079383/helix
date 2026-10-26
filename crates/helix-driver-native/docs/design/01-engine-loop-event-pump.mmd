@@ -1,0 +1,66 @@
+%% helix-driver-native — engine_loop 事件泵全景
+%% 真源：src/engine_loop.rs 的 run_engine_loop_with_transports；共享泵核实现在 helix-driver-host/src/engine.rs
+%% tokio::spawn 在此层（不在 helix-core）；core 保持零运行时依赖。
+%% 能力 ✅ / 缺口 ⚠️
+flowchart TD
+    subgraph SRC["入站 Tick 源（各自 tokio task）"]
+        WS["WS 读任务 ✅<br/>SharedWsClient::with_inbound_tick<br/>(transport.rs / driver-host)"]
+        TIMER["TimerRegistry ✅<br/>spawn sleep→fire<br/>(timer.rs)"]
+        CMD["AppCommand ✅<br/>Tauri command / FFI / 测试<br/>(tick_tx.clone() 注入)"]
+    end
+
+    subgraph INBOUND["入站映射 → Tick"]
+        WS -->|"Tick::Inbound / Connected / Disconnected"| TTX
+        TIMER -->|"Tick::Timer(id)"| TTX
+        CMD -->|"Tick::Command(cmd)"| TTX
+    end
+
+    TTX["tick_tx (mpsc, cap=256) ✅<br/>有界：背压在此汇聚回压"]
+
+    subgraph PUMP["事件泵主循环（单线程串行 step）"]
+        SEL{"tokio::select! biased ✅<br/>① reply_rx 优先（不变量④ 回灌优先）<br/>② transport_rx（连接句柄入表，不进 step）<br/>③ shutdown_rx（armed-once 防 panic）<br/>④ tick_rx.recv()<br/>连续 64 条回灌后强制取 1 条入站"}
+        STEP["ExecutionShell::step(tick, now_ms) ✅<br/>纯状态机·确定性·now_ms 由 NativeClock 注入"]
+        CONSUME["consume_effects(&[Effect]) ✅<br/>立即把借 shell.scratch 的 &[Effect]<br/>转 Vec&lt;OwnedEffect&gt;（脱借用，Bytes O(1) clone）"]
+        DISPATCH["dispatch_effects(...) ✅<br/>按 Effect type 分流兑现<br/>submit 即返回·绝不在泵 await worker（红线②）"]
+    end
+
+    TTX --> SEL
+    RRX["reply_rx (unbounded mpsc) ✅<br/>🔴 红线①：永不有界<br/>否则 Block 死锁环回来"] -.->|biased 优先| SEL
+    TRX["transport_rx (unbounded) ✅<br/>connect 成功后注册句柄；insert 后 continue，不进入 step"] -.-> SEL
+    SEL --> STEP --> CONSUME --> DISPATCH
+
+    subgraph SINK["Effect 兑现器（详见图 03）"]
+        SP_P["Persist BoundedSpawner ✅<br/>per-table-set 懒建 N=1"]
+        SP_H["Http BoundedSpawner ✅<br/>N=max_http_inflight（默认8）·Block"]
+        SP_U["UploadFile BoundedSpawner ✅<br/>N=max_http_inflight（默认8）·独立池·Block·进度回灌"]
+        SP_HF["HttpFire BoundedSpawner ⚠️<br/>N=max_http_inflight（默认8）·DropNewest（满即丢当前·零生产者·类型对称 eager 建）"]
+        SENDW["Effect::Send → transports.get(id) → WS ✅"]
+        EMITW["Effect::Emit → NativeEventSink::emit ✅"]
+        TIMW["Schedule/Cancel Timer → TimerRegistry ✅"]
+        REQW["Effect::Request → deferred stub ⚠️<br/>HostRequester 未接（方向① TODO）"]
+    end
+
+    DISPATCH --> SP_P
+    DISPATCH --> SP_H
+    DISPATCH --> SP_U
+    DISPATCH --> SP_HF
+    DISPATCH --> SENDW
+    DISPATCH --> EMITW
+    DISPATCH --> TIMW
+    DISPATCH --> REQW
+
+    SENDW -.->|失败只 warn 不崩| WS
+    TIMW -.->|spawn 到期| TIMER
+
+    %% ── PortReply 回灌闭环 ──
+    SP_P ==>|"写完 reply_tx.send(PortReply) 不等泵收"| RRX
+    SP_H ==>|"resp/err 包 PortReply"| RRX
+    SP_U ==>|"upload resp/err 包 PortReply；progress 走 PortProgress"| RRX
+    %% HttpFire 无 corr·fire-and-forget·不回灌
+
+    classDef gap fill:#fff3cd,stroke:#d39e00,color:#663c00
+    classDef hot fill:#d4edda,stroke:#28a745,color:#155724
+    classDef red fill:#f8d7da,stroke:#dc3545,color:#721c24
+    class SP_HF,REQW gap
+    class RRX,TTX red
+    class SEL,STEP hot

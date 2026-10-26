@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://helix.im/contracts/strict-matrix/v1/schema.json",
+  "title": "Helix IM strict UI contract matrix",
+  "description": "Helix is the only source of truth for direct core commands, render-ready projections, ownership and evidence requirements.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_epoch",
+    "source_documents",
+    "render_protocol",
+    "evidence_facets",
+    "forbidden_aliases",
+    "coverage",
+    "case_defaults",
+    "uc_cases"
+  ],
+  "properties": {
+    "schema_version": { "const": "helix-im-strict-matrix/v1" },
+    "lifecycle": { "const": "RETIRED_HISTORICAL" },
+    "retired_by": { "const": "specs/047-im-event-gate-inventory/contracts/gate-migration.v1.json" },
+    "retired_reason": { "type": "string", "minLength": 1 },
+    "contract_epoch": { "type": "integer", "minimum": 1 },
+    "source_documents": {
+      "type": "array",
+      "minItems": 3,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "evidence_facets": {
+      "type": "array",
+      "minItems": 8,
+      "uniqueItems": true,
+      "items": { "enum": ["command", "effect", "transport", "local_store", "remote_store", "projection", "dom", "trace"] }
+    },
+    "forbidden_aliases": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^im_[a-z0-9_]+$" }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_gate_count", "required_gate_ids"],
+      "properties": {
+        "minimum_gate_count": { "type": "integer", "minimum": 1 },
+        "required_gate_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^G-(?:S[1-4]|[0-9]{2}[a-z]?)$" }
+        }
+      }
+    },
+    "render_protocol": { "$ref": "#/$defs/renderProtocol" },
+    "case_defaults": { "$ref": "#/$defs/caseDefaults" },
+    "uc_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/ucCase" }
+    }
+  },
+  "$defs": {
+    "renderProtocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "surface_versions", "envelope_fields", "render_kinds"],
+      "properties": {
+        "name": { "const": "InteractionFrame" },
+        "version": { "const": 2 },
+        "surface_versions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["message.timeline"],
+          "properties": {
+            "message.timeline": { "const": 3 }
+          }
+        },
+        "envelope_fields": {
+          "type": "array",
+          "minItems": 6,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "render_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/renderKind" }
+        }
+      }
+    },
+    "renderKind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "required_props"],
+      "properties": {
+        "kind": { "type": "string", "pattern": "^[a-z]+(?:[._-][a-z]+)+$" },
+        "required_props": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "strictInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "optional", "forbid_unknown"],
+      "properties": {
+        "required": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+        },
+        "optional": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+        },
+        "forbid_unknown": { "const": true }
+      }
+    },
+    "commandStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "input", "effect"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^im_[a-z0-9_]+$" },
+        "input": { "$ref": "#/$defs/strictInput" },
+        "effect": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event", "render_kind", "schema"],
+      "properties": {
+        "event": { "type": "string", "pattern": "^im:[a-z0-9:._-]+$" },
+        "render_kind": { "type": "string", "pattern": "^[a-z]+(?:[._-][a-z]+)+$" },
+        "schema": { "enum": ["InteractionFrame/v2", "InteractionFrame/v3"] },
+        "required_data_fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "merge_contract": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ucCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_id",
+        "uc_id",
+        "title",
+        "phase",
+        "lifecycle",
+        "contract_state",
+        "commands",
+        "http",
+        "ws",
+        "remote_store",
+        "persistence",
+        "projections",
+        "allowed_actions",
+        "negative_assertions"
+      ],
+      "properties": {
+        "gate_id": { "type": "string", "pattern": "^G-(?:S[1-4]|[0-9]{2}[a-z]?)$" },
+        "uc_id": { "type": "string", "minLength": 3 },
+        "title": { "type": "string", "minLength": 1 },
+        "phase": { "enum": ["P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "L2"] },
+        "lifecycle": { "enum": ["active", "deferred-by-user", "excluded"] },
+        "contract_state": { "enum": ["declared", "implemented", "blocked"] },
+        "owner": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["business_state", "host", "ui"],
+          "properties": {
+            "business_state": { "const": "helix" },
+            "host": { "const": "transport-storage-only" },
+            "ui": { "const": "intent-and-render-only" }
+          }
+        },
+        "commands": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/commandStep" } },
+        "http": { "$ref": "#/$defs/httpContract" },
+        "ws": { "$ref": "#/$defs/wsContract" },
+        "remote_store": { "$ref": "#/$defs/remoteStore" },
+        "persistence": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "projections": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/projection" } },
+        "allowed_actions": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required_facets", "correlation_keys"],
+          "properties": {
+            "required_facets": { "type": "array", "minItems": 8, "uniqueItems": true, "items": { "type": "string" } },
+            "correlation_keys": { "type": "array", "minItems": 4, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "negative_assertions": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "httpContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request", "response"],
+      "properties": {
+        "request": { "type": "string", "minLength": 1 },
+        "response": { "type": "string", "minLength": 1 }
+      }
+    },
+    "wsContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["events"],
+      "properties": {
+        "events": { "type": "string", "minLength": 1 }
+      }
+    },
+    "remoteStore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["database", "tables", "contract"],
+      "properties": {
+        "database": { "enum": ["mattermost-imv2", "N/A", "external-unverified"] },
+        "tables": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "contract": { "type": "string", "minLength": 1 }
+      }
+    },
+    "caseDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "evidence"],
+      "properties": {
+        "owner": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["business_state", "host", "ui"],
+          "properties": {
+            "business_state": { "const": "helix" },
+            "host": { "const": "transport-storage-only" },
+            "ui": { "const": "intent-and-render-only" }
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required_facets", "correlation_keys"],
+          "properties": {
+            "required_facets": { "type": "array", "minItems": 8, "uniqueItems": true, "items": { "type": "string" } },
+            "correlation_keys": { "type": "array", "minItems": 4, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+          }
+        }
+      }
+    }
+  }
+}

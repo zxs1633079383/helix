@@ -1,0 +1,157 @@
+{
+  "schema_version": "1.0",
+  "feature_directory": "specs/006-g06-reaction",
+  "phase": "closed",
+  "event_seq": 19,
+  "next_action": "none",
+  "budget": {
+    "max_same_failure_attempts": 2
+  },
+  "failure_attempts": {},
+  "gates": {
+    "r1_spec": {
+      "status": "pass",
+      "fingerprint": "49ba4c5f0564574934b2bae1ef81f930c5c54c86d3b8f1ac63f29b798053a7cb",
+      "checked_at": "2026-07-22T11:33:53Z",
+      "issues": []
+    },
+    "r2_plan": {
+      "status": "pass",
+      "fingerprint": "b50d39c4aafa4dff6cdd659dcbff81068da69782b54a06a95ea71e089b3c43ea",
+      "checked_at": "2026-07-22T11:34:14Z",
+      "issues": []
+    },
+    "r3_tasks": {
+      "status": "pass",
+      "fingerprint": "a8881aba53efafb1d6ae0eceb126c9b9043167c8a5e41cca56ad7a8fd2852829",
+      "checked_at": "2026-07-23T03:55:08Z",
+      "issues": []
+    },
+    "r4_evidence": {
+      "status": "pass",
+      "fingerprint": "77e645cf9bf32febfb5a6db33ce14da92cbe1266fa89feb3d19f16d610d12c5f",
+      "checked_at": "2026-07-23T04:20:51Z",
+      "issues": []
+    }
+  },
+  "convergence": {
+    "tasks_fingerprint": "a8881aba53efafb1d6ae0eceb126c9b9043167c8a5e41cca56ad7a8fd2852829",
+    "reason": "evidence accepted"
+  },
+  "events": [
+    {
+      "seq": 1,
+      "at": "2026-07-22T11:33:53Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 2,
+      "at": "2026-07-22T11:34:14Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 3,
+      "at": "2026-07-22T11:34:36Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 4,
+      "at": "2026-07-22T11:50:27Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 5,
+      "at": "2026-07-22T15:50:28Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 6,
+      "at": "2026-07-22T15:50:28Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 7,
+      "at": "2026-07-22T15:50:57Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 8,
+      "at": "2026-07-23T03:53:46Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence mrc-g04-g16-green-1784776617"
+    },
+    {
+      "seq": 9,
+      "at": "2026-07-23T03:55:08Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 10,
+      "at": "2026-07-23T03:55:08Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 11,
+      "at": "2026-07-23T03:55:11Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 12,
+      "at": "2026-07-23T03:55:13Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: r4_evidence passed"
+    },
+    {
+      "seq": 13,
+      "at": "2026-07-23T03:55:15Z",
+      "kind": "phase",
+      "detail": "verifying->converging: targeted convergence started"
+    },
+    {
+      "seq": 14,
+      "at": "2026-07-23T03:55:18Z",
+      "kind": "phase",
+      "detail": "converging->closed: convergence found no additional task"
+    },
+    {
+      "seq": 15,
+      "at": "2026-07-23T04:19:31Z",
+      "kind": "phase",
+      "detail": "closed->implementing: recorded evidence mrc-g04-g16-final-a2f835f-1784780000"
+    },
+    {
+      "seq": 16,
+      "at": "2026-07-23T04:20:51Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: input fingerprint changed for r4_evidence"
+    },
+    {
+      "seq": 17,
+      "at": "2026-07-23T04:20:51Z",
+      "kind": "phase",
+      "detail": "verifying->verifying: r4_evidence passed"
+    },
+    {
+      "seq": 18,
+      "at": "2026-07-23T04:21:20Z",
+      "kind": "phase",
+      "detail": "verifying->converging: targeted convergence started"
+    },
+    {
+      "seq": 19,
+      "at": "2026-07-23T04:22:17Z",
+      "kind": "phase",
+      "detail": "converging->closed: convergence found no additional task"
+    }
+  ]
+}

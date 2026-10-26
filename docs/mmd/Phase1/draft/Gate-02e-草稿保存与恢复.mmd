@@ -1,0 +1,23 @@
+%% Phase1 / draft / MV3-G02e 草稿保存与恢复
+%% 机器真源: phase1.manifest.json；MessageDialogService；Helix draft/mod.rs；SQLite draft projection
+sequenceDiagram
+  participant UI as Angular chat input
+  participant S as MessageDialogService
+  participant T as Tauri bridge
+  participant H as Helix Tick / draft domain
+  participant DB as tenant SQLite draft
+  UI->>S: saveDraft(channelId,text,mentions,replyMessage,documentSnapshot,documentUpdatedAt)
+  S->>T: im_save_draft
+  T->>H: Tick::Command(im_save_draft)
+  H->>DB: Effect::Persist absolute draft state
+  DB-->>H: Tick::PortReply(PersistOk)
+  H-->>T: correlated Command Result
+  Note over H,DB: persona-local；无 HTTP、WS 或业务 EventSink 事件
+  UI->>S: restoreDraft(channelId)
+  S->>T: im_query_draft
+  T->>H: Tick::Command(im_query_draft)
+  H->>DB: Effect::Persist ScopedGet(accountId,channelId)
+  DB-->>H: PortReply(draft or null)
+  H-->>T: correlated read result
+  T-->>S: DraftProjection
+  S-->>UI: signals restore text/@/reply/document

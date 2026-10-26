@@ -1,0 +1,434 @@
+[package]
+name        = "helix-im"
+version     = "0.1.87"
+edition     = "2021"
+authors     = ["CSES Team"]
+license     = "MIT OR Apache-2.0"
+description = "基于 Helix Core 的确定性 MessageV3 IM 业务模块"
+repository  = "https://git.yundiz.com/cses/go/helix"
+readme      = "README.md"
+include     = ["/src/**", "/README.md"]
+
+# helix-im 只依赖 helix-core（唯一外部 crate 依赖）
+# ❌ 绝对不含：tokio / sqlx / reqwest / tungstenite / web-sys / tauri
+# IM 业务逻辑通过 Effect 表达意图，driver 兑现，保证三栖可编译
+
+[dependencies]
+helix-core = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.87" }
+serde       = { workspace = true }
+serde_json  = { workspace = true, features = ["raw_value"] }
+thiserror   = { workspace = true }
+bytes       = { workspace = true }
+inventory   = "0.3"
+tracing     = { workspace = true }
+sha2        = "0.10"
+# 纯 CommonMark 解析，不引入平台、I/O 或 HTML 渲染依赖。
+pulldown-cmark = { version = "0.13", default-features = false }
+
+[dev-dependencies]
+proptest = "1"
+criterion = "0.5"
+jsonschema = "0.33"
+
+[[test]]
+name = "message_v3_event_contract"
+path = "tests/message_v3/contracts/event/main.rs"
+
+[[test]]
+name = "message_v3_artifact_schema"
+path = "tests/message_v3/contracts/artifact_schema/main.rs"
+
+[[test]]
+name = "message_v3_gate_registry"
+path = "tests/message_v3/contracts/gate_registry/main.rs"
+
+[[test]]
+name = "message_v3_phase1_registry"
+path = "tests/message_v3/contracts/phase1_registry/main.rs"
+
+[[test]]
+name = "message_v3_contracts_phase3_registry"
+path = "tests/message_v3/contracts/phase3_registry/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g08b"
+path = "tests/message_v3/channel/mv3_g08b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g08c"
+path = "tests/message_v3/channel/mv3_g08c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g08d"
+path = "tests/message_v3/channel/mv3_g08d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10a"
+path = "tests/message_v3/channel/mv3_g10a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10b"
+path = "tests/message_v3/channel/mv3_g10b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10c"
+path = "tests/message_v3/channel/mv3_g10c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10d"
+path = "tests/message_v3/channel/mv3_g10d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10e"
+path = "tests/message_v3/channel/mv3_g10e/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10f"
+path = "tests/message_v3/channel/mv3_g10f/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g10g"
+path = "tests/message_v3/channel/mv3_g10g/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g09a"
+path = "tests/message_v3/channel_member/mv3_g09a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g09b"
+path = "tests/message_v3/channel_member/mv3_g09b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g09c"
+path = "tests/message_v3/channel_member/mv3_g09c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g09d"
+path = "tests/message_v3/channel_member/mv3_g09d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g09e"
+path = "tests/message_v3/channel_member/mv3_g09e/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g08a"
+path = "tests/message_v3/channel/mv3_g08a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01a"
+path = "tests/message_v3/post/mv3_g01a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01b"
+path = "tests/message_v3/post/mv3_g01b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01c"
+path = "tests/message_v3/upload/mv3_g01c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01d"
+path = "tests/message_v3/upload/mv3_g01d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01e"
+path = "tests/message_v3/upload/mv3_g01e/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01f"
+path = "tests/message_v3/post/mv3_g01f/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01g"
+path = "tests/message_v3/upload/mv3_g01g/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01h"
+path = "tests/message_v3/post/mv3_g01h/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01i"
+path = "tests/message_v3/post/mv3_g01i/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01j"
+path = "tests/message_v3/post/mv3_g01j/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01k"
+path = "tests/message_v3/post/mv3_g01k/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g01l"
+path = "tests/message_v3/post/mv3_g01l/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g02a"
+path = "tests/message_v3/post/mv3_g02a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g02b"
+path = "tests/message_v3/post/mv3_g02b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g02c"
+path = "tests/message_v3/post/mv3_g02c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g02d"
+path = "tests/message_v3/upload/mv3_g02d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g02e"
+path = "tests/message_v3/draft/mv3_g02e/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g03a"
+path = "tests/message_v3/post/mv3_g03a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g03b"
+path = "tests/message_v3/post/mv3_g03b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g03c"
+path = "tests/message_v3/upload/mv3_g03c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g04a"
+path = "tests/message_v3/schedule/mv3_g04a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g04b"
+path = "tests/message_v3/schedule/mv3_g04b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g04c"
+path = "tests/message_v3/schedule/mv3_g04c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g04d"
+path = "tests/message_v3/schedule/mv3_g04d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g04e"
+path = "tests/message_v3/schedule/mv3_g04e/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g05a"
+path = "tests/message_v3/post/mv3_g05a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g05b"
+path = "tests/message_v3/post/mv3_g05b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g05c"
+path = "tests/message_v3/post/mv3_g05c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g05d"
+path = "tests/message_v3/post/mv3_g05d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g05e"
+path = "tests/message_v3/post/mv3_g05e/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g05l"
+path = "tests/message_v3/post/mv3_g05l/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g07b"
+path = "tests/message_v3/announcement/mv3_g07b/main.rs"
+
+[[test]]
+name = "message_v3_g15a"
+path = "tests/message_v3/channel/g15a/main.rs"
+
+[[test]]
+name = "message_v3_g01"
+path = "tests/message_v3/post/g01/main.rs"
+
+[[test]]
+name = "message_v3_g02"
+path = "tests/message_v3/post/g02/main.rs"
+
+[[test]]
+name = "message_v3_g03a"
+path = "tests/message_v3/post/g03a/main.rs"
+
+[[test]]
+name = "message_v3_g04"
+path = "tests/message_v3/post/g04/main.rs"
+
+[[test]]
+name = "message_v3_g04a"
+path = "tests/message_v3/post/g04a/main.rs"
+
+[[test]]
+name = "message_v3_g05"
+path = "tests/message_v3/post/g05/main.rs"
+
+[[test]]
+name = "message_v3_g06"
+path = "tests/message_v3/post/g06/main.rs"
+
+[[test]]
+name = "message_v3_g07"
+path = "tests/message_v3/post/g07/main.rs"
+
+[[test]]
+name = "message_v3_g14"
+path = "tests/message_v3/read/g14/main.rs"
+
+[[test]]
+name = "message_v3_g14a"
+path = "tests/message_v3/post/g14a/main.rs"
+
+[[test]]
+name = "message_v3_g08"
+path = "tests/message_v3/schedule/g08/main.rs"
+
+[[test]]
+name = "message_v3_g09"
+path = "tests/message_v3/schedule/g09/main.rs"
+
+[[test]]
+name = "message_v3_g10"
+path = "tests/message_v3/timeline/g10/main.rs"
+
+[[test]]
+name = "message_v3_g10a"
+path = "tests/message_v3/timeline/g10a/main.rs"
+
+[[test]]
+name = "message_v3_g10b"
+path = "tests/message_v3/timeline/g10b/main.rs"
+
+[[test]]
+name = "message_v3_g10c"
+path = "tests/message_v3/timeline/g10c/main.rs"
+
+[[test]]
+name = "message_v3_g10d"
+path = "tests/message_v3/timeline/g10d/main.rs"
+
+[[test]]
+name = "message_v3_g11"
+path = "tests/message_v3/timeline/g11/main.rs"
+
+[[test]]
+name = "message_v3_g11a"
+path = "tests/message_v3/timeline/g11a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g11a"
+path = "tests/message_v3/timeline/mv3_g11a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g11b"
+path = "tests/message_v3/timeline/mv3_g11b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g11c"
+path = "tests/message_v3/timeline/mv3_g11c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g11d"
+path = "tests/message_v3/timeline/mv3_g11d/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g11g"
+path = "tests/message_v3/timeline/mv3_g11g/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g11h"
+path = "tests/message_v3/timeline/mv3_g11h/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g12a"
+path = "tests/message_v3/timeline/mv3_g12a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g12b"
+path = "tests/message_v3/timeline/mv3_g12b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g13a"
+path = "tests/message_v3/sync/mv3_g13a/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g13b"
+path = "tests/message_v3/sync/mv3_g13b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g13c"
+path = "tests/message_v3/sync/mv3_g13c/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g13d"
+path = "tests/message_v3/sync/mv3_g13d/main.rs"
+
+[[test]]
+name = "message_v3_g12"
+path = "tests/message_v3/timeline/g12/main.rs"
+
+[[test]]
+name = "message_v3_g13"
+path = "tests/message_v3/read/g13/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g06b"
+path = "tests/message_v3/read/mv3_g06b/main.rs"
+
+[[test]]
+name = "message_v3_mv3_g06d"
+path = "tests/message_v3/read/mv3_g06d/main.rs"
+
+[[test]]
+name = "message_v3_g16"
+path = "tests/message_v3/channel/g16/main.rs"
+
+[[test]]
+name = "message_v3_g16b"
+path = "tests/message_v3/channel_member/g16b/main.rs"
+
+[[test]]
+name = "message_v3_g15"
+path = "tests/message_v3/channel/g15/main.rs"
+
+[[test]]
+name = "message_v3_g16c"
+path = "tests/message_v3/channel/g16c/main.rs"
+
+[[test]]
+name = "message_v3_gs1"
+path = "tests/message_v3/sync/gs1/main.rs"
+
+[[test]]
+name = "message_v3_gs2"
+path = "tests/message_v3/sync/gs2/main.rs"
+
+[[test]]
+name = "message_v3_gs3"
+path = "tests/message_v3/sync/gs3/main.rs"
+
+[[test]]
+name = "message_v3_gs4"
+path = "tests/message_v3/sync/gs4/main.rs"
+
+[[bench]]
+name = "step_inorder"
+harness = false
+
+[[bench]]
+name = "gate_bench"
+harness = false
+
+# 编译期护栏（同 helix-core：业务模块禁 ambient 时间/线程/打印）
+[lints.clippy]
+disallowed_methods = "deny"
+disallowed_macros = "deny"
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "warn"

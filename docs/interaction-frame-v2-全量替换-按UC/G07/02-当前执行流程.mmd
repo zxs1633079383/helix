@@ -1,0 +1,11 @@
+flowchart LR
+    A["发起加急或点击确认"] --> B["ActionBinding urgent/urgentConfirm"]
+    B --> C["im_urgent_post / im_urgent_confirm"]
+    C --> D["ImModule::handle"]
+    D --> E["Effect: http_write / projection"]
+    E --> F{"PersistOk / authority read"}
+    F --> G["InteractionFrameV2 schemaVersion=2"]
+    G --> H["Surface: message.timeline / message.participant-receipts"]
+    H --> I["Native opaque sink"]
+    I --> J["SurfaceRuntime atomic apply"]
+    J --> K["加急与确认 UI"]

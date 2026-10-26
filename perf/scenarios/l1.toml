@@ -1,0 +1,27 @@
+schema_version = 1
+
+[run]
+scenario = "L1-STEP-INORDER"
+platform = "native-macos"
+channel_shape = "hot-1"
+rate = 5000
+rate_unit = "events_per_second"
+payload_bucket = "2KiB"
+
+[windows]
+warmup = "100ms"
+load = "1s"
+drain = "10ms"
+observation = "10ms"
+
+[topology]
+channels = 1
+senders = 1
+receivers = 1
+
+[thresholds]
+profile = "calibration-v1"
+max_telemetry_p99_overhead_ratio = 1.30
+max_queue_wait_p99_ms = 10.0
+max_drop_ratio_rated = 0.001
+min_saturation_drops = 1

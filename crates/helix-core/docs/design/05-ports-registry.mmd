@@ -1,0 +1,55 @@
+%% helix-core — 9 ports 抽象 + PC/Flutter/Web 实现去向（依赖倒置 / ports & adapters）
+%% 真源：src/ports/{frame_sender,storage,clock,event_sink,id,http,upload}.rs + src/platform.rs
+%% 关联：HX-C001(core 只定义 trait) · HX-C002(MaybeSend/MaybeSync cfg 切) · 对象安全(统一 PortError)
+flowchart LR
+    classDef core fill:#e6f4ea,stroke:#34a853,color:#1a1a1a
+    classDef port fill:#e8f0fe,stroke:#4285f4,color:#1a1a1a
+    classDef native fill:#fef7e0,stroke:#fbbc04,color:#1a1a1a
+    classDef wasm fill:#f3e8fd,stroke:#a142f4,color:#1a1a1a
+    classDef ffi fill:#fce8e6,stroke:#ea4335,color:#1a1a1a
+    classDef web fill:#e0f7fa,stroke:#00838f,color:#1a1a1a
+
+    subgraph CORE["helix-core（✅ 定义 ports/traits、纯数据类型与同步壳，永不 import 运行时）"]
+        direction TB
+        PLAT["✅ platform.rs<br/>MaybeSend/MaybeSync = cfg 切<br/>native: Send/Sync · wasm: 空（单线程）"]:::core
+        T["✅ FrameSender（async）<br/>send(frame) only"]:::port
+        S["✅ Storage（async，10 个方法）<br/>batch_upsert/batch_update/batch_delete<br/>monotonic_upsert/guarded_bump/scoped_guarded_bump<br/>get/scoped_get/scan/atomic_write"]:::port
+        CL["✅ Clock（sync）<br/>now_ms()→u64 墙钟<br/>（std::Instant wasm 会 panic）"]:::port
+        ES["✅ EventSink（sync）<br/>emit(DomainEventBytes) 非阻塞"]:::port
+        ID["✅ IdSource + Random（sync）<br/>new_uuid / random_u64(jitter)"]:::port
+        HT["✅ HttpRequester（async）<br/>request(req)→HttpResponse"]:::port
+        FU["✅ FileUploader（async）<br/>upload(req)→UploadResponse"]:::port
+        FP["✅ FileUploadProgressReporter（sync）<br/>report(corr, progress)"]:::port
+        ERR["✅ 统一 Result<_, PortError><br/>无关联类型 → dyn-safe（可 Box<dyn>）"]:::core
+    end
+
+    %% async trait 三端 Send cfg（HX-C002）
+    PLAT -.->|"非 wasm32: #[async_trait]（Send）<br/>wasm32: #[async_trait(?Send)]"| T
+    PLAT -.-> S
+    PLAT -.-> HT
+
+    %% ── native driver ──
+    T -->|"impl"| NT["⚠️ NativeTransport<br/>send 委托 SharedWsClient"]:::native
+    S -->|"impl"| NS["⚠️ NativeStorage<br/>委托 helix-driver-host HostStorage"]:::native
+    HT -->|"impl"| NH["⚠️ NativeHttp<br/>SharedHttpClient 薄壳"]:::native
+    CL -->|"impl"| NC["⚠️ SystemTime"]:::native
+    ES -->|"impl"| NE["⚠️ Tauri AppHandle.emit"]:::native
+
+    %% ── Web driver（正式平台壳）──
+    T -.->|"impl"| WT["⚠️ ExternalWsBridge<br/>浏览器兑现 outbound frame"]:::web
+    FU -.->|"unsupported"| WU["⚠️ Web upload<br/>当前显式返回 unsupported"]:::web
+
+    %% ── ffi driver（Flutter 手机端）──
+    T -->|"impl"| FT["⚠️ SharedWsClient<br/>FFI 注册 sender"]:::ffi
+    S -->|"impl"| FS["⚠️ FFI pump<br/>直接装配 HostStorage"]:::ffi
+    HT -->|"impl"| FH["⚠️ FfiHttpRequester<br/>SharedHttpClient"]:::ffi
+
+    %% ── upload ports：native/ffi 由 host pool 兑现 ──
+    FU -->|"impl"| NUF["⚠️ Native/FFI upload pool"]:::native
+
+    LIFE["平台连接生命周期（不属于 core port）<br/>connect / recv / close / reconnect<br/>→ Tick::Connected / Inbound / Disconnected"]:::core
+    LIFE -.-> NT
+    LIFE -.-> FT
+    LIFE -.-> WT
+
+    Note["依赖铁律：adapter → core 单向，永不反向<br/>业务只看 FrameSender + Tick，不感知物理连接实现<br/>cargo tree -p helix-core | grep tokio/sqlx/reqwest/web-sys/tauri 必须空"]:::core

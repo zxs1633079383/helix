@@ -1,0 +1,25 @@
+%% Phase2 / sync / MV3-G13e 账号 Runtime 与 Renderer 释放
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/sync/mv3-g13e/contract.json
+%% UI owners: src-tauri/src/features/auth/context.rs::AuthState::clear → helix_im::lifecycle::shutdown；src-tauri/src/features/auth/context.rs::set_auth → helix_im::lifecycle::start_or_restart；src-tauri/src/features/helix_im/lifecycle.rs::start_or_restart（identity 变化先 shutdown_and_wait 旧 generation）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员登出或切换账号 / 公司后，旧账号 Runtime 与旧窗口订阅不再投递 IM 事件，新账号获得独立连接和账号库
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=partial；helix=not_applicable；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  UI->>Gate: 账号 Runtime 与 Renderer 释放(payload)
+  Gate-->>UI: 当前客户端路由结果或受控空结果
+  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
+  Note over IM,DB: 关键效果：context:clear 完成后旧 runtime generation 已 shutdown_and_wait，旧账号不再产生 ImGateEvent；旧 renderer 销毁后 listener 自动释放；切账号 / 公司时 Rust 按 accountIdentity 替换 runtime：旧连接、调度任务和内存状态停止，新 runtime 只绑定新账号数据库与认证头；当前实现：Rust Auth 已在 logout 调用 helix_im::shutdown，并在 identity 变化时先停旧 generation；Angular 仍公开 dispose 且 Pending/Mock 仍实现该方法，属于待删除 API 债务；对端未读 / 会话完全不受本端登出影响（对端仍正常收发，getMemberUnread 取值不变）
+  Note over UI,Web: 关键负向：MessageV3ImGatePort 不得公开 dispose()；账号 runtime 释放不能由 Angular 业务组件或 service 手工编排；context:clear 返回后旧 runtime 不得再 emit、发 HTTP/WS 或写旧账号数据库；切账号 / 公司不得复用 identity 不同的 runtime generation、认证头、连接或账号库
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

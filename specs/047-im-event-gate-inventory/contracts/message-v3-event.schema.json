@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "helix-im/message-v3-event.schema.json",
+  "title": "MessageV3 Gate Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event", "data"],
+  "properties": {
+    "event": {
+      "type": "string",
+      "pattern": "^im:[a-z0-9_-]+:[a-z0-9_-]+$"
+    },
+    "data": {
+      "type": "object"
+    }
+  }
+}

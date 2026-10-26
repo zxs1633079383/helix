@@ -1,0 +1,23 @@
+%% helix-host-cli 装配链路 + 真 Go 连接时序
+%% 默认连接 localhost:8066；旧 8065 仅为历史运行态证据
+
+flowchart TD
+    subgraph 启动装配["① 启动装配（main.rs）"]
+        ENV["读 helix.config.yaml（--config 可覆盖）<br/>connection / identity / client / runtime<br/>debug 构建才允许 HELIX_* 逃生口<br/>--cookie-id / --company-id 可覆盖身份"]
+        DB["建 NativeStorage<br/>（委托 helix-driver-host rusqlite）<br/>IM schema 建表 ✅"]
+        NET["建 NativeHttp + WsManager<br/>HostNetworkConfig(api_base, ws_url)<br/>注入全局头：appType / deviceId / cookieId"]
+        SHELL["建 ExecutionShell<br/>register(ImModule)<br/>start() → on_start Effect"]
+        ENV --> DB --> NET --> SHELL
+    end
+
+    subgraph 运行["② 运行（engine_loop）"]
+        CONNECT["transport.connect() 主 WS<br/>TransportId(0)"]
+        LOOP["进 engine_loop 事件泵<br/>（helix-driver-native）"]
+        SHELL --> CONNECT --> LOOP
+    end
+
+    LOOP -.驱动.-> CORE["ExecutionShell.step<br/>（helix-core 同步壳）"]
+    CORE -.业务.-> IM["ImModule<br/>（helix-im）"]
+
+    style 启动装配 fill:#e8f4ff
+    style 运行 fill:#e8ffe8

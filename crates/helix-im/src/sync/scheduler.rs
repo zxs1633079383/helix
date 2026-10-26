@@ -1,0 +1,351 @@
+//! SyncScheduler — 全局 sync 并发窗口（B4，接管本质差异）。
+//!
+//! ## 为什么（接管 vs 现网）
+//!
+//! 现网 cses-client 重连后逐 channel 直发 `sync/notify`（`increment_channel_end` 收尾对
+//! `(increment_fetched − need_sync_skip)` 每个 channel 立即发 HTTP）。helix 接管 HTTP 后，257
+//! channel 同时 needSync 会一次性吐 257 条并发 `Effect::Http` → 重连风暴打爆 driver 连接池 /
+//! 后端。SyncScheduler 在 core 侧加一道**全局并发窗口**：所有待 sync channel 入
+//! `pending_sync: VecDeque`，在途群数 < K 才取队首 dispatch。每轮最多 K 个群合并为一个 HTTP；
+//! 批量回报逐群释放窗口，整批处理结束后再 drain，避免退化为逐群请求。
+//!
+//! ## 不变量（HX-C011 证伪锚点）
+//!
+//! - **在途 sync ≤ K**：任意时刻 `inflight` 计数 ≤ `MAX_INFLIGHT_SYNC`（破坏即 `p4_sync_scheduler_test` fail）。
+//! - **不丢 channel**：入队的 channel 终将被 dispatch（队列 FIFO，每次 drain 释放后补发）。
+//! - **确定性有序**：入队顺序由调用方排序锚定（HX-C010，`increment_channel_end` 已 `sort_unstable`）；
+//!   VecDeque FIFO 保持有序出队，不引入 SipHash 随机。
+//! - **幂等防重**：已在途（`inflight_sync.is_some()`）或已在队（`enqueued` 去重集）的 channel 不重复入队。
+//!
+//! ## 复杂度
+//!
+//! enqueue = O(1) push_back + O(1) HashSet 去重；drain 单步 = O(1) pop_front。窗口释放 O(1)。
+//! 不读 / 不改 channel 消息体——纯调度元数据（HX-C005 热路径友好）。
+
+use crate::channel::Channel;
+use crate::state::{ChannelId, CorrelationContext, ImState, InflightSync, SyncTrigger};
+use helix_core::{Correlation, EffectSink};
+use std::collections::{HashMap, HashSet, VecDeque};
+
+/// 全局在途 sync 上限 K（B4 风暴闸门）。
+///
+/// 真源风暴规模：现网实测重连 ~257 channel 同时 needSync。K 取保守小窗（驱动连接池友好），
+/// 大于 1 以保留并行度。注释凭据：HX-C011 证伪测试构造 N>K（N≫8）验证在途恒 ≤ K。
+pub const MAX_INFLIGHT_SYNC: usize = 8;
+
+/// 同一 channel 两次 pong gap 补偿的最小间隔（节流防风暴），毫秒。
+///
+/// 对齐现网 `sync_compensation.rs::MIN_COMPENSATE_INTERVAL = 5s`：心跳 8s/次，gap 命中后服务端
+/// 下个 ping 才重新评估，5s 足够覆盖单次 sync 往返去重。pong gap 与 hashMismatch 全量根群补偿
+/// **共享**此节流闸门（避免「gap 已补 + hashMismatch 又补」对同 channel 双拉）。
+pub const PONG_COMPENSATE_MIN_INTERVAL_MS: u64 = 5_000;
+
+/// SyncScheduler 全局调度态（并入 ImState，纯数据，无 I/O 句柄）。
+///
+/// 与 per-channel `Channel::inflight_sync`（单 channel 防自踩守卫）正交：这里管**全局**窗口
+/// （跨 channel 并发上限），per-channel 守卫管单 channel 不重入。
+#[derive(Debug, Default)]
+pub struct SyncScheduler {
+    /// 待 dispatch 的 channel 队列（FIFO，入队顺序由调用方确定性排序锚定，HX-C010）。
+    pending: VecDeque<(ChannelId, SyncTrigger)>,
+    /// 已入队去重集（防同 channel 重复 push_back；与 `pending` 同生命周期）。
+    enqueued: HashSet<ChannelId>,
+    /// 全局在途 sync 计数（dispatch 时 +1，回报时 -1，恒 ≤ MAX_INFLIGHT_SYNC）。
+    inflight: usize,
+    pub(crate) applying_batch: bool,
+    /// pong gap 补偿节流：channel → 上次补偿的 `now_ms`（test-and-set，防 pong 风暴）。
+    /// 与 `pending`/`enqueued` 正交：那两个管「待 sync 队列」，这个管「补偿冷却」。
+    /// 确定性：节流判定纯比 `now_ms`（host 注入），不读墙钟（HX-C011 / sans-IO）。
+    pong_throttle: HashMap<ChannelId, u64>,
+}
+
+impl SyncScheduler {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 当前全局在途 sync 数（证伪测试 / 日志读）。
+    pub fn inflight(&self) -> usize {
+        self.inflight
+    }
+
+    /// 当前待 dispatch 队列长度（证伪测试 / 日志读）。
+    pub fn pending_len(&self) -> usize {
+        self.pending.len()
+    }
+
+    pub fn is_idle(&self) -> bool {
+        self.inflight == 0 && self.pending.is_empty()
+    }
+
+    /// 是否还能立即 dispatch（在途未满窗）。
+    pub fn has_window(&self) -> bool {
+        self.inflight < MAX_INFLIGHT_SYNC
+    }
+
+    /// 入队一个待 sync channel（已在队则幂等忽略）。返回 true=新入队 / false=已在队去重。
+    ///
+    /// 注：调用方跳过 HTTP 仍在途的 channel；待持久化意图留队，本结构防**队内**重复。
+    pub fn enqueue(&mut self, channel_id: ChannelId) -> bool {
+        self.enqueue_with_trigger(channel_id, SyncTrigger::Routine)
+    }
+
+    pub fn enqueue_with_trigger(&mut self, channel_id: ChannelId, trigger: SyncTrigger) -> bool {
+        if self.enqueued.insert(channel_id) {
+            self.pending.push_back((channel_id, trigger));
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Promote an explicit authority gap ahead of routine recovery backlog.
+    ///
+    /// Pong gaps are a cold heartbeat path, so rebuilding the bounded pending
+    /// queue is acceptable. The batch operation stays O(n + m), preserves wire
+    /// order, and upgrades an already queued Routine entry to `PongGap`.
+    pub fn prioritize_with_trigger(&mut self, channel_ids: &[ChannelId], trigger: SyncTrigger) {
+        let prioritized: HashSet<ChannelId> = channel_ids.iter().copied().collect();
+        self.pending
+            .retain(|(channel_id, _)| !prioritized.contains(channel_id));
+        for &channel_id in channel_ids.iter().rev() {
+            self.enqueued.insert(channel_id);
+            self.pending.push_front((channel_id, trigger));
+        }
+    }
+
+    /// 取下一个可 dispatch 的 channel（在途未满窗且队非空时）。
+    ///
+    /// 取出即视为「即将 dispatch」：从队列 + 去重集移除，并 `inflight += 1`（窗口占用）。
+    /// 调用方拿到后负责实际 push `Effect::Http` + 登记 per-channel `inflight_sync` 守卫。
+    /// 返回 None = 满窗或队空（不占窗口）。
+    pub fn next_dispatch(&mut self) -> Option<(ChannelId, SyncTrigger)> {
+        if !self.has_window() {
+            return None;
+        }
+        let (channel_id, trigger) = self.pending.pop_front()?;
+        self.enqueued.remove(&channel_id);
+        self.inflight += 1;
+        Some((channel_id, trigger))
+    }
+
+    /// 一个 sync 回报到达 → 释放 1 个全局窗口（`inflight` 饱和减，不下溢）。
+    ///
+    /// 与 per-channel `inflight_sync = None` 配套：那个清单 channel 守卫，这个清全局窗口。
+    pub fn release_window(&mut self) {
+        self.inflight = self.inflight.saturating_sub(1);
+    }
+
+    /// 直接占用 1 个全局窗口；请求调度通过队列的 next_dispatch 取得窗口。
+    pub fn acquire_window(&mut self) {
+        self.inflight += 1;
+    }
+
+    /// pong gap 补偿节流闸门（test-and-set）：返回 true=允许本次补偿（并记 `now_ms`），
+    /// false=距上次补偿 < `PONG_COMPENSATE_MIN_INTERVAL_MS` 跳过。
+    ///
+    /// 对齐现网 `heartbeat.should_compensate`（test-and-set 语义）：判定即记账，调用方拿到
+    /// true 后必然补偿。`now_ms` 由 host 注入（确定性，HX-C011 不读墙钟）。
+    pub fn should_pong_compensate(&mut self, channel_id: ChannelId, now_ms: u64) -> bool {
+        match self.pong_throttle.get(&channel_id) {
+            Some(&last) if now_ms.saturating_sub(last) < PONG_COMPENSATE_MIN_INTERVAL_MS => false,
+            _ => {
+                self.pong_throttle.insert(channel_id, now_ms);
+                true
+            }
+        }
+    }
+
+    /// 会话边界 reset（hello 起点）：清队列 + 去重集 + 在途计数 + pong 节流，防跨会话残留误调度。
+    ///
+    /// 与 `ImState::reset_increment_batch` 同生命周期（hello 窗口起点）：旧会话遗留的 pending
+    /// channel / 悬挂在途计数 / 陈旧节流戳若不清，重连后会对错误 channel 调度或永久占满窗口。
+    pub fn reset(&mut self) {
+        self.pending.clear();
+        self.enqueued.clear();
+        self.inflight = 0;
+        self.applying_batch = false;
+        self.pong_throttle.clear();
+    }
+}
+
+/// HTTP 回包与原子写回执之间仍归当前批次所有，不能重拉尚未提交的 cursor。
+fn channel_can_sync(channel: &Channel) -> bool {
+    !channel.is_terminal() && channel.inflight_sync.is_none() && channel.pending_commits.is_empty()
+}
+
+/// 入队一批待 sync channel（跳过已在途的），随后 drain 至满窗（B4 风暴闸门入口）。
+///
+/// 取代旧 `emit_proactive_resync_for` 的「逐 channel 直发」：先全部入队（确定性有序由调用方排序
+/// 锚定，HX-C010），再 `drain` 至全局在途达 K。超 K 的 channel 留队列，等 sync 回报释放窗口续发。
+///
+/// `alloc_corr`：单调 corr 分配器（与 corr_map 不变量同源，见 state.rs CorrelationContext）。
+pub fn enqueue_and_drain(
+    state: &mut ImState,
+    api_base_url: &str,
+    targets: &[ChannelId],
+    alloc_corr: &mut dyn FnMut() -> Correlation,
+    out: &mut EffectSink,
+) {
+    enqueue_and_drain_with_trigger(
+        state,
+        api_base_url,
+        targets,
+        SyncTrigger::Routine,
+        alloc_corr,
+        out,
+    );
+}
+
+pub fn enqueue_and_drain_with_trigger(
+    state: &mut ImState,
+    api_base_url: &str,
+    targets: &[ChannelId],
+    trigger: SyncTrigger,
+    alloc_corr: &mut dyn FnMut() -> Correlation,
+    out: &mut EffectSink,
+) {
+    for &channel_id in targets {
+        // HTTP 在途仍沿用原合并口径；HTTP 已结束的待持久化意图必须留队，不能丢弃。
+        match state.channels.get(&channel_id) {
+            // A type7 tombstone is terminal for this local channel. Do not issue another sync that could
+            // replay late nonterminal events into an already closed surface.
+            Some(ch) if ch.is_terminal() || ch.inflight_sync.is_some() => continue,
+            Some(_) => {}
+            None => continue,
+        }
+        state
+            .sync_scheduler
+            .enqueue_with_trigger(channel_id, trigger);
+    }
+    drain(state, api_base_url, alloc_corr, out);
+}
+
+/// Put explicit pong gaps ahead of the routine reconnect cohort and drain.
+///
+/// Unlike ordinary enqueue, an already queued channel is moved to the front
+/// and its trigger is upgraded. An already in-flight channel remains owned by
+/// that request and is not duplicated.
+pub fn prioritize_and_drain_with_trigger(
+    state: &mut ImState,
+    api_base_url: &str,
+    targets: &[ChannelId],
+    trigger: SyncTrigger,
+    alloc_corr: &mut dyn FnMut() -> Correlation,
+    out: &mut EffectSink,
+) {
+    let eligible: Vec<ChannelId> = targets
+        .iter()
+        .copied()
+        .filter(|channel_id| {
+            state
+                .channels
+                .get(channel_id)
+                .is_some_and(|ch| !ch.is_terminal() && ch.inflight_sync.is_none())
+        })
+        .collect();
+    state
+        .sync_scheduler
+        .prioritize_with_trigger(&eligible, trigger);
+    drain(state, api_base_url, alloc_corr, out);
+}
+
+/// drain：在途未满窗且队非空时，逐个取队首 dispatch `sync/notify`（每次占 1 窗口）。
+///
+/// 不变量：单次 drain 后全局在途 ≤ `MAX_INFLIGHT_SYNC`（`next_dispatch` 满窗即返回 None）。
+/// 已注销项丢弃；HTTP/持久化屏障项保留触发源和队序，不占窗口且不堵无关频道。
+pub fn drain(
+    state: &mut ImState,
+    api_base_url: &str,
+    alloc_corr: &mut dyn FnMut() -> Correlation,
+    out: &mut EffectSink,
+) {
+    if state.sync_scheduler.applying_batch {
+        return;
+    }
+    let mut batch = Vec::new();
+    let conn_id = state.connection_id.clone();
+    let queued = state.sync_scheduler.pending_len();
+    let mut blocked = 0;
+    // 每项每轮最多检查一次；所有项被屏障阻挡时也必须返回，而非重复空转。
+    for _ in 0..queued {
+        let Some((channel_id, trigger)) = state.sync_scheduler.next_dispatch() else {
+            break;
+        };
+        let sync_corr = alloc_corr();
+        // 队首在入队后可能被注销 / 已另起在途 → 跳过并归还本次占的窗口（避免窗口泄漏）。
+        // 单次 get_mut 同时读 cursor + 写 inflight 守卫（消除二次 get 的不可达 None 防御分支）：
+        // 守卫态 / 注销态 → 撤回本次 alloc 的 corr 路由 + 归还窗口；否则原子占位 + 发 sync。
+        let from_seq = match state.channels.get_mut(&channel_id) {
+            Some(ch) if channel_can_sync(ch) => {
+                ch.inflight_sync = Some(InflightSync(sync_corr));
+                // 留队期间 cursor 可继续提交；水位只记录这次实际请求的起点。
+                let from_seq = ch.cursor.value();
+                ch.last_sync_from_seq = Some(from_seq);
+                from_seq
+            }
+            Some(ch) if !ch.is_terminal() => {
+                state.sync_scheduler.release_window();
+                state
+                    .sync_scheduler
+                    .enqueue_with_trigger(channel_id, trigger);
+                blocked += 1;
+                continue;
+            }
+            _ => {
+                state.sync_scheduler.release_window();
+                continue;
+            }
+        };
+        state.corr_map.insert(
+            sync_corr,
+            CorrelationContext::SyncPull {
+                channel_id,
+                trigger,
+            },
+        );
+        tracing::info!(
+            hop = "sync.dispatch",
+            corr = sync_corr.raw(),
+            track_id = crate::acl::sync_http_effects::sync_track_id(sync_corr),
+            channel_id = channel_id.as_str(),
+            from_seq = from_seq.0,
+            trigger = ?trigger,
+            scheduler_inflight = state.sync_scheduler.inflight(),
+            scheduler_pending = state.sync_scheduler.pending_len(),
+            "sync/notify dispatched"
+        );
+        batch.push((sync_corr, channel_id, from_seq));
+    }
+    // 满窗可能留下未检查的 backlog；恢复原先被阻挡项的优先顺序（包括 PongGap）。
+    state.sync_scheduler.pending.rotate_right(blocked);
+    if batch.len() == 1 {
+        let (corr, channel, from) = batch[0];
+        out.push(crate::acl::to_effect::sync_notify(
+            api_base_url,
+            channel,
+            from,
+            corr,
+            conn_id.as_deref(),
+        ));
+    } else if !batch.is_empty() {
+        let corr = alloc_corr();
+        state.corr_map.insert(
+            corr,
+            CorrelationContext::SyncPullBatch {
+                requests: batch.iter().map(|(c, id, _)| (*c, *id)).collect(),
+            },
+        );
+        let cursors: Vec<_> = batch.iter().map(|(_, id, seq)| (*id, *seq)).collect();
+        out.push(crate::acl::sync_http_effects::sync_notify_batch(
+            api_base_url,
+            &cursors,
+            corr,
+            conn_id.as_deref(),
+        ));
+    }
+}
+
+#[cfg(test)]
+#[path = "scheduler_tests.rs"]
+mod tests;

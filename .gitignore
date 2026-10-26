@@ -1,0 +1,28 @@
+/target/
+/.worktrees/
+/worktrees/
+/.perf/
+**/*.rs.bk
+*.log
+.env*
+.DS_Store
+.idea/
+.vscode/
+.superpowers/
+crates/helix-driver-ffi/smoke/build/
+/.idea/
+
+# Agent swarm runtime workspace
+.agents/runs/
+.agents/tmp/
+.gstack/
+/.codebase-memory/
+/outputs/
+
+# 本地 Gate 入站/出站原始证据可能含运行态数据，不进入 Git。
+**/.v1/
+/artifacts/messagev3-phase5-real-chain/
+
+# Python extension runtime caches
+__pycache__/
+*.py[cod]

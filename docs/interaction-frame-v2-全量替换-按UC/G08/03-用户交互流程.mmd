@@ -1,0 +1,16 @@
+sequenceDiagram
+    actor User as 用户或系统
+    participant UI as MessageV4
+    participant Port as CommandPort
+    participant Helix as Helix IM
+    participant Infra as HTTP/WS/SQLite
+    participant Runtime as SurfaceRuntime
+
+    User->>UI: composer 打开定时对话框并提交
+    UI->>Port: submitSchedule → binding（若存在）或 ShellService.createSchedule → im_create_schedule
+    Port->>Helix: im_create_schedule
+    Helix->>Infra: Effect batch
+    Infra-->>Helix: PersistOk / authority result
+    Helix-->>Runtime: InteractionFrameV2 (message.channel-summary)
+    Runtime-->>UI: atomic typed VM publish
+    Runtime-->>Helix: FrameApplied

@@ -1,0 +1,26 @@
+%% Phase1 / post / MV3-G05l 纯本地工具栏命令（多选 / 复制 / 提醒 / 协同 / 头脑风暴）
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/post/mv3-g05l/contract.json
+%% UI owners: packages/message/src/lib/services/toolbar-command/commands/multiple.command.ts:1；packages/message/src/lib/services/toolbar-command/commands/copy.command.ts:1；packages/message/src/lib/services/toolbar-command/commands/remind.command.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant PS as Pending or local state
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员点「多选」进入批量选择态；点「复制 / 提醒 / 协同 / 头脑风暴」只得到一条提示文案，会话数据没有任何变化
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=not_applicable；helix=not_applicable；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  UI->>Gate: 纯本地工具栏命令（多选 / 复制 / 提醒 / 协同 / 头脑风暴）(payload)
+  Gate-->>UI: 当前客户端路由结果或受控空结果
+  Note over Gate,IM: 当前合同 helixCommand=NONE；Helix 不接管该 Gate，不能凭图补造 command、Effect 或业务事件
+  Note over IM,DB: 关键效果：multiple：ctx.toggleSelectionMode('multiple') 打开批量选择态（是 MV3-G03a / MV3-G03b 转发与 MV3-G05i 批量收藏的前置），选择态是纯 UI 局部状态，不写任何消息字段；copy / remind / synergy / brainstorm：只调用 ctx.render.info 输出占位提示（'功能开发中' / '当前类型的消息暂时不支持复制'），消息集合与任何消息字段零变化；persona-local：对端零感知，events 为 []（不传播的证据）
+  Note over UI,Web: 关键负向：绝不产生任何 Port 调用：整个 MESSAGE_V3_IM_GATE 的方法 spy 调用次数恒为 0；绝不产生任何出站事件：events 长度恒为 0；绝不写任何 IM 状态面：unreadCount / readBits / lastPost / mentionCount / draft / 消息集合全部零变化
+  Note over E,Sink: 出站事件集合：无业务事件；跨端只搬运 {event,data} 原始字节，不在 shell 复制 reducer

@@ -1,0 +1,42 @@
+%% Phase3 / channel_member / MV3-G09e 成员在线状态
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/channel_member/mv3-g09e/contract.json
+%% UI owners: packages/message/src/lib/components/drawer/chat-settings/chat-settings.component.ts:1；packages/message/src/lib/services/messageDialog.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
+sequenceDiagram
+  autonumber
+  participant UI as Angular UI
+  participant Gate as MessageV3 Gate Port
+  participant Native as Tauri Native
+  participant FFI as Flutter FFI
+  participant Web as Browser Web
+  participant E as ExecutionShell Tick
+  participant IM as helix-im
+  participant Host as driver-host
+  participant DB as tenant SQLite
+  participant Go as Go IM Server
+  participant WS as WS inbound
+  participant Sink as EventSink raw bytes
+  Note over UI,Gate: 用户目标：成员打开群设置时立即看到成员在线态，并在面板打开期间持续刷新；查询失败或结果过期时明确显示未知，不把失败伪装成全员离线。
+  Note over UI,Web: 合同登记快照（不等于当前实现或实测）：mock=partial；helix=implemented；dual=yes；personaLocal=yes；该图是交互合同，不把 Mock、HTTP 2xx 或静态注册写成真实 Green
+  alt PC Tauri 入口
+    UI->>Gate: queryOnlineStatus(payload)
+    Gate->>Native: invokeReadResult("im_channel_online_status", payload)
+    Native->>E: Tick::Command(AppCommand)
+  else Flutter FFI 入口
+    FFI->>E: helix_command("im_channel_online_status", payload)
+  else Browser Web 入口
+    Web->>E: invoke("im_channel_online_status", payload)
+  end
+  E->>IM: ExecutionShell::step(Tick::Command)
+  IM->>IM: 校验 查询频道成员在线态 的入参，生成 corr_key/req_id
+  IM->>Host: Effect::Http POST /channel/onlineStatus
+  Host->>Go: HTTP request with tenant/auth/corr headers
+  Go-->>Host: HTTP response（2xx 只代表 admission/query response）
+  Host->>E: Tick::PortReply(http)
+  E->>IM: correlate req_id/corr_key
+  IM->>Sink: Effect::Emit im:read:result（请求关联结果）
+  Sink-->>Gate: im:__bus__ 按 req_id 或 requestId 结算等待者
+  Gate-->>UI: render absolute snapshot or query result
+  Note over IM,Gate: HTTP或信封失败经 im:read:result.error 关联回灌；业务失败由结果 body 保留，不伪造成功
+  Note over IM,DB: 关键效果：当前缺口：Mock 恒返回 []，尚未提供强类型在线态；不得把该缺口解释为 Go 权威判定全员 offline；返回 Array小于channelId,members:Array小于userId,status:'online'／'offline'／'unknown'大于大于；Go 成功结果仅含 online/offline，当前客户端 queryOnlineStatus/normalizeOnlineStatusResult 将失败或缺失项归一为 unknown；过期刷新由调用方负责
+  Note over UI,Web: 关键负向：纯读取不 emit：调用后 events$ 必须零事件；查询失败、响应缺失或缓存过期不得批量降级为 offline；必须保留成员列表并把受影响项标为 unknown
+  Note over E,Sink: 结果出口：im:read:result；读结果与业务广播区分，不能把无广播理解为无 Effect::Emit

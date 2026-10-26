@@ -1,0 +1,281 @@
+use super::*;
+use crate::{module::ImConfig, ImModule};
+use helix_core::tick::{AppCommand, InboundBytes, PortError};
+use helix_core::Module;
+
+/// 通过公开 Module seam 发出真实 HTTP；测试只观察私有诊断资源数量。
+fn start(module: &mut ImModule, sink: &mut EffectSink, id: &str) -> Correlation {
+    sink.clear();
+    module
+        .handle(
+            &Tick::Command(AppCommand::new(
+                "im_top20",
+                serde_json::to_vec(&serde_json::json!({
+                    "channel_id":"ch00000000000000000000000a","req_id":id
+                }))
+                .unwrap(),
+            )),
+            1000,
+            sink,
+        )
+        .unwrap();
+    sink.as_slice()
+        .iter()
+        .find_map(|e| match e {
+            Effect::Http { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .unwrap()
+}
+
+/// 成功/失败/重复回复、取消和 stop 后不残留弱引用索引或路由。
+#[test]
+fn public_reply_and_stop_release_diagnostic_resources() {
+    let mut module = ImModule::new(ImConfig {
+        api_base_url: "https://example.test/api/cses".into(),
+        ..ImConfig::default()
+    });
+    let mut sink = EffectSink::new();
+    for i in 0..300 {
+        let corr = start(&mut module, &mut sink, &format!("read-{i}"));
+        sink.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr,
+                    outcome: PortOutcome::Err(PortError::Timeout),
+                },
+                1001,
+                &mut sink,
+            )
+            .unwrap();
+        assert!(module.failure_context.pending.is_empty());
+        assert!(module.failure_context.requests.is_empty());
+        assert!(module.failure_context.request_routes.is_empty());
+        assert!(module.failure_context.recent.len() <= 256);
+        assert!(module.failure_context.recent_order.len() <= 256);
+        sink.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr,
+                    outcome: PortOutcome::Err(PortError::Timeout),
+                },
+                1002,
+                &mut sink,
+            )
+            .unwrap();
+        assert!(sink.is_empty());
+    }
+    assert_eq!(module.failure_context.recent.len(), 256);
+    start(&mut module, &mut sink, "stop-me");
+    sink.clear();
+    module.on_stop(&mut sink).unwrap();
+    assert!(module.failure_context.pending.is_empty());
+    assert!(module.failure_context.timers.is_empty());
+    assert!(module.failure_context.recent.is_empty());
+    assert!(module.failure_context.requests.is_empty());
+    assert!(module.failure_context.request_routes.is_empty());
+}
+
+/// 可信 envelope correlation 能标明来源；业务 data 中伪造 req_id 不得关联 Command。
+#[test]
+fn websocket_origin_uses_only_trusted_envelope_correlation() {
+    let mut module = ImModule::new(ImConfig {
+        api_base_url: "https://example.test/api/cses".into(),
+        ..ImConfig::default()
+    });
+    let mut sink = EffectSink::new();
+    start(&mut module, &mut sink, "trusted-request");
+    for (frame,command) in [
+        (br#"{"action":"unknown_test_action","tracing":{"csesTrackId":"trusted-request"},"data":{}}"#.as_slice(),"im_top20"),
+        (br#"{"action":"unknown_test_action","data":{"req_id":"trusted-request"}}"#.as_slice(),"server_push")
+    ] {
+        sink.clear();
+        let message=module.handle(&Tick::Inbound(InboundBytes(bytes::Bytes::copy_from_slice(frame))),1001,&mut sink).unwrap_err().to_string();
+        assert!(message.contains(command)&&message.contains("WS unknown_test_action"),"{message}");
+    }
+    sink.clear();
+    module.on_stop(&mut sink).unwrap();
+}
+
+/// 路径不带 authority/query/fragment；成功 WS 来源复用静态 action。
+#[test]
+fn paths_and_error_text_do_not_export_credentials() {
+    assert_eq!(
+        request_path("https://user:pass@example.test/api/cses/posts?token=hidden#x"),
+        "/api/cses/posts"
+    );
+    assert_eq!(
+        clean_text("denied\nBearer private token=private password=private", 128),
+        "denied [redacted] [redacted] [redacted] [redacted]"
+    );
+    assert_eq!(clean_text(&"甲".repeat(2000), 32).chars().count(), 32);
+    let mut context = FailureContext::default();
+    context.websocket(&crate::ws::WsFrame::parse(br#"{"action":"post","data":{}}"#).unwrap());
+    assert!(matches!(
+        context.current.ws_action,
+        Some(Cow::Borrowed("post"))
+    ));
+}
+
+/// 与别的请求交错的 timer 取消也必须释放它自己的诊断索引。
+#[test]
+fn timer_cancel_releases_origin_without_scanning_other_requests() {
+    let mut context = FailureContext::default();
+    let command = Tick::Command(AppCommand::new(
+        "im_top20",
+        br#"{"req_id":"timer-only"}"#.to_vec(),
+    ));
+    let mut sink = EffectSink::new();
+    let timer = TimerId::from_raw(42);
+    context.enter(&command);
+    context.bind_request("timer-only");
+    sink.push(Effect::ScheduleTimer {
+        id: timer,
+        after_ms: 10,
+    });
+    context
+        .finish(Some(&command), 0, &mut sink, Ok(()), |_| None)
+        .unwrap();
+    assert_eq!(context.requests.len(), 1);
+    sink.clear();
+    let other = Tick::Connected(helix_core::effect::TransportId::from_raw(1));
+    context.enter(&other);
+    sink.push(Effect::CancelTimer { id: timer });
+    context
+        .finish(Some(&other), 0, &mut sink, Ok(()), |_| None)
+        .unwrap();
+    assert!(context.timers.is_empty());
+    assert!(context.requests.is_empty());
+}
+
+/// 诊断入口不能解释业务载荷；没有任何Effect时不得建立请求索引。
+#[test]
+fn command_entry_does_not_parse_payload_or_register_request() {
+    let mut context = FailureContext::default();
+    context.enter(&Tick::Command(AppCommand::new(
+        "im_top20",
+        br#"{"req_id":"must-not-be-parsed"}"#.to_vec(),
+    )));
+    assert!(
+        context.requests.is_empty(),
+        "request identity must come from an existing typed continuation"
+    );
+}
+
+/// 未标记事件即便内容像错误也不能被猜测、解析或改写；分类权属于 producer。
+#[test]
+fn unobserved_bytes_are_never_reinterpreted_by_diagnostics() {
+    use helix_core::effect::DomainEventBytes;
+    let bytes = bytes::Bytes::from_static(
+        br#"{"event":"im:read:result","data":{"error":"payload is opaque"}}"#,
+    );
+    let mut sink = EffectSink::new();
+    sink.push(Effect::Emit {
+        event: DomainEventBytes(bytes.clone()),
+    });
+    FailureContext::default()
+        .finish(None, 0, &mut sink, Ok(()), |_| None)
+        .unwrap();
+    let Effect::Emit { event } = &sink.as_slice()[0] else {
+        panic!("emit")
+    };
+    assert_eq!(event.0, bytes);
+}
+
+/// HTTP 前创建的timer共享一次绑定的身份，而不复制或重新解析payload。
+#[test]
+fn origin_is_bound_once_and_shared_with_existing_timer() {
+    let mut context = FailureContext::default();
+    let command = Tick::Command(AppCommand::new("im_top20", b"opaque payload".to_vec()));
+    context.enter(&command);
+    let source = context.current.clone();
+    context.bind_request("first");
+    context.bind_request("different");
+    assert_eq!(source.req_id(), "first");
+    assert_eq!(context.current.req_id(), "first");
+}
+
+/// 外部超长req_id不进入诊断缓存，业务关联及payload由原有业务层处理。
+#[test]
+fn oversized_request_id_is_not_retained_by_diagnostics() {
+    let mut context = FailureContext::default();
+    context.enter(&Tick::Command(AppCommand::new("im_top20", Vec::new())));
+    context.bind_request(&"x".repeat(513));
+    assert!(context.requests.is_empty());
+    assert_eq!(context.current.req_id(), "");
+}
+
+/// TraceId只由宿主注入；普通成功bytes不变，固定失败和机器码都保留原合同。
+#[test]
+fn trace_context_enriches_failure_variants_only() {
+    use helix_core::diagnostics::TraceId;
+    let trace = TraceId::from_hex("11111111111111111111111111111111").unwrap();
+    for (event_name, data) in [
+        (
+            "im:channel:create-failed",
+            serde_json::json!({"requestId":"create-1","reason":"business_rejected","message":"group limit"}),
+        ),
+        (
+            "im:read:result",
+            serde_json::json!({"req_id":"read-1","error":"SCHEDULE_PERSIST_FAILED"}),
+        ),
+        (
+            "im:read:result",
+            serde_json::json!({"req_id":"read-1","items":[]}),
+        ),
+    ] {
+        let tick = Tick::Command(AppCommand::new("im_top20", b"{}".to_vec()));
+        let encoded =
+            serde_json::to_vec(&serde_json::json!({"event":event_name,"data":data})).unwrap();
+        // 从真实ExecutionShell公开入口拿到注入诊断的sink在下面小模块中验证。
+        struct Fixture {
+            encoded: Vec<u8>,
+        }
+        impl helix_core::Module for Fixture {
+            fn name(&self) -> &'static str {
+                "fixture"
+            }
+            fn accepts(&self, _: &Tick) -> bool {
+                true
+            }
+            fn handle(
+                &mut self,
+                tick: &Tick,
+                _: u64,
+                out: &mut EffectSink,
+            ) -> Result<(), CoreError> {
+                let mut context = FailureContext::default();
+                context.enter(tick);
+                out.push(Effect::Emit {
+                    event: helix_core::effect::DomainEventBytes::observed(
+                        self.encoded.clone().into(),
+                    ),
+                });
+                context.finish(Some(tick), 0, out, Ok(()), |_| None)
+            }
+        }
+        let mut shell = helix_core::ExecutionShell::new();
+        shell.register(Fixture {
+            encoded: encoded.clone(),
+        });
+        let effects = shell.step_with_trace(tick, 1, Some(trace)).unwrap();
+        let Effect::Emit { event } = &effects[0] else {
+            panic!("emit")
+        };
+        let value: serde_json::Value = serde_json::from_slice(&event.0).unwrap();
+        if data.get("items").is_some() {
+            assert_eq!(event.0.as_ref(), encoded.as_slice());
+            assert!(shell.diagnostics().failures().is_empty());
+        } else {
+            assert!(value.to_string().contains(trace.as_str()));
+            if event_name.ends_with("-failed") {
+                assert_eq!(value["data"]["reason"], "business_rejected");
+            } else {
+                assert_eq!(value["data"]["error"], "SCHEDULE_PERSIST_FAILED");
+            }
+            assert_eq!(shell.diagnostics().failures().len(), 1);
+        }
+    }
+}

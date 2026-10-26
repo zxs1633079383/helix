@@ -1,0 +1,11 @@
+flowchart LR
+    A["单条可见上报；模板确认已收到"] --> B["direct command；receipt popover 查询可使用独立 binding"]
+    B --> C["im_post_read / im_template_received"]
+    C --> D["ImModule::handle"]
+    D --> E["Effect: http_write / storage_upsert / projection"]
+    E --> F{"PersistOk / authority read"}
+    F --> G["InteractionFrameV2 schemaVersion=2"]
+    G --> H["Surface: message.participant-receipts / message.timeline"]
+    H --> I["Native opaque sink"]
+    I --> J["SurfaceRuntime atomic apply"]
+    J --> K["单条已读与模板已收到 UI"]

@@ -1,0 +1,11 @@
+flowchart LR
+    A["频道菜单确认取消定时"] --> B["当前主要 direct command；代码保留 binding 优先分支"]
+    B --> C["im_cancel_schedule"]
+    C --> D["ImModule::handle"]
+    D --> E["Effect: http_write / storage_upsert / projection"]
+    E --> F{"PersistOk / authority read"}
+    F --> G["InteractionFrameV2 schemaVersion=2"]
+    G --> H["Surface: message.channel-summary"]
+    H --> I["Native opaque sink"]
+    I --> J["SurfaceRuntime atomic apply"]
+    J --> K["取消定时消息 UI"]

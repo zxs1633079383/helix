@@ -1,0 +1,62 @@
+[package]
+name        = "helix-driver-host"
+version     = "0.1.87"
+edition     = "2021"
+authors     = ["CSES Team"]
+license     = "MIT OR Apache-2.0"
+description = "Helix Native 与 FFI 共用的存储、网络和执行驱动"
+repository  = "https://git.yundiz.com/cses/go/helix"
+readme      = "README.md"
+include     = ["/src/**", "/README.md"]
+
+# Shared Rust host driver layer for product clients:
+# PC Tauri shell (helix-driver-native) and Flutter FFI shell (helix-driver-ffi).
+
+[dependencies]
+helix-core = { package = "cses-helix-core", path = "../helix-core", version = "=0.1.87" }
+async-trait = { workspace = true }
+bytes       = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+thiserror   = { workspace = true }
+tokio       = { version = "1", features = ["rt-multi-thread", "macros", "sync", "net", "time", "fs", "io-util"] }
+rusqlite    = { version = "0.32.1", features = ["bundled"] }
+reqwest     = { version = "0.12", features = ["json", "stream"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+parking_lot = "0.12" # HostHeaderRegistry 用：无 poison（panic 不静默丢头），对齐现网 cses-client
+tracing     = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["registry"] }
+libc        = "0.2"
+opentelemetry = "0.32"
+opentelemetry_sdk = { version = "0.32", features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "metrics", "grpc-tonic"] }
+sha2 = "0.10"
+arc-swap = "1"
+time = { version = "0.3", features = ["formatting"] }
+
+# driver 层是 ambient API（SystemTime/线程）的合法落点 → 不开 disallowed deny
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+disallowed_methods = "allow"
+disallowed_macros = "allow"
+
+[dev-dependencies]
+criterion = "0.5"
+# 暂停时钟复现「连上即断」抖动：重连风暴断言不能依赖真实墙钟，否则 CI / 本机不可复现。
+tokio = { version = "1", features = ["test-util", "rt-multi-thread", "macros", "sync", "time"] }
+# 真 DB 落库集成测试用：以 IM_SCHEMA 建真 SQLite，喂 event_to_upsert_op 产物，
+# 断言 message 表真有行（而非断 Effect 字符串）。helix-im 纯 crate，无运行时依赖。
+helix-im = { path = "../helix-im", version = "=0.1.87" }
+bytes = { workspace = true }
+
+[[bench]]
+name = "storage_bench"
+harness = false
+
+# runtime_compare bench 已注销（MAJOR-2 false-green 修复，2026-06-18）：
+# spawn_blocking 设计保证两种 runtime 形态存储吞吐构造上等同，无需 bench 实测。
+# bench 文件保留（benches/runtime_compare.rs）仅为记录决策，不被 harness 运行。
+# [[bench]]
+# name = "runtime_compare"
+# harness = false

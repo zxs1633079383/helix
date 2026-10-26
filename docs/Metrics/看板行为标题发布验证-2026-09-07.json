@@ -1,0 +1,9 @@
+{
+  "observed_at": "2026-09-07T08:48:47.829011+00:00",
+  "version": 2,
+  "dashboard_url": "http://192.168.6.66:30300/d/helix-client-channel-v1/6c53980",
+  "all_titles_readback_equal": true,
+  "all_queries_readback_equal": true,
+  "panels_and_rows": 98,
+  "business_deployment_verified": false
+}

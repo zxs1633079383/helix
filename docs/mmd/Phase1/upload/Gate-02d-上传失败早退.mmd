@@ -1,0 +1,43 @@
+%% Phase1 / upload / MV3-G02d 上传失败早退
+%% 客户端合同真源: /System/Volumes/Data/workspace/angular/visual/cses-client/specs/003-messagev3-gate-inventory/gates/upload/mv3-g02d/contract.json
+%% UI owners: packages/message/src/lib/services/messageSend.service.ts:1；src/app/message-host/runtime/im-gate/helix/helixTauriImGate.service.ts:1（实际命令与关联回灌）
+%% 实现真源: crates/helix-im/src/port_reply.rs；crates/helix-im/src/send/flow.rs；packages/message/src/lib/services/messageSend.service.ts
+sequenceDiagram
+  autonumber
+  participant UI as Angular MessageSendService
+  participant Gate as MessageV3 Gate
+  participant Host as Native Host
+  participant IM as helix-im
+  participant DB as tenant SQLite
+  participant Java as Java 签名服务
+  participant OSS as 对象存储
+  participant Sink as EventSink
+  UI->>Host: 本地附件暂存为账号绑定 opaque handle
+  alt 暂存失败
+    Host-->>UI: 错误
+    Note over UI,Gate: 在 sendMsg 前中断，不提交发送命令
+  else 暂存成功
+    Host-->>UI: mediaHandle
+    UI->>Gate: sendMsg(intent)
+    Gate->>Host: im_send_message
+    Host->>IM: 解析 handle 为 mediaInput 后 Tick::Command
+    IM->>DB: PersistAtomic optimistic message 与 pending_media
+    DB-->>IM: matching PersistOk
+    IM->>Java: 经 Host HTTP prepare /oss/getPresignedUrl
+    Java-->>IM: 经 PortReply 返回 prepare 成功或失败
+    opt prepare 成功且阶段持久化成功
+      IM->>OSS: 经 Host Effect::UploadFile PUT
+      OSS-->>IM: 经 PortReply 返回上传成功或失败
+    end
+    alt prepare、PUT 或完成持久化失败
+      IM->>IM: 标记失败及可重试阶段，禁止 posts/create
+      IM->>DB: 持久化失败事实与恢复信息
+      DB-->>IM: matching PersistOk
+      IM->>Sink: 失败状态投影
+      Sink-->>UI: 渲染本端失败态
+    else 全部附件完成且本地 Complete 提交成功
+      Note over IM,Host: 进入 G01c/G01d 发送链路
+    end
+  end
+  Note over UI,Sink: 旧合同 helixCommand=NONE 是历史登记；当前失败分支由 im_send_message 内核生命周期承载
+  Note over IM,DB: 存储失败不得伪造持久成功；远端未发 posts/create 时不产生接收者新消息

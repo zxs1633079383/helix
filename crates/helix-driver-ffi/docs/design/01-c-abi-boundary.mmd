@@ -1,0 +1,66 @@
+%% helix-driver-ffi — C-ABI 边界全景（F4 后）
+%% C++/Flutter host ↔ C-ABI 导出函数 ↔ Rust pump / shared host driver
+%% 真源：crates/helix-driver-ffi/src/{api.rs,pump.rs,event_sink.rs,http.rs,vtable.rs}
+
+flowchart TD
+    subgraph HOST["C++ / Flutter host"]
+        HCMD["调用导出函数<br/>create / destroy / set_header / command / query"]
+        HVT["CppHostVtable<br/>on_domain_events_batch · now_ms · ctx"]
+    end
+
+    subgraph ABI["C-ABI 导出函数（#no_mangle extern C · api.rs）"]
+        E_CREATE["✅ helix_create_with_endpoints（推荐）<br/>Go + Java + WS 独立注入"]
+        E_CREATE_LEGACY["✅ helix_create_with_network（兼容）<br/>Go + WS；Java 为空且不推测"]
+        E_DESTROY["✅ helix_destroy<br/>shutdown + join + Box::from_raw"]
+        E_SETH["✅ helix_set_header"]
+        E_RMH["✅ helix_remove_header"]
+        E_CMD["✅ helix_command<br/>拷贝 name/payload → Tick::Command"]
+        E_QUERY["✅ helix_query<br/>capabilities / version 元信息"]
+    end
+
+    subgraph HANDLE["HelixHandle（opaque ptr · 单 owner）"]
+        H_HDR["headers: HostHeaderRegistry"]
+        H_TICK["tick_tx: Sender<Tick>"]
+        H_SHUT["shutdown_tx"]
+        H_THREAD["pump_thread"]
+    end
+
+    subgraph PUMP["FFI pump 线程（pump.rs）"]
+        RUNTIME["tokio current_thread runtime"]
+        SHELL["ExecutionShell + ImModule"]
+        STORE["HostStorage<br/>shared rusqlite StorageOp 单一真源"]
+        HTTP["FfiHttpRequester(SharedHttpClient)"]
+        WS["SharedWsClient.with_inbound_tick"]
+        SINK["FfiEventSink<br/>批量回 C++ vtable"]
+        ENGINE["helix-driver-host::engine::run_engine_loop"]
+    end
+
+    HCMD --> E_CREATE
+    HCMD --> E_CREATE_LEGACY
+    HCMD --> E_SETH
+    HCMD --> E_RMH
+    HCMD --> E_CMD
+    HCMD --> E_QUERY
+    HCMD --> E_DESTROY
+    HVT --> E_CREATE
+
+    E_CREATE --> HANDLE
+    E_CREATE_LEGACY --> HANDLE
+    E_DESTROY --> HANDLE
+    E_SETH --> H_HDR
+    E_RMH --> H_HDR
+    E_ACTION --> H_TICK
+    E_CMD --> H_TICK
+
+    HANDLE --> PUMP
+    RUNTIME --> SHELL
+    RUNTIME --> STORE
+    RUNTIME --> HTTP
+    RUNTIME --> WS
+    RUNTIME --> SINK
+    SHELL --> ENGINE
+    STORE --> ENGINE
+    HTTP --> ENGINE
+    WS --> ENGINE
+    SINK --> ENGINE
+    SINK -->|"on_domain_events_batch(buf,len)"| HVT

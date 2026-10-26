@@ -1,0 +1,75 @@
+{
+  "data": {
+    "card": null,
+    "chainId": "chain-a",
+    "channelId": "chfixx00000000000000000001",
+    "clientMutationId": "create-draft",
+    "command": "category_chain_create_draft",
+    "commandKind": "create-draft",
+    "draft": {
+      "audience": {
+        "chainId": "chain-a",
+        "memberIds": [
+          "user-a"
+        ],
+        "mode": "CHANNEL_SNAPSHOT",
+        "revision": "1"
+      },
+      "categories": [
+        {
+          "chainId": "chain-a",
+          "id": "a",
+          "name": "室内",
+          "ordinal": 0,
+          "revision": "1",
+          "tone": "purple"
+        },
+        {
+          "chainId": "chain-a",
+          "id": "b",
+          "name": "户外",
+          "ordinal": 1,
+          "revision": "1",
+          "tone": "blue"
+        }
+      ],
+      "categoryIdMap": [
+        {
+          "categoryId": "a",
+          "clientId": "a"
+        },
+        {
+          "categoryId": "b",
+          "clientId": "b"
+        }
+      ],
+      "chain": {
+        "anchorPostId": null,
+        "channelId": "chfixx00000000000000000001",
+        "closeReason": null,
+        "createdAt": 1788770000000,
+        "creatorId": "user-a",
+        "deadlineAt": 1789113600000,
+        "definitionRevision": "1",
+        "description": "",
+        "example": "",
+        "id": "chain-a",
+        "maxCategories": 2,
+        "revision": "1",
+        "status": "DRAFT",
+        "title": "活动",
+        "updatedAt": 1788770000000
+      }
+    },
+    "eventId": null,
+    "eventSeq": null,
+    "myParticipation": null,
+    "operationId": "op-create-draft",
+    "outcome": "CONFIRMED",
+    "post": null,
+    "revision": "1",
+    "state": "CONFIRMED",
+    "viewerId": "user-a"
+  },
+  "event": "im:category_chain:operation"
+}

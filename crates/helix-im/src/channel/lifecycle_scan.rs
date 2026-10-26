@@ -134,6 +134,7 @@ impl ImModule {
                     // normal resync to revive a potentially closed channel. Mark it terminal in-memory at
                     // the current cursor only after this fail-closed boundary is reported.
                     channel.terminal_event_seq = Some(channel.cursor.value());
+                    channel.lifecycle_epoch = channel.lifecycle_epoch.wrapping_add(1);
                 }
             }
         }

@@ -80,6 +80,8 @@ pub struct Channel {
     /// channel 当作活跃频道重新投影。type7 的持久化镜像位于
     /// `channel_event_cursor.terminal_event_seq`；本地删除投影即使序列为 0 也必须阻断同步。
     pub terminal_event_seq: Option<Seq>,
+    /// In-flight reads must not cross close/leave/rejoin, including leave after close.
+    pub(crate) lifecycle_epoch: u64,
 }
 
 mod commit;

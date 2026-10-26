@@ -54,6 +54,116 @@ fn emitted(h: &Harness) -> Vec<Value> {
         .collect()
 }
 
+/// Replay a durable close/leave through the same public WS and persist seams as the driver.
+fn terminal(h: &mut Harness, reason: &str) {
+    let frame = json!({"action":"channel_close","data":{"channelId":cid(1),"deleteAt":100,"terminalReason":reason}});
+    h.step(
+        Tick::Inbound(helix_core::tick::InboundBytes(Bytes::from(
+            frame.to_string(),
+        ))),
+        2,
+    );
+    let corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .unwrap();
+    h.step(
+        Tick::PortReply {
+            corr,
+            outcome: PortOutcome::Ok(ReplyBytes(Bytes::new())),
+        },
+        3,
+    );
+}
+
+/// Closed channels retain history access; leaving an already closed channel fences late replies.
+#[test]
+fn closed_history_is_authorized_but_inflight_leave_is_rejected() {
+    for leave in [false, true] {
+        let mut h = Harness::new(&[1]);
+        terminal(&mut h, "closed");
+        let (corr, _) = start(&mut h);
+        if leave {
+            terminal(&mut h, "left");
+        }
+        let outcome = PortOutcome::Ok(ReplyBytes(common::enveloped(Bytes::from(json!({"status":"SUCCESS","data":{"supported":true,"ready":true,"headSeq":"100","snapshotHeadSeq":"100","firstSeq":"1","membershipEpoch":"1","revision":"1","anchorSeq":"20"}}).to_string()))));
+        h.step(
+            Tick::PortReply {
+                corr,
+                outcome: outcome.clone(),
+            },
+            4,
+        );
+        assert_eq!(
+            h.sink
+                .as_slice()
+                .iter()
+                .any(|e| matches!(e, Effect::Persist { .. })),
+            !leave
+        );
+        assert_eq!(
+            emitted(&h).iter().any(|v| v["data"]["error"]
+                .as_str()
+                .is_some_and(|s| s.contains("ACCESS_REVOKED"))),
+            leave
+        );
+        assert!(h
+            .module
+            .terminal_event_seq_for(common::channel_id(1))
+            .is_some());
+        if leave {
+            h.step(Tick::PortReply { corr, outcome }, 5);
+            assert!(
+                h.sink.as_slice().is_empty(),
+                "late reply cannot revive revoked query"
+            );
+        }
+    }
+}
+
+/// A successful metadata check cannot authorize cached rows after a durable leave.
+#[test]
+fn leave_after_metadata_rejects_late_local_read_for_active_and_closed_channels() {
+    for closed in [false, true] {
+        let mut h = Harness::new(&[1]);
+        if closed {
+            terminal(&mut h, "closed");
+        }
+        let (corr, _) = start(&mut h);
+        h.step(Tick::PortReply { corr, outcome: PortOutcome::Ok(ReplyBytes(common::enveloped(Bytes::from(json!({"status":"SUCCESS","data":{"supported":true,"ready":true,"headSeq":"100","snapshotHeadSeq":"100","firstSeq":"1","membershipEpoch":"1","revision":"1","anchorSeq":"20"}}).to_string())))) }, 4);
+        let corr = h
+            .sink
+            .as_slice()
+            .iter()
+            .find_map(|e| match e {
+                Effect::Persist { corr, .. } => Some(*corr),
+                _ => None,
+            })
+            .unwrap();
+        terminal(&mut h, "left");
+        h.step(
+            Tick::PortReply {
+                corr,
+                outcome: PortOutcome::Ok(ReplyBytes(Bytes::from_static(b"[]"))),
+            },
+            5,
+        );
+        assert!(emitted(&h).iter().any(|v| v["data"]["error"]
+            .as_str()
+            .is_some_and(|s| s.contains("ACCESS_REVOKED"))));
+        assert!(!h.sink.as_slice().iter().any(|e| matches!(
+            e,
+            Effect::Persist { .. } | Effect::PersistAtomic { .. } | Effect::Http { .. }
+        )));
+        start(&mut h); // rejection releases req_id and the deadline.
+    }
+}
+
 /// Transport failure is terminal and late/duplicate replies cannot revive it.
 #[test]
 fn network_error_timeout_and_stop_release_pending_without_fallback() {

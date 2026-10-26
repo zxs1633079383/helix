@@ -355,6 +355,75 @@ fn ids(reply: &Value) -> Vec<String> {
         .collect()
 }
 
+/// A real durable close stops synchronization but preserves cold/warm history and navigation.
+#[tokio::test]
+async fn closed_channel_keeps_sequence_history_without_resuming_sync() {
+    let mut f = Fixture::new(60, 1..=60).await;
+    let channel = helix_im::state::ChannelId::from_str(CHANNEL).unwrap();
+    f.module.register_channel(channel, 0);
+    let frame = json!({"action":"channel_close","data":{"channelId":CHANNEL,"deleteAt":100}});
+    let mut sink = EffectSink::new();
+    f.module
+        .handle(
+            &Tick::Inbound(helix_core::tick::InboundBytes(Bytes::from(
+                frame.to_string(),
+            ))),
+            1,
+            &mut sink,
+        )
+        .unwrap();
+    let (corr, ops) = sink
+        .as_slice()
+        .iter()
+        .find_map(|e| match e {
+            Effect::PersistAtomic { corr, ops } => Some((*corr, ops.clone())),
+            _ => None,
+        })
+        .unwrap();
+    let outcome = execute_storage_ops_atomic(&f.storage, &ops).await;
+    assert!(matches!(outcome, PortOutcome::Ok(_)));
+    sink.clear();
+    f.module
+        .handle(&Tick::PortReply { corr, outcome }, 2, &mut sink)
+        .unwrap();
+    for _ in 0..2 {
+        for (command, args, expected) in [
+            (
+                "im_query_messages_by_channel",
+                json!({"pageSize":20}),
+                (41..=60).collect::<Vec<_>>(),
+            ),
+            (
+                "im_load_older_context",
+                json!({"pageSize":20,"anchor_post_id":"p41"}),
+                (21..=40).collect(),
+            ),
+            (
+                "im_load_newer_context",
+                json!({"pageSize":20,"anchor_post_id":"p20"}),
+                (21..=40).collect(),
+            ),
+            (
+                "im_locate_context",
+                json!({"pageSize":20,"target_post_id":"p21","window":"forward"}),
+                (21..=40).collect(),
+            ),
+        ] {
+            let result = f.query(command, args).await;
+            assert_eq!(
+                ids(&result),
+                expected
+                    .into_iter()
+                    .map(|n| format!("p{n}"))
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(f.module.terminal_event_seq_for(channel), Some(0));
+            assert_eq!(f.module.cursor_for(channel), Some(0));
+        }
+    }
+    f.clean().await;
+}
+
 /// Restart keeps the slot proof; only metadata is requested for a complete warm range.
 #[tokio::test]
 async fn sparse_history_fills_visible_page_and_reuses_persisted_slots_after_restart() {

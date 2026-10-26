@@ -21,6 +21,7 @@ impl Channel {
             inflight_sync: None,
             last_sync_from_seq: None,
             terminal_event_seq: None,
+            lifecycle_epoch: 0,
         }
     }
 
@@ -34,6 +35,7 @@ impl Channel {
 
     /// 从本地 channel 投影恢复已删除/已关闭终态；序列为 0 也必须阻断补偿。
     pub(crate) fn mark_projection_terminal(&mut self, terminal_seq: Seq) {
+        self.lifecycle_epoch = self.lifecycle_epoch.wrapping_add(1);
         if self.is_terminal() {
             return;
         }
@@ -46,6 +48,7 @@ impl Channel {
 
     /// 当前 viewer 被权威成员事件重新加入后恢复聚合，允许后续增量继续推进。
     pub(crate) fn resume_after_rejoin(&mut self) {
+        self.lifecycle_epoch = self.lifecycle_epoch.wrapping_add(1);
         self.terminal_event_seq = None;
         self.pending_stream_seq = None;
         self.buffer.clear();
@@ -59,6 +62,7 @@ impl Channel {
         if terminal_seq.0 == 0 || terminal_seq > self.cursor.value() {
             return false;
         }
+        self.lifecycle_epoch = self.lifecycle_epoch.wrapping_add(1);
         self.terminal_event_seq = Some(terminal_seq);
         self.pending_stream_seq = None;
         self.buffer.clear();
@@ -80,6 +84,7 @@ impl Channel {
         if !self.cursor.try_advance(terminal_seq) {
             return false;
         }
+        self.lifecycle_epoch = self.lifecycle_epoch.wrapping_add(1);
         self.terminal_event_seq = Some(terminal_seq);
         self.buffer.clear();
         self.gate = None;

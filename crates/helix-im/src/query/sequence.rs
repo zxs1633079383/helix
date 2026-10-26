@@ -82,6 +82,7 @@ pub struct Pending {
     request: Request,
     timer: TimerId,
     query_session_epoch: u64,
+    channel_lifecycle_epoch: u64,
     stage: Stage,
     meta: Option<Metadata>,
     direction: Direction,

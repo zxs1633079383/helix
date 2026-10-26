@@ -29,6 +29,11 @@ impl ImModule {
         }
         let timer = self.alloc_timer();
         let pending = Box::new(Pending {
+            channel_lifecycle_epoch: self
+                .state
+                .channels
+                .get(&request.channel)
+                .map_or(0, |channel| channel.lifecycle_epoch),
             request,
             timer,
             query_session_epoch: self.state.query_session_epoch,
@@ -207,11 +212,13 @@ impl ImModule {
         if p.query_session_epoch != self.state.query_session_epoch {
             return Err(error("SESSION_CHANGED"));
         }
+        // Terminal stops live sync; the server still authorizes history for closed groups.
         if self
             .state
             .channels
             .get(&p.request.channel)
-            .is_some_and(|channel| channel.is_terminal())
+            .map_or(0, |channel| channel.lifecycle_epoch)
+            != p.channel_lifecycle_epoch
         {
             return Err(error("ACCESS_REVOKED"));
         }
